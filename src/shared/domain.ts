@@ -8,6 +8,7 @@
  */
 import type { AttachedFile } from './attachedFiles'
 import type { ImageData, ImageRef } from './images'
+import type { CardGrantScope, SandboxAsk } from './sandbox'
 
 /** Epoch milliseconds (UTC). */
 export type EpochMs = number
@@ -796,8 +797,9 @@ export enum PermissionRequestState {
 }
 
 /**
- * One tool call of the agent's that waits on your OK in the ask mode (`PermissionMode.AskBeforeEdits`), shown as a
- * permission card in the chat. It stays open until you answer it or it's withdrawn.
+ * One tool call of the agent's that waits on your OK, shown as a permission card in the chat: a call in the ask mode
+ * (`PermissionMode.AskBeforeEdits`), or, in either mode, one that crosses the agent sandbox's bounds (`sandbox`). It
+ * stays open until you answer it or it's withdrawn.
  */
 export interface PermissionRequest {
   readonly id: string
@@ -828,6 +830,16 @@ export interface PermissionRequest {
   readonly denyNote: string | null
   /** The rule you allowed it with for the rest of the task (Allow for this task); null when you didn't. */
   readonly grantedRule: PermissionRule | null
+  /**
+   * What it asks of the agent sandbox (#450): a folder, a domain, or to run its command outside the sandbox. Null for a
+   * call that doesn't cross the sandbox's bounds (the ask mode's cards), and with the sandbox off.
+   */
+  readonly sandbox: SandboxAsk | null
+  /**
+   * Who you granted its folder or domain to (Allow for this task, Allow for this workspace); null when you didn't, and
+   * for every request that isn't for a folder or domain.
+   */
+  readonly grantedScope: CardGrantScope | null
   readonly createdAt: EpochMs
   /** When it was answered or withdrawn; null while it's open. */
   readonly closedAt: EpochMs | null
@@ -842,6 +854,11 @@ export enum PermissionDecisionKind {
    * `./permissions`): the tool, or a `Bash` command prefix.
    */
   AllowForTask = 'allow_for_task',
+  /**
+   * A sandbox request for a folder or domain only: grant it to every task in the task's workspace, and run the call.
+   * (On one, Allow for this task grants it to the task alone, and Allow once isn't offered.)
+   */
+  AllowForWorkspace = 'allow_for_workspace',
   /** Don't run it: the agent is told, with your note if you gave one, and carries on. */
   Deny = 'deny',
 }
@@ -854,13 +871,17 @@ export interface AllowForTaskDecision {
   readonly kind: PermissionDecisionKind.AllowForTask
 }
 
+export interface AllowForWorkspaceDecision {
+  readonly kind: PermissionDecisionKind.AllowForWorkspace
+}
+
 export interface DenyDecision {
   readonly kind: PermissionDecisionKind.Deny
   /** Goes back to the agent with the denial. */
   readonly note?: string
 }
 
-export type PermissionDecision = AllowOnceDecision | AllowForTaskDecision | DenyDecision
+export type PermissionDecision = AllowOnceDecision | AllowForTaskDecision | AllowForWorkspaceDecision | DenyDecision
 
 /**
  * A permission rule granted with Allow for this task: it lets the task's agent make the calls it covers without asking,

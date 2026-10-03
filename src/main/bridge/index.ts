@@ -281,7 +281,17 @@ export function registerBridge({
     mcpServers: (task) => {
       const settings = getSettings(db)
       return {
-        [GLADE_SERVER]: createGladeMcpServer({ db, emit, questions }, task.id, settings),
+        [GLADE_SERVER]: createGladeMcpServer(
+          // `request_access` asks through the runner, which knows the session's sandbox and applies the grant.
+          {
+            db,
+            emit,
+            questions,
+            requestAccess: (taskId, request, call) => runner.requestAccess(taskId, request, call),
+          },
+          task.id,
+          settings,
+        ),
         ...(settings.controlEnabled ? { [CONTROL_SERVER]: control.sdkServer(task.id) } : {}),
       }
     },

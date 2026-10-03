@@ -177,8 +177,28 @@ function inputKey(input: ToolInput, field: string | undefined, bounds: SandboxBo
 }
 
 /** Whether the path with this key is in one of the folders with these keys. */
-function inAny(key: string, folders: readonly string[]): boolean {
+export function inAny(key: string, folders: readonly string[]): boolean {
   return folders.some((folder) => keyInside(key, folder))
+}
+
+/** The path a file tool's call names, and what the tool does with it. */
+export interface FileToolPath {
+  /** The path, absolute: `~` is the home folder, and a relative path is from the workspace root. */
+  readonly path: string
+  /** What a grant for it would be: read-only for a tool that reads, read-write for one that writes. */
+  readonly access: FolderAccess
+}
+
+/** The path a file tool's call reads or writes; null for any other tool, and for a call that names none. */
+export function fileToolPath(call: SandboxedCall, bounds: Pick<SandboxBounds, 'root' | 'home'>): FileToolPath | null {
+  const reads = pathField(READ_PATHS, call.toolName)
+  const field = reads ?? pathField(WRITE_PATHS, call.toolName)
+  const value = field === undefined ? undefined : call.input[field]
+  if (typeof value !== 'string' || value.trim() === '') return null
+  return {
+    path: absolutePath(value, bounds.root, bounds.home),
+    access: reads === undefined ? FolderAccess.ReadWrite : FolderAccess.Read,
+  }
 }
 
 /**
@@ -193,7 +213,7 @@ export function isSandboxOverride(input: ToolInput): boolean {
 }
 
 /** The host a `WebFetch` call's URL names; null when it names none. */
-function fetchedHost(input: ToolInput): string | null {
+export function fetchedHost(input: ToolInput): string | null {
   const { url } = input
   if (typeof url !== 'string') return null
   const host = URL.parse(url)?.hostname ?? ''

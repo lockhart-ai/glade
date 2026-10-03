@@ -46,6 +46,19 @@ export const LINK_ARTIFACTS_LINE =
   'files.'
 
 /**
+ * What the prompt says of the agent sandbox, in a session that runs in one (#445, #450): what its commands can use,
+ * and that a command the sandbox blocks is answered with `request_access`, not by leaving the sandbox. A session
+ * resumed from before the sandbox was turned on keeps its old prompt (Claude Code applies the append at start only);
+ * the tool's own description says when to call it too.
+ */
+export const SANDBOX_LINE =
+  'Your commands run in a sandbox: they can read and write the workspace folder, and beyond it only the folders ' +
+  'and network domains the user has allowed. When a command fails with "Operation not permitted" on a path outside ' +
+  `the workspace, don't retry it outside the sandbox: call ${GladeTool.RequestAccess} with the absolute path, ` +
+  'whether you need to read or write it, and a short reason. It asks the user and waits; once it says the access is ' +
+  'allowed, run the command again.'
+
+/**
  * The instructions added to the prompt after sessions had started with it, oldest first. Claude Code keeps a session's
  * prompt when it resumes it, so a session that started before one was added is sent it once, ahead of its next message
  * (`./session-context`). Only ever append: a session's place in this list is saved as a count.
@@ -75,13 +88,16 @@ export function handoffSection(handoff: TaskHandoff): string {
 /**
  * The prompt for `task`'s session. With `upkeep` turned off in Settings, it leaves out asking for a title or a status,
  * as the session's Glade tools leave out the tools for them. With `control`, the session has the `glade-control`
- * tools, and the prompt says so in one line. With a `handoff`, the prompt ends with it (`handoffSection`).
+ * tools, and the prompt says so in one line. With a `handoff`, the prompt ends with it (`handoffSection`). In a
+ * `sandboxed` session it says what the sandbox is and to ask with `request_access` (`SANDBOX_LINE`); with the sandbox
+ * off it doesn't mention it.
  */
 export function systemPromptAppend(
   task: Task,
   upkeep: AgentUpkeep = ALL_UPKEEP,
   control = false,
   handoff: TaskHandoff | null = null,
+  sandboxed = false,
 ): string {
   const named = task.title !== ''
   const lines = [
@@ -124,6 +140,7 @@ export function systemPromptAppend(
     '',
     WATCHERS_LINE,
   )
+  if (sandboxed) lines.push('', SANDBOX_LINE)
   if (control) lines.push('', CONTROL_TOOLS_LINE)
   if (handoff !== null) lines.push('', handoffSection(handoff))
   return lines.join('\n')

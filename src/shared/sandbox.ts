@@ -121,3 +121,85 @@ export interface SandboxApplyResult {
   /** The tasks whose session was still applying it when the caller was answered, having waited on one task only. */
   readonly pending: readonly string[]
 }
+
+/** What a sandbox permission card asks for (#450): a folder, a domain, or to run one command outside the sandbox. */
+export enum SandboxAskKind {
+  Folder = 'folder',
+  Domain = 'domain',
+  Outside = 'outside',
+}
+
+/** The agent wants to read, or to write to, a folder outside its grants. */
+export interface SandboxFolderAsk {
+  readonly kind: SandboxAskKind.Folder
+  /** The folder a grant would name, as grants keep it: absolute, where it really is. */
+  readonly path: string
+  /** What a grant would give: a read asks for read-only, a write for read-write. */
+  readonly access: FolderAccess
+}
+
+/** The agent wants to reach a domain that isn't granted: a command's connection, or `WebFetch`. */
+export interface SandboxDomainAsk {
+  readonly kind: SandboxAskKind.Domain
+  /** The host, lower case. */
+  readonly domain: string
+  /** The command whose connection waits on the answer; null for `WebFetch`, and when Glade can't tell which it is. */
+  readonly command: string | null
+  /** What the agent said that command is for; null when it didn't, or there's no command. */
+  readonly commandDescription: string | null
+}
+
+/** The agent wants to run one command outside the sandbox: it can only be allowed once. */
+export interface SandboxOutsideAsk {
+  readonly kind: SandboxAskKind.Outside
+}
+
+/** What a sandbox permission request asks for. */
+export type SandboxAsk = SandboxFolderAsk | SandboxDomainAsk | SandboxOutsideAsk
+
+/** A request for something a grant can give: a folder or a domain. */
+export type SandboxGrantAsk = SandboxFolderAsk | SandboxDomainAsk
+
+/** The scopes a permission card can grant a folder or domain to: Glade-wide grants are made in Settings only. */
+export type CardGrantScope = SandboxGrantScope.Task | SandboxGrantScope.Workspace
+
+/** A macOS home folder, `/Users/<name>`, at the start of a path. */
+const HOME_PREFIX = /^\/Users\/[^/]+(?=\/|$)/
+
+/**
+ * Shortens a path under the user's home folder to start with `~`, as the designs show folders (`~/code/api`). The
+ * sandboxed renderer can't ask for the home folder, so this recognises the macOS `/Users/<name>` layout.
+ */
+export function shortenHomePath(path: string): string {
+  return path.replace(HOME_PREFIX, '~')
+}
+
+/** What a folder request does with its folder, as every permission line says it: "read" or "write to". */
+export function folderVerb(access: FolderAccess): string {
+  return access === FolderAccess.Read ? 'read' : 'write to'
+}
+
+/**
+ * What a sandbox request is about, in the words every permission line uses (`docs/design/README.md`, the shield):
+ * "read ~/code/acme-web", "write to ~/.cache/uv", "reach registry.npmjs.org" or "run outside the sandbox".
+ */
+export function sandboxAskPhrase(ask: SandboxAsk): string {
+  switch (ask.kind) {
+    case SandboxAskKind.Folder:
+      return `${folderVerb(ask.access)} ${shortenHomePath(ask.path)}`
+    case SandboxAskKind.Domain:
+      return `reach ${ask.domain}`
+    case SandboxAskKind.Outside:
+      return 'run outside the sandbox'
+  }
+}
+
+/** The grant Allow for this task or Allow for this workspace makes for a folder or domain request. */
+export function grantFor(ask: SandboxGrantAsk): Grant {
+  switch (ask.kind) {
+    case SandboxAskKind.Folder:
+      return { kind: SandboxGrantKind.Folder, path: ask.path, access: ask.access }
+    case SandboxAskKind.Domain:
+      return { kind: SandboxGrantKind.Domain, domain: ask.domain }
+  }
+}

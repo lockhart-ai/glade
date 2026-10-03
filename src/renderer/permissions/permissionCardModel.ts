@@ -2,7 +2,9 @@
  * What the permission card (`docs/design/html/23-permission-card.html`) works out from a permission request: what's
  * asked, the input shown for it (a command, a file's change or new content, or formatted JSON), trimmed to a readable
  * length with the rest behind "Show all", which subagent made the call, what Allow for this task would grant, and what a
- * closed card's one line says.
+ * closed card's one line says. For a request of the agent sandbox's (`PermissionRequest.sandbox`,
+ * `docs/design/html/42-sandbox-folder-card.html` to `44-sandbox-outside-card.html`): what its title says the agent
+ * wants, and what the card shows under it (the file or URL, the agent's reason, or the command).
  */
 import {
   PermissionRequestState,
@@ -12,8 +14,16 @@ import {
   type ToolEvent,
   type ToolInput,
 } from '../../shared/domain'
-import { taskPermissionRule } from '../../shared/permissions'
-import { toolDisplayName } from '../../shared/toolName'
+import { permissionSubject, taskPermissionRule } from '../../shared/permissions'
+import {
+  folderVerb,
+  SandboxAskKind,
+  sandboxAskPhrase,
+  SandboxGrantScope,
+  shortenHomePath,
+  type SandboxAsk,
+} from '../../shared/sandbox'
+import { REQUEST_ACCESS_TOOL, toolDisplayName } from '../../shared/toolName'
 import { subagentName } from '../subagents/subagentsModel'
 import { relativePath } from '../tool-log/toolLogModel'
 
@@ -247,8 +257,15 @@ export function subagentLabel(origin: SubagentOrigin): string {
   return origin.name === null ? 'subagent' : `subagent · ${origin.name}`
 }
 
-/** The call in a line, e.g. `Bash: npm test` or `Edit: src/date.ts` (relative to the workspace root). */
-export function callSummary(request: Pick<PermissionRequest, 'toolName' | 'input'>, rootPath?: string): string {
+/**
+ * The call in a line, e.g. `Bash: npm test` or `Edit: src/date.ts` (relative to the workspace root); a sandbox request
+ * by what it asked for, e.g. `read ~/code/acme-web`.
+ */
+export function callSummary(
+  request: Pick<PermissionRequest, 'toolName' | 'input'> & Partial<Pick<PermissionRequest, 'sandbox'>>,
+  rootPath?: string,
+): string {
+  if (request.sandbox != null) return sandboxAskPhrase(request.sandbox)
   const name = toolDisplayName(request.toolName)
   const body = permissionBody({ ...request, description: null }, rootPath)
   switch (body.kind) {
@@ -319,15 +336,19 @@ export function taskGrantWords(grant: TaskGrant): TaskGrantWords {
 }
 
 /**
- * What a closed card says happened: "allowed once", "allowed for this task", "denied", "denied: “the note”",
- * "withdrawn"; null while open.
+ * What a closed card says happened: "allowed once", "allowed for this task", "allowed for this workspace", "denied",
+ * "denied: “the note”", "withdrawn"; null while open.
  */
-export function closedOutcome(request: Pick<PermissionRequest, 'state' | 'denyNote' | 'grantedRule'>): string | null {
+export function closedOutcome(
+  request: Pick<PermissionRequest, 'state' | 'denyNote' | 'grantedRule'> &
+    Partial<Pick<PermissionRequest, 'grantedScope'>>,
+): string | null {
   switch (request.state) {
     case PermissionRequestState.Open:
       return null
     case PermissionRequestState.Allowed:
-      return request.grantedRule === null ? 'allowed once' : 'allowed for this task'
+      if (request.grantedScope === SandboxGrantScope.Workspace) return 'allowed for this workspace'
+      return request.grantedRule === null && request.grantedScope == null ? 'allowed once' : 'allowed for this task'
     case PermissionRequestState.Denied: {
       const note = nonBlank(request.denyNote)
       return note === null ? 'denied' : `denied: “${note}”`
@@ -335,4 +356,107 @@ export function closedOutcome(request: Pick<PermissionRequest, 'state' | 'denyNo
     case PermissionRequestState.Withdrawn:
       return 'withdrawn'
   }
+}
+
+/** What a sandbox card's title says: its words, and the folder or domain they name, which the card sets as code. */
+export interface SandboxTitle {
+  readonly text: string
+  /** The folder (shortened to `~` under the home folder) or the domain; null when the title names nothing. */
+  readonly subject: string | null
+}
+
+/** "The agent wants to read `~/code/acme-web`", "…write to…", "…reach `registry.npmjs.org`", or to leave the sandbox. */
+export function sandboxTitle(ask: SandboxAsk): SandboxTitle {
+  switch (ask.kind) {
+    case SandboxAskKind.Folder:
+      return { text: `The agent wants to ${folderVerb(ask.access)}`, subject: shortenHomePath(ask.path) }
+    case SandboxAskKind.Domain:
+      return { text: 'The agent wants to reach', subject: ask.domain }
+    case SandboxAskKind.Outside:
+      return { text: 'The agent wants to run a command outside the sandbox', subject: null }
+  }
+}
+
+/** What the run-outside-the-sandbox card says the answer means, above the command. */
+export const OUTSIDE_SANDBOX_NOTE = 'Outside the sandbox, it can use any folder and reach any domain you can.'
+
+/** What a sandbox card shows under its title. */
+export enum SandboxDetailKind {
+  /** What the tool acts on, in a line: `Read ~/code/acme-web/package.json`, `WebFetch https://…`. */
+  Target = 'target',
+  /** Why the agent asked, in its words: a `request_access` call's reason. */
+  Reason = 'reason',
+  /** The command: the one waiting on a connection, or the one that would run outside the sandbox. */
+  Command = 'command',
+  /** Nothing more than the title. */
+  None = 'none',
+}
+
+export type SandboxDetail =
+  | { readonly kind: SandboxDetailKind.Target; readonly tool: string; readonly target: string }
+  | { readonly kind: SandboxDetailKind.Reason; readonly reason: string }
+  | {
+      readonly kind: SandboxDetailKind.Command
+      readonly body: CommandBody
+      /** A line above the command, saying what allowing it means; null for a connection's command. */
+      readonly note: string | null
+    }
+  | { readonly kind: SandboxDetailKind.None }
+
+const NO_DETAIL: SandboxDetail = { kind: SandboxDetailKind.None }
+
+/** A command and what it's for, as the card's block shows them; nothing more for a blank command. */
+function commandDetail(command: string | undefined, description: string | null, note: string | null): SandboxDetail {
+  if (command === undefined || command.trim() === '') return NO_DETAIL
+  const body: CommandBody = {
+    kind: PermissionBodyKind.Command,
+    lines: textLines(command, InputLineKind.Plain),
+    description,
+  }
+  return { kind: SandboxDetailKind.Command, body, note }
+}
+
+/**
+ * What a sandbox card shows under its title: for a file tool, the tool and its file; for `WebFetch`, its URL; for a
+ * command's connection, the command and what it's for; for the agent's own `request_access`, its reason; and for a
+ * command asking to leave the sandbox, what that means, the command and what it's for.
+ */
+export function sandboxDetail(
+  request: Pick<PermissionRequest, 'toolName' | 'input' | 'description'>,
+  ask: SandboxAsk,
+): SandboxDetail {
+  const { toolName, input } = request
+  switch (ask.kind) {
+    case SandboxAskKind.Outside: {
+      const description = nonBlank(stringField(input, 'description')) ?? nonBlank(request.description)
+      return commandDetail(stringField(input, 'command'), description, OUTSIDE_SANDBOX_NOTE)
+    }
+    case SandboxAskKind.Domain: {
+      if (ask.command !== null) return commandDetail(ask.command, nonBlank(ask.commandDescription), null)
+      const url = nonBlank(stringField(input, 'url'))
+      return url === null ? NO_DETAIL : { kind: SandboxDetailKind.Target, tool: toolDisplayName(toolName), target: url }
+    }
+    case SandboxAskKind.Folder: {
+      if (toolName === REQUEST_ACCESS_TOOL) {
+        const reason = nonBlank(stringField(input, 'reason')) ?? nonBlank(request.description)
+        return reason === null ? NO_DETAIL : { kind: SandboxDetailKind.Reason, reason }
+      }
+      const path = permissionSubject(toolName, input)
+      if (path === null) return NO_DETAIL
+      return { kind: SandboxDetailKind.Target, tool: toolDisplayName(toolName), target: shortenHomePath(path) }
+    }
+  }
+}
+
+/** A stretch of a reason: plain words, or what the agent set in backticks, which the card sets as code. */
+export interface ReasonPart {
+  readonly text: string
+  readonly code: boolean
+}
+
+/** A reason split at its backticks: every other stretch is code. One with an unclosed backtick is all plain. */
+export function reasonParts(reason: string): ReasonPart[] {
+  const stretches = reason.split('`')
+  if (stretches.length % 2 === 0) return [{ text: reason, code: false }]
+  return stretches.map((text, index) => ({ text, code: index % 2 === 1 })).filter(({ text }) => text !== '')
 }

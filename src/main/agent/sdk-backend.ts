@@ -20,7 +20,7 @@ import type { Environment } from '../login-env'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
 import { permissionSuggestionSchema } from '../permissions/schema'
 import { AsyncQueue } from './async-queue'
-import { gladeOwnServers, GLADE_SERVER } from './glade-tools'
+import { ACCESS_TOOL_NAME, gladeOwnServers, GLADE_SERVER } from './glade-tools'
 import {
   PromptVerdict,
   ToolPermissionBehavior,
@@ -309,6 +309,8 @@ function isGladeServer(name: string): boolean {
 
 const preToolUseInput = z.looseObject({
   tool_name: z.string(),
+  tool_use_id: z.string().optional(),
+  tool_input: z.record(z.string(), z.unknown()).optional().catch(undefined),
   agent_id: z.string().optional(),
   mcp_server: z.looseObject({ name: z.string(), source: z.string() }).optional(),
 })
@@ -323,17 +325,37 @@ const preToolUseInput = z.looseObject({
  * and is asked before `canUseTool` would be, so denying here means no permission card and no question card ever
  * shows: the call fails outright, with a message the model can act on.
  *
+ * One tool is let through: `glade`'s `request_access` (#450, `docs/model-surface.md`). A subagent's commands are
+ * sandboxed as the agent's are, so it asks for a folder the same way, and its card names it. The hook tells
+ * `onAccessRequested` of every call to that tool, the main agent's too: which call it is and whose, which the tool's
+ * handler isn't told.
+ *
  * Trusts `mcp_server.source`, not the tool's name or its server's name: only `'sdk'` means an in-process server the
  * SDK host (Glade) registered, which nothing configured can impersonate; any other source is a server from
  * configuration, which could call itself `glade` too (`docs/sdk-notes.md` §9).
  */
-export function subagentGladeToolGuard(log: Logger = SILENT_LOGGER): HookCallback {
+export function subagentGladeToolGuard(
+  log: Logger = SILENT_LOGGER,
+  onAccessRequested?: SessionHooks['onAccessRequested'],
+): HookCallback {
   return (input) => {
     const parsed = preToolUseInput.safeParse(input)
     if (!parsed.success) return Promise.resolve({})
     const { agent_id: agentId, mcp_server: mcpServer, tool_name: toolName } = parsed.data
-    if (agentId === undefined || mcpServer === undefined) return Promise.resolve({})
+    if (mcpServer === undefined) return Promise.resolve({})
     if (mcpServer.source !== 'sdk' || !isGladeServer(mcpServer.name)) return Promise.resolve({})
+    if (mcpServer.name === GLADE_SERVER && toolName === ACCESS_TOOL_NAME) {
+      const { tool_use_id: toolUseId, tool_input: toolInput } = parsed.data
+      try {
+        if (toolUseId !== undefined) {
+          onAccessRequested?.({ toolUseId, agentId: agentId ?? null, input: toolInput ?? {} })
+        }
+      } catch (error) {
+        log.error('failed to note a request_access call', { error })
+      }
+      return Promise.resolve({})
+    }
+    if (agentId === undefined) return Promise.resolve({})
     log.info("refused a subagent's call to one of Glade's own tools", { toolName, server: mcpServer.name, agentId })
     return Promise.resolve({
       hookSpecificOutput: {
@@ -360,7 +382,9 @@ export function sdkHooks(
   log: Logger = SILENT_LOGGER,
   bashTimeoutMs: number = BASH_HOOK_TIMEOUT_MS,
 ): NonNullable<Options['hooks']> {
-  const preToolUse: NonNullable<Options['hooks']>['PreToolUse'] = [{ hooks: [subagentGladeToolGuard(log)] }]
+  const preToolUse: NonNullable<Options['hooks']>['PreToolUse'] = [
+    { hooks: [subagentGladeToolGuard(log, hooks?.onAccessRequested)] },
+  ]
   if (hooks === undefined) return { PreToolUse: preToolUse }
   const onPrompt: HookCallback = (input) => {
     const parsed = promptHookInput.safeParse(input)

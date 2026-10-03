@@ -1098,6 +1098,8 @@ export function samplePermissionRequest(id: string, taskId: string): PermissionR
     state: PermissionRequestState.Open,
     denyNote: null,
     grantedRule: null,
+    sandbox: null,
+    grantedScope: null,
     createdAt: 3_000,
     closedAt: null,
   }

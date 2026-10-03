@@ -615,6 +615,8 @@ describe('permission requests', () => {
     state: PermissionRequestState.Open,
     denyNote: null,
     grantedRule: null,
+    sandbox: null,
+    grantedScope: null,
     createdAt: 1_000,
     closedAt: null,
   }

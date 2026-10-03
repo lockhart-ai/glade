@@ -9,13 +9,15 @@
  *
  * `ask` blocks: its handler waits until you answer (`../questions/questions`), however long that takes. Claude Code
  * bounds every MCP tool call, about 28 hours by default, so the server raises its own bound as far as it goes
- * (`GLADE_TOOL_TIMEOUT_MS`, `docs/sdk-notes.md` §3).
+ * (`GLADE_TOOL_TIMEOUT_MS`, `docs/sdk-notes.md` §3). `request_access` blocks the same way, on its permission card
+ * (#450): the agent calls it when the sandbox blocked a command, and it's the one tool a subagent may call too.
  */
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import { ArtifactKind, type Artifact, type ArtifactRef, type Question } from '../../shared/domain'
 import type { Settings } from '../../shared/settings'
+import { REQUEST_ACCESS_TOOL } from '../../shared/toolName'
 import {
   addTaskArtifact,
   addTaskLinkArtifact,
@@ -26,7 +28,17 @@ import {
   type UpdatedArtifact,
 } from '../artifacts/artifacts'
 import { getTask } from '../db/repositories/tasks'
+import { TOOL_USE_ID_META } from './mcp-tool-caller'
+import { FileAccess } from './sandbox-requests'
 import { showTaskFile } from '../files/files'
+import {
+  ACCESS_PATH_NOT_ABSOLUTE,
+  AccessOutcomeKind,
+  accessReply,
+  isAccessPath,
+  type AccessOutcome,
+  type AccessRequest,
+} from '../permissions/sandbox-ask'
 import { toolResultFor, type QuestionBroker } from '../questions/questions'
 import { preambleSchema, questionsSchema } from '../questions/schema'
 import { updateTaskFromAgent, type TaskServiceContext } from '../tasks/service'
@@ -64,6 +76,9 @@ export function gladeOwnServers(servers: Readonly<Record<string, unknown>>): str
   return Object.keys(servers).filter((name) => name === GLADE_SERVER)
 }
 
+/** `request_access` as the SDK names it: the one Glade tool a subagent may call (#450). */
+export const ACCESS_TOOL_NAME = REQUEST_ACCESS_TOOL
+
 /** The tools' names, as Glade defines them. Draft names: not yet confirmed with Jared. */
 export enum GladeTool {
   SetTitle = 'set_title',
@@ -74,6 +89,7 @@ export enum GladeTool {
   AddArtifact = 'add_artifact',
   UpdateArtifact = 'update_artifact',
   RemoveArtifact = 'remove_artifact',
+  RequestAccess = 'request_access',
 }
 
 export interface SetTitleInput {
@@ -180,6 +196,12 @@ const removeArtifactInput = z.object({
   url: text('url').optional().describe("A link artifact's url, as it was added."),
 }) satisfies z.ZodType<RemoveArtifactInput>
 
+const requestAccessInput = z.object({
+  path: text('path').describe('The absolute path the command was blocked from: a file or a folder.'),
+  access: z.enum(FileAccess).describe('"read" to read it, or "write" to write to it (which lets you read it too).'),
+  reason: text('reason').describe('Why you need it, in one short sentence: the user reads it on the card.'),
+}) satisfies z.ZodType<AccessRequest>
+
 /** A tool's reply to the model: MCP's own result type. */
 export type GladeToolResult = CallToolResult
 
@@ -242,9 +264,24 @@ function failure(error: unknown): GladeToolResult {
 /** What `ask` tells the model when its questions were withdrawn: the turn was stopped, or failed, while it waited. */
 export const QUESTIONS_WITHDRAWN = 'The questions were withdrawn before the user answered them.'
 
-/** What the Glade tools need: the task service, and the questions `ask` waits on. */
+/** Which call of `request_access` a handler answers, as far as the MCP request says. */
+export interface AccessCall {
+  /** The call's `tool_use` id (Claude Code sends it with the request); null when it sent none. */
+  readonly toolUseId: string | null
+  /** The SDK cancelling the call. */
+  readonly signal?: AbortSignal | undefined
+}
+
+/** Asks you for the folder a task's `request_access` call names, and resolves with how that ended. */
+export type RequestAccess = (taskId: string, request: AccessRequest, call: AccessCall) => Promise<AccessOutcome>
+
+/**
+ * What the Glade tools need: the task service, the questions `ask` waits on, and, for `request_access`, whoever asks
+ * you for a folder (the agent runner). Without it the session has no `request_access` tool.
+ */
 export interface GladeToolContext extends TaskServiceContext {
   readonly questions: QuestionBroker
+  readonly requestAccess?: RequestAccess
 }
 
 /** The handlers for one task, given input the SDK has already checked. */
@@ -262,6 +299,11 @@ export interface GladeToolHandlers {
   updateArtifact(input: UpdateArtifactInput): Promise<GladeToolResult>
   /** Takes one of the task's artifacts off its list (the file stays); an error result when it isn't one. */
   removeArtifact(input: RemoveArtifactInput): GladeToolResult
+  /**
+   * Asks you for the folder of a path the sandbox blocked, and waits for your answer (`docs/model-surface.md`); an
+   * error result when the path isn't absolute, or the answer is no.
+   */
+  requestAccess(input: AccessRequest, call: AccessCall): Promise<GladeToolResult>
 }
 
 export function createGladeToolHandlers(context: GladeToolContext, taskId: string): GladeToolHandlers {
@@ -348,6 +390,18 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
         return failure(error)
       }
     },
+    async requestAccess(input, call) {
+      if (!isAccessPath(input.path)) return { ...reply(ACCESS_PATH_NOT_ABSOLUTE), isError: true }
+      try {
+        const ask = context.requestAccess
+        const outcome: AccessOutcome =
+          ask === undefined ? { kind: AccessOutcomeKind.SandboxOff } : await ask(taskId, input, call)
+        const { text: answer, isError } = accessReply(outcome, input)
+        return isError ? { ...reply(answer), isError } : reply(answer)
+      } catch (error) {
+        return failure(error)
+      }
+    },
   }
 }
 
@@ -386,6 +440,12 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
   [GladeTool.RemoveArtifact]:
     "Take a file (by its path) or a link (by its url) off the task's artifacts, e.g. one that's no longer a " +
     'deliverable. A file itself is left alone.',
+  [GladeTool.RequestAccess]:
+    'Ask the user to let you read or write a folder outside your workspace, and wait for their answer. Call it when ' +
+    'a command fails with "Operation not permitted" on a path outside the workspace (the sandbox blocked it), ' +
+    'instead of retrying the command outside the sandbox. Give the absolute path that was blocked, whether you need ' +
+    'to read or write it, and a short reason the user will read. It returns the decision: once it says the access ' +
+    "is allowed, run the command again; if it's denied, don't, and it returns the user's note if they left one.",
 }
 
 /** The signal an MCP tool call is cancelled by, from the handler's `extra` (MCP's `RequestHandlerExtra`). */
@@ -394,7 +454,17 @@ function signalOf(extra: unknown): AbortSignal | undefined {
   return signal instanceof AbortSignal ? signal : undefined
 }
 
-/** The Glade MCP server for one task's session, without the tools for any `upkeep` that's off. */
+/** The `tool_use` id Claude Code sends with an MCP tool call, in the request's `_meta`; null when it sent none. */
+function toolUseIdOf(extra: unknown): string | null {
+  const meta: unknown = typeof extra === 'object' && extra !== null ? Reflect.get(extra, '_meta') : undefined
+  const id: unknown = typeof meta === 'object' && meta !== null ? Reflect.get(meta, TOOL_USE_ID_META) : undefined
+  return typeof id === 'string' && id !== '' ? id : null
+}
+
+/**
+ * The Glade MCP server for one task's session, without the tools for any `upkeep` that's off, and with
+ * `request_access` when there's someone to ask (`GladeToolContext.requestAccess`).
+ */
 export function createGladeMcpServer(
   context: GladeToolContext,
   taskId: string,
@@ -439,6 +509,17 @@ export function createGladeMcpServer(
       tool(GladeTool.RemoveArtifact, DESCRIPTIONS[GladeTool.RemoveArtifact], removeArtifactInput.shape, (input) =>
         Promise.resolve(handlers.removeArtifact(input)),
       ),
+      ...(context.requestAccess === undefined
+        ? []
+        : [
+            tool(
+              GladeTool.RequestAccess,
+              DESCRIPTIONS[GladeTool.RequestAccess],
+              requestAccessInput.shape,
+              (input, extra) =>
+                handlers.requestAccess(input, { toolUseId: toolUseIdOf(extra), signal: signalOf(extra) }),
+            ),
+          ]),
     ],
   })
 }

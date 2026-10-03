@@ -187,6 +187,21 @@
  * then on, without asking, and the turn ends on the error, with its card; Retry restarts the session, so its sandbox
  * gets another go. With the sandbox off, sessions start and decide their calls as they always have.
  *
+ * **The sandbox's cards** (#450, `../permissions/sandbox-ask`). A call that crosses the bounds opens a request that
+ * says what it asks for (`PermissionRequest.sandbox`): a folder, for a file tool outside the grants; a domain, for
+ * `WebFetch` or a command's connection, whose request is put on the command running at the time, since the SDK doesn't
+ * say which made it; or to run a command outside the sandbox. A folder or domain is allowed for the task or for its
+ * workspace: the answer saves the grant (`../permissions/permissions`), and the call that waited applies it
+ * (`applySandboxGrants`, waiting on its own session only) before it goes on, so what it lets through, and the agent's
+ * retry, find it in force. Nothing goes back to the SDK with the answer but that the call may run: no rule, and
+ * nothing for a settings file. Running outside the sandbox is allowed once, and asks again every time. A call whose
+ * folder or host can't be granted, and a write the sandbox's own checks hold back, get the plain card, allowed once or
+ * denied. The agent asks for a folder itself with Glade's `request_access` tool (`requestAccess`), when the sandbox
+ * blocked a command: it opens the same folder card, and returns once you've answered and the grant is live. The
+ * tool's handler isn't told which call it answers or whose, so the session's `PreToolUse` hook says
+ * (`onAccessRequested`). A request the app quit on is answered as any other: the grant is saved with the answer, and
+ * the session Glade resumes to tell the agent starts with it.
+ *
  * **Resume on launch.** A turn the app quit or crashed in is left working in the database: a turn's user messages and
  * its working activity are saved together, so none is left unanswered. On launch, `resumeInterrupted` carries each
  * one on: it resumes the task's SDK session by its saved id (`docs/sdk-notes.md` §8), adds a resumed divider to the
@@ -251,7 +266,17 @@ import {
 } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
 import { permissionRuleString, taskPermissionRule } from '../../shared/permissions'
-import { grantCovers, type SandboxApplyResult, type SandboxGrantTarget } from '../../shared/sandbox'
+import {
+  folderVerb,
+  grantCovers,
+  SandboxAskKind,
+  SandboxGrantKind,
+  SandboxGrantScope,
+  type CardGrantScope,
+  type SandboxApplyResult,
+  type SandboxGrantAsk,
+  type SandboxGrantTarget,
+} from '../../shared/sandbox'
 import { agentText } from '../../shared/pastedContent'
 import { withAttachedFiles, type AttachedFile } from '../../shared/attachedFiles'
 import { attachedImagesOf } from '../attachments/attachments'
@@ -280,6 +305,7 @@ import {
   restartDeliveryOf,
   RestartDelivery,
   setRestartDelivery,
+  type NewPermissionRequest,
 } from '../db/repositories/permission-requests'
 import { getOpenQuestionSet, getQuestionSet, listOpenQuestionSets } from '../db/repositories/question-sets'
 import { listTaskPermissionRules } from '../db/repositories/task-permission-rules'
@@ -304,6 +330,7 @@ import {
   interruptRunningToolCall,
   interruptRunningToolCalls,
   listTasksWithRunningToolCalls,
+  listToolCallsNamed,
   listToolEvents,
   reopenSubagentCall,
   setSubagentProgress,
@@ -327,7 +354,17 @@ import {
   toolCallVerdict,
   type SandboxBounds,
 } from '../permissions/sandbox-classify'
-import { createPermissionBroker, type PermissionBroker } from '../permissions/permissions'
+import { cardGrantTarget, createPermissionBroker, type PermissionBroker } from '../permissions/permissions'
+import {
+  AccessOutcomeKind,
+  accessPlan,
+  AccessPlanKind,
+  sandboxAskFor,
+  type AccessOutcome,
+  type AccessRequest,
+  type RunningCommand,
+} from '../permissions/sandbox-ask'
+import { grantingScope } from '../sandbox/grants'
 import { createQuestionBroker, toolResultFor, type QuestionBroker } from '../questions/questions'
 import { addQueuedMessage } from '../tasks/queue'
 import { changesTodos, refreshTodos } from '../todos/todos'
@@ -336,6 +373,7 @@ import { reopenTask, updateTaskFromRunner, updateTaskFromUser, type TaskServiceC
 import {
   PromptVerdict,
   ToolPermissionBehavior,
+  type AccessCallStarting,
   type AgentBackend,
   type AgentMcpServers,
   type AgentSession,
@@ -348,12 +386,13 @@ import {
   type ToolPermissionCall,
 } from './backend'
 import { gatedSession } from './gated-session'
+import { SANDBOX_NETWORK_TOOL } from './sandbox-requests'
 import { NO_GRANTS, sandboxOverlay, sandboxStartSettings, usableGrants, type SandboxGrants } from './sandbox'
 import { CONTROL_SERVER } from '../control/names'
 import type { AccountSink } from '../account/account'
 import { autoCompactFrom, carriedOver, sameAutoCompact } from './compaction'
 import { classifyAgentError } from './error-classification'
-import { gladeOwnServers } from './glade-tools'
+import { ACCESS_TOOL_NAME, gladeOwnServers, type AccessCall } from './glade-tools'
 import {
   AgentEventKind,
   createSdkMessageParser,
@@ -483,6 +522,14 @@ export interface AgentRunner {
    * `invalid_transition` for one that isn't open any more.
    */
   answerPermission(id: string, decision: PermissionDecision): PermissionRequest
+  /**
+   * A task's agent, or one of its subagents, asks for the folder of a path the sandbox blocked (Glade's
+   * `request_access` tool, see the module comment). With nothing to decide, resolves at once: the session isn't
+   * sandboxed, the path is in the workspace root, already usable as asked, a credential path, or one no grant can
+   * name. Otherwise it opens the folder's card and resolves once you've answered and, allowed, the grant is in force in
+   * the session; or once the request is withdrawn (`call.signal`, Stop, the turn ending, the session closing).
+   */
+  requestAccess(taskId: string, request: AccessRequest, call: AccessCall): Promise<AccessOutcome>
   /**
    * Tells the task's live session, if it has one, the task's permission mode now: it applies from the agent's next tool
    * call, mid-turn too. A request already open stays open. Throws a `CommandFailure` `not_found` for no such task.
@@ -653,6 +700,11 @@ interface LiveSession {
   /** The permission requests the session's calls wait on, by id: whether each is a background subagent's. */
   readonly requests: Map<string, boolean>
   /**
+   * The `request_access` calls the session's hook has told of that their handler hasn't picked up yet, oldest first, up
+   * to `MAX_HANDED`: which call each is, and whose.
+   */
+  readonly accessCalls: AccessCallStarting[]
+  /**
    * The model the session last said it runs on (`system/init`), as the SDK names it there and in a turn's result, to
    * find its context window. Null until the first init.
    */
@@ -804,8 +856,23 @@ export const PERMISSIONS_DECIDED_AFTER_RESTART_END =
   'Make an allowed call again, with exactly the same input, and it will run without asking again. Do not make a ' +
   'denied call again. Carry on from there.'
 
+/** One decided request for a folder or domain, in that message: what was asked for, and what the user decided. */
+function grantDecidedAfterRestart(request: PermissionRequest, ask: SandboxGrantAsk): string {
+  const whose = request.agentId === null ? 'Your' : "Your subagent's"
+  const wanted = ask.kind === SandboxAskKind.Folder ? `${folderVerb(ask.access)} ${ask.path}` : `reach ${ask.domain}`
+  const asked = `- ${whose} request to ${wanted} (${request.toolName} call ${request.toolUseId})`
+  if (request.state === PermissionRequestState.Allowed) {
+    const scope = request.grantedScope === SandboxGrantScope.Workspace ? 'this workspace' : 'this task'
+    return `${asked}: allowed for ${scope}, and in force now. Run what needed it again.`
+  }
+  const note = request.denyNote ?? ''
+  return note === '' ? `${asked}: denied.` : `${asked}: denied. The user said: ${note}`
+}
+
 /** One decided request, in the message that hands the agent the decisions: the call, and what the user decided. */
 function decidedAfterRestart(request: PermissionRequest): string {
+  const ask = grantAskOf(request)
+  if (ask !== null) return grantDecidedAfterRestart(request, ask)
   const whose =
     request.agentId === null
       ? `Your ${request.toolName} call`
@@ -897,17 +964,48 @@ const SANDBOX_FAILED: ToolPermissionAnswer = {
   byUser: false,
 }
 
+/** A permission request once it has closed: your decision on it, or null when it was withdrawn. */
+interface DecidedRequest {
+  readonly request: PermissionRequest
+  readonly decision: PermissionDecision | null
+}
+
+/** The tools whose calls run a command in the sandbox: a connection's request belongs to one of them. */
+const COMMAND_TOOL_NAMES: readonly string[] = ['Bash', 'Monitor']
+
+/** What a request asks a grant for: its folder or domain; null for any other request. */
+function grantAskOf(request: Pick<PermissionRequest, 'sandbox'>): SandboxGrantAsk | null {
+  const { sandbox } = request
+  return sandbox === null || sandbox.kind === SandboxAskKind.Outside ? null : sandbox
+}
+
+/** Who a decision grants a request's folder or domain to; null when it grants none. */
+function grantedScope(decision: PermissionDecision, request: PermissionRequest): CardGrantScope | null {
+  if (grantAskOf(request) === null) return null
+  switch (decision.kind) {
+    case PermissionDecisionKind.AllowForTask:
+      return SandboxGrantScope.Task
+    case PermissionDecisionKind.AllowForWorkspace:
+      return SandboxGrantScope.Workspace
+    case PermissionDecisionKind.AllowOnce:
+    case PermissionDecisionKind.Deny:
+      return null
+  }
+}
+
 /**
  * The answer your decision on a permission request gives its call: Allow for this task with the rule it granted, which
- * the session then adds.
+ * the session then adds. A folder or domain's grant is in the session's settings by then (`applySandboxGrants`), so
+ * nothing goes with the answer: no rule, and nothing a settings file would keep.
  */
 function answerFor(decision: PermissionDecision, request: PermissionRequest): ToolPermissionAnswer {
   switch (decision.kind) {
     case PermissionDecisionKind.AllowOnce:
+    case PermissionDecisionKind.AllowForWorkspace:
       return { behavior: ToolPermissionBehavior.Allow, byUser: true }
     case PermissionDecisionKind.AllowForTask: {
-      // The broker only accepts Allow for this task on a request it grants a rule for.
-      const rule = taskPermissionRule(request)
+      // The broker only accepts Allow for this task on a request it grants a rule for, or a folder or domain.
+      const rule = request.sandbox === null ? taskPermissionRule(request) : null
       return { behavior: ToolPermissionBehavior.Allow, byUser: true, ...(rule === null ? {} : { rule }) }
     }
     case PermissionDecisionKind.Deny:
@@ -2138,16 +2236,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         ...(rule === null ? {} : { rule }),
       })
     }
-    // A background subagent's call belongs to the turn its `Agent` call was made in; any other, to the turn running.
-    const owner = live.backgroundCalls.get(toolUseId)
-    const turn =
-      (owner === undefined ? live.turn?.number : live.background.get(owner)) ?? Math.max(1, lastTurn(db, taskId))
-    const pending = permissions.request(
+    // A connection's request names no call: it goes with the command running now, on its row, as its subagent's.
+    const command = sandbox !== null && toolName === SANDBOX_NETWORK_TOOL ? runningCommand(taskId) : null
+    const { request, decision } = await requested(
+      taskId,
+      live,
       {
-        taskId,
-        turn,
-        toolUseId,
-        agentId,
+        toolUseId: command?.toolUseId ?? toolUseId,
+        agentId: agentId ?? command?.parentToolUseId ?? null,
         toolName,
         input: call.input,
         title: call.title,
@@ -2155,26 +2251,99 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         description: call.description,
         suggestions: call.suggestions,
         defaultToNo: call.defaultToNo,
-        // What crosses the sandbox's bounds can only be allowed once, until the sandbox's own cards grant folders and
-        // domains (P15-05): the rule Allow for this task would grant here is the whole tool, for every folder.
+        // Nothing that crosses the sandbox's bounds is ever remembered as a rule: the rule Allow for this task would
+        // grant is the whole tool, for every folder. A folder or domain is granted instead, by its own card.
         suppressAlwaysAllowRule: call.suppressAlwaysAllowRule || crossing !== SandboxCrossing.None,
+        sandbox: sandbox === null ? null : sandboxAskFor(call, crossing, sandbox.bounds, command),
       },
       call.signal,
     )
+    if (decision === null || !(await applyGrant(taskId, live, grantedScope(decision, request)))) return WITHDRAWN
+    carryOn(taskId, live)
+    return sessionAnswer(live, answerFor(decision, request))
+  }
+
+  /**
+   * Opens a permission request for a call of the session's and waits on it, however long it takes: your decision, or
+   * null once it's withdrawn.
+   */
+  const requested = async (
+    taskId: string,
+    live: LiveSession,
+    call: Omit<NewPermissionRequest, 'taskId' | 'turn'>,
+    signal: AbortSignal | undefined,
+  ): Promise<DecidedRequest> => {
+    const { toolUseId, toolName, agentId } = call
+    // A background subagent's call belongs to the turn its `Agent` call was made in; any other, to the turn running.
+    const owner = live.backgroundCalls.get(toolUseId)
+    const turn =
+      (owner === undefined ? live.turn?.number : live.background.get(owner)) ?? Math.max(1, lastTurn(db, taskId))
+    const pending = permissions.request({ ...call, taskId, turn }, signal)
     const requestId = pending.request.id
-    taskLog(taskId).info('permission requested', { requestId, toolName, toolUseId, agentId, turn })
+    const asks = call.sandbox?.kind ?? null
+    taskLog(taskId).info('permission requested', { requestId, toolName, toolUseId, agentId, turn, asks })
     live.requests.set(requestId, owner !== undefined)
     const decision = await pending.decision
     live.requests.delete(requestId)
-    if (decision === null) {
-      taskLog(taskId).info('permission withdrawn', { requestId, toolUseId })
-      return WITHDRAWN
-    }
-    taskLog(taskId).info('permission answered', { requestId, toolUseId, decision: decision.kind })
-    // The turn carries on, unless it's over or stopping, or something else still waits on you.
+    if (decision === null) taskLog(taskId).info('permission withdrawn', { requestId, toolUseId })
+    else taskLog(taskId).info('permission answered', { requestId, toolUseId, decision: decision.kind })
+    return { request: pending.request, decision }
+  }
+
+  /** The turn carries on after an answer, unless it's over or stopping, or something else still waits on you. */
+  const carryOn = (taskId: string, live: LiveSession): void => {
     const running = live.turn !== null && !live.turn.stopping && !live.closed
     if (running && !waitsOnYou(taskId)) setActivity(taskId, TaskActivity.Working)
-    return sessionAnswer(live, answerFor(decision, pending.request))
+  }
+
+  /**
+   * Applies the grant an answer made, saved with it, to the running sessions it covers, and resolves once the asking
+   * task's session has it (the others apply in the background): the call it lets through, and the agent's retry, then
+   * find it in force. Resolves false when that session wouldn't take it, and was closed. With no grant, true at once.
+   */
+  const applyGrant = async (taskId: string, live: LiveSession, scope: CardGrantScope | null): Promise<boolean> => {
+    const task = getTask(db, taskId)
+    if (scope === null || task === undefined) return true
+    await runner.applySandboxGrants(cardGrantTarget(scope, task), { awaitTaskId: taskId })
+    return !live.closed
+  }
+
+  /**
+   * The command running in a task now, the latest started when several are: the one a connection's request is put on,
+   * since the SDK doesn't say which command made it (`docs/sdk-notes.md` §15). Null when none is running.
+   */
+  const runningCommand = (taskId: string): RunningCommand | null => {
+    const call = listToolCallsNamed(db, taskId, COMMAND_TOOL_NAMES).findLast(
+      ({ state }) => state === ToolCallState.Running,
+    )
+    const command = call?.input.command
+    if (call === undefined || typeof command !== 'string') return null
+    const { description } = call.input
+    return {
+      toolUseId: call.toolUseId,
+      command,
+      description: typeof description === 'string' ? description : null,
+      parentToolUseId: call.parentToolUseId,
+    }
+  }
+
+  /**
+   * Which `request_access` call a handler answers, and whose: the one the session's hook told of (`onAccessRequested`)
+   * under the id Claude Code sent with the request, or, when it sent none, the oldest one for the same path and access
+   * that no handler has picked up. A call the hook never told of is taken for the agent's own, under an id of its own.
+   */
+  const accessCaller = (
+    live: LiveSession,
+    request: AccessRequest,
+    toolUseId: string | null,
+  ): Pick<AccessCallStarting, 'toolUseId' | 'agentId'> => {
+    const index = live.accessCalls.findIndex(({ toolUseId: id, input }) =>
+      toolUseId === null
+        ? typeof input.path === 'string' && input.path.trim() === request.path && input.access === request.access
+        : id === toolUseId,
+    )
+    const [started] = index < 0 ? [] : live.accessCalls.splice(index, 1)
+    return started ?? { toolUseId: toolUseId ?? `request_access-${randomUUID()}`, agentId: null }
   }
 
   /**
@@ -2246,6 +2415,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     let jobsListed: (jobs: readonly SessionJob[]) => void = () => undefined
     let compacted: (compaction: CompactSummary) => void = () => undefined
     let bashFinished: (call: BashCallFinished) => Promise<BashFinishedAnswer> = () => Promise.resolve(NOTHING_TO_ADD)
+    let accessRequested: (call: AccessCallStarting) => void = () => undefined
     // Settled once a sandboxed session has its overlay, or wouldn't take it.
     let overlaid: (taken: boolean) => void = () => undefined
     const overlay = new Promise<boolean>((resolve) => {
@@ -2257,7 +2427,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       effort: task.effort,
       permissionMode: task.permissionMode,
       resumeSessionId: task.sessionId,
-      systemPromptAppend: systemPromptAppend(task, settings, control, handoff),
+      systemPromptAppend: systemPromptAppend(task, settings, control, handoff, sandboxed),
       mcpServers: servers,
       env: sessionEnv(task),
       allowedRules,
@@ -2276,6 +2446,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         // A sandboxed session's commands tell the runner how they went before the agent reads their results, so a
         // sandbox that couldn't start is known before the agent can ask to run outside it.
         ...(sandboxed ? { onBashFinished: (call: BashCallFinished) => bashFinished(call) } : {}),
+        // And each `request_access` call says which it is, and whose, for the card it may open.
+        ...(sandboxed ? { onAccessRequested: (call: AccessCallStarting) => accessRequested(call) } : {}),
       },
     })
     // A sandboxed session's messages and settings wait on its overlay: whether its commands ask is in the overlay
@@ -2296,6 +2468,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       gladeServers: gladeOwnServers(servers),
       control,
       requests: new Map(),
+      accessCalls: [],
       sdkModel: null,
       modelChanged: false,
       limit: null,
@@ -2322,6 +2495,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     bashFinished = (call) => {
       onBashFinished(task.id, live, call)
       return Promise.resolve(NOTHING_TO_ADD)
+    }
+    accessRequested = (call) => {
+      live.accessCalls.push(call)
+      live.accessCalls.splice(0, Math.max(0, live.accessCalls.length - MAX_HANDED))
     }
     sessions.set(task.id, live)
     // The session's messages wait on its overlay, and are never sent if it won't take it.
@@ -2567,7 +2744,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         recorded: getSessionContext(db, taskId),
         startedElsewhere: task.importedAt !== null,
         handoff,
-        prompt: systemPromptAppend(task, getSettings(db), live.control, handoff),
+        prompt: systemPromptAppend(task, getSettings(db), live.control, handoff, live.sandbox !== null),
       }
       const missing = messages.length === 0 ? [] : missingContext(check)
       if (missing.length > 0) setSessionContext(db, taskId, contextAfter(check, missing))
@@ -2644,7 +2821,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const turn = Math.max(1, lastTurn(db, taskId))
     taskLog(taskId).info('permission decisions sent after a restart', { requests: pending.length, turn })
     const live = sessions.get(taskId) ?? start(task)
-    const allowed = (request: PermissionRequest): boolean => request.state === PermissionRequestState.Allowed
+    // An allowed call may be made again, once; a folder or domain needs no such pass, since its grant is in force.
+    const allowed = (request: PermissionRequest): boolean =>
+      request.state === PermissionRequestState.Allowed && request.grantedScope === null
     setRestartDelivery(
       db,
       pending.filter(allowed).map(({ id }) => id),
@@ -2806,8 +2985,65 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working; answer once it has finished')
       }
       const answered = permissions.answer(id, decision)
+      // No call waits on it to apply what it granted: the other running sessions the grant covers get it now, and the
+      // session resumed to tell the agent starts with it.
+      const task = getTask(db, request.taskId)
+      if (answered.grantedScope !== null && task !== undefined) {
+        void runner.applySandboxGrants(cardGrantTarget(answered.grantedScope, task))
+      }
       deliverAfterRestart(request.taskId)
       return answered
+    },
+
+    async requestAccess(taskId, request, call) {
+      const live = sessions.get(taskId)
+      const task = getTask(db, taskId)
+      if (task === undefined || live === undefined || live.closed) return { kind: AccessOutcomeKind.Withdrawn }
+      const { sandbox } = live
+      if (sandbox === null) return { kind: AccessOutcomeKind.SandboxOff }
+      const caller = accessCaller(live, request, call.toolUseId)
+      const plan = accessPlan(request, sandbox.bounds)
+      taskLog(taskId).info('access requested', { ...caller, access: request.access, plan: plan.kind })
+      switch (plan.kind) {
+        case AccessPlanKind.InWorkspace:
+          return { kind: AccessOutcomeKind.InWorkspace }
+        case AccessPlanKind.Credential:
+          return { kind: AccessOutcomeKind.Credential }
+        case AccessPlanKind.NotGrantable:
+          return { kind: AccessOutcomeKind.NotGrantable, problem: plan.problem }
+        case AccessPlanKind.AlreadyAllowed: {
+          const { path, access } = plan
+          const scope = grantingScope(db, task, { kind: SandboxGrantKind.Folder, path, access })
+          return { kind: AccessOutcomeKind.AlreadyAllowed, scope }
+        }
+        case AccessPlanKind.Ask:
+          break
+      }
+      const { ask } = plan
+      const { request: opened, decision } = await requested(
+        taskId,
+        live,
+        {
+          ...caller,
+          toolName: ACCESS_TOOL_NAME,
+          input: { path: request.path, access: request.access, reason: request.reason },
+          title: null,
+          displayName: null,
+          description: request.reason,
+          suggestions: [],
+          defaultToNo: false,
+          suppressAlwaysAllowRule: true,
+          sandbox: ask,
+        },
+        call.signal,
+      )
+      if (decision === null) return { kind: AccessOutcomeKind.Withdrawn }
+      const scope = grantedScope(decision, opened)
+      if (!(await applyGrant(taskId, live, scope))) return { kind: AccessOutcomeKind.Withdrawn }
+      carryOn(taskId, live)
+      if (scope !== null) return { kind: AccessOutcomeKind.Allowed, folder: ask.path, access: ask.access, scope }
+      const note = decision.kind === PermissionDecisionKind.Deny ? (decision.note?.trim() ?? '') : ''
+      return { kind: AccessOutcomeKind.Denied, note: note === '' ? null : note }
     },
 
     applyPermissionMode(taskId) {

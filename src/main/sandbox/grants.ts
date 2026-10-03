@@ -27,6 +27,7 @@
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode } from '../../shared/bridge'
 import {
+  coversAccess,
   FolderAccess,
   SandboxGrantKind,
   SandboxGrantScope,
@@ -56,7 +57,8 @@ import {
 } from '../db/repositories/sandbox-grants'
 import { getTask } from '../db/repositories/tasks'
 import { getWorkspace } from '../db/repositories/workspaces'
-import { canonicalKey, canonicalPath, pathKey } from '../permissions/canonical-path'
+import { hostMatches } from '../agent/sandbox-requests'
+import { canonicalKey, canonicalPath, keyInside, pathKey } from '../permissions/canonical-path'
 
 /** What changing grants needs: the database, and the runner whose sessions get the change. */
 export interface SandboxGrantsContext {
@@ -226,22 +228,56 @@ function grantToSave(db: Database, target: SandboxGrantTarget, grant: Grant): Gr
 }
 
 /**
- * Grants a folder or domain to a scope (`addSandboxGrant`: no duplicates, and a read-only folder granted read-write is
- * upgraded), then applies the scope's grants to the running sessions they cover: always, even when the scope already
- * had the grant. Resolves with what changed and which sessions have it, once they've answered (or, given
- * `awaitTaskId`, once that task's has).
+ * Saves a grant of a folder or domain to a scope (`addSandboxGrant`: no duplicates, and a read-only folder granted
+ * read-write is upgraded), without applying it to any session: for a permission card's answer, which saves the grant
+ * with the answer and has the runner apply it (`../permissions/permissions`). Answers with what changed.
+ *
+ * @throws CommandFailure `not_found` for no such task or workspace, `invalid_request` for a folder or domain the
+ * sandbox can't take.
+ */
+export function saveSandboxGrant(db: Database, { target, grant }: NewSandboxGrant): SandboxGrantChange {
+  requireTarget(db, target)
+  return addSandboxGrant(db, { target, grant: grantToSave(db, target, grant) })
+}
+
+/**
+ * Grants a folder or domain to a scope (`saveSandboxGrant`), then applies the scope's grants to the running sessions
+ * they cover: always, even when the scope already had the grant. Resolves with what changed and which sessions have
+ * it, once they've answered (or, given `awaitTaskId`, once that task's has).
  *
  * @throws CommandFailure `not_found` for no such task or workspace, `invalid_request` for a folder or domain the
  * sandbox can't take.
  */
 export async function grantSandboxAccess(
   { db, runner }: SandboxGrantsContext,
-  { target, grant }: NewSandboxGrant,
+  grant: NewSandboxGrant,
   options?: SandboxApplyOptions,
 ): Promise<SandboxGrantOutcome> {
-  requireTarget(db, target)
-  const change = addSandboxGrant(db, { target, grant: grantToSave(db, target, grant) })
-  return { change, sessions: await runner.applySandboxGrants(target, options) }
+  const change = saveSandboxGrant(db, grant)
+  return { change, sessions: await runner.applySandboxGrants(grant.target, options) }
+}
+
+/** The scope whose grant gives a task a folder with at least an access, or a domain: the narrowest that does. */
+export function grantingScope(db: Database, task: GrantedTask, grant: Grant): SandboxGrantScope | null {
+  const targets: readonly SandboxGrantTarget[] = [
+    { scope: SandboxGrantScope.Task, taskId: task.id },
+    { scope: SandboxGrantScope.Workspace, workspaceId: task.workspaceId },
+    { scope: SandboxGrantScope.Glade },
+  ]
+  const gives = (held: Grant): boolean => {
+    switch (grant.kind) {
+      case SandboxGrantKind.Folder:
+        return (
+          held.kind === SandboxGrantKind.Folder &&
+          coversAccess(held.access, grant.access) &&
+          keyInside(folderKey(grant.path), folderKey(held.path))
+        )
+      case SandboxGrantKind.Domain:
+        return held.kind === SandboxGrantKind.Domain && hostMatches(grant.domain, held.domain)
+    }
+  }
+  const found = targets.find((target) => listSandboxGrants(db, target).some(({ grant: held }) => gives(held)))
+  return found?.scope ?? null
 }
 
 /**

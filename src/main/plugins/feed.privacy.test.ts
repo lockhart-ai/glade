@@ -247,6 +247,8 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
     state: PermissionRequestState.Open,
     denyNote: null,
     grantedRule: null,
+    sandbox: null,
+    grantedScope: null,
     createdAt: 4_000,
     closedAt: null,
   }
