@@ -104,3 +104,16 @@ export function grantCovers(target: SandboxGrantTarget, task: GrantedTask): bool
       return target.taskId === task.id
   }
 }
+
+/**
+ * What applying a change to the grants did to the running sessions it covers, by task id. A task with no running
+ * session is in none of the lists: it gets its grants when its session starts.
+ */
+export interface SandboxApplyResult {
+  /** The tasks whose session has the change. */
+  readonly applied: readonly string[]
+  /** The tasks whose session refused it: the session runs on with the grants it had before. */
+  readonly refused: readonly string[]
+  /** The tasks whose session was still applying it when the caller was answered (it waited on one task only). */
+  readonly pending: readonly string[]
+}

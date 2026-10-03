@@ -238,7 +238,7 @@ import {
 } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
 import { permissionRuleString, taskPermissionRule } from '../../shared/permissions'
-import { grantCovers, type SandboxGrantTarget } from '../../shared/sandbox'
+import { grantCovers, type SandboxApplyResult, type SandboxGrantTarget } from '../../shared/sandbox'
 import type { SandboxOverlayBuilder } from '../sandbox/grants'
 import { agentText } from '../../shared/pastedContent'
 import { withAttachedFiles, type AttachedFile } from '../../shared/attachedFiles'
@@ -428,6 +428,12 @@ interface UserMessage {
   readonly files: readonly AttachedFile[]
 }
 
+/** How `AgentRunner.applySandboxGrants` waits on the sessions it applies to. */
+export interface SandboxApplyOptions {
+  /** The one task whose session to wait on: the one that asked for the grant. Every covered session by default. */
+  readonly awaitTaskId?: string
+}
+
 export interface AgentRunner {
   /**
    * Saves the user's message and starts a turn with it. A done task is reopened first (see the module comment). Throws
@@ -462,10 +468,12 @@ export interface AgentRunner {
   /**
    * Applies the sandbox grants to the running sessions a change to `target`'s grants covers (one task, a workspace's
    * tasks, or every task): each gets its task's whole overlay rebuilt from the database, with `applyFlagSettings`,
-   * without restarting. Resolves once every one has it; a session that refuses it is logged, and gets its grants on
-   * its next start. Tasks with no running session get theirs when it starts.
+   * without restarting. Resolves with which sessions have it and which refused it (logged too: a session that
+   * refused runs on with the grants it had), once every one has answered; or, given `awaitTaskId`, once that task's
+   * session has, the others applying in the background (`pending`), so one stuck session can't hold up the answer to
+   * the session that asked. Tasks with no running session get their grants when it starts.
    */
-  applySandboxGrants(target: SandboxGrantTarget): Promise<void>
+  applySandboxGrants(target: SandboxGrantTarget, options?: SandboxApplyOptions): Promise<SandboxApplyResult>
   /**
    * Adds the user's message to the task's queue, for the agent to get after its current step (see the module comment).
    * When no turn is running, the queue is delivered at once, starting one, unless the task is paused: then it waits for
@@ -580,6 +588,12 @@ enum SandboxApplyReason {
   SessionStarted = 'session started',
   GrantsChanged = 'grants changed',
   PermissionModeChanged = 'permission mode changed',
+}
+
+/** Whether one task's session took the sandbox overlay it was sent. */
+interface SandboxApplied {
+  readonly taskId: string
+  readonly applied: boolean
 }
 
 interface LiveSession {
@@ -904,31 +918,37 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     sandboxOverlay({ root, permissionMode: task.permissionMode, grants: listGrantsCovering(db, task) })
 
   /**
-   * Applies a task's sandbox overlay to its session, in order with what was asked of the session before it. A session
-   * that refuses it is logged, not thrown: the grants stay saved, and its next start applies them.
+   * Applies a task's sandbox overlay to its session, in order with what was asked of the session before it, and
+   * answers whether the session took it. One that refuses it is logged, not thrown: the grants stay saved, and the
+   * next overlay applied (or its next start) carries them.
    */
   const applySandbox = (
     taskId: string,
     session: AgentSession,
     overlay: SandboxFlagSettings,
     reason: SandboxApplyReason,
-  ): Promise<void> =>
+  ): Promise<boolean> =>
     session.applyFlagSettings(overlay).then(
       () => {
         agentLog(taskId).info('sandbox grants applied', { reason })
+        return true
       },
       (error: unknown) => {
         agentLog(taskId).warn("couldn't apply the sandbox grants: the session's next start applies them", {
           reason,
           error: describeError(error),
         })
+        return false
       },
     )
 
-  /** Rebuilds a running task's sandbox overlay and applies it; resolves at once while the sandbox is off. */
-  const reapplySandbox = (task: Task, live: LiveSession, reason: SandboxApplyReason): Promise<void> => {
+  /**
+   * Rebuilds a running task's sandbox overlay and applies it, answering whether the session took it; null, with
+   * nothing applied, while the sandbox is off.
+   */
+  const reapplySandbox = (task: Task, live: LiveSession, reason: SandboxApplyReason): Promise<boolean> | null => {
     const overlay = overlayFor(task, live.root)
-    return overlay === null ? Promise.resolve() : applySandbox(task.id, live.session, overlay, reason)
+    return overlay === null ? null : applySandbox(task.id, live.session, overlay, reason)
   }
 
   const setActivity = (taskId: string, activity: TaskActivity): void => {
@@ -2566,15 +2586,24 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       void reapplySandbox(task, live, SandboxApplyReason.PermissionModeChanged)
     },
 
-    async applySandboxGrants(target) {
-      const applying: Promise<void>[] = []
+    async applySandboxGrants(target, { awaitTaskId } = {}) {
+      const awaited: Promise<SandboxApplied>[] = []
+      const pending: string[] = []
       for (const [taskId, live] of sessions) {
         const task = getTask(db, taskId)
-        if (task !== undefined && !live.closed && grantCovers(target, task)) {
-          applying.push(reapplySandbox(task, live, SandboxApplyReason.GrantsChanged))
-        }
+        if (task === undefined || live.closed || !grantCovers(target, task)) continue
+        const applying = reapplySandbox(task, live, SandboxApplyReason.GrantsChanged)
+        if (applying === null) continue
+        // A session nobody waits on applies in the background: it never rejects, and its refusal is logged.
+        if (awaitTaskId !== undefined && awaitTaskId !== taskId) pending.push(taskId)
+        else awaited.push(applying.then((applied) => ({ taskId, applied })))
       }
-      await Promise.all(applying)
+      const answered = await Promise.all(awaited)
+      return {
+        applied: answered.filter(({ applied }) => applied).map(({ taskId }) => taskId),
+        refused: answered.filter(({ applied }) => !applied).map(({ taskId }) => taskId),
+        pending,
+      }
     },
 
     queue(taskId, text, images = [], pastedBlocks = [], files = []) {

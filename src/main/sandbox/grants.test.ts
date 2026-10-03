@@ -1,6 +1,15 @@
 // Sandbox grants (P15-04, #449): kept per task, per workspace and Glade-wide, applied to a session with
 // `applyFlagSettings` straight after it starts or resumes, and to the running sessions they cover whenever they change.
 // The agent is the fake backend, and the overlay P15-03's builder's stand-in (`./test-overlay`).
+//
+// What these prove is which grants reach which session, when, and in what order: an `overlay([...])` a session was sent
+// says the runner handed the builder exactly those grants, that root and that mode. The assertions that look inside an
+// overlay (`allowRead`, `allowWrite`, the `Read(//…)` and `WebFetch(domain:…)` rules, `additionalDirectories`,
+// `autoAllowBashIfSandboxed`, the fixed parts with nothing granted) only show the stand-in's shape until they're
+// pointed at P15-03's real builder (#448).
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BridgeErrorCode } from '../../shared/bridge'
 import { Effort, PermissionMode, TaskActivity, type Task, type Workspace } from '../../shared/domain'
@@ -41,6 +50,9 @@ const domain = (host: string): Grant => ({ kind: SandboxGrantKind.Domain, domain
 const folderKey = (path: string) => ({ kind: SandboxGrantKind.Folder, path }) as const
 
 const GLADE: SandboxGrantTarget = { scope: SandboxGrantScope.Glade }
+
+/** Whether the temp folder's disk takes a name in any case, as APFS does by default: Linux runners' don't. */
+const CASE_INSENSITIVE_DISK = existsSync(tmpdir().toUpperCase())
 const ROOT = '/code/acme-api'
 const OTHER_ROOT = '/code/acme-web'
 
@@ -268,7 +280,10 @@ describe('a grant changing while sessions run', () => {
       grant: readWrite('/Users/sam/shared'),
     })
 
-    expect(change).toBe(SandboxGrantChange.Added)
+    expect(change).toEqual({
+      change: SandboxGrantChange.Added,
+      sessions: { applied: [task.id, sibling.id], refused: [], pending: [] },
+    })
     expect(first.flagSettings).toEqual([overlay([]), overlay([readWrite('/Users/sam/shared')])])
     expect(second.flagSettings).toEqual([overlay([]), overlay([readWrite('/Users/sam/shared')])])
     expect(third.flagSettings).toEqual([overlay([], OTHER_ROOT)])
@@ -313,19 +328,133 @@ describe('a grant changing while sessions run', () => {
     expect(session.flagSettings).toEqual([overlay([readWrite('/Users/sam/notes')])])
   })
 
-  it('applies nothing for a duplicate grant, or a read-only grant of a read-write folder', async () => {
+  it('saves a duplicate grant once, and applies the grants again all the same', async () => {
     const session = await startTask()
     await grantSandboxAccess(grants, { target: taskTarget(), grant: readWrite('/Users/sam/notes') })
-    const applied = session.flagSettings.length
 
-    expect(await grantSandboxAccess(grants, { target: taskTarget(), grant: readWrite('/Users/sam/notes') })).toBe(
-      SandboxGrantChange.Unchanged,
+    const again = await grantSandboxAccess(grants, { target: taskTarget(), grant: readWrite('/Users/sam/notes') })
+    const narrower = await grantSandboxAccess(grants, { target: taskTarget(), grant: read('/Users/sam/notes') })
+
+    const sessions = { applied: [task.id], refused: [], pending: [] }
+    expect(again).toEqual({ change: SandboxGrantChange.Unchanged, sessions })
+    expect(narrower).toEqual({ change: SandboxGrantChange.Unchanged, sessions })
+    expect(listSandboxGrants(database.db, taskTarget())).toHaveLength(1)
+    const withNotes = overlay([readWrite('/Users/sam/notes')])
+    expect(session.flagSettings).toEqual([overlay([]), withNotes, withNotes, withNotes])
+  })
+
+  it('tells the caller a session refused a grant, and granting it again repairs the session', async () => {
+    const session = await startTask()
+    session.onApplyFlagSettings = () => Promise.reject(new Error('settings refused'))
+
+    const refused = await grantSandboxAccess(grants, { target: taskTarget(), grant: read('/Users/sam/notes') })
+
+    expect(refused).toEqual({
+      change: SandboxGrantChange.Added,
+      sessions: { applied: [], refused: [task.id], pending: [] },
+    })
+
+    // The card comes up again, and you allow it again: the grant is already saved, and this time it reaches the session.
+    session.onApplyFlagSettings = () => Promise.resolve()
+    const repaired = await grantSandboxAccess(grants, { target: taskTarget(), grant: read('/Users/sam/notes') })
+
+    expect(repaired).toEqual({
+      change: SandboxGrantChange.Unchanged,
+      sessions: { applied: [task.id], refused: [], pending: [] },
+    })
+    expect(session.flagSettings).toHaveLength(3)
+    expect(session.flagSettings.at(-1)).toEqual(overlay([read('/Users/sam/notes')]))
+  })
+
+  it('tells the caller a session kept a folder it refused to give up, and revoking again repairs it', async () => {
+    addSandboxGrant(database.db, { target: workspaceTarget(), grant: readWrite('/Users/sam/shared') })
+    const sibling = anotherTask()
+    const first = await startTask(task.id)
+    const second = await startTask(sibling.id)
+    second.onApplyFlagSettings = () => Promise.reject(new Error('settings refused'))
+
+    const revoked = await revokeSandboxGrant(grants, workspaceTarget(), folderKey('/Users/sam/shared'))
+
+    expect(revoked).toEqual({ removed: true, sessions: { applied: [task.id], refused: [sibling.id], pending: [] } })
+    expect(listSandboxGrants(database.db, workspaceTarget())).toEqual([])
+
+    second.onApplyFlagSettings = () => Promise.resolve()
+    const again = await revokeSandboxGrant(grants, workspaceTarget(), folderKey('/Users/sam/shared'))
+
+    expect(again).toEqual({ removed: false, sessions: { applied: [task.id, sibling.id], refused: [], pending: [] } })
+    expect(first.flagSettings.at(-1)).toEqual(overlay([]))
+    expect(second.flagSettings.at(-1)).toEqual(overlay([]))
+  })
+
+  it('tells the caller a session refused a downgrade', async () => {
+    addSandboxGrant(database.db, { target: taskTarget(), grant: readWrite('/Users/sam/notes') })
+    const session = await startTask()
+    session.onApplyFlagSettings = () => Promise.reject(new Error('settings refused'))
+
+    const outcome = await changeSandboxFolderAccess(grants, taskTarget(), '/Users/sam/notes', FolderAccess.Read)
+
+    expect(outcome).toEqual({
+      change: SandboxGrantChange.Changed,
+      sessions: { applied: [], refused: [task.id], pending: [] },
+    })
+    expect(listSandboxGrants(database.db, taskTarget()).map(({ grant }) => grant)).toEqual([read('/Users/sam/notes')])
+  })
+
+  it('waits only on the session that asked, while the others apply in the background', async () => {
+    const sibling = anotherTask()
+    const elsewhere = anotherTask(otherWorkspace().id, 4_000)
+    const asking = await startTask(task.id)
+    const stuck = await startTask(sibling.id)
+    const uncovered = await startTask(elsewhere.id)
+    // The sibling's Claude Code never answers.
+    stuck.onApplyFlagSettings = () => new Promise<void>(() => undefined)
+
+    const outcome = await grantSandboxAccess(
+      grants,
+      { target: workspaceTarget(), grant: read('/Users/sam/shared') },
+      { awaitTaskId: task.id },
     )
-    expect(await grantSandboxAccess(grants, { target: taskTarget(), grant: read('/Users/sam/notes') })).toBe(
-      SandboxGrantChange.Unchanged,
-    )
-    expect(session.flagSettings).toHaveLength(applied)
-    expect(session.flagSettings.at(-1)).toEqual(overlay([readWrite('/Users/sam/notes')]))
+
+    expect(outcome).toEqual({
+      change: SandboxGrantChange.Added,
+      sessions: { applied: [task.id], refused: [], pending: [sibling.id] },
+    })
+    // The stuck session was still sent the overlay; the one in the other workspace wasn't.
+    expect(asking.flagSettings.at(-1)).toEqual(overlay([read('/Users/sam/shared')]))
+    expect(stuck.flagSettings.at(-1)).toEqual(overlay([read('/Users/sam/shared')]))
+    expect(uncovered.flagSettings).toEqual([overlay([], OTHER_ROOT)])
+  })
+
+  it('reports the asking session’s refusal, and leaves a background refusal to the log', async () => {
+    const sibling = anotherTask()
+    const asking = await startTask(task.id)
+    const other = await startTask(sibling.id)
+    asking.onApplyFlagSettings = () => Promise.reject(new Error('asking refused'))
+    other.onApplyFlagSettings = () => Promise.reject(new Error('other refused'))
+
+    const outcome = await revokeSandboxGrant(grants, workspaceTarget(), domain('acme.dev'), { awaitTaskId: task.id })
+    await settle()
+
+    expect(outcome).toEqual({ removed: false, sessions: { applied: [], refused: [task.id], pending: [sibling.id] } })
+    expect(refusals()).toMatchObject([
+      { taskId: task.id, error: 'asking refused' },
+      { taskId: sibling.id, error: 'other refused' },
+    ])
+  })
+
+  it('waits on no one when the asking task has no running session', async () => {
+    const sibling = anotherTask()
+    const running = await startTask(sibling.id)
+    running.onApplyFlagSettings = () => new Promise<void>(() => undefined)
+
+    const outcome = await changeSandboxFolderAccess(grants, GLADE, '/opt/toolchain', FolderAccess.Read, {
+      awaitTaskId: task.id,
+    })
+
+    expect(outcome).toEqual({
+      change: SandboxGrantChange.Unchanged,
+      sessions: { applied: [], refused: [], pending: [sibling.id] },
+    })
   })
 
   it('upgrades a read-only folder granted read-write, live', async () => {
@@ -333,9 +462,9 @@ describe('a grant changing while sessions run', () => {
     await grantSandboxAccess(grants, { target: taskTarget(), grant: read('/Users/sam/notes') })
     expect(session.flagSettings.at(-1)).toEqual(overlay([read('/Users/sam/notes')]))
 
-    expect(await grantSandboxAccess(grants, { target: taskTarget(), grant: readWrite('/Users/sam/notes') })).toBe(
-      SandboxGrantChange.Changed,
-    )
+    expect(
+      await grantSandboxAccess(grants, { target: taskTarget(), grant: readWrite('/Users/sam/notes') }),
+    ).toMatchObject({ change: SandboxGrantChange.Changed })
 
     const upgraded = session.flagSettings.at(-1)
     expect(upgraded).toEqual(overlay([readWrite('/Users/sam/notes')]))
@@ -349,8 +478,12 @@ describe('a grant changing while sessions run', () => {
     const session = await startTask()
     expect(JSON.stringify(session.flagSettings[0])).toContain('/Users/sam/shared')
 
-    expect(await revokeSandboxGrant(grants, workspaceTarget(), folderKey('/Users/sam/shared'))).toBe(true)
-    expect(await revokeSandboxGrant(grants, workspaceTarget(), folderKey('/Users/sam/docs'))).toBe(true)
+    expect(await revokeSandboxGrant(grants, workspaceTarget(), folderKey('/Users/sam/shared'))).toMatchObject({
+      removed: true,
+    })
+    expect(await revokeSandboxGrant(grants, workspaceTarget(), folderKey('/Users/sam/docs'))).toMatchObject({
+      removed: true,
+    })
 
     const [, withoutShared, withoutEither] = session.flagSettings
     expect(withoutShared).toEqual(overlay([read('/Users/sam/docs')]))
@@ -365,9 +498,9 @@ describe('a grant changing while sessions run', () => {
     addSandboxGrant(database.db, { target: taskTarget(), grant: readWrite('/Users/sam/notes') })
     const session = await startTask()
 
-    expect(await changeSandboxFolderAccess(grants, taskTarget(), '/Users/sam/notes', FolderAccess.Read)).toBe(
-      SandboxGrantChange.Changed,
-    )
+    expect(await changeSandboxFolderAccess(grants, taskTarget(), '/Users/sam/notes', FolderAccess.Read)).toMatchObject({
+      change: SandboxGrantChange.Changed,
+    })
 
     const downgraded = session.flagSettings.at(-1)
     expect(downgraded).toEqual(overlay([read('/Users/sam/notes')]))
@@ -397,14 +530,19 @@ describe('a grant changing while sessions run', () => {
     expect(session.flagSettings.at(-1)?.permissions?.allow).toEqual(['WebFetch(domain:acme.dev)'])
   })
 
-  it('applies nothing for a change that changes nothing', async () => {
+  it('applies the grants again for a change that changes nothing, and says nothing changed', async () => {
     const session = await startTask()
+    const sessions = { applied: [task.id], refused: [], pending: [] }
 
-    expect(await revokeSandboxGrant(grants, taskTarget(), folderKey('/Users/sam/notes'))).toBe(false)
-    expect(await changeSandboxFolderAccess(grants, taskTarget(), '/Users/sam/notes', FolderAccess.Read)).toBe(
-      SandboxGrantChange.Unchanged,
-    )
-    expect(session.flagSettings).toHaveLength(1)
+    expect(await revokeSandboxGrant(grants, taskTarget(), folderKey('/Users/sam/notes'))).toEqual({
+      removed: false,
+      sessions,
+    })
+    expect(await changeSandboxFolderAccess(grants, taskTarget(), '/Users/sam/notes', FolderAccess.Read)).toEqual({
+      change: SandboxGrantChange.Unchanged,
+      sessions,
+    })
+    expect(session.flagSettings).toEqual([overlay([]), overlay([]), overlay([])])
   })
 
   it('applies a grant mid-turn, without stopping or restarting the turn', async () => {
@@ -487,7 +625,10 @@ describe('a grant changing while sessions run', () => {
 
     const change = await grantSandboxAccess(grants, { target: taskTarget(), grant: readWrite('/Users/sam/notes') })
 
-    expect(change).toBe(SandboxGrantChange.Added)
+    expect(change).toEqual({
+      change: SandboxGrantChange.Added,
+      sessions: { applied: [], refused: [task.id], pending: [] },
+    })
     expect(listSandboxGrants(database.db, taskTarget()).map(({ grant }) => grant)).toEqual([
       readWrite('/Users/sam/notes'),
     ])
@@ -570,16 +711,69 @@ describe('what a grant is checked against', () => {
       read('/Users/sam/My Notes/naïve'),
     ])
 
-    expect(await revokeSandboxGrant(grants, GLADE, folderKey('/opt/toolchain/'))).toBe(true)
-    expect(await revokeSandboxGrant(grants, GLADE, domain('REGISTRY.npmjs.org'))).toBe(true)
+    expect(await revokeSandboxGrant(grants, GLADE, folderKey('/opt/toolchain/'))).toMatchObject({ removed: true })
+    expect(await revokeSandboxGrant(grants, GLADE, domain('REGISTRY.npmjs.org'))).toMatchObject({ removed: true })
   })
 
-  it('refuses a relative folder or something that isn’t a domain', () => {
-    expect(() => grantedFolder('notes')).toThrow(expect.objectContaining({ code: BridgeErrorCode.InvalidRequest }))
-    expect(() => grantedFolder('~/notes')).toThrow(expect.objectContaining({ code: BridgeErrorCode.InvalidRequest }))
-    for (const bad of ['', '   ', 'https://acme.dev', 'acme.dev/docs', 'acme.dev:443', 'acme dev', '-acme.dev']) {
-      expect(() => grantedDomain(bad)).toThrow(expect.objectContaining({ code: BridgeErrorCode.InvalidRequest }))
-    }
+  it.each(['notes', '~/notes', './notes', ''])('refuses the relative folder %j', (path) => {
+    expect(() => grantedFolder(path)).toThrow(expect.objectContaining({ code: BridgeErrorCode.InvalidRequest }))
+  })
+
+  it.each([
+    '/Users/sam/*',
+    '/Users/sam/**',
+    '/Users/sam/**/notes',
+    '/Users/sam/note?',
+    '/Users/sam/[ab]',
+    '/Users/sam/notes]',
+    '/Users/sam/{notes,docs}',
+    '/Users/sam/notes}',
+    '/*',
+  ])('refuses the pattern %j as a folder: a grant is one folder', (path) => {
+    expect(() => grantedFolder(path)).toThrow(expect.objectContaining({ code: BridgeErrorCode.InvalidRequest }))
+  })
+
+  it.each([
+    ['registry.npmjs.org', 'registry.npmjs.org'],
+    ['localhost', 'localhost'],
+    ['  Registry.NPMJS.org ', 'registry.npmjs.org'],
+    ['*.acme.dev', '*.acme.dev'],
+    ['*.API.acme.dev', '*.api.acme.dev'],
+    ['xn--bcher-kva.example', 'xn--bcher-kva.example'],
+    ['10.0.0.1', '10.0.0.1'],
+  ])('keeps the domain %j as %j', (written, kept) => {
+    expect(grantedDomain(written)).toBe(kept)
+  })
+
+  it.each([
+    '',
+    '   ',
+    '*',
+    '**',
+    '*.',
+    '*.com',
+    '*.*',
+    '*.*.acme.dev',
+    '**.acme.dev',
+    'a*b',
+    'a*b.acme.dev',
+    'acme.*',
+    'acme.*.dev',
+    '*acme.dev',
+    'acme..dev',
+    'acme.dev.',
+    '.acme.dev',
+    '*..dev',
+    '-acme.dev',
+    'acme-.dev',
+    'acme_api.dev',
+    'https://acme.dev',
+    'acme.dev/docs',
+    'acme.dev:443',
+    'acme dev',
+    'sam@acme.dev',
+  ])('refuses %j as a domain', (written) => {
+    expect(() => grantedDomain(written)).toThrow(expect.objectContaining({ code: BridgeErrorCode.InvalidRequest }))
   })
 
   it('saves nothing for a grant it refuses', async () => {
@@ -592,7 +786,116 @@ describe('what a grant is checked against', () => {
     await expect(revokeSandboxGrant(grants, GLADE, domain('https://acme.dev'))).rejects.toMatchObject({
       code: BridgeErrorCode.InvalidRequest,
     })
+    await expect(grantSandboxAccess(grants, { target: GLADE, grant: readWrite('/Users/sam/*') })).rejects.toMatchObject(
+      { code: BridgeErrorCode.InvalidRequest },
+    )
+    await expect(grantSandboxAccess(grants, { target: GLADE, grant: domain('*.com') })).rejects.toMatchObject({
+      code: BridgeErrorCode.InvalidRequest,
+    })
+    await expect(revokeSandboxGrant(grants, GLADE, folderKey('/Users/sam/[ab]'))).rejects.toMatchObject({
+      code: BridgeErrorCode.InvalidRequest,
+    })
     expect(listSandboxGrants(database.db, GLADE)).toEqual([])
+    expect(backend.sessions).toEqual([])
+  })
+})
+
+describe('one folder, however it’s spelt', () => {
+  let scratch: string
+  /** A real folder, by its real path. */
+  let real: string
+  /** A symlink to `real`'s parent: another spelling of every folder under it, as `/tmp` is of `/private/tmp`. */
+  let link: string
+
+  beforeEach(() => {
+    scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'glade-grants-')))
+    mkdirSync(join(scratch, 'disk', 'Shared Notes'), { recursive: true })
+    real = join(scratch, 'disk', 'Shared Notes')
+    link = join(scratch, 'link')
+    symlinkSync(join(scratch, 'disk'), link)
+  })
+
+  afterEach(() => {
+    rmSync(scratch, { recursive: true, force: true })
+  })
+
+  const kept = (): Grant[] => listSandboxGrants(database.db, GLADE).map(({ grant }) => grant)
+
+  it('keeps a folder granted through a symlink by its real path, and never twice', async () => {
+    const throughLink = join(link, 'Shared Notes')
+
+    const first = await grantSandboxAccess(grants, { target: GLADE, grant: read(throughLink) })
+    const second = await grantSandboxAccess(grants, { target: GLADE, grant: read(real) })
+    const third = await grantSandboxAccess(grants, {
+      target: GLADE,
+      grant: readWrite(`${throughLink}/../Shared Notes/`),
+    })
+
+    expect(first.change).toBe(SandboxGrantChange.Added)
+    expect(second.change).toBe(SandboxGrantChange.Unchanged)
+    expect(third.change).toBe(SandboxGrantChange.Changed)
+    expect(kept()).toEqual([readWrite(real)])
+  })
+
+  it('revokes and downgrades a folder under either spelling, leaving it granted under neither', async () => {
+    const throughLink = join(link, 'Shared Notes')
+    const session = await startTask()
+    await grantSandboxAccess(grants, { target: GLADE, grant: readWrite(real) })
+
+    expect(await changeSandboxFolderAccess(grants, GLADE, throughLink, FolderAccess.Read)).toMatchObject({
+      change: SandboxGrantChange.Changed,
+    })
+    expect(kept()).toEqual([read(real)])
+    expect(session.flagSettings.at(-1)).toEqual(overlay([read(real)]))
+
+    expect(await revokeSandboxGrant(grants, GLADE, folderKey(throughLink))).toMatchObject({ removed: true })
+    expect(kept()).toEqual([])
+    expect(session.flagSettings.at(-1)).toEqual(overlay([]))
+  })
+
+  it.runIf(CASE_INSENSITIVE_DISK)(
+    'keeps a folder spelt in another case as the one grant, in the disk’s case',
+    async () => {
+      await grantSandboxAccess(grants, { target: GLADE, grant: read(join(scratch, 'DISK', 'shared notes')) })
+      await grantSandboxAccess(grants, { target: GLADE, grant: read(real) })
+      expect(kept()).toEqual([read(real)])
+
+      expect(await revokeSandboxGrant(grants, GLADE, folderKey(join(scratch, 'disk', 'SHARED NOTES')))).toMatchObject({
+        removed: true,
+      })
+      expect(kept()).toEqual([])
+    },
+  )
+
+  it('keeps a folder that doesn’t exist as written, tidied', async () => {
+    const missing = join(link, 'not', 'made', 'yet')
+
+    await grantSandboxAccess(grants, { target: GLADE, grant: read(`${missing}/../yet/`) })
+
+    expect(kept()).toEqual([read(missing)])
+  })
+
+  it('still finds a folder granted before it existed once it does, to change it or take it back', async () => {
+    const written = join(link, 'later')
+    await grantSandboxAccess(grants, { target: GLADE, grant: readWrite(written) })
+    expect(kept()).toEqual([readWrite(written)])
+    mkdirSync(join(scratch, 'disk', 'later'))
+
+    expect(await changeSandboxFolderAccess(grants, GLADE, written, FolderAccess.Read)).toMatchObject({
+      change: SandboxGrantChange.Changed,
+    })
+    expect(kept()).toEqual([read(written)])
+    expect(await revokeSandboxGrant(grants, GLADE, folderKey(written))).toMatchObject({ removed: true })
+    expect(kept()).toEqual([])
+  })
+
+  it('refuses a symlink to a folder whose real name is a pattern', () => {
+    mkdirSync(join(scratch, 'disk', '[drafts]'))
+    symlinkSync(join(scratch, 'disk', '[drafts]'), join(scratch, 'drafts'))
+
+    expect(() => grantedFolder(join(scratch, 'drafts'))).toThrow(
+      expect.objectContaining({ code: BridgeErrorCode.InvalidRequest }),
+    )
   })
 })
 

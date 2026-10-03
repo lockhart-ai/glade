@@ -1886,7 +1886,14 @@ How Glade applies it (P15-04, `src/main/sandbox/grants.ts`):
   while an earlier overlay is still being applied (a grant removed as the session starts, say), the later overlay is
   the one left in force.
 - **A refused overlay doesn't stop the session:** the runner logs it to the task's agent log and the message still goes.
-  The grant stays saved, and the next start applies it.
+  The grant stays saved, and whoever changed it is told which tasks' sessions refused. Every grant, change and removal
+  sends the overlay again, whether or not it changed anything, so repeating it repairs a session that refused; failing
+  that, the next start applies it.
+- **A card waits on its own session only:** a grant made for one session's request is awaited on that session, and the
+  other sessions it covers apply it in the background, so one that never answers can't hold up the card.
+- **A grant names one folder or host:** a folder is kept by its real path where it exists (so `/tmp/x` and
+  `/private/tmp/x` are one grant) and never holds a glob character, which would widen the `Read(//…/**)` rule and the
+  sandbox's lists past the folder; a domain is a bare host, or `*.` and a host of two labels or more.
 
 ### When the sandbox can't start [verified]
 
