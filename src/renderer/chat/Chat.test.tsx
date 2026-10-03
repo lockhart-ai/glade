@@ -275,7 +275,8 @@ describe('Chat', () => {
     await renderChat({ messages: [ASK, REPLY, broadcast] })
 
     const [own, sent] = screen.getAllByRole('article', { name: 'You' })
-    expect(within(own as HTMLElement).queryByText(BROADCAST_TAG)).not.toBeInTheDocument()
+    expect(own).toHaveTextContent(`${ASK.body}you · ${clockTime(ASKED_AT)}`)
+    expect(own).not.toHaveTextContent(BROADCAST_TAG)
     expect(sent).toHaveTextContent(
       `Is anyone restarting Docker?${BROADCAST_TAG}you · ${clockTime(broadcast.createdAt)}`,
     )

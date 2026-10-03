@@ -38,6 +38,11 @@
 - **Message queue:** messages sent while the agent works are queued and delivered after its current step. They can be
   edited or removed. No "send now", no reordering. Stop with messages queued stops the turn and then sends the queue
   as the next turn, as when a turn ends on its own (#441); a task found stuck with a queue sends it at launch.
+- **Broadcast (#489):** one message to every Active task, in every workspace, idle ones included, from a modal
+  (⌘⇧B, File › Broadcast…) that lists who gets it, read-only. A busy agent gets it in its queue, like any message:
+  there's still no mid-turn delivery. It's stored with each task as its own message, tagged `BROADCAST` in the chat;
+  each agent answers in its own chat, and nothing collects the replies. Main decides the recipients as it sends, and
+  the windows hear of it all as one batch of events.
 - **Notifications:** native OS notifications for any agent message in a task you're not viewing, even while Glade is
   focused. Task name + start of the message. Sound off. Focus/DND handled by the OS.
 - **Needs you (#430, corrected by #461):** a task needs you when it's blocked on you or has a reply you haven't read:

@@ -1,5 +1,5 @@
 /**
- * Who a broadcast reaches (#489, `docs/design/html/45-broadcast.html`): every active task, in every workspace, as the
+ * Who a broadcast reaches (#489, `docs/design/html/39-broadcast.html`): every active task, in every workspace, as the
  * Broadcast modal lists them before it's sent. Main decides who really gets it, as it sends (`tasks.broadcast`); the
  * store holds every workspace's active tasks and hears each change, so the list is main's unless one is on its way.
  */

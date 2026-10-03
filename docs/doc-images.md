@@ -1,6 +1,6 @@
 # Doc images
 
-The 16 screenshots in [README.md](../README.md) and [the user guide](user-guide.md) (everything under
+The 17 screenshots in [README.md](../README.md) and [the user guide](user-guide.md) (everything under
 `docs/images/`, `docs/images/glade-icon.png` aside) are each captured from the current app, on made-up data, from a
 recorded recipe: a seed fixture in `scripts/fixtures/` (`src/main/capture-seed.ts` has the format) and
 `npm run screenshot` (`scripts/screenshot.mjs`), or, for three of them, a small script that needs more than that.
@@ -26,7 +26,7 @@ node scripts/fixtures/doc-images.mjs nekomata -- <nekomata>/dist/glade/nekomata
 NEKOMATA_PLUGIN=<nekomata>/dist/glade/nekomata node scripts/fixtures/doc-images.mjs
 ```
 
-Without one, `nekomata` is skipped (with a message saying why); the other 15 still regenerate. Its own page is much
+Without one, `nekomata` is skipped (with a message saying why); the other 16 still regenerate. Its own page is much
 bigger than the sample plugins in `scripts/fixtures/plugins/`, and draws its cat cafe onto a canvas it redraws from a
 `resize` its page gets once Glade places it at its slot's real size, not from the window's: a single shot is still
 mid-load when the app quits (logging a load failure that's really just that race), and even once it's loaded, a
@@ -57,6 +57,7 @@ above 0 clears it (`APPEAR_WINDOW_MS` in `src/renderer/questions/QuestionCard.ts
 | `guide/window.png` | The whole window: task list, chat and header, right panel, terminal. | `--seed task-workspace.json --size 1440x960` |
 | `guide/welcome.png` | The first-run welcome screen. | no seed, `--size 1280x800` |
 | `guide/working.png` | A working task: the queue above the input bar, Stop beside Send. | `--seed agent-working.json --size 1280x800` |
+| `guide/broadcast.png` | The Broadcast modal over the window: the message field, who it goes to, and the recipients by workspace. | `--seed broadcast.json --size 1280x800 --command app.broadcast` |
 | `guide/menu-bar.png` | The menu bar popover: needs you, working, recent. | `menu-bar.mjs` (the popover's own 360px-wide box) |
 | `guide/files-browse.png` | The Files tab's Browse tree, folders open, a file selected. | `files-browse.mjs` (builds a sample workspace under `/tmp`) |
 | `guide/artifacts.png` | The Artifacts tab: files and links under Today and Yesterday, the All · Files · Links filter. | `--seed artifacts.json --size 1280x880` |
@@ -64,6 +65,9 @@ above 0 clears it (`APPEAR_WINDOW_MS` in `src/renderer/questions/QuestionCard.ts
 | `guide/settings-general.png` | Settings › General, with the account. | `--seed settings-general.json --size 1280x800`, clicked to General |
 | `guide/settings-control.png` | Settings › Control, turned on. | `--seed settings-control.json --size 1280x800`, clicked to Control |
 | `guide/backfilled.png` | A backfilled task: its handoff note, its notes files as artifacts. | `--seed backfilled.json --size 1280x880` |
+
+`--command <id>` runs an app command in the window as choosing its menu bar item would (`app.broadcast` opens the
+Broadcast modal, which no button does), since capture mode can't send menu accelerators.
 
 A "clicked to `<section>`" recipe opens Settings by clicking, not ⌘, (capture mode can't send menu accelerators,
 `scripts/screenshot.mjs`'s header): the workspace switcher

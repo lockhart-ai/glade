@@ -112,7 +112,9 @@ outside, ask the supervisor.
 - **Screenshots:** `npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <name>]`, with
   `--seed` fixtures from `scripts/fixtures/` or `--agent-script`. Compare them with the design screens.
 - **`--press` can't reach menu accelerators** in capture mode (⌘, for Settings, ⌘J or ⌘B for panels). Collapse panels
-  with the seed's `collapsed` field, and open Settings by clicks (`scripts/screenshot.mjs` has the path).
+  with the seed's `collapsed` field, and open Settings by clicks (`scripts/screenshot.mjs` has the path). An app
+  command with no button to click runs with `--command <id>` instead, as choosing its menu bar item would:
+  `--command app.broadcast` opens the Broadcast modal.
 - **`--classic-scrollbars`** captures macOS's always-on scroll bars, as a Mac with a mouse or "Show scroll bars:
   Always" draws them; e2e specs get the same with `launch({ classicScrollbars: true })`.
 - **Interactive changes need a recording:** `npm run record -- --out <dir> [-g <test title>]` writes a `.webm`, `.mp4`

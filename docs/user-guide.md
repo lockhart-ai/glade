@@ -14,6 +14,7 @@ New here? The [README](../README.md) says what Glade is. The [docs index](README
 - [Workspaces](#workspaces)
 - [Creating and running a task](#creating-and-running-a-task)
 - [The chat](#the-chat)
+- [Broadcast: one message to every task](#broadcast-one-message-to-every-task)
 - [The task header, done and reopening](#the-task-header-done-and-reopening)
 - [The sidebar](#the-sidebar)
 - [Knowing when a task needs you](#knowing-when-a-task-needs-you)
@@ -219,6 +220,31 @@ scroll: the chat passes under them.
   meter says which limit ran out and when it resets. They resume by themselves when the limit resets or the network is
   back; **Switch model** resumes them now on another model. Messages you send meanwhile wait in the queue.
 - If Glade quit mid-turn, a notice at the next launch says how many tasks resumed.
+
+## Broadcast: one message to every task
+
+![The Broadcast modal: a message field, who it goes to, and the recipients by workspace](images/guide/broadcast.png)
+
+Sometimes something is happening on your Mac and you can't tell which agent is behind it: Docker keeps restarting, a
+port is taken, a branch moved. **Broadcast** asks them all at once.
+
+Press **⌘⇧B**, or choose **File › Broadcast…**, from anywhere in the window. Type your message and press **↵** (or
+**Send**); **⇧↵** adds a line, and **Esc** or a click outside closes it without sending.
+
+Before you send, the modal says who gets it, such as "Goes to 9 active tasks in 3 workspaces", and lists them by
+workspace, each with where it stands: **needs you**, **working** or **idle**. Every Active task gets it, in every
+workspace; Done tasks don't. The list is there to read, not to pick from.
+
+- An **idle** task starts a turn with your message straight away.
+- A **busy** one (working, paused, or waiting on a question or permission card) gets it in its queue, after anything
+  already queued, and reads it when a queued message would. A broadcast never answers a question card for you.
+- In each task's chat, the message is yours, with a small **BROADCAST** tag beside its time, so you can tell it from
+  what you said to that task alone. It keeps the tag in the queue too, where you can still edit or remove it.
+- Each agent answers in its own chat, and a task with a new reply needs you as usual: step through them with
+  **⌘⌥↓**.
+
+Idle tasks all start working at once, which uses your plan's allowance for each of them. With no Active task anywhere,
+the modal says so and Send is off.
 
 ## The task header, done and reopening
 
@@ -479,6 +505,7 @@ The ones to learn first:
 | ⌘. | Stop the agent |
 | ⌘⇧D | Mark done |
 | ⌘F | Search tasks |
+| ⌘⇧B | Broadcast: one message to every active task |
 | ⌥↓ / ⌥↑ | Next / previous task |
 | ⌘⌥↓ | Next task that needs you |
 | ⌘L | Focus the input bar |

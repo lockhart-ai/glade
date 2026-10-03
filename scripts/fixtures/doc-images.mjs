@@ -3,7 +3,7 @@
 //
 //   node scripts/fixtures/doc-images.mjs [name…]
 //
-// With no names, it regenerates all 16 (see docs/doc-images.md for the list and what each shows). With one or more
+// With no names, it regenerates all 17 (see docs/doc-images.md for the list and what each shows). With one or more
 // names (e.g. `node scripts/fixtures/doc-images.mjs hero control`), it regenerates only those. Each image is captured
 // in a window that's never shown, from a seed in scripts/fixtures/ (`src/main/capture-seed.ts`), and saved with a
 // 256-colour palette (ffmpeg-static), as the rest of the docs' screenshots are.
@@ -49,6 +49,11 @@ const SCREENSHOTS = {
   window: { out: join(IMAGES, 'guide', 'window.png'), args: ['--seed', 'task-workspace.json', '--size', '1440x960'] },
   welcome: { out: join(IMAGES, 'guide', 'welcome.png'), args: ['--size', '1280x800'] },
   working: { out: join(IMAGES, 'guide', 'working.png'), args: ['--seed', 'agent-working.json', '--size', '1280x800'] },
+  // The Broadcast modal has no button to click: its command runs as its menu bar item would (`--command`).
+  broadcast: {
+    out: join(IMAGES, 'guide', 'broadcast.png'),
+    args: ['--seed', 'broadcast.json', '--size', '1280x800', '--command', 'app.broadcast'],
+  },
   artifacts: { out: join(IMAGES, 'guide', 'artifacts.png'), args: ['--seed', 'artifacts.json', '--size', '1280x880'] },
   'permission-card': {
     out: join(IMAGES, 'guide', 'permission-card.png'),

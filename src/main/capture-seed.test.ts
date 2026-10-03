@@ -111,6 +111,19 @@ describe('readSeed', () => {
     expect(readSeed(FIXTURE).workspace.name).toBe('Acme API')
   })
 
+  it('reads the Broadcast fixtures: tasks across three workspaces, a message that was broadcast, and none active', () => {
+    const seed = readSeed(join(FIXTURES, 'broadcast.json'))
+    const active = seed.tasks.filter((task) => task.state !== TaskState.Done)
+    expect(active).toHaveLength(9)
+    expect(new Set(active.map((task) => task.workspace?.name ?? seed.workspace.name))).toEqual(
+      new Set(['Acme API', 'Storefront', 'Docs site']),
+    )
+    expect(seed.tasks.flatMap((task) => task.messages ?? []).filter((message) => message.broadcast)).toHaveLength(1)
+
+    const none = readSeed(join(FIXTURES, 'broadcast-none.json'))
+    expect(none.tasks.every((task) => task.state === TaskState.Done)).toBe(true)
+  })
+
   it('reads the mark done fixture', () => {
     expect(readSeed(join(FIXTURES, 'mark-done.json')).tasks.find((task) => task.selected)?.state).toBe(TaskState.Done)
   })

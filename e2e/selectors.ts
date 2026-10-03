@@ -416,6 +416,8 @@ export function chat(page: Page) {
     userMessages: log.getByRole('article', { name: 'You' }),
     /** The thumbnails of the images pasted into your messages, which open the image viewer: all of them, in order. */
     thumbnails: log.getByRole('article', { name: 'You' }).getByRole('button', { name: /^View pasted image/ }),
+    /** Your messages that were sent with Broadcast: the ones tagged `BROADCAST` beside their time. */
+    broadcasts: log.getByRole('article', { name: 'You' }).filter({ hasText: /Broadcastyou · / }),
     agentReplies: log.getByRole('article', { name: 'Agent' }),
     /** The chips of the files attached to your messages (#396): all of them, in order. */
     fileChips: log
@@ -772,6 +774,27 @@ export function unsavedDialog(page: Page) {
     discard: dialog.getByRole('button', { name: 'Discard' }),
     cancel: dialog.getByRole('button', { name: 'Cancel' }),
     save: dialog.getByRole('button', { name: 'Save' }),
+  }
+}
+
+/**
+ * The Broadcast modal (File › Broadcast…, `docs/design/html/39-broadcast.html`): its message field, the line saying
+ * who the message goes to, the recipients by workspace, and Send.
+ */
+export function broadcastDialog(page: Page) {
+  const dialog = page.getByRole('dialog', { name: 'Broadcast' })
+  const recipients = dialog.getByRole('list', { name: 'Recipients' })
+  return {
+    dialog,
+    field: dialog.getByRole('textbox', { name: 'Broadcast message' }),
+    send: dialog.getByRole('button', { name: 'Send', exact: true }),
+    /** "Goes to 4 active tasks in 2 workspaces. …", or "No active tasks to send to." */
+    reach: dialog.getByRole('paragraph'),
+    recipients,
+    /** A workspace's tasks the message goes to, top to bottom: each one's title and where it stands with you. */
+    tasksIn: (workspace: string) => recipients.getByRole('list', { name: workspace }).getByRole('listitem'),
+    /** Every task the message goes to, in every workspace. */
+    tasks: recipients.locator('[data-attention]'),
   }
 }
 
