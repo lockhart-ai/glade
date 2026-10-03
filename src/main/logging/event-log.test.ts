@@ -28,6 +28,7 @@ import { ImageMediaType } from '../../shared/images'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { createEventLog } from './event-log'
+import { formatRecord, REDACTED } from './format'
 import { LogLevel, LogScope, type LogRecord } from './logger'
 import { createMemoryLog, type MemoryLog } from './memory-sink'
 
@@ -761,5 +762,15 @@ describe('the rest of the app', () => {
     })
     expect(JSON.stringify(log.records)).not.toContain('secret typed here')
     expect(JSON.stringify(log.records)).not.toContain('secret reply')
+  })
+
+  it('says which UI state changed in the log’s line: its name isn’t redacted as a secret’s would be (#483)', () => {
+    logEvent({ type: EventType.UiStateChanged, entry: { key: UiStateKey.SelectedTaskId, value: 'task-1' } })
+
+    const [record] = log.withMessage('ui state changed')
+    if (record === undefined) throw new Error('The change wasn’t logged')
+    const line = JSON.parse(formatRecord(record)) as Record<string, unknown>
+    expect(line).toMatchObject({ msg: 'ui state changed', name: UiStateKey.SelectedTaskId, value: 'task-1' })
+    expect(JSON.stringify(line)).not.toContain(REDACTED)
   })
 })

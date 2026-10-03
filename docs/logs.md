@@ -16,6 +16,9 @@ what worked and what didn't. The logs stay on your Mac: nothing is sent anywhere
   An uncaught exception in main ends those runs' app at once, once it's logged, where a real run puts up Electron's
   error dialog: a dialog would show on your screen and hold the run up for good (#439). The e2e `launch` fixture fails
   a test whose app logged one, even on its way out.
+  An e2e test that fails keeps its log, with the tasks as main had them, in its results (`out/e2e-results/`, and CI's
+  `e2e-results-<shard>` artefact): `docs/kitten-sop.md` says how to read them. The `env` scope's lines are left out
+  of that copy, since in a test they're the test runner's own environment.
 
 ## What a line looks like
 
