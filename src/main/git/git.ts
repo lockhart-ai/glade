@@ -4,6 +4,11 @@
  * reads: nothing here writes to a repository, its index or its refs, and every command runs with optional locks off
  * (`GIT_OPTIONAL_LOCKS=0`), so reading never gets in the way of an agent's own git.
  *
+ * `execGit` is the one place Glade runs git (`hardening.test.ts` fails if another file does). Glade's git runs on the
+ * host, outside the agent sandbox, in repositories the agent can write, config included: so every command it runs is
+ * one of a few that only read (`GitCommand`), with every setting that names a command overridden (`BASE_ARGS`,
+ * `COMMAND_ARGS`, `gitEnv`). `docs/sdk-notes.md` §15 lists them (#487).
+ *
  * A folder's repository is located as its working tree (the repository's own, or a linked worktree's), that tree's own
  * git dir (its `HEAD` and `HEAD`'s reflog) and the common git dir every worktree shares (the objects). Commits and
  * their files are read through the common git dir, so they can still be read after their worktree is removed.
@@ -27,15 +32,39 @@ export interface GitOutput {
 }
 
 /**
- * Runs `git` with `args` in `cwd`, reading at most `maxBytes` of its output, with `input` (when given) on its standard
- * input. Never throws.
+ * The git commands Glade runs. Each only reads, and none reads a working tree's files through its filters: no option
+ * turns a clean, smudge or process filter (`filter.*`) off, so Glade keeps to commands that never run one (`status`,
+ * `diff`, `add` and `checkout` do, and so does `cat-file --filters`). A new one is added here only once it's known to
+ * run nothing a repository's config names.
  */
-export type GitRun = (
-  args: readonly string[],
-  cwd: string | null,
-  maxBytes: number,
-  input?: string,
-) => Promise<GitOutput>
+export enum GitCommand {
+  CatFile = 'cat-file',
+  CheckIgnore = 'check-ignore',
+  Log = 'log',
+  LsFiles = 'ls-files',
+  RevList = 'rev-list',
+  RevParse = 'rev-parse',
+  Show = 'show',
+  SymbolicRef = 'symbolic-ref',
+}
+
+/** One git command to run. */
+export interface GitRequest {
+  readonly command: GitCommand
+  /** Its own arguments. */
+  readonly args: readonly string[]
+  /** The folder it runs in; null to run where Glade runs, for a command that names its repository with `gitDir`. */
+  readonly cwd: string | null
+  /** The git dir it reads (`--git-dir`), rather than the repository `cwd` is in. */
+  readonly gitDir?: string
+  /** The most of its output to read, in bytes. */
+  readonly maxBytes: number
+  /** What it's given on its standard input. */
+  readonly input?: string
+}
+
+/** Runs one git command, hardened as `execGit` does. Never throws. */
+export type GitRun = (request: GitRequest) => Promise<GitOutput>
 
 /** Where a folder's repository is. Every path is absolute and real. */
 export interface RepoLocation {
@@ -113,24 +142,58 @@ export class GitError extends Error {
 }
 
 /**
- * What every command starts with: no pager, paths as they are (not quoted and escaped), and no colour or signatures in
- * what's parsed, whatever the user's config says. And no file system monitor: `core.fsmonitor` names a command git
- * runs, and Glade's git runs on the host, outside the agent sandbox, in a repository the agent can write (#448).
+ * What every command starts with. No pager, paths as they are (not quoted and escaped), and no colour in what's
+ * parsed, whatever the user's config says. Then every setting that names a command git would run, each set to nothing
+ * or to a command that does nothing: Glade's git runs on the host, outside the agent sandbox, in a repository whose
+ * config the agent can write (#448, #487). An option on the command line outranks the repository's config, a
+ * worktree's and any file they include, and git hands it on to the git it runs in a submodule.
  */
-export const BASE_ARGS = [
+export const BASE_ARGS: readonly string[] = [
   '--no-pager',
-  '-c',
-  'core.quotepath=off',
-  '-c',
-  'color.ui=false',
-  '-c',
-  'log.showSignature=false',
-  '-c',
-  'core.fsmonitor=false',
+  ...[
+    'core.quotepath=off',
+    'color.ui=false',
+    // Signatures are never checked (which runs `gpg.program`), and if one were, by nothing the config names.
+    'log.showSignature=false',
+    'gpg.program=false',
+    'gpg.ssh.program=false',
+    'gpg.x509.program=false',
+    'core.fsmonitor=false',
+    // No hooks: git looks for each one in a folder that can't hold any.
+    'core.hooksPath=/dev/null',
+    // `:` is git's own word for "no editor".
+    'core.editor=:',
+    'sequence.editor=:',
+    'core.sshCommand=false',
+    'core.askPass=',
+    'core.alternateRefsCommand=true',
+    // An empty value clears the helpers listed before it, `credential.<url>.helper` included.
+    'credential.helper=',
+    // A submodule's change as its two hashes: `diff` and `log` would run git inside the submodule to show it.
+    'diff.submodule=short',
+    // A merge's diff (`-m`) against each parent, never by merging again, which runs `merge.<driver>.driver`.
+    'log.diffMerges=separate',
+  ].flatMap((setting) => ['-c', setting]),
 ]
 
+/**
+ * What each command is always given, after its own options, so these win whatever they say: `log` and `show` never run
+ * an external diff (`diff.external`, `diff.<driver>.command`) or a text conversion (`diff.<driver>.textconv`). A
+ * driver's name comes from the repository's attributes, so no `-c` can override it.
+ */
+export const COMMAND_ARGS: Readonly<Record<GitCommand, readonly string[]>> = {
+  [GitCommand.CatFile]: [],
+  [GitCommand.CheckIgnore]: [],
+  [GitCommand.Log]: ['--no-ext-diff', '--no-textconv'],
+  [GitCommand.LsFiles]: [],
+  [GitCommand.RevList]: [],
+  [GitCommand.RevParse]: [],
+  [GitCommand.Show]: ['--no-ext-diff', '--no-textconv'],
+  [GitCommand.SymbolicRef]: [],
+}
+
 /** A commit's diff, as the Changes tab counts it: renames found, and a merge's against its first parent. */
-const DIFF_ARGS = ['-M', '--diff-merges=first-parent', '--no-ext-diff', '--no-textconv']
+const DIFF_ARGS = ['-M', '--diff-merges=first-parent']
 
 /** The unit separator, between a record's fields, and the record separator, before each record. */
 const FIELD = '\x1f'
@@ -138,17 +201,52 @@ const RECORD = '\x1e'
 
 const HASH = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/
 
-/** Runs git with `execFile`, in the environment given, with optional locks off and no prompts. */
+/**
+ * The environment every command runs in: `env`, with optional locks off (so nothing is written, and no
+ * `post-index-change` hook has a reason to run), no prompts, and nothing fetched: no transport is allowed
+ * (`GIT_ALLOW_PROTOCOL`, which outranks the config's `protocol.*.allow`), and an object a partial clone lacks isn't
+ * fetched from its promisor remote. A fetch runs what the config names: `core.sshCommand`, `core.gitProxy`, a remote's
+ * `uploadpack`, an `ext::` URL's command, a credential helper, `uploadpack.packObjectsHook`.
+ */
+export function gitEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
+    ...env,
+    GIT_OPTIONAL_LOCKS: '0',
+    GIT_TERMINAL_PROMPT: '0',
+    LC_ALL: 'C',
+    GIT_ALLOW_PROTOCOL: '',
+    GIT_NO_LAZY_FETCH: '1',
+  }
+}
+
+/** A command's whole argument list: what every command starts with, then its own, then what it's always given. */
+export function gitArgs({ command, args, gitDir }: Pick<GitRequest, 'command' | 'args' | 'gitDir'>): string[] {
+  // Options end at `--`: what the command is always given goes last among them.
+  const end = args.indexOf('--')
+  const options = end === -1 ? args : args.slice(0, end)
+  const rest = end === -1 ? [] : args.slice(end)
+  return [
+    ...BASE_ARGS,
+    ...(gitDir === undefined ? [] : [`--git-dir=${gitDir}`]),
+    command,
+    ...options,
+    ...COMMAND_ARGS[command],
+    ...rest,
+  ]
+}
+
+/** Runs git with `execFile`, in the environment given, hardened (`gitArgs`, `gitEnv`). */
 export function execGit(env: NodeJS.ProcessEnv = process.env): GitRun {
-  const gitEnv = { ...env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' }
-  return (args, cwd, maxBytes, input) =>
+  const hardened = gitEnv(env)
+  return (request) =>
     new Promise((resolve) => {
+      const { cwd, maxBytes, input } = request
       const child = execFile(
         'git',
-        [...BASE_ARGS, ...args],
+        gitArgs(request),
         {
           ...(cwd === null ? {} : { cwd }),
-          env: gitEnv,
+          env: hardened,
           encoding: 'buffer',
           maxBuffer: maxBytes,
           timeout: GIT_TIMEOUT_MS,
@@ -278,19 +376,32 @@ export function parseCommitFiles(output: string): CommitFile[] {
 
 /** Git over `run`: `execGit()` by default. */
 export function createGit(run: GitRun = execGit()): Git {
+  /** A command run in a folder, on the repository the folder is in. */
+  const inFolder = (cwd: string, command: GitCommand, args: readonly string[]): GitRequest => ({
+    command,
+    args,
+    cwd,
+    maxBytes: MAX_OUTPUT_BYTES,
+  })
+  /** A command that reads a repository through its common git dir, whatever became of its working trees. */
+  const inGitDir = (gitDir: string, command: GitCommand, args: readonly string[]): GitRequest => ({
+    command,
+    args,
+    cwd: null,
+    gitDir,
+    maxBytes: MAX_OUTPUT_BYTES,
+  })
   /** A command's output when it succeeded; null when it failed. */
-  const attempt = async (args: readonly string[], cwd: string | null): Promise<GitOutput | null> => {
-    const output = await run(args, cwd, MAX_OUTPUT_BYTES)
+  const attempt = async (request: GitRequest): Promise<GitOutput | null> => {
+    const output = await run(request)
     return output.ok ? output : null
   }
-  const gitDir = (commonDir: string): string => `--git-dir=${commonDir}`
 
   const summaries = async (commonDir: string, hashes: readonly string[]): Promise<CommitSummary[]> => {
     if (hashes.length === 0) return []
     const format = `--format=${RECORD}%H${FIELD}%P${FIELD}%ct${FIELD}%s`
     const output = await attempt(
-      [gitDir(commonDir), 'log', '--no-walk=unsorted', format, '--shortstat', ...DIFF_ARGS, ...hashes, '--'],
-      null,
+      inGitDir(commonDir, GitCommand.Log, ['--no-walk=unsorted', format, '--shortstat', ...DIFF_ARGS, ...hashes, '--']),
     )
     if (output !== null) return parseSummaries(text(output))
     // One of them is gone, and git refuses the whole list for it: read the others one by one.
@@ -302,8 +413,12 @@ export function createGit(run: GitRun = execGit()): Git {
   return {
     async locate(dir) {
       const output = await attempt(
-        ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-dir', '--git-common-dir'],
-        dir,
+        inFolder(dir, GitCommand.RevParse, [
+          '--path-format=absolute',
+          '--show-toplevel',
+          '--git-dir',
+          '--git-common-dir',
+        ]),
       )
       const [worktreePath, ownDir, commonDir] = output === null ? [] : lines(output)
       if (worktreePath === undefined || ownDir === undefined || commonDir === undefined) return null
@@ -312,8 +427,8 @@ export function createGit(run: GitRun = execGit()): Git {
 
     async head(repo) {
       const [head, count] = await Promise.all([
-        attempt(['rev-parse', '-q', '--verify', 'HEAD^{commit}'], repo.worktreePath),
-        attempt(['rev-list', '--walk-reflogs', '--count', 'HEAD'], repo.worktreePath),
+        attempt(inFolder(repo.worktreePath, GitCommand.RevParse, ['-q', '--verify', 'HEAD^{commit}'])),
+        attempt(inFolder(repo.worktreePath, GitCommand.RevList, ['--walk-reflogs', '--count', 'HEAD'])),
       ])
       const hash = head === null ? undefined : lines(head)[0]
       const length = count === null ? 0 : Number(lines(count)[0] ?? 0)
@@ -321,21 +436,27 @@ export function createGit(run: GitRun = execGit()): Git {
     },
 
     async branch(repo) {
-      const output = await attempt(['symbolic-ref', '-q', '--short', 'HEAD'], repo.worktreePath)
+      const output = await attempt(inFolder(repo.worktreePath, GitCommand.SymbolicRef, ['-q', '--short', 'HEAD']))
       return (output === null ? undefined : lines(output)[0]) ?? null
     },
 
     async reflog(repo, count) {
       if (count <= 0) return []
       const output = await attempt(
-        ['log', '-g', `-n${String(count)}`, `--format=%H${FIELD}%gs${FIELD}%gd`, '--date=unix', 'HEAD', '--'],
-        repo.worktreePath,
+        inFolder(repo.worktreePath, GitCommand.Log, [
+          '-g',
+          `-n${String(count)}`,
+          `--format=%H${FIELD}%gs${FIELD}%gd`,
+          '--date=unix',
+          'HEAD',
+          '--',
+        ]),
       )
       return output === null ? [] : parseReflog(text(output))
     },
 
     async resolveCommit(commonDir, name) {
-      const output = await attempt([gitDir(commonDir), 'rev-parse', '-q', '--verify', `${name}^{commit}`], null)
+      const output = await attempt(inGitDir(commonDir, GitCommand.RevParse, ['-q', '--verify', `${name}^{commit}`]))
       const hash = output === null ? undefined : lines(output)[0]
       return hash !== undefined && HASH.test(hash) ? hash : null
     },
@@ -344,9 +465,7 @@ export function createGit(run: GitRun = execGit()): Git {
 
     async files(commonDir, hash) {
       const output = await run(
-        [gitDir(commonDir), 'show', '--format=', '-z', '--raw', '--numstat', ...DIFF_ARGS, hash, '--'],
-        null,
-        MAX_OUTPUT_BYTES,
+        inGitDir(commonDir, GitCommand.Show, ['--format=', '-z', '--raw', '--numstat', ...DIFF_ARGS, hash, '--']),
       )
       if (!output.ok) throw new GitError(`Couldn't read the files of commit ${hash}`)
       return parseCommitFiles(text(output))
@@ -354,10 +473,13 @@ export function createGit(run: GitRun = execGit()): Git {
 
     async fileAt(commonDir, hash, path, maxBytes) {
       const object = `${hash}:${path}`
-      const size = await attempt([gitDir(commonDir), 'cat-file', '-s', object], null)
+      const size = await attempt(inGitDir(commonDir, GitCommand.CatFile, ['-s', object]))
       const bytes = size === null ? undefined : Number(lines(size)[0])
       if (bytes === undefined || !Number.isSafeInteger(bytes)) return null
-      const blob = await run([gitDir(commonDir), 'cat-file', 'blob', object], null, Math.max(1, maxBytes))
+      const blob = await run({
+        ...inGitDir(commonDir, GitCommand.CatFile, ['blob', object]),
+        maxBytes: Math.max(1, maxBytes),
+      })
       if (!blob.ok && !blob.truncated) return null
       return { bytes: blob.stdout.subarray(0, maxBytes), size: bytes }
     },
