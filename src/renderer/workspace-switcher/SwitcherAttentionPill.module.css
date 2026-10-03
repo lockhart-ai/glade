@@ -5,9 +5,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  /*
+   * No box-sizing here, matching the design HTML's span (content-box, the default): min-width is the content box's
+   * floor, so a one-digit count comes out ~27–28px wide once the padding is added, not min-width + padding's 18px.
+   */
   min-width: 18px;
   height: 16px;
-  box-sizing: border-box;
   padding: 0 5px;
   border-radius: var(--radius-pill);
   background: var(--color-purple-bg);

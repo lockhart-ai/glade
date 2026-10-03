@@ -61,6 +61,15 @@ test('the pill totals tasks that need you elsewhere, live, and never the shown w
   await expect(switcher.pill).toHaveText('1')
   await expect(switcher.trigger).toHaveAttribute('title', 'Switch workspace — 1 task in other workspaces needs you')
 
+  // Pins the pill's rendered size to the design's box (`docs/design/html/14-workspace-switcher.html`, ~27×16 for a
+  // one-digit count), so a CSS change that shrinks it (min-width meeting padding under the wrong box-sizing, say)
+  // fails here even though `check-design` only compares the design HTML to its own PNG.
+  const box = await switcher.pill.boundingBox()
+  expect(box?.width).toBeGreaterThan(24)
+  expect(box?.width).toBeLessThan(31)
+  expect(box?.height).toBeGreaterThan(14)
+  expect(box?.height).toBeLessThan(18)
+
   // Opening B's task reads its reply: it no longer needs you, so the pill hides and the tooltip resets.
   await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-web')
   await expect(workspace).toContainText('acme-web')
