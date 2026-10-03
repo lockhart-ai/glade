@@ -427,7 +427,7 @@ By default a task runs with **Allow all**: the agent edits files and runs comman
 **Permissions** picker switches the task to **Ask before edits and commands**, at any time; it applies from the agent's
 next tool call. Settings › Agent › Permissions sets which mode new tasks start in (**Ask first** there is this mode).
 
-![A permission card for a Bash command](images/guide/permission-card.png)
+![A permission card for a Bash command, and in the Tool calls list what was decided about the calls before it](images/guide/permission-card.png)
 
 In the ask mode, file edits and writes, shell commands and other tools with side effects wait on a **permission card**
 in the chat, showing the command or the change. Reads and searches, and Glade's own tools, never ask. Your own Claude
