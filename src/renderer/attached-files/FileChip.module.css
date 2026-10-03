@@ -67,8 +67,13 @@
   color: var(--color-muted);
 }
 
+/*
+ * `raised` (the chip's old neighbour, the input bar itself) is darker than the chip's own `inner-2` fill now, so it
+ * read as another near-black square (#465 review); `inner-border`, one step lighter than `inner-2`, reads as a tile
+ * instead (`muted` on it is 5.22:1, above the 4.5:1 floor).
+ */
 .input .tile {
-  background: var(--color-raised);
+  background: var(--color-inner-border);
 }
 
 .message .tile {
