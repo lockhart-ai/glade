@@ -2447,7 +2447,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         // sandbox that couldn't start is known before the agent can ask to run outside it.
         ...(sandboxed ? { onBashFinished: (call: BashCallFinished) => bashFinished(call) } : {}),
         // And each `request_access` call says which it is, and whose, for the card it may open.
-        ...(sandboxed ? { onAccessRequested: (call: AccessCallStarting) => accessRequested(call) } : {}),
+        ...(sandboxed
+          ? {
+              onAccessRequested: (call: AccessCallStarting) => {
+                accessRequested(call)
+              },
+            }
+          : {}),
       },
     })
     // A sandboxed session's messages and settings wait on its overlay: whether its commands ask is in the overlay

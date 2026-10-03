@@ -2,11 +2,17 @@ import { describe, expect, it } from 'vitest'
 import {
   coversAccess,
   FolderAccess,
+  folderVerb,
   grantCovers,
+  grantFor,
   mergeGrants,
+  SandboxAskKind,
+  sandboxAskPhrase,
   SandboxGrantKind,
   SandboxGrantScope,
+  shortenHomePath,
   type Grant,
+  type SandboxAsk,
 } from './sandbox'
 
 const read = (path: string): Grant => ({ kind: SandboxGrantKind.Folder, path, access: FolderAccess.Read })
@@ -74,5 +80,48 @@ describe('grantCovers', () => {
   it('never takes a task id for a workspace id', () => {
     expect(grantCovers({ scope: SandboxGrantScope.Task, taskId: 'w1' }, task)).toBe(false)
     expect(grantCovers({ scope: SandboxGrantScope.Workspace, workspaceId: 't1' }, task)).toBe(false)
+  })
+})
+
+describe('what a sandbox request is about', () => {
+  const folder = (path: string, access: FolderAccess): SandboxAsk => ({ kind: SandboxAskKind.Folder, path, access })
+  const reach: SandboxAsk = {
+    kind: SandboxAskKind.Domain,
+    domain: 'registry.npmjs.org',
+    command: 'npm install',
+    commandDescription: null,
+  }
+
+  it('says it in the verbs every permission line uses, the home folder as ~', () => {
+    expect(sandboxAskPhrase(folder('/Users/me/code/acme-web', FolderAccess.Read))).toBe('read ~/code/acme-web')
+    expect(sandboxAskPhrase(folder('/Users/me/.cache/uv', FolderAccess.ReadWrite))).toBe('write to ~/.cache/uv')
+    expect(sandboxAskPhrase(folder('/opt/tools', FolderAccess.Read))).toBe('read /opt/tools')
+    expect(sandboxAskPhrase(reach)).toBe('reach registry.npmjs.org')
+    expect(sandboxAskPhrase({ kind: SandboxAskKind.Outside })).toBe('run outside the sandbox')
+    expect(folderVerb(FolderAccess.Read)).toBe('read')
+    expect(folderVerb(FolderAccess.ReadWrite)).toBe('write to')
+  })
+
+  it('shortens only a path under a home folder', () => {
+    expect(shortenHomePath('/Users/me')).toBe('~')
+    expect(shortenHomePath('/Users/me/code/api')).toBe('~/code/api')
+    expect(shortenHomePath('/Users')).toBe('/Users')
+    expect(shortenHomePath('/tmp/Users/me')).toBe('/tmp/Users/me')
+  })
+
+  it('grants the folder with the access asked for, or the domain', () => {
+    const ask = {
+      kind: SandboxAskKind.Folder,
+      path: '/Users/me/code/acme-web',
+      access: FolderAccess.ReadWrite,
+    } as const
+    const host = {
+      kind: SandboxAskKind.Domain,
+      domain: 'registry.npmjs.org',
+      command: null,
+      commandDescription: null,
+    } as const
+    expect(grantFor(ask)).toEqual(readWrite('/Users/me/code/acme-web'))
+    expect(grantFor(host)).toEqual(domain('registry.npmjs.org'))
   })
 })

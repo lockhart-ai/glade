@@ -440,6 +440,36 @@ Code allow and deny rules still apply. The card offers:
 ← and → move between the buttons, and ↵ chooses. While a card waits, the task needs you, exactly as with a question.
 A card left open when Glade quits is still there after the relaunch; answering it carries the task on.
 
+### The sandbox's cards
+
+With the agent sandbox on (it's off until the sandbox is finished: Settings › Agent › Sandbox), an agent can use only
+its workspace folder and what you allow, in either permission mode. When it reaches past that, a card asks, with the
+shield at its title:
+
+- **A folder:** "The agent wants to read `~/code/acme-web`", or "…write to…", with the file it was after under it.
+  Reading asks for read-only access to the folder, and writing for read and write; a later write to a folder you
+  allowed for reading asks again.
+- **A domain:** "The agent wants to reach `registry.npmjs.org`", with the command that is waiting on the connection,
+  or the page for a web fetch. One answer covers both the agent's commands and its web fetches.
+
+A folder or domain is never allowed just once. The card offers:
+
+- **Allow for this task:** this task only, until it's done.
+- **Allow for this workspace:** every task in the workspace, the ones already running included, without restarting
+  them. It's listed in Settings › Workspace, where you can take it back.
+- **Deny**, with an optional note that the agent reads.
+
+A command can't ask before it's blocked: it just fails with "Operation not permitted". The agent then asks for the
+folder itself, saying why in its own words ("`uv sync` needs to write its download cache."), on the same card, and
+runs the command again once you allow it. Subagents ask the same way; a card of a subagent's names it at the top
+right. Credential files (`~/.ssh`, `~/.aws` and the like) are never opened, even inside a folder you allowed.
+
+**Running a command outside the sandbox** has a card of its own: "The agent wants to run a command outside the
+sandbox", with the command. Outside the sandbox it can use any folder and reach any domain you can, so it's only ever
+**Allow once** or **Deny**, and it asks every time, in Allow all too.
+
+Nothing you allow is written to your project or to `~/.claude`: Glade keeps it, and gives it to the agent's session.
+
 ## Settings
 
 ⌘, opens Settings. Every change saves as you make it.

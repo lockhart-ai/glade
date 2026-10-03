@@ -67,6 +67,7 @@ import {
 import { commitFileKey, noOpenFiles, withClosedFile, withOpenedFile } from '../../shared/files'
 import { isSubagentTool } from '../../shared/subagents'
 import { taskPermissionRule } from '../../shared/permissions'
+import { SandboxAskKind, SandboxGrantScope } from '../../shared/sandbox'
 import type { ImageData, ImageRef } from '../../shared/images'
 import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
@@ -507,17 +508,30 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
         return refuse(bridgeError(BridgeErrorCode.InvalidTransition, `Permission request ${id} isn't open`))
       }
       const denied = decision.kind === PermissionDecisionKind.Deny
-      const grantedRule = decision.kind === PermissionDecisionKind.AllowForTask ? taskPermissionRule(current) : null
-      if (decision.kind === PermissionDecisionKind.AllowForTask && grantedRule === null) {
+      // A folder or domain is granted to the task or the workspace, as main's broker has it; anything else, a rule.
+      const grants = current.sandbox !== null && current.sandbox.kind !== SandboxAskKind.Outside
+      const forTask = decision.kind === PermissionDecisionKind.AllowForTask
+      const forWorkspace = decision.kind === PermissionDecisionKind.AllowForWorkspace
+      const grantedRule = forTask && current.sandbox === null ? taskPermissionRule(current) : null
+      const refused = grants
+        ? decision.kind === PermissionDecisionKind.AllowOnce
+        : forWorkspace || (forTask && grantedRule === null)
+      if (refused) {
         return refuse(
           bridgeError(BridgeErrorCode.InvalidRequest, `Permission request ${id} can't be allowed for the task`),
         )
       }
+      const grantedScope = forWorkspace
+        ? SandboxGrantScope.Workspace
+        : forTask && grants
+          ? SandboxGrantScope.Task
+          : null
       const permissionRequest: PermissionRequest = {
         ...current,
         state: denied ? PermissionRequestState.Denied : PermissionRequestState.Allowed,
         denyNote: denied ? (decision.note ?? null) : null,
         grantedRule,
+        grantedScope,
         closedAt: 3_000,
       }
       requests[index] = permissionRequest

@@ -1,6 +1,8 @@
 // The scripted session's sandbox steps (`docs/sdk-notes.md` §15): the requests and results a sandboxed session sends,
 // in the shapes the P15-01 probes recorded, decided by the grants it started with and was given since.
+import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { Effort, PermissionMode } from '../../shared/domain'
 import {
   PromptVerdict,
@@ -27,12 +29,15 @@ import {
   sandboxInitFailure,
   sandboxViolations,
 } from './sandbox-requests'
+import { ACCESS_TOOL_NAME, GLADE_SERVER, GladeTool } from './glade-tools'
+import { TOOL_USE_ID_META } from './mcp-tool-caller'
 import { REJECTED_TOOL_OUTPUT, ScriptedSession, type ScriptedSessionOptions } from './scripted-session'
 import {
   init,
   networkAccess,
   outsideRead,
   outsideWrite,
+  requestAccess,
   result,
   sandboxedBash,
   sandboxOverride,
@@ -187,6 +192,11 @@ function results(played: Played): [string, boolean][] {
   return played.events
     .filter((event): event is ToolResultEvent => event.kind === AgentEventKind.ToolResult)
     .map((event) => [event.output, event.isError])
+}
+
+/** What the agent has said so far. */
+function texts(played: Played): string[] {
+  return played.events.flatMap((event) => (event.kind === AgentEventKind.Text ? [event.text] : []))
 }
 
 /** The `tool_use` ids streamed so far, by tool. */
@@ -912,5 +922,217 @@ describe('a malformed sandbox step', () => {
     const error = await played.ended
     expect(error?.message).toBe(message)
     expect(played.asked).toEqual([])
+  })
+})
+
+describe('a sandboxed Bash step that says what it needs', () => {
+  const config = '/Users/Shared/acme-config/config.json'
+  const BLOCKED = commandFailure(`cat: ${config}: Operation not permitted`)
+  const reads = (id: string, options: Parameters<typeof sandboxedBash>[3] = {}) =>
+    sandboxedBash(id, `cat ${config}`, '{ "db": "staging" }', {
+      failed: false,
+      needs: { path: config, access: FileAccess.Read, blockedOutput: BLOCKED },
+      denials: [{ process: 'cat', operation: SandboxOperation.ReadData, path: config }],
+      blocked: [say('Blocked: I’ll ask for it.')],
+      retried: [say('Not played: the hook has nothing to say.')],
+      gaveUp: [say('Not played either.')],
+      ...options,
+    })
+
+  it('is blocked while the sandbox won’t let it: its blocked result, its denials, then what the agent does about it', async () => {
+    const played = play([turn(reads('config'))])
+    await start(played)
+
+    expect(results(played)).toEqual([[BLOCKED, true]])
+    expect(played.finished).toEqual([expect.objectContaining({ output: BLOCKED, failed: true })])
+    expect(played.logged).toHaveLength(1)
+    expect(texts(played)).toEqual(['Blocked: I’ll ask for it.'])
+  })
+
+  it('runs once the folder is readable, and unsandboxed: its own result, no denials, and nothing more to do', async () => {
+    const granted = play([turn(reads('config'))])
+    await granted.session.applyFlagSettings({
+      sandbox: {
+        enabled: true,
+        filesystem: { denyRead: ['/Users'], allowRead: [ROOT, '/Users/Shared/acme-config'], allowWrite: [ROOT] },
+      },
+    })
+    await start(granted)
+    const unsandboxed = play([turn(reads('config'))], { flagSettings: {} })
+    await start(unsandboxed)
+
+    for (const played of [granted, unsandboxed]) {
+      expect(results(played)).toEqual([['{ "db": "staging" }', false]])
+      expect(played.logged).toEqual([])
+      expect(texts(played)).toEqual([])
+    }
+  })
+
+  it('needs a folder it may write for a write, and reads freely outside the folders it’s denied', async () => {
+    const cache = '/Users/Shared/cache/uv'
+    const writes = sandboxedBash('sync', 'uv sync', 'Resolved 12 packages', {
+      failed: false,
+      needs: { path: cache, access: FileAccess.Write, blockedOutput: commandFailure('Operation not permitted') },
+    })
+    const hosts = sandboxedBash('hosts', 'cat /etc/hosts', '127.0.0.1 localhost', {
+      failed: false,
+      needs: { path: '/etc/hosts', access: FileAccess.Read, blockedOutput: 'never' },
+    })
+    const played = play([turn(writes, hosts), turn(writes)])
+    await start(played)
+
+    expect(results(played)).toEqual([
+      [commandFailure('Operation not permitted'), true],
+      ['127.0.0.1 localhost', false],
+    ])
+    // Readable isn't writable; read-write is.
+    await played.session.applyFlagSettings({
+      sandbox: { enabled: true, filesystem: { allowRead: [ROOT, cache], allowWrite: [ROOT, cache] } },
+    })
+    played.session.send('Again', 'user-2')
+    await flush()
+    expect(results(played).at(-1)).toEqual(['Resolved 12 packages', false])
+  })
+})
+
+describe('a request_access step', () => {
+  const CACHE = '/Users/Shared/cache/uv'
+
+  /** A `glade` server whose `request_access` answers as a test says, recording each call it gets. */
+  function accessServer() {
+    const calls: { input: unknown; toolUseId: unknown }[] = []
+    let answer: (result: { text: string; isError: boolean }) => void = () => undefined
+    const signals: AbortSignal[] = []
+    const server = createSdkMcpServer({
+      name: GLADE_SERVER,
+      tools: [
+        tool(
+          GladeTool.RequestAccess,
+          'Ask for a folder.',
+          { path: z.string(), access: z.string(), reason: z.string() },
+          (input, extra) => {
+            const meta = (extra as { _meta?: Record<string, unknown> })._meta
+            calls.push({ input, toolUseId: meta?.[TOOL_USE_ID_META] ?? null })
+            signals.push((extra as { signal: AbortSignal }).signal)
+            return new Promise((resolve) => {
+              answer = ({ text, isError }) => {
+                resolve({ content: [{ type: 'text', text }], isError })
+              }
+            })
+          },
+        ),
+      ],
+    })
+    return {
+      server,
+      calls,
+      signals,
+      answer: (text: string, isError = false) => {
+        answer({ text, isError })
+      },
+    }
+  }
+
+  const asks = (options: Parameters<typeof requestAccess>[4] = {}) =>
+    requestAccess('access', CACHE, FileAccess.Write, 'uv needs its cache.', {
+      allowed: [say('Allowed: running it again.')],
+      denied: [say('Denied: carrying on without it.')],
+      ...options,
+    })
+
+  it('tells the hook of the call, then waits on the tool, idle; allowed, the agent goes on to its retry', async () => {
+    const glade = accessServer()
+    const heard: unknown[] = []
+    const played = play([turn(asks())], {
+      mcpServers: { [GLADE_SERVER]: glade.server },
+      hooks: {
+        onPrompt: () => PromptVerdict.Allow,
+        onTurnEnded: () => undefined,
+        onCompacted: () => undefined,
+        onAccessRequested: (call) => heard.push(call),
+      },
+    })
+    await start(played)
+    await vi.advanceTimersByTimeAsync(0)
+
+    const [call] = toolUses(played)
+    const input = { path: CACHE, access: 'write', reason: 'uv needs its cache.' }
+    expect(call).toEqual({ name: ACCESS_TOOL_NAME, id: expect.any(String) as unknown, input })
+    expect(heard).toEqual([{ toolUseId: call?.id, agentId: null, input }])
+    // The call's id goes with the tool's request, as Claude Code sends it.
+    expect(glade.calls).toEqual([{ input, toolUseId: call?.id }])
+    expect(results(played)).toEqual([])
+    expect(played.idles()).toBe(1)
+
+    glade.answer('Allowed for this task: you can now read and write the folder.')
+    await vi.advanceTimersByTimeAsync(0)
+    await flush()
+
+    expect(results(played)).toEqual([['Allowed for this task: you can now read and write the folder.', false]])
+    expect(texts(played)).toEqual(['Allowed: running it again.'])
+    played.session.close()
+  })
+
+  it('denied, the agent does what it does without it; a subagent’s call names the subagent, and may send no id', async () => {
+    const glade = accessServer()
+    const heard: { agentId: string | null }[] = []
+    const played = play(
+      [
+        turn(
+          toolUse('agent', 'Agent', { description: 'Client generator', prompt: 'Generate it.' }),
+          asks({ parent: 'agent', namesCall: false }),
+        ),
+      ],
+      {
+        mcpServers: { [GLADE_SERVER]: glade.server },
+        hooks: {
+          onPrompt: () => PromptVerdict.Allow,
+          onTurnEnded: () => undefined,
+          onCompacted: () => undefined,
+          onAccessRequested: (call) => heard.push(call),
+        },
+      },
+    )
+    await start(played)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(heard).toEqual([expect.objectContaining({ agentId: expect.stringMatching(/agent$/) as unknown })])
+    expect(glade.calls).toEqual([expect.objectContaining({ toolUseId: null })])
+
+    glade.answer('Denied: the user didn’t allow it.', true)
+    await vi.advanceTimersByTimeAsync(0)
+    await flush()
+
+    expect(results(played).at(-1)).toEqual(['Denied: the user didn’t allow it.', true])
+    expect(texts(played)).toEqual(['Denied: carrying on without it.'])
+    played.session.close()
+  })
+
+  it('an interrupt cancels the call it waits on, and nothing more plays', async () => {
+    const glade = accessServer()
+    const played = play([turn(asks())], { mcpServers: { [GLADE_SERVER]: glade.server } }, 'absent')
+    await start(played)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(glade.calls).toHaveLength(1)
+
+    await played.session.interrupt()
+    await vi.advanceTimersByTimeAsync(0)
+    await flush()
+
+    expect(glade.signals[0]?.aborted).toBe(true)
+    expect(texts(played)).toEqual([])
+    // An answer that comes too late changes nothing.
+    glade.answer('Allowed.')
+    await flush()
+    expect(texts(played)).toEqual([])
+    played.session.close()
+  })
+
+  it('fails the session when the tool can’t be called at all', async () => {
+    const played = play([turn(asks())])
+    await start(played)
+    await vi.advanceTimersByTimeAsync(0)
+
+    await expect(played.ended).resolves.toMatchObject({ message: 'No in-process MCP server named glade' })
   })
 })

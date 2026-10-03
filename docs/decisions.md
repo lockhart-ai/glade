@@ -165,9 +165,29 @@
   - With the sandbox on, folders are compared by where they really are (symbolic links followed, `~` and the data
     volume's alias resolved, case ignored), so another spelling of a denied folder asks too. Credential files are
     refused outright. A write that Claude Code's own safety check holds back (`.mcp.json`, `.claude/`, `.git/`, shell
-    startup files) asks even in Allow all. Until the sandbox's own cards (P15-05), a boundary crossing can only be
-    allowed once: **Allow for this task** isn't offered on it, and a whole-tool `Edit` or `Write` rule a task was
-    granted in the ask mode applies only inside the workspace root and the read-write grants.
+    startup files) asks even in Allow all, on the plain card, allowed once or denied. A whole-tool `Edit` or `Write`
+    rule a task was granted in the ask mode applies only inside the workspace root and the read-write grants.
+  - The sandbox's cards (P15-05, #450). A boundary crossing asks for what a grant can give, never for a rule: a file
+    tool for its folder (the one Claude Code's suggestion names, else the file's own; a read read-only, a write
+    read-write), `WebFetch` and a command's connection for the host's domain. The card offers **Allow for this
+    task** · **Allow for this workspace** · **Deny** (with the note), and no Allow once. The answer saves the grant
+    with it, and the call that waited goes on only once its own session has the grant in force; the workspace's other
+    running sessions get it in the background. Running a command outside the sandbox has its own card, with the
+    command, **Allow once** · **Deny** only, every time, in either mode, whatever task rules exist. Nothing goes back
+    to the SDK with an answer but that the call may run: Claude Code's suggestion (a rule for the project's local
+    settings, for a domain) is never returned, so nothing is written to the user's repo or `~/.claude`.
+  - A command the sandbox blocked is asked about by the agent itself, with the `glade` server's `request_access`
+    (the absolute path, read or write, a short reason): Glade's prompt and the tool's description tell it to, instead
+    of retrying outside the sandbox. It opens the folder card with the reason, and returns the decision once the grant
+    is live, or at once when there's nothing to decide (the sandbox is off, the path is in the workspace or already
+    usable as asked, or it's a credential path, which is refused). It's the one Glade tool a subagent may call; the
+    card names the subagent. See `model-surface.md`.
+  - Calls made without Jared in P15-05: a connection's card is put on the command running when it asked (the latest
+    started, when several are), since the SDK doesn't say which command made it; a `request_access` path that doesn't
+    exist yet is asked for as it is, not by its parent folder; `request_access` takes `~` and `~/…` as the home
+    folder; a call whose folder or host can't be granted (a path with a glob character or that can't be resolved, a
+    host that isn't a name) keeps the plain card, allowed once or denied; and a session resumed from before the
+    sandbox was on keeps its old prompt and learns of `request_access` from the tool's description.
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
     `manifest.json`: `id` (the folder's name), `name`, `version`, `entry` (an HTML file in the folder) and an optional

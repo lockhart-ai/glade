@@ -56,8 +56,10 @@ import {
   changeSandboxFolderAccess,
   grantedDomain,
   grantedFolder,
+  grantingScope,
   grantSandboxAccess,
   revokeSandboxGrant,
+  saveSandboxGrant,
   sandboxGrantsOf,
   taskSandboxGrants,
   type SandboxGrantsContext,
@@ -1238,5 +1240,63 @@ describe('grants going with what they belong to', () => {
     expect(listSandboxGrants(database.db, workspaceTarget(web.id))).toHaveLength(1)
     expect(listSandboxGrants(database.db, taskTarget(webTask.id))).toHaveLength(1)
     expect(listSandboxGrants(database.db, GLADE)).toHaveLength(1)
+  })
+})
+
+describe('a card’s grant', () => {
+  it('is saved without telling any session, for whoever answered the card to apply', async () => {
+    const session = await startTask()
+    const overlays = session.flagSettings.length
+    const target: SandboxGrantTarget = { scope: SandboxGrantScope.Task, taskId: task.id }
+
+    expect(saveSandboxGrant(database.db, { target, grant: read(`${NOTES}/`) })).toBe(SandboxGrantChange.Added)
+    expect(saveSandboxGrant(database.db, { target, grant: read(NOTES) })).toBe(SandboxGrantChange.Unchanged)
+    expect(saveSandboxGrant(database.db, { target, grant: readWrite(NOTES) })).toBe(SandboxGrantChange.Changed)
+    expect(saveSandboxGrant(database.db, { target, grant: domain('Registry.NPMjs.org') })).toBe(
+      SandboxGrantChange.Added,
+    )
+
+    expect(listSandboxGrants(database.db, target).map(({ grant }) => grant)).toEqual([
+      readWrite(NOTES),
+      domain('registry.npmjs.org'),
+    ])
+    expect(session.flagSettings).toHaveLength(overlays)
+    expect(() => saveSandboxGrant(database.db, { target, grant: read('/') })).toThrow(CommandFailure)
+    expect(() =>
+      saveSandboxGrant(database.db, {
+        target: { scope: SandboxGrantScope.Task, taskId: 'gone' },
+        grant: read(NOTES),
+      }),
+    ).toThrow(CommandFailure)
+  })
+
+  it('says whose grant gives a task a folder or a domain: the narrowest scope that does', () => {
+    const other = anotherTask()
+    const workspaceTarget: SandboxGrantTarget = { scope: SandboxGrantScope.Workspace, workspaceId: workspace.id }
+    saveSandboxGrant(database.db, { target: GLADE, grant: read(TOOLCHAIN) })
+    saveSandboxGrant(database.db, { target: GLADE, grant: domain('*.acme.dev') })
+    saveSandboxGrant(database.db, { target: workspaceTarget, grant: read(SHARED) })
+    saveSandboxGrant(database.db, { target: workspaceTarget, grant: readWrite(DOCS) })
+    saveSandboxGrant(database.db, {
+      target: { scope: SandboxGrantScope.Task, taskId: task.id },
+      grant: readWrite(SHARED),
+    })
+
+    const scope = (grant: Grant, of = task) => grantingScope(database.db, of, grant)
+    // A file inside a granted folder is covered by it; a wider access than granted isn't.
+    expect(scope(read(`${TOOLCHAIN}/bin/node`))).toBe(SandboxGrantScope.Glade)
+    expect(scope(readWrite(TOOLCHAIN))).toBeNull()
+    expect(scope(read(`${DOCS}/guide.md`))).toBe(SandboxGrantScope.Workspace)
+    expect(scope(readWrite(DOCS))).toBe(SandboxGrantScope.Workspace)
+    // The task's own grant comes before the workspace's, and is no other task's.
+    expect(scope(read(SHARED))).toBe(SandboxGrantScope.Task)
+    expect(scope(readWrite(SHARED))).toBe(SandboxGrantScope.Task)
+    expect(scope(read(SHARED), other)).toBe(SandboxGrantScope.Workspace)
+    expect(scope(readWrite(SHARED), other)).toBeNull()
+    expect(scope(read(NOTES))).toBeNull()
+    expect(scope(domain('docs.acme.dev'))).toBe(SandboxGrantScope.Glade)
+    expect(scope(domain('registry.npmjs.org'))).toBeNull()
+    // A folder isn't a domain, whatever its name.
+    expect(scope(domain(TOOLCHAIN))).toBeNull()
   })
 })

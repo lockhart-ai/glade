@@ -8,6 +8,7 @@ import {
   handoffSection,
   INSTRUCTION_UPDATES,
   LINK_ARTIFACTS_LINE,
+  SANDBOX_LINE,
   systemPromptAppend,
   WATCHERS_LINE,
 } from './system-prompt'
@@ -134,5 +135,25 @@ describe('systemPromptAppend', () => {
       ].join('\n'),
     )
     expect(systemPromptAppend(task)).not.toContain(HANDOFF_HEADING)
+  })
+})
+
+describe('the sandbox line', () => {
+  it('tells a sandboxed session to ask with request_access when the sandbox blocks a command, not to leave it', () => {
+    const prompt = systemPromptAppend(task, undefined, true, null, true)
+
+    expect(prompt).toContain(SANDBOX_LINE)
+    expect(SANDBOX_LINE).toContain('fails with "Operation not permitted" on a path outside the workspace')
+    expect(SANDBOX_LINE).toContain("don't retry it outside the sandbox: call request_access with the absolute path")
+    expect(SANDBOX_LINE).toContain('once it says the access is allowed, run the command again')
+    // Ahead of the control tools' line, which stays last.
+    expect(prompt.indexOf(SANDBOX_LINE)).toBeLessThan(prompt.indexOf(CONTROL_TOOLS_LINE))
+  })
+
+  it("doesn't mention the sandbox or request_access with it off", () => {
+    for (const prompt of [systemPromptAppend(task), systemPromptAppend(task, undefined, true, null, false)]) {
+      expect(prompt).not.toContain('sandbox')
+      expect(prompt).not.toContain('request_access')
+    }
   })
 })

@@ -2706,6 +2706,7 @@ export const ASKS_SANDBOX = {
   configFolder: '/Users/Shared/acme-config',
   configReason: '`cat` needs to read the shared config.',
   compose: 'docker compose up -d',
+  push: 'git push origin api-client',
   reply: 'Installed the dependencies, read the shared notes and config, and started the database.',
   gaveUp: "I couldn't read the shared config, so I'll use the defaults.",
 } as const
@@ -2723,9 +2724,9 @@ const CONFIG_NEED: SandboxNeed = {
 /**
  * A turn that reaches past its workspace every way the sandbox asks about, in the order a task might: a command
  * connecting to a host, `WebFetch` to a domain, a file read and a file write outside the workspace, a command the
- * sandbox blocks (the agent then asks with `request_access`, and once allowed runs it again), and one that asks to run
- * outside the sandbox. Run sandboxed, each asks; unsandboxed, only the file tools and the override ask, and only in the
- * ask mode.
+ * sandbox blocks (the agent then asks for its folder with `request_access`, and once allowed runs it again), and two
+ * that ask to run outside the sandbox. Run sandboxed, each asks; unsandboxed, only the file tools and the overrides
+ * ask, and only in the ask mode.
  */
 const asksSandbox: AgentScript = {
   name: 'asks-sandbox',
@@ -2749,7 +2750,7 @@ const asksSandbox: AgentScript = {
         needs: CONFIG_NEED,
         denials: [CONFIG_DENIAL],
         blocked: [
-          requestAccess('config-access', ASKS_SANDBOX.config, FileAccess.Read, ASKS_SANDBOX.configReason, {
+          requestAccess('config-access', ASKS_SANDBOX.configFolder, FileAccess.Read, ASKS_SANDBOX.configReason, {
             allowed: [
               sandboxedBash('config-again', `cat ${ASKS_SANDBOX.config}`, '{ "db": "staging" }', {
                 failed: false,
@@ -2762,6 +2763,9 @@ const asksSandbox: AgentScript = {
       }),
       sandboxOverride('compose', ASKS_SANDBOX.compose, 'Container acme-db  Started', {
         description: 'Start the database',
+      }),
+      sandboxOverride('push', ASKS_SANDBOX.push, 'To github.com:acme/api.git\n * [new branch]      api-client', {
+        description: 'Push the branch',
       }),
       say(ASKS_SANDBOX.reply),
       result(),
