@@ -69,7 +69,8 @@ There are no follow-up tasks. One task can refer to another through its folder o
   × closes it, and the focus goes to the task's input (#415).
   ![Image viewer](design/screens/30-image-viewer.png)
   The same viewer opens an image artifact from the Artifacts tab, and the one file showing in the Files tab (#372): for
-  an artifact, it also shows the artifact's title and two actions, Open in Files and Reveal in Finder, and steps
+  an artifact, it also shows the artifact's title, just above the image's left edge (it appears with the image, once
+  that has loaded, never before it: #478), and two actions, Open in Files and Reveal in Finder, and steps
   through the image artifacts the Artifacts tab lists, in its order (not those in a folded date group, #378); for a
   Files tab image, it shows that one file alone. Opened either of those ways, closing it returns the focus to the row
   or thumbnail that opened it, not to the task's input: a keyboard user stepping through a list keeps their place in it.

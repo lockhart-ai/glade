@@ -238,6 +238,28 @@ describe('ImageThumbnails', () => {
     expect(next).toBeEnabled()
   })
 
+  it('keeps an image unpainted until the browser has loaded it, each on its own load (#478)', async () => {
+    await renderThumbnails()
+    const viewer = await open(0)
+
+    // Its data is here, but the browser hasn't loaded it: its element has no size yet. The viewer's keys don't wait.
+    const first = within(viewer).getByRole('img', { name: IMAGE_LABEL })
+    expect(first.parentElement).toHaveAttribute('data-pending')
+    expect(within(viewer).getByRole('button', { name: 'Close image' })).toHaveFocus()
+
+    fireEvent.load(first)
+    expect(first.parentElement).not.toHaveAttribute('data-pending')
+
+    // The next has its own load to wait for; the first stays as it was.
+    fireEvent.keyDown(viewer, { key: 'ArrowRight' })
+    const second = within(viewer).getByRole('img', { name: IMAGE_LABEL })
+    expect(second).not.toBe(first)
+    expect(second.parentElement).toHaveAttribute('data-pending')
+    expect(first.parentElement).not.toHaveAttribute('data-pending')
+    fireEvent.load(second)
+    expect(second.parentElement).not.toHaveAttribute('data-pending')
+  })
+
   it('leaves arrows with a modifier alone, and keys it doesn’t use', async () => {
     await renderThumbnails()
     const viewer = await open(0)
@@ -278,7 +300,10 @@ describe('ImageThumbnails', () => {
 
     expect(within(thumbnail(0, 2)).getByRole('img', { name: MISSING_IMAGE_LABEL })).toBeInTheDocument()
     const viewer = await open(0, 2)
-    expect(within(viewer).getByRole('img', { name: MISSING_IMAGE_LABEL })).toHaveTextContent(MISSING_IMAGE_LABEL)
+    const card = within(viewer).getByRole('img', { name: MISSING_IMAGE_LABEL })
+    expect(card).toHaveTextContent(MISSING_IMAGE_LABEL)
+    // The card has its size as it mounts: nothing to wait for (#478).
+    expect(card.parentElement).not.toHaveAttribute('data-pending')
     expect(within(viewer).queryByRole('img', { name: IMAGE_LABEL })).not.toBeInTheDocument()
 
     fireEvent.keyDown(viewer, { key: 'ArrowRight' })
