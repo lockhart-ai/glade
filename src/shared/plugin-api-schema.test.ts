@@ -45,6 +45,7 @@ const TASK: PluginTask = {
   activity: PluginTaskActivity.Working,
   needsYou: false,
   waitingOn: null,
+  watchers: 0,
   createdAt: 1,
   updatedAt: 2,
   doneAt: null,
@@ -66,12 +67,24 @@ describe('gladeMessageSchema', () => {
     ['a field the schema has no place for', { ...TASK, objective: 'Something private' }],
     ['text longer than 200 characters', { ...TASK, title: 'x'.repeat(MAX_PLUGIN_TEXT + 1) }],
     ['a state that is not one', { ...TASK, state: 'archived' }],
+    ['no count of its watchers', { ...TASK, watchers: undefined }],
+    ['a count of watchers below 0', { ...TASK, watchers: -1 }],
+    ['a count of watchers that is not whole', { ...TASK, watchers: 1.5 }],
+    [
+      'its watchers themselves, not their count',
+      { ...TASK, watchers: [{ label: 'CI checks', detail: 'gh pr checks' }] },
+    ],
+    ['a watcher beside the count', { ...TASK, watchers: 1, watcher: { label: 'CI checks', lastOutput: 'lint pass' } }],
   ])('refuses a task with %s', (_name, task) => {
     expect(pluginTaskSchema.safeParse(task).success).toBe(false)
     expect(
       gladeMessageSchema.safeParse({ source: 'glade', apiVersion: 1, seq: 1, event: { type: 'task.created', task } })
         .success,
     ).toBe(false)
+  })
+
+  it('takes a task with watchers running: their count', () => {
+    expect(pluginTaskSchema.parse({ ...TASK, watchers: 3 })).toEqual({ ...TASK, watchers: 3 })
   })
 
   it('refuses another version, a seq below 1, and an event type it does not know', () => {

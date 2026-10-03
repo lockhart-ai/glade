@@ -55,6 +55,7 @@ function task(id: string, workspaceId: string, state = PluginTaskState.Active): 
     activity: PluginTaskActivity.Working,
     needsYou: false,
     waitingOn: null,
+    watchers: 0,
     createdAt: 1,
     updatedAt: 1,
     doneAt: null,
