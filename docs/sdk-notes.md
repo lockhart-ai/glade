@@ -407,7 +407,8 @@ The tool is named `Agent` in `tool_use` (the init `tools` list shows `Task`). A 
   text and thinking [verified, SDK 0.3.281 on Haiku]: each text block comes as an `assistant` message with
   `parent_tool_use_id` set and `content: [{ "type": "text", "text": "…" }]`, the same shape as a top-level one. Its
   prompt also arrives, as a `user` message with a text block and the parent id; its thinking blocks came with empty
-  `thinking` text.
+  `thinking` text. With it, a subagent's own subagents' messages arrive too, each under the `Agent` call that started
+  it; without it, nothing of theirs but their task events (§16, "A subagent's calls").
 - `agentProgressSummaries: true` adds a one-line `summary` to `task_progress` about every 30s [verified, below].
 - Background Bash commands use the same `task_*` events with `task_type: "local_bash"`, plus
   `system/background_tasks_changed` [verified].
@@ -1306,7 +1307,8 @@ a denied call and a foreground subagent's call. What that run showed is marked *
   'PreToolUse', permissionDecision: 'deny', permissionDecisionReason }` before the tool ever dispatches (#366). Not
   probed against a live session: built from `sdk.d.ts` and tested against the real `glade` MCP server, simulating the
   SDK's documented dispatch order, since the scripted test backend has no SDK hooks to exercise
-  (`src/main/agent/subagent-tool-guard.test.ts`).
+  (`src/main/agent/subagent-tool-guard.test.ts`). P16-01 has since seen a `PreToolUse` hook refuse live calls this way,
+  to Claude Code's own tools, in both modes, and seen `agent_id` on every hook a subagent's call fires (§16).
 
 ## 10. Claude Code's todo tools [verified]
 
@@ -1336,7 +1338,8 @@ How the bundled binary decides, from its code:
   before its first call. `TaskStop` is unrelated (it stops a background task) and is always there.
 
 **Glade sets `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` in every session's `env`** (`SESSION_ENV` in `sdk-backend.ts`), and
-leaves `CLAUDE_CODE_ENABLE_TASKS` to the user.
+leaves `CLAUDE_CODE_ENABLE_TASKS` to the user: a settings file that sets it to `false` gives the session `TodoWrite`,
+whatever its `env` says (§16, "`TodoWrite`"). What a todo's id is, and how long it lasts, is in §16 too.
 
 A real session built from Glade's `sdkOptions` (`claude-sonnet-5`), asked to keep a two-item list, made these calls,
 which match the Todos tab's schemas (`src/main/todos/schema.ts`) and the scripted backend's `keeps-todos` script:
@@ -2080,6 +2083,475 @@ The scripted and fake backends play these shapes (`src/main/agent/sandbox-reques
 `src/main/agent/scripts.ts`, and `FakeAgentSession` (`fake-backend.ts`). They record the `sandbox` and `permissions`
 a session starts with and every `applyFlagSettings` call. The `sandbox-fails` script plays a session whose sandbox
 couldn't start (`e2e/sandbox.spec.ts`).
+
+## 16. Filing a child under a todo
+
+What the todo hub (P16, #491) relies on to file each thing a task makes (a **child**: a subagent, a watcher, a
+scheduled wakeup or cron job, a commit) under one of its todos, probed for P16-01 (#492). SDK 0.3.283 (Claude Code
+2.1.283), macOS arm64, October 2026: about fifty scratch `query()`s in streaming input mode, in throwaway folders,
+with `settingSources: []`, Glade's `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`, and an in-process callback on every hook named
+below that logged what it was given. The mechanics ran on `haiku`. How a model behaves ran on `opus` (Opus 5.5, what
+Glade's default resolves to), sixteen runs, with one run each on Sonnet 5 and two on Haiku 4.5 for contrast.
+
+In the behaviour runs the probe stood in for Glade: its lines appended to the `claude_code` preset's prompt, hooks
+that kept the todo list and the children as Glade would, and an in-process `glade` server with one tool,
+`file_children({ filings: [{ child, todo }] })`, standing in for P16-05's (#496). The job, in a made-up repository of
+three one-line source files and a README: have a subagent review each file (one each, started together, a todo per
+review), fix the README's typo and commit it, start a watcher for a file that won't appear and schedule a check back
+in an hour, then report. That makes six children: three subagents, a commit, a watcher and a wakeup or cron job. A
+second message (the "follow-up") asked for one more subagent and one more commit, eight in all. A third job ("quick")
+only starts a watcher, in a session with no todo list.
+
+### What this changes in #491 [verified]
+
+Each is explained, with its evidence, below.
+
+1. **Glade can do more than check a call and refuse it.** A `PreToolUse` hook can also hand the tool a changed input
+   (`updatedInput`). A hook after the calls of a message (`PostToolBatch`) can hand the agent a message it acts on in
+   its next step. A `Stop` hook can hold the end of the turn. All three work on the five tools, in Allow all and in
+   the ask mode.
+2. **The models name the todo in the call from one prompt paragraph.** Opus 5.5 did in 36 of 36 calls that made a
+   child, Sonnet 5 in 8 of 8, with no refusal, no extra call and nothing ever unfiled. Haiku 4.5 did in 4 of 8.
+3. **Jared's flow works, and costs a model request per message that made a child.** Told after the call, Opus filed
+   every child right, 1 to 8 seconds after it was made, in one call for all the children of a message. Haiku filed
+   them all too, two of eight under the wrong todo.
+4. **A foreground subagent can't be filed after the fact until it has finished.** `PostToolUse` fires for an `Agent`
+   call when the call returns: at launch for a background subagent, at the end for a foreground one. Only naming the
+   todo in the call files a foreground subagent while it runs.
+5. **"The todo in progress" is not a signal to file by.** Opus set several todos in progress at once around a
+   fan-out (all five, in one run), sometimes before the `Agent` calls and sometimes after them in the same message,
+   and left a watching todo in progress across later, unrelated work. Haiku left every todo pending.
+6. **A refusal costs the call again, per call.** Three `Agent` calls refused in one message came back as three
+   refusals, and the model wrote all three again, prompts included.
+7. **Claude Code doesn't cap a `Stop` hook that keeps holding the turn.** Glade has to: eight holds in a row were
+   seen, each a model request.
+8. **`Task #N` is unique within a session, not beyond it,** and never reused there. A resume keeps the list and the
+   count, across a compaction and a new process. A new session starts again at 1, unless
+   `CLAUDE_CODE_TASK_LIST_ID` names the list.
+9. **A session can still get `TodoWrite`,** whose items have no id: `CLAUDE_CODE_ENABLE_TASKS=false` in the user's
+   settings beats the session's environment. The SDK's own `settings` option beats the user's.
+10. **`PostToolBatch` fires for a subagent's messages too,** with `agent_id`: a message meant for the task's agent
+    must not be answered to one of those.
+
+### What a `PreToolUse` hook can do on the five tools [verified]
+
+One `haiku` session per case, told to make five calls one after another: a `Bash` with `run_in_background`, a
+`Monitor`, a `ScheduleWakeup`, a `CronCreate` and a foreground `Agent`. In `bypassPermissions` (Glade's Allow all)
+and `default` (the ask mode), with a `canUseTool` that logged and allowed.
+
+**It sees the whole input,** for every one, before the tool runs, in both modes:
+
+```jsonc
+{ "hook_event_name": "PreToolUse", "permission_mode": "bypassPermissions", "tool_use_id": "toolu_014n…",
+  "tool_name": "Bash", "tool_input": { "command": "sleep 2; echo bg-done", "description": "bg sleeper", "run_in_background": true } }
+{ "tool_name": "Monitor", "tool_input": { "description": "ticks", "timeout_ms": 20000, "command": "for i in 1 2; do sleep 1; echo tick $i; done" } }
+{ "tool_name": "ScheduleWakeup", "tool_input": { "delaySeconds": 3600, "reason": "probe wake", "prompt": "Reply with exactly: WOKE", "noop": false } }
+{ "tool_name": "CronCreate", "tool_input": { "cron": "0 3 1 1 *", "prompt": "Reply with exactly: CRON", "recurring": false } }
+{ "tool_name": "Agent", "tool_input": { "description": "echo agent", "prompt": "Reply with exactly: sub-ok",
+    "subagent_type": "general-purpose", "run_in_background": false } }
+```
+
+A subagent's call has `agent_id` and `agent_type` too; the task's own has neither. In the ask mode the hook is called
+first, then `canUseTool` (for the `Monitor`, whose command it asked about).
+
+**It can refuse the call,** with `hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny',
+permissionDecisionReason }`. The tool never runs: no task starts, nothing is scheduled. The call's result is an error
+whose text is the reason behind a fixed prefix, the model reads it and calls again, and the turn's `result` lists the
+call in `permission_denials`. The same in both modes.
+
+```
+tool_use  Bash { command: "sleep 2; echo bg-done", description: "bg sleeper", run_in_background: true }
+tool_result (is_error)  "PreToolUse:Bash hook error: Glade: this call must name the todo it belongs to. Start its
+                         description … with [todo 1] and make the same call again."
+tool_use  Bash { command: "sleep 2; echo bg-done", description: "[todo 1] bg sleeper", run_in_background: true }
+…
+result/success { permission_denials: [{ tool_name: "Bash", tool_use_id: "toolu_01Gi…", tool_input: { … } }] }
+```
+
+**It can rewrite the input,** with `hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput }` and no
+decision, the whole input given back with one field changed. The tool ran with the new input, for all five, in both
+modes. Everything the SDK said of the call afterwards carried it:
+
+```
+tool_use  Monitor { description: "ticks", … }                                      ← as the model wrote it
+canUseTool("Monitor", { description: "REWRITTEN ticks", … })                       ← the ask mode: asked about the new input
+system/task_started { tool_use_id: <the call>, description: "REWRITTEN ticks", … }
+PostToolUse { tool_name: "Monitor", tool_input: { description: "REWRITTEN ticks", … } }
+Stop { session_crons: [{ id: "105e…", prompt: "REWRITTEN Reply with exactly: CRON", … }] }   ← the CronCreate's
+system/task_started { description: "REWRITTEN echo agent", task_type: "local_agent", … }     ← the Agent's
+```
+
+- The `tool_use` block in the stream is the model's own, unchanged: Glade's tool log has the input as written.
+- **Never with `permissionDecision: 'allow'`.** With it, the ask mode ran the `Monitor` without calling `canUseTool`
+  at all: an `allow` from a hook skips the permission check. A changed input with no decision still asks.
+- Not probed: a partial `updatedInput` (only the changed field), and a rewrite alongside a user's own hooks.
+
+### Telling the agent after the call [verified]
+
+**`additionalContext` reaches the model from four hooks.** A `haiku` session whose hooks each added a line, asked to
+quote what it had been given, quoted them as: `PreToolUse:Bash hook additional context: …`, `PostToolUse:Bash hook
+additional context: …`, `PostToolBatch hook additional context: …` and `Stop hook additional context: …`. The first
+three arrive with the results of the message's calls, before the model's next step (`PreToolUse`'s too: it's no
+earlier). The last continues the turn. None shows in the message stream.
+
+**When `PostToolUse` fires, and what it has to name the child by:**
+
+| Call                             | `PostToolUse` fires                                         | `tool_response`                                                      |
+| -------------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------- |
+| `Agent`, in the background       | At launch, the instant of its `task_started`                | `{ isAsync: true, status: "async_launched", agentId, description }`  |
+| `Agent`, in the foreground       | When the subagent has finished (8.8 s after it started)     | `{ status: "completed", agentId, content, totalToolUseCount, … }`    |
+| `Monitor`                        | At start, while the watch runs on (24 s more, in the probe) | `{ taskId, timeoutMs, persistent }`                                  |
+| `Bash` with `run_in_background`  | At start                                                    | `{ stdout: "", stderr: "", backgroundTaskId, … }`                    |
+| `ScheduleWakeup`                 | At once                                                     | `{ scheduledFor, clampedDelaySeconds, wasClamped }` (no job id)      |
+| `CronCreate`                     | At once                                                     | `{ id, humanSchedule, recurring, durable }`                          |
+| `Bash` that committed            | When the command has run                                    | `{ stdout, stderr, … }`: the commit is found as §14 finds it         |
+
+So a foreground subagent is known from its `task_started` (and its `PreToolUse`), but the agent can't be told
+anything until it returns: the model is waiting on the call.
+
+**`PostToolBatch` fires once per assistant message, after all its calls have run,** with every call:
+`{ tool_calls: [{ tool_name, tool_input, tool_use_id, tool_response }] }`, where `tool_response` is the text the model
+reads. It fires for a subagent's messages too, with that subagent's `agent_id`, and context answered to one of those
+goes to the subagent. An early version of the probe answered whichever batch came next: the message about a
+subagent went to that very subagent, which had just read a file, and the task's agent never heard of it.
+
+**Opus acts on it at once.** With these lines in the prompt:
+
+> Glade files everything you make (a subagent, a watcher or background command, a scheduled wakeup or cron job, a
+> commit) under one of your todos, where the user finds it. Right after a call that makes one, Glade tells you what it
+> made and lists your todos: file it at once with mcp\_\_glade\_\_file_children, before your next step, creating the
+> todo first (TaskCreate) if none fits. What a subagent makes is filed with the subagent: leave those.
+
+and this from the `PostToolBatch` hook, after each message that made a child:
+
+```
+Glade: file what you just made under its todo now, before your next step, with one mcp__glade__file_children call.
+Made:
+- c1: subagent "Review src/dates.js for bugs"
+- c2: subagent "Review src/users.js for bugs"
+- c3: subagent "Review src/orders.js for bugs"
+Your todos: #1 Review src/dates.js for bugs (in progress) · #2 Review src/users.js for bugs (in progress) · #3 Review src/orders.js for bugs (in progress) · #4 Fix README.md heading typo and commit (pending) · #5 Watch for deploy.done and schedule a one-hour check (pending)
+If no todo fits, create it first with TaskCreate.
+```
+
+one run of the job and its follow-up went (seconds from the start; `cN` is the id the probe's Glade gave the child):
+
+```
+15.0  tool_use Agent { description: "Review src/dates.js for bugs", … }     ← three in one message, each started
+17.5  tool_use Agent { description: "Review src/users.js for bugs", … }       as its block arrived
+20.0  tool_use Agent { description: "Review src/orders.js for bugs", … }
+21.4  PostToolBatch → the message above
+22.6  tool_use mcp__glade__file_children { filings: [{ child: "c1", todo: "1" }, { child: "c2", todo: "2" }, { child: "c3", todo: "3" }] }
+31.7  tool_use Bash { …, run_in_background: true }   33.9  tool_use ScheduleWakeup { … }     ← one message
+34.8  PostToolBatch → "Made: - c4: background command … - c5: wakeup …"
+36.2  tool_use mcp__glade__file_children { filings: [{ child: "c4", todo: "5" }, { child: "c5", todo: "5" }] }
+38.3  tool_use Bash "git checkout -q -b … && git commit -q -m …"                              ← the commit, found after
+39.0  PostToolBatch → "Made: - c6: commit \"255ecd7 Fix typo in README heading\""
+40.3  tool_use mcp__glade__file_children { filings: [{ child: "c6", todo: "4" }] }
+```
+
+- **One message from Glade and one filing call cover every child of a message.** The filing call came 1.2 to 1.4
+  seconds after Glade's message, each time.
+- **With no todo list** (the quick job), the message said `You have no todos yet: create one with TaskCreate first.`,
+  and Opus called `TaskCreate`, then filed: the watcher was unfiled for 3.3 s.
+- **With no todo that fits** (the follow-up), Opus made two new todos before the calls, and filed under them.
+- **A message per call instead** (`PostToolUse`'s context, one for each `Agent` call) worked too, and Opus still
+  filed the three in one call; it reads the todo list three times over.
+- **Without the prompt lines** (a session started before them, whose prompt Claude Code keeps, §8), the message alone
+  still got everything filed, right, with no hold; but later: 2 to 25 seconds after each child was made, in two calls.
+- **Haiku** followed a script that said "one tool call per message" over a `PostToolBatch` message, and filed only
+  when the turn's end was held. On the job itself it filed every child within 2 to 6 seconds, two of the eight under
+  the wrong todo (the watcher and the wakeup under "Fix README.md typo and commit": it had made no todo for the
+  watch, and didn't make one when told).
+- **The same in the ask mode and in `acceptEdits`** (the quick job, on Haiku, in each).
+
+**What the step costs.** One more model request per message that made a child: it reads the whole context from the
+cache (28k to 39k tokens in these runs; a long task's is many times that) and writes the filing call, 40 to 80
+tokens. Glade's message is roughly 60 to 150 tokens, about 12 more per todo. By the SDK's `total_cost_usd`, the job's
+filing steps came to $0.01 to $0.015 each on Opus at that context size.
+
+### Holding the end of the turn [verified]
+
+A `Stop` hook answering `{ decision: 'block', reason }` keeps the turn going: the model reads the reason and takes
+another step, and the hook is called again when it next tries to end, with `stop_hook_active: true`. (`Stop`'s
+`additionalContext` continues the turn the same way, as "non-error feedback".) It fires at the end of every turn, the
+ones the agent starts itself included (§13).
+
+In the run where two of three subagents' messages went astray (above), the hold got them filed:
+
+```
+48.1  assistant [text] "All three parts are done: … ## What the reviewers found …"
+48.2  Stop { stop_hook_active: false } → { decision: "block", reason:
+        "Glade: these aren't filed under a todo yet. File them with one mcp__glade__file_children call, then end your turn.
+         - c1: subagent \"Review src/dates.js\"
+         - c2: subagent \"Review src/users.js\"
+         Your todos: #1 Review src/dates.js for bugs (completed) · … " }
+49.4  tool_use mcp__glade__file_children { filings: [{ child: "c1", todo: "1" }, { child: "c2", todo: "2" }] }
+54.2  assistant [text] "All three parts are done: … ## What the reviewers found …"     ← the whole reply, again
+54.2  Stop { stop_hook_active: true } → {}
+54.2  result/success
+```
+
+- **A hold costs a model request and the final reply written twice,** since the reply the user sees is the turn's
+  last message.
+- **Nothing in Claude Code stops a hook that holds every time.** A `haiku` session told never to file was held eight
+  times in a row, answering "not filing" to each, until the probe's own cap let the turn end. `stop_hook_active` is
+  `false` on a turn's first `Stop` and `true` on each one after a hold: that's what a cap counts by.
+- Not probed: whether `Stop` fires for a turn the user stops (an interrupt).
+
+### The rules compared [verified]
+
+The same job under each rule. A marker is `[todo N]` at the start of the call's own free text: the `description` of an
+`Agent`, `Monitor` or background `Bash` call and of a `Bash` call that commits, the `reason` of a `ScheduleWakeup`,
+the `prompt` of a `CronCreate`. The hook took it off with `updatedInput`. "Filing calls" are the extra model requests;
+"unfiled for" is from the child's call starting (a commit's command having run) to its filing. Cost is the SDK's
+`total_cost_usd` for the session, its Haiku subagents included: it moves by several cents with how the model batches
+its calls, so read it as a rough guide. Opus 5.5 unless the rule says otherwise.
+
+| Rule                                                    | Job                 | Children | Named in the call | Filing calls        | Refusals | Wrong | Unfiled for | Cost  |
+| ------------------------------------------------------- | ------------------- | -------- | ----------------- | ------------------- | -------- | ----- | ----------- | ----- |
+| No filing at all                                        | job                 | 6        |                   |                     |          |       |             | $0.30 |
+| Jared's flow: told after, filed at once                 | job                 | 6        | 0                 | 3                   | 0        | 0     | 0.9–7.8 s   | $0.39 |
+| Jared's flow                                            | job and follow-up   | 8        | 0                 | 5                   | 0        | 0     | 1.2–7.6 s   | $0.51 |
+| Jared's flow, a message per call                        | job                 | 6        | 0                 | 4                   | 0        | 0     | 1.0–7.5 s   | $0.43 |
+| Jared's flow, no todo list yet                          | quick               | 1        | 0                 | 1, and a TaskCreate | 0        | 0     | 3.3 s       | $0.12 |
+| 1: named always, refused otherwise                      | job                 | 6        | 6                 | 0                   | 0        | 0     | 0           | $0.34 |
+| 2: named, else the one in progress, else Jared's flow   | job                 | 6        | 6                 | 0                   | 0        | 0     | 0           | $0.34 |
+| 2                                                       | job and follow-up   | 8        | 8                 | 0                   | 0        | 0     | 0           | $0.43 |
+| 3: named, else the one in progress, else refused        | job                 | 6        | 6                 | 0                   | 0        | 0     | 0           | $0.37 |
+| **Named, else Jared's flow** (2 without the guess)      | job and follow-up   | 8        | 8                 | 0                   | 0        | 0     | 0           | $0.46 |
+| Named, else Jared's flow, no todo list yet (both modes) | quick, twice        | 1        | 1                 | 0, a TaskCreate first | 0      | 0     | 0           | $0.14 |
+| The one in progress, else Jared's flow (never named)    | job and follow-up   | 8        |                   | 3                   | 0        | 0     | 0–6.4 s     | $0.51 |
+| 1, in a session whose prompt lacks the lines            | job                 | 6        | 0, then 6         | 0                   | 6        | 0     | 0           | $0.38 |
+| Jared's flow, in a session whose prompt lacks the lines | job                 | 6        | 0                 | 2                   | 0        | 0     | 2.1–25.5 s  | $0.37 |
+| Named, else Jared's flow, on Sonnet 5                   | job and follow-up   | 8        | 8                 | 0                   | 0        | 0     | 0           | $0.29 |
+| Named, else Jared's flow, on Haiku 4.5                  | job and follow-up   | 8        | 4                 | 3                   | 0        | 0     | 0–6.2 s     | $0.15 |
+| Jared's flow, on Haiku 4.5                              | job and follow-up   | 8        | 0                 | 4                   | 0        | 2     | 2.0–5.6 s   | $0.21 |
+
+No run needed the turn's end held, but the one with the probe's bug.
+
+- **Named in the call, nothing is ever unfiled and nothing more is asked of the model.** Opus named 36 of 36 and
+  Sonnet 8 of 8, every one a todo that fit, the `Bash` calls that commit included (9 of 9). The marker is about five
+  tokens. This is what a named call looks like, and what the SDK then says of it:
+
+  ```
+  tool_use Agent { description: "[todo 1] Review src/dates.js for bugs", subagent_type: "Explore", model: "haiku", prompt: "…" }
+  PreToolUse → { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { description: "Review src/dates.js for bugs", … } } }
+  system/task_started { tool_use_id: <the call>, description: "Review src/dates.js for bugs", task_type: "local_agent", … }
+  tool_use Bash { command: "until [ -e deploy.done ]; do sleep 2; done; …", description: "[todo 5] Wait until deploy.done appears in the repo folder", run_in_background: true }
+  tool_use ScheduleWakeup { delaySeconds: 3600, reason: "[todo 5] Fallback check in one hour in case deploy.done never appears", prompt: "…" }
+  tool_use Bash { command: "git checkout -q -b fix-readme-typo && git add README.md && git commit -q -m …", description: "[todo 4] Commit README typo fix on a new branch and show the reviewed files" }
+  ```
+
+- **With no todo list,** told to create the todo first, Opus did (`TaskCreate`, then the call naming `[todo 1]`).
+- **Haiku named the `Agent` calls and no others** (4 of 8). The other four were told after, and filed right within 1.3
+  to 6.2 seconds: the fallback is what a weaker model leans on.
+- **Refusing costs most where it bites.** In the session whose prompt had no lines, each kind of call was refused
+  once before the model learned it: the three `Agent` calls of the fan-out (three refusals, all three written again
+  in the next message, prompts and all), the background `Bash`, the `Bash` that commits and the `ScheduleWakeup`.
+  Every retry named a todo that fit.
+
+  ```
+  tool_use Agent { description: "Review src/dates.js", … }  → "PreToolUse:Agent hook error: Glade: this call makes something that must
+  tool_use Agent { description: "Review src/users.js", … }     be filed under a todo, and it doesn't name one. Start its description with the
+  tool_use Agent { description: "Review src/orders.js", … }    todo's id in square brackets, like "[todo 2] …", and make the same call again.
+                                                               Your todos: #1 Review src/dates.js for bugs (pending) · …"   (each of the three)
+  tool_use Agent { description: "[todo 1] Review src/dates.js", … }      ← the next message: all three again
+  ```
+
+- **The one in progress.** It filed two children with no call (the watcher and the wakeup, while only the watching
+  todo was in progress) and nothing wrongly, here. But it's rarely "exactly one" when it matters: in one run
+  Opus set all five todos in progress at once, before the fan-out; in another it set the three reviews' after their
+  `Agent` calls, in the same message; and the watching todo stayed in progress through the whole follow-up, where a
+  model that didn't mark the new todo in progress first would have had its subagent and commit filed under "Watch for
+  deploy.done", with no one asked. Haiku never marked a todo in progress at all.
+
+### Ordering within one message [verified]
+
+The calls of one assistant message run in the order they're written, each as its block arrives, and a call's hooks
+come in that order. With the `TaskUpdate` first, the hook has seen it done before the `Agent` call starts (Opus,
+seconds from the start):
+
+```
+17.1  PreToolUse TaskUpdate { taskId: "1", status: "in_progress" }    17.1  PostToolUse TaskUpdate { … }
+17.6  PreToolUse TaskUpdate { taskId: "2", status: "in_progress" }    17.6  PostToolUse TaskUpdate { … }
+…
+22.0  PreToolUse Agent { description: "[todo 1] Review src/dates.js for bugs", … }
+24.4  PreToolUse Agent { description: "[todo 2] Review src/users.js for bugs", … }
+```
+
+Written the other way round, it hasn't: in another run the three `Agent` calls' `PreToolUse` came at 14.1, 16.5 and
+18.9, and the `TaskUpdate`s for their todos at 19.4 to 20.2, in the same message. The model does both.
+
+### A subagent's calls [verified]
+
+One `haiku` session: the agent started subagent A in the background; A made a commit, started a `Monitor` and a
+background command, and started subagent B in the foreground; B made a commit and started subagent C; C ran a command.
+All three levels ran (`spawn_depth` 1, 2 and 3).
+
+```
+system/task_started { task_id: "aa75…", tool_use_id: "toolu_01Yb…", description: "depth one", spawn_depth: 1 }   ← A, by the agent
+SubagentStart { agent_id: "aa75…", agent_type: "general-purpose" }
+PreToolUse { agent_id: "aa75…", tool_name: "Bash", tool_input: { command: "git … commit … -m 'A commit'" }, tool_use_id: "toolu_01Az…" }
+PreToolUse { agent_id: "aa75…", tool_name: "Monitor", … }
+system/task_started { task_id: "b2hg…", owned_by_subagent: true, tool_use_id: <A's Monitor call>, task_type: "local_bash" }
+PreToolUse { agent_id: "aa75…", tool_name: "Agent", tool_input: { description: "depth two", … }, tool_use_id: "toolu_01DX…" }
+system/task_started { task_id: "a236…", tool_use_id: "toolu_01DX…", description: "depth two", spawn_depth: 2 }   ← B, by A
+PreToolUse { agent_id: "a236…", tool_name: "Bash", tool_input: { command: "git … commit … -m 'B commit'" } }
+PreToolUse { agent_id: "a236…", tool_name: "Agent", tool_input: { description: "depth three", … }, tool_use_id: "toolu_016D…" }
+system/task_started { task_id: "aaf3…", tool_use_id: "toolu_016D…", description: "depth three", spawn_depth: 3 } ← C, by B
+PreToolUse { agent_id: "aaf3…", tool_name: "Bash", tool_input: { command: "echo c-ran" } }
+```
+
+- **Every hook for a subagent's call carries `agent_id`: the subagent that made the call,** at any depth, not the
+  top-level one. The task's own calls carry none. No hook input names a parent.
+- **`task_started` ties each subagent to the call that started it:** `task_id` is the `agent_id` its hooks carry, and
+  `tool_use_id` is its `Agent` call. It arrives before `SubagentStart` and before any of the subagent's calls. That
+  `Agent` call's own `PreToolUse` has the `agent_id` of whoever made it. So the chain from any call to the top-level
+  subagent is: its `agent_id`, to that subagent's `Agent` call, to that call's `agent_id`, and so on until a call
+  with none. The top-level subagent's todo is then every one of its descendants' todo.
+- **The stream says the same, when subagents' text is forwarded.** With `forwardSubagentText: true`, as Glade runs
+  (§2), a nested subagent's messages arrive, each with `parent_tool_use_id` set to the `Agent` call that started it
+  (22 messages under A's call, 9 under B's, 6 under C's), and B's `Agent` call is in a message under A's. Without it,
+  only A's calls were forwarded: nothing of B's or C's but their `task_started`, progress and end. So Glade's tool log
+  already has the chain, as `parentToolUseId`.
+- **Its watchers say whose they are** (`owned_by_subagent`, and their call's parent), as §2 found.
+- **Never refused:** a rule that answers a call with an `agent_id` with `{}` at once never touches a subagent's call.
+  The probe's did, in every run.
+
+### The main agent's commits
+
+Glade finds a commit after the `Bash` call that made it (§14), so nothing can be checked before the call unless the
+command says it commits.
+
+- **Named:** a `Bash` call whose `description` starts with the marker files what it committed under that todo, with
+  no gap. Opus and Sonnet named every committing call (9 of 9); Haiku none (0 of 2).
+- **Jared's flow:** the commit is in Glade's message after the call, by its short hash and subject, and is filed in
+  the next step: 0.9 to 2 seconds later on Opus, in every run.
+- **Refusing** needs the call recognised as one that commits before it runs, from its command (`git commit`, `merge`,
+  `cherry-pick`, `revert`, `am`): the probe's rules 1 and 3 did that. A commit made any other way (a release script
+  that commits, §14) can't be refused, so even rule 1 needs Jared's flow behind it for commits.
+- **A subagent's commit** inherits, by the `agent_id` its `Bash` call's hook carries.
+
+### A todo's id [verified]
+
+One `haiku` session, then the same session resumed in a new process, a fresh session in the same folder, and the
+first session resumed once more. Ids are from the `TaskCreate` results:
+
+```
+TaskCreate Alpha → 1    TaskCreate Beta → 2    TaskCreate Gamma → 3
+TaskUpdate { taskId: "2", status: "deleted" } → { success: true, statusChange: { from: "pending", to: "deleted" } }
+TaskCreate Delta → 4                                   ← 2 isn't used again
+TaskGet 2 → { task: null }    TaskList → 1 Alpha, 3 Gamma, 4 Delta
+/compact
+TaskList → 1, 3, 4            TaskCreate Epsilon → 5   ← the list and the count survive a compaction
+— new process, resume —
+TaskList → 1, 3 (in progress), 4, 5    TaskCreate Zeta → 6
+every task set completed      TaskCreate Eta → 7       ← no reset when all are done; the done ones stay listed
+— new process, a fresh session in the same folder —
+TaskList → (none)             TaskCreate Theta → 1     ← a new session starts again
+— new process, the first session resumed again —
+TaskList → 1, 3, 4, 5, 6, 7   TaskCreate Iota → 8
+```
+
+- **Stable across a compaction, a resume and a relaunch:** the list and its counter belong to the session, on disk
+  (the bundled binary keeps each task as a file under its config folder's `tasks/<list id>/`, with a high-water
+  mark, and the list id defaults to the session id).
+- **Two todos share an id only across sessions.** A Glade task keeps one session id for life in every path it has
+  today (a resume keeps it), so `N` is unique within a task. If a task were ever given a fresh session, its numbers
+  would start again, and `deriveTodoList` would take the new `#1` for the old one.
+- **`CLAUDE_CODE_TASK_LIST_ID` carries a list across sessions.** Two fresh sessions with the same value in their
+  `env`: the second listed the first's `#1` and its `TaskCreate` made `#2`. Set to a task's first session id, it would
+  keep a later session of that task on the same list and count. Glade doesn't set it.
+- **A deleted todo leaves nothing:** not in `TaskList`, `TaskGet` answers `null`, its number is never reused. The log
+  keeps the `TaskUpdate` that deleted it.
+- **Hooks give the id as data:** `TaskCreated` (`{ task_id: "4", task_subject, task_description }`), `TaskCompleted`,
+  and `PostToolUse` on `TaskCreate` (`tool_response: { task: { id: "4", subject } }`) and on `TaskUpdate`
+  (`{ success, taskId, updatedFields, statusChange: { from, to } }`). Glade reads the id from the result's text
+  (`Task #4 created successfully`), which it logs; the hooks' are the same ids.
+
+### `TodoWrite` [verified]
+
+`TodoWrite` replaces the whole list each call and its items have no id (§10). Which todo tools a session's `init`
+listed, on `haiku`, with `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`:
+
+| `CLAUDE_CODE_ENABLE_TASKS` in the session's `env` | In a settings file's `env` (project, local) | In the SDK's `settings` option | Todo tools                            |
+| -------------------------------------------------- | ------------------------------------------- | ------------------------------ | ------------------------------------- |
+| unset                                              | unset                                       | unset                          | `TaskCreate`, `TaskUpdate`, …         |
+| `false`                                            | unset                                       | unset                          | `TodoWrite`                           |
+| unset                                              | `false`                                     | unset                          | `TodoWrite`                           |
+| `1`                                                | `false`                                     | unset                          | `TodoWrite`: the settings file wins   |
+| unset                                              | `false`                                     | `true`                         | `TaskCreate`, `TaskUpdate`, …         |
+
+- **A Glade session can get `TodoWrite` today:** Glade leaves `CLAUDE_CODE_ENABLE_TASKS` to the user (§10), and a
+  user's settings file can turn the task tools off for every session, whatever Glade puts in the session's `env`.
+- **Glade can keep the task tools on** with `settings: { env: { CLAUDE_CODE_ENABLE_TASKS: 'true' } }` in the SDK
+  options (flag settings, where it already denies `glade-control`, §12): they outrank the user's, project's and local
+  settings files. A managed policy wasn't probed.
+- **There is no key for a `TodoWrite` item** but its text and place, and the model rewords and reorders them: a child
+  filed under one would lose its todo at the next rewording. In a session with `TodoWrite`, nothing can be filed.
+
+### Recommendation
+
+**Named in the call, and Jared's flow for whatever isn't.** Rule 2 without the guess at the todo in progress:
+
+1. **The call names its todo,** `[todo N]` at the start of its own text. Glade's `PreToolUse` hook reads it, files the
+   child as it's made, and takes the marker off (`updatedInput`, no decision, in either mode), so the description the
+   SDK reports and the prompt a job fires with are clean. Glade takes it off the `tool_use` input it logs too.
+2. **A call that names none, or a todo that isn't there, goes ahead,** and Jared's flow takes over: after the
+   message's calls (`PostToolBatch`, the task's own only), Glade tells the agent what it made and lists its todos, and
+   the agent files them all in one call in its next step. A commit found after an unnamed `Bash` call goes the same
+   way.
+3. **The turn doesn't end with anything unfiled:** a `Stop` hook holds it, saying what's left. Twice a turn at most;
+   after that the turn ends, what's left shows under "Not under a todo", and the next turn's end asks again.
+4. **Nothing is refused, and nothing is guessed.** A refusal has the model write the call again, once per call. The
+   todo in progress is wrong too easily, and silently.
+5. **A subagent's calls are left alone:** what it makes is under its top-level subagent's todo.
+
+Why this over Jared's flow by itself: from his side it's the same one step, or less. Named, a child is under its todo
+the moment it exists, a foreground subagent included, with no extra model request; Opus and Sonnet named every call.
+His flow is still there for the calls that don't, and the hold behind it, so nothing is left for him to chase. Alone,
+his flow adds a request per message that makes a child (cheap in a short task, a full read of the context in a long
+one), leaves a foreground subagent unfiled for as long as it runs, and files by a weaker model's second guess.
+
+**The prompt lines,** as probed (36 of 36 on Opus):
+
+> Glade files everything you make (a subagent, a watcher or background command, a scheduled wakeup or cron job, a
+> commit) under one of your todos, where the user finds it. Name the todo in the call that makes it: start the
+> description of an Agent, Monitor or background Bash call, the description of a Bash call that commits, the reason of
+> a ScheduleWakeup and the prompt of a CronCreate with the todo's id in square brackets, like "[todo 2] Review the date
+> helpers". Create the todo first (TaskCreate) if none fits. If a call names none, Glade asks you right after it to
+> file what it made, with mcp\_\_glade\_\_file_children: do that at once, before your next step. What a subagent makes
+> is filed with the subagent: leave those.
+
+**What Glade tells the agent after a call that named no todo,** and **when it holds the turn's end:** the two
+messages quoted above, word for word, with the tool's real name (#496).
+
+**The refusal,** if Jared picks a rule that refuses (1 or 3), as probed:
+
+```
+Glade: this call makes something that must be filed under a todo, and it doesn't name one. Start its description with
+the todo's id in square brackets, like "[todo 2] …", and make the same call again. Your todos: #1 … (pending) · #2 …
+```
+
+(`description` is `reason` for a `ScheduleWakeup` and `prompt` for a `CronCreate`.)
+
+**What it costs.** About 170 tokens of prompt, once a session. Five tokens a call for the marker. For a call that
+names none: Glade's message (roughly 60 to 150 tokens) and one model request, 1.2 to 1.4 seconds on Opus. For a hold: a
+request, and the final reply again. No refusals.
+
+**Left for Jared:** whether Glade should force the task tools on (the `settings` option above), since a session with
+`TodoWrite` can file nothing; and whether a task that makes a child with no todo list should be made to start one, as
+both rules did here.
+
+### Test backends
+
+The scripted backend emits these calls: the `files-children` script (`src/main/agent/scripts.ts`) keeps three todos
+and makes a background subagent, a real commit, a `Monitor`, a background command, a `ScheduleWakeup` and a
+`CronCreate` job, each naming its todo, then on its second turn the same kinds naming none. The marker, where it goes
+for each tool, and the refusal's text are in `src/main/agent/child-calls.ts`. The scripted session plays the calls as
+the model wrote them: it asks no hook, so it takes no marker off and tells its agent nothing. P16-04 (#495) adds the
+three hooks to `SessionHooks` and has the scripted session ask them, once the rule is picked.
 
 ---
 
