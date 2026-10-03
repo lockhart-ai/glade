@@ -4,7 +4,8 @@
 import { describe, expect, it } from 'vitest'
 import { PermissionMode, type ToolInput } from '../../shared/domain'
 import { GLADE_SERVER } from '../agent/glade-tools'
-import { NO_GRANTS, SandboxAccess, type SandboxGrants } from '../agent/sandbox'
+import { FolderAccess } from '../../shared/sandbox'
+import { NO_GRANTS, type SandboxGrants } from '../agent/sandbox'
 import type { PathFs } from './canonical-path'
 import { PermissionVerdict } from './classify'
 import {
@@ -24,8 +25,8 @@ const ROOT = '/Users/me/src/acme-api'
 
 const GRANTS: SandboxGrants = {
   folders: [
-    { path: '/Users/me/notes', access: SandboxAccess.Read },
-    { path: '/Users/me/src/shared-lib/', access: SandboxAccess.ReadWrite },
+    { path: '/Users/me/notes', access: FolderAccess.Read },
+    { path: '/Users/me/src/shared-lib/', access: FolderAccess.ReadWrite },
   ],
   domains: ['registry.npmjs.org', '*.acme.dev'],
 }
@@ -58,9 +59,9 @@ describe('sandboxBounds', () => {
       home: HOME,
       grants: {
         folders: [
-          { path: '/Users/me/Notes', access: SandboxAccess.Read },
-          { path: '/Users/me/x/../../..', access: SandboxAccess.ReadWrite },
-          { path: '/Users/me/a*', access: SandboxAccess.Read },
+          { path: '/Users/me/Notes', access: FolderAccess.Read },
+          { path: '/Users/me/x/../../..', access: FolderAccess.ReadWrite },
+          { path: '/Users/me/a*', access: FolderAccess.Read },
         ],
         domains: ['registry.npmjs.org', '*'],
       },
@@ -170,7 +171,7 @@ describe('sandboxCrossing: reads', () => {
     ['Glob', { pattern: '*.md', path: '/Volumes/Archive' }],
   ])('holds %s to the same folders', (toolName, input) => {
     expect(crossing(toolName, input)).toBe(SandboxCrossing.Boundary)
-    const everything = bounds({ grants: { folders: [{ path: '/Users', access: SandboxAccess.Read }], domains: [] } })
+    const everything = bounds({ grants: { folders: [{ path: '/Users', access: FolderAccess.Read }], domains: [] } })
     expect(
       crossing(toolName, { ...input, path: '/Users/me/other', notebook_path: '/Users/me/lab/a.ipynb' }, everything),
     ).toBe(SandboxCrossing.None)
@@ -186,8 +187,8 @@ describe('sandboxCrossing: reads', () => {
     const nested = bounds({
       grants: {
         folders: [
-          { path: `${ROOT}/vendor`, access: SandboxAccess.Read },
-          { path: '/Users/me/src', access: SandboxAccess.Read },
+          { path: `${ROOT}/vendor`, access: FolderAccess.Read },
+          { path: '/Users/me/src', access: FolderAccess.Read },
         ],
         domains: [],
       },
@@ -222,7 +223,7 @@ describe('sandboxCrossing: reads', () => {
 })
 
 describe('sandboxCrossing: credential paths', () => {
-  const HOME_GRANTED = bounds({ grants: { folders: [{ path: HOME, access: SandboxAccess.ReadWrite }], domains: [] } })
+  const HOME_GRANTED = bounds({ grants: { folders: [{ path: HOME, access: FolderAccess.ReadWrite }], domains: [] } })
 
   it.each([
     ['a key', '/Users/me/.ssh/id_rsa'],

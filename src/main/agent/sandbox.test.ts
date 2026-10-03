@@ -11,13 +11,13 @@ import {
   CredentialKind,
   GrantProblem,
   NO_GRANTS,
-  SandboxAccess,
   sandboxFolder,
   sandboxOverlay,
   sandboxStartSettings,
   usableGrants,
   type SandboxGrants,
 } from './sandbox'
+import { FolderAccess } from '../../shared/sandbox'
 import { SANDBOX_OVERRIDE_ASK_RULE } from './sandbox-requests'
 
 const HOME = '/Users/me'
@@ -144,8 +144,8 @@ describe('sandboxFolder', () => {
 describe('sandboxOverlay', () => {
   const grants: SandboxGrants = {
     folders: [
-      { path: '/Users/me/notes', access: SandboxAccess.Read },
-      { path: '/Users/me/src/shared-lib/', access: SandboxAccess.ReadWrite },
+      { path: '/Users/me/notes', access: FolderAccess.Read },
+      { path: '/Users/me/src/shared-lib/', access: FolderAccess.ReadWrite },
     ],
     domains: ['registry.npmjs.org', '*.acme.dev'],
   }
@@ -196,7 +196,7 @@ describe('sandboxOverlay', () => {
   })
 
   it('keeps every credential path denied when the home folder itself is granted read-write', () => {
-    const everything: SandboxGrants = { folders: [{ path: HOME, access: SandboxAccess.ReadWrite }], domains: [] }
+    const everything: SandboxGrants = { folders: [{ path: HOME, access: FolderAccess.ReadWrite }], domains: [] }
     const { sandbox, permissions } = sandboxOverlay(ROOT, PermissionMode.AllowAll, everything, HOME)
     expect(sandbox?.filesystem?.allowWrite).toEqual([ROOT, HOME])
     expect(sandbox?.filesystem?.denyWrite).toEqual(CREDENTIALS)
@@ -208,7 +208,7 @@ describe('sandboxOverlay', () => {
 
   it('keeps a credential file denied when its own folder is granted', () => {
     const docker: SandboxGrants = {
-      folders: [{ path: '/Users/me/.docker', access: SandboxAccess.ReadWrite }],
+      folders: [{ path: '/Users/me/.docker', access: FolderAccess.ReadWrite }],
       domains: [],
     }
     const { sandbox, permissions } = sandboxOverlay(ROOT, PermissionMode.AllowAll, docker, HOME)
@@ -220,8 +220,8 @@ describe('sandboxOverlay', () => {
   it('takes a granted folder inside the workspace root, and one that contains it, as they are', () => {
     const nested: SandboxGrants = {
       folders: [
-        { path: `${ROOT}/vendor`, access: SandboxAccess.Read },
-        { path: '/Users/me/src', access: SandboxAccess.Read },
+        { path: `${ROOT}/vendor`, access: FolderAccess.Read },
+        { path: '/Users/me/src', access: FolderAccess.Read },
       ],
       domains: [],
     }
@@ -235,9 +235,9 @@ describe('sandboxOverlay', () => {
   it('lists a folder granted twice, or as the root, once, and a domain granted twice once', () => {
     const twice: SandboxGrants = {
       folders: [
-        { path: ROOT, access: SandboxAccess.ReadWrite },
-        { path: '/Users/me/notes', access: SandboxAccess.Read },
-        { path: '/Users/me/notes/', access: SandboxAccess.Read },
+        { path: ROOT, access: FolderAccess.ReadWrite },
+        { path: '/Users/me/notes', access: FolderAccess.Read },
+        { path: '/Users/me/notes/', access: FolderAccess.Read },
       ],
       domains: ['registry.npmjs.org', 'registry.npmjs.org'],
     }
@@ -250,8 +250,8 @@ describe('sandboxOverlay', () => {
   it('writes folders with spaces, characters beyond ASCII and parentheses into rules as Claude Code reads them', () => {
     const odd: SandboxGrants = {
       folders: [
-        { path: '/Users/me/My Notes', access: SandboxAccess.Read },
-        { path: '/Volumes/Données/café (old)', access: SandboxAccess.Read },
+        { path: '/Users/me/My Notes', access: FolderAccess.Read },
+        { path: '/Volumes/Données/café (old)', access: FolderAccess.Read },
       ],
       domains: [],
     }
@@ -267,13 +267,13 @@ describe('sandboxOverlay', () => {
   it('leaves out every grant that would open more than it names', () => {
     const wide: SandboxGrants = {
       folders: [
-        { path: '/Users/me/a*', access: SandboxAccess.Read },
-        { path: '/Users/me/Music [2024]', access: SandboxAccess.ReadWrite },
-        { path: '/Users/me/x/../../..', access: SandboxAccess.ReadWrite },
-        { path: '/', access: SandboxAccess.Read },
-        { path: '', access: SandboxAccess.Read },
-        { path: 'notes', access: SandboxAccess.ReadWrite },
-        { path: '/Users/me/notes', access: SandboxAccess.Read },
+        { path: '/Users/me/a*', access: FolderAccess.Read },
+        { path: '/Users/me/Music [2024]', access: FolderAccess.ReadWrite },
+        { path: '/Users/me/x/../../..', access: FolderAccess.ReadWrite },
+        { path: '/', access: FolderAccess.Read },
+        { path: '', access: FolderAccess.Read },
+        { path: 'notes', access: FolderAccess.ReadWrite },
+        { path: '/Users/me/notes', access: FolderAccess.Read },
       ],
       domains: ['*', 'registry.npmjs.org', 'https://evil.example/x', '*.acme.dev', 'a b.example', '*.*'],
     }
@@ -294,9 +294,9 @@ describe('usableGrants', () => {
   it('keeps the grants the sandbox can take, their folders normalized', () => {
     const grants: SandboxGrants = {
       folders: [
-        { path: '/Users/me/notes/', access: SandboxAccess.Read },
-        { path: '/Users/me/src/./shared-lib', access: SandboxAccess.ReadWrite },
-        { path: '/Users/me/My Notes (old)', access: SandboxAccess.Read },
+        { path: '/Users/me/notes/', access: FolderAccess.Read },
+        { path: '/Users/me/src/./shared-lib', access: FolderAccess.ReadWrite },
+        { path: '/Users/me/My Notes (old)', access: FolderAccess.Read },
       ],
       domains: ['registry.npmjs.org', '*.acme.dev', 'localhost'],
     }
@@ -304,9 +304,9 @@ describe('usableGrants', () => {
     expect(usableGrants(grants)).toEqual({
       grants: {
         folders: [
-          { path: '/Users/me/notes', access: SandboxAccess.Read },
-          { path: '/Users/me/src/shared-lib', access: SandboxAccess.ReadWrite },
-          { path: '/Users/me/My Notes (old)', access: SandboxAccess.Read },
+          { path: '/Users/me/notes', access: FolderAccess.Read },
+          { path: '/Users/me/src/shared-lib', access: FolderAccess.ReadWrite },
+          { path: '/Users/me/My Notes (old)', access: FolderAccess.Read },
         ],
         domains: ['registry.npmjs.org', '*.acme.dev', 'localhost'],
       },
@@ -330,7 +330,7 @@ describe('usableGrants', () => {
     ['/Users/me/a\\*', GrantProblem.Pattern],
     ['/Users/**', GrantProblem.Pattern],
   ])('rejects the folder %j', (path, problem) => {
-    const { grants, rejected } = usableGrants({ folders: [{ path, access: SandboxAccess.Read }], domains: [] })
+    const { grants, rejected } = usableGrants({ folders: [{ path, access: FolderAccess.Read }], domains: [] })
     expect(grants.folders).toEqual([])
     expect(rejected).toEqual([{ value: path, problem }])
   })

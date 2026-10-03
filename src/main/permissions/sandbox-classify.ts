@@ -21,7 +21,8 @@
  * - **Everything else:** in Allow all it goes ahead; in the ask mode, `./classify` decides it, as with the sandbox off.
  */
 import { PermissionMode, type PermissionRule, type ToolInput } from '../../shared/domain'
-import { credentialPaths, DENIED_READ_ROOTS, sandboxFolder, SandboxAccess, usableGrants } from '../agent/sandbox'
+import { FolderAccess } from '../../shared/sandbox'
+import { credentialPaths, DENIED_READ_ROOTS, sandboxFolder, usableGrants } from '../agent/sandbox'
 import type { SandboxGrants } from '../agent/sandbox'
 import { hostMatches, SANDBOX_NETWORK_TOOL } from '../agent/sandbox-requests'
 import { absolutePath, canonicalKey, keyInside, NATIVE_FS, pathKey, type PathFs } from './canonical-path'
@@ -152,7 +153,7 @@ export function sandboxBounds({ root, home, grants, fs = NATIVE_FS }: SandboxBou
   // A folder that can't be resolved is compared as written.
   const key = (folder: string): string => canonicalKey(sandboxFolder(folder), fs) ?? pathKey(sandboxFolder(folder))
   const { folders, domains } = usableGrants(grants).grants
-  const readWrite = folders.filter(({ access }) => access === SandboxAccess.ReadWrite)
+  const readWrite = folders.filter(({ access }) => access === FolderAccess.ReadWrite)
   return {
     root: sandboxFolder(root),
     home: sandboxFolder(home),

@@ -52,7 +52,8 @@ import {
   type FakeAgentSession,
   type PermissionCallFields,
 } from './fake-backend'
-import { GrantProblem, NO_GRANTS, SandboxAccess, sandboxOverlay, sandboxStartSettings } from './sandbox'
+import { GrantProblem, NO_GRANTS, sandboxOverlay, sandboxStartSettings } from './sandbox'
+import { FolderAccess } from '../../shared/sandbox'
 import {
   networkAccessCall,
   outsideFileCall,
@@ -836,9 +837,9 @@ describe('grants', () => {
       log: log.logger,
       sandboxGrants: () => ({
         folders: [
-          { path: `${HOME}/notes`, access: SandboxAccess.Read },
-          { path: `${HOME}/x/../shared/`, access: SandboxAccess.ReadWrite },
-          { path: `${HOME}/a*`, access: SandboxAccess.Read },
+          { path: `${HOME}/notes`, access: FolderAccess.Read },
+          { path: `${HOME}/x/../shared/`, access: FolderAccess.ReadWrite },
+          { path: `${HOME}/a*`, access: FolderAccess.Read },
         ],
         domains: ['registry.npmjs.org', '*'],
       }),
@@ -849,8 +850,8 @@ describe('grants', () => {
 
     const usable = {
       folders: [
-        { path: `${HOME}/notes`, access: SandboxAccess.Read },
-        { path: `${HOME}/shared`, access: SandboxAccess.ReadWrite },
+        { path: `${HOME}/notes`, access: FolderAccess.Read },
+        { path: `${HOME}/shared`, access: FolderAccess.ReadWrite },
       ],
       domains: ['registry.npmjs.org'],
     }

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { absolutePath, canonicalKey, keyInside, NATIVE_FS, pathKey, type PathFs } from './canonical-path'
+import { absolutePath, canonicalKey, canonicalPath, keyInside, NATIVE_FS, pathKey, type PathFs } from './canonical-path'
 
 /** A file system of the paths given: `real` maps each path that exists to where it really is, `links` each link. */
 function fakeFs(real: Readonly<Record<string, string>>, links: Readonly<Record<string, string>> = {}): PathFs {
@@ -108,6 +108,44 @@ describe('canonicalKey', () => {
   it('keeps a path as written when nothing of it exists, not even the root', () => {
     expect(canonicalKey('/Users/Me/x', fakeFs({}))).toBe('/users/me/x')
     expect(canonicalKey('/', fakeFs({}))).toBe('/')
+  })
+})
+
+describe('canonicalPath', () => {
+  it('is where the path really is, in the case the disk has it', () => {
+    const fs = fakeFs({ '/users/ME/documents': '/Users/me/Documents' })
+    expect(canonicalPath('/users/ME/documents', fs)).toBe('/Users/me/Documents')
+  })
+
+  it('resolves the deepest folder that exists, and keeps the rest as written, case and all', () => {
+    const fs = fakeFs({ '/tmp': '/private/tmp' })
+    expect(canonicalPath('/tmp/New Folder/Notes', fs)).toBe('/private/tmp/New Folder/Notes')
+    expect(canonicalPath('/tmp/a/../b/', fs)).toBe('/private/tmp/b')
+  })
+
+  it('drops the data volume’s prefix, however it’s written, and nothing that only starts like it', () => {
+    expect(canonicalPath('/System/Volumes/Data/Users/Me/Notes', fakeFs({}))).toBe('/Users/Me/Notes')
+    expect(canonicalPath('/system/volumes/DATA/Users/Me', fakeFs({}))).toBe('/Users/Me')
+    expect(canonicalPath('/System/Volumes/Data', fakeFs({}))).toBe('/')
+    expect(canonicalPath('/System/Volumes/Database/x', fakeFs({}))).toBe('/System/Volumes/Database/x')
+    const fs = fakeFs({ '/Users/me/link': '/System/Volumes/Data/Users/me/Notes' })
+    expect(canonicalPath('/Users/me/link', fs)).toBe('/Users/me/Notes')
+  })
+
+  it('follows a link to somewhere that doesn’t exist yet', () => {
+    const fs = fakeFs({ '/Users/me': '/Users/me' }, { '/Users/me/src/out': '../Later/Build' })
+    expect(canonicalPath('/Users/me/src/out/x', fs)).toBe('/Users/me/Later/Build/x')
+  })
+
+  it('gives up on a loop of links', () => {
+    expect(canonicalPath('/a/x', fakeFs({}, { '/a': '/b', '/b': '/a' }))).toBeNull()
+  })
+
+  it('has the key `canonicalKey` gives', () => {
+    const fs = fakeFs({ '/tmp': '/private/tmp' })
+    for (const path of ['/tmp/New Folder', '/System/Volumes/Data/Users/Me', '/Nowhere/At/All']) {
+      expect(pathKey(canonicalPath(path, fs) ?? '')).toBe(canonicalKey(path, fs))
+    }
   })
 })
 

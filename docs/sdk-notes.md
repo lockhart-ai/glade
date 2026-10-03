@@ -1877,6 +1877,27 @@ await q.applyFlagSettings({
 })
 ```
 
+How Glade applies the grants (P15-04, `src/main/sandbox/grants.ts`):
+
+- **The grants come from `sandbox_grants`:** the Glade-wide, workspace and task grants that cover the task, each folder
+  once with the widest access any scope gives it. A sandboxed session reads them as it starts or resumes, for its first
+  overlay, and again whenever a grant that covers it is added, changed or removed: its file tools are held to the new
+  grants at once (the classifier's bounds), and its commands from the overlay, which is sent whole each time. A mode
+  switch sends the overlay with the grants the session has.
+- **Ordered with the session's messages:** the first overlay is in force before the first message, which waits on it,
+  and when a grant changes while an earlier overlay is still being applied (a grant removed as the session starts,
+  say), the later overlay is the one left in force.
+- **A session that won't take an overlay is closed,** at start or later, its task stopping on the sandbox's error: it
+  never runs on other bounds than the grants say. The grant stays saved, whoever changed it is told which tasks'
+  sessions closed, and the task's next session starts with the grants as saved.
+- **A card waits on its own session only:** a grant made for one session's request is awaited on that session, and the
+  other sessions it covers apply it in the background, so one that never answers can't hold up the card.
+- **A grant names one folder or host,** checked by the same rules the overlay's builder leaves a grant out by, so
+  nothing saved is left out of a session. A folder is kept by where it really is, as far as the path exists (so `/tmp/x`
+  and `/private/tmp/x` are one grant, before the folder is made and after), is never `/`, and never holds a glob
+  character, which would widen the `Read(//…/**)` rule and the sandbox's lists past the folder. A domain is a bare
+  host, or `*.` and a host of two labels or more.
+
 ### When the sandbox can't start [verified]
 
 macOS has no sandbox dependency to miss (the CLI's dependency check only fails an unsupported platform), so the probe
@@ -1912,7 +1933,7 @@ it on (`src/main/agent/sandbox.ts`, wired in `runner.ts` and `sdk-backend.ts`):
   `settings.permissions.ask: ['Bash(dangerouslyDisableSandbox:true)']`. No grant, whatever is granted.
 - **Then the overlay** (`sandboxOverlay`), with `applyFlagSettings`, straight after start and before the first message
   (the backend queues it ahead of `send`), and again whenever the task's permission mode changes: the fixed parts
-  again, `autoAllowBashIfSandboxed` for the mode, and the grants (none until P15-04): every granted folder in
+  again, `autoAllowBashIfSandboxed` for the mode, and the grants (`sandbox_grants`, above): every granted folder in
   `allowRead`, the read-write ones in `allowWrite` and `permissions.additionalDirectories`, the read-only ones as
   `Read(//<folder>/**)` rules and domains as `WebFetch(domain:…)` rules in `permissions.allow`. Domains never go in
   `allowedTools`. A grant that would open more than it names never reaches the settings (`usableGrants`), and is

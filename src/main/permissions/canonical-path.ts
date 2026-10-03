@@ -57,17 +57,26 @@ export function absolutePath(path: string, root: string, home: string): string {
   return posix.normalize(isAbsolute(path) ? path : posix.join(root, path))
 }
 
+/** A path without the data volume's prefix, in whatever case it's written: the rest is left as it is. */
+function offDataVolume(path: string): string {
+  const prefix = path.slice(0, DATA_VOLUME.length).toLowerCase()
+  if (prefix !== DATA_VOLUME) return path
+  if (path.length === DATA_VOLUME.length) return '/'
+  return path[DATA_VOLUME.length] === '/' ? path.slice(DATA_VOLUME.length) : path
+}
+
 /**
- * The key of an absolute path (see the module comment): where it really is, as far as it exists. Null when it can't be
- * resolved.
+ * Where an absolute path really is, as far as it exists (see the module comment), in the case the disk has it and
+ * without the data volume's prefix: the one spelling to keep a folder by, so the same folder is never kept twice
+ * (`../sandbox/grants`). What doesn't exist is kept as written. Null when it can't be resolved.
  */
-export function canonicalKey(path: string, fs: PathFs = NATIVE_FS): string | null {
+export function canonicalPath(path: string, fs: PathFs = NATIVE_FS): string | null {
   let existing = posix.normalize(path)
   // The parts after the deepest folder that exists, innermost first.
   const rest: string[] = []
   for (let links = 0; links <= MAX_LINKS;) {
     const real = fs.realpath(existing)
-    if (real !== null) return pathKey(posix.join(real, ...rest.toReversed()))
+    if (real !== null) return offDataVolume(posix.join(real, ...rest.toReversed()))
     // A link to somewhere that doesn't exist yet: what's written through it lands at its target.
     const target = fs.readlink(existing)
     if (target !== null) {
@@ -77,11 +86,20 @@ export function canonicalKey(path: string, fs: PathFs = NATIVE_FS): string | nul
     }
     const parent = posix.dirname(existing)
     // Nothing of it exists, not even `/`: as written.
-    if (parent === existing) return pathKey(posix.join(existing, ...rest.toReversed()))
+    if (parent === existing) return offDataVolume(posix.join(existing, ...rest.toReversed()))
     rest.push(posix.basename(existing))
     existing = parent
   }
   return null
+}
+
+/**
+ * The key of an absolute path (see the module comment): where it really is, as far as it exists. Null when it can't be
+ * resolved.
+ */
+export function canonicalKey(path: string, fs: PathFs = NATIVE_FS): string | null {
+  const real = canonicalPath(path, fs)
+  return real === null ? null : pathKey(real)
 }
 
 /** Whether the path with key `key` is the folder with key `folder`, or inside it. */

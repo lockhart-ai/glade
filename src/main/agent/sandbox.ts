@@ -26,19 +26,14 @@ import { homedir } from 'node:os'
 import { posix } from 'node:path'
 import { PermissionMode } from '../../shared/domain'
 import { permissionRuleString } from '../../shared/permissions'
+import { FolderAccess } from '../../shared/sandbox'
 import type { SandboxCredentialFile, SandboxFlagSettings, SandboxSettings, SettingsPermissions } from './backend'
 import { domainRuleString, isBareHost, readRuleContent, SANDBOX_OVERRIDE_ASK_RULE } from './sandbox-requests'
-
-/** How much of a granted folder the agent may use. */
-export enum SandboxAccess {
-  Read = 'read',
-  ReadWrite = 'read_write',
-}
 
 /** A folder the agent was granted, by absolute path. */
 export interface SandboxFolderGrant {
   readonly path: string
-  readonly access: SandboxAccess
+  readonly access: FolderAccess
 }
 
 /** Everything granted to a task beyond its workspace root: folders, and domains (`registry.npmjs.org`, `*.acme.dev`). */
@@ -47,7 +42,7 @@ export interface SandboxGrants {
   readonly domains: readonly string[]
 }
 
-/** Nothing granted: what every task has until P15-04's grants. */
+/** Nothing granted: what a task has until it, its workspace or Glade is granted something (`../sandbox/grants`). */
 export const NO_GRANTS: SandboxGrants = { folders: [], domains: [] }
 
 /** Why a grant can't go into the sandbox's settings. */
@@ -231,8 +226,8 @@ export function sandboxOverlay(
 ): SandboxFlagSettings {
   const folder = sandboxFolder(root)
   const { folders: granted, domains } = usableGrants(grants).grants
-  const readOnly = unique(granted.filter(({ access }) => access === SandboxAccess.Read).map(({ path }) => path))
-  const readWrite = unique(granted.filter(({ access }) => access === SandboxAccess.ReadWrite).map(({ path }) => path))
+  const readOnly = unique(granted.filter(({ access }) => access === FolderAccess.Read).map(({ path }) => path))
+  const readWrite = unique(granted.filter(({ access }) => access === FolderAccess.ReadWrite).map(({ path }) => path))
   const permissions: SettingsPermissions = {
     allow: [
       ...readOnly.map((path) => permissionRuleString({ toolName: 'Read', ruleContent: readRuleContent(path) })),

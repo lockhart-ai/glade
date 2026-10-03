@@ -177,7 +177,8 @@
  * **The agent sandbox** (#445, `./sandbox`, `docs/sdk-notes.md` §15). With Settings' `sandboxEnabled` on as a session
  * starts, it runs in the sandbox for its whole life: it starts with only the fixed parts (`sandboxStartSettings`), and
  * straight after, before its first message, gets the overlay for its mode and grants (`sandboxOverlay`, applied with
- * `applyFlagSettings`), as it does again whenever its mode changes. Its messages wait on that first overlay
+ * `applyFlagSettings`), as it does again whenever its mode changes, or its grants do (`applySandboxGrants`: the
+ * grants are saved per task, per workspace and Glade-wide, `../sandbox/grants`). Its messages wait on that first overlay
  * (`gatedSession`), and a session that won't take an overlay is closed rather than left running without it, its turn
  * ending on the sandbox's error (`onSandboxNotApplied`). Allow all then runs as `acceptEdits`, never
  * bypassing: the calls Claude Code asks about go ahead, but for the ones crossing the sandbox's bounds, which ask in
@@ -250,6 +251,7 @@ import {
 } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
 import { permissionRuleString, taskPermissionRule } from '../../shared/permissions'
+import { grantCovers, type SandboxApplyResult, type SandboxGrantTarget } from '../../shared/sandbox'
 import { agentText } from '../../shared/pastedContent'
 import { withAttachedFiles, type AttachedFile } from '../../shared/attachedFiles'
 import { attachedImagesOf } from '../attachments/attachments'
@@ -431,8 +433,9 @@ export interface AgentRunnerOptions {
    */
   readonly onLoggedOut?: (taskId: string) => void
   /**
-   * What's granted to a task beyond its workspace root, for its session's sandbox (#445), read as the session starts.
-   * Nothing by default: the grants themselves are P15-04's.
+   * What's granted to a task beyond its workspace root, for its session's sandbox (#445): read as the session starts,
+   * and again for each running session a change to the grants covers (`AgentRunner.applySandboxGrants`). The app reads
+   * the grants' store (`../sandbox/grants`). Nothing by default.
    */
   readonly sandboxGrants?: (task: Task) => SandboxGrants
 }
@@ -446,6 +449,12 @@ interface UserMessage {
   readonly images: readonly ImageData[]
   readonly pastedBlocks: readonly PastedBlock[]
   readonly files: readonly AttachedFile[]
+}
+
+/** How `AgentRunner.applySandboxGrants` waits on the sessions it applies to. */
+export interface SandboxApplyOptions {
+  /** The one task whose session to wait on: the one that asked for the grant. Every covered session by default. */
+  readonly awaitTaskId?: string
 }
 
 export interface AgentRunner {
@@ -479,6 +488,17 @@ export interface AgentRunner {
    * call, mid-turn too. A request already open stays open. Throws a `CommandFailure` `not_found` for no such task.
    */
   applyPermissionMode(taskId: string): void
+  /**
+   * Applies the sandbox grants to the running sandboxed sessions a change to `target`'s grants covers (one task, a
+   * workspace's tasks, or every task): each reads its task's grants again (`AgentRunnerOptions.sandboxGrants`), decides
+   * its calls against them from then on, and gets the whole overlay with `applyFlagSettings`, without restarting.
+   * Resolves with which sessions have it and which wouldn't take it, once every one has answered; or, given
+   * `awaitTaskId`, once that task's session has, the others applying in the background (`pending`), so one stuck
+   * session can't hold up the answer to the session that asked. A session that won't take its overlay is closed, its
+   * task stopping on the sandbox's error (`closed`), as at start. A task with no running session, or one that started
+   * with the sandbox off, is left alone: its next session starts with the grants.
+   */
+  applySandboxGrants(target: SandboxGrantTarget, options?: SandboxApplyOptions): Promise<SandboxApplyResult>
   /**
    * Adds the user's message to the task's queue, for the agent to get after its current step (see the module comment).
    * When no turn is running, the queue is delivered at once, starting one, unless the task is paused: then it waits for
@@ -593,11 +613,17 @@ interface Turn {
   readonly end: () => void
 }
 
+/** Whether one task's session took the sandbox overlay it was sent. */
+interface SandboxApplied {
+  readonly taskId: string
+  readonly applied: boolean
+}
+
 /** The agent sandbox a live session runs in (#445). */
 interface LiveSandbox {
   /** The workspace root: the one folder the agent may always read and write. */
   readonly root: string
-  /** What's granted to the task beyond its root, as last applied. */
+  /** What's granted to the task beyond its root, as last read: at start, and whenever its grants change. */
   grants: SandboxGrants
   /** The bounds the root and those grants make, as the session's calls are decided against them. */
   bounds: SandboxBounds
@@ -2262,7 +2288,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       sandbox: sandboxed
         ? {
             root: workspace.rootPath,
-            ...checkedGrants(task.id, workspace.rootPath, options.sandboxGrants?.(task) ?? NO_GRANTS),
+            ...checkedGrants(task.id, workspace.rootPath, grantsOf(task)),
             writeRules: new Set(writeRules.map(({ toolName }) => toolName)),
             failure: null,
           }
@@ -2305,6 +2331,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     readUsage(task.id, live)
     return live
   }
+
+  /** What's granted to a task now (`AgentRunnerOptions.sandboxGrants`). */
+  const grantsOf = (task: Task): SandboxGrants => options.sandboxGrants?.(task) ?? NO_GRANTS
 
   /**
    * A task's grants as its session's sandbox holds them: the ones the sandbox can take, and the bounds they make with
@@ -2793,8 +2822,36 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       })
       live.settings = { ...live.settings, permissionMode: task.permissionMode }
       live.session.configure(live.settings)
-      // Whether sandboxed commands ask goes with the mode.
+      // Whether sandboxed commands ask goes with the mode. The overlay carries the session's grants as it does.
       void applySandbox(taskId, live)
+    },
+
+    async applySandboxGrants(target, { awaitTaskId } = {}) {
+      const awaited: Promise<SandboxApplied>[] = []
+      const pending: string[] = []
+      for (const [taskId, live] of sessions) {
+        const task = getTask(db, taskId)
+        const { sandbox } = live
+        if (task === undefined || sandbox === null || live.closed || !grantCovers(target, task)) continue
+        // The session's calls are decided against the new grants at once, and its commands once the overlay lands.
+        const { grants, bounds } = checkedGrants(taskId, sandbox.root, grantsOf(task))
+        sandbox.grants = grants
+        sandbox.bounds = bounds
+        agentLog(taskId).info('sandbox grants changed', {
+          folders: grants.folders.length,
+          domains: grants.domains.length,
+        })
+        const applying = applySandbox(taskId, live)
+        // A session nobody waits on applies in the background: applying never rejects.
+        if (awaitTaskId !== undefined && awaitTaskId !== taskId) pending.push(taskId)
+        else awaited.push(applying.then((applied) => ({ taskId, applied })))
+      }
+      const answered = await Promise.all(awaited)
+      return {
+        applied: answered.filter(({ applied }) => applied).map(({ taskId }) => taskId),
+        closed: answered.filter(({ applied }) => !applied).map(({ taskId }) => taskId),
+        pending,
+      }
     },
 
     queue(taskId, text, images = [], pastedBlocks = [], files = []) {
