@@ -2,7 +2,8 @@
  * The shown plugin's real view: an Electron `WebContentsView` over the plugin card's body, in a sandboxed process of its
  * own with a session of its own (`docs/plugin-api.md`, "The sandbox"). The session serves the plugin's files under its
  * scheme, from its folder only, with the CSP; cancels every request but those and localhost; and refuses every
- * permission and download. The page can't navigate or open windows, and its only preload relays messages.
+ * permission and download. The page can't navigate or open windows, and its only preload relays messages. Main hears
+ * the clicks and key presses the OS delivers to the page, which a plugin needs to open a task (`./gesture`).
  */
 import { join } from 'node:path'
 import { session, WebContentsView, type BrowserWindow, type WebPreferences } from 'electron'
@@ -12,6 +13,7 @@ import { SILENT_LOGGER, type Logger } from '../logging/logger'
 import { checkSecurity, describeViolations } from '../security'
 import { isAllowedPluginRequest } from './network'
 import { createPluginFileHandler, PLUGIN_CSP } from './protocol'
+import { PluginInputKind } from './gesture'
 import type { CreatePluginView } from './views'
 
 /** The `panel` design token, the card's surface, so the view never flashes white before the page paints. */
@@ -145,7 +147,7 @@ export function createElectronPluginViews({
   // Each plugin's session lives as long as the app, so it's set up once however often its view is made.
   const setUp = new Set<string>()
 
-  return ({ plugin, folder, onMessage, onGone }) => {
+  return ({ plugin, folder, onMessage, onInput, onGone }) => {
     const id = plugin.folder
     const window = currentWindow()
     if (window === undefined) return null
@@ -188,6 +190,15 @@ export function createElectronPluginViews({
       log.error("plugin's process is gone", { id, reason: details.reason })
       onGone()
     })
+    // The clicks and key presses routed to the page, heard before it sees them: input the OS delivered, which nothing
+    // the page does (`click()`, `dispatchEvent`, a message) can make. A held key's repeats are the same press.
+    contents.on('before-mouse-event', (_event, mouse) => {
+      if (mouse.type === 'mouseDown') onInput(PluginInputKind.Press)
+      else if (mouse.type === 'mouseUp') onInput(PluginInputKind.Release)
+    })
+    contents.on('before-input-event', (_event, input) => {
+      if (input.type === 'keyDown' && !input.isAutoRepeat) onInput(PluginInputKind.Press)
+    })
     // Only this view's page can post on it: `webContents.ipc` hears its own renderer alone.
     contents.ipc.on(PLUGIN_POST_CHANNEL, (_event, message: unknown) => {
       onMessage(message)
@@ -222,6 +233,10 @@ export function createElectronPluginViews({
       },
       send(message) {
         if (!destroyed) contents.send(PLUGIN_MESSAGE_CHANNEL, message)
+      },
+      yieldFocus() {
+        // Focusing a page focuses its window too, so only while the window has the focus already: never a hidden one.
+        if (!window.isDestroyed() && window.isFocused()) window.webContents.focus()
       },
       destroy,
     }

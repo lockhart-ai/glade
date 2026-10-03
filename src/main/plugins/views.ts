@@ -5,6 +5,8 @@
  * `status` sets the card's header. A plugin that's turned off (or gone) stops being fed with its view. A plugin with
  * the `machine` capability on also gets the machine's readings (`./machine`), while it's showing and has said `ready`.
  * A plugin that declares settings gets its own in its snapshot, and again (`settings.changed`) when one changes.
+ * `openTask` opens a task the plugin can see (`./sight`), only right after a click or key press in its view
+ * (`./gesture`): main asks the window to open it as a notification does, and gives the window back the keyboard.
  */
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
@@ -24,8 +26,10 @@ import { CommandFailure } from '../bridge/errors'
 import type { Emit } from '../bridge/events'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
 import type { PluginFeed, Unsubscribe } from './feed'
+import { createPluginGesture, type PluginGesture, type PluginInputKind } from './gesture'
 import type { MachineMonitor } from './machine'
 import { createRateLimiter, cutStatus, parsePluginMessage, PLUGIN_RATE_LIMIT, type RateLimit } from './messages'
+import { createPluginSight, type PluginSight } from './sight'
 
 /** A plugin's view in the window, as the host drives it (`./electron-view` makes the real one). */
 export interface PluginView {
@@ -35,6 +39,11 @@ export interface PluginView {
   hide(): void
   /** Sends the page one of Glade's messages. */
   send(message: GladeMessage): void
+  /**
+   * Gives the keyboard back to Glade's own page, when the window has it: you clicked in the view (so its page has the
+   * keyboard), and it opened a task whose input bar takes the focus.
+   */
+  yieldFocus(): void
   /** Takes it out of the window and ends its page. */
   destroy(): void
 }
@@ -46,6 +55,8 @@ export interface PluginViewSpec {
   readonly folder: string
   /** What its page posts, as it arrives: unchecked. */
   readonly onMessage: (message: unknown) => void
+  /** You clicked or pressed a key in it: real input, as the OS delivered it, never anything its page says. */
+  readonly onInput: (kind: PluginInputKind) => void
   /** Its page is gone (it crashed, or the window closed): it's destroyed. */
   readonly onGone: () => void
 }
@@ -108,6 +119,10 @@ interface Shown {
   flooding: boolean
   /** Where it's placed now; null while it's hidden. What a reload places it back at, if it was showing. */
   bounds: PluginViewBounds | null
+  /** Your last click or key press in it, which one `openTask` may use. */
+  readonly gesture: PluginGesture
+  /** The tasks and subagents it has been told of since its last `ready`: all it may open. */
+  readonly sight: PluginSight
 }
 
 export function createPluginViews({
@@ -201,6 +216,25 @@ export function createPluginViews({
     setStatus(current, '')
   }
 
+  /**
+   * Opens a task for the plugin, as clicking its row does: only with a click or key press in its view in the last
+   * second, used up by this, and only a task (and subagent) it can see. Anything else is dropped and logged.
+   */
+  const openTask = (current: Shown, taskId: string, subagentId: string | null): void => {
+    if (!current.gesture.take()) {
+      log.warn('plugin openTask dropped', { id: current.id, taskId, subagentId, reason: 'no_gesture' })
+      return
+    }
+    const refusal = current.sight.refusal(taskId, subagentId)
+    if (refusal !== null) {
+      log.warn('plugin openTask dropped', { id: current.id, taskId, subagentId, reason: refusal })
+      return
+    }
+    log.info('plugin opened a task', { id: current.id, taskId, subagentId })
+    current.view.yieldFocus()
+    emit({ type: EventType.TaskOpenRequested, taskId, subagentId })
+  }
+
   const receive = (current: Shown, limiter: { take(): boolean }, raw: unknown): void => {
     // A page that's been replaced can't talk for the one after it.
     if (shown !== current) return
@@ -223,6 +257,7 @@ export function createPluginViews({
         current.seq = 0
         send(current, { type: PluginEventType.Hello, app: { name: 'Glade', version: appVersion } })
         current.unsubscribe = feed.subscribe((event) => {
+          current.sight.see(event)
           send(current, event.type === PluginEventType.Snapshot ? withOwn(current, event) : event)
         })
         syncReadings(current)
@@ -230,18 +265,25 @@ export function createPluginViews({
       case PluginMessageType.Status:
         setStatus(current, cutStatus(message.text))
         return
+      case PluginMessageType.OpenTask:
+        openTask(current, message.taskId, message.subagentId ?? null)
+        return
     }
   }
 
   const open = (plugin: ValidPlugin): Shown | null => {
     if (createView === undefined) return null
     const limiter = createRateLimiter(rateLimit, now)
+    const gesture = createPluginGesture(now)
     let current: Shown | null = null
     const view = createView({
       plugin,
       folder: join(folder, plugin.folder),
       onMessage: (raw) => {
         if (current !== null) receive(current, limiter, raw)
+      },
+      onInput: (kind) => {
+        gesture.input(kind)
       },
       onGone: () => {
         if (current !== null && shown === current) destroy(current, 'its page is gone')
@@ -257,6 +299,8 @@ export function createPluginViews({
       status: '',
       flooding: false,
       bounds: null,
+      gesture,
+      sight: createPluginSight(),
     }
     log.info('plugin view created', { id: plugin.folder })
     return current

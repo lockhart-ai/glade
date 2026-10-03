@@ -374,6 +374,11 @@ export enum PluginMessageType {
   Ready = 'ready',
   /** Sets the short status at the right of the panel header; `''` clears it. */
   Status = 'status',
+  /**
+   * Opens a task the plugin can see, as clicking its row does, and with `subagentId` that subagent in the Subagents
+   * tab. Only right after a click or key press in the plugin's own view.
+   */
+  OpenTask = 'openTask',
 }
 
 export interface PluginReadyMessage {
@@ -385,8 +390,16 @@ export interface PluginStatusMessage {
   readonly text: string
 }
 
+export interface PluginOpenTaskMessage {
+  readonly type: PluginMessageType.OpenTask
+  /** A task the plugin has been told of (its snapshot or later events) that's still active. */
+  readonly taskId: string
+  /** One of that task's subagents the plugin has been told of (`PluginSubagent.id`), to show in the Subagents tab. */
+  readonly subagentId?: string | null | undefined
+}
+
 /** What a plugin can post back with `window.glade.post`. Anything else is dropped. */
-export type PluginMessage = PluginReadyMessage | PluginStatusMessage
+export type PluginMessage = PluginReadyMessage | PluginStatusMessage | PluginOpenTaskMessage
 
 /** What a plugin page's `window.glade` holds: `post`, and nothing else. */
 export interface PluginBridge {

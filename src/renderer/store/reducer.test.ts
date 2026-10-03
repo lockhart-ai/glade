@@ -54,7 +54,7 @@ const state: GladeData = Object.freeze({
 
 describe('applyEvent', () => {
   it('leaves the state alone when main asks to open a task, which the store does by selecting it', () => {
-    expect(applyEvent(state, { type: EventType.TaskOpenRequested, taskId: 't1' })).toBe(state)
+    expect(applyEvent(state, { type: EventType.TaskOpenRequested, taskId: 't1', subagentId: null })).toBe(state)
   })
 
   it('leaves the state alone for a menu bar command, which the window runs', () => {

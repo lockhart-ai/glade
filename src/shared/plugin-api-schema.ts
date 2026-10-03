@@ -167,4 +167,9 @@ export const gladeMessageSchema = z.strictObject({
 export const pluginMessageSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal(PluginMessageType.Ready) }),
   z.strictObject({ type: z.literal(PluginMessageType.Status), text: z.string().max(MAX_PLUGIN_MESSAGE_BYTES) }),
+  z.strictObject({
+    type: z.literal(PluginMessageType.OpenTask),
+    taskId: z.string().min(1).max(MAX_PLUGIN_MESSAGE_BYTES),
+    subagentId: z.string().min(1).max(MAX_PLUGIN_MESSAGE_BYTES).nullable().optional(),
+  }),
 ]) satisfies z.ZodType<PluginMessage>

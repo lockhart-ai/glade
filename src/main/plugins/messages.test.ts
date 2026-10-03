@@ -12,6 +12,17 @@ describe('parsePluginMessage', () => {
     expect(parsePluginMessage({ type: 'status', text: '' })).toMatchObject({ ok: true })
   })
 
+  it('reads openTask, with or without a subagent', () => {
+    expect(parsePluginMessage({ type: 'openTask', taskId: 't1' })).toEqual({
+      ok: true,
+      message: { type: PluginMessageType.OpenTask, taskId: 't1' },
+    })
+    expect(parsePluginMessage({ type: 'openTask', taskId: 't1', subagentId: 'toolu_01' })).toEqual({
+      ok: true,
+      message: { type: PluginMessageType.OpenTask, taskId: 't1', subagentId: 'toolu_01' },
+    })
+  })
+
   it.each([
     ['nothing', undefined],
     ['null', null],
@@ -25,6 +36,11 @@ describe('parsePluginMessage', () => {
     ['a status whose text is an object', { type: 'status', text: { toString: 'x' } }],
     ['extra fields', { type: 'ready', command: 'rm -rf /' }],
     ['a status too long to be one', { type: 'status', text: 'x'.repeat(MAX_PLUGIN_MESSAGE_BYTES + 1) }],
+    ['an openTask without a task', { type: 'openTask' }],
+    ['an openTask with an empty task', { type: 'openTask', taskId: '' }],
+    ['an openTask whose subagent is a number', { type: 'openTask', taskId: 't1', subagentId: 3 }],
+    ['an openTask claiming a click', { type: 'openTask', taskId: 't1', userGesture: true }],
+    ['a page-made click', { type: 'click', x: 10, y: 10 }],
     ['a prototype trick', JSON.parse('{"type":"ready","__proto__":{"admin":true}}') as unknown],
   ])('drops %s, saying why', (_name, raw) => {
     const parsed = parsePluginMessage(raw)

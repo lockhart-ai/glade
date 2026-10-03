@@ -144,7 +144,9 @@ There are no follow-up tasks. One task can refer to another through its folder o
   ![Browse files](design/screens/37-browse-files.png)
 - **Bottom bar** (full width) — the workspace's terminal, with tabs, and a plugin panel (Nekomata). Resizable,
   collapsible. Each workspace has its own terminal tabs; switching workspace switches them, and the other
-  workspaces' shells keep running. Removing a workspace ends its shells.
+  workspaces' shells keep running. Removing a workspace ends its shells. Clicking something in a plugin can open the
+  task it shows (a Nekomata cat), switching workspace if it has to, and a subagent of it (a kitten) in the Subagents
+  tab; a plugin can't do that without your click (`plugin-api.md`, `openTask`).
 
 Each resizable panel has a drag handle in the gap on its inner edge. Dragging it takes room from the chat or gives it
 back, within limits (the chat keeps its minimum width and height); collapsing a panel and showing it again brings it
