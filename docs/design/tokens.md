@@ -26,6 +26,8 @@ can nest one level (header and right panel float inside the task card).
 | `slate` | `#5C6378` | Done, an active task that's idle (#430), finished tool calls |
 | `pink` | `#E58FA8` | Errors, destructive menu items, deleted lines |
 | `teal` | `#7FD1C7` | Added lines, strings in code, done todos |
+| `live` | `#273049` | A live tile under a todo: a running subagent, a watcher whose process runs (P16, behind `todoHubEnabled` until #501) |
+| `live-border` | `#40568C` | The live tile's outline |
 | user bubble | `#22304D` | Your messages |
 | question highlight | `#1E1B33` / `#3B3366` | Background / border of the agent's question card, and of every agent reply (#410) |
 
@@ -50,9 +52,15 @@ quietly slip back:
 | `strong` on `panel` | 1.78 |
 | `strong` on `raised` | 1.54 |
 | `strong` on `inner` | 1.56 |
+| `live-border` on `live` | 1.8 |
+| `live-border` on `inner-2` | 1.75 |
+
+`live` is the one surface that doesn't step up from what it sits on: a live tile is no lighter than the `inner-2` card
+around it, and stands off it by its blue and by its outline, which the last two rows hold.
 
 `text`, `muted` and `faint` each meet 4.5:1 on every surface: `bg`, `panel`, `raised`, `inner`, `inner-hover`,
-`inner-2` and `menu` (the lowest is `faint` on `inner-2`, 4.72:1).
+`inner-2`, `menu` and `live` (the lowest is `faint` on `inner-2`, 4.72:1). So does the blue for text on `live`, where
+a live tile says it's running.
 
 ## Type
 

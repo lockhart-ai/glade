@@ -23,6 +23,8 @@ export const colors = {
   '--color-slate': '#5c6378',
   '--color-pink': '#e58fa8',
   '--color-teal': '#7fd1c7',
+  '--color-live': '#273049',
+  '--color-live-border': '#40568c',
   '--color-user-bubble': '#22304d',
   '--color-question-bg': '#1e1b33',
   '--color-question-border': '#3b3366',

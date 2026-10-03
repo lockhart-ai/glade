@@ -190,6 +190,9 @@ const surfaceFloors: readonly ContrastFloor[] = [
   { foreground: '--color-strong', background: '--color-panel', minimum: 1.78 },
   { foreground: '--color-strong', background: '--color-raised', minimum: 1.54 },
   { foreground: '--color-strong', background: '--color-inner', minimum: 1.56 },
+  // P16: a live tile's outline, against the tile and against the open todo's card it sits on.
+  { foreground: '--color-live-border', background: '--color-live', minimum: 1.8 },
+  { foreground: '--color-live-border', background: '--color-inner-2', minimum: 1.75 },
 ]
 
 /** `--color-inner-border` as tokens.md writes it, `inner-border`. */
@@ -237,6 +240,7 @@ describe('text contrast', () => {
     '--color-inner-hover',
     '--color-inner-2',
     '--color-menu',
+    '--color-live',
   ]
 
   for (const text of textColors) {
@@ -250,6 +254,11 @@ describe('text contrast', () => {
   it('has no known exceptions left in tokens.md', () => {
     expect(tokensMd).not.toMatch(/known exception/i)
     expect(tokensMd).toContain('`text`, `muted` and `faint` each meet 4.5:1 on every surface')
+  })
+
+  // P16: a live tile says "Running" in the blue for text, on its tint.
+  it('blue-text on live meets 4.5:1', () => {
+    expect(contrastRatio(colors['--color-blue-text'], colors['--color-live'])).toBeGreaterThanOrEqual(4.5)
   })
 
   // #472, #480: the switcher's "needs you" pill and a workspace's badge both set purple text on purple-bg.
