@@ -13,7 +13,8 @@
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-2xs);
-  background: var(--color-bg);
+  /* The same chip fill as the queue and attachment chips (#455), not the black bg. */
+  background: var(--color-inner-2);
   border: 1px solid var(--color-inner-border);
   border-radius: 8px;
 }
@@ -35,9 +36,10 @@
   cursor: pointer;
 }
 
+/* The chip itself now fills inner-2 (#455), so its own hover steps up to strong, as .remove's does elsewhere. */
 .summary:hover {
   color: var(--color-text);
-  background: var(--color-inner-2);
+  background: var(--color-strong);
 }
 
 .summary:focus-visible {

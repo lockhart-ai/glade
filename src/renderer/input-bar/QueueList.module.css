@@ -2,8 +2,8 @@
 .queue {
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm);
-  padding: var(--space-md) var(--space-md) var(--space-sm);
+  gap: var(--space-md);
+  padding: var(--space-md);
   border-bottom: 1px solid var(--color-inner-border);
 }
 
@@ -11,7 +11,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 2px;
+  padding: 0 var(--space-sm);
 }
 
 .label {
@@ -36,14 +36,20 @@
   list-style: none;
 }
 
+/* A pill, one step lighter than the input bar itself: no border at rest, a strong one on hover (#455). */
 .row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px;
-  background: var(--color-bg);
-  border: 1px solid var(--color-inner-border);
-  border-radius: 8px;
+  padding: 5px 5px 5px 14px;
+  background: var(--color-inner-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  transition: border-color var(--motion-duration-fast) var(--motion-ease);
+}
+
+.row:hover {
+  border-color: var(--color-strong);
 }
 
 .position {
@@ -64,14 +70,18 @@
   border-radius: 5px;
 }
 
+/* Wraps to at most two lines, then ellipsises the rest (#455). */
 .body {
   flex-grow: 1;
   min-width: 0;
-  overflow: hidden;
   font-size: 13.5px;
+  line-height: 1.5;
   color: var(--color-text);
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
 
 /* The text being edited, in the row's place and type: one line to start, growing with what you type. */

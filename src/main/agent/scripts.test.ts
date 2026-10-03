@@ -58,6 +58,7 @@ import {
   S3_PLAN,
   SUBAGENT_CALLS_REPLY,
   TRACKS_LINKS_REPLY,
+  ASKS_SANDBOX,
   type AgentScriptName,
 } from './scripts'
 import { OFFLINE_FIRST_CHECK_MS, USAGE_LIMIT_FALLBACK_MS } from './pauses'
@@ -876,6 +877,25 @@ describe('AGENT_SCRIPTS', () => {
       PermissionRequestState.Allowed,
     ])
     expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, awaitingPermission: false })
+  })
+
+  it('asks-sandbox: runs straight through unsandboxed in Allow all, giving up on the blocked read', async () => {
+    await send(start('asks-sandbox'), 'Set things up.')
+
+    expect(listPermissionRequests(database.db, task.id)).toEqual([])
+    expect(calls().map(({ name, state }) => [name, state])).toEqual([
+      ['Bash', ToolCallState.Done],
+      ['WebFetch', ToolCallState.Done],
+      ['Read', ToolCallState.Done],
+      ['Write', ToolCallState.Done],
+      ['Bash', ToolCallState.Error],
+      ['Bash', ToolCallState.Done],
+    ])
+    expect(
+      listMessages(database.db, task.id)
+        .filter(({ role }) => role === MessageRole.Agent)
+        .at(-1)?.body,
+    ).toBe(ASKS_SANDBOX.reply)
   })
 
   describe('allows-for-task', () => {

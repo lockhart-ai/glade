@@ -114,3 +114,46 @@ for (const how of ['the Stop button', 'the ⌘. shortcut'] as const) {
     await expect(bar.send).toBeVisible()
   })
 }
+
+// #455: queued rows moved off the black `bg` fill onto a lighter chip (`inner-2`), with no border until hovered, and
+// their text now wraps to two lines before it ellipsises, instead of being cut to one.
+test('a queued row is a chip with no border until hovered, and clamps a long message to two lines', async ({
+  launch,
+  tempFolder,
+}) => {
+  const root = join(tempFolder(), 'acme-api')
+  mkdirSync(root)
+  const { window } = await launch({ agentScript: 'long-running', chosenFolder: root })
+  await firstRun(window).openFolder.click()
+  await taskList(window).newTask.click()
+
+  const bar = inputBar(window)
+  await bar.field.fill('Run the e2e suite.')
+  await bar.field.press('Enter')
+  await expect(taskPanel(window).call(/^Running\s*Bash/)).toBeVisible()
+
+  const short = 'Keep it brief.'
+  const long =
+    'When the suite finishes, tell me which tests failed and why, and list every file they touched, so I can ' +
+    'check whether the failures share a cause before I start digging through the logs myself, since the last few ' +
+    'times they turned out to be unrelated flakes rather than one real regression worth chasing down right away.'
+  await bar.field.fill(short)
+  await bar.field.press('Enter')
+  await bar.field.fill(long)
+  await bar.field.press('Enter')
+  await expect(bar.queuedRows).toHaveCount(2)
+
+  // The short message fits on one line; the long one wraps, but is clamped to two, not the many it would need.
+  const shortBox = await bar.queuedBody(1, short).boundingBox()
+  const longBox = await bar.queuedBody(2, long).boundingBox()
+  if (shortBox === null || longBox === null) throw new Error('A queued row did not lay out')
+  expect(longBox.height).toBeGreaterThan(shortBox.height * 1.4)
+  expect(longBox.height).toBeLessThan(shortBox.height * 2.6)
+
+  // No border at rest; a strong one once hovered (the chip's own fill, inner-2, is unaffected by hover).
+  const row = bar.queuedRows.nth(1)
+  await expect(row).toHaveCSS('background-color', 'rgb(46, 50, 67)')
+  await expect(row).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)')
+  await row.hover()
+  await expect(row).toHaveCSS('border-top-color', 'rgb(61, 66, 94)')
+})

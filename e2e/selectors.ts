@@ -574,6 +574,13 @@ export function inputBar(page: Page) {
         .getByRole('listitem')
         .nth(position - 1)
         .getByTitle(name, { exact: true }),
+    /** A queued message's text, by its number and its full body: clamped to two lines, then an ellipsis (#455). */
+    queuedBody: (position: number, body: string) =>
+      bar
+        .getByRole('region', { name: 'Queued messages' })
+        .getByRole('listitem')
+        .nth(position - 1)
+        .getByTitle(body, { exact: true }),
     /** Why something pasted wasn't attached, one line each. */
     refusals: bar.getByRole('alert'),
     /** A queued message's thumbnails, which open the image viewer, by its number. */
