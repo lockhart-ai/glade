@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { TaskActivity, TaskState, type Task } from '../../shared/domain'
+import { menuBarIcon, menuBarSnapshot } from '../../shared/menuBar'
+import { TaskActivity, TaskState, type Task, type Workspace } from '../../shared/domain'
 import { sampleTask, sampleWorkspace } from '../store/test-bridge'
 import {
   badgeTone,
   BadgeTone,
   describeStatus,
-  otherWorkspacesNeedsYouCount,
+  needsYouCount,
   pillText,
   switcherTitle,
   workspaceAt,
@@ -13,6 +14,12 @@ import {
   workspaceStatus,
   WorkspaceStatusKind,
 } from './switcherModel'
+
+/** `menuBarIcon`'s count, as a number: `''` reads as 0. */
+function menuBarCount(tasks: readonly Task[], workspaces: readonly Workspace[]): number {
+  const icon = menuBarIcon(menuBarSnapshot({ tasks, workspaces, turnStartedAt: () => null, recent: [] }))
+  return icon.title === '' ? 0 : Number(icon.title)
+}
 
 /** A task in `workspaceId` whose agent is working. */
 function working(id: string, workspaceId = 'w1'): Task {
@@ -115,21 +122,59 @@ describe('workspaceInitial', () => {
   })
 })
 
-describe('otherWorkspacesNeedsYouCount', () => {
-  it('is 0 with nothing needing you, or only the current workspace’s own tasks needing you', () => {
-    expect(otherWorkspacesNeedsYouCount([], 'w1')).toBe(0)
-    expect(otherWorkspacesNeedsYouCount([waiting('t1'), waiting('t2')], 'w1')).toBe(0)
+describe('needsYouCount', () => {
+  const workspaces = [sampleWorkspace('w1'), sampleWorkspace('w2'), sampleWorkspace('w3')]
+
+  it('is 0 with nothing needing you', () => {
+    expect(needsYouCount([], workspaces)).toBe(0)
+    expect(needsYouCount([working('t1'), done('t2')], workspaces)).toBe(0)
   })
 
-  it('counts tasks that need you across every other workspace, never the current one', () => {
-    const elsewhere = [waiting('t1', 'w2'), waiting('t2', 'w3'), working('t3', 'w2')]
-    expect(otherWorkspacesNeedsYouCount(elsewhere, 'w1')).toBe(2)
-    // The same tasks, now that w2 is current: w2's own no longer counts, w3's still does.
-    expect(otherWorkspacesNeedsYouCount(elsewhere, 'w2')).toBe(1)
+  it('counts tasks that need you across every workspace, the current one included (#480)', () => {
+    const tasks = [waiting('t1', 'w1'), waiting('t2', 'w2'), waiting('t3', 'w3'), working('t4', 'w2')]
+    // Unlike #472's count, w1's own task counts too: every workspace is the same rule now.
+    expect(needsYouCount(tasks, workspaces)).toBe(3)
   })
 
-  it('counts every workspace when none is current', () => {
-    expect(otherWorkspacesNeedsYouCount([waiting('t1', 'w1'), waiting('t2', 'w2')], null)).toBe(2)
+  it('leaves out a task whose workspace isn’t in the list, the same way `menuBarSnapshot` does (#480)', () => {
+    const tasks = [waiting('t1', 'w1'), waiting('t2', 'gone')]
+    expect(needsYouCount(tasks, workspaces)).toBe(1)
+  })
+
+  it('always equals the menu bar icon’s count: needing in the current workspace and in others, working, idle, done, and a task whose workspace is gone (#480)', () => {
+    const tasks = [
+      waiting('t1', 'w1'), // needs you, the current workspace
+      waiting('t2', 'w2'), // needs you, another workspace
+      working('t3', 'w1'), // working, not needing you
+      sampleTask('t4', 'w1'), // brand new, idle
+      done('t5', 'w2'), // done, never counted
+      waiting('t6', 'gone'), // a workspace the app no longer has: left out of both
+    ]
+
+    expect(needsYouCount(tasks, workspaces)).toBe(2)
+    expect(needsYouCount(tasks, workspaces)).toBe(menuBarCount(tasks, workspaces))
+  })
+
+  it('is 0, and the menu bar’s count is blank, with nothing needing you at all', () => {
+    const tasks = [working('t1', 'w1'), done('t2', 'w2')]
+    expect(needsYouCount(tasks, workspaces)).toBe(0)
+    expect(menuBarCount(tasks, workspaces)).toBe(0)
+  })
+})
+
+describe('needsYouCount and workspaceStatus (docs/product.md, "Attention")', () => {
+  it('the pill’s count is the sum of every workspace’s own "N needs you", exactly as the menu bar counts it too', () => {
+    const workspaces = [sampleWorkspace('w1'), sampleWorkspace('w2'), sampleWorkspace('w3')]
+    const tasks = [waiting('t1', 'w1'), waiting('t2', 'w2'), waiting('t3', 'w2'), working('t4', 'w3'), done('t5', 'w1')]
+
+    const sumOfRows = workspaces.reduce((total, workspace) => {
+      const status = workspaceStatus(tasks, workspace.id)
+      return total + (status.kind === WorkspaceStatusKind.NeedsYou ? status.count : 0)
+    }, 0)
+
+    expect(sumOfRows).toBe(3)
+    expect(sumOfRows).toBe(needsYouCount(tasks, workspaces))
+    expect(sumOfRows).toBe(menuBarCount(tasks, workspaces))
   })
 })
 
@@ -147,10 +192,10 @@ describe('switcherTitle', () => {
     expect(switcherTitle(0)).toBe('Switch workspace')
   })
 
-  it('says how many tasks in other workspaces need you, past 0, with the exact count (not 9+)', () => {
-    expect(switcherTitle(1)).toBe('Switch workspace — 1 task in other workspaces needs you')
-    expect(switcherTitle(3)).toBe('Switch workspace — 3 tasks in other workspaces need you')
-    expect(switcherTitle(10)).toBe('Switch workspace — 10 tasks in other workspaces need you')
+  it('says how many tasks need you, past 0, with the exact count (not 9+)', () => {
+    expect(switcherTitle(1)).toBe('Switch workspace — 1 task needs you')
+    expect(switcherTitle(3)).toBe('Switch workspace — 3 tasks need you')
+    expect(switcherTitle(10)).toBe('Switch workspace — 10 tasks need you')
   })
 })
 

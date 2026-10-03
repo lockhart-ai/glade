@@ -15,8 +15,8 @@ export interface SidebarHeaderSwitcher {
   /** Opens or closes the switcher, given the header's button to anchor its menu to. */
   onToggle: (trigger: HTMLElement) => void
   /**
-   * The button's tooltip: "Switch workspace", plus how many tasks in other workspaces need you, if any
-   * (`switcherTitle` in `../workspace-switcher/switcherModel`).
+   * The button's tooltip: "Switch workspace", plus how many tasks need you, if any (`switcherTitle` in
+   * `../workspace-switcher/switcherModel`).
    */
   title: string
 }

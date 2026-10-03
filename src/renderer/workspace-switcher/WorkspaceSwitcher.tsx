@@ -14,7 +14,7 @@ import { selectSelectedWorkspace } from '../store/state'
 import {
   badgeTone,
   describeStatus,
-  otherWorkspacesNeedsYouCount,
+  needsYouCount,
   switcherTitle,
   workspaceStatus,
   WorkspaceStatusKind,
@@ -135,7 +135,7 @@ export function WorkspaceSwitcher({ collapseButton }: WorkspaceSwitcherProps): R
           onToggle: (trigger) => {
             setAnchor(open ? null : trigger)
           },
-          title: switcherTitle(otherWorkspacesNeedsYouCount(Object.values(tasks), workspace?.id ?? null)),
+          title: switcherTitle(needsYouCount(Object.values(tasks), workspaces)),
         }}
       />
       <Menu
