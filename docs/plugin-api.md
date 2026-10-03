@@ -208,7 +208,7 @@ Events cover the tasks in every workspace, not only the one the window shows.
 | `hello` | `app: { name: 'Glade', version: string }` | First, after each `ready`. |
 | `snapshot` | `tasks: PluginTask[]`, `subagents: PluginSubagent[]`, `questions: PluginQuestion[]`, `permissions: PluginPermissionRequest[]`, only with the `machine` capability on, `machine?: PluginMachineReading[]`, and only for a plugin that declares settings, `settings?: Record<string, string>` | After `hello`: every active task in every workspace (not done ones, pinned or not), their running subagents, and their open questions and permission requests; the latest machine readings, oldest first, up to 60 (empty before the first); and the plugin's own settings, key to value ("Settings"). |
 | `task.created` | `task: PluginTask` | A task is created. |
-| `task.updated` | `task: PluginTask` | Anything in `PluginTask` changes: title, status, state (active ⇄ done), activity, needs you, what it waits on, its workspace's name. `updatedAt` alone changing doesn't send one. A done task isn't in the snapshot, so one reopened (or a follow-up running in it) can arrive as a `task.updated` for a task the plugin doesn't know: treat it as new. |
+| `task.updated` | `task: PluginTask` | Anything in `PluginTask` changes: title, status, state (active ⇄ done), activity, needs you, what it waits on, how many watchers it has running, its workspace's name. `updatedAt` alone changing doesn't send one, nor does a change to a watcher that leaves the count as it was. A done task isn't in the snapshot, so one reopened (or a follow-up running in it) can arrive as a `task.updated` for a task the plugin doesn't know: treat it as new. |
 | `task.deleted` | `taskId: string` | A task is deleted. |
 | `agent.toolCall` | `call: PluginToolCall` | A tool call starts, and again when it ends. Parallel calls each get their own. |
 | `agent.note` | `taskId: string`, `subagentId: string \| null`, `text: string`, `at: number` | The agent's (or a subagent's) working notes between tool calls (the tool log's preamble), trimmed. Blank ones aren't sent. |
@@ -231,7 +231,11 @@ interface PluginTask {
   /** The one-line status summary; the outcome once done. Empty until the agent sets one. */
   readonly status: string
   readonly state: 'active' | 'done'
-  /** What the agent is doing (`TaskActivity`). */
+  /**
+   * What the agent is doing (`TaskActivity`): its own turn, not what it left running. `waiting` is a turn that's
+   * over, whether the task is idle or still waits on something it started: `watchers`, with the subagent events,
+   * says which ("Idle, or waiting on something", below).
+   */
   readonly activity: 'waiting' | 'working' | 'error' | 'paused'
   /**
    * Whether the task counts under Needs you: it's asking a question, waiting on a permission card, stopped on an
@@ -244,6 +248,21 @@ interface PluginTask {
   readonly needsYou: boolean
   /** What the agent's turn is blocked on, if anything. */
   readonly waitingOn: 'question' | 'permission' | null
+  /**
+   * How many watchers the task has running: the `Monitor` watches and background commands (a `Bash` call with
+   * `run_in_background`, or one that ran past its timeout and was moved to the background) whose process is still
+   * running, started by the task's agent or by one of its subagents. 0 when none. One counts from when it starts,
+   * during the agent's turn or after it, until it finishes, fails, is stopped, or dies with its session (Glade
+   * quitting, or the session failing).
+   *
+   * Not counted: a wakeup or cron job, which the Watchers tab lists too but which runs nothing until it fires, and
+   * subagents, which have their own events. Only the count: nothing of a watcher's command, name or output.
+   *
+   * With the running subagents, it's everything Glade itself counts as the task's background work: a task whose turn
+   * is over (`activity` is `waiting`) is waiting on something exactly when `watchers` is over 0 or one of its
+   * subagents is running, and idle otherwise.
+   */
+  readonly watchers: number
   readonly createdAt: number
   readonly updatedAt: number
   readonly doneAt: number | null
@@ -338,12 +357,36 @@ A reading mirrors Nekomata's standalone dashboard (`fleet_dashboard.py`): `{ t, 
 `history` entries (with `t` in milliseconds here), and `cpuCount`, `gpu` and `containers` are its `cpu_count`, `gpu`
 and `docker`.
 
+**Idle, or waiting on something.** `activity` is the agent's own turn: it says `waiting` once the turn is over,
+whatever the task left running. A task whose turn is over is still waiting on something, rather than idle, while it
+has either of the two things Glade counts as its background work (and shows the task as working for, in its own task
+list):
+
+- **a running subagent:** one in the snapshot's `subagents`, or a `subagent.started`, whose `taskId` is the task's and
+  that no `subagent.updated` has since ended;
+- **a running watcher:** `watchers` over 0 on the task. A `task.updated` carries the new count each time it changes: a
+  monitor or background command starts, finishes, fails or is stopped, or its session ends (a subagent's watchers end
+  with it when it's stopped, and every watcher's process dies when Glade quits, so a snapshot after a restart says 0).
+
+Nothing else keeps a task from being idle. `watchers` is added to version 1 (#490): a Glade from before it sends no
+such field, so read a missing one as 0.
+
+```js
+const running = new Map() // subagent id → task id, from the snapshot, `subagent.started` and `subagent.updated`
+function waitingOnSomething(task) {
+  if (task.activity !== 'waiting') return false
+  return (task.watchers ?? 0) > 0 || [...running.values()].includes(task.id)
+}
+```
+
 **Not sent:** chat messages and final replies, the queue, file contents, tool inputs beyond the summary above and all
 tool results (a subagent's outcome included), a running subagent's progress summary, question options and answers,
-permission prompts and deny notes, todos, artifacts, the terminal, Glade's settings and other plugins' (a plugin
-gets only the ones it declares itself), and anything about the machine beyond
-the `machine` capability's coarse readings, and those only with it on. A plugin sees what the task list, tool log and
-Subagents tab summarise, and no more.
+permission prompts and deny notes, todos, artifacts, anything of a watcher beyond how many its task has running (not
+its kind, name, command, schedule, output or how it ended, nor the wakeups and cron jobs that are only scheduled; the
+`Bash` call that starts a background command is a tool call like any other, with its command as its summary), the
+terminal, Glade's settings and other plugins' (a plugin gets only the ones it declares itself), and anything about the
+machine beyond the `machine` capability's coarse readings, and those only with it on. A plugin sees what the task
+list, tool log and Subagents tab summarise, and no more.
 
 ## Messages (plugin to Glade)
 
