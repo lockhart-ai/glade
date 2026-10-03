@@ -328,4 +328,14 @@ test('ask: a card asked without a preamble leads with what the agent said just b
     'The limiter is in. A few choices are yours before I go on.5 questions before I finish',
   )
   await expect(questionCard).not.toContainText('The limiter is in.')
+
+  // It's on the same purple card as every other reply (#464), not a neutral one of its own.
+  const lead = questionCard.locator('xpath=preceding-sibling::*[1]')
+  await expect(lead).toContainText('The limiter is in.')
+  expect(
+    await lead.evaluate((el) => {
+      const style = getComputedStyle(el)
+      return { background: style.backgroundColor, border: style.borderTopColor }
+    }),
+  ).toEqual({ background: 'rgb(30, 27, 51)', border: 'rgb(59, 51, 102)' })
 })

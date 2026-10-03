@@ -1209,8 +1209,8 @@ describe('links in the chat', () => {
  * #248: some replies showed as bare text. Only the latest reply while the agent waited on you had a card (the purple
  * question card); every other reply, and what the agent said before asking, had none. Every shape of turn the chat
  * knows must put each piece of the agent's text on a card. #410: every reply's card is purple, always, whatever the
- * turn's shape and however many newer messages arrive after it; only what the agent said before asking (with no
- * preamble) keeps the neutral card.
+ * turn's shape and however many newer messages arrive after it. #464: so is what the agent said just before asking a
+ * question with no preamble — it no longer keeps a neutral card of its own.
  */
 describe('every agent reply is on the purple card', () => {
   const at = (hour: number, minute = 0): number => new Date(2026, 8, 23, hour, minute).getTime()
@@ -1343,7 +1343,7 @@ describe('every agent reply is on the purple card', () => {
     expectAllCarded(2)
   })
 
-  it('what the agent said just before asking', async () => {
+  it('what the agent said just before asking, on the same purple card as every other reply (#464)', async () => {
     await renderChat({
       task: { asking: true },
       messages: [user('u1', 1, at(9))],
@@ -1352,7 +1352,7 @@ describe('every agent reply is on the purple card', () => {
     })
     const lead = within(conversation()).getByText('A few choices are yours.').closest('div')
     expect(lead?.className).toMatch(/card/)
-    expect(lead?.className).not.toMatch(/question/)
+    expect(lead?.className).toMatch(/question/)
   })
 
   it('all of them again after a relaunch', async () => {
