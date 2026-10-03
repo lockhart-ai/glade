@@ -44,6 +44,10 @@ export interface Settings {
    * Whether every task's agent runs in the sandbox (Settings › Agent › Sandbox, #445): its commands under Seatbelt and
    * its file tools held to the same folders, with nothing granted beyond the workspace root. A session reads it as it
    * starts. Off, sessions run as they did before the sandbox.
+   *
+   * Off by default while P15 is being built: main is released from, and without the sandbox's permission cards and
+   * settings (P15-05, P15-06) the sandbox would stop tasks with nothing to grant them access with. The default flips to
+   * on in P15's last PR (#452).
    */
   readonly sandboxEnabled: boolean
 }
@@ -53,7 +57,8 @@ export type SettingsPatch = Partial<Settings>
 
 /**
  * The settings before you change any: the SDK's default model (the built-in list's first) at high effort, allowing every tool
- * call, notifying silently, with no agent allowed to control Glade, showing Glade in the menu bar, and running agents in the sandbox.
+ * call, notifying silently, with no agent allowed to control Glade, showing Glade in the menu bar, and, until P15's
+ * last PR (#452) turns it on, running agents outside the sandbox.
  */
 export const DEFAULT_SETTINGS: Settings = {
   defaultModel: BUILT_IN_MODELS[0].id,
@@ -67,5 +72,6 @@ export const DEFAULT_SETTINGS: Settings = {
   controlEnabled: false,
   controlPort: DEFAULT_CONTROL_PORT,
   showInMenuBar: true,
-  sandboxEnabled: true,
+  // Off until P15's last PR (#452): see `Settings.sandboxEnabled`.
+  sandboxEnabled: false,
 }

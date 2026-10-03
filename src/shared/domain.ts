@@ -89,8 +89,9 @@ export enum TaskErrorSource {
    */
   Refusal = 'refusal',
   /**
-   * The agent sandbox couldn't start in the session, so every command it ran failed (`docs/sdk-notes.md` §15): the
-   * error's `details` is Claude Code's message, which names why (`sandboxFailureReason`).
+   * The agent sandbox couldn't start in the session (`docs/sdk-notes.md` §15): every command it ran failed, and the
+   * error's `details` is Claude Code's message, which names why (`sandboxFailureReason`); or the session wouldn't take
+   * its sandbox settings, and `details` says so and why.
    */
   Sandbox = 'sandbox',
 }

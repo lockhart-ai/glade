@@ -137,14 +137,16 @@ describe('errorOpening', () => {
     [
       sandboxFailed,
       {
-        lead: 'The sandbox couldn’t start, so the agent’s commands failed: ',
+        lead: 'The sandbox couldn’t start: ',
         label: 'tlsTerminate: caCertPath and caKeyPath must be provided together',
       },
     ],
     [
-      error({ ...sandboxFailed, details: 'The sandbox went away.' }),
-      { lead: 'The sandbox couldn’t start, so the agent’s commands failed.', label: null },
+      // A session that wouldn't take its sandbox settings: the reason is the details as they are.
+      error({ ...sandboxFailed, details: ' couldn’t apply the sandbox settings: settings_not_applied\n' }),
+      { lead: 'The sandbox couldn’t start: ', label: 'couldn’t apply the sandbox settings: settings_not_applied' },
     ],
+    [error({ ...sandboxFailed, details: '  ' }), { lead: 'The sandbox couldn’t start.', label: null }],
     [null, { lead: 'The agent stopped on an error.', label: null }],
   ])('says what happened', (stopped, opening) => {
     expect(errorOpening(stopped)).toEqual(opening)

@@ -113,10 +113,11 @@ export function errorOpening(error: TaskError | null): ErrorOpening {
         : { lead: 'The request was declined by a safety check: ', label: category }
     }
     case TaskErrorSource.Sandbox: {
-      const reason = sandboxFailureReason(error.details)
-      return reason === null
-        ? { lead: 'The sandbox couldn’t start, so the agent’s commands failed.', label: null }
-        : { lead: 'The sandbox couldn’t start, so the agent’s commands failed: ', label: reason }
+      // Claude Code's own failure names why after its opening words; any other is the reason as it is.
+      const reason = sandboxFailureReason(error.details) ?? error.details.trim()
+      return reason === ''
+        ? { lead: 'The sandbox couldn’t start.', label: null }
+        : { lead: 'The sandbox couldn’t start: ', label: reason }
     }
     case TaskErrorSource.Api: {
       const label = apiErrorLabel(error)

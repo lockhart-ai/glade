@@ -19,9 +19,11 @@ import {
   type ToolCallEvent,
   type Workspace,
 } from '../../shared/domain'
-import { errorOpening } from '../../shared/taskError'
+import { DEFAULT_SETTINGS } from '../../shared/settings'
+import { errorHeadline, errorOpening } from '../../shared/taskError'
 import { registerBridge } from '../bridge'
 import { fakeIpcPair } from '../bridge/fake-ipc'
+import { listMessages } from '../db/repositories/messages'
 import { listPermissionRequests } from '../db/repositories/permission-requests'
 import { updateSettings } from '../db/repositories/settings'
 import { getTask } from '../db/repositories/tasks'
@@ -47,7 +49,7 @@ import {
   sandboxOverrideCall,
   webFetchCall,
 } from './sandbox-requests'
-import { SANDBOX_FAILED_REFUSAL, type AgentRunner } from './runner'
+import { SANDBOX_FAILED_REFUSAL, SANDBOX_NOT_APPLIED, type AgentRunner } from './runner'
 import * as sdk from './test-sdk-messages'
 
 const HOME = homedir()
@@ -84,6 +86,8 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
   database = openTestDatabase()
+  // The sandbox is off by default until P15's last PR: every test here but the ones that say otherwise turns it on.
+  updateSettings(database.db, { sandboxEnabled: true })
   workspace = sampleWorkspace(database.db, ROOT)
   task = sampleTask(database.db, workspace.id)
   setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: task.id })
@@ -198,15 +202,51 @@ describe('starting a session', () => {
     expect(session.flagSettings).toEqual([])
   })
 
-  it('logs an overlay the SDK refuses, and carries on', async () => {
-    backend.onSessionStart = (session) => {
-      session.onApplyFlagSettings = () => Promise.reject(new Error('settings_not_applied'))
-    }
+  it('is off until you turn it on: by default a session starts unsandboxed', async () => {
+    expect(DEFAULT_SETTINGS.sandboxEnabled).toBe(false)
+    database.db.prepare("DELETE FROM settings WHERE key = 'sandboxEnabled'").run()
     const session = await startTurn()
-    session.emit(sdk.result('Done.'))
+
+    expect(session.options).not.toHaveProperty('flagSettings')
+    expect(session.flagSettings).toEqual([])
+    expect(session.sent).toHaveLength(1)
+  })
+
+  it('holds the first message, and a settings change after it, until the overlay is applied, then sends them in order', async () => {
+    const pending: (() => void)[] = []
+    const applied = (): void => {
+      for (const resolve of pending.splice(0)) resolve()
+    }
+    const order: string[] = []
+    backend.onSessionStart = (session) => {
+      session.onApplyFlagSettings = () =>
+        new Promise<void>((resolve) => {
+          pending.push(resolve)
+        })
+      const send = session.send.bind(session)
+      const configure = session.configure.bind(session)
+      session.send = (...args) => {
+        order.push('send')
+        send(...args)
+      }
+      session.configure = (...args) => {
+        order.push('configure')
+        configure(...args)
+      }
+    }
+    await glade.invoke(CommandName.TasksSend, { id: task.id, text: 'Run the tests.' })
+    await setMode(PermissionMode.AskBeforeEdits)
+    const session = backend.session
+
+    expect(session.sent).toEqual([])
+    expect(session.configured).toEqual([])
+    expect(current().activity).toBe(TaskActivity.Working)
+
+    applied()
     await settle()
 
-    expect(current().activity).toBe(TaskActivity.Waiting)
+    expect(order).toEqual(['send', 'configure'])
+    expect(session.sent.map(({ text }) => text)).toEqual(['Run the tests.'])
   })
 
   it('reads the setting as each session starts: a running session keeps the sandbox it started with', async () => {
@@ -250,6 +290,151 @@ describe('changing the mode', () => {
 
     expect(session.configured).toHaveLength(1)
     expect(session.flagSettings).toEqual([])
+  })
+})
+
+describe('an overlay the session won’t take', () => {
+  const NOT_APPLIED = `${SANDBOX_NOT_APPLIED}settings_not_applied`
+
+  /** Every session started from now on refuses its overlays, as the SDK would, or throws applying them. */
+  function refuseOverlays(how: 'reject' | 'throw' = 'reject'): void {
+    backend.onSessionStart = (session) => {
+      session.onApplyFlagSettings = () => {
+        if (how === 'throw') throw new Error('settings_not_applied')
+        return Promise.reject(new Error('settings_not_applied'))
+      }
+    }
+  }
+
+  /** Every session started from now on takes its overlays. */
+  function takeOverlays(): void {
+    backend.onSessionStart = () => undefined
+  }
+
+  it.each([PermissionMode.AllowAll, PermissionMode.AskBeforeEdits])(
+    'never starts a session whose first overlay is refused in %s: no message is sent, and the task stops on the error',
+    async (mode) => {
+      await setMode(mode)
+      refuseOverlays()
+      await glade.invoke(CommandName.TasksSend, { id: task.id, text: 'Run the tests.' })
+      await settle()
+      const session = backend.session
+
+      expect(session.flagSettings).toHaveLength(1)
+      expect(session.sent).toEqual([])
+      expect(session.configured).toEqual([])
+      expect(session.closed).toBe(true)
+      expect(current()).toMatchObject({
+        activity: TaskActivity.Error,
+        error: { kind: AgentErrorKind.Permanent, source: TaskErrorSource.Sandbox, details: NOT_APPLIED },
+      })
+      expect(errorOpening(current().error)).toEqual({ lead: 'The sandbox couldn’t start: ', label: NOT_APPLIED })
+      expect(errorHeadline(current().error)).toBe('the sandbox couldn’t start')
+      // Your message is still in the chat, for Retry.
+      expect(listMessages(database.db, task.id).map(({ body }) => body)).toEqual(['Run the tests.'])
+    },
+  )
+
+  it('does the same when applying the overlay throws', async () => {
+    refuseOverlays('throw')
+    await glade.invoke(CommandName.TasksSend, { id: task.id, text: 'Run the tests.' })
+    await settle()
+
+    expect(backend.session.sent).toEqual([])
+    expect(backend.session.closed).toBe(true)
+    expect(current()).toMatchObject({
+      activity: TaskActivity.Error,
+      error: { source: TaskErrorSource.Sandbox, details: NOT_APPLIED },
+    })
+  })
+
+  it('starts cleanly on a later Retry: a new session, its overlay, then the same message', async () => {
+    refuseOverlays()
+    await glade.invoke(CommandName.TasksSend, { id: task.id, text: 'Run the tests.' })
+    await settle()
+    takeOverlays()
+
+    await glade.invoke(CommandName.TasksRetry, { id: task.id })
+    await settle()
+
+    expect(backend.sessions).toHaveLength(2)
+    const session = backend.session
+    expect(session.flagSettings).toEqual([sandboxOverlay(ROOT, PermissionMode.AllowAll, NO_GRANTS)])
+    expect(session.sent.map(({ text }) => text)).toEqual(['Run the tests.'])
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, error: null })
+    session.emit(sdk.init(), sdk.result('All 42 tests pass.'))
+    await settle()
+    expect(current()).toMatchObject({ activity: TaskActivity.Waiting, error: null })
+    expect(listMessages(database.db, task.id).map(({ body }) => body)).toEqual(['Run the tests.', 'All 42 tests pass.'])
+  })
+
+  it('starts cleanly on a new message instead, too', async () => {
+    refuseOverlays()
+    await glade.invoke(CommandName.TasksSend, { id: task.id, text: 'Run the tests.' })
+    await settle()
+    takeOverlays()
+
+    await glade.invoke(CommandName.TasksSend, { id: task.id, text: 'Try the build instead.' })
+    await settle()
+
+    expect(backend.sessions).toHaveLength(2)
+    expect(backend.session.sent.map(({ text }) => text)).toEqual(['Try the build instead.'])
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, error: null })
+  })
+
+  it('closes a running session that refuses the overlay for a new mode, ending its turn on the error', async () => {
+    const session = await startTurn()
+    session.emit(sdk.toolUse('toolu_01', 'Bash', { command: 'npm test' }))
+    await settle()
+    session.onApplyFlagSettings = () => Promise.reject(new Error('settings_not_applied'))
+
+    await setMode(PermissionMode.AskBeforeEdits)
+
+    expect(session.closed).toBe(true)
+    expect(toolCall('toolu_01')).toMatchObject({ state: ToolCallState.Error, output: NOT_APPLIED })
+    expect(current()).toMatchObject({
+      activity: TaskActivity.Error,
+      error: { source: TaskErrorSource.Sandbox, details: NOT_APPLIED },
+    })
+  })
+
+  it('closes an idle session that refuses it without an error: the next message starts a new one', async () => {
+    const session = await startTurn()
+    session.emit(sdk.result('Done.'))
+    await settle()
+    session.onApplyFlagSettings = () => Promise.reject(new Error('settings_not_applied'))
+
+    await setMode(PermissionMode.AskBeforeEdits)
+
+    expect(session.closed).toBe(true)
+    expect(current()).toMatchObject({ activity: TaskActivity.Waiting, error: null })
+
+    const next = await startTurn('And the build.')
+    expect(backend.sessions).toHaveLength(2)
+    expect(next.flagSettings).toEqual([sandboxOverlay(ROOT, PermissionMode.AskBeforeEdits, NO_GRANTS)])
+    expect(next.sent.map(({ text }) => text)).toEqual(['And the build.'])
+  })
+
+  it('leaves a session that failed by itself meanwhile with its own error', async () => {
+    let refuse: (error: Error) => void = () => undefined
+    backend.onSessionStart = (session) => {
+      session.onApplyFlagSettings = () =>
+        new Promise<void>((_, reject) => {
+          refuse = reject
+        })
+    }
+    await glade.invoke(CommandName.TasksSend, { id: task.id, text: 'Run the tests.' })
+    await settle()
+    backend.session.fail(new Error('spawn ENOENT'))
+    await settle()
+    refuse(new Error('settings_not_applied'))
+    await settle()
+
+    expect(backend.session.sent).toEqual([])
+    expect(current()).toMatchObject({
+      activity: TaskActivity.Error,
+      error: { source: TaskErrorSource.Session, details: 'The agent stopped: spawn ENOENT' },
+    })
   })
 })
 

@@ -142,8 +142,8 @@
  * carries on the turn that asked; the agent never has to ask again.
  *
  * **Permission review** (`docs/decisions.md`, "Per-call permission review"; `../permissions`). In Allow all, the session
- * bypasses every check and no call ever asks (but for the sandbox's, below). In the ask mode, Claude Code asks the runner about each call its rules and
- * the user's settings leave at "ask" (`canUseTool`): reads, searches, the todo and subagent tools and Glade's own tools
+ * bypasses every check and no call ever asks (but for the sandbox's, below). In the ask mode, Claude Code asks the
+ * runner about each call its rules and the user's settings leave at "ask" (`canUseTool`): reads, searches, the todo and subagent tools and Glade's own tools
  * go ahead at once (`permissionVerdict`), and anything else opens a permission request and waits on it, however long it
  * takes. Meanwhile the task waits on you (its activity is waiting, and `awaitingPermission` is true), though its turn
  * is still running; parallel calls each get a request, and a message sent meanwhile is queued, since the call is still
@@ -177,7 +177,9 @@
  * **The agent sandbox** (#445, `./sandbox`, `docs/sdk-notes.md` §15). With Settings' `sandboxEnabled` on as a session
  * starts, it runs in the sandbox for its whole life: it starts with only the fixed parts (`sandboxStartSettings`), and
  * straight after, before its first message, gets the overlay for its mode and grants (`sandboxOverlay`, applied with
- * `applyFlagSettings`), as it does again whenever its mode changes. Allow all then runs as `acceptEdits`, never
+ * `applyFlagSettings`), as it does again whenever its mode changes. Its messages wait on that first overlay
+ * (`gatedSession`), and a session that won't take an overlay is closed rather than left running without it, its turn
+ * ending on the sandbox's error (`onSandboxNotApplied`). Allow all then runs as `acceptEdits`, never
  * bypassing: the calls Claude Code asks about go ahead, but for the ones crossing the sandbox's bounds, which ask in
  * either mode, as does every request to run a command outside the sandbox (`toolCallVerdict`). If a command fails
  * because the sandbox couldn't start (`sandboxFailureReason`), the session refuses every request to run outside it from
@@ -335,6 +337,7 @@ import {
   type ToolPermissionAnswer,
   type ToolPermissionCall,
 } from './backend'
+import { gatedSession } from './gated-session'
 import { NO_GRANTS, sandboxOverlay, sandboxStartSettings, type SandboxGrants } from './sandbox'
 import { CONTROL_SERVER } from '../control/names'
 import type { AccountSink } from '../account/account'
@@ -801,7 +804,16 @@ const WITHDRAWN: ToolPermissionAnswer = {
   byUser: false,
 }
 
-/** The error a task stops on when its session's sandbox couldn't start: Claude Code's message, which names why. */
+/**
+ * How the error begins when a sandboxed session wouldn't take its sandbox settings (`applyFlagSettings` was refused, or
+ * failed): what the SDK said follows.
+ */
+export const SANDBOX_NOT_APPLIED = "couldn't apply the sandbox settings: "
+
+/**
+ * The error a task stops on when its session's sandbox couldn't start: Claude Code's message, which names why, or why
+ * the session wouldn't take its sandbox settings (`SANDBOX_NOT_APPLIED`).
+ */
 function sandboxError(failure: string): TaskError {
   return {
     kind: AgentErrorKind.Permanent,
@@ -1618,9 +1630,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     updateTaskFromRunner(context, taskId, { contextUsedTokens: tokens })
   }
 
-  /** The session is gone: fail its turn, if one was running, and forget it so the next message starts it again. */
-  const onSessionFailed = (taskId: string, live: LiveSession, message: string): void => {
-    agentLog(taskId).error('session failed', { message, turn: live.turn?.number ?? null })
+  /** A session is gone, and what ran in it with it: it's forgotten, so the next message starts it again. */
+  const sessionGone = (taskId: string, live: LiveSession, message: string): void => {
     if (sessions.get(taskId) === live) sessions.delete(taskId)
     // Whatever its calls waited on went with it.
     withdrawRequests(live, true)
@@ -1630,6 +1641,40 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
     watchers.sessionEnded(taskId, message)
     changes.sessionEnded(taskId)
+  }
+
+  /**
+   * A sandboxed session wouldn't take its overlay (`applySandbox`): since whether its commands ask is in the overlay
+   * alone, it can't be left running as it is, so it's closed, and what was held for it is never sent. A turn it was in,
+   * or about to start, ends on the sandbox's error, with its card, whose Retry starts a new session. Between turns,
+   * the next message starts one. A session already closed or gone is left as it is.
+   */
+  const onSandboxNotApplied = (taskId: string, live: LiveSession, error: unknown): void => {
+    const details = `${SANDBOX_NOT_APPLIED}${describeError(error)}`
+    const { turn } = live
+    if (live.closed || sessions.get(taskId) !== live) {
+      agentLog(taskId).warn("couldn't apply the sandbox's settings to a session that's gone", { error })
+      return
+    }
+    agentLog(taskId).error("couldn't apply the sandbox's settings: session closed", {
+      error,
+      turn: turn?.number ?? null,
+    })
+    sessionGone(taskId, live, details)
+    live.closed = true
+    live.session.close()
+    if (turn === null) return
+    endTurn(taskId, live, turn)
+    failCompaction(turn)
+    flushPreamble(taskId, turn)
+    failRunning(taskId, turn, details)
+    stopOnError(taskId, sandboxError(details))
+  }
+
+  /** The session is gone: fail its turn, if one was running, and forget it so the next message starts it again. */
+  const onSessionFailed = (taskId: string, live: LiveSession, message: string): void => {
+    agentLog(taskId).error('session failed', { message, turn: live.turn?.number ?? null })
+    sessionGone(taskId, live, message)
     const { turn } = live
     if (turn === null) return
     endTurn(taskId, live, turn)
@@ -2109,7 +2154,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     let jobsListed: (jobs: readonly SessionJob[]) => void = () => undefined
     let compacted: (compaction: CompactSummary) => void = () => undefined
     let bashFinished: (call: BashCallFinished) => Promise<BashFinishedAnswer> = () => Promise.resolve(NOTHING_TO_ADD)
-    const session = backend.start({
+    // Settled once a sandboxed session has its overlay, or wouldn't take it.
+    let overlaid: (taken: boolean) => void = () => undefined
+    const overlay = new Promise<boolean>((resolve) => {
+      overlaid = resolve
+    })
+    const started = backend.start({
       cwd: workspace.rootPath,
       model: task.model,
       effort: task.effort,
@@ -2136,6 +2186,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         ...(sandboxed ? { onBashFinished: (call: BashCallFinished) => bashFinished(call) } : {}),
       },
     })
+    // A sandboxed session's messages and settings wait on its overlay: whether its commands ask is in the overlay
+    // alone, so nothing reaches the agent before it, or at all if the session won't take it.
+    const session = sandboxed ? gatedSession(started, overlay) : started
     const live: LiveSession = {
       session,
       turn: null,
@@ -2172,7 +2225,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return Promise.resolve(NOTHING_TO_ADD)
     }
     sessions.set(task.id, live)
-    applySandbox(task.id, live)
+    // The session's messages wait on its overlay, and are never sent if it won't take it.
+    if (sandboxed) void applySandbox(task.id, live).then(overlaid)
     void pump(task.id, live)
     readAccount(task.id, live)
     readUsage(task.id, live)
@@ -2180,17 +2234,29 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   /**
-   * Gives a sandboxed session the overlay for its permission mode and grants (`sandboxOverlay`), in order with what's
-   * asked of it before and after: straight after start, before its first message, and whenever its mode changes. One
-   * the SDK refuses is logged, and the session carries on as it was.
+   * Gives a sandboxed session the overlay for its permission mode and grants (`sandboxOverlay`): straight after start,
+   * before its first message, and whenever its mode changes. Answers whether it took it. One the SDK refuses, or that
+   * can't be applied at all, closes the session (`onSandboxNotApplied`): it's never left running without it. The
+   * session is asked at once, in order with what's asked of it before and after, but the answer is only acted on later,
+   * even when applying throws, so a session that has just started has its turn by then.
    */
-  const applySandbox = (taskId: string, live: LiveSession): void => {
+  const applySandbox = async (taskId: string, live: LiveSession): Promise<boolean> => {
     const { sandbox } = live
-    if (sandbox === null) return
+    if (sandbox === null) return true
     const overlay = sandboxOverlay(sandbox.root, live.settings.permissionMode, sandbox.grants, home)
-    live.session.applyFlagSettings(overlay).catch((error: unknown) => {
-      agentLog(taskId).warn("couldn't apply the sandbox's settings", { error })
-    })
+    let applied: Promise<void>
+    try {
+      applied = live.session.applyFlagSettings(overlay)
+    } catch (error) {
+      applied = Promise.reject(error instanceof Error ? error : new Error(String(error)))
+    }
+    try {
+      await applied
+      return true
+    } catch (error) {
+      onSandboxNotApplied(taskId, live, error)
+      return false
+    }
   }
 
   /**
@@ -2638,7 +2704,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       live.settings = { ...live.settings, permissionMode: task.permissionMode }
       live.session.configure(live.settings)
       // Whether sandboxed commands ask goes with the mode.
-      applySandbox(taskId, live)
+      void applySandbox(taskId, live)
     },
 
     queue(taskId, text, images = [], pastedBlocks = [], files = []) {

@@ -1205,7 +1205,7 @@ a denied call and a foreground subagent's call. What that run showed is marked *
 - **Glade** runs Allow all as `permissionMode: 'bypassPermissions'` and the ask mode as `'default'`, always with
   `allowDangerouslySkipPermissions: true` and a `canUseTool`, and with its own MCP servers in `allowedTools`
   (`mcp__glade`, a server-wide rule [docs]) so their tools never ask (`src/main/agent/sdk-backend.ts`). That's with
-  the agent sandbox off; with it on (the default since P15), Allow all runs as `'acceptEdits'` and the session can't
+  the agent sandbox off, as it is by default until P15 is finished; with it on, Allow all runs as `'acceptEdits'` and the session can't
   switch into bypassing (§15, "What Glade does").
 - **[verified] `bypassPermissions` never calls `canUseTool`.** The SDK even warns about it when both are given
   (`CLAUDE_SDK_CAN_USE_TOOL_SHADOWED`, a Node process warning), which is harmless: the callback is there for when the
@@ -1897,9 +1897,11 @@ broke the config instead: `network.tlsTerminate` with a CA certificate and no ke
 
 ### What Glade does (P15-03, #448)
 
-The sandbox is on unless Settings' `sandboxEnabled` is off (Settings › Agent › Sandbox, P15-06), read as each session
-starts; a session keeps the sandbox it started with for its whole life. With it off, a session starts exactly as it did
-before P15. With it on (`src/main/agent/sandbox.ts`, wired in `runner.ts` and `sdk-backend.ts`):
+The sandbox is on when Settings' `sandboxEnabled` is (Settings › Agent › Sandbox, P15-06), read as each session
+starts; a session keeps the sandbox it started with for its whole life. **The setting is off by default while P15 is
+being built**, since main is released from and a sandboxed task has no cards or settings to be granted anything with
+yet: the default flips to on in P15's last PR (#452). With it off, a session starts exactly as it did before P15. With
+it on (`src/main/agent/sandbox.ts`, wired in `runner.ts` and `sdk-backend.ts`):
 
 - **At start, only the fixed parts** (`sandboxStartSettings`), since `applyFlagSettings` can't narrow them: `enabled`
   and `failIfUnavailable`; `filesystem.denyRead` the home folder (absolute, never `~`), `/Users` and `/Volumes`;
@@ -1918,6 +1920,13 @@ before P15. With it on (`src/main/agent/sandbox.ts`, wired in `runner.ts` and `s
   the start's for a boolean wasn't probed (the probes above covered lists, which merge), and no real call was made to
   find out. Left out at start, the SDK's default (on) applies only until the overlay lands, which is before the
   session's first message, so the ask mode's commands always ask. [not probed]
+- **No message before the overlay, and no session without it.** The runner holds a sandboxed session's messages and
+  settings changes until its first overlay is applied (`gatedSession`, `src/main/agent/gated-session.ts`): the backend
+  delivers in order anyway, but carries on after a change the SDK refuses. An overlay that's refused, or that throws,
+  closes the session (`onSandboxNotApplied`), the first one and any later one (a mode change): what was held is never
+  sent, and the turn ends on the sandbox's error, "The sandbox couldn't start: couldn't apply the sandbox settings:
+  <why>", whose Retry starts a new session. A session idle between turns is closed without an error, and the next
+  message starts a new one.
 - **The modes:** Allow all runs as `acceptEdits` (`sdkPermissionMode(mode, sandboxed)`), never `bypassPermissions`, and
   a sandboxed session is started without `allowDangerouslySkipPermissions`, so nothing can switch it into bypassing.
   The ask mode runs `default`. Switching a running task's mode calls `setPermissionMode` and reapplies the overlay.
@@ -1935,8 +1944,8 @@ before P15. With it on (`src/main/agent/sandbox.ts`, wired in `runner.ts` and `s
   only mentions it (a command's output, another tool's result, the agent's own message) doesn't count. From then on,
   every request to run outside the sandbox in that session is denied in `canUseTool` without a card, with a message
   telling the agent to stop running commands (`SANDBOX_FAILED_REFUSAL`), and the turn ends on a `TaskError` with
-  `source: 'sandbox'` and Claude Code's message as its details: the existing error card, "The sandbox couldn't start,
-  so the agent's commands failed: <why>". A failure seen with no turn running (a background command) stops the task at
+  `source: 'sandbox'` and Claude Code's message as its details: the existing error card, "The sandbox couldn't
+  start: <why>". A failure seen with no turn running (a background command) stops the task at
   once. Retry closes the session first, as for a lost login, so the retry's new session starts its sandbox again.
   Other tasks' sessions are unaffected. `failIfUnavailable` stays true, so nothing ever runs unsandboxed.
 

@@ -884,7 +884,6 @@ describe('AGENT_SCRIPTS', () => {
   })
 
   it('asks-sandbox: runs straight through unsandboxed in Allow all, giving up on the blocked read', async () => {
-    updateSettings(database.db, { sandboxEnabled: false })
     await send(start('asks-sandbox'), 'Set things up.')
 
     expect(listPermissionRequests(database.db, task.id)).toEqual([])
@@ -904,6 +903,7 @@ describe('AGENT_SCRIPTS', () => {
   })
 
   it('asks-sandbox: sandboxed in Allow all, waits on the first boundary it crosses', async () => {
+    updateSettings(database.db, { sandboxEnabled: true })
     const agent = start('asks-sandbox')
     await sendAndWaitAnHour(agent, 'Set things up.')
 
@@ -916,6 +916,7 @@ describe('AGENT_SCRIPTS', () => {
   it.each([PermissionMode.AllowAll, PermissionMode.AskBeforeEdits])(
     'sandbox-fails: in %s, refuses both requests to run outside the sandbox without asking, and stops on the error',
     async (mode) => {
+      updateSettings(database.db, { sandboxEnabled: true })
       updateTask(database.db, task.id, { permissionMode: mode })
       await send(start('sandbox-fails'), 'Run the tests.')
 
@@ -934,7 +935,6 @@ describe('AGENT_SCRIPTS', () => {
   )
 
   it('sandbox-fails: with the sandbox off, the command just fails and nothing is refused', async () => {
-    updateSettings(database.db, { sandboxEnabled: false })
     await send(start('sandbox-fails'), 'Run the tests.')
 
     expect(calls().map(({ state }) => state)).toEqual([ToolCallState.Error, ToolCallState.Done, ToolCallState.Done])

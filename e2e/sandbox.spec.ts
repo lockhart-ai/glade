@@ -1,6 +1,7 @@
-// The agent sandbox (#445), end to end with the scripted agent: a task's session starts sandboxed, and when its sandbox
-// can't start, every command fails, the agent's requests to run outside the sandbox are refused without a card, and
-// the task stops on the error, naming why. Retry starts a new session, so the sandbox gets another go.
+// The agent sandbox (#445), end to end with the scripted agent: with it on, a task's session starts sandboxed, and
+// when its sandbox can't start, every command fails, the agent's requests to run outside the sandbox are refused
+// without a card, and the task stops on the error, naming why. Retry starts a new session, so the sandbox gets another
+// go.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
@@ -28,15 +29,15 @@ test('a sandbox that can’t start stops the task on the error, and running outs
   const glade = await launch({ agentScript: 'sandbox-fails', chosenFolder: root })
   const { window } = glade
   await firstRun(window).openFolder.click()
+  // The sandbox is off by default until P15's last PR: turned on here, before the task's session starts.
+  await invoke(window, CommandName.SettingsUpdate, { patch: { sandboxEnabled: true } })
   await taskList(window).newTask.click()
   await inputBar(window).field.fill('Run the tests.')
   await inputBar(window).field.press('Enter')
 
   const { errorCard, permissionCards } = chat(window)
   await expect(errorCard).toContainText('The agent stopped')
-  await expect(errorCard).toContainText(
-    `The sandbox couldn’t start, so the agent’s commands failed: ${SANDBOX_FAILS.reason}.`,
-  )
+  await expect(errorCard).toContainText(`The sandbox couldn’t start: ${SANDBOX_FAILS.reason}.`)
   await expect(errorCard).toContainText('Nothing is lost: the chat, tool log and files are as they were.')
   await expect(chat(window).agentReplies.last()).toContainText(SANDBOX_FAILS.reply)
   await expect(taskHeader(window).stateDot).toHaveAccessibleName('Active · stopped by an error')

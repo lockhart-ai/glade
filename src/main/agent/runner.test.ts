@@ -57,7 +57,6 @@ import { setUiState } from '../db/repositories/ui-state'
 import { addWatcher } from '../db/repositories/watchers'
 import { FakeAgentBackend, settle, type FakeAgentSession } from './fake-backend'
 import { GLADE_SERVER } from './glade-tools'
-import { sandboxStartSettings } from './sandbox'
 import { needsYou } from '../../shared/attention'
 import { todoProgress } from '../../shared/todoSummary'
 import {
@@ -337,12 +336,10 @@ describe('a turn', () => {
       mcpServers: { [GLADE_SERVER]: expect.objectContaining({ type: 'sdk', name: GLADE_SERVER }) as unknown },
       env: {},
       allowedRules: [],
-      flagSettings: sandboxStartSettings(workspace.rootPath),
       log: expect.objectContaining({ info: expect.any(Function) as unknown }) as unknown,
       onToolPermission: expect.any(Function) as unknown,
       hooks: {
         onBashStarting: expect.any(Function) as unknown,
-        onBashFinished: expect.any(Function) as unknown,
         onPrompt: expect.any(Function) as unknown,
         onTurnEnded: expect.any(Function) as unknown,
         onCompacted: expect.any(Function) as unknown,

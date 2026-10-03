@@ -440,13 +440,6 @@ Code allow and deny rules still apply. The card offers:
 ← and → move between the buttons, and ↵ chooses. While a card waits, the task needs you, exactly as with a question.
 A card left open when Glade quits is still there after the relaunch; answering it carries the task on.
 
-Agents run in a **sandbox**, on by default: a task's agent can use only its workspace folder. In either mode, a card
-asks before it reads anything else in your home folder, `/Users` or `/Volumes`, writes anywhere outside the workspace,
-reaches a website, or runs a command outside the sandbox. Folders outside your home folder (`/usr`, `/opt/homebrew`, …)
-stay readable, and your credential files (`~/.ssh`, `~/.aws`, …) stay out of reach. If the sandbox can't start, the
-task stops with an error saying why, and Glade refuses to run the agent's commands outside it; **Retry** starts the
-sandbox again.
-
 ## Settings
 
 ⌘, opens Settings. Every change saves as you make it.
