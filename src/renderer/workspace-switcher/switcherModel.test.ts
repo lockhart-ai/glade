@@ -5,6 +5,9 @@ import {
   badgeTone,
   BadgeTone,
   describeStatus,
+  otherWorkspacesNeedsYouCount,
+  pillText,
+  switcherTitle,
   workspaceAt,
   workspaceInitial,
   workspaceStatus,
@@ -50,19 +53,26 @@ describe('workspaceStatus', () => {
     })
   })
 
-  it('counts a reply you have read, and a task still working in the background, as active only (#430)', () => {
+  it('counts a read reply still working in the background as active only, and an unread one as needing you whether or not background work runs (#461)', () => {
     const read = { ...waiting('t1'), unread: false }
-    const background = { ...waiting('t2'), backgroundWork: true }
-    expect(workspaceStatus([read, background], 'w1')).toEqual({ kind: WorkspaceStatusKind.Active, count: 2 })
-
-    // The background work finishes on its unread reply; the read one is marked unread.
-    expect(workspaceStatus([read, { ...background, backgroundWork: false }], 'w1')).toEqual({
+    const readBackground = { ...read, backgroundWork: true }
+    const unreadBackground = { ...waiting('t2'), backgroundWork: true }
+    expect(workspaceStatus([read, readBackground], 'w1')).toEqual({ kind: WorkspaceStatusKind.Active, count: 2 })
+    // The unread one needs you though its background work runs (#461).
+    expect(workspaceStatus([readBackground, unreadBackground], 'w1')).toEqual({
       kind: WorkspaceStatusKind.NeedsYou,
       count: 1,
     })
-    expect(workspaceStatus([{ ...read, unread: true }, background], 'w1')).toEqual({
+
+    // Its background work finishes while it's still unread: it already needed you, so nothing changes.
+    expect(workspaceStatus([readBackground, { ...unreadBackground, backgroundWork: false }], 'w1')).toEqual({
       kind: WorkspaceStatusKind.NeedsYou,
       count: 1,
+    })
+    // The read one is marked unread too: now both need you.
+    expect(workspaceStatus([{ ...readBackground, unread: true }, unreadBackground], 'w1')).toEqual({
+      kind: WorkspaceStatusKind.NeedsYou,
+      count: 2,
     })
     // Asking or erroring needs you whatever runs in the background, and whether it's read.
     const asking = { ...read, backgroundWork: true, asking: true }
@@ -102,6 +112,45 @@ describe('workspaceInitial', () => {
     expect(workspaceInitial('acme API')).toBe('A')
     expect(workspaceInitial('élan')).toBe('É')
     expect(workspaceInitial('')).toBe('?')
+  })
+})
+
+describe('otherWorkspacesNeedsYouCount', () => {
+  it('is 0 with nothing needing you, or only the current workspace’s own tasks needing you', () => {
+    expect(otherWorkspacesNeedsYouCount([], 'w1')).toBe(0)
+    expect(otherWorkspacesNeedsYouCount([waiting('t1'), waiting('t2')], 'w1')).toBe(0)
+  })
+
+  it('counts tasks that need you across every other workspace, never the current one', () => {
+    const elsewhere = [waiting('t1', 'w2'), waiting('t2', 'w3'), working('t3', 'w2')]
+    expect(otherWorkspacesNeedsYouCount(elsewhere, 'w1')).toBe(2)
+    // The same tasks, now that w2 is current: w2's own no longer counts, w3's still does.
+    expect(otherWorkspacesNeedsYouCount(elsewhere, 'w2')).toBe(1)
+  })
+
+  it('counts every workspace when none is current', () => {
+    expect(otherWorkspacesNeedsYouCount([waiting('t1', 'w1'), waiting('t2', 'w2')], null)).toBe(2)
+  })
+})
+
+describe('pillText', () => {
+  it('is the count, or 9+ past nine', () => {
+    expect(pillText(1)).toBe('1')
+    expect(pillText(9)).toBe('9')
+    expect(pillText(10)).toBe('9+')
+    expect(pillText(42)).toBe('9+')
+  })
+})
+
+describe('switcherTitle', () => {
+  it('is just "Switch workspace" at 0', () => {
+    expect(switcherTitle(0)).toBe('Switch workspace')
+  })
+
+  it('says how many tasks in other workspaces need you, past 0, with the exact count (not 9+)', () => {
+    expect(switcherTitle(1)).toBe('Switch workspace — 1 task in other workspaces needs you')
+    expect(switcherTitle(3)).toBe('Switch workspace — 3 tasks in other workspaces need you')
+    expect(switcherTitle(10)).toBe('Switch workspace — 10 tasks in other workspaces need you')
   })
 })
 

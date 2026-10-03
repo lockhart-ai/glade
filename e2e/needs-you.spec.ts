@@ -1,19 +1,21 @@
-// What "needs you" means (#430), end to end with the scripted agent: a task needs you when it's blocked on you (a
-// question, a permission card, an error) or has a reply you haven't read; a reply you've read doesn't; and a task whose
-// turn has ended but which left subagents or watchers running is working until they end. Each is read off the two
-// places the rule shows first, the workspace switcher's count and the sidebar row's dot (with the header's dot, the
-// menu bar's count and ⌘⌥↓ along the way), and again after a relaunch.
+// What "needs you" means (#430, corrected by #461), end to end with the scripted agent: a task needs you when it's
+// blocked on you (a question, a permission card, an error) or has a reply you haven't read, whether or not it left
+// subagents or watchers running in the background; a read reply with nothing running is idle, and with background
+// work still running is working. Each is read off the two places the rule shows first, the workspace switcher's
+// count and the sidebar row's dot (with the header's dot, the menu bar's count and ⌘⌥↓ along the way), and again
+// after a relaunch.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { PERMISSION_AT_QUIT, STOP_SPARES_BACKGROUND } from '../src/main/agent/scripts'
-import { expect, menuBarIcon, sendAndOpenNewTask, test, type Glade } from './fixtures'
+import { clickMenuBarIcon, expect, menuBarIcon, sendAndOpenNewTask, test, type Glade } from './fixtures'
 import { chooseMenuItem } from './menu'
 import {
   chat,
   contextMenu,
   firstRun,
   inputBar,
+  menuBarPopover,
   subagentsTab,
   taskHeader,
   taskList,
@@ -266,7 +268,7 @@ test('background work running at a relaunch has ended with it: a read reply is t
   await expect(subagentsTab(second.window).tally).toHaveText('1 interrupted')
 })
 
-test('an unread reply does not need you while background work runs, and does once a relaunch has ended it', async ({
+test('a reply needs you while a subagent and a watch it left running still run, not only once they end (#461)', async ({
   launch,
   tempFolder,
 }) => {
@@ -274,33 +276,36 @@ test('an unread reply does not need you while background work runs, and does onc
   await openWorkspace(first.window)
   const { title } = STOP_SPARES_BACKGROUND
 
-  // The reply arrives while you're in another task: it's unread, as ever, but its subagent and watch still run, so it
-  // counts as working, not as needing you.
+  // The reply arrives while you're in another task: its subagent and watch still run, but that doesn't mask it
+  // needing you (#461): the purple dot, the switcher and the menu bar all count it, the last under "Unread reply".
   await sendAndOpenNewTask(first, STOP_SPARES_BACKGROUND.prompt)
   const list = taskList(first.window)
   await expect(list.taskRow(title).getByRole('img', { name: 'Unread' })).toBeVisible()
-  await expectDot(first.window, title, 'working')
-  await expectSwitcher(first.window, '2 active')
-  await expectMenuBarCount(first, '')
-  // Next task that needs you has nowhere to go: you stay on the new task.
-  await inputBar(first.window).field.blur()
-  await first.window.keyboard.press('Meta+Alt+ArrowDown')
-  await expect(list.taskRow(NEW_TASK)).toHaveAttribute('aria-current', 'true')
+  await expectDot(first.window, title, 'waiting')
+  await expectSwitcher(first.window, '1 needs you')
+  await expectMenuBarCount(first, '1')
+  const popoverPage = await clickMenuBarIcon(first)
+  const popover = menuBarPopover(popoverPage)
+  await expect(popover.row('Needs you', title)).toContainText('Unread reply')
+  await expect(popover.rows('Working')).toHaveCount(0)
+  await popoverPage.keyboard.press('Escape')
   await first.close()
 
-  // The relaunch ended what was running: the reply is still unread, so now the task needs you.
+  // The same after a relaunch, which ends what was running: still unread, so it needs you the same way.
   const second = await launch({ agentScript: 'stop-spares-background' })
   const again = taskList(second.window)
   await expect(again.taskRow(title).getByRole('img', { name: 'Unread' })).toBeVisible()
   await expectDot(second.window, title, 'waiting')
   await expectSwitcher(second.window, '1 needs you')
   await expectMenuBarCount(second, '1')
+
+  // Next task that needs you goes to it, reading it: nothing is left running, so it's idle.
   await inputBar(second.window).field.blur()
   await second.window.keyboard.press('Meta+Alt+ArrowDown')
   await expect(again.taskRow(title)).toHaveAttribute('aria-current', 'true')
-  // Opening it read it.
   await expectDot(second.window, title, 'idle')
   await expectSwitcher(second.window, '2 active')
+  await expectMenuBarCount(second, '')
 })
 
 test('a background command that finishes while you are away leaves its report needing you', async ({

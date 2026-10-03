@@ -218,8 +218,8 @@ interface TaskSummary {
   status: string
   state: 'active' | 'done'
   activity: 'waiting' | 'working' | 'error' | 'paused'   // what the agent's own turn is doing
-  // needsYou: asking, awaiting permission, stopped on an error, or its turn ended with a reply that's unread;
-  // false once the reply is read, and while subagents or watchers it left running still run
+  // needsYou: asking, awaiting permission, stopped on an error, or its turn ended with a reply that's unread, even
+  // while subagents or watchers it left running still run (#461); false once the reply is read
   needsYou: boolean; pinned: boolean; unread: boolean
   updatedAt: number; doneAt: number | null
 }

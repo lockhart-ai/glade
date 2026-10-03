@@ -83,7 +83,8 @@ describe('WorkspaceSwitcher', () => {
   it('shows the shown workspace in the header, closed until clicked', async () => {
     await renderSwitcher()
 
-    expect(screen.getByRole('region', { name: 'Workspace' })).toHaveTextContent('AAcme API/code/w1')
+    // The header also carries the pill: w2's one unread reply, the only task needing you outside w1.
+    expect(screen.getByRole('region', { name: 'Workspace' })).toHaveTextContent('AAcme API/code/w11')
     expect(trigger()).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByRole('menu')).toBeNull()
   })
@@ -128,12 +129,14 @@ describe('WorkspaceSwitcher', () => {
       })
     }
 
-    // An unread reply needs you; while its subagents still run it's only active; read, it's only active too.
+    // An unread reply needs you, whether or not its subagents still run (#461); read, it's only active.
     update(replied)
     expect(dotfiles).toHaveTextContent('1 needs you')
     update({ ...replied, backgroundWork: true })
+    expect(dotfiles).toHaveTextContent('1 needs you')
+    update({ ...replied, backgroundWork: true, unread: false })
     expect(dotfiles).toHaveTextContent('1 active')
-    update(replied)
+    update({ ...replied, backgroundWork: false })
     expect(dotfiles).toHaveTextContent('1 needs you')
     update({ ...replied, unread: false })
     expect(dotfiles).toHaveTextContent('1 active')
@@ -210,5 +213,43 @@ describe('WorkspaceSwitcher', () => {
     await choose('Reveal root in Finder')
 
     expect(await screen.findByText('No workspace w1')).toBeInTheDocument()
+  })
+})
+
+// The pill's own exhaustive counting (0, 1, 3, 9+, never the current workspace) is `switcherModel.test.ts`
+// (`otherWorkspacesNeedsYouCount`) and `SwitcherAttentionPill.test.tsx`; these cover the real header's wiring.
+describe('the "needs you elsewhere" pill and its tooltip (#472)', () => {
+  it('shows the pill and names the count in the header button’s tooltip', async () => {
+    await renderSwitcher()
+
+    // w2's one unread reply is the only task needing you outside w1, the shown workspace.
+    const region = screen.getByRole('region', { name: 'Workspace' })
+    expect(within(region).getByTestId('switcher-pill')).toHaveTextContent('1')
+    expect(trigger()).toHaveAttribute('title', 'Switch workspace — 1 task in other workspaces needs you')
+  })
+
+  it('hides the pill and resets the tooltip once the workspace that needed you is the one shown', async () => {
+    const { store } = await renderSwitcher()
+    const menu = await openSwitcher()
+
+    fireEvent.click(within(menu).getByRole('menuitemradio', { name: 'Glade' }))
+    await vi.waitFor(() => {
+      expect(store.getState().selectedWorkspaceId).toBe('w2')
+    })
+
+    expect(screen.queryByTestId('switcher-pill')).toBeNull()
+    expect(trigger()).toHaveAttribute('title', 'Switch workspace')
+  })
+
+  it('updates live as a task elsewhere starts needing you', async () => {
+    const { emit } = await renderSwitcher()
+    const replied = { ...working('t5', 'w3'), activity: TaskActivity.Waiting, unread: true }
+
+    act(() => {
+      emit({ type: EventType.TaskUpdated, task: replied })
+    })
+
+    expect(screen.getByTestId('switcher-pill')).toHaveTextContent('2')
+    expect(trigger()).toHaveAttribute('title', 'Switch workspace — 2 tasks in other workspaces need you')
   })
 })

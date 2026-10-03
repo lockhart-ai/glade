@@ -36,6 +36,12 @@ export type GladeStore = StoreApi<GladeState>
 /** The value that stores "nothing selected" for a selection key. */
 const NONE = ''
 
+/** A task main asked the window to open (`task.openRequested`), and the subagent to show in it, if any. */
+interface OpenRequest {
+  readonly taskId: string
+  readonly subagentId: string | null
+}
+
 /** Creates the renderer's store, talking to main through `bridge`. Call `hydrate()` to load it. */
 export function createGladeStore(bridge: GladeBridge): GladeStore {
   return createStore<GladeState>()((set, get) => {
@@ -44,7 +50,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     let pending: GladeEvent[] | null = null
 
     // A task main asked to open while a snapshot loaded, opened once it has.
-    let openWhenLoaded: string | null = null
+    let openWhenLoaded: OpenRequest | null = null
 
     // The Browse tabs, which hear their folders' changes straight from main's events, never through the store.
     const folderListeners = new Set<(taskId: string, path: string) => void>()
@@ -135,8 +141,9 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         return
       }
       if (event.type === EventType.TaskOpenRequested) {
-        if (pending === null) void get().selectTask(event.taskId)
-        else openWhenLoaded = event.taskId
+        const request = { taskId: event.taskId, subagentId: event.subagentId }
+        if (pending === null) void openRequested(request)
+        else openWhenLoaded = request
         return
       }
       if (event.type === EventType.CloseBlocked) {
@@ -185,6 +192,17 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         void setUiState(panelTabEntry(uiState, workspaceId, tab))
       }
       if (isCollapsed(uiState, Panel.RightPanel)) void setUiState(collapsedEntry(Panel.RightPanel, false))
+    }
+
+    // Opens a task main asked to open, as clicking its row does; with a subagent, then shows it in the Subagents tab, as
+    // picking it there does. Selecting it can be called off (unsaved edits), and then nothing more happens.
+    const openRequested = async ({ taskId, subagentId }: OpenRequest): Promise<void> => {
+      await get().selectTask(taskId)
+      if (subagentId === null || get().selectedTaskId !== taskId) return
+      showPanelTab(taskId, PanelTab.Subagents)
+      set(({ subagentFocus }) => ({
+        subagentFocus: { taskId, subagentId, request: (subagentFocus?.request ?? 0) + 1 },
+      }))
     }
 
     // Main broadcasts the new tab too; adding it from the answer as well means it's there whichever arrives first.
@@ -499,7 +517,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         const opening = openWhenLoaded
         openWhenLoaded = null
         if (opening !== null) {
-          await get().selectTask(opening)
+          await openRequested(opening)
           return
         }
         if (selectedTaskId === null) return

@@ -386,7 +386,7 @@ describe('a task main asks to open', () => {
       messages: [message],
     })
 
-    emit({ type: EventType.TaskOpenRequested, taskId: 't2' })
+    emit({ type: EventType.TaskOpenRequested, taskId: 't2', subagentId: null })
 
     await vi.waitFor(() => {
       expect(store.getState().messages).toEqual({ t2: [message] })
@@ -419,7 +419,7 @@ describe('a task main asks to open', () => {
       },
     )
     emitDuringLoad = () => {
-      fake.emit({ type: EventType.TaskOpenRequested, taskId: 't2' })
+      fake.emit({ type: EventType.TaskOpenRequested, taskId: 't2', subagentId: null })
     }
     const store = createGladeStore(fake.bridge)
 
@@ -430,6 +430,83 @@ describe('a task main asks to open', () => {
     expect(fake.invoke.mock.calls.filter(([command]) => command === CommandName.TasksHistory)).toEqual([
       [CommandName.TasksHistory, { id: 't2' }],
     ])
+  })
+
+  it('with a subagent, also opens the Subagents tab of its workspace on that subagent, opening the panel', async () => {
+    const { store, emit } = await hydrated(
+      main([
+        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+        { key: UiStateKey.RightPanelCollapsed, value: 'true' },
+        { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: 'files', w2: 'todos' }) },
+      ]),
+    )
+
+    emit({ type: EventType.TaskOpenRequested, taskId: 't2', subagentId: 'toolu_kitten' })
+
+    await vi.waitFor(() => {
+      expect(store.getState().subagentFocus).toEqual({ taskId: 't2', subagentId: 'toolu_kitten', request: 1 })
+    })
+    expect(selectSelectedTask(store.getState())).toEqual(sampleTask('t2', 'w2'))
+    expect(selectSelectedWorkspace(store.getState())).toEqual(sampleWorkspace('w2'))
+    // The tab is that workspace's own (#436): the one you were looking at in w1 stays as it was.
+    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Subagents)
+    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Files)
+    expect(store.getState().uiState).toMatchObject({ [UiStateKey.RightPanelCollapsed]: 'false' })
+
+    // Asking for it again is a new request, so the tab shows it again.
+    emit({ type: EventType.TaskOpenRequested, taskId: 't2', subagentId: 'toolu_kitten' })
+    await vi.waitFor(() => {
+      expect(store.getState().subagentFocus?.request).toBe(2)
+    })
+  })
+
+  it('without a subagent, leaves the panel as it is', async () => {
+    const { store, emit } = await hydrated(
+      main([
+        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+        { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w2: 'todos' }) },
+      ]),
+    )
+
+    emit({ type: EventType.TaskOpenRequested, taskId: 't2', subagentId: null })
+
+    await vi.waitFor(() => {
+      expect(store.getState().selectedTaskId).toBe('t2')
+    })
+    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Todos)
+    expect(store.getState().subagentFocus).toBeNull()
+  })
+
+  it('with a subagent, shows it once loaded when it is asked for while the store loads', async () => {
+    let emitDuringLoad = (): void => undefined
+    const fake = fakeBridge(main([{ key: UiStateKey.ActiveWorkspaceId, value: 'w1' }]), {
+      [CommandName.WorkspacesList]: () => {
+        emitDuringLoad()
+        return { workspaces: [sampleWorkspace('w1'), sampleWorkspace('w2')] }
+      },
+    })
+    emitDuringLoad = () => {
+      fake.emit({ type: EventType.TaskOpenRequested, taskId: 't2', subagentId: 'toolu_kitten' })
+    }
+    const store = createGladeStore(fake.bridge)
+
+    await store.getState().hydrate()
+
+    expect(selectSelectedTask(store.getState())).toEqual(sampleTask('t2', 'w2'))
+    expect(store.getState().subagentFocus).toEqual({ taskId: 't2', subagentId: 'toolu_kitten', request: 1 })
+    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Subagents)
+  })
+
+  it('forgets the subagent asked for once its task is deleted', async () => {
+    const { store, emit } = await hydrated(main([{ key: UiStateKey.ActiveWorkspaceId, value: 'w1' }]))
+    emit({ type: EventType.TaskOpenRequested, taskId: 't2', subagentId: 'toolu_kitten' })
+    await vi.waitFor(() => {
+      expect(store.getState().subagentFocus).not.toBeNull()
+    })
+
+    emit({ type: EventType.TaskDeleted, taskId: 't2' })
+
+    expect(store.getState().subagentFocus).toBeNull()
   })
 })
 

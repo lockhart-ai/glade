@@ -334,6 +334,8 @@ describe('task events', () => {
     changed(task, { activity: TaskActivity.Waiting }, 3_200)
     // Its reply goes unread: nothing a plugin sees but `needsYou`.
     changed(task, { unread: true }, 3_200)
+    // Background work doesn't mask it needing you (#461), so neither of these changes what a plugin sees, and
+    // nothing is sent for either.
     emit({
       type: EventType.TaskUpdated,
       task: { ...updateTask(database.db, task.id, {}, 3_200), backgroundWork: true },
@@ -342,16 +344,14 @@ describe('task events', () => {
     emit({ type: EventType.TaskUpdated, task: { ...updateTask(database.db, task.id, {}, 3_200), asking: true } })
     const done = changed(task, { state: TaskState.Done, status: 'Fixed.' }, 3_300)
 
-    expect(sent.map((event) => event.type)).toEqual(Array(9).fill(PluginEventType.TaskUpdated))
+    expect(sent.map((event) => event.type)).toEqual(Array(7).fill(PluginEventType.TaskUpdated))
     expect(sent.map((event) => (event.type === PluginEventType.TaskUpdated ? event.task : null))).toMatchObject([
       { title: 'Fix the date bug', updatedAt: 3_000 },
       { status: 'Reading the code.' },
       { activity: PluginTaskActivity.Working, needsYou: false },
-      // Its turn ended on a reply you've read (#430).
+      // Its turn ended on a reply you've read.
       { activity: PluginTaskActivity.Waiting, needsYou: false, waitingOn: null },
-      // An unread reply needs you; not while its background work runs; and again once that has ended.
-      { activity: PluginTaskActivity.Waiting, needsYou: true, waitingOn: null },
-      { activity: PluginTaskActivity.Waiting, needsYou: false, waitingOn: null },
+      // An unread reply needs you, background work or not (#461).
       { activity: PluginTaskActivity.Waiting, needsYou: true, waitingOn: null },
       { needsYou: true, waitingOn: PluginWaitingOn.Question },
       { state: PluginTaskState.Done, status: 'Fixed.', needsYou: false, doneAt: done.doneAt, updatedAt: 3_300 },

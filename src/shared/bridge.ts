@@ -1482,11 +1482,14 @@ export interface ToolEventRemovedEvent {
 
 /**
  * Main asks the window to open a task, as clicking its row does: selecting it (and its workspace), which reads it, and
- * loading its logs. Sent when you click the task's notification.
+ * loading its logs. Sent when you click the task's notification or its row in the menu bar popover, and when a plugin
+ * opens it (`openTask`, right after a click in its view).
  */
 export interface TaskOpenRequestedEvent {
   readonly type: EventType.TaskOpenRequested
   readonly taskId: string
+  /** A subagent of the task to show in the Subagents tab, as picking it there does; null for none. */
+  readonly subagentId: string | null
 }
 
 /**

@@ -251,4 +251,9 @@ describe('text contrast', () => {
     expect(tokensMd).not.toMatch(/known exception/i)
     expect(tokensMd).toContain('`text`, `muted` and `faint` each meet 4.5:1 on every surface')
   })
+
+  // #472: the switcher's "needs you elsewhere" pill and a workspace's badge both set purple text on purple-bg.
+  it('purple on purple-bg meets 4.5:1', () => {
+    expect(contrastRatio(colors['--color-purple'], colors['--color-purple-bg'])).toBeGreaterThanOrEqual(4.5)
+  })
 })

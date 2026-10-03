@@ -384,4 +384,14 @@ describe('Todos state colours (#308)', () => {
     expect(() => token('#4e5468')).toThrow('Not a colour token: #4e5468')
     expect(() => token(undefined)).toThrow('Not a colour token: undefined')
   })
+
+  // Grey read as "nothing active" everywhere else (idle and done task dots), so the done part of the bar reads as
+  // the same teal as the done items' checks, on a softer track than near-black (#462).
+  it('fills the progress bar in the done teal and the doing blue, on a soft track', () => {
+    expect(token(rule('.barDone').get('background'))).toBe('--color-teal')
+    expect(token(rule('.barDoing').get('background'))).toBe('--color-blue')
+    expect(token(rule('.bar').get('background'))).toBe('--color-inner-2')
+    // The done part matches the done items' check icons exactly.
+    expect(rule('.barDone').get('background')).toBe(rule('.done .icon').get('color'))
+  })
 })

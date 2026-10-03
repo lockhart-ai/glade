@@ -508,7 +508,7 @@ function openTaskInWindow(taskId: string, { testMode, database, bridge, log }: O
     return
   }
   bringUp(window, testMode)
-  bridge.emit({ type: EventType.TaskOpenRequested, taskId })
+  bridge.emit({ type: EventType.TaskOpenRequested, taskId, subagentId: null })
 }
 
 /** Brings Glade's window up (the menu bar popover's Open Glade), opening one when every window is closed. */
