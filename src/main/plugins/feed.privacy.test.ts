@@ -49,6 +49,7 @@ import { appendPermissionRequest } from '../db/repositories/permission-requests'
 import { appendQuestionSet } from '../db/repositories/question-sets'
 import { createTask, updateTask } from '../db/repositories/tasks'
 import { appendNarration, appendToolCall, setSubagentProgress, updateToolCall } from '../db/repositories/tool-events'
+import { addWatcher, updateWatcher } from '../db/repositories/watchers'
 import { createWorkspace } from '../db/repositories/workspaces'
 import { openTestDatabase, type TestDatabase } from '../db/repositories/test-database'
 import { createPluginFeed } from './feed'
@@ -219,6 +220,23 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
   writeTurn(task, root, 'snap')
   appendQuestionSet(database.db, { taskId: task.id, turn: 1, questions: QUESTIONS })
   appendPermissionRequest(database.db, permission(task, 'snap_0', 'agent-1'))
+  // A watcher it left running: a plugin is told how many, and nothing of what they are (#490).
+  const watching = addWatcher(database.db, {
+    taskId: task.id,
+    kind: WatcherKind.Command,
+    toolUseId: secret('watcher_tool_use'),
+    parentToolUseId: null,
+    sdkId: secret('watcher_sdk_id'),
+    label: secret('snapshot_watcher_label'),
+    detail: secret('snapshot_watcher_command'),
+    cron: secret('watcher_cron'),
+    schedule: secret('watcher_schedule'),
+    recurring: false,
+    state: WatcherState.Running,
+    nextDueAt: null,
+    expiresAt: null,
+  })
+  updateWatcher(database.db, watching.id, { lastOutput: secret('snapshot_watcher_output') })
 
   const feed = createPluginFeed({ source: databaseFeedSource(database.db), tasks: [task] })
   const sent: PluginEvent[] = []
@@ -632,6 +650,14 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
       .map(allowed)
       .sort(),
   )
+  // The watchers came out as a count on their task, in the snapshot and in the event, and as nothing else.
+  expect(sent[0]).toMatchObject({ type: 'snapshot', tasks: [{ id: task.id, watchers: 1 }] })
+  expect(sent).toContainEqual({
+    type: 'task.updated',
+    task: expect.objectContaining({ id: created.id, watchers: 1 }) as unknown,
+  })
+  expect(json).not.toContain(watching.id)
+  expect(json).not.toContain('watcher-1')
   // Every kind of plugin event but hello (which the view sends) came out of this.
   expect(new Set(sent.map(({ type }) => type)).size).toBe(12)
 })
