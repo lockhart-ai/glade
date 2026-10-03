@@ -2,12 +2,13 @@
 // what Glade sends it while the scripted agent runs a task that works, asks a question and is marked done.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { WATCHES_THINGS } from '../src/main/agent/scripts'
 import { CommandName } from '../src/shared/bridge'
 import { PluginEventType, type GladeMessage, type PluginEvent } from '../src/shared/plugin-api'
 import { gladeMessageSchema } from '../src/shared/plugin-api-schema'
 import { inPlugin, installFixture } from './fixture-plugin'
 import { expect, test, type Glade } from './fixtures'
-import { firstRun, inputBar, taskHeader, taskList } from './selectors'
+import { chat, firstRun, inputBar, taskHeader, taskList, taskPanel, watchersTab } from './selectors'
 import { invoke } from './task-view'
 
 const EMPTY_SNAPSHOT: PluginEvent = {
@@ -150,4 +151,92 @@ test('a plugin sees a task created, working, asking a question and marked done, 
 
   // A fresh snapshot leaves the done task out.
   expect(await readyAgain(glade)).toEqual(EMPTY_SNAPSHOT)
+})
+
+/** The `watchers` of each `task.updated` the plugin was sent since its last hello, without the repeats. */
+async function watcherCounts(glade: Glade): Promise<number[]> {
+  const counts: number[] = []
+  for (const event of await received(glade)) {
+    if (event.type === PluginEventType.TaskUpdated && counts.at(-1) !== event.task.watchers) {
+      counts.push(event.task.watchers)
+    }
+  }
+  return counts
+}
+
+test('a plugin is told how many watchers a task has running as they start, end and are stopped, none after a relaunch, and nothing else of them', async ({
+  launch,
+  tempFolder,
+  userData,
+}) => {
+  installFixture(userData)
+  const root = join(tempFolder(), 'acme-api')
+  mkdirSync(root)
+  const first = await launch({ agentScript: 'watches-things', chosenFolder: root })
+  const { window } = first
+  await firstRun(window).openFolder.click()
+  await taskList(window).newTask.click()
+  const bar = inputBar(window)
+  await bar.field.fill(WATCHES_THINGS.prompt)
+  await bar.field.press('Enter')
+
+  // The agent starts a monitor and two background commands (and schedules a wakeup and a cron job, which run
+  // nothing), then one command fails. Its first reply and each wake's: the turns are over, and two still run.
+  await expect(chat(window).agentReplies).toHaveCount(5, { timeout: 30_000 })
+  await expect(chat(window).agentReplies.last()).toContainText(WATCHES_THINGS.lintPassed)
+  await expect.poll(() => watcherCounts(first)).toEqual([0, 1, 2, 3, 2])
+  await expect
+    .poll(() => last(first, PluginEventType.TaskUpdated))
+    .toMatchObject({ task: { activity: 'waiting', watchers: 2 } })
+  // The same watchers the Watchers tab counts as running.
+  await window.keyboard.press('Meta+Alt+Digit6')
+  await expect(taskPanel(window).tab(/^Watch/)).toHaveAttribute('aria-selected', 'true')
+  const watchers = watchersTab(window)
+  await expect(watchers.tally).toHaveText('2 running2 scheduled1 ended')
+
+  // A reload of the page: the snapshot has the count.
+  expect(await readyAgain(first)).toMatchObject({ tasks: [{ title: WATCHES_THINGS.title, watchers: 2 }] })
+
+  // Stop the monitor: one fewer, in one event. Stopping the wakeup changes nothing a plugin is told.
+  await watchers.stop(WATCHES_THINGS.ci).click()
+  await expect(watchers.row(WATCHES_THINGS.ci)).toHaveAttribute('data-state', 'stopped')
+  await expect.poll(() => watcherCounts(first)).toEqual([1])
+  await watchers.stop(WATCHES_THINGS.rollout).click()
+  await expect(watchers.row(WATCHES_THINGS.rollout)).toHaveAttribute('data-state', 'stopped')
+  await expect(watchers.tally).toHaveText('1 running1 scheduled3 ended')
+  expect((await received(first)).filter(({ type }) => type === PluginEventType.TaskUpdated)).toHaveLength(1)
+
+  // Nothing of a watcher but the count reached the plugin: not its command, what it reported, how it ended, its
+  // schedule or its prompt. A background command's command is its `Bash` call's summary, there and nowhere else.
+  const sent = await inPlugin<GladeMessage[]>(first, 'window.received')
+  const everything = JSON.stringify(sent)
+  for (const text of [
+    WATCHES_THINGS.ciCommand,
+    'ci.example.com',
+    WATCHES_THINGS.tests,
+    WATCHES_THINGS.docs,
+    'failed with exit code 1',
+    'You stopped it.',
+    WATCHES_THINGS.rollout,
+    WATCHES_THINGS.rolloutPrompt,
+    WATCHES_THINGS.queue,
+    WATCHES_THINGS.queueSchedule,
+    WATCHES_THINGS.queueCron,
+  ]) {
+    expect(everything).not.toContain(text)
+  }
+  const notCalls = sent.filter(({ event }) => event.type !== PluginEventType.AgentToolCall)
+  expect(JSON.stringify(notCalls)).not.toContain(WATCHES_THINGS.testsCommand)
+
+  // A relaunch: the integration tests died with the session, so the task has none running.
+  await first.kill()
+  const second = await launch({ agentScript: 'still-watching' })
+  await expect(chat(second.window).agentReplies).toHaveCount(5)
+  await expect.poll(async () => (await received(second).catch(() => [])).length).toBeGreaterThanOrEqual(2)
+  const [, snapshot] = await received(second)
+  expect(snapshot).toMatchObject({
+    type: PluginEventType.Snapshot,
+    tasks: [{ title: WATCHES_THINGS.title, activity: 'waiting', watchers: 0 }],
+  })
+  expect((await watcherCounts(second)).filter((count) => count !== 0)).toEqual([])
 })

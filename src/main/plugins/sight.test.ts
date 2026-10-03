@@ -25,6 +25,7 @@ function task(id: string, state = PluginTaskState.Active): PluginTask {
     activity: PluginTaskActivity.Working,
     needsYou: false,
     waitingOn: null,
+    watchers: 0,
     createdAt: 1,
     updatedAt: 1,
     doneAt: state === PluginTaskState.Done ? 2 : null,
