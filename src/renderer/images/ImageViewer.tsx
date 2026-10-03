@@ -10,7 +10,7 @@ import {
 } from '@floating-ui/react'
 import { faImage } from '@fortawesome/free-regular-svg-icons'
 import { faChevronLeft, faChevronRight, faXmark } from '@fortawesome/free-solid-svg-icons'
-import { useCallback, useRef, type KeyboardEvent, type MouseEvent } from 'react'
+import { useCallback, useLayoutEffect, useRef, type KeyboardEvent, type MouseEvent } from 'react'
 import { Button, ButtonVariant, Icon, IconSize, useModalPresence, useOverlayRef } from '../components'
 import { ImageSourceKind, imageSourceKey, type ImageViewerSource } from './imageSources'
 import { IMAGE_LABEL, MISSING_IMAGE_LABEL, StoredImageStatus, useStoredImage, useWorkspaceImage } from './StoredImage'
@@ -75,13 +75,13 @@ export interface ImageViewerProps {
  * size, over the window (`docs/design/screens/30-image-viewer.png`, `docs/design/screens/35-artifact-image.png`): the
  * one showing as large as fits the window but never larger than it is, on the Settings modal's dimmed backdrop. With
  * several, a pager under it says which ("2 of 3") and steps between them, as ← and → do, stopping at the first and
- * last image rather than going round (#463); its own buttons disable there too. A workspace image with a header shows
- * its title just above the image's own left edge, over the backdrop rather than the image's pixels, truncating rather
- * than crowding its actions, which keep their place in the close chip, top right, so nothing sits under the macOS
- * traffic lights (top left, in every state) (#460). Esc, a click on the backdrop or the close button closes it. It
- * takes the focus synchronously as it's shown, so a ← or → pressed right away still steps it (#393), and hands the
- * focus back to `returnFocus` once it closes — or, for a message's pasted images, to the task's input instead
- * (`focusesTaskInput`, #415).
+ * last image rather than going round (#463); its own buttons disable there too, and one that held the focus hands it
+ * to the viewer, so the keys keep stepping. A workspace image with a header shows its title just above the image's
+ * own left edge, over the backdrop rather than the image's pixels, truncating rather than crowding its actions, which
+ * keep their place in the close chip, top right, so nothing sits under the macOS traffic lights (top left, in every
+ * state) (#460). Esc, a click on the backdrop or the close button closes it. It takes the focus synchronously as it's
+ * shown, so a ← or → pressed right away still steps it (#393), and hands the focus back to `returnFocus` once it
+ * closes — or, for a message's pasted images, to the task's input instead (`focusesTaskInput`, #415).
  */
 export function ImageViewer({
   images,
@@ -125,6 +125,19 @@ export function ImageViewer({
     closeRef.current = node
     node?.focus({ preventScroll: true })
   }, [])
+
+  // A pager button that holds the focus as it disables (Next, clicked onto the last image; Previous, onto the first)
+  // can't keep it: Chromium drops the focus of a control that disables onto the page's body with its next frame, out
+  // of the viewer, where ← and → no longer reach `onKeyDown` and nothing steps back. The viewer itself takes the
+  // focus first, in the same commit that disables the button: the keys still land in it, and ↵ or Space pressed again
+  // does nothing there, rather than stepping the other way or closing it.
+  useLayoutEffect(() => {
+    const viewer = refs.floating.current
+    const focused = document.activeElement
+    if (viewer !== null && focused instanceof HTMLButtonElement && focused.disabled && viewer.contains(focused)) {
+      viewer.focus({ preventScroll: true })
+    }
+  }, [index, refs])
 
   const multiple = images.length > 1
   const atFirst = index === 0

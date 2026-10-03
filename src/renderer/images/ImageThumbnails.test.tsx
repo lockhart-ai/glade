@@ -195,6 +195,49 @@ describe('ImageThumbnails', () => {
     expect(next).toBeEnabled()
   })
 
+  it('takes the focus from a pager button that disables while holding it, so ← and → still step (#463)', async () => {
+    await renderThumbnails()
+    const viewer = await open(1)
+    const previous = screen.getByRole('button', { name: 'Previous image' })
+    const next = screen.getByRole('button', { name: 'Next image' })
+
+    // Next, clicked onto the last image: a disabled button can't keep the focus, and would drop it out of the viewer.
+    next.focus()
+    fireEvent.click(next)
+    expect(position()).toBe('3 of 3')
+    expect(next).toBeDisabled()
+    expect(viewer).toHaveFocus()
+
+    // Previous, clicked back to the first, the same.
+    previous.focus()
+    fireEvent.click(previous)
+    expect(previous).toHaveFocus()
+    fireEvent.click(previous)
+    expect(position()).toBe('1 of 3')
+    expect(previous).toBeDisabled()
+    expect(viewer).toHaveFocus()
+  })
+
+  it('leaves the focus where it is when a pager button disables without holding it', async () => {
+    await renderThumbnails()
+    const viewer = await open(1)
+    const close = within(viewer).getByRole('button', { name: 'Close image' })
+    const next = screen.getByRole('button', { name: 'Next image' })
+
+    // By the keyboard, from the close button.
+    fireEvent.keyDown(viewer, { key: 'ArrowRight' })
+    expect(next).toBeDisabled()
+    expect(close).toHaveFocus()
+
+    // From a pager button that stays enabled: stepping off the last image with Previous keeps the focus on it.
+    const previous = screen.getByRole('button', { name: 'Previous image' })
+    previous.focus()
+    fireEvent.click(previous)
+    expect(position()).toBe('2 of 3')
+    expect(previous).toHaveFocus()
+    expect(next).toBeEnabled()
+  })
+
   it('leaves arrows with a modifier alone, and keys it doesn’t use', async () => {
     await renderThumbnails()
     const viewer = await open(0)
