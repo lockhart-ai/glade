@@ -132,7 +132,8 @@ export interface BashCallStarting {
 
 /**
  * A `Bash` call that has run, as the session's `PostToolUse` hook (it exited 0) or `PostToolUseFailure` hook (it
- * didn't) tells it, before its result goes back to the agent (`docs/sdk-notes.md` §15).
+ * didn't) tells it, before its result goes back to the agent (`docs/sdk-notes.md` §15). A `Monitor` call's command
+ * is told the same way: it runs in the sandbox too.
  */
 export interface BashCallFinished {
   /** The call's `tool_use` id, a subagent's call's too. */

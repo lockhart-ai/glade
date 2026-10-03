@@ -9,6 +9,7 @@ import { controlEnv, createControlEndpoint, type ControlEndpoint } from '../cont
 import { CONTROL_SERVER } from '../control/names'
 import { createRateLimiter, type RateLimits } from '../control/rate-limit'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
+import { taskSandboxGrants } from '../sandbox/grants'
 import { createAccountTracker, type AccountTracker } from '../account/account'
 import {
   createLoginService,
@@ -273,6 +274,8 @@ export function registerBridge({
       login.loggedOut(taskId)
     },
     log: log.scoped(LogScope.Runner),
+    // A sandboxed session's grants: the Glade-wide ones, its workspace's and its task's, as saved.
+    sandboxGrants: (task) => taskSandboxGrants(db, task),
     // Each session gets its own Glade tools, built for its task, with the upkeep Settings has on as it starts, and,
     // while agents may control Glade, the control tools, calling as its task.
     mcpServers: (task) => {

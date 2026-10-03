@@ -216,25 +216,44 @@ describe('WorkspaceSwitcher', () => {
   })
 })
 
-// The pill's own exhaustive counting (0, 1, 3, 9+, never the current workspace) is `switcherModel.test.ts`
-// (`otherWorkspacesNeedsYouCount`) and `SwitcherAttentionPill.test.tsx`; these cover the real header's wiring.
-describe('the "needs you elsewhere" pill and its tooltip (#472)', () => {
+// The pill's own exhaustive counting (0, 1, 3, 9+, every workspace included) is `switcherModel.test.ts`
+// (`needsYouCount`) and `SwitcherAttentionPill.test.tsx`; these cover the real header's wiring.
+describe('the "needs you" pill and its tooltip (#472, #480)', () => {
   it('shows the pill and names the count in the header button’s tooltip', async () => {
     await renderSwitcher()
 
-    // w2's one unread reply is the only task needing you outside w1, the shown workspace.
+    // w2's one unread reply is the only task that needs you, in this set.
     const region = screen.getByRole('region', { name: 'Workspace' })
     expect(within(region).getByTestId('switcher-pill')).toHaveTextContent('1')
-    expect(trigger()).toHaveAttribute('title', 'Switch workspace — 1 task in other workspaces needs you')
+    expect(trigger()).toHaveAttribute('title', 'Switch workspace — 1 task needs you')
   })
 
-  it('hides the pill and resets the tooltip once the workspace that needed you is the one shown', async () => {
+  it('still counts a task once its workspace is the one shown: switching alone doesn’t read it (#480)', async () => {
     const { store } = await renderSwitcher()
     const menu = await openSwitcher()
 
     fireEvent.click(within(menu).getByRole('menuitemradio', { name: 'Glade' }))
     await vi.waitFor(() => {
       expect(store.getState().selectedWorkspaceId).toBe('w2')
+    })
+
+    // w2's task (t4) is now the shown workspace's own, but it hasn't been read: the pill still counts it.
+    expect(screen.getByTestId('switcher-pill')).toHaveTextContent('1')
+    expect(trigger()).toHaveAttribute('title', 'Switch workspace — 1 task needs you')
+  })
+
+  it('hides the pill and resets the tooltip once the task that needed you is read', async () => {
+    const { store, emit } = await renderSwitcher()
+    const menu = await openSwitcher()
+
+    fireEvent.click(within(menu).getByRole('menuitemradio', { name: 'Glade' }))
+    await vi.waitFor(() => {
+      expect(store.getState().selectedWorkspaceId).toBe('w2')
+    })
+
+    // Reading it (main marks it read once you open the task) is what actually clears the pill.
+    act(() => {
+      emit({ type: EventType.TaskUpdated, task: { ...working('t4', 'w2'), activity: TaskActivity.Waiting } })
     })
 
     expect(screen.queryByTestId('switcher-pill')).toBeNull()
@@ -250,6 +269,6 @@ describe('the "needs you elsewhere" pill and its tooltip (#472)', () => {
     })
 
     expect(screen.getByTestId('switcher-pill')).toHaveTextContent('2')
-    expect(trigger()).toHaveAttribute('title', 'Switch workspace — 2 tasks in other workspaces need you')
+    expect(trigger()).toHaveAttribute('title', 'Switch workspace — 2 tasks need you')
   })
 })

@@ -23,10 +23,18 @@ import type { Task, Workspace } from '../../shared/domain'
 import { FolderAccess, SandboxGrantKind, SandboxGrantScope, type SandboxGrantTarget } from '../../shared/sandbox'
 import { settle } from '../agent/fake-backend'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
-import { createSdkBackend } from '../agent/sdk-backend'
+import { sandboxOverlay, sandboxStartSettings } from '../agent/sandbox'
+import { createSdkBackend, sdkFlagSettings } from '../agent/sdk-backend'
+import { updateSettings } from '../db/repositories/settings'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
-import { changeSandboxFolderAccess, grantSandboxAccess, revokeSandboxGrant, type SandboxGrantsContext } from './grants'
-import { testSandboxOverlay } from './test-overlay'
+import {
+  changeSandboxFolderAccess,
+  grantSandboxAccess,
+  revokeSandboxGrant,
+  sandboxGrantsOf,
+  taskSandboxGrants,
+  type SandboxGrantsContext,
+} from './grants'
 
 const sdk = vi.hoisted(() => {
   /** A session that says it has started, then stays open, as a live one does. */
@@ -77,7 +85,7 @@ function launch(): void {
     db: database.db,
     emit: () => undefined,
     backend: createSdkBackend({ version: '1.2.3', env: Promise.resolve({}) }),
-    sandboxOverlay: testSandboxOverlay,
+    sandboxGrants: (task) => taskSandboxGrants(database.db, task),
   })
   grants = { db: database.db, runner }
 }
@@ -104,6 +112,7 @@ beforeEach(() => {
   mkdirSync(notes)
   vi.stubEnv('HOME', home)
   database = openTestDatabase()
+  updateSettings(database.db, { sandboxEnabled: true })
   workspace = sampleWorkspace(database.db, root)
   task = sampleTask(database.db, workspace.id)
   taskTarget = { scope: SandboxGrantScope.Task, taskId: task.id }
@@ -151,11 +160,14 @@ it('hands the SDK the grants as flag settings only: never in a session’s start
 
   // Two sessions: the first, and the one after the relaunch, which resumes it with two grants saved.
   expect(sdk.query).toHaveBeenCalledTimes(2)
+  const start = sdkFlagSettings(sandboxStartSettings(root, home))
   for (const [{ options }] of sdk.query.mock.calls) {
-    expect(options).not.toHaveProperty('sandbox')
+    // Only the sandbox's fixed parts, whatever is granted by then.
+    expect(options.sandbox).toEqual(start.sandbox)
+    expect(options.settings).toMatchObject({ permissions: start.permissions })
     expect(options).not.toHaveProperty('additionalDirectories')
-    expect(JSON.stringify([options.allowedTools, options.settings, options.extraArgs])).not.toMatch(
-      /notes|registry\.npmjs\.org|WebFetch\(domain|Read\(\/\//,
+    expect(JSON.stringify([options.sandbox, options.allowedTools, options.settings, options.extraArgs])).not.toMatch(
+      /notes|registry\.npmjs\.org|WebFetch\(domain/,
     )
   }
   expect(startOptions()).toMatchObject({ cwd: root, resume: 'session-1' })
@@ -163,14 +175,17 @@ it('hands the SDK the grants as flag settings only: never in a session’s start
   const applied = sdk.session.applyFlagSettings.mock.calls.map(([settings]) => settings)
   expect(applied).toHaveLength(7)
   expect(applied.at(-1)).toEqual(
-    testSandboxOverlay({
-      root,
-      permissionMode: task.permissionMode,
-      grants: [
-        { kind: SandboxGrantKind.Folder, path: notes, access: FolderAccess.Read },
-        { kind: SandboxGrantKind.Folder, path: join(home, '.claude'), access: FolderAccess.Read },
-      ],
-    }),
+    sdkFlagSettings(
+      sandboxOverlay(
+        root,
+        task.permissionMode,
+        sandboxGrantsOf([
+          { kind: SandboxGrantKind.Folder, path: notes, access: FolderAccess.Read },
+          { kind: SandboxGrantKind.Folder, path: join(home, '.claude'), access: FolderAccess.Read },
+        ]),
+        home,
+      ),
+    ),
   )
 })
 

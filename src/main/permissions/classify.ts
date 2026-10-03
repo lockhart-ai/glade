@@ -15,6 +15,9 @@
  *   other tasks), other MCP servers' tools (a `glade-control` that isn't Glade's in-process one included, reads and
  *   all), and any tool Glade doesn't know.
  * - A call a user `permissions.ask` rule forced (`matchedAskRule`) always asks, even a read: that's what the rule is for.
+ *
+ * With the agent sandbox on (#445), `./sandbox-classify` decides first: what crosses the sandbox's bounds asks in
+ * either mode, and what's left is decided here in the ask mode.
  */
 import type { McpServerOrigin } from '../agent/backend'
 import { parseMcpToolName } from '../agent/mcp-tool-caller'
@@ -26,6 +29,8 @@ export enum PermissionVerdict {
   Allow = 'allow',
   /** It waits on a permission request. */
   Ask = 'ask',
+  /** It's refused without asking: only a sandboxed session's calls ever are (`./sandbox-classify`). */
+  Refuse = 'refuse',
 }
 
 /** Claude Code's tools that only read or search. */

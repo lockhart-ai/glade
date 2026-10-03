@@ -15,7 +15,13 @@ import {
   type Question,
   type ToolInput,
 } from '../../shared/domain'
-import { FileAccess, SandboxOperation, commandFailure, type SandboxDenial } from './sandbox-requests'
+import {
+  FileAccess,
+  SandboxOperation,
+  commandFailure,
+  sandboxInitFailure,
+  type SandboxDenial,
+} from './sandbox-requests'
 
 export enum ScriptStepKind {
   /** `system/init` for the session, which the SDK sends at the start of every turn. */
@@ -2697,6 +2703,37 @@ const asksSandbox: AgentScript = {
   ],
 }
 
+/** What the `sandbox-fails` script's agent runs, and why its sandbox couldn't start (`docs/sdk-notes.md` §15). */
+export const SANDBOX_FAILS = {
+  command: 'npm test',
+  build: 'npm run build',
+  reason: 'tlsTerminate: caCertPath and caKeyPath must be provided together',
+  reply: "The sandbox couldn't start, so I couldn't run the tests or the build.",
+} as const
+
+/**
+ * A turn in a session whose sandbox couldn't start, as the probe saw one: the command fails with Claude Code's message,
+ * then the agent asks to run it outside the sandbox, twice, and gives up.
+ */
+const sandboxFails: AgentScript = {
+  name: 'sandbox-fails',
+  turns: [
+    [
+      ...turnStart(),
+      say("I'll run the tests."),
+      sandboxedBash('test', SANDBOX_FAILS.command, sandboxInitFailure(SANDBOX_FAILS.reason)),
+      sandboxOverride('test-unsandboxed', SANDBOX_FAILS.command, 'Tests: 42 passed', {
+        description: 'Run the tests outside the sandbox',
+      }),
+      sandboxOverride('build-unsandboxed', SANDBOX_FAILS.build, 'Built in 3.1s', {
+        description: 'Build outside the sandbox',
+      }),
+      say(SANDBOX_FAILS.reply),
+      result(),
+    ],
+  ],
+}
+
 /** What the `asks-permission-from-a-subagent` script's agent and subagent do and say. */
 export const SUBAGENT_PERMISSION = {
   subagent: 'Upgrade guide',
@@ -3832,6 +3869,7 @@ export const AGENT_SCRIPT_NAMES = [
   'subagent-calls',
   'asks-permission',
   'asks-sandbox',
+  'sandbox-fails',
   'asks-permission-from-a-subagent',
   'allows-for-task',
   'permission-at-quit',
@@ -3897,6 +3935,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'subagent-calls': subagentCalls,
   'asks-permission': asksPermission,
   'asks-sandbox': asksSandbox,
+  'sandbox-fails': sandboxFails,
   'asks-permission-from-a-subagent': asksPermissionFromASubagent,
   'allows-for-task': allowsForTask,
   'permission-at-quit': permissionAtQuit,

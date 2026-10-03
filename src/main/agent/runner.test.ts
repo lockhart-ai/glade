@@ -2097,7 +2097,7 @@ describe('tasks.retry', () => {
     expect(backend.sessions).toHaveLength(1)
     expect(backend.session.closed).toBe(false)
     expect(backend.session.sent.map(({ text }) => text)).toHaveLength(2)
-    expect(log.withMessage('session kept for a new login: background work is running')).toHaveLength(1)
+    expect(log.withMessage('session kept for a retry: background work is running')).toHaveLength(1)
   })
 
   it('starts a session for the retry when a logged-out task has none live, as after a relaunch', async () => {
