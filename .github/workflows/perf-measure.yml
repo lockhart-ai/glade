@@ -1,0 +1,60 @@
+# TEMPORARY (#442): measures service.perf.test.ts on the CI runners, to set its budgets from. Removed before this merges.
+name: perf-measure
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    name: measure ${{ matrix.os }} ${{ matrix.run }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        include:
+          - os: macos-latest
+            run: 1
+          - os: macos-latest
+            run: 2
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: machine
+        run: |
+          node -p "const os = require('os'); JSON.stringify({ cpu: os.cpus()[0].model, cpus: os.cpus().length, node: process.version })"
+
+      - name: full suite, as npm test runs it (twice)
+        run: |
+          for i in 1 2; do
+            npx vitest run --coverage > full.log 2>&1 || true
+            grep -E "PERF442|AssertionError|perf\.test" full.log || true
+          done
+
+      - name: full suite, twice the work
+        run: |
+          GLADE_PERF_SABOTAGE=double npx vitest run --coverage > full.log 2>&1 || true
+          grep -E "PERF442|AssertionError|perf\.test" full.log || true
+
+      - name: the file alone
+        run: |
+          for sabotage in none none double quadratic nocache; do
+            GLADE_PERF_SABOTAGE=$sabotage npx vitest run --coverage src/main/control/claude-code/service.perf.test.ts > alone.log 2>&1 || true
+            grep -E "PERF442|AssertionError" alone.log || true
+          done
+
+      - name: the file alone, without coverage
+        run: |
+          npx vitest run src/main/control/claude-code/service.perf.test.ts > alone.log 2>&1 || true
+          grep -E "PERF442|AssertionError" alone.log || true
