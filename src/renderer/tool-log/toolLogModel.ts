@@ -1,7 +1,9 @@
 /**
  * What the tool log shows, worked out from a task's tool events: each tool call's one-line argument and result, the
  * dividers' labels, and the order of the rows. The tool log shows the task's own agent (`parentLogRows`); the Subagents
- * tab shows each subagent's calls nested under the call that started it (`toolLogRows`).
+ * tab shows each subagent's calls nested under the call that started it (`toolLogRows`). A call a permission was
+ * decided about, or still waits on one, carries its permission line (`../permissions/permissionLineModel`), found by
+ * the call's `tool_use` id.
  */
 import { TaskIndicator } from '../../shared/taskIndicator'
 import { toolDisplayName } from '../../shared/toolName'
@@ -20,6 +22,14 @@ import {
 } from '../../shared/domain'
 import { clockTime, dayAndTime } from '../chat/chatModel'
 import { formatTokens } from '../context-meter/format'
+import {
+  NO_PERMISSION_LINES,
+  PermissionLineState,
+  ranWithPermission,
+  samePermissionLine,
+  type PermissionLine,
+  type PermissionLines,
+} from '../permissions/permissionLineModel'
 
 export { argumentSummary, relativePath } from '../../shared/toolSummary'
 
@@ -147,6 +157,56 @@ export interface CallRow {
   readonly name: string
   /** The calls made and the notes written by the subagent this call started, in order; empty for any other call. */
   readonly children: readonly SubagentRow[]
+  /** What was decided about the call, or that it waits on you; null for a call no permission was involved in. */
+  readonly permission: PermissionLine | null
+}
+
+/**
+ * Whether a call waits on your OK: its permission card is open, and nothing has ended the call meanwhile. Its row then
+ * shows the purple dot rather than the running blue one (`docs/design/html/23-permission-card.html`). A call the app
+ * quit on keeps its own dot, since it did end: its line alone says it still waits.
+ */
+export function awaitsPermission({ call, permission }: Pick<CallRow, 'call' | 'permission'>): boolean {
+  return call.state === ToolCallState.Running && permission?.state === PermissionLineState.Waiting
+}
+
+/**
+ * Whether a call never ran because its permission request was withdrawn (you stopped the turn, say): the SDK ends it
+ * as an error, but it didn't fail, so its row shows the slate dot, not a failed call's pink
+ * (`docs/design/html/24-permissions-picker.html`).
+ */
+export function withdrawnUnrun({ call, permission }: Pick<CallRow, 'call' | 'permission'>): boolean {
+  return call.state === ToolCallState.Error && permission?.state === PermissionLineState.Withdrawn
+}
+
+/**
+ * Whether a row shows its call's state as any other row does (a running call's highlight, a failed call's): not while
+ * the call waits on your OK, nor when it never ran because its request was withdrawn.
+ */
+export function showsCallState(row: Pick<CallRow, 'call' | 'permission'>): boolean {
+  return !awaitsPermission(row) && !withdrawnUnrun(row)
+}
+
+/** The dot a call's row shows: its call's (`callIndicator`), but purple while it waits on your OK, and slate once withdrawn. */
+export function rowIndicator(row: Pick<CallRow, 'call' | 'permission'>): TaskIndicator {
+  if (awaitsPermission(row)) return TaskIndicator.Waiting
+  if (withdrawnUnrun(row)) return TaskIndicator.Done
+  return callIndicator(row.call.state)
+}
+
+/** What a screen reader calls a row's dot (`rowIndicator`). */
+export function rowStateLabel(row: Pick<CallRow, 'call' | 'permission'>): string {
+  if (awaitsPermission(row)) return 'Waiting'
+  if (withdrawnUnrun(row)) return 'Withdrawn'
+  return callStateLabel(row.call.state)
+}
+
+/**
+ * Whether a call's row shows its result line: not while it waits on a permission, nor once that was denied or
+ * withdrawn, since the call never ran and its permission line says so (`ranWithPermission`).
+ */
+export function showsResult({ permission }: Pick<CallRow, 'permission'>): boolean {
+  return permission === null || ranWithPermission(permission)
 }
 
 export interface NarrationRow {
@@ -202,9 +262,13 @@ export function compactionResult({ state, trigger }: CompactionEvent): string {
 /**
  * The tool log's rows, in order. A subagent's calls and notes sit under the call that started it (the one whose
  * `toolUseId` is their `parentToolUseId`); one whose parent isn't in the log stays at the top level. Turn 1's divider is
- * left out, since nothing comes before it to divide from.
+ * left out, since nothing comes before it to divide from. Each call gets its permission line, if `permissions` has one
+ * for it.
  */
-export function toolLogRows(events: readonly ToolEvent[]): ToolLogRow[] {
+export function toolLogRows(
+  events: readonly ToolEvent[],
+  permissions: PermissionLines = NO_PERMISSION_LINES,
+): ToolLogRow[] {
   // Each call's list of what its subagent did, by its tool_use id. A subagent's rows always come after its call.
   const childrenOf = new Map<string, SubagentRow[]>()
   const rows: ToolLogRow[] = []
@@ -238,6 +302,7 @@ export function toolLogRows(events: readonly ToolEvent[]): ToolLogRow[] {
           call: event,
           name: toolDisplayName(event.name),
           children,
+          permission: permissions.get(event.toolUseId) ?? null,
         })
         childrenOf.set(event.toolUseId, children)
         break
@@ -249,15 +314,21 @@ export function toolLogRows(events: readonly ToolEvent[]): ToolLogRow[] {
 }
 
 /**
- * Whether two of a subagent's rows (or two tool calls) show the same: the same event, and for a call, the same rows
- * under it. `toolLogRows` makes each row anew, so a row that hasn't changed is told by what it holds (#413).
+ * Whether two of a subagent's rows (or two tool calls) show the same: the same event, and for a call, the same
+ * permission line and the same rows under it. `toolLogRows` makes each row anew, so a row that hasn't changed is told by
+ * what it holds (#413).
  */
 export function sameSubagentRow(a: SubagentRow, b: SubagentRow): boolean {
   switch (a.kind) {
     case ToolEventKind.Narration:
       return b.kind === ToolEventKind.Narration && a.narration === b.narration
     case ToolEventKind.ToolCall:
-      return b.kind === ToolEventKind.ToolCall && a.call === b.call && sameSubagentRows(a.children, b.children)
+      return (
+        b.kind === ToolEventKind.ToolCall &&
+        a.call === b.call &&
+        samePermissionLine(a.permission, b.permission) &&
+        sameSubagentRows(a.children, b.children)
+      )
   }
 }
 
@@ -286,8 +357,8 @@ export function isParentEvent(event: ToolEvent): boolean {
  * The tool log's rows for the task's own agent: its calls, notes, dividers and compactions, in order. What a subagent
  * does belongs under it in the Subagents tab, not here, so an `Agent` call is a single row, with no calls under it.
  */
-export function parentLogRows(events: readonly ToolEvent[]): ToolLogRow[] {
-  return toolLogRows(events.filter(isParentEvent))
+export function parentLogRows(events: readonly ToolEvent[], permissions?: PermissionLines): ToolLogRow[] {
+  return toolLogRows(events.filter(isParentEvent), permissions)
 }
 
 /** How many tool calls the task's own agent has made, not its subagents: the Tool calls tab's count. */

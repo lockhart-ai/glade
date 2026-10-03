@@ -300,7 +300,8 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
 - **Tool calls:** every tool call the task's own agent made, with the agent's working notes between them, split by turn.
   Right-click a call to copy its command or output, open its file, or **Run again in terminal** (the command lands at
   the terminal's prompt for you to edit or run; it never runs by itself). Each compaction is a **Compact** row; click
-  it to read the summary the agent carried over.
+  it to read the summary the agent carried over. A call you were asked about says what you decided, after a shield
+  (see [Permissions](#permissions)).
 - **Files:** the files the task changed (with a blue dot) and read. Each opens in a tab, with line numbers and syntax
   colours, and you can edit it right there: click to put the caret in, type, select, paste, undo and redo (⌘Z, ⇧⌘Z),
   find (⌘F) and indent with Tab. **⌘S** saves it. While a file has unsaved edits its tab shows a dot where the × is;
@@ -439,6 +440,20 @@ Code allow and deny rules still apply. The card offers:
 
 ← and → move between the buttons, and ↵ chooses. While a card waits, the task needs you, exactly as with a question.
 A card left open when Glade quits is still there after the relaunch; answering it carries the task on.
+
+A card stays in the chat only until it's answered: the chat is for your messages and the agent's. After that, what
+you decided is on the call's row in the **Tool calls** tab, on a line that starts with a shield:
+
+| The line | What happened |
+|---|---|
+| Purple: **Waiting on you** | The card is open. |
+| Teal: **Allowed once** | You allowed this call. |
+| Teal: **Allowed for this task: npm test commands** | You allowed it for the rest of the task; the line names what that covers. |
+| Pink: **Denied**, or **Denied: “your note”** | You denied it, with the note the agent read. |
+| Grey: **Withdrawn** | The request went away before you answered, for example because you stopped the agent. |
+
+A call that was denied or withdrawn never ran, so its row has no result. A subagent's call shows its line on its row
+in the **Subagents** tab, in that subagent's log.
 
 ## Settings
 

@@ -1,9 +1,11 @@
 // Per-call permission review, end to end with the scripted agent: the input bar's Permissions picker switches a task
 // between Allow all and Ask before edits and commands (saved across a relaunch, with Settings setting the default for
 // new tasks), and in the ask mode the agent's edits and commands wait on permission cards in the chat, answered with
-// Allow once, Allow for this task or Deny (with or without a note), by mouse or by keyboard alone. A rule granted with
-// Allow for this task lets the calls it covers through in that task, across a relaunch. A card open when Glade quits
-// is still there after the relaunch, and answering it carries the agent on.
+// Allow once, Allow for this task or Deny (with or without a note), by mouse or by keyboard alone. A card is in the chat
+// only while it waits (#459): answered or withdrawn, it leaves, and its call's row in the Tool calls list says what was
+// decided, a subagent's in the Subagents tab, across a relaunch. A rule granted with Allow for this task lets the calls
+// it covers through in that task, across a relaunch. A card open when Glade quits is still there after the relaunch,
+// and answering it carries the agent on.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
@@ -12,7 +14,7 @@ import { CommandName } from '../src/shared/bridge'
 import { PermissionMode, TaskActivity, ToolEventKind, type Task, type ToolCallEvent } from '../src/shared/domain'
 import { expect, test } from './fixtures'
 import { chooseMenuItem } from './menu'
-import { chat, firstRun, inputBar, settings, taskHeader, taskList, taskPanel } from './selectors'
+import { chat, firstRun, inputBar, settings, subagentsTab, taskHeader, taskList, taskPanel } from './selectors'
 import { invoke } from './task-view'
 
 const ASK = 'Ask before edits and commands'
@@ -121,11 +123,19 @@ test('in the ask mode, an edit and a command wait on cards: Allow once by mouse,
     'waiting',
   )
   expect(await onlyTask(window)).toMatchObject({ activity: TaskActivity.Waiting, awaitingPermission: true })
+  // Its row in the Tool calls list waits too: the purple dot, and the shield's line in place of a result.
+  const panel = taskPanel(window)
+  await expect(panel.call(/^Waiting\s*Edit/)).toContainText('Waiting on you')
+  await expect(panel.permissionLines).toHaveText(['Waiting on you'])
+  await expect(panel.permissionLines.first()).toHaveAttribute('data-permission', 'waiting')
 
   await edit.getByRole('button', { name: 'Allow once' }).click()
-  await expect(conversation.closedPermissions.first()).toHaveText(
-    `Edit: ${ASKS_PERMISSION.edit.file_path}·allowed once`,
-  )
+  // The answered card leaves the chat, and its row says what was decided, above the edit's result.
+  await expect(panel.permissionLines.first()).toHaveText('Allowed once')
+  await expect(panel.permissionLines.first()).toHaveAttribute('data-permission', 'allowed')
+  await expect(panel.call(/^Done\s*Edit/)).toContainText('Allowed once')
+  await expect(conversation.permissionCards).toHaveCount(1)
+  await expect(conversation.permissionRequests).toHaveCount(1)
 
   // The command's card opens next, and takes the focus on Allow once: the keyboard answers it alone.
   const command = conversation.permissionCards.first()
@@ -143,9 +153,10 @@ test('in the ask mode, an edit and a command wait on cards: Allow once by mouse,
   await window.keyboard.type('Run only the retry tests')
   await window.keyboard.press('Enter')
 
-  await expect(conversation.closedPermissions.nth(1)).toHaveText(
-    `Bash: ${ASKS_PERMISSION.command}·denied: “Run only the retry tests”`,
-  )
+  // Denied, it leaves the chat too: the chat is your message and the agent's reply, and the note is on the row.
+  await expect(panel.permissionLines).toHaveText(['Allowed once', 'Denied: “Run only the retry tests”'])
+  await expect(panel.permissionLines.nth(1)).toHaveAttribute('data-permission', 'denied')
+  await expect(conversation.permissionRequests).toHaveCount(0)
   // The agent got the note, and carried on to its reply.
   await expect(conversation.agentReplies).toHaveCount(1)
   await expect(conversation.agentReplies.first()).toContainText(ASKS_PERMISSION.reply)
@@ -178,9 +189,9 @@ test('Allow for this task grants a command prefix or a whole tool: the calls it 
     'Deny',
   ])
   await test.getByRole('button', { name: 'Allow npm test commands for this task' }).click()
-  await expect(conversation.closedPermissions.first()).toHaveText(
-    `Bash: ${ALLOWS_FOR_TASK.command}·allowed for this task`,
-  )
+  // Its row names the rule it granted.
+  const panel = taskPanel(window)
+  await expect(panel.permissionLines.first()).toHaveText('Allowed for this task: npm test commands')
 
   // `npm test -- --watch` ran without asking; `npm test && rm -rf build` still asks.
   const compound = conversation.permissionCards.first()
@@ -198,11 +209,11 @@ test('Allow for this task grants a command prefix or a whole tool: the calls it 
 
   // The second edit didn't ask: the agent replied, with three lines for the three calls that asked.
   await expect(conversation.agentReplies.first()).toContainText(ALLOWS_FOR_TASK.reply)
-  await expect(conversation.permissionCards).toHaveCount(0)
-  await expect(conversation.closedPermissions).toHaveText([
-    `Bash: ${ALLOWS_FOR_TASK.command}·allowed for this task`,
-    `Bash: ${ALLOWS_FOR_TASK.compound}·allowed once`,
-    `Edit: ${ALLOWS_FOR_TASK.edit.file_path}·allowed for this task`,
+  await expect(conversation.permissionRequests).toHaveCount(0)
+  await expect(panel.permissionLines).toHaveText([
+    'Allowed for this task: npm test commands',
+    'Allowed once',
+    'Allowed for this task: Edit',
   ])
   expect((await toolCall(window, 'Edit', ALLOWS_FOR_TASK.editAgain.file_path))?.output).toBe(
     'The file README.md has been updated.',
@@ -213,14 +224,22 @@ test('Allow for this task grants a command prefix or a whole tool: the calls it 
   const relaunched = await launch({ agentScript: 'allows-for-task' })
   const again = relaunched.window
   const resumedChat = chat(again)
-  await expect(resumedChat.closedPermissions).toHaveCount(3)
+  // The decisions are still on their rows, and still out of the chat.
+  await expect(taskPanel(again).permissionLines).toHaveText([
+    'Allowed for this task: npm test commands',
+    'Allowed once',
+    'Allowed for this task: Edit',
+  ])
+  await expect(resumedChat.permissionRequests).toHaveCount(0)
   await inputBar(again).field.fill('Run them once more.')
   await inputBar(again).field.press('Enter')
   const asked = resumedChat.permissionCards.first()
   await expect(asked.getByLabel('Command')).toHaveText(ALLOWS_FOR_TASK.compound)
   await asked.getByRole('button', { name: 'Allow once' }).click()
   await expect(resumedChat.agentReplies).toHaveCount(2)
-  await expect(resumedChat.closedPermissions).toHaveCount(4)
+  await expect(taskPanel(again).permissionLines).toHaveCount(4)
+  await expect(taskPanel(again).permissionLines.last()).toHaveText('Allowed once')
+  await expect(resumedChat.permissionRequests).toHaveCount(0)
 
   // Another task has none of them: its `npm test` asks.
   await taskList(again).newTask.click()
@@ -255,12 +274,16 @@ test('a card open when Glade quits is still there after a relaunch, and Allow on
   await expect(card.getByLabel('Command')).toHaveText(PERMISSION_AT_QUIT.command)
   await expect(taskHeader(again).stateDot).toHaveAccessibleName('Active · waiting on you')
   expect(await onlyTask(again)).toMatchObject({ activity: TaskActivity.Waiting, awaitingPermission: true })
-  await expect(taskPanel(again).call(/^Interrupted\s*Bash/)).toBeVisible()
+  await expect(taskPanel(again).call(/^Interrupted\s*Bash/)).toContainText('Waiting on you')
+  await expect(taskPanel(again).permissionLines).toHaveText(['Waiting on you'])
 
   await card.getByRole('button', { name: 'Allow once' }).click()
 
-  // The agent is told, and carries on: it runs the command again, without a second card, and replies.
-  await expect(conversation.closedPermissions).toHaveText([`Bash: ${PERMISSION_AT_QUIT.command}·allowed once`])
+  // The card leaves the chat, and the call it was about says it was allowed. The agent is told, and carries on: it
+  // runs the command again, without a second card or a line of its own, and replies.
+  await expect(taskPanel(again).call(/^Interrupted\s*Bash/)).toContainText('Allowed once')
+  await expect(taskPanel(again).permissionLines).toHaveText(['Allowed once'])
+  await expect(conversation.permissionRequests).toHaveCount(0)
   await expect(conversation.restarts).toHaveCount(1)
   await expect(conversation.agentReplies).toHaveCount(1)
   await expect(conversation.agentReplies.first()).toContainText(PERMISSION_AT_QUIT.reply)
@@ -298,7 +321,7 @@ test("a subagent's card says which subagent, opens on Deny when a stray key must
   // Deny with no note, by mouse.
   await clean.getByRole('button', { name: 'Deny', exact: true }).click()
   await clean.getByRole('button', { name: 'Deny', exact: true }).click()
-  await expect(conversation.closedPermissions.first()).toHaveText(`Bash: ${SUBAGENT_PERMISSION.command}·denied`)
+  await expect(taskPanel(window).permissionLines).toHaveText(['Denied'])
 
   // The subagent's write: its card names the subagent and titles itself, and opens on Deny.
   const write = conversation.permissionCards.first()
@@ -319,7 +342,46 @@ test("a subagent's card says which subagent, opens on Deny when a stray key must
   await expect(write.getByRole('button', { name: 'Allow once' })).toBeFocused()
   await window.keyboard.press('Enter')
 
-  await expect(conversation.closedPermissions.nth(1)).toHaveText(`Write: ${SUBAGENT_PERMISSION.file}·allowed once`)
   await expect(conversation.agentReplies.first()).toContainText(SUBAGENT_PERMISSION.reply)
   expect((await toolCall(window, 'Write'))?.output).toBe(`File created successfully at: ${SUBAGENT_PERMISSION.file}`)
+  // Both cards left the chat. The subagent's decision isn't in the Tool calls list, whose rows are the agent's own:
+  // it's on the row its Write already has, in the subagent's log.
+  await expect(conversation.permissionRequests).toHaveCount(0)
+  await expect(taskPanel(window).permissionLines).toHaveText(['Denied'])
+  await taskPanel(window)
+    .tab(/^Subagents/)
+    .click()
+  const subagents = subagentsTab(window)
+  await subagents.header(SUBAGENT_PERMISSION.subagent).click()
+  await expect(subagents.log(SUBAGENT_PERMISSION.subagent)).toContainText(SUBAGENT_PERMISSION.file)
+  await expect(subagents.permissionLines(SUBAGENT_PERMISSION.subagent)).toHaveText(['Allowed once'])
+})
+
+test('Stop withdraws an open card: it leaves the chat, and its row says Withdrawn, across a relaunch', async ({
+  launch,
+  tempFolder,
+}) => {
+  const glade = await launch({ agentScript: 'asks-permission', chosenFolder: workspaceRoot(tempFolder) })
+  const { window } = glade
+  await firstRun(window).openFolder.click()
+  await taskList(window).newTask.click()
+  await choosePermissions(window, 'Allow all', ASK)
+  await inputBar(window).field.fill('Add the retry change to the changelog and run the tests.')
+  await inputBar(window).field.press('Enter')
+  await expect(chat(window).permissionCards.first()).toContainText(ASKS_PERMISSION.edit.file_path)
+  await expect(taskPanel(window).permissionLines).toHaveText(['Waiting on you'])
+
+  await inputBar(window).stop.click()
+
+  await expect(chat(window).permissionRequests).toHaveCount(0)
+  await expect(taskPanel(window).permissionLines).toHaveText(['Withdrawn'])
+  await expect(taskPanel(window).permissionLines.first()).toHaveAttribute('data-permission', 'withdrawn')
+  await expect.poll(async () => (await onlyTask(window))?.awaitingPermission).toBe(false)
+  // The edit never ran.
+  expect((await toolCall(window, 'Edit'))?.output).not.toBe('The file CHANGELOG.md has been updated.')
+
+  await glade.close()
+  const { window: again } = await launch({ agentScript: 'asks-permission' })
+  await expect(taskPanel(again).permissionLines).toHaveText(['Withdrawn'])
+  await expect(chat(again).permissionRequests).toHaveCount(0)
 })

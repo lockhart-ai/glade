@@ -142,6 +142,18 @@
     **Allow for this task** (that tool, or for `Bash` that command prefix) and **Deny**, with an optional note that
     goes back to the agent. When the SDK says a request mustn't be remembered (`suppressAlwaysAllowRule`), Allow for
     this task isn't offered; when it says it mustn't be approved by a stray key (`defaultToNo`), Deny has the focus.
+  - **A card is in the chat only while it waits for your answer** (#459, Jared's call in the P15 design review): the
+    chat holds your messages and the agent's, and nothing else. Once a card is answered or withdrawn it leaves the
+    chat, live and after a relaunch, with no collapsed line left behind. What was decided shows on the tool call's
+    row in the Tool calls list (a subagent's call, on the row it already has in the Subagents tab), on a line under
+    the call that starts with a filled shield and puts the status first: "Waiting on you" while the card is open,
+    then "Allowed once", "Allowed for this task: npm test commands" (naming the rule it granted), "Denied" or
+    "Denied: “your note”", or "Withdrawn". The shield's colour is the state: purple waiting on you, teal granted,
+    pink denied, slate withdrawn (and the whole line dimmed). The row's dot still says only how the call itself went:
+    purple while it waits, pink for a denied call, and slate for one whose request was withdrawn, since it never ran
+    rather than failed. A call that never ran (waiting, denied, withdrawn) shows no result line; its output is still
+    there when you open the row. This holds for every permission card, the sandbox's (P15) included; the line is one
+    component (`PermissionLineView`, `src/renderer/permissions/`), which those reuse.
   - While a card waits, the task needs you, exactly as with an open question: purple dot, Needs you, unread and a
     native notification when you aren't viewing it. A message sent meanwhile is queued as usual; Stop withdraws the
     request.
