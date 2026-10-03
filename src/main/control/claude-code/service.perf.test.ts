@@ -23,6 +23,15 @@
 // closest to the work itself. Reading is also held to linear time, reading the transcript once against reading one a
 // tenth as long ten times, so a parser that slows down as the transcript grows fails however fast the machine is. (The
 // import as a whole isn't: its database writes would hide a parser's quadratic cost at this size.)
+//
+// A count of references still depends on the processor and on what runs alongside, so there are two sets of budgets,
+// each measured where it applies (#442): a Mac's, as `npm test` runs this file among the others, and those of GitHub's
+// Linux runners, where CI runs it, as `npm run test:perf` runs the perf tests with nothing alongside. A reference is
+// native code (JSON.parse, SQLite) and the work is mostly the app's own, slowed by coverage, and x64 runs the second
+// slower against the first than Apple silicon does: the read that takes 4 references on a Mac takes 5.3 on the runners.
+// And on a runner's four processors the other test files swing it: among them the same read took 4.4 to 8.1 references
+// and twice the work 7.9 to 13.6, so no budget passed the one and failed the other. On its own it took 4.9 to 6.4,
+// and twice the work 9.6 to 12.4.
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -40,26 +49,60 @@ const LINES = 20_000
 const BASELINE_LINES = LINES / 10
 const BASELINE_READS = LINES / BASELINE_LINES
 
+/** What each thing timed may take, in references. */
+interface Budgets {
+  /** Reading the transcript. */
+  readonly read: number
+  /** Listing it, which reads it too. */
+  readonly list: number
+  /** Importing it. */
+  readonly import: number
+  /**
+   * Listing the second page of 300 sessions once the first has read them. It shows the page comes from what the first
+   * read: reading them all again fails.
+   */
+  readonly page: number
+}
+
 /**
- * The budgets, in references, as `npm test` measures them (with coverage): each is about 1.75 times what it takes on an
- * idle Mac, so twice the work fails, and about 1.4 times the most it took on a busy one held to its efficiency cores.
+ * The budgets on a Mac (Apple silicon), as `npm test` measures them (with coverage, the other test files alongside):
+ * each is about 1.75 times what it takes on an idle Mac, so twice the work fails, and about 1.4 times the most it took
+ * on a busy one held to its efficiency cores.
  */
-const BUDGET = {
-  /** Reading the transcript: about 4, and at most 5.3. */
+const MAC_BUDGET: Budgets = {
+  /** About 4, and at most 5.3. */
   read: 7,
-  /** Listing it, which reads it too: about 4, and at most 4.9. */
+  /** About 4, and at most 4.9. */
   list: 7,
   /**
-   * Importing it: about 8, and at most 13.4. Twice the work takes about 17, so this one sits between the two rather
-   * than at 1.75 times idle.
+   * About 8, and at most 13.4. Twice the work takes about 17, so this one sits between the two rather than at 1.75
+   * times idle.
    */
   import: 15,
-  /**
-   * Listing the second page of 300 sessions once the first has read them: about 0.15. It shows the page comes from
-   * what the first read, which took about 2: reading them all again fails.
-   */
+  /** About 0.15. Reading the sessions again takes about 2. */
   page: 1,
-} as const
+}
+
+/**
+ * The budgets on GitHub's Linux runners (`ubuntu-latest`: x64, four processors), as `npm run test:perf` measures them
+ * (with coverage, one perf file at a time and nothing alongside), over 30 runs on ten runners of four models of
+ * processor (AMD EPYC 7763, 9V74 and 9V45, Intel Xeon 8573C), and ten more with the work doubled. Each sits between the
+ * most it took and the least twice the work took, about a quarter above the one and a fifth below the other; the
+ * models differ by more than a Mac does from one run to the next, which leaves no room for 1.75 times.
+ */
+const LINUX_BUDGET: Budgets = {
+  /** 4.9 to 6.4, about 5.3. Twice the work took 9.6 to 12.4. */
+  read: 8,
+  /** 4.8 to 6.8, about 5.3. Twice the work took 10.2 to 12.5. */
+  list: 8.5,
+  /** 9.9 to 13.6, about 12.9. Twice the work took 20.1 to 26.6. */
+  import: 17,
+  /** 0.22 to 0.28. Reading the sessions again took 2.9 to 3.4. */
+  page: 1,
+}
+
+/** This machine's budgets. CI only runs this on Linux; anything else is someone's own machine, held to the Mac's. */
+const BUDGET = process.platform === 'linux' ? LINUX_BUDGET : MAC_BUDGET
 
 /** How much longer reading the transcript once may take than reading a tenth of it ten times: it takes about as long. */
 const MAX_SCALING = 1.5
@@ -108,14 +151,6 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
   }
 })
-
-/** TEMPORARY (#442 measurement): prints what a test measured, for the CI logs. Removed before this merges. */
-function report(test: string, measured: Record<string, unknown>): void {
-  const sabotage = process.env.GLADE_PERF_SABOTAGE ?? 'none'
-  console.log(
-    `PERF442 ${JSON.stringify({ test, platform: process.platform, arch: process.arch, sabotage, ...measured })}`,
-  )
-}
 
 /** The CPU time this process has used, in milliseconds. */
 function cpuMs(): number {
@@ -241,12 +276,10 @@ it(
     let listRefs = Infinity
     let fullMs = Infinity
     let baselineMs = Infinity
-    const samples: number[][] = []
     for (let run = 0; run < RUNS; run += 1) {
       const reference = await readReferenceMs(full)
       const readMs = await cpuTime(() => read(full))
       const listMs = await cpuTime(() => listAfresh(full))
-      samples.push([reference, readMs / reference, listMs / reference])
       readRefs = Math.min(readRefs, readMs / reference)
       listRefs = Math.min(listRefs, listMs / reference)
       fullMs = Math.min(fullMs, readMs)
@@ -258,7 +291,6 @@ it(
       )
     }
 
-    report('read', { readRefs, listRefs, scaling: fullMs / baselineMs, fullMs, baselineMs, samples })
     expect(readRefs).toBeLessThan(BUDGET.read)
     expect(listRefs).toBeLessThan(BUDGET.list)
     // Ten times the lines, once, take about as long as a tenth of them ten times.
@@ -275,7 +307,6 @@ it(
     await sessions.import({ session: { sessionId: SESSION_ID }, state: TaskState.Done, createWorkspace: false })
 
     let importRefs = Infinity
-    const samples: number[][] = []
     for (let run = 0; run < IMPORT_RUNS; run += 1) {
       // Each import needs a database that doesn't have the session yet.
       const session = writeLongSession(LINES)
@@ -294,9 +325,7 @@ it(
       expect(listMessages(database.db, taskId)).toHaveLength(session.turns * 2)
       expect(listToolEvents(database.db, taskId)).toHaveLength(session.turns * 4)
       importRefs = Math.min(importRefs, importMs / reference)
-      samples.push([reference, importMs / reference])
     }
-    report('import', { importRefs, samples })
 
     expect(importRefs).toBeLessThan(BUDGET.import)
   },
@@ -324,7 +353,6 @@ it(
     const cursor = first.nextCursor === null ? {} : { cursor: first.nextCursor }
 
     let pageRefs = Infinity
-    const samples: number[][] = []
     for (let run = 0; run < RUNS; run += 1) {
       const reference = await readReferenceMs(long)
       const pageMs = await cpuTime(async () => {
@@ -333,9 +361,7 @@ it(
         expect(second.nextCursor).toBeNull()
       })
       pageRefs = Math.min(pageRefs, pageMs / reference)
-      samples.push([reference, pageMs / reference])
     }
-    report('page', { pageRefs, samples })
     expect(pageRefs).toBeLessThan(BUDGET.page)
   },
   TIMEOUT_MS,

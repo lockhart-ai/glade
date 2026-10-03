@@ -145,20 +145,10 @@ export async function findTranscript(projectsDir: string, sessionId: string): Pr
  * last line, say) is skipped and counted; blank lines are ignored.
  */
 export async function readTranscript(file: TranscriptFile): Promise<ClaudeCodeTranscript> {
-  // TEMPORARY (#442 measurement): the regressions the perf test guards against, switched on by an environment variable.
-  const sabotage = process.env.GLADE_PERF_SABOTAGE
-  if (sabotage === 'double') await readTranscriptOnce(file, false)
-  return readTranscriptOnce(file, sabotage === 'quadratic')
-}
-
-async function readTranscriptOnce(file: TranscriptFile, quadratic: boolean): Promise<ClaudeCodeTranscript> {
   const reader = new SessionReader(file.modifiedAt)
   const lines = createInterface({ input: createReadStream(file.path, { encoding: 'utf8' }), crlfDelay: Infinity })
-  let seen: number[] = []
   for await (const line of lines) {
     if (line.trim() === '') continue
-    // A parser that copies what it has read so far on every line: quadratic in the transcript's length.
-    if (quadratic) seen = [...seen, line.length]
     const entry = parseTranscriptLine(line)
     if (entry === null) reader.skipLine()
     else reader.add(entry)
