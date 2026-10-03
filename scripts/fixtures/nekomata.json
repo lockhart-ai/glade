@@ -65,7 +65,7 @@
       "questionSet": {
         "preamble": "I read the 41 PRs merged since `v2.3.0`. The new rate limits on `/search` change what API clients see, so the notes get a short **upgrade guide** too.\n\nA few choices are yours before I draft them.",
         "turn": 1,
-        "minutesAgo": 0,
+        "minutesAgo": 1,
         "questions": [
           {
             "kind": "choice",

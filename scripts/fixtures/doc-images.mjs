@@ -40,13 +40,13 @@ const settingsSection = (nth) => ['--click', `nav[aria-label="Settings sections"
 const SCREENSHOTS = {
   hero: { out: join(IMAGES, 'hero.png'), args: ['--seed', 'task-workspace.json', '--size', '1600x1000'] },
   subagents: { out: join(IMAGES, 'subagents.png'), args: ['--seed', 'subagents.json', '--size', '1600x1000'] },
-  question: { out: join(IMAGES, 'question.png'), args: ['--seed', 'question.json', '--size', '1600x1300'] },
+  question: { out: join(IMAGES, 'question.png'), args: ['--seed', 'question.json', '--size', '1600x1100'] },
   permission: { out: join(IMAGES, 'permission.png'), args: ['--seed', 'permission-card.json', '--size', '1600x1000'] },
   control: {
     out: join(IMAGES, 'control.png'),
     args: ['--seed', 'settings-control.json', '--size', '1600x1000', ...OPEN_SETTINGS, ...settingsSection(7)],
   },
-  window: { out: join(IMAGES, 'guide', 'window.png'), args: ['--seed', 'task-workspace.json', '--size', '1440x900'] },
+  window: { out: join(IMAGES, 'guide', 'window.png'), args: ['--seed', 'task-workspace.json', '--size', '1440x960'] },
   welcome: { out: join(IMAGES, 'guide', 'welcome.png'), args: ['--size', '1280x800'] },
   working: { out: join(IMAGES, 'guide', 'working.png'), args: ['--seed', 'agent-working.json', '--size', '1280x800'] },
   artifacts: { out: join(IMAGES, 'guide', 'artifacts.png'), args: ['--seed', 'artifacts.json', '--size', '1280x880'] },

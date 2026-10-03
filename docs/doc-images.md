@@ -27,12 +27,22 @@ NEKOMATA_PLUGIN=<nekomata>/dist/glade/nekomata node scripts/fixtures/doc-images.
 ```
 
 Without one, `nekomata` is skipped (with a message saying why); the other 15 still regenerate. Its own page is much
-bigger than the sample plugins in `scripts/fixtures/plugins/`, so `nekomata.mjs` asks for two shots, the real size
-last, giving the plugin's page the time between them to finish loading before the one it keeps: a single shot is
-still mid-load when the app quits, and the plugin's page never shows.
+bigger than the sample plugins in `scripts/fixtures/plugins/`, and draws its cat cafe onto a canvas it redraws from a
+`resize` its page gets once Glade places it at its slot's real size, not from the window's: a single shot is still
+mid-load when the app quits (logging a load failure that's really just that race), and even once it's loaded, a
+capture's `settle()` only waits for its fonts, not for that redraw to finish, so the canvas can still be blank the
+moment it's taken. `nekomata.mjs` asks for three shots, the real size last twice, settling the view again each time
+(each one re-sends its size and re-waits) and giving its redraw the real time between them to finish before the one
+it keeps.
 
 **A capture that lands on a blank "Loading…" page** is a rare flake in the capture pipeline, not a bad seed: just
 run the command again.
+
+**A capture no longer lands mid-animation.** Before a shot, the page waits not just for its size but until nothing's
+busy and every running animation (a question card's entrance) has finished (`waitForSize` in `src/main/capture.ts`,
+sharing its settle script with `--click`'s). A seed can still avoid the entrance animation outright by dating what
+opens it (a `questionSet`, a `permissionRequests` entry) more than two seconds before the capture — any `minutesAgo`
+above 0 clears it (`APPEAR_WINDOW_MS` in `src/renderer/questions/QuestionCard.tsx`), which every fixture here does.
 
 ## The images
 
@@ -40,11 +50,11 @@ run the command again.
 | --- | --- | --- |
 | `hero.png` | The app with a workspace open: the task list, a task's chat, its tool calls. | `--seed task-workspace.json --size 1600x1000` |
 | `subagents.png` | A task working with three subagents running and one done. | `--seed subagents.json --size 1600x1000` |
-| `question.png` | A question card: the agent's reply, four questions, Anything else. | `--seed question.json --size 1600x1300` |
+| `question.png` | A question card: the agent's reply, four questions, Anything else. | `--seed question.json --size 1600x1100` |
 | `permission.png` | A permission card for a Bash command, and another for a file edit's diff. | `--seed permission-card.json --size 1600x1000` |
 | `nekomata.png` | The Nekomata plugin beside the terminal: a cat per task, a question bubble over the one waiting on you. | `nekomata.mjs` (needs the built plugin) |
 | `control.png` | Settings › Control, turned on, with the endpoint and the connect command. | `--seed settings-control.json --size 1600x1000`, clicked to Control |
-| `guide/window.png` | The whole window: task list, chat and header, right panel, terminal. | `--seed task-workspace.json --size 1440x900` |
+| `guide/window.png` | The whole window: task list, chat and header, right panel, terminal. | `--seed task-workspace.json --size 1440x960` |
 | `guide/welcome.png` | The first-run welcome screen. | no seed, `--size 1280x800` |
 | `guide/working.png` | A working task: the queue above the input bar, Stop beside Send. | `--seed agent-working.json --size 1280x800` |
 | `guide/menu-bar.png` | The menu bar popover: needs you, working, recent. | `menu-bar.mjs` (the popover's own 360px-wide box) |
@@ -66,13 +76,19 @@ the Workspace section; then the wanted section in the nav, General 1st and Contr
 Since #430/#433, a task's dot is purple only when it's genuinely blocked on you or has a reply you haven't read: an
 open question, an open permission request, an error, or `unread: true` in its seed. A sidebar row whose status says
 "Waiting on you: …" needs one of those, or it shows as idle (slate) instead, however its status reads
-(`src/shared/attention.ts`). Most fixtures here give their background "Waiting on you" rows `unread: true` for this;
-`question.png` and `nekomata.png` instead give their task an actual open question set, since the picture is about it.
+(`src/shared/attention.ts`) — true of the *selected* task too: being open (and so read) is no excuse. Most
+background "Waiting on you" rows here get `unread: true` for this. `question.png` and `nekomata.png` instead give
+their task an actual open question set, since the picture is about it; so does "Add rate limiting to public API",
+the selected task in `task-workspace.json`, `files-browse.json`, `settings-general.json` and `settings-control.json`
+(the one shared seeds that select it): its final reply used to end in a question typed as plain text ("Should it get
+a tighter limit of 60 a minute, or share the default 120?"), which the dot rules don't see, so it was leading with
+"Waiting on you" and showing idle. It now asks for real, with that first sentence as the question card's preamble and
+the choice as its question.
 
 ## The seed format's open question set
 
-`question.png` and `nekomata.png` need a task to show an open question card (`QuestionSet`), which the capture seed
-format couldn't express before this: a seed could open a permission request, but not a question. `SeedQuestionSet`
-(`src/main/capture-seed.ts`) adds a task-level `questionSet` (a preamble, questions, a turn and `minutesAgo`), applied
-with the same `appendQuestionSet` the real `ask` tool uses, so the task's `asking` flag (and so its purple dot) comes
-out the same way a real one would. Covered in `src/main/capture-seed.test.ts`.
+A task showing an open question card (`QuestionSet`) is something the capture seed format couldn't express before
+this: a seed could open a permission request, but not a question. `SeedQuestionSet` (`src/main/capture-seed.ts`) adds
+a task-level `questionSet` (a preamble, questions, a turn and `minutesAgo`), applied with the same
+`appendQuestionSet` the real `ask` tool uses, so the task's `asking` flag (and so its purple dot) comes out the same
+way a real one would. Covered in `src/main/capture-seed.test.ts`.

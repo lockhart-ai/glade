@@ -27,8 +27,15 @@ const SIZE = '1600x1000'
 
 // Nekomata's bundled page (its whole cat cafe, canvas included) is much bigger than the sample plugins, so it's still
 // loading when a single capture would ask for its page: the first shot never shows it (nothing pastes in), and the
-// app then quits mid-load, logging a load failure that's really just that race. Asking for two shots, the real size
-// last, gives it the time between them to finish loading and paint before the one this script keeps.
+// app then quits mid-load, logging a load failure that's really just that race.
+//
+// A capture's `settle()` (src/main/capture-views.ts) waits for the plugin's fonts, not for a frame it's actually
+// drawn: a view in a window that's never shown gets none on its own (`capturePage()` draws the one it captures), so
+// Nekomata's canvas — sized and redrawn from a `resize` its own page gets once Glade places it at its slot's real
+// size, not from the window's — can still be blank the moment that capture is taken, even once its DOM (the
+// overlay's speech bubbles and labels) is there. Asking for more shots than sizes, repeating the real size, settles
+// the view again each time (each one re-sends its size and re-waits), giving its own redraw the real time between
+// them to finish before the last shot, the one this script keeps.
 const WARMUP_SIZE = '1100x700'
 
 const plugin = process.argv[2] ?? process.env.NEKOMATA_PLUGIN
@@ -58,7 +65,7 @@ try {
   cpSync(plugin, join(plugins, 'nekomata'), { recursive: true })
   run(process.execPath, [
     join(ROOT, 'scripts', 'screenshot.mjs'),
-    ...['--out', shots, '--size', WARMUP_SIZE, '--size', SIZE, '--name', 'nekomata', '--seed', SEED],
+    ...['--out', shots, '--size', WARMUP_SIZE, '--size', SIZE, '--size', SIZE, '--name', 'nekomata', '--seed', SEED],
     ...['--plugins', plugins],
   ])
   run(createRequire(import.meta.url)('ffmpeg-static'), [

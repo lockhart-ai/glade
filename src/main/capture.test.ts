@@ -278,6 +278,16 @@ describe('captureShots', () => {
 
     expect(window.scripts.at(-1)).toContain('window.innerWidth === 1100 && window.innerHeight === 700')
   })
+
+  it('settles on finite animations only, so an infinite one (the working dots) never blocks it', async () => {
+    const window = fakeWindow(1)
+
+    await captureShots(window, spec({ shots: [{ width: 1100, height: 700, file: 'a.png' }] }))
+
+    const script = window.scripts.at(-1) ?? ''
+    expect(script).toContain('document.getAnimations()')
+    expect(script).toContain('iterations !== Infinity')
+  })
 })
 
 describe('captureShots with native views', () => {
