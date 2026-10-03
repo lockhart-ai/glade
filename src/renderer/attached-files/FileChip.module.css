@@ -33,9 +33,9 @@
   outline-offset: 2px;
 }
 
-/* In the input bar, on the field's dark inset, bordered as the thumbnails are. */
+/* In the input bar, the same chip fill as the queue and pasted-text chips (#455), bordered as the thumbnails are. */
 .input {
-  background: var(--color-bg);
+  background: var(--color-inner-2);
   border: 1px solid var(--color-strong);
   border-radius: var(--radius-button);
 }
