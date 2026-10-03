@@ -11,7 +11,7 @@
  */
 import type { Environment } from '../login-env'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
-import type { AgentBackend, AgentSession, AgentSessionOptions } from './backend'
+import type { AgentBackend, AgentSession, AgentSessionOptions, SandboxFlagSettings } from './backend'
 import { ScriptedSession, type ScriptChooser } from './scripted-session'
 import { userContent, type UserContent } from './user-content'
 import type { AgentScript } from './scripts'
@@ -47,7 +47,19 @@ export interface TestModeScripts {
    * Hears what every session is started with: its system prompt and the session it resumes. E2e mode records it for a
    * spec to read (`E2E_AGENT_GLOBAL`).
    */
-  readonly onStart?: (session: Pick<AgentSessionOptions, 'systemPromptAppend' | 'resumeSessionId'>) => void
+  readonly onStart?: (
+    session: Pick<AgentSessionOptions, 'systemPromptAppend' | 'resumeSessionId' | 'flagSettings'>,
+  ) => void
+  /**
+   * Hears every `applyFlagSettings` a session is asked for, in order: its sandbox and permissions as they change
+   * (`docs/sdk-notes.md` §15). E2e mode records it for a spec to read (`E2E_AGENT_GLOBAL`).
+   */
+  readonly onFlagSettings?: (settings: SandboxFlagSettings) => void
+  /**
+   * Hears what Seatbelt logs of the sessions' sandboxed commands, as `log stream` prints it (`seatbeltLog`): what a
+   * `SandboxedBash` step's denials write. E2e mode records it for a spec to read (`E2E_AGENT_GLOBAL`).
+   */
+  readonly onSandboxLog?: (text: string) => void
   /**
    * Told the models the SDK offers (`TEST_MODE_MODELS`, unparsed) as each session starts, as the real backend's
    * `onModels` is once a session's agent process has.
@@ -139,7 +151,11 @@ export function createTestModeAgentBackend(
       }
       const { cwd, model, effort, resumeSessionId } = options
       ;(options.log ?? log).info('scripted agent starting', { cwd, model, effort, resumeSessionId })
-      scripts.onStart?.({ systemPromptAppend: options.systemPromptAppend, resumeSessionId })
+      scripts.onStart?.({
+        systemPromptAppend: options.systemPromptAppend,
+        resumeSessionId,
+        ...(options.flagSettings === undefined ? {} : { flagSettings: options.flagSettings }),
+      })
       scripts.onModels?.(TEST_MODE_MODELS)
       if (environment !== undefined) void environment.env.then(environment.onSessionEnv)
       const choose = chooser(scripts)
@@ -155,6 +171,7 @@ export function createTestModeAgentBackend(
         onWake: () => {
           busy += 1
         },
+        ...(scripts.onSandboxLog === undefined ? {} : { onSandboxLog: scripts.onSandboxLog }),
       })
       return {
         messages: session.messages,
@@ -165,6 +182,10 @@ export function createTestModeAgentBackend(
         },
         configure: (settings) => {
           session.configure(settings)
+        },
+        applyFlagSettings: (settings) => {
+          scripts.onFlagSettings?.(settings)
+          return session.applyFlagSettings(settings)
         },
         interrupt: () => session.interrupt(),
         stopTask: (sdkTaskId) => session.stopTask(sdkTaskId),

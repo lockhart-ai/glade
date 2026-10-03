@@ -16,6 +16,8 @@
     "src/main/logging/file-sink.ts",
     "src/main/logging/format.ts",
     "src/main/logging/logger.ts",
+    "src/main/agent/backend.ts",
+    "src/main/agent/sandbox-requests.ts",
     "src/main/agent/scripts.ts",
     "src/main/agent/scripted-shell.ts",
     "src/main/control/claude-code/test-transcripts.ts",

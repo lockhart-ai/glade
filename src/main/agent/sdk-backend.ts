@@ -28,7 +28,10 @@ import {
   type AgentSession,
   type AgentSessionOptions,
   type AgentSessionSettings,
+  type SandboxFlagSettings,
+  type SandboxSettings,
   type SessionHooks,
+  type SettingsPermissions,
   type SessionJob,
   type ToolPermissionAnswer,
   type ToolPermissionCall,
@@ -57,6 +60,15 @@ export interface SdkBackendOptions {
    */
   readonly onModels?: (models: unknown) => void
 }
+
+/** The flag settings `applyFlagSettings` takes. */
+type SdkFlagSettings = Parameters<Query['applyFlagSettings']>[0]
+
+/** The SDK's `sandbox` setting. */
+type SdkSandboxSettings = NonNullable<Options['sandbox']>
+
+/** The SDK's settings `permissions`. */
+type SdkSettingsPermissions = NonNullable<NonNullable<SdkFlagSettings['permissions']>>
 
 /** Finds a module's file, as `require.resolve` does. */
 export type ModuleResolver = (id: string) => string
@@ -178,6 +190,8 @@ export function toolPermissionCall(
     suppressAlwaysAllowRule: options.suppressAlwaysAllowRule === true,
     mcpServer: mcpServer === undefined ? null : { name: mcpServer.name, source: mcpServer.source },
     matchedAskRule: options.matchedAskRule !== undefined,
+    blockedPath: options.blockedPath ?? null,
+    decisionReason: options.decisionReason ?? null,
     signal: options.signal,
   }
 }
@@ -330,7 +344,9 @@ export function subagentGladeToolGuard(log: Logger = SILENT_LOGGER): HookCallbac
  * else. When it does (`hooks`), the rest follow: each prompt that's about to start a turn (`UserPromptSubmit`), which
  * it can turn away, the jobs the session has scheduled at the end of each turn (`Stop`), the summary each compaction
  * writes (`PostCompact`, §5), and each `Bash` call about to run (`PreToolUse`), which waits for the host a while at
- * most. A hook that fails lets the prompt or call through, and tells nothing.
+ * most. A hook that fails lets the prompt or call through, and tells nothing. When the session wants to hear of each
+ * `Bash` call that has run (`onBashFinished`, §15), its `PostToolUse` and `PostToolUseFailure` hooks tell it, and the
+ * call's result waits for the answer.
  */
 export function sdkHooks(
   hooks: SessionHooks | undefined,
@@ -397,11 +413,79 @@ export function sdkHooks(
     return {}
   }
   if (onBashStarting !== undefined) preToolUse.push({ matcher: 'Bash', hooks: [onBash] })
+  const { onBashFinished } = hooks
   return {
     PreToolUse: preToolUse,
     UserPromptSubmit: [{ hooks: [onPrompt] }],
     Stop: [{ hooks: [onStop] }],
     PostCompact: [{ hooks: [onPostCompact] }],
+    ...(onBashFinished === undefined
+      ? {}
+      : {
+          PostToolUse: [
+            { matcher: 'Bash', hooks: [bashFinishedHook(onBashFinished, log)], timeout: BASH_FINISHED_TIMEOUT_S },
+          ],
+          PostToolUseFailure: [
+            { matcher: 'Bash', hooks: [bashFinishedHook(onBashFinished, log)], timeout: BASH_FINISHED_TIMEOUT_S },
+          ],
+        }),
+  }
+}
+
+/**
+ * How long, in seconds, a `Bash` call's result waits for the host's `onBashFinished`: as long as a timer can, about 24.8
+ * days, since a card may wait on the user that long. Without one, Claude Code gives a hook callback 10 minutes, then
+ * hands the agent the result and ignores the hook's late answer (`docs/sdk-notes.md` §15).
+ */
+export const BASH_FINISHED_TIMEOUT_S = Math.floor((2 ** 31 - 1) / 1000)
+
+const bashFinishedInput = z.discriminatedUnion('hook_event_name', [
+  z.looseObject({
+    hook_event_name: z.literal('PostToolUse'),
+    tool_use_id: z.string(),
+    tool_input: z.looseObject({ command: z.string() }),
+    tool_response: z
+      .looseObject({ stdout: z.string().optional().catch(undefined), stderr: z.string().optional().catch(undefined) })
+      .optional()
+      .catch(undefined),
+  }),
+  z.looseObject({
+    hook_event_name: z.literal('PostToolUseFailure'),
+    tool_use_id: z.string(),
+    tool_input: z.looseObject({ command: z.string() }),
+    error: z.string(),
+  }),
+])
+
+/**
+ * The `PostToolUse` or `PostToolUseFailure` hook on `Bash` (`docs/sdk-notes.md` §15): a command that exited 0 fires
+ * the first, one that didn't (most a sandbox blocked) the second. Tells the host the call has run and waits for it,
+ * however long, while the call's result and the turn wait; then adds what it answered to what the agent reads. A hook
+ * that fails, or input of a shape Glade doesn't know, adds nothing.
+ */
+function bashFinishedHook(onBashFinished: NonNullable<SessionHooks['onBashFinished']>, log: Logger): HookCallback {
+  return async (input, _toolUseId, { signal }) => {
+    const parsed = bashFinishedInput.safeParse(input)
+    if (!parsed.success) return {}
+    const finished = parsed.data
+    const failed = finished.hook_event_name === 'PostToolUseFailure'
+    const output = failed
+      ? finished.error
+      : [finished.tool_response?.stdout ?? '', finished.tool_response?.stderr ?? ''].filter(Boolean).join('\n')
+    try {
+      const { context } = await onBashFinished({
+        toolUseId: finished.tool_use_id,
+        command: finished.tool_input.command,
+        output,
+        failed,
+        signal,
+      })
+      if (context === null) return {}
+      return { hookSpecificOutput: { hookEventName: finished.hook_event_name, additionalContext: context } }
+    } catch (error) {
+      log.error('failed to note a finished Bash call', { toolUseId: finished.tool_use_id, error })
+      return {}
+    }
   }
 }
 
@@ -412,6 +496,7 @@ export function sdkOptions(
   resolve: ModuleResolver = createRequire(import.meta.url).resolve,
 ): Options {
   const executable = claudeCodeExecutable(resolve)
+  const { sandbox, permissions } = options.flagSettings ?? {}
   return {
     ...(executable === undefined ? {} : { pathToClaudeCodeExecutable: executable }),
     // The whole environment, since it replaces Glade's own: opened from Finder, that has launchd's bare PATH. A copy,
@@ -439,7 +524,13 @@ export function sdkOptions(
     // would join the in-process one under the same name, each tool twice, calling Glade over HTTP as no task at all.
     // Denied by name, it's left out, and the in-process one, which the denylist doesn't reach, is the only one
     // (docs/sdk-notes.md §12).
-    settings: { deniedMcpServers: [{ serverName: CONTROL_SERVER_NAME }] },
+    settings: {
+      deniedMcpServers: [{ serverName: CONTROL_SERVER_NAME }],
+      ...(permissions === undefined || permissions === null ? {} : { permissions: sdkPermissions(permissions) }),
+    },
+    // The sandbox the session's commands run in, as it starts: what `applyFlagSettings` adds to later, and can't take
+    // back (docs/sdk-notes.md §15). None without one.
+    ...(sandbox === undefined || sandbox === null ? {} : { sandbox: sdkSandbox(sandbox) }),
     systemPrompt: { type: 'preset', preset: 'claude_code', append: options.systemPromptAppend },
     mcpServers: { ...options.mcpServers },
     // Questions go through Glade's own `ask`, which shows them on a card; Claude Code's own asking tool has no UI here.
@@ -459,6 +550,51 @@ export function sdkOptions(
     // docs/sdk-notes.md §13).
     hooks: sdkHooks(options.hooks, options.log ?? SILENT_LOGGER),
   }
+}
+
+/** The SDK's sandbox setting for Glade's (`docs/sdk-notes.md` §15), its lists copied, since the SDK may change them. */
+export function sdkSandbox(settings: SandboxSettings): SdkSandboxSettings {
+  const { filesystem, network, credentials } = settings
+  return {
+    enabled: settings.enabled,
+    failIfUnavailable: settings.failIfUnavailable,
+    autoAllowBashIfSandboxed: settings.autoAllowBashIfSandboxed,
+    filesystem:
+      filesystem === undefined
+        ? undefined
+        : {
+            denyRead: copy(filesystem.denyRead),
+            allowRead: copy(filesystem.allowRead),
+            allowWrite: copy(filesystem.allowWrite),
+            denyWrite: copy(filesystem.denyWrite),
+          },
+    network: network === undefined ? undefined : { allowedDomains: copy(network.allowedDomains) },
+    credentials:
+      credentials === undefined ? undefined : { files: credentials.files?.map(({ path, mode }) => ({ path, mode })) },
+  }
+}
+
+/** The SDK's settings permissions for Glade's rules (`docs/sdk-notes.md` §15). */
+export function sdkPermissions(permissions: SettingsPermissions): SdkSettingsPermissions {
+  return {
+    allow: copy(permissions.allow),
+    ask: copy(permissions.ask),
+    deny: copy(permissions.deny),
+    additionalDirectories: copy(permissions.additionalDirectories),
+  }
+}
+
+/** The flag settings `applyFlagSettings` takes for Glade's: only the keys given, a null one cleared. */
+export function sdkFlagSettings({ sandbox, permissions }: SandboxFlagSettings): SdkFlagSettings {
+  return {
+    ...(sandbox === undefined ? {} : { sandbox: sandbox === null ? null : sdkSandbox(sandbox) }),
+    ...(permissions === undefined ? {} : { permissions: permissions === null ? null : sdkPermissions(permissions) }),
+  }
+}
+
+/** A copy of a list, which the SDK may change; undefined for none, which leaves its key out of the JSON it sends. */
+function copy(list: readonly string[] | undefined): string[] | undefined {
+  return list === undefined ? undefined : [...list]
 }
 
 /** The SDK user message for the user's next message and its images, stamped as typed by a person. */
@@ -561,6 +697,18 @@ export function createSdkBackend({
               }
             }
           })
+        },
+        applyFlagSettings(settings) {
+          // In order with what was asked of the session before it; what comes after waits for it, refused or not.
+          const applied = queue.then(async () => {
+            const session = await started
+            await session.applyFlagSettings(sdkFlagSettings(settings))
+            log.info('sandbox settings changed', { settings })
+          })
+          queue = applied.catch((error: unknown) => {
+            log.warn("the SDK refused the session's new sandbox settings", { settings, error })
+          })
+          return applied
         },
         async interrupt() {
           log.info('agent interrupted')
