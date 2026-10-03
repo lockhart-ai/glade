@@ -1,0 +1,120 @@
+{
+  "collapsed": {
+    "sidebar": true,
+    "rightPanel": true
+  },
+  "pluginWidth": 860,
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "tasks": [
+    {
+      "title": "Draft release notes for 2.4",
+      "objective": "Draft release notes for 2.4 from the PRs merged since the 2.3 tag, grouped into features, fixes and internal changes.",
+      "status": "Waiting on layout, credit and upgrade guide questions.",
+      "minutesAgo": 0,
+      "startedMinutesAgo": 7,
+      "selected": true,
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "API changes",
+            "prompt": "Sort the API PRs merged since v2.3.0 into features, fixes and internal changes.",
+            "subagent_type": "general-purpose"
+          },
+          "toolUseId": "api",
+          "turn": 1,
+          "minutesAgo": 2,
+          "progressSummary": "Reading PR 1409, the per-key throttles, for the upgrade guide"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": { "command": "gh pr view 1409 --json title,body" },
+          "output": "{\"title\":\"Add per-key throttles\"}",
+          "parentToolUseId": "api",
+          "turn": 1,
+          "minutesAgo": 1.5
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "Dashboard changes",
+            "prompt": "Sort the dashboard PRs merged since v2.3.0 into features, fixes and internal changes.",
+            "subagent_type": "general-purpose"
+          },
+          "toolUseId": "dashboard",
+          "turn": 1,
+          "minutesAgo": 1.8,
+          "progressSummary": "Sorting 9 dashboard PRs into features and fixes"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": { "file_path": "api/throttles.py" },
+          "output": "…",
+          "parentToolUseId": "dashboard",
+          "turn": 1,
+          "minutesAgo": 1.2
+        }
+      ],
+      "questionSet": {
+        "preamble": "I read the 41 PRs merged since `v2.3.0`. The new rate limits on `/search` change what API clients see, so the notes get a short **upgrade guide** too.\n\nA few choices are yours before I draft them.",
+        "turn": 1,
+        "minutesAgo": 1,
+        "questions": [
+          {
+            "kind": "choice",
+            "prompt": "How should the notes be laid out?",
+            "options": [
+              {
+                "id": "by-type",
+                "label": "By type",
+                "detail": "Features, fixes, internal. Matches the 2.3 notes.",
+                "sketch": "# Features\n- Rate limits on /search\n# Fixes\n- Login redirect loop"
+              },
+              {
+                "id": "by-area",
+                "label": "By area",
+                "detail": "API, dashboard, admin. Easier for integrators to scan.",
+                "sketch": "# API\n- Rate limits on /search\n# Dashboard\n- Login redirect loop"
+              }
+            ]
+          },
+          {
+            "kind": "pills",
+            "prompt": "Where does the Django 5.2 upgrade go?",
+            "options": ["Features", "Internal changes", "Leave it out"]
+          },
+          {
+            "kind": "pills",
+            "prompt": "Credit contributors?",
+            "options": ["GitHub handles", "Full names", "No credits"]
+          },
+          {
+            "kind": "text",
+            "prompt": "Anything to call out in the upgrade guide?",
+            "placeholder": "e.g. the new 429s on /search",
+            "optional": true
+          }
+        ]
+      }
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "status": "Waiting on you: pick a limit for /search",
+      "unread": true,
+      "minutesAgo": 4
+    },
+    {
+      "title": "Fix flaky login test",
+      "status": "Found the race; fix passes 200 local runs",
+      "activity": "working",
+      "minutesAgo": 9
+    }
+  ]
+}

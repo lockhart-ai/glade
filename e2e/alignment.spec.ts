@@ -79,7 +79,9 @@ for (const size of [{ width: 1920, height: 1200 }, MIN_WINDOW]) {
     const areas = regions(window)
     const list = taskList(window)
     await expect(list.rows('Active')).not.toHaveCount(0)
-    await expect(chat(window).agentReplies).not.toHaveCount(0)
+    // Real content in the chat, not the empty "What should the agent do?" state, so there's something to measure
+    // around: the selected task's turn now ends on an open question (#427), not a finished agent reply.
+    await expect(chat(window).userMessages).not.toHaveCount(0)
 
     // The task card: the header card, the input bar and the right panel card sit the same distance in from its edges.
     const card = await boxOf(areas.task)
@@ -99,13 +101,13 @@ for (const size of [{ width: 1920, height: 1200 }, MIN_WINDOW]) {
     // The input bar's bottom edge and the right panel card's are one line.
     expectNear(input.bottom, panel.bottom, 'input bar and right panel card, bottom')
 
-    // The header card and the input bar share their edges, and the chat runs just inside them (#268): an agent reply
-    // starts the panel inset in from the input bar's left edge. (Its right edge moves in for the chat's scroll bar,
-    // when it has one.)
+    // The header card and the input bar share their edges, and the chat runs just inside them (#268): the agent's
+    // content (a reply, or, here, its open question card) starts the panel inset in from the input bar's left edge.
+    // (Its right edge moves in for the chat's scroll bar, when it has one.)
     const headerBox = await boxOf(areas.taskHeader)
     expectNear(headerBox.x, bar.x, 'header card and input bar, left')
     expectNear(headerBox.x + headerBox.width, bar.x + bar.width, 'header card and input bar, right')
-    const reply = await boxOf(chat(window).agentReplies.first())
+    const reply = await boxOf(chat(window).questionCard)
     expectNear(reply.x, bar.x + INSET, 'agent reply, left')
 
     // The right panel's rows sit the panel inset in from its edges, the tabs and the tool log alike.

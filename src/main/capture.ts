@@ -199,11 +199,29 @@ const WAIT_UNTIL_READY = `new Promise((resolve) => {
   check()
 })`
 
-/** Waits (in the page) until the viewport has the given size and the page has laid out and painted at it. */
+/**
+ * In the page, inside `new Promise((resolve) => { ... })`: once called, waits until nothing is busy (`aria-busy`) and
+ * every running, finite animation (a card's entrance, a toggle sliding over) has finished, then until it has painted,
+ * and resolves. An "infinite" one (the working dots' pulse) never does, so it's left running rather than waited on.
+ * Shared by `waitForSize` and `clickElement`, so a capture never lands mid-transition either way.
+ */
+const SETTLE_SNIPPET = `
+  const painted = () => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))
+  const finite = (animation) => animation.effect?.getComputedTiming().iterations !== Infinity
+  const settle = () => document.querySelector('[aria-busy="true"]') === null
+    ? Promise.all(document.getAnimations().filter(finite).map((animation) => animation.finished)).then(painted, painted)
+    : setTimeout(settle, 20)
+`
+
+/**
+ * Waits (in the page) until the viewport has the given size, then until the page has settled at it (nothing busy, no
+ * animation still running, such as a question card's entrance) and painted.
+ */
 function waitForSize(width: number, height: number): string {
   return `new Promise((resolve) => {
+  ${SETTLE_SNIPPET}
   const check = () => window.innerWidth === ${String(width)} && window.innerHeight === ${String(height)}
-    ? requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))
+    ? settle()
     : setTimeout(check, 20)
   check()
 })`
@@ -251,11 +269,7 @@ function clickElement(selector: string): string {
   return `new Promise((resolve, reject) => {
   const selector = ${JSON.stringify(selector)}
   const giveUp = Date.now() + ${String(CLICK_WAIT_MS)}
-  const painted = () => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))
-  // Once nothing is busy, the transitions the click started (a toggle sliding over) finish before the capture.
-  const settle = () => document.querySelector('[aria-busy="true"]') === null
-    ? Promise.all(document.getAnimations().map((animation) => animation.finished)).then(painted, painted)
-    : setTimeout(settle, 20)
+  ${SETTLE_SNIPPET}
   const click = () => {
     const element = document.querySelector(selector)
     if (element instanceof HTMLElement) {
