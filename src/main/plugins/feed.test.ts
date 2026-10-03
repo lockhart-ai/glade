@@ -120,6 +120,7 @@ function asPlugin(task: Task, workspace: Workspace, overrides: Partial<PluginTas
     activity: PluginTaskActivity.Waiting,
     needsYou: false,
     waitingOn: null,
+    watchers: 0,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     doneAt: null,

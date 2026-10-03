@@ -76,6 +76,7 @@ const CREATED: PluginChangeEvent = {
     activity: PluginTaskActivity.Waiting,
     needsYou: false,
     waitingOn: null,
+    watchers: 0,
     createdAt: 1,
     updatedAt: 1,
     doneAt: null,

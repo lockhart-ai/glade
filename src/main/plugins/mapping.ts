@@ -12,12 +12,14 @@ import {
   TaskState,
   ToolCallState,
   ToolEventKind,
+  WatcherState,
   type NarrationEvent,
   type PermissionRequest,
   type QuestionSet,
   type Task,
   type ToolCallEvent,
   type ToolInput,
+  type Watcher,
 } from '../../shared/domain'
 import { workspaceRelativePath } from '../../shared/files'
 import {
@@ -108,8 +110,19 @@ function waitingOn(task: Task): PluginWaitingOn | null {
   return null
 }
 
-/** A task as a plugin sees it. */
-export function pluginTask(task: Task, workspaceName: string): PluginTask {
+/**
+ * Whether a watcher counts in `PluginTask.watchers`: its process is running. It's the rule a task is read with
+ * background work by (`Task.backgroundWork`, the watchers' half), so a plugin's count is over 0 exactly when Glade
+ * counts a watcher of the task as background work. Only a monitor or a background command is ever running: a wakeup
+ * or cron job is scheduled or suspended until it ends. Whose call started it (the task's agent, or a subagent) makes
+ * no difference, as it makes none to the task's background work.
+ */
+export function isRunningWatcher(watcher: Pick<Watcher, 'state'>): boolean {
+  return watcher.state === WatcherState.Running
+}
+
+/** A task as a plugin sees it, with how many watchers it has running (`isRunningWatcher`). */
+export function pluginTask(task: Task, workspaceName: string, watchers: number): PluginTask {
   return {
     id: task.id,
     workspaceId: task.workspaceId,
@@ -120,6 +133,7 @@ export function pluginTask(task: Task, workspaceName: string): PluginTask {
     activity: activity(task.activity),
     needsYou: needsYou(task),
     waitingOn: waitingOn(task),
+    watchers,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     doneAt: task.doneAt,

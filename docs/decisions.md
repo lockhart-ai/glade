@@ -199,6 +199,12 @@
     and only for a task the plugin has been told of and that's still active, or a subagent of it it was told of.
     Anything else is dropped and logged, never shown. No capability switch: it's your click, and only opens what the
     plugin already shows. Additive, so the API stays version 1.
+  - A plugin is told how many watchers a task has running, and nothing else of them (#490): `PluginTask.watchers`, in
+    the snapshot and in a `task.updated` whenever the count changes. It counts what `Task.backgroundWork` counts of
+    the watchers (a monitor or background command whose process runs, the task's own or a subagent's; not a wakeup or
+    cron job that's only scheduled), so with the subagent events a plugin can tell a task that's idle from one whose
+    turn is over and still waits on something, as Glade's own task list does. Never a watcher's kind, name, command,
+    output or outcome. Additive, so the API stays version 1.
   - Nothing about the machine, unless the plugin asks for it and you allow it (#403, replacing P12's "nothing about
     the machine"): a manifest's `capabilities` can ask for `machine`, which Settings › Plugins shows as "Can see your
     Mac's CPU, GPU and Docker load" with a switch per plugin, off until you turn it on (saved in SQLite). With it on,

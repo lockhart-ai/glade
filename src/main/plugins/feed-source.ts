@@ -5,6 +5,7 @@ import { listOpenPermissionRequests } from '../db/repositories/permission-reques
 import { listOpenQuestionSets } from '../db/repositories/question-sets'
 import { listActiveTasks } from '../db/repositories/tasks'
 import { listToolEvents } from '../db/repositories/tool-events'
+import { listLiveWatchers, publicWatcher } from '../db/repositories/watchers'
 import { listWorkspaces } from '../db/repositories/workspaces'
 import type { PluginFeedSource } from './feed'
 
@@ -19,5 +20,7 @@ export function databaseFeedSource(db: Database): PluginFeedSource {
     toolEvents: (taskId) => listToolEvents(db, taskId),
     openQuestionSets: () => listOpenQuestionSets(db),
     openPermissionRequests: (taskId) => listOpenPermissionRequests(db, taskId),
+    // What the windows load the task list's watcher marks from (`watchers.listLive`), through the live watchers' index.
+    liveWatchers: () => listLiveWatchers(db).map(publicWatcher),
   }
 }
