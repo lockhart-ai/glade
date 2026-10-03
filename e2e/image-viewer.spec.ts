@@ -74,17 +74,40 @@ test('image viewer: open a chat thumbnail full size, step through the message’
   expect(large.width).toBeLessThanOrEqual(size.width - ROOM.width)
   expect((large.width - 2) / (large.height - 2)).toBeCloseTo(2400 / 1500, 2)
 
-  // → again, then round from the last to the first; ← back round to the last; the pager's buttons step too.
+  // → again, to the last; → once more does nothing there, and Next disables (#463); the pager's buttons step too.
   await window.keyboard.press('ArrowRight')
   await expect(viewer.pager).toHaveText('3 of 3')
+  await expect(viewer.next).toBeDisabled()
   await window.keyboard.press('ArrowRight')
-  await expect(viewer.pager).toHaveText('1 of 3')
-  await window.keyboard.press('ArrowLeft')
   await expect(viewer.pager).toHaveText('3 of 3')
   await viewer.previous.click()
   await expect(viewer.pager).toHaveText('2 of 3')
+  await expect(viewer.next).toBeEnabled()
   await viewer.next.click()
   await expect(viewer.pager).toHaveText('3 of 3')
+  // Next held the focus as it disabled, and a disabled button can't keep it: the viewer takes it, rather than letting
+  // it drop to the page, out of the viewer, where ← and → would step nothing.
+  await expect(viewer.next).toBeDisabled()
+  await expect(viewer.viewer).toBeFocused()
+
+  // ← back to the first; ← once more does nothing there, and Previous disables (#463).
+  await window.keyboard.press('ArrowLeft')
+  await expect(viewer.pager).toHaveText('2 of 3')
+  await window.keyboard.press('ArrowLeft')
+  await expect(viewer.pager).toHaveText('1 of 3')
+  await expect(viewer.previous).toBeDisabled()
+  await window.keyboard.press('ArrowLeft')
+  await expect(viewer.pager).toHaveText('1 of 3')
+
+  // The same from Previous, clicked back onto the first: the viewer has the focus, and → steps.
+  await window.keyboard.press('ArrowRight')
+  await expect(viewer.pager).toHaveText('2 of 3')
+  await viewer.previous.click()
+  await expect(viewer.pager).toHaveText('1 of 3')
+  await expect(viewer.previous).toBeDisabled()
+  await expect(viewer.viewer).toBeFocused()
+  await window.keyboard.press('ArrowRight')
+  await expect(viewer.pager).toHaveText('2 of 3')
 
   // Esc closes it, and the focus goes to the task's input (#415), not back to the thumbnail it opened from.
   await window.keyboard.press('Escape')

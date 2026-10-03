@@ -19,6 +19,39 @@
   outline: none;
 }
 
+/*
+ * The image showing, and its title (#460): sized to fit it exactly, so the title's left edge always lands on the
+ * image's own left edge, at any size — an absolutely positioned title doesn't widen the frame to its own text. The
+ * other images stay mounted here too, hidden, so stepping to one shows it at once.
+ */
+.frame {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.frame[hidden] {
+  display: none;
+}
+
+/*
+ * Just above the frame's left edge, over the backdrop rather than the image's own pixels, so it always reads; a long
+ * title truncates rather than widening the frame or crowding the actions (#460 review: moved out of the close chip,
+ * where it sat under the macOS traffic lights' corner, far from the image it named, #372).
+ */
+.title {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  margin-bottom: var(--space-xs);
+  max-width: 100%;
+  font-size: var(--font-size-secondary);
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* As large as fits between the close button and the pager, and never larger than it is (no width or height is set). */
 .image {
   display: block;
@@ -48,12 +81,6 @@
   color: var(--color-muted);
 }
 
-/* The message's other images, loaded so that stepping to one shows it at once. */
-.image[hidden],
-.missing[hidden] {
-  display: none;
-}
-
 /* The close button and the pager sit on chips in the menus' colours, so they read over any image. */
 .close,
 .pager {
@@ -71,20 +98,6 @@
 .close {
   top: var(--space-xl);
   right: var(--space-xl);
-}
-
-/*
- * An artifact's title, in the close chip itself, before its actions (#372 review: a top-left chip would sit under the
- * macOS traffic lights, open or collapsed, in every state; grouping it here keeps that whole corner clear).
- */
-.chipTitle {
-  max-width: 30vw;
-  padding: 0 var(--space-xs) 0 var(--space-sm);
-  font-size: var(--font-size-secondary);
-  color: var(--color-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .pager {
