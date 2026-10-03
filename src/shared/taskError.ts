@@ -3,6 +3,7 @@
  * line, and the tool log's failed API row (`docs/design/html/16-error.html`).
  */
 import { AgentErrorKind, TaskActivity, TaskErrorSource, TaskState, type Task, type TaskError } from './domain'
+import { sandboxFailureReason } from './sandboxFailure'
 import { startupFailureMessage } from './startupFailure'
 
 /** The SDK's name for an error, in words: `server_error` → `server error`. Null for none, or `unknown`. */
@@ -42,6 +43,8 @@ export function errorHeadline(error: TaskError | null): string {
       return 'the turn failed'
     case TaskErrorSource.Refusal:
       return 'declined by a safety check'
+    case TaskErrorSource.Sandbox:
+      return 'the sandbox couldn’t start'
     case TaskErrorSource.Api: {
       const name = codeName(error.code)
       if (name !== null) return `API ${name}`
@@ -108,6 +111,12 @@ export function errorOpening(error: TaskError | null): ErrorOpening {
       return category === null
         ? { lead: 'The request was declined by a safety check.', label: null }
         : { lead: 'The request was declined by a safety check: ', label: category }
+    }
+    case TaskErrorSource.Sandbox: {
+      const reason = sandboxFailureReason(error.details)
+      return reason === null
+        ? { lead: 'The sandbox couldn’t start, so the agent’s commands failed.', label: null }
+        : { lead: 'The sandbox couldn’t start, so the agent’s commands failed: ', label: reason }
     }
     case TaskErrorSource.Api: {
       const label = apiErrorLabel(error)

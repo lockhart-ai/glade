@@ -1204,7 +1204,9 @@ a denied call and a foreground subagent's call. What that run showed is marked *
 
 - **Glade** runs Allow all as `permissionMode: 'bypassPermissions'` and the ask mode as `'default'`, always with
   `allowDangerouslySkipPermissions: true` and a `canUseTool`, and with its own MCP servers in `allowedTools`
-  (`mcp__glade`, a server-wide rule [docs]) so their tools never ask (`src/main/agent/sdk-backend.ts`).
+  (`mcp__glade`, a server-wide rule [docs]) so their tools never ask (`src/main/agent/sdk-backend.ts`). That's with
+  the agent sandbox off; with it on (the default since P15), Allow all runs as `'acceptEdits'` and the session can't
+  switch into bypassing (§15, "What Glade does").
 - **[verified] `bypassPermissions` never calls `canUseTool`.** The SDK even warns about it when both are given
   (`CLAUDE_SDK_CAN_USE_TOOL_SHADOWED`, a Node process warning), which is harmless: the callback is there for when the
   session switches.
@@ -1893,11 +1895,57 @@ broke the config instead: `network.tlsTerminate` with a CA certificate and no ke
 - **[docs]** Where a dependency is missing (bubblewrap on Linux), `query()` "will emit an error result and exit": not
   reachable on macOS.
 
+### What Glade does (P15-03, #448)
+
+The sandbox is on unless Settings' `sandboxEnabled` is off (Settings › Agent › Sandbox, P15-06), read as each session
+starts; a session keeps the sandbox it started with for its whole life. With it off, a session starts exactly as it did
+before P15. With it on (`src/main/agent/sandbox.ts`, wired in `runner.ts` and `sdk-backend.ts`):
+
+- **At start, only the fixed parts** (`sandboxStartSettings`), since `applyFlagSettings` can't narrow them: `enabled`
+  and `failIfUnavailable`; `filesystem.denyRead` the home folder (absolute, never `~`), `/Users` and `/Volumes`;
+  `allowRead` and `allowWrite` the workspace root only; `network.allowedDomains` empty; the credential paths
+  (`CREDENTIAL_PATHS`: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`, `~/.config/gcloud`, `~/.azure`, `~/.kube`,
+  `~/Library/Keychains`, `~/.netrc`, `~/.git-credentials`, `~/.docker/config.json`) in `credentials.files` and
+  `filesystem.denyWrite`, and as `Read(…)` and `Edit(…)` rules in `settings.permissions.deny` for the file tools; and
+  `settings.permissions.ask: ['Bash(dangerouslyDisableSandbox:true)']`. No grant, whatever is granted.
+- **Then the overlay** (`sandboxOverlay`), with `applyFlagSettings`, straight after start and before the first message
+  (the backend queues it ahead of `send`), and again whenever the task's permission mode changes: the fixed parts
+  again, `autoAllowBashIfSandboxed` for the mode, and the grants (none until P15-04): every granted folder in
+  `allowRead`, the read-write ones in `allowWrite` and `permissions.additionalDirectories`, the read-only ones as
+  `Read(//<folder>/**)` rules and domains as `WebFetch(domain:…)` rules in `permissions.allow`. Domains never go in
+  `allowedTools`.
+- **`autoAllowBashIfSandboxed` is in the overlay only, never the start.** Whether the overlay's value would override
+  the start's for a boolean wasn't probed (the probes above covered lists, which merge), and no real call was made to
+  find out. Left out at start, the SDK's default (on) applies only until the overlay lands, which is before the
+  session's first message, so the ask mode's commands always ask. [not probed]
+- **The modes:** Allow all runs as `acceptEdits` (`sdkPermissionMode(mode, sandboxed)`), never `bypassPermissions`, and
+  a sandboxed session is started without `allowDangerouslySkipPermissions`, so nothing can switch it into bypassing.
+  The ask mode runs `default`. Switching a running task's mode calls `setPermissionMode` and reapplies the overlay.
+- **What asks** (`toolCallVerdict`, `src/main/permissions/classify.ts`), in either mode: a read (`Read`, `NotebookRead`,
+  `LS`, and `Grep` and `Glob` should they come back) under the home folder, `/Users` or `/Volumes` outside the root and
+  the granted folders; a write (`Write`, `Edit`, `MultiEdit`, `NotebookEdit`) outside the root and the read-write
+  folders; `WebFetch` to a domain that isn't granted; `SandboxNetworkAccess`; and every request to run outside the
+  sandbox, known by `input.dangerouslyDisableSandbox === true` whatever the `decisionReason`. A read outside the home
+  folder, `/Users` and `/Volumes` goes ahead, though `acceptEdits` asks about it. `WebSearch` never asks. In Allow all,
+  everything else goes ahead; in the ask mode, P11's rules decide it. Until P15-05, a crossing opens P11's card.
+- **A sandbox that can't start** is spotted in the session's `PostToolUseFailure` hook on `Bash`
+  (`SessionHooks.onBashFinished`, given only to a sandboxed session and answering at once), before the agent reads the
+  result, so it's known before the agent can ask to run outside the sandbox: a failed call whose error starts with
+  `Sandbox is required but failed to initialize:` (`sandboxFailureReason`, `src/shared/sandboxFailure.ts`). Text that
+  only mentions it (a command's output, another tool's result, the agent's own message) doesn't count. From then on,
+  every request to run outside the sandbox in that session is denied in `canUseTool` without a card, with a message
+  telling the agent to stop running commands (`SANDBOX_FAILED_REFUSAL`), and the turn ends on a `TaskError` with
+  `source: 'sandbox'` and Claude Code's message as its details: the existing error card, "The sandbox couldn't start,
+  so the agent's commands failed: <why>". A failure seen with no turn running (a background command) stops the task at
+  once. Retry closes the session first, as for a lost login, so the retry's new session starts its sandbox again.
+  Other tasks' sessions are unaffected. `failIfUnavailable` stays true, so nothing ever runs unsandboxed.
+
 ### Test backends
 
 The scripted and fake backends play these shapes (`src/main/agent/sandbox-requests.ts`): see the sandbox steps in
 `src/main/agent/scripts.ts`, and `FakeAgentSession` (`fake-backend.ts`). They record the `sandbox` and `permissions`
-a session starts with and every `applyFlagSettings` call.
+a session starts with and every `applyFlagSettings` call. The `sandbox-fails` script plays a session whose sandbox
+couldn't start (`e2e/sandbox.spec.ts`).
 
 ---
 

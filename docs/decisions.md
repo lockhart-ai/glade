@@ -147,6 +147,13 @@
     needs you. The call itself can't survive (its Claude Code process is gone), so answering then resumes the session
     and tells the agent the decision in a message, as a question answered after a restart does. See
     `sdk-notes.md` §9.
+  - With the agent sandbox on (P15, #445, on by default), Allow all runs as Claude Code's `acceptEdits`, never
+    bypassing, and crossing the sandbox's bounds asks in either mode: a read outside the workspace root and the
+    granted folders under the home folder, `/Users` or `/Volumes` (reads elsewhere, like `/etc` or `/usr`, don't
+    ask), a write outside the root and the read-write grants, `WebFetch` to a domain that isn't granted (so `WebFetch`
+    no longer always goes ahead), a command's connection to such a domain, and every request to run a command outside
+    the sandbox. `WebSearch` never asks. A sandbox that can't start fails every command: the task stops on that error,
+    and every request in that session to run outside the sandbox is refused without a card. See `sdk-notes.md` §15.
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
     `manifest.json`: `id` (the folder's name), `name`, `version`, `entry` (an HTML file in the folder) and an optional

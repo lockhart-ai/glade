@@ -16,15 +16,19 @@ import {
 import {
   BASH_FINISHED_TIMEOUT_S,
   createSdkBackend,
+  isSandboxed,
   sdkFlagSettings,
   sdkHooks,
   sdkOptions,
+  sdkPermissionMode,
   sdkSandbox,
 } from './sdk-backend'
+import { sandboxStartSettings } from './sandbox'
 
 const sdk = vi.hoisted(() => {
   const session = {
     applyFlagSettings: vi.fn<(settings: unknown) => Promise<void>>(() => Promise.resolve(undefined)),
+    setPermissionMode: vi.fn<(mode: string) => Promise<void>>(() => Promise.resolve(undefined)),
     close: vi.fn(),
     [Symbol.asyncIterator]: vi.fn(async function* () {
       yield await Promise.resolve({ type: 'system', subtype: 'init' })
@@ -83,6 +87,84 @@ it('starts a session without a sandbox when it has none, or a null one', () => {
     expect(options).not.toHaveProperty('sandbox')
     expect(options.settings).toEqual({ deniedMcpServers: [{ serverName: 'glade-control' }] })
   }
+})
+
+it('runs Allow all as acceptEdits in a sandboxed session, never bypassing, and the ask mode as default', () => {
+  expect(sdkPermissionMode(PermissionMode.AllowAll, true)).toBe('acceptEdits')
+  expect(sdkPermissionMode(PermissionMode.AskBeforeEdits, true)).toBe('default')
+  expect(sdkPermissionMode(PermissionMode.AllowAll, false)).toBe('bypassPermissions')
+  expect(sdkPermissionMode(PermissionMode.AllowAll)).toBe('bypassPermissions')
+})
+
+it('knows a session is sandboxed by the sandbox it starts with being on', () => {
+  expect(isSandboxed({ flagSettings: BASE })).toBe(true)
+  expect(isSandboxed({ flagSettings: { sandbox: { enabled: false } } })).toBe(false)
+  expect(isSandboxed({ flagSettings: { sandbox: null } })).toBe(false)
+  expect(isSandboxed({ flagSettings: {} })).toBe(false)
+  expect(isSandboxed({})).toBe(false)
+})
+
+it("starts a sandboxed session's Allow all in acceptEdits, with no way to switch into bypassing", () => {
+  const flagSettings = sandboxStartSettings(ROOT, '/Users/me')
+  const allowAll = sdkOptions({ ...OPTIONS, flagSettings }, {})
+  const asking = sdkOptions({ ...OPTIONS, permissionMode: PermissionMode.AskBeforeEdits, flagSettings }, {})
+
+  expect(allowAll.permissionMode).toBe('acceptEdits')
+  expect(allowAll).not.toHaveProperty('allowDangerouslySkipPermissions')
+  expect(asking.permissionMode).toBe('default')
+  expect(asking).not.toHaveProperty('allowDangerouslySkipPermissions')
+  expect(allowAll.sandbox).toEqual(flagSettings.sandbox)
+  expect(allowAll.settings).toEqual({
+    deniedMcpServers: [{ serverName: 'glade-control' }],
+    permissions: { ask: ['Bash(dangerouslyDisableSandbox:true)'], deny: flagSettings.permissions?.deny },
+  })
+  // The user's own settings still merge in.
+  expect(allowAll.settingSources).toEqual(['user', 'project', 'local'])
+})
+
+it('starts a session with the sandbox off exactly as before the sandbox', () => {
+  const { hooks: offHooks, canUseTool: offCanUseTool, stderr: offStderr, ...off } = sdkOptions(OPTIONS, {})
+  expect(off).toEqual({
+    env: expect.any(Object) as unknown,
+    cwd: ROOT,
+    model: 'claude-sample-1',
+    effort: Effort.High,
+    permissionMode: 'bypassPermissions',
+    allowDangerouslySkipPermissions: true,
+    allowedTools: [],
+    settingSources: ['user', 'project', 'local'],
+    settings: { deniedMcpServers: [{ serverName: 'glade-control' }] },
+    systemPrompt: { type: 'preset', preset: 'claude_code', append: 'You are running inside Glade.' },
+    mcpServers: {},
+    disallowedTools: ['AskUserQuestion'],
+    forwardSubagentText: true,
+    agentProgressSummaries: true,
+    perTaskStopAffordance: true,
+  })
+  expect([offHooks, offCanUseTool, offStderr].every((value) => value !== undefined)).toBe(true)
+})
+
+it("switches a sandboxed session's mode to acceptEdits, not bypassing, and an unsandboxed one's to bypassing", async () => {
+  const sandboxed = createSdkBackend({ version: '1.2.3', env: Promise.resolve({}) }).start({
+    ...OPTIONS,
+    permissionMode: PermissionMode.AskBeforeEdits,
+    flagSettings: sandboxStartSettings(ROOT, '/Users/me'),
+  })
+  sandboxed.configure({ model: OPTIONS.model, effort: OPTIONS.effort, permissionMode: PermissionMode.AllowAll })
+  sandboxed.configure({ model: OPTIONS.model, effort: OPTIONS.effort, permissionMode: PermissionMode.AskBeforeEdits })
+  await settle()
+  await settle()
+  expect(sdk.session.setPermissionMode.mock.calls).toEqual([['acceptEdits'], ['default']])
+
+  sdk.session.setPermissionMode.mockClear()
+  const plain = createSdkBackend({ version: '1.2.3', env: Promise.resolve({}) }).start({
+    ...OPTIONS,
+    permissionMode: PermissionMode.AskBeforeEdits,
+  })
+  plain.configure({ model: OPTIONS.model, effort: OPTIONS.effort, permissionMode: PermissionMode.AllowAll })
+  await settle()
+  await settle()
+  expect(sdk.session.setPermissionMode.mock.calls).toEqual([['bypassPermissions']])
 })
 
 it("hands the SDK copies of the lists, so the SDK changing them can't change Glade's", () => {

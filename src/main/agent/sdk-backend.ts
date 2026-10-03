@@ -137,17 +137,24 @@ export function clientAppEnv(version: string): Environment {
 }
 
 /**
- * The SDK permission mode each of Glade's runs in (`docs/sdk-notes.md` §9): Allow all bypasses every check, so
- * `canUseTool` is never called; the ask mode runs `default`, where Claude Code asks `canUseTool` about every call its
- * rules and the user's settings leave at "ask".
+ * The SDK permission mode each of Glade's runs in (`docs/sdk-notes.md` §9 and §15): the ask mode runs `default`, where
+ * Claude Code asks `canUseTool` about every call its rules and the user's settings leave at "ask". Allow all bypasses
+ * every check, so `canUseTool` is never called; in a `sandboxed` session it runs `acceptEdits` instead, since
+ * `bypassPermissions` never asks and lets commands reach every host: edits and sandboxed commands go ahead, and crossing
+ * the sandbox's bounds still asks.
  */
-export function sdkPermissionMode(mode: PermissionMode): SdkPermissionMode {
+export function sdkPermissionMode(mode: PermissionMode, sandboxed = false): SdkPermissionMode {
   switch (mode) {
     case PermissionMode.AllowAll:
-      return 'bypassPermissions'
+      return sandboxed ? 'acceptEdits' : 'bypassPermissions'
     case PermissionMode.AskBeforeEdits:
       return 'default'
   }
+}
+
+/** Whether a session runs its commands in the sandbox: it starts with one that's on. */
+export function isSandboxed(options: Pick<AgentSessionOptions, 'flagSettings'>): boolean {
+  return options.flagSettings?.sandbox?.enabled === true
 }
 
 /** What the agent is told when a call is denied because there was no one to ask about it. */
@@ -497,6 +504,7 @@ export function sdkOptions(
 ): Options {
   const executable = claudeCodeExecutable(resolve)
   const { sandbox, permissions } = options.flagSettings ?? {}
+  const sandboxed = isSandboxed(options)
   return {
     ...(executable === undefined ? {} : { pathToClaudeCodeExecutable: executable }),
     // The whole environment, since it replaces Glade's own: opened from Finder, that has launchd's bare PATH. A copy,
@@ -508,8 +516,9 @@ export function sdkOptions(
     ...(options.resumeSessionId === null ? {} : { resume: options.resumeSessionId }),
     // Allow all bypasses every check; the ask mode asks `canUseTool` (docs/decisions.md, "Per-call permission review").
     // Bypassing stays allowed whatever the mode starts as, so a live session can switch into it (docs/sdk-notes.md §9).
-    permissionMode: sdkPermissionMode(options.permissionMode),
-    allowDangerouslySkipPermissions: true,
+    // A sandboxed session never bypasses: its Allow all is `acceptEdits`, so crossing the sandbox's bounds asks (§15).
+    permissionMode: sdkPermissionMode(options.permissionMode, sandboxed),
+    ...(sandboxed ? {} : { allowDangerouslySkipPermissions: true }),
     canUseTool: canUseToolFor(options.onToolPermission, options.log ?? SILENT_LOGGER),
     // Glade's own tools never ask: Claude Code lets them through before `canUseTool` is called. Only `glade`'s: another
     // in-process server's (`glade-control`) go to `canUseTool`, which decides them. Nor do the calls the task's granted
@@ -690,7 +699,7 @@ export function createSdkBackend({
             }
             if (permissionMode !== before.permissionMode) {
               try {
-                await session.setPermissionMode(sdkPermissionMode(permissionMode))
+                await session.setPermissionMode(sdkPermissionMode(permissionMode, isSandboxed(options)))
                 log.info('permission mode changed', { permissionMode })
               } catch (error) {
                 log.warn("the SDK refused the session's new permission mode", { permissionMode, error })

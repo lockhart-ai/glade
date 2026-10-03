@@ -26,6 +26,17 @@ const overloaded: TaskError = {
 
 const error = (overrides: Partial<TaskError>): TaskError => ({ ...overloaded, ...overrides })
 
+const sandboxFailed = error({
+  kind: AgentErrorKind.Permanent,
+  source: TaskErrorSource.Sandbox,
+  status: null,
+  code: null,
+  details:
+    'Sandbox is required but failed to initialize: tlsTerminate: caCertPath and caKeyPath must be provided together. Restart to retry.',
+  retries: 0,
+  retryingMs: 0,
+})
+
 const loggedOut = error({
   kind: AgentErrorKind.LoggedOut,
   status: 401,
@@ -65,6 +76,7 @@ describe('errorHeadline and errorStatusLine', () => {
       error({ source: TaskErrorSource.Startup, kind: AgentErrorKind.Permanent, code: 'cwd_unavailable' }),
       'Claude Code couldn’t start',
     ],
+    [sandboxFailed, 'the sandbox couldn’t start'],
     [null, 'the agent stopped'],
   ])('says what went wrong in a few words', (stopped, headline) => {
     expect(errorHeadline(stopped)).toBe(headline)
@@ -121,6 +133,17 @@ describe('errorOpening', () => {
     [
       error({ source: TaskErrorSource.Startup, status: null, code: null }),
       { lead: 'Claude Code couldn’t start.', label: null },
+    ],
+    [
+      sandboxFailed,
+      {
+        lead: 'The sandbox couldn’t start, so the agent’s commands failed: ',
+        label: 'tlsTerminate: caCertPath and caKeyPath must be provided together',
+      },
+    ],
+    [
+      error({ ...sandboxFailed, details: 'The sandbox went away.' }),
+      { lead: 'The sandbox couldn’t start, so the agent’s commands failed.', label: null },
     ],
     [null, { lead: 'The agent stopped on an error.', label: null }],
   ])('says what happened', (stopped, opening) => {

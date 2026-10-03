@@ -103,7 +103,7 @@ import {
   PERMISSIONS_DECIDED_AFTER_RESTART_PROMPT,
   RESUME_PROMPT,
 } from './runner'
-import { BLOCKED_PROMPT_REASON, NO_ONE_TO_ASK, sdkOptions, sdkPermissionMode } from './sdk-backend'
+import { BLOCKED_PROMPT_REASON, NO_ONE_TO_ASK, isSandboxed, sdkOptions, sdkPermissionMode } from './sdk-backend'
 import {
   DEFAULT_COMPACT_SUMMARY,
   DEFAULT_COMPACT_TURN,
@@ -1630,7 +1630,7 @@ export class ScriptedSession implements AgentSession {
       subtype: 'init',
       cwd,
       model: this.model,
-      permissionMode: sdkPermissionMode(this.permissionMode),
+      permissionMode: sdkPermissionMode(this.permissionMode, isSandboxed(this.options.session)),
       apiKeySource: 'none',
       tools: [
         'Agent',

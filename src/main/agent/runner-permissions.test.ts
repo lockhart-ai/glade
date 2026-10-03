@@ -229,7 +229,6 @@ describe('the ask mode', () => {
     ['Read', { file_path: '/etc/hosts' }],
     ['Grep', { pattern: 'retry' }],
     ['Glob', { pattern: '**/*.ts' }],
-    ['WebFetch', { url: 'https://example.com', prompt: 'Summarize' }],
     ['WebSearch', { query: 'exponential backoff' }],
     ['TaskCreate', { subject: 'Write the changelog', description: '' }],
     ['TaskUpdate', { taskId: '1', status: 'completed' }],
@@ -243,6 +242,20 @@ describe('the ask mode', () => {
     await expect(asked.answer).resolves.toEqual(ALLOWED_AT_ONCE)
     expect(requests()).toEqual([])
     expect(current()).toMatchObject({ activity: TaskActivity.Working, awaitingPermission: false })
+  })
+
+  it('lets WebFetch through without asking with the sandbox off (with it on, an ungranted domain asks)', async () => {
+    updateSettings(database.db, { sandboxEnabled: false })
+    await startAsking()
+
+    const asked = await callTool({
+      toolUseId: 'toolu_fetch',
+      toolName: 'WebFetch',
+      input: { url: 'https://example.com', prompt: 'Summarize' },
+    })
+
+    await expect(asked.answer).resolves.toEqual(ALLOWED_AT_ONCE)
+    expect(requests()).toEqual([])
   })
 
   it("lets Glade's own tools through, served by the session's own server", async () => {

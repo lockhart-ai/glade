@@ -17,6 +17,7 @@ import {
   PermissionMode,
   PermissionRequestState,
   TaskActivity,
+  TaskErrorSource,
   TodoState,
   ToolCallState,
   ToolEventKind,
@@ -33,13 +34,15 @@ import { getOpenQuestionSet } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { listOpenPermissionRequests, listPermissionRequests } from '../db/repositories/permission-requests'
+import { updateSettings } from '../db/repositories/settings'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
 import type { NotifyReply } from '../notifications/notifications'
 import { createQuestionBroker } from '../questions/questions'
 import { todoListFor } from '../todos/todos'
-import { createAgentRunner, STOPPED_NOTE, type AgentRunner } from './runner'
+import { createAgentRunner, SANDBOX_FAILED_REFUSAL, STOPPED_NOTE, type AgentRunner } from './runner'
+import { sandboxInitFailure } from './sandbox-requests'
 import { createGladeMcpServer, GLADE_SERVER } from './glade-tools'
 import {
   AGENT_SCRIPT_NAMES,
@@ -59,6 +62,7 @@ import {
   SUBAGENT_CALLS_REPLY,
   TRACKS_LINKS_REPLY,
   ASKS_SANDBOX,
+  SANDBOX_FAILS,
   type AgentScriptName,
 } from './scripts'
 import { OFFLINE_FIRST_CHECK_MS, USAGE_LIMIT_FALLBACK_MS } from './pauses'
@@ -880,6 +884,7 @@ describe('AGENT_SCRIPTS', () => {
   })
 
   it('asks-sandbox: runs straight through unsandboxed in Allow all, giving up on the blocked read', async () => {
+    updateSettings(database.db, { sandboxEnabled: false })
     await send(start('asks-sandbox'), 'Set things up.')
 
     expect(listPermissionRequests(database.db, task.id)).toEqual([])
@@ -896,6 +901,44 @@ describe('AGENT_SCRIPTS', () => {
         .filter(({ role }) => role === MessageRole.Agent)
         .at(-1)?.body,
     ).toBe(ASKS_SANDBOX.reply)
+  })
+
+  it('asks-sandbox: sandboxed in Allow all, waits on the first boundary it crosses', async () => {
+    const agent = start('asks-sandbox')
+    await sendAndWaitAnHour(agent, 'Set things up.')
+
+    expect(listOpenPermissionRequests(database.db, task.id)).toEqual([
+      expect.objectContaining({ toolName: 'SandboxNetworkAccess', input: { host: ASKS_SANDBOX.host } }),
+    ])
+    expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, awaitingPermission: true })
+  })
+
+  it.each([PermissionMode.AllowAll, PermissionMode.AskBeforeEdits])(
+    'sandbox-fails: in %s, refuses both requests to run outside the sandbox without asking, and stops on the error',
+    async (mode) => {
+      updateTask(database.db, task.id, { permissionMode: mode })
+      await send(start('sandbox-fails'), 'Run the tests.')
+
+      expect(listPermissionRequests(database.db, task.id)).toEqual([])
+      expect(calls().map(({ name, state, output }) => [name, state, output])).toEqual([
+        ['Bash', ToolCallState.Error, sandboxInitFailure(SANDBOX_FAILS.reason)],
+        ['Bash', ToolCallState.Error, SANDBOX_FAILED_REFUSAL],
+        ['Bash', ToolCallState.Error, SANDBOX_FAILED_REFUSAL],
+      ])
+      expect(reply()).toBe(SANDBOX_FAILS.reply)
+      expect(getTask(database.db, task.id)).toMatchObject({
+        activity: TaskActivity.Error,
+        error: { source: TaskErrorSource.Sandbox, details: sandboxInitFailure(SANDBOX_FAILS.reason) },
+      })
+    },
+  )
+
+  it('sandbox-fails: with the sandbox off, the command just fails and nothing is refused', async () => {
+    updateSettings(database.db, { sandboxEnabled: false })
+    await send(start('sandbox-fails'), 'Run the tests.')
+
+    expect(calls().map(({ state }) => state)).toEqual([ToolCallState.Error, ToolCallState.Done, ToolCallState.Done])
+    expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, error: null })
   })
 
   describe('allows-for-task', () => {

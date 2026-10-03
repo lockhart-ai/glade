@@ -142,7 +142,7 @@
  * carries on the turn that asked; the agent never has to ask again.
  *
  * **Permission review** (`docs/decisions.md`, "Per-call permission review"; `../permissions`). In Allow all, the session
- * bypasses every check and no call ever asks. In the ask mode, Claude Code asks the runner about each call its rules and
+ * bypasses every check and no call ever asks (but for the sandbox's, below). In the ask mode, Claude Code asks the runner about each call its rules and
  * the user's settings leave at "ask" (`canUseTool`): reads, searches, the todo and subagent tools and Glade's own tools
  * go ahead at once (`permissionVerdict`), and anything else opens a permission request and waits on it, however long it
  * takes. Meanwhile the task waits on you (its activity is waiting, and `awaitingPermission` is true), though its turn
@@ -174,6 +174,16 @@
  * (`RestartDelivery`), so a relaunch in between loses nothing. A decision while the agent is busy with something else
  * (a compaction, say) is refused as busy.
  *
+ * **The agent sandbox** (#445, `./sandbox`, `docs/sdk-notes.md` §15). With Settings' `sandboxEnabled` on as a session
+ * starts, it runs in the sandbox for its whole life: it starts with only the fixed parts (`sandboxStartSettings`), and
+ * straight after, before its first message, gets the overlay for its mode and grants (`sandboxOverlay`, applied with
+ * `applyFlagSettings`), as it does again whenever its mode changes. Allow all then runs as `acceptEdits`, never
+ * bypassing: the calls Claude Code asks about go ahead, but for the ones crossing the sandbox's bounds, which ask in
+ * either mode, as does every request to run a command outside the sandbox (`toolCallVerdict`). If a command fails
+ * because the sandbox couldn't start (`sandboxFailureReason`), the session refuses every request to run outside it from
+ * then on, without asking, and the turn ends on the error, with its card; Retry restarts the session, so its sandbox
+ * gets another go. With the sandbox off, sessions start and decide their calls as they always have.
+ *
  * **Resume on launch.** A turn the app quit or crashed in is left working in the database: a turn's user messages and
  * its working activity are saved together, so none is left unanswered. On launch, `resumeInterrupted` carries each
  * one on: it resumes the task's SDK session by its saved id (`docs/sdk-notes.md` §8), adds a resumed divider to the
@@ -202,6 +212,7 @@
  * running calls) is kept in memory.
  */
 import { randomUUID } from 'node:crypto'
+import { homedir } from 'node:os'
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, type GladeEvent } from '../../shared/bridge'
 import {
@@ -213,7 +224,6 @@ import {
   MessageRole,
   PauseReason,
   PermissionDecisionKind,
-  PermissionMode,
   PermissionRequestState,
   RefusalScope,
   TaskActivity,
@@ -243,6 +253,7 @@ import { withAttachedFiles, type AttachedFile } from '../../shared/attachedFiles
 import { attachedImagesOf } from '../attachments/attachments'
 import { checkAnswers, tidyAnythingElse } from '../../shared/questions'
 import { isSubagentTool } from '../../shared/subagents'
+import { sandboxFailureReason } from '../../shared/sandboxFailure'
 import { apiRowArgument, apiRowResult } from '../../shared/taskError'
 import { CommandFailure } from '../bridge/errors'
 import {
@@ -303,7 +314,7 @@ import { createChangeTracker, type ChangeTracker } from '../changes/tracker'
 import { createGit } from '../git/git'
 import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import type { NotifyReply } from '../notifications/notifications'
-import { permissionVerdict, PermissionVerdict } from '../permissions/classify'
+import { PermissionVerdict, toolCallVerdict } from '../permissions/classify'
 import { createPermissionBroker, type PermissionBroker } from '../permissions/permissions'
 import { createQuestionBroker, toolResultFor, type QuestionBroker } from '../questions/questions'
 import { addQueuedMessage } from '../tasks/queue'
@@ -317,11 +328,14 @@ import {
   type AgentMcpServers,
   type AgentSession,
   type AgentSessionSettings,
+  type BashCallFinished,
+  type BashFinishedAnswer,
   type CompactSummary,
   type SessionJob,
   type ToolPermissionAnswer,
   type ToolPermissionCall,
 } from './backend'
+import { NO_GRANTS, sandboxOverlay, sandboxStartSettings, type SandboxGrants } from './sandbox'
 import { CONTROL_SERVER } from '../control/names'
 import type { AccountSink } from '../account/account'
 import { autoCompactFrom, carriedOver, sameAutoCompact } from './compaction'
@@ -553,9 +567,27 @@ interface Turn {
   readonly sdkRows: Map<string, SdkRow>
   /** What the turn's `model_refusal_no_fallback` said, once it has; null while none has, or none did. */
   refusal: TurnRefusal | null
+  /**
+   * Claude Code's message for the session's sandbox failing to start, once a command in the turn has failed with it:
+   * the turn ends on that error. Null while none has.
+   */
+  sandboxFailure: string | null
   /** Resolves once the turn has ended, however it ended. */
   readonly ended: Promise<void>
   readonly end: () => void
+}
+
+/** The agent sandbox a live session runs in (#445). */
+interface LiveSandbox {
+  /** The workspace root: the one folder the agent may always read and write. */
+  readonly root: string
+  /** What's granted to the task beyond its root, as last applied. */
+  grants: SandboxGrants
+  /**
+   * Claude Code's message for the sandbox failing to start in the session, once a command has failed with it; null
+   * while none has. From then on, every request to run outside the sandbox is refused without asking.
+   */
+  failure: string | null
 }
 
 interface LiveSession {
@@ -563,6 +595,8 @@ interface LiveSession {
   turn: Turn | null
   /** The model, effort and permission mode the session runs with now. */
   settings: AgentSessionSettings
+  /** The sandbox the session runs in; null when it started with the sandbox off. */
+  readonly sandbox: LiveSandbox | null
   /** The names of the session's in-process MCP servers that are Glade's own, whose tools never ask: `glade` only. */
   readonly gladeServers: readonly string[]
   /** Whether the session has the `glade-control` tools, which its system prompt says. */
@@ -692,6 +726,15 @@ export const PERMISSION_WITHDRAWN_NOTE =
   'The permission request for this tool call was withdrawn before the user answered, so it did not run.'
 
 /**
+ * What the agent is told when it asks to run a command outside a sandbox that couldn't start: refused without asking,
+ * since Glade never runs a command unsandboxed for a session whose sandbox failed (#445).
+ */
+export const SANDBOX_FAILED_REFUSAL =
+  "Glade refused to run this command outside the sandbox: the sandbox couldn't start in this session, and Glade never " +
+  'runs commands unsandboxed instead. Commands will keep failing until the session restarts. Stop running commands ' +
+  "and tell the user the sandbox couldn't start; they can retry the task to restart it."
+
+/**
  * What the tool call of a permission request the app quit on says: the request stays open, and the decision on it goes
  * to the agent in a message.
  */
@@ -755,6 +798,29 @@ const ALLOWED_WITHOUT_ASKING: ToolPermissionAnswer = { behavior: ToolPermissionB
 const WITHDRAWN: ToolPermissionAnswer = {
   behavior: ToolPermissionBehavior.Deny,
   message: PERMISSION_WITHDRAWN_NOTE,
+  byUser: false,
+}
+
+/** The error a task stops on when its session's sandbox couldn't start: Claude Code's message, which names why. */
+function sandboxError(failure: string): TaskError {
+  return {
+    kind: AgentErrorKind.Permanent,
+    source: TaskErrorSource.Sandbox,
+    status: null,
+    code: null,
+    details: failure,
+    retries: 0,
+    retryingMs: 0,
+  }
+}
+
+/** What the runner adds to a finished `Bash` call's result: nothing. */
+const NOTHING_TO_ADD: BashFinishedAnswer = { context: null }
+
+/** The answer to a request to run outside a sandbox that couldn't start: refused, with no card. */
+const SANDBOX_FAILED: ToolPermissionAnswer = {
+  behavior: ToolPermissionBehavior.Deny,
+  message: SANDBOX_FAILED_REFUSAL,
   byUser: false,
 }
 
@@ -841,6 +907,7 @@ function newTurn(number: number): Turn {
     compaction: null,
     sdkRows: new Map(),
     refusal: null,
+    sandboxFailure: null,
     ended,
     end,
   }
@@ -854,6 +921,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const { db, emit, backend } = options
   const mcpServers = options.mcpServers ?? (() => ({}))
   const sessionEnv = options.sessionEnv ?? (() => ({}))
+  // The home folder, whose reads the agent sandbox denies but for the folders granted.
+  const home = homedir()
   const log = options.log ?? SILENT_LOGGER
   /** The runner's log for a task. */
   const taskLog = (taskId: string): Logger => log.with({ taskId })
@@ -930,24 +999,26 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   /**
-   * Before a turn a lost login stopped is retried: closes the task's live session, so the retry starts Claude Code
-   * afresh, resuming the same conversation, and the new process reads the login you've just made. A running Claude
-   * Code mostly picks a new login up by itself, on its next 401 (`docs/sdk-notes.md` §1, "Logging in"), but not when
-   * it started with none at all. A session with background work going on (a background subagent, or a live watcher)
-   * is kept, so retrying never kills it: that retry relies on Claude Code picking the login up.
+   * Before a turn a lost login or a sandbox that couldn't start stopped is retried: closes the task's live session, so
+   * the retry starts Claude Code afresh, resuming the same conversation. The new process reads the login you've just
+   * made (a running Claude Code mostly picks a new login up by itself, on its next 401, `docs/sdk-notes.md` §1,
+   * "Logging in", but not when it started with none at all), and starts its sandbox again (§15). A session with
+   * background work going on (a background subagent, or a live watcher) is kept, so retrying never kills it: that
+   * retry relies on Claude Code picking the login up, and its sandbox stays as it was.
    */
-  const restartForLogin = (taskId: string): void => {
+  const restartSession = (taskId: string, reason: string): void => {
     const live = sessions.get(taskId)
     if (live === undefined) return
     const watching = listWatchers(db, taskId).some(({ state }) => LIVE_WATCHER_STATES.includes(state))
     if (live.background.size > 0 || watching) {
-      agentLog(taskId).info('session kept for a new login: background work is running', {
+      agentLog(taskId).info('session kept for a retry: background work is running', {
+        reason,
         subagents: live.background.size,
         watching,
       })
       return
     }
-    agentLog(taskId).info('session closed', { reason: 'restarting for a new login' })
+    agentLog(taskId).info('session closed', { reason })
     sessions.delete(taskId)
     live.closed = true
     live.session.close()
@@ -1388,6 +1459,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       if (turn.awaiting.size > 0) return
     }
     endTurn(taskId, live, turn)
+    // A sandbox that couldn't start fails every command: the task stops on it, with its card, rather than carrying on.
+    if (turn.sandboxFailure !== null) {
+      stopOnError(taskId, sandboxError(turn.sandboxFailure))
+      return
+    }
     if (!startQueued(taskId, live)) setActivity(taskId, TaskActivity.Waiting)
   }
 
@@ -1920,12 +1996,24 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   ): Promise<ToolPermissionAnswer> => {
     const { toolName, toolUseId, agentId } = call
     const { permissionMode } = live.settings
-    if (
-      permissionMode === PermissionMode.AllowAll ||
-      permissionVerdict(call, live.gladeServers) === PermissionVerdict.Allow
-    ) {
-      taskLog(taskId).debug('tool call allowed without asking', { toolName, toolUseId, permissionMode })
-      return ALLOWED_WITHOUT_ASKING
+    const { sandbox } = live
+    const verdict = toolCallVerdict(call, {
+      permissionMode,
+      gladeServers: live.gladeServers,
+      sandbox:
+        sandbox === null
+          ? null
+          : { root: sandbox.root, home, grants: sandbox.grants, failed: sandbox.failure !== null },
+    })
+    switch (verdict) {
+      case PermissionVerdict.Allow:
+        taskLog(taskId).debug('tool call allowed without asking', { toolName, toolUseId, permissionMode })
+        return ALLOWED_WITHOUT_ASKING
+      case PermissionVerdict.Refuse:
+        taskLog(taskId).info('refused to run a command outside a sandbox that failed', { toolUseId, agentId })
+        return SANDBOX_FAILED
+      case PermissionVerdict.Ask:
+        break
     }
     if (live.closed) return WITHDRAWN
     const allowed = takeRestartAllowance(taskId, call)
@@ -2009,6 +2097,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const servers = mcpServers(task)
     const control = CONTROL_SERVER in servers
     const handoff = getHandoff(db, task.id) ?? null
+    const settings = getSettings(db)
+    // The sandbox, when on, is the session's for its whole life: a change to the setting applies from its next start.
+    const sandboxed = settings.sandboxEnabled
     // A session Glade starts has everything its prompt says; one it resumes keeps the prompt it started with, and is
     // sent what it's missing with its next message (`startTurn`).
     if (task.sessionId === null) setSessionContext(db, task.id, startedContext(handoff))
@@ -2017,16 +2108,18 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     let verdict: (prompt: string) => PromptVerdict = () => PromptVerdict.Allow
     let jobsListed: (jobs: readonly SessionJob[]) => void = () => undefined
     let compacted: (compaction: CompactSummary) => void = () => undefined
+    let bashFinished: (call: BashCallFinished) => Promise<BashFinishedAnswer> = () => Promise.resolve(NOTHING_TO_ADD)
     const session = backend.start({
       cwd: workspace.rootPath,
       model: task.model,
       effort: task.effort,
       permissionMode: task.permissionMode,
       resumeSessionId: task.sessionId,
-      systemPromptAppend: systemPromptAppend(task, getSettings(db), control, handoff),
+      systemPromptAppend: systemPromptAppend(task, settings, control, handoff),
       mcpServers: servers,
       env: sessionEnv(task),
       allowedRules,
+      ...(sandboxed ? { flagSettings: sandboxStartSettings(workspace.rootPath, home) } : {}),
       log: agentLog(task.id),
       onToolPermission: (call) => decide(call),
       hooks: {
@@ -2038,12 +2131,16 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         onCompacted: (compaction) => {
           compacted(compaction)
         },
+        // A sandboxed session's commands tell the runner how they went before the agent reads their results, so a
+        // sandbox that couldn't start is known before the agent can ask to run outside it.
+        ...(sandboxed ? { onBashFinished: (call: BashCallFinished) => bashFinished(call) } : {}),
       },
     })
     const live: LiveSession = {
       session,
       turn: null,
       settings: { model: task.model, effort: task.effort, permissionMode: task.permissionMode },
+      sandbox: sandboxed ? { root: workspace.rootPath, grants: NO_GRANTS, failure: null } : null,
       gladeServers: gladeOwnServers(servers),
       control,
       requests: new Map(),
@@ -2070,11 +2167,54 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       agentLog(task.id).info('compaction summary', { trigger, length: summary.length })
       live.compactSummary = carriedOver(summary)
     }
+    bashFinished = (call) => {
+      onBashFinished(task.id, live, call)
+      return Promise.resolve(NOTHING_TO_ADD)
+    }
     sessions.set(task.id, live)
+    applySandbox(task.id, live)
     void pump(task.id, live)
     readAccount(task.id, live)
     readUsage(task.id, live)
     return live
+  }
+
+  /**
+   * Gives a sandboxed session the overlay for its permission mode and grants (`sandboxOverlay`), in order with what's
+   * asked of it before and after: straight after start, before its first message, and whenever its mode changes. One
+   * the SDK refuses is logged, and the session carries on as it was.
+   */
+  const applySandbox = (taskId: string, live: LiveSession): void => {
+    const { sandbox } = live
+    if (sandbox === null) return
+    const overlay = sandboxOverlay(sandbox.root, live.settings.permissionMode, sandbox.grants, home)
+    live.session.applyFlagSettings(overlay).catch((error: unknown) => {
+      agentLog(taskId).warn("couldn't apply the sandbox's settings", { error })
+    })
+  }
+
+  /**
+   * A sandboxed session's `Bash` call has run: one that failed because the sandbox couldn't start (Claude Code's
+   * `Sandbox is required but failed to initialize`, `docs/sdk-notes.md` §15) marks the session's sandbox failed, so
+   * every request to run outside it from then on is refused, and the turn it's in ends on the error. Any other call,
+   * whatever it printed, changes nothing.
+   */
+  const onBashFinished = (taskId: string, live: LiveSession, call: BashCallFinished): void => {
+    const { sandbox } = live
+    if (sandbox === null || live.closed || !call.failed) return
+    const reason = sandboxFailureReason(call.output)
+    if (reason === null) return
+    const failure = call.output.trim()
+    if (sandbox.failure === null) {
+      taskLog(taskId).error("the sandbox couldn't start", { reason, toolUseId: call.toolUseId })
+      sandbox.failure = failure
+    }
+    const { turn } = live
+    if (turn === null) {
+      stopOnError(taskId, sandboxError(failure))
+      return
+    }
+    turn.sandboxFailure ??= failure
   }
 
   /** Asks a session that just started which account it runs on, for Settings › General (`AgentRunnerOptions.account`). */
@@ -2497,6 +2637,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       })
       live.settings = { ...live.settings, permissionMode: task.permissionMode }
       live.session.configure(live.settings)
+      // Whether sandboxed commands ask goes with the mode.
+      applySandbox(taskId, live)
     },
 
     queue(taskId, text, images = [], pastedBlocks = [], files = []) {
@@ -2577,7 +2719,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         throw new CommandFailure(BridgeErrorCode.InvalidTransition, "The agent isn't stopped by an error or paused")
       }
       const current = model === undefined ? task : updateTaskFromUser(context, taskId, { model })
-      if (task.error?.kind === AgentErrorKind.LoggedOut) restartForLogin(taskId)
+      if (task.error?.kind === AgentErrorKind.LoggedOut) restartSession(taskId, 'restarting for a new login')
+      // A sandbox only starts with its session: retrying in a new one gives it another go (`docs/sdk-notes.md` §15).
+      if (task.error?.source === TaskErrorSource.Sandbox)
+        restartSession(taskId, "restarting the sandbox that couldn't start")
       const live = sessions.get(taskId) ?? start(current)
       applySettings(current, live)
       startWorking(taskId)
