@@ -8,7 +8,12 @@ import { openTestDatabase, sampleWorkspace, type TestDatabase } from './test-dat
 
 const TASKS = 500
 const MESSAGES_PER_TASK = 20
-/** What one keystroke's search may take, well under a frame of typing. */
+/**
+ * What one keystroke's search may take, well under a frame of typing. It's a time, not a count of references, so one
+ * budget holds everywhere this runs (measured for #442): the slowest search takes about 11ms on a Mac (an M1 Max) and
+ * at most 27ms on CI's Linux runners, over 31 runs on 11 of them, where the perf tests run one file at a time with
+ * nothing alongside (`npm run test:perf`).
+ */
 const BUDGET_MS = 50
 
 const WORDS = [
