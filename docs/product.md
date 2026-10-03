@@ -76,7 +76,7 @@ There are no follow-up tasks. One task can refer to another through its folder o
   rule under Attention). The list is only there to read: there's nothing to pick. ↵ or **Send** sends it and ⇧↵ adds a
   line, as in the input bar; Esc or a click outside closes the modal, and what was typed goes with it. With no Active
   task anywhere it says "No active tasks to send to." and can't send.
-  ![Broadcast](design/screens/39-broadcast.png)
+  ![Broadcast](design/screens/45-broadcast.png)
   Each task takes the broadcast as it takes a message from its own input bar. An idle one starts a turn with it, after
   anything it already had queued; one whose agent is busy (mid-turn, paused, or waiting on a question or permission
   card) gets it at the end of its queue, where it goes when any queued message does. Unlike a message typed into the
@@ -87,7 +87,7 @@ There are no follow-up tasks. One task can refer to another through its folder o
   In each task's chat it's your own message, with a small `BROADCAST` tag beside "you" and its time, and on its row
   while it waits in a queue; the tag is kept with the message, so it's there after a relaunch. Each agent answers in
   its own chat, and a task that answers needs you by the usual rule: nothing gathers the replies anywhere else.
-  ![Broadcast, in a task](design/screens/39-broadcast-message.png)
+  ![Broadcast, in a task](design/screens/45-broadcast-message.png)
   The same viewer opens an image artifact from the Artifacts tab, and the one file showing in the Files tab (#372): for
   an artifact, it also shows the artifact's title, just above the image's left edge (it appears with the image, once
   that has loaded, never before it: #478), and two actions, Open in Files and Reveal in Finder, and steps

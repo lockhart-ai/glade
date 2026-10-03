@@ -1,4 +1,4 @@
-/* The Broadcast modal, docs/design/html/39-broadcast.html: the Settings modal's backdrop and card, sized for a message. */
+/* The Broadcast modal, docs/design/html/45-broadcast.html: the Settings modal's backdrop and card, sized for a message. */
 .backdrop {
   z-index: 20;
   display: flex;

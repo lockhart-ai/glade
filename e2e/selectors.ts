@@ -778,7 +778,7 @@ export function unsavedDialog(page: Page) {
 }
 
 /**
- * The Broadcast modal (File › Broadcast…, `docs/design/html/39-broadcast.html`): its message field, the line saying
+ * The Broadcast modal (File › Broadcast…, `docs/design/html/45-broadcast.html`): its message field, the line saying
  * who the message goes to, the recipients by workspace, and Send.
  */
 export function broadcastDialog(page: Page) {

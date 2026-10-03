@@ -210,7 +210,7 @@ function BroadcastForm({ titleId, fieldRef, onClose }: BroadcastFormProps): Reac
 }
 
 /**
- * The Broadcast modal (⌘⇧B; `docs/design/screens/39-broadcast.png`): one message to every active task, in every
+ * The Broadcast modal (⌘⇧B; `docs/design/screens/45-broadcast.png`): one message to every active task, in every
  * workspace. It says who the message goes to before it's sent, and lists them by workspace. ↵ or Send sends it and
  * closes the modal; Esc or a click outside closes it without sending, and what was typed goes with it. With no active
  * task anywhere it says so, and can't send. It shows while the store has it open (`broadcastOpen`), taking the focus

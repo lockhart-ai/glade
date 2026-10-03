@@ -54,7 +54,7 @@
   gap: 4px;
 }
 
-/* Under your message: "you" and its time, after its tag if it was a broadcast (docs/design/html/39-broadcast-message.html). */
+/* Under your message: "you" and its time, after its tag if it was a broadcast (docs/design/html/45-broadcast-message.html). */
 .userMeta {
   display: flex;
   align-items: center;
