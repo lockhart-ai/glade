@@ -13,6 +13,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Page, TestInfo } from '@playwright/test'
 import { LogScope } from '../src/main/logging/logger'
+import { needsYou } from '../src/shared/attention'
 import { CommandName } from '../src/shared/bridge'
 import { UiStateKey, type EpochMs, type Task, type TaskActivity, type TaskState } from '../src/shared/domain'
 import { invoke } from './task-view'
@@ -39,6 +40,8 @@ export interface TaskEvidence {
   readonly awaitingPermission: boolean
   readonly backgroundWork: boolean
   readonly updatedAt: EpochMs
+  /** Whether it needs you, by the rule everything that shows it uses (`needsYou` in `src/shared/attention.ts`). */
+  readonly needsYou: boolean
 }
 
 /** Whether main's tasks could be read. */
@@ -84,6 +87,7 @@ function taskEvidence(task: Task, workspaceName: string): TaskEvidence {
     awaitingPermission,
     backgroundWork,
     updatedAt,
+    needsYou: needsYou(task),
   }
 }
 

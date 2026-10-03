@@ -69,6 +69,7 @@ const tasksReadSchema = z.strictObject({
       awaitingPermission: z.boolean(),
       backgroundWork: z.boolean(),
       updatedAt: z.number(),
+      needsYou: z.boolean(),
     }),
   ),
 })
@@ -164,6 +165,7 @@ test('a failed test keeps the app’s log and the tasks as main has them in its 
     asking: false,
     awaitingPermission: false,
     backgroundWork: false,
+    needsYou: false,
   })
   expect(tasks.selectedTaskId).toBe(task?.id)
   expect(tasks.activeWorkspaceId).toBe(task?.workspaceId)

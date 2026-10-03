@@ -81,8 +81,9 @@ outside, ask the supervisor.
     `grep '"taskId":"<id>"'`: the commands main got (`ipc`), its turns (`runner`), its messages (`chat`) and each
     change sent to the window (`task`; a `task updated` line names the fields that changed, `unread` among them).
   - `attachments/tasks-json-….json`: the tasks as main had them when the test failed (id, workspace, title, state,
-    activity, unread, asking, awaiting permission, background work), with the workspace main had as shown and the task
-    it counted as viewed, which a reply is judged against. If the test had closed its app, it says so instead.
+    activity, unread, asking, awaiting permission, background work, and whether it needed you), with the workspace
+    main had as shown and the task it counted as viewed, which a reply is judged against. If the test had closed its
+    app, it says so instead.
   - `error-context.md`: Playwright's own snapshot of the page, which is the window's side of the same moment.
 
   On CI, a failed e2e shard uploads the folder as the run's `e2e-results-<shard>` artefact:
