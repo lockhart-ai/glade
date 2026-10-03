@@ -14,6 +14,7 @@ import {
   sendAndOpenNewTask,
   test,
 } from './fixtures'
+import { inMain } from './in-main'
 import { chooseMenuItem } from './menu'
 import { paste, screenshot } from './paste'
 import {
@@ -185,7 +186,7 @@ test('opening a task from a notification, the menu bar popover, search results, 
   await expect(bar.field).toBeFocused()
 
   // The window, and the menu bar popover, stay hidden throughout: an e2e run never shows either.
-  const visible = await glade.app.evaluate(({ BrowserWindow }) =>
+  const visible = await inMain(glade.app, ({ BrowserWindow }) =>
     BrowserWindow.getAllWindows().map((w) => w.isVisible()),
   )
   expect(visible).toEqual([false, false])

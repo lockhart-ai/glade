@@ -5,6 +5,7 @@
 import { PluginEventType, type PluginEvent, type PluginSnapshotEvent } from '../src/shared/plugin-api'
 import { inPlugin, installFixture } from './fixture-plugin'
 import { expect, seedPath, test, type Glade } from './fixtures'
+import { inMain } from './in-main'
 import { expectViewOverSlot, logged, pluginCard } from './plugin-view'
 import { regions, subagentsTab, taskHeader, taskPanel } from './selectors'
 
@@ -30,7 +31,7 @@ async function postOnInput(glade: Glade, message: unknown): Promise<void> {
 
 /** Clicks in the plugin's view: a mouse button down and up, as native input, which is how a real click reaches it. */
 async function clickInView({ app }: Glade): Promise<void> {
-  await app.evaluate(({ webContents }) => {
+  await inMain(app, ({ webContents }) => {
     const page = webContents.getAllWebContents().find((contents) => contents.getURL().startsWith('glade-plugin:'))
     if (page === undefined) throw new Error('No plugin page is running')
     page.sendInputEvent({ type: 'mouseDown', x: 40, y: 40, button: 'left', clickCount: 1 })
@@ -43,7 +44,7 @@ async function clickInView({ app }: Glade): Promise<void> {
  * window too: main hears the key all the same.)
  */
 async function pressInView({ app }: Glade): Promise<void> {
-  await app.evaluate(({ webContents }) => {
+  await inMain(app, ({ webContents }) => {
     const page = webContents.getAllWebContents().find((contents) => contents.getURL().startsWith('glade-plugin:'))
     if (page === undefined) throw new Error('No plugin page is running')
     page.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
