@@ -165,6 +165,7 @@ function changesWhatsInFlight(event: GladeEvent): boolean {
     case EventType.AccountChanged:
     case EventType.LoginChanged:
     case EventType.MenuBarChanged:
+    case EventType.SandboxGrantsChanged:
       return false
   }
 }
