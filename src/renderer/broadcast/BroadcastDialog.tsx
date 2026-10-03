@@ -22,7 +22,7 @@ import { useGladeStore, useGladeStoreApi } from '../store/react'
 import { badgeTone } from '../workspace-switcher/switcherModel'
 import { BadgeSize, WorkspaceBadge } from '../workspace-switcher/WorkspaceBadge'
 import {
-  ATTENTION_LABELS,
+  attentionLabel,
   broadcastFailureMessage,
   BUSY_NOTE,
   NO_RECIPIENTS,
@@ -65,7 +65,7 @@ export const RecipientRow = memo(function RecipientRow({ taskId }: RecipientRowP
     <li className={styles.task} data-attention={attention}>
       <Dot state={ATTENTION_DOTS[attention]} />
       <span className={styles.taskTitle}>{shownTitle(title)}</span>
-      <span className={styles.attention}>{ATTENTION_LABELS[attention]}</span>
+      <span className={styles.attention}>{attentionLabel(attention)}</span>
     </li>
   )
 })

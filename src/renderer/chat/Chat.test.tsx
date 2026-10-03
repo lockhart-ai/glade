@@ -45,6 +45,7 @@ import {
   sampleWorkspace,
   type FakeBridge,
 } from '../store/test-bridge'
+import { BROADCAST_TAG } from './BroadcastTag'
 import { clockTime } from './chatModel'
 import { Chat } from './Chat'
 
@@ -260,6 +261,26 @@ describe('Chat', () => {
     await renderChat({ selected: false, messages: [ASK] })
 
     expect(conversation()).toHaveTextContent(/^$/)
+  })
+
+  it('tags a message you broadcast, to the left of "you" and its time, and no other', async () => {
+    const broadcast: Message = {
+      ...ASK,
+      id: 'm3',
+      body: 'Is anyone restarting Docker?',
+      turn: 2,
+      createdAt: REPLIED_AT + 60_000,
+      broadcast: true,
+    }
+    await renderChat({ messages: [ASK, REPLY, broadcast] })
+
+    const [own, sent] = screen.getAllByRole('article', { name: 'You' })
+    expect(within(own as HTMLElement).queryByText(BROADCAST_TAG)).not.toBeInTheDocument()
+    expect(sent).toHaveTextContent(
+      `Is anyone restarting Docker?${BROADCAST_TAG}you · ${clockTime(broadcast.createdAt)}`,
+    )
+    // The agent's replies are never tagged.
+    expect(within(screen.getByRole('article', { name: 'Agent' })).queryByText(BROADCAST_TAG)).not.toBeInTheDocument()
   })
 
   it('shows your message on the right and the agent’s reply as Markdown, each with its time', async () => {

@@ -49,11 +49,16 @@ export const NO_RECIPIENTS = 'No active tasks to send to.'
 /** The rest of the line: a busy agent isn't interrupted. */
 export const BUSY_NOTE = 'Busy agents get it when their turn ends.'
 
-/** Where each recipient stands with you (`taskAttention`), as its row says it. */
-export const ATTENTION_LABELS: Readonly<Record<TaskAttention, string>> = {
-  [TaskAttention.NeedsYou]: 'needs you',
-  [TaskAttention.Working]: 'working',
-  [TaskAttention.Idle]: 'idle',
+/** Where a recipient stands with you (`taskAttention`), as its row says it. */
+export function attentionLabel(attention: TaskAttention): string {
+  switch (attention) {
+    case TaskAttention.NeedsYou:
+      return 'needs you'
+    case TaskAttention.Working:
+      return 'working'
+    case TaskAttention.Idle:
+      return 'idle'
+  }
 }
 
 /** What the toast says when the broadcast as a whole couldn't be sent. */

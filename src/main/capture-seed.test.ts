@@ -904,6 +904,7 @@ describe('applySeed', () => {
                 minutesAgo: 2,
                 summary: { durationMs: 60_000, filesChanged: 1, linesAdded: 2, linesRemoved: 0 },
               },
+              { role: MessageRole.User, body: 'Is anyone restarting Docker?', turn: 2, minutesAgo: 1, broadcast: true },
             ],
             toolEvents: [
               { kind: ToolEventKind.Narration, text: 'Looking around.', turn: 1, minutesAgo: 29 },
@@ -927,7 +928,14 @@ describe('applySeed', () => {
     const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
     const taskId = task?.id ?? ''
     expect(listMessages(db, taskId)).toMatchObject([
-      { role: MessageRole.User, body: 'Add rate limiting.', turn: 1, createdAt: NOW - 30 * MINUTE, summary: null },
+      {
+        role: MessageRole.User,
+        body: 'Add rate limiting.',
+        turn: 1,
+        createdAt: NOW - 30 * MINUTE,
+        summary: null,
+        broadcast: false,
+      },
       {
         role: MessageRole.Agent,
         body: 'Done.',
@@ -935,6 +943,8 @@ describe('applySeed', () => {
         createdAt: NOW - 2 * MINUTE,
         summary: { durationMs: 60_000, filesChanged: 1, linesAdded: 2, linesRemoved: 0 },
       },
+      // One sent with Broadcast, which the chat tags (#489).
+      { role: MessageRole.User, body: 'Is anyone restarting Docker?', turn: 2, broadcast: true },
     ])
     expect(listToolEvents(db, taskId)).toMatchObject([
       { kind: ToolEventKind.Narration, text: 'Looking around.', createdAt: NOW - 29 * MINUTE, parentToolUseId: null },

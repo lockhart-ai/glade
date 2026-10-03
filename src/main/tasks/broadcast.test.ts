@@ -657,7 +657,8 @@ describe('what the window hears', () => {
     expect(batches).toHaveLength(1)
     expect(batches[0]?.filter(({ type }) => type === EventType.MessageAppended)).toHaveLength(60)
     expect(backend.sessions).toHaveLength(60)
-    for (const { id } of tasks) expect(chat(id)).toEqual([{ role: MessageRole.User, body: TEXT, turn: 1, broadcast: true }])
+    for (const { id } of tasks)
+      expect(chat(id)).toEqual([{ role: MessageRole.User, body: TEXT, turn: 1, broadcast: true }])
   })
 
   it('keeps the broadcast a broadcast across a relaunch, in the chat and in the queue', async () => {
@@ -704,7 +705,9 @@ describe('the command', () => {
     await broadcast()
 
     expect(log.withMessage('broadcast sent')).toEqual([
-      expect.objectContaining({ fields: expect.objectContaining({ tasks: 2, sent: 1, queued: 1, failed: 0 }) as unknown }),
+      expect.objectContaining({
+        fields: expect.objectContaining({ tasks: 2, sent: 1, queued: 1, failed: 0 }) as unknown,
+      }),
     ])
     expect(JSON.stringify(log.withMessage('broadcast sent'))).not.toContain('Docker')
   })

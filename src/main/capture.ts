@@ -7,6 +7,7 @@ import { cpSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { z } from 'zod'
+import { AppCommandId } from '../shared/commands'
 import { PLUGINS_FOLDER_NAME } from '../shared/plugins'
 import { READY_ATTRIBUTE } from '../shared/ready'
 import { AGENT_SCRIPT_NAMES, type AgentScriptName } from './agent/scripts'
@@ -53,6 +54,12 @@ export interface CaptureSpec {
   readonly conversation?: CaptureConversation
   /** A JSON fixture of sample data (see `./capture-seed`) to fill the throwaway database with; none for a fresh app. */
   readonly seed?: string | undefined
+  /**
+   * App commands to run in the window, in order, once it's ready and before the key presses, as choosing their menu
+   * bar items would: the menu bar answers their keys, so a key press in the page can't reach them (e.g.
+   * `app.broadcast` for the Broadcast modal). None by default.
+   */
+  readonly commands?: readonly AppCommandId[] | undefined
   /**
    * Keys to press in the page, in order, once it's ready and before capturing, e.g. ⌘, to capture the Settings modal.
    * None by default.
@@ -113,6 +120,7 @@ function captureSpecSchema(minimum: MinimumSize): z.ZodType<CaptureSpec> {
       .strictObject({ agentScript: z.enum(AGENT_SCRIPT_NAMES), message: z.string().trim().min(1) })
       .optional(),
     seed: z.string().refine(isAbsolute, 'must be an absolute path').optional(),
+    commands: z.array(z.enum(AppCommandId)).optional(),
     presses: z
       .array(
         z.strictObject({
@@ -180,6 +188,8 @@ export interface CaptureWindow {
   }
   /** The native views over the page, such as a plugin's, which its capture leaves out; none by default. */
   nativeViews?(): readonly CaptureView[]
+  /** Runs an app command in the window, as choosing its menu bar item would; by default a spec's commands do nothing. */
+  runCommand?(command: AppCommandId): void
 }
 
 /** The parts of a `NativeImage` a capture uses. */
@@ -226,6 +236,12 @@ function waitForSize(width: number, height: number): string {
   check()
 })`
 }
+
+/** Waits (in the page) until what a command did has settled: nothing busy, no animation still running, and painted. */
+const WAIT_UNTIL_SETTLED = `new Promise((resolve) => {
+  ${SETTLE_SNIPPET}
+  requestAnimationFrame(settle)
+})`
 
 /** Presses a key (in the page) where the app listens for its shortcuts, then waits for it to paint what it did. */
 function pressKey(press: CaptureKeyPress): string {
@@ -286,8 +302,8 @@ function clickElement(selector: string): string {
 }
 
 /**
- * Captures each shot in `spec`: waits for the renderer to say it's ready, presses the spec's keys and clicks its
- * elements, then for each shot
+ * Captures each shot in `spec`: waits for the renderer to say it's ready, runs the spec's commands, presses its keys
+ * and clicks its elements, then for each shot
  * resizes the window,
  * waits for the page to lay out at that size (and any native view, such as a plugin's, to settle over its slot, to be
  * pasted in with `fromBitmap`), and writes a PNG of it at exactly that size (a Retina display captures at 2x, which is
@@ -299,6 +315,10 @@ export async function captureShots(
   fromBitmap?: ImageFromBitmap,
 ): Promise<string[]> {
   await window.webContents.executeJavaScript(WAIT_UNTIL_READY)
+  for (const command of spec.commands ?? []) {
+    window.runCommand?.(command)
+    await window.webContents.executeJavaScript(WAIT_UNTIL_SETTLED)
+  }
   for (const press of spec.presses ?? []) await window.webContents.executeJavaScript(pressKey(press))
   for (const selector of spec.clicks ?? []) await window.webContents.executeJavaScript(clickElement(selector))
   mkdirSync(spec.outDir, { recursive: true })

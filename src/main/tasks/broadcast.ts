@@ -47,7 +47,10 @@ function deliver(runner: BroadcastContext['runner'], taskId: string, text: strin
  * updated. Done tasks get nothing. Answers with how it went for each task, in that order; a task that couldn't take it
  * is logged and reported, and the rest still get it.
  */
-export function broadcastMessage({ db, runner, log = SILENT_LOGGER }: BroadcastContext, text: string): BroadcastOutcome[] {
+export function broadcastMessage(
+  { db, runner, log = SILENT_LOGGER }: BroadcastContext,
+  text: string,
+): BroadcastOutcome[] {
   const message = text.trim()
   const outcomes = listTaskIds(db, null, TaskState.Active).map((taskId): BroadcastOutcome => {
     try {
@@ -57,7 +60,8 @@ export function broadcastMessage({ db, runner, log = SILENT_LOGGER }: BroadcastC
       return { taskId, delivery: BroadcastDelivery.Failed, message: describe(error) }
     }
   })
-  const count = (delivery: BroadcastDelivery): number => outcomes.filter((outcome) => outcome.delivery === delivery).length
+  const count = (delivery: BroadcastDelivery): number =>
+    outcomes.filter((outcome) => outcome.delivery === delivery).length
   log.info('broadcast sent', {
     tasks: outcomes.length,
     sent: count(BroadcastDelivery.Sent),

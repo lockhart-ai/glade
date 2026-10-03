@@ -262,16 +262,16 @@ export interface FakeBridge {
  * `tasks.stop` only sets the task back to waiting, `tasks.compact` only sets it working, and `tasks.delete` only
  * removes the task and broadcasts it, without deselecting it; main's own tests cover the rest. `workspaces.create` adds a
  * workspace, `workspaces.open` answers with it opened at 5,000 and `workspaces.update` changes it, none broadcasting.
- * `settings.update` changes the settings and broadcasts them.
+ * `settings.update` changes the settings and broadcasts them. `tasks.broadcast` saves the message to every active task
+ * (to the chat of one waiting on you with nothing open, to the queue of any other) and broadcasts it all as one batch,
+ * through `emitBatch`.
  * workspace and `workspaces.open` answers with it opened at 5,000 and its selection from `workspaceSelections`, neither
  * broadcasting.
  */
 export function fakeHandlers(
   main: FakeMain,
   emit: (event: GladeEvent) => void,
-  emitBatch: (events: readonly GladeEvent[]) => void = (events) => {
-    for (const event of events) emit(event)
-  },
+  emitBatch: (events: readonly GladeEvent[]) => void,
 ): FakeHandlers {
   let sent = 0
   let settings = main.settings ?? DEFAULT_SETTINGS

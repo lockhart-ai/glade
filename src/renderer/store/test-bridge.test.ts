@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest'
 import { BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { PermissionDecisionKind, TaskState, UiStateKey } from '../../shared/domain'
+import { BroadcastDelivery } from '../../shared/broadcast'
+import { PermissionDecisionKind, TaskActivity, TaskState, UiStateKey } from '../../shared/domain'
 import { fakeBridge, samplePermissionRequest, sampleTask } from './test-bridge'
 
 it('answers uiState.get from its data, and stops delivering events once unsubscribed', async () => {
@@ -18,6 +19,51 @@ it('answers uiState.get from its data, and stops delivering events once unsubscr
 
   expect(listener).not.toHaveBeenCalled()
   expect(fake.listenerCount()).toBe(0)
+})
+
+it('sends a batch whole to a subscriber with a batch listener, and event by event to one without', () => {
+  const fake = fakeBridge({ workspaces: [], tasks: [], uiState: [] })
+  const whole = { listener: vi.fn(), batchListener: vi.fn() }
+  const each = vi.fn()
+  fake.bridge.subscribe(whole.listener, whole.batchListener)
+  fake.bridge.subscribe(each)
+  const first = { type: EventType.TaskUpdated, task: sampleTask('t1', 'w1') } as const
+  const second = { type: EventType.TaskUpdated, task: sampleTask('t2', 'w1') } as const
+
+  fake.emitBatch([first, second])
+
+  expect(whole.batchListener.mock.calls).toEqual([[[first, second]]])
+  expect(whole.listener).not.toHaveBeenCalled()
+  expect(each.mock.calls).toEqual([[first], [second]])
+})
+
+it('broadcasts to every active task as one batch: to an idle one’s chat, to a busy one’s queue', async () => {
+  const idle = sampleTask('t1', 'w1')
+  const working = { ...sampleTask('t2', 'w1'), activity: TaskActivity.Working }
+  const asking = { ...sampleTask('t3', 'w2'), asking: true }
+  const awaiting = { ...sampleTask('t4', 'w2'), awaitingPermission: true }
+  const done = { ...sampleTask('t5', 'w2'), state: TaskState.Done }
+  const fake = fakeBridge({ workspaces: [], tasks: [idle, working, asking, awaiting, done], uiState: [], messages: [] })
+  const listener = vi.fn()
+  const batchListener = vi.fn()
+  fake.bridge.subscribe(listener, batchListener)
+
+  const { recipients } = await fake.bridge.invoke(CommandName.TasksBroadcast, { text: 'Is anyone restarting Docker?' })
+
+  expect(recipients).toEqual([
+    { taskId: 't1', delivery: BroadcastDelivery.Sent },
+    { taskId: 't2', delivery: BroadcastDelivery.Queued },
+    { taskId: 't3', delivery: BroadcastDelivery.Queued },
+    { taskId: 't4', delivery: BroadcastDelivery.Queued },
+  ])
+  expect(listener).not.toHaveBeenCalled()
+  expect(batchListener).toHaveBeenCalledOnce()
+  expect(batchListener.mock.calls[0]?.[0]).toMatchObject([
+    { type: EventType.MessageAppended, message: { taskId: 't1', broadcast: true } },
+    { type: EventType.QueueChanged, taskId: 't2', queuedMessages: [{ broadcast: true }] },
+    { type: EventType.QueueChanged, taskId: 't3', queuedMessages: [{ broadcast: true }] },
+    { type: EventType.QueueChanged, taskId: 't4', queuedMessages: [{ broadcast: true }] },
+  ])
 })
 
 it('refuses to delete a task it does not have', async () => {
