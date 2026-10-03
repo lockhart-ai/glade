@@ -156,7 +156,14 @@
     in a sandboxed view of its own: a separate process (a `WebContentsView` with its own session), no Node, a preload
     that only relays messages, a CSP that blocks all network except localhost, no navigation and no new windows.
   - Glade sends it typed task and agent events with `postMessage`, in a versioned schema (`plugin-api.md`). The plugin
-    sends back only `ready` and a short header status. It can't command Glade.
+    sends back only `ready`, a short header status and `openTask`. It can't change anything in Glade.
+  - A plugin can navigate, only when you ask it to (#466): `openTask` selects a task, as clicking its row does
+    (switching workspace if it has to), and with a subagent opens the Subagents tab on it, as picking it there does.
+    Glade honours it only within a second of a click or key press in the plugin's own view, as main hears the input
+    the OS routes to that view (never anything the page says, which can't prove a click), one `openTask` per click,
+    and only for a task the plugin has been told of and that's still active, or a subagent of it it was told of.
+    Anything else is dropped and logged, never shown. No capability switch: it's your click, and only opens what the
+    plugin already shows. Additive, so the API stays version 1.
   - Nothing about the machine, unless the plugin asks for it and you allow it (#403, replacing P12's "nothing about
     the machine"): a manifest's `capabilities` can ask for `machine`, which Settings › Plugins shows as "Can see your
     Mac's CPU, GPU and Docker load" with a switch per plugin, off until you turn it on (saved in SQLite). With it on,

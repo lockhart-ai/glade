@@ -106,6 +106,18 @@ export interface FileFocus {
 }
 
 /**
+ * A request to show a subagent in the Subagents tab, as picking it there does (its log open): made when a plugin opens
+ * a task on one of its subagents (`openTask`), and acted on by the Subagents tab. `request` goes up by one with every
+ * request, like `ToolLogFocus`'s.
+ */
+export interface SubagentFocus {
+  readonly taskId: string
+  /** The subagent's `Agent` call's tool_use id. */
+  readonly subagentId: string
+  readonly request: number
+}
+
+/**
  * A request to add text to a task's message field (Quote in reply, Ask agent about this), made by a context menu and
  * acted on by the input bar, which adds it to its draft and focuses the field. `request` goes up by one with every
  * request, like `ToolLogFocus`'s.
@@ -232,6 +244,11 @@ export interface GladeData {
    * intent, like `toolLogFocus`: the file it opened is kept in `openFiles`.
    */
   readonly fileFocus: FileFocus | null
+  /**
+   * The latest request to show a subagent in the Subagents tab (a plugin's `openTask`); null until one is made. A
+   * one-off UI intent, like `toolLogFocus`.
+   */
+  readonly subagentFocus: SubagentFocus | null
   /**
    * The task whose title is being renamed in its task list row (F2); null when none is. A one-off UI intent, like
    * `toolLogFocus`.
@@ -742,6 +759,7 @@ export const INITIAL_DATA: GladeData = {
   toolLogFocus: null,
   inputFocusRequest: 0,
   fileFocus: null,
+  subagentFocus: null,
   renamingTaskId: null,
   deletingTaskId: null,
   removingWorkspaceId: null,

@@ -10,7 +10,7 @@ import { usePresence } from '../motion'
 import { Panel, PanelToggle, usePanel, usePanelSize } from '../panels'
 import { selectSelectedTask, selectSelectedWorkspace } from '../store/state'
 import { useGladeStore } from '../store/react'
-import { SubagentsTab } from '../subagents'
+import { SubagentsTab, type SubagentShown } from '../subagents'
 import { Todos } from '../todos'
 import { ToolLog, type TurnFocus } from '../tool-log'
 import { WatchersTab } from '../watchers'
@@ -66,6 +66,11 @@ export function TaskPanel(): React.JSX.Element | null {
   const [fileLine, setFileLine] = useState<(FileLineFocus & { readonly taskId: string }) | null>(null)
   const [handledFileRequest, setHandledFileRequest] = useState(fileFocus?.request)
   const [focus, setFocus] = useState<TurnFocus | null>(null)
+  const subagentFocus = useGladeStore((state) => state.subagentFocus)
+  const [handledSubagentRequest, setHandledSubagentRequest] = useState(subagentFocus?.request)
+  // The subagent last asked to show, and its task, until the Subagents tab has shown it. Tracked here, since the tab
+  // may only mount in answer to the request (the store opens it, and the panel, for it).
+  const [subagentShown, setSubagentShown] = useState<(SubagentShown & { readonly taskId: string }) | null>(null)
   // The last request acted on, so an old request is never acted on again, e.g. when its task is selected again.
   const [handledRequest, setHandledRequest] = useState(toolLogFocus?.request)
 
@@ -82,8 +87,18 @@ export function TaskPanel(): React.JSX.Element | null {
     setFileLine(fileFocus)
   }
 
+  // A new request to show a subagent of this task: pass it to the tab (the store has already opened it).
+  if (subagentFocus !== null && subagentFocus.taskId === task?.id && subagentFocus.request !== handledSubagentRequest) {
+    setHandledSubagentRequest(subagentFocus.request)
+    setSubagentShown(subagentFocus)
+  }
+
   const clearFocus = useCallback(() => {
     setFocus(null)
+  }, [])
+
+  const clearSubagentShown = useCallback(() => {
+    setSubagentShown(null)
   }, [])
 
   const selectTab = (next: PanelTab): void => {
@@ -123,7 +138,15 @@ export function TaskPanel(): React.JSX.Element | null {
       case PanelTab.Subagents:
         return (
           task !== undefined && (
-            <SubagentsTab key={task.id} taskId={task.id} events={events} rootPath={rootPath} watchers={watchers} />
+            <SubagentsTab
+              key={task.id}
+              taskId={task.id}
+              events={events}
+              rootPath={rootPath}
+              watchers={watchers}
+              focus={subagentShown?.taskId === task.id ? subagentShown : null}
+              onFocusShown={clearSubagentShown}
+            />
           )
         )
       case PanelTab.Files:

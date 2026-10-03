@@ -349,10 +349,46 @@ Subagents tab summarise, and no more.
 |---|---|---|
 | `ready` | none | Asks for `hello` and a `snapshot`. |
 | `status` | `text: string` | Sets the short status at the right of the panel header (Nekomata's "5 cats · 4 kittens"), up to 40 characters; `''` clears it. |
+| `openTask` | `taskId: string`, optional `subagentId: string \| null` | Opens the task, as clicking its row in the task list does, switching to its workspace first if it's in another; with a `subagentId`, also opens the right panel's Subagents tab on that subagent, its log open, as picking it there does. Only right after a click or key press in the plugin's view (below). |
 
 Anything else, or a message that fails its schema, is dropped and logged. So is a message longer than 16 KB as JSON,
-and any beyond a burst of 50, then 20 a second: a flood is cut off, not queued. A plugin can't open tasks, send
-messages or change anything in Glade.
+and any beyond a burst of 50, then 20 a second: a flood is cut off, not queued. A plugin can't send messages or
+change anything in Glade; the most it can do is show you a task, when you click it.
+
+```ts
+interface PluginOpenTaskMessage {
+  readonly type: 'openTask'
+  /** A `PluginTask.id` from the snapshot or a later event, of a task that's still active. */
+  readonly taskId: string
+  /** A `PluginSubagent.id` of that task's, from the snapshot or a `subagent.started`/`subagent.updated`. */
+  readonly subagentId?: string | null
+}
+```
+
+**Opening a task (`openTask`).** Glade acts on it only when all of these hold; otherwise it's dropped and logged, and
+nothing shows:
+
+- **You just clicked or pressed a key in the plugin's view:** a mouse button or key went down there (a click counts
+  from its release) less than a second before the message arrives. Glade hears this in main, from the input the OS
+  routes to the view; nothing the page does or posts counts, so a page can't fake it with `element.click()`,
+  `dispatchEvent` or a message, and can't open a task on a timer or in answer to an event. **One click, one
+  `openTask`:** a second message after the same click is dropped. Post it from your click (or key) handler.
+- **The plugin can see the task:** it's in the plugin's `snapshot`, or a later `task.created` or `task.updated`, since
+  its last `ready`, and it's still active (not done, nor deleted since). A `subagentId` has to be one of that task's
+  subagents the plugin was told of (in the snapshot, or a `subagent.started` or `subagent.updated`), running or ended.
+- **It's within the rate limit** above, like every message.
+
+The plugin's view stays as it is. Opening the task works as clicking its row would: it asks about unsaved edits in the
+Files tab first, the input bar takes the focus, and the right panel shows the tab you last had in that workspace (or
+Subagents, for a `subagentId`).
+
+```js
+cat.addEventListener('click', () => {
+  window.glade.post({ type: 'openTask', taskId: cat.taskId, subagentId: kitten?.id ?? null })
+})
+```
+
+A Glade from before `openTask` drops it as an unknown message (logged), and nothing else changes.
 
 ## Versioning
 
@@ -374,7 +410,8 @@ dashboard's do (the window's sun follows `total` over `cpuCount`, the pastry cas
 while it's busy, and the espresso machine follows the GPU); with it off, the room stays quiet. Its art style is a
 `select` setting, `style`, in its Glade build's manifest: it draws the scene in whichever style `settings.style` names,
 restyles in place on `settings.changed`, and falls back to its default style when there's no `settings` (an older
-Glade).
+Glade). Clicking a cat opens its task (`openTask` with the task's id), switching workspace if it's in another, and
+clicking a kitten opens its task on that subagent in the Subagents tab (`openTask` with the subagent's id too).
 
 To install it, build the plugin folder in a clone of the nekomata repo and copy it into the plugins folder:
 

@@ -505,7 +505,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
         ],
       },
     ],
-    [EventType.TaskOpenRequested]: [{ type: EventType.TaskOpenRequested, taskId: created.id }],
+    [EventType.TaskOpenRequested]: [{ type: EventType.TaskOpenRequested, taskId: created.id, subagentId: null }],
     [EventType.UiStateChanged]: [
       { type: EventType.UiStateChanged, entry: { key: UiStateKey.RelaunchNotice, value: secret('ui_state') } },
     ],

@@ -5,6 +5,7 @@ import { PLUGIN_MESSAGE_CHANNEL, PLUGIN_POST_CHANNEL } from '../../shared/plugin
 import { PluginStatus, type ValidPlugin } from '../../shared/plugins'
 import { createMemoryLog } from '../logging/memory-sink'
 import { checkSecurity } from '../security'
+import { PluginInputKind } from './gesture'
 import { tempPluginsParent, writePlugin } from './test-plugins'
 
 type Handler = (...args: unknown[]) => unknown
@@ -122,8 +123,10 @@ function fakeWindow(zoom = 1) {
   const listeners = new Map<string, Handler>()
   const window = {
     destroyed: false,
+    focused: true,
     contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
-    webContents: { getZoomFactor: () => zoom },
+    webContents: { getZoomFactor: () => zoom, focus: vi.fn() },
+    isFocused: () => window.focused,
     once: vi.fn((event: string, handler: Handler) => listeners.set(event, handler)),
     removeListener: vi.fn((event: string) => listeners.delete(event)),
     isDestroyed: () => window.destroyed,
@@ -173,16 +176,17 @@ function make(window = fakeWindow(), devTools = false) {
   const log = createMemoryLog()
   const onMessage = vi.fn()
   const onGone = vi.fn()
+  const onInput = vi.fn()
   const create = createElectronPluginViews({
     window: () => window as unknown as Electron.BrowserWindow,
     devTools,
     log: log.logger,
   })
-  const view = create({ plugin: nekomata(), folder, onMessage, onGone })
+  const view = create({ plugin: nekomata(), folder, onMessage, onInput, onGone })
   const fake = electron.views.at(-1)
   const ses = electron.sessions.get(pluginPartition('nekomata'))
   if (view === null || fake === undefined || ses === undefined) throw new Error('no view')
-  return { view, fake, ses, window, log, onMessage, onGone, create }
+  return { view, fake, ses, window, log, onMessage, onInput, onGone, create }
 }
 
 describe('registerPluginScheme', () => {
@@ -261,7 +265,7 @@ describe('createElectronPluginViews', () => {
       offscreen: true,
     })
 
-    create({ plugin: nekomata(), folder, onMessage: vi.fn(), onGone: vi.fn() })
+    create({ plugin: nekomata(), folder, onMessage: vi.fn(), onInput: vi.fn(), onGone: vi.fn() })
 
     expect(electron.views.at(-1)?.options.webPreferences).toMatchObject({ offscreen: true })
   })
@@ -269,7 +273,7 @@ describe('createElectronPluginViews', () => {
   it('makes nothing while there is no window', () => {
     const create = createElectronPluginViews({ window: () => undefined, devTools: false })
 
-    expect(create({ plugin: nekomata(), folder, onMessage: vi.fn(), onGone: vi.fn() })).toBeNull()
+    expect(create({ plugin: nekomata(), folder, onMessage: vi.fn(), onInput: vi.fn(), onGone: vi.fn() })).toBeNull()
     expect(electron.views).toEqual([])
   })
 
@@ -344,6 +348,44 @@ describe('createElectronPluginViews', () => {
     })
   })
 
+  it('hears the clicks routed to the page: a button going down, and coming up', () => {
+    const { fake, onInput } = make()
+    const mouse = fake.listeners.get('before-mouse-event')
+
+    for (const type of ['mouseMove', 'mouseDown', 'mouseEnter', 'mouseUp', 'mouseWheel', 'mouseLeave', 'contextMenu']) {
+      mouse?.({}, { type, x: 10, y: 10 })
+    }
+
+    expect(onInput.mock.calls).toEqual([[PluginInputKind.Press], [PluginInputKind.Release]])
+  })
+
+  it("hears the key presses routed to the page, but not a held key's repeats or keys coming up", () => {
+    const { fake, onInput } = make()
+    const keys = fake.listeners.get('before-input-event')
+
+    keys?.({}, { type: 'keyDown', key: 'Enter', isAutoRepeat: false })
+    keys?.({}, { type: 'keyDown', key: 'Enter', isAutoRepeat: true })
+    keys?.({}, { type: 'keyUp', key: 'Enter', isAutoRepeat: false })
+
+    expect(onInput.mock.calls).toEqual([[PluginInputKind.Press]])
+  })
+
+  it("gives the keyboard back to Glade's page only while its window has the focus", () => {
+    const window = fakeWindow()
+    const { view } = make(window)
+
+    view.yieldFocus()
+    expect(window.webContents.focus).toHaveBeenCalledOnce()
+
+    // A hidden window (a test mode's) never has the focus: focusing its page would bring it up.
+    window.focused = false
+    view.yieldFocus()
+    window.focused = true
+    window.destroyed = true
+    view.yieldFocus()
+    expect(window.webContents.focus).toHaveBeenCalledOnce()
+  })
+
   it('says the page is gone when its process dies', () => {
     const { fake, onGone, log } = make()
 
@@ -396,7 +438,7 @@ describe('createElectronPluginViews', () => {
 
   it("sets a plugin's session up once, however often its view is made", () => {
     const { create, ses } = make()
-    create({ plugin: nekomata(), folder, onMessage: vi.fn(), onGone: vi.fn() })
+    create({ plugin: nekomata(), folder, onMessage: vi.fn(), onInput: vi.fn(), onGone: vi.fn() })
 
     expect(electron.views).toHaveLength(2)
     expect(ses.protocol.handle).toHaveBeenCalledOnce()
@@ -478,7 +520,7 @@ describe('insecure settings', () => {
       log: log.logger,
     })
 
-    expect(create({ plugin: nekomata(), folder, onMessage: vi.fn(), onGone: vi.fn() })).toBeNull()
+    expect(create({ plugin: nekomata(), folder, onMessage: vi.fn(), onInput: vi.fn(), onGone: vi.fn() })).toBeNull()
     expect(window.contentView.addChildView).not.toHaveBeenCalled()
     expect(log.records).toContainEqual(expect.objectContaining({ message: 'plugin view refused: insecure settings' }))
     vi.doUnmock('../security')
