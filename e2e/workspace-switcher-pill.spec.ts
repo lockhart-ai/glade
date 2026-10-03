@@ -1,19 +1,28 @@
-// #472: the closed switcher's own pill totals tasks that need you across every workspace other than the one shown,
-// live, and never the shown workspace's own tasks.
+// #472, corrected by #480: the closed switcher's own pill totals every task that needs you, across every workspace,
+// the one shown included, live.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import type { Page } from '@playwright/test'
 import { CommandName } from '../src/shared/bridge'
 import { chooseFolder, expect, test } from './fixtures'
 import { chooseMenuItem } from './menu'
 import { firstRun, inputBar, regions, taskList, workspaceSwitcher } from './selectors'
 import { invoke } from './task-view'
 
-/** Workspace B's task's first message: it plays `long-running`, which works until it's stopped. */
+/** Each workspace's long-running task's first message: it plays `long-running`, which works until it's stopped. */
 const RUN_SUITE = 'Run the e2e suite.'
-/** What B's agent is told once it's stopped: its reply makes it need you. */
+/** What its agent is told once stopped: its reply makes the task need you. */
 const UNIT_ONLY = 'Only run the unit tests.'
+/** The title `long-running`'s first turn sets with `set_title` (`describeTask` in `scripts.ts`). */
+const SUITE_TITLE = 'Run the e2e suite'
 
-test('the pill totals tasks that need you elsewhere, live, and never the shown workspace’s own', async ({
+/** Stops a task mid-run and sends it a message, as if its agent replied while you weren't viewing it: needs you. */
+async function makeItNeedYou(window: Page, taskId: string): Promise<void> {
+  await invoke(window, CommandName.TasksStop, { id: taskId })
+  await invoke(window, CommandName.TasksSend, { id: taskId, text: UNIT_ONLY })
+}
+
+test('the pill totals every task that needs you, the shown workspace’s own included, live', async ({
   launch,
   tempFolder,
 }) => {
@@ -34,7 +43,17 @@ test('the pill totals tasks that need you elsewhere, live, and never the shown w
   await expect(switcher.pill).toHaveCount(0)
   await expect(switcher.trigger).toHaveAttribute('title', 'Switch workspace')
 
-  // Add B and start a task there while it's shown: its own activity never counts towards A's pill.
+  // Task A1: started, then left running in the background once A2 (below) is the one shown instead.
+  await list.newTask.click()
+  await bar.field.fill(RUN_SUITE)
+  await bar.field.press('Enter')
+  await expect(bar.stop).toBeVisible()
+
+  // Task A2: created after it, so from here on A2 (not A1) is the one shown in A.
+  await list.newTask.click()
+  await expect(switcher.pill).toHaveCount(0)
+
+  // Add B and start a task there the same way.
   await chooseFolder(glade, rootB)
   await chooseMenuItem(glade, 'Workspace', 'New workspace…')
   await expect(workspace).toContainText('acme-web')
@@ -42,24 +61,28 @@ test('the pill totals tasks that need you elsewhere, live, and never the shown w
   await bar.field.fill(RUN_SUITE)
   await bar.field.press('Enter')
   await expect(bar.stop).toBeVisible()
-  await expect(switcher.pill).toHaveCount(0)
 
-  // Switch to A: B keeps working in the background, which doesn't need you either.
+  // Back to A: switching restores A2 as the one shown there.
   await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-api')
   await expect(workspace).toContainText('acme-api')
   await expect(switcher.pill).toHaveCount(0)
 
-  // B's agent replies while you're in A (stopped and told to change course, as if from elsewhere): the pill lights
-  // up live, named in the tooltip, without a reload.
   const { workspaces } = await invoke(window, CommandName.WorkspacesList, {})
+  const workspaceA = workspaces.find((each) => each.rootPath === rootA)
   const workspaceB = workspaces.find((each) => each.rootPath === rootB)
-  const { tasks } = await invoke(window, CommandName.TasksList, { workspaceId: workspaceB?.id ?? '' })
-  const taskB = tasks[0]?.id ?? ''
-  await invoke(window, CommandName.TasksStop, { id: taskB })
-  await invoke(window, CommandName.TasksSend, { id: taskB, text: UNIT_ONLY })
+  const { tasks: tasksA } = await invoke(window, CommandName.TasksList, { workspaceId: workspaceA?.id ?? '' })
+  const { tasks: tasksB } = await invoke(window, CommandName.TasksList, { workspaceId: workspaceB?.id ?? '' })
+  const taskA1 = tasksA.find((task) => task.title === SUITE_TITLE)?.id ?? ''
+  const taskB1 = tasksB[0]?.id ?? ''
 
-  await expect(switcher.pill).toHaveText('1')
-  await expect(switcher.trigger).toHaveAttribute('title', 'Switch workspace — 1 task in other workspaces needs you')
+  // A1 replies while A2 is the one shown (needs you in the CURRENT workspace, A); B1 replies too (needs you in B,
+  // elsewhere). Neither is the task you're viewing, so both need you; both light the pill up live, named in the
+  // tooltip, without a reload.
+  await makeItNeedYou(window, taskA1)
+  await makeItNeedYou(window, taskB1)
+
+  await expect(switcher.pill).toHaveText('2')
+  await expect(switcher.trigger).toHaveAttribute('title', 'Switch workspace — 2 tasks need you')
 
   // Pins the pill's rendered size to the design's box (`docs/design/html/14-workspace-switcher.html`, ~27×16 for a
   // one-digit count), so a CSS change that shrinks it (min-width meeting padding under the wrong box-sizing, say)
@@ -70,7 +93,12 @@ test('the pill totals tasks that need you elsewhere, live, and never the shown w
   expect(box?.height).toBeGreaterThan(14)
   expect(box?.height).toBeLessThan(18)
 
-  // Opening B's task reads its reply: it no longer needs you, so the pill hides and the tooltip resets.
+  // Opening A1 (in A, the shown workspace) reads it: only B1, elsewhere, still needs you.
+  await list.taskRow(SUITE_TITLE).click()
+  await expect(switcher.pill).toHaveText('1')
+  await expect(switcher.trigger).toHaveAttribute('title', 'Switch workspace — 1 task needs you')
+
+  // Switching to B restores its own selection (B1), reading it too: nothing needs you anywhere now.
   await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-web')
   await expect(workspace).toContainText('acme-web')
   await expect(switcher.pill).toHaveCount(0)

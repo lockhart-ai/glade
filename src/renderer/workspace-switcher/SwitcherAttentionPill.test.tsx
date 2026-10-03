@@ -1,6 +1,7 @@
-// #472: the closed switcher's own count pill, hidden at 0, capped at "9+", and never counting the open workspace's
-// own tasks. The render-count guard is the Performance one from CLAUDE.md: the pill reads its count through its own
-// narrow store selector, so it (and only it) renders again when that number changes, and not otherwise.
+// #472, corrected by #480: the closed switcher's own count pill, hidden at 0, capped at "9+", counting every
+// workspace's tasks, the open one included. The render-count guard is the Performance one from CLAUDE.md: the pill
+// reads its count through its own narrow store selector, so it (and only it) renders again when that number
+// changes, and not otherwise.
 import { act, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { EventType } from '../../shared/bridge'
@@ -41,13 +42,13 @@ async function renderPill(
 }
 
 describe('SwitcherAttentionPill', () => {
-  it('is hidden with nothing needing you elsewhere', async () => {
+  it('is hidden with nothing needing you at all', async () => {
     await renderPill(
       [
         ['w1', 'Acme API'],
         ['w2', 'Glade'],
       ],
-      [needsYouTask('t1', 'w1')],
+      [],
     )
 
     expect(screen.queryByTestId('switcher-pill')).toBeNull()
@@ -74,7 +75,7 @@ describe('SwitcherAttentionPill', () => {
     expect(screen.getAllByTestId('switcher-pill').at(-1)).toHaveTextContent('3')
   })
 
-  it('never counts the open workspace’s own tasks', async () => {
+  it('counts every workspace’s tasks, the open one included (#480)', async () => {
     await renderPill(
       [
         ['w1', 'Acme API'],
@@ -84,7 +85,20 @@ describe('SwitcherAttentionPill', () => {
       'w1',
     )
 
-    // Only w2's one task counts; w1's two, the open workspace, never do.
+    // w1's own two needing tasks count now, same as w2's one: 3 in all.
+    expect(screen.getByTestId('switcher-pill')).toHaveTextContent('3')
+  })
+
+  it('leaves out a task whose workspace isn’t one of the open ones (#480)', async () => {
+    await renderPill(
+      [
+        ['w1', 'Acme API'],
+        ['w2', 'Glade'],
+      ],
+      [needsYouTask('t1', 'w1'), needsYouTask('t2', 'gone')],
+      'w1',
+    )
+
     expect(screen.getByTestId('switcher-pill')).toHaveTextContent('1')
   })
 
@@ -122,7 +136,7 @@ describe('SwitcherAttentionPill', () => {
     expect(screen.queryByTestId('switcher-pill')).toBeNull()
   })
 
-  it('renders again only when its own count changes, not on every task update elsewhere', async () => {
+  it('renders again only when its own count changes, not on every task update', async () => {
     const { fake } = await renderPill(
       [
         ['w1', 'Acme API'],
@@ -139,24 +153,24 @@ describe('SwitcherAttentionPill', () => {
     expect(renders()).toBe(0)
     expect(screen.getByTestId('switcher-pill')).toHaveTextContent('1')
 
-    // A task added in the OPEN workspace that needs you: never counted, so no extra render either.
+    // A task added in the OPEN workspace that needs you: counts too now (#480), so the count changes, one render.
     act(() => {
       fake.emit({ type: EventType.TaskUpdated, task: needsYouTask('t2', 'w1') })
     })
-    expect(renders()).toBe(0)
-    expect(screen.getByTestId('switcher-pill')).toHaveTextContent('1')
+    expect(renders()).toBe(1)
+    expect(screen.getByTestId('switcher-pill')).toHaveTextContent('2')
 
-    // A second task in the other workspace starts needing you: the count actually changes, one more render.
+    // A third task, in the other workspace, starts needing you: the count actually changes, one more render.
     act(() => {
       fake.emit({ type: EventType.TaskUpdated, task: needsYouTask('t3', 'w2') })
     })
-    expect(renders()).toBe(1)
-    expect(screen.getByTestId('switcher-pill')).toHaveTextContent('2')
+    expect(renders()).toBe(2)
+    expect(screen.getByTestId('switcher-pill')).toHaveTextContent('3')
 
     // Marked done: no longer active, so no longer counted either, even though nothing about "needs you" changed.
     act(() => {
       fake.emit({ type: EventType.TaskUpdated, task: { ...needsYouTask('t3', 'w2'), state: TaskState.Done } })
     })
-    expect(screen.getByTestId('switcher-pill')).toHaveTextContent('1')
+    expect(screen.getByTestId('switcher-pill')).toHaveTextContent('2')
   })
 })

@@ -357,14 +357,14 @@ describe('SidebarHeader', () => {
         switcher={{
           expanded: false,
           onToggle: vi.fn(),
-          title: 'Switch workspace — 3 tasks in other workspaces need you',
+          title: 'Switch workspace — 3 tasks need you',
         }}
         pill={<span data-testid="attention-pill">3</span>}
       />,
     )
 
     const trigger = screen.getByRole('button', { name: 'Switch workspace' })
-    expect(trigger).toHaveAttribute('title', 'Switch workspace — 3 tasks in other workspaces need you')
+    expect(trigger).toHaveAttribute('title', 'Switch workspace — 3 tasks need you')
     const pill = within(trigger).getByTestId('attention-pill')
     expect(pill.nextElementSibling?.querySelector('svg')).not.toBeNull()
   })

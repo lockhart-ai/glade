@@ -214,9 +214,12 @@ and watchers that were running, which changes nothing for a task whose reply was
 and leaves a task whose reply was read idle.
 
 The switcher's closed button shows the same thing before you even open it: a small purple pill, just left of the
-chevron, totalling how many tasks across every workspace *other* than the open one need you (never the open
-workspace's own), "9+" past nine, hidden at zero. Its tooltip spells it out ("Switch workspace — 3 tasks in other
-workspaces need you").
+chevron, totalling how many tasks need you across *every* workspace, the open one included, "9+" past nine, hidden at
+zero. Its tooltip spells it out ("Switch workspace — 3 tasks need you").
+
+Every count Glade shows you is a count of tasks, never of workspaces, and they're all the same rule: the switcher's
+pill and the menu bar's number are the same total, and each workspace's row in the switcher's open dropdown shows its
+own share of it ("N needs you"), so the rows always add up to the pill (#480).
 
 A task you aren't looking at can still need you. When its agent sends a **final reply**, **asks a question** (`ask`)
 or waits on a **permission card**, in a task you're not viewing, Glade marks the task unread, shows it
