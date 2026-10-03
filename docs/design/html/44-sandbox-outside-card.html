@@ -36,7 +36,7 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 <div style="display: flex; flex-direction: column; gap: 2px">
 <button type="button" style="display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; padding: 8px; background: #232531; border: 1px solid #2F3343; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
 <span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #C8B2FF"></span><span style="font-size: 14px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Publish the API client to acme-web</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">25m</span></span>
-<span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Waiting on you: run outside the sandbox</span>
+<span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Permission" style="margin-right: 5px; vertical-align: -1px; color: #C8B2FF"><path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6z"></path></svg>Waiting on you: run outside the sandbox</span>
 </button>
 <button type="button" style="display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
 <span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span><span style="font-size: 14px; font-weight: 500; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Investigate slow dashboard query</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">5d</span></span>
@@ -149,11 +149,21 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 </div>
 <aside style="flex-shrink: 0; width: 440px; box-sizing: border-box; background: #222430; border: 1px solid #373C4F; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.25); overflow: hidden; display: flex; flex-direction: column">
 <div style="display: flex; align-items: center; gap: 2px; padding: 8px 8px; border-bottom: 1px solid #373C4F">
-<button type="button" aria-pressed="true" style="height: 28px; padding: 0 8px; background: #2E3243; color: #E6E8F0; border: 1px solid #373C4F; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Tool calls <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">12</span></button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Files</button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Todos <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">4/5</span></button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Artifacts <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">3</span></button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Subagents</button>
+<button type="button" aria-pressed="true" style="height: 28px; padding: 0 8px; background: #2E3243; color: #E6E8F0; border: 1px solid #373C4F; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Tool calls <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">14</span></button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Files</button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Todos <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">4/5</span></button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Artifacts <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">3</span></button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Subagents</button>
 <span style="flex-grow: 1"></span><button type="button" aria-label="Collapse side panel" title="Collapse side panel" style="flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: transparent; border: 0; border-radius: 7px; color: #999DB0; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"></rect><path d="M15 4.5v15"></path></svg></button>
 </div>
 <div style="flex-grow: 1; overflow: hidden; padding: 8px; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px">
-<div data-narr="1" style="flex-shrink: 0; margin: 6px 4px 6px 12px; padding: 2px 0 2px 12px; border-left: 2px solid #3D425E; font-size: 13px; line-height: 1.5; color: #AEB3C3">The schema is current. Checking how acme-web calls the API today. <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:04</span></div>
+<div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: #E6E8F0">Read</span>
+<span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">~/code/acme-shared/openapi/common.yaml</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:05</span>
+</div>
+<div aria-label="Permission" style="display: flex; align-items: flex-start; gap: 6px; padding-left: 18px; margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: #999DB0"><span style="flex-shrink: 0; display: flex; margin-top: 3px; color: #999DB0"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6z"></path></svg></span><span style="min-width: 0">Workspace grant: read ~/code/acme-shared</span></div>
+<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">210 lines</div>
+
+</div>
 <div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
 <div style="display: flex; align-items: center; gap: 10px">
 <span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span>
@@ -161,7 +171,7 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 <span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">~/code/acme-web/package.json</span>
 <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:07</span>
 </div>
-<div aria-label="Permission" style="display: flex; align-items: flex-start; gap: 6px; padding-left: 18px; margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: #AEB3C3"><span style="flex-shrink: 0; display: flex; margin-top: 3px; color: #7FD1C7"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17l9-10"></path></svg></span><span style="min-width: 0">Read ~/code/acme-web allowed for this task</span></div>
+<div aria-label="Permission" style="display: flex; align-items: flex-start; gap: 6px; padding-left: 18px; margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: #AEB3C3"><span style="flex-shrink: 0; display: flex; margin-top: 3px; color: #C8B2FF"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6z"></path></svg></span><span style="min-width: 0">Read ~/code/acme-web allowed for this task</span></div>
 <div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">48 lines</div>
 
 </div>
@@ -172,7 +182,8 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 <span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">uv sync --frozen</span>
 <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:08</span>
 </div>
-<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">Operation not permitted: ~/.cache/uv</div>
+<div aria-label="Permission" style="display: flex; align-items: flex-start; gap: 6px; padding-left: 18px; margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: #999DB0"><span style="flex-shrink: 0; display: flex; margin-top: 3px; color: #999DB0"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6z"></path></svg></span><span style="min-width: 0">Blocked by the sandbox: write to ~/.cache/uv</span></div>
+<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">Operation not permitted</div>
 
 </div>
 <div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
@@ -182,7 +193,7 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 <span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">~/.cache/uv</span>
 <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:08</span>
 </div>
-<div aria-label="Permission" style="display: flex; align-items: flex-start; gap: 6px; padding-left: 18px; margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: #AEB3C3"><span style="flex-shrink: 0; display: flex; margin-top: 3px; color: #999DB0"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12h12"></path></svg></span><span style="min-width: 0">Write ~/.cache/uv withdrawn</span></div>
+<div aria-label="Permission" style="display: flex; align-items: flex-start; gap: 6px; padding-left: 18px; margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: #999DB0"><span style="flex-shrink: 0; display: flex; margin-top: 3px; color: #5C6378"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6z"></path></svg></span><span style="min-width: 0">Write ~/.cache/uv withdrawn</span></div>
 
 </div>
 <div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
@@ -192,7 +203,7 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 <span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">npx openapi-typescript openapi/schema.yaml -o build/client.ts</span>
 <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:08</span>
 </div>
-<div aria-label="Permission" style="display: flex; align-items: flex-start; gap: 6px; padding-left: 18px; margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: #AEB3C3"><span style="flex-shrink: 0; display: flex; margin-top: 3px; color: #E58FA8"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></span><span style="min-width: 0">Reach registry.npmjs.org denied: “Use the openapi-typescript in tools/, no installs.”</span></div>
+<div aria-label="Permission" style="display: flex; align-items: flex-start; gap: 6px; padding-left: 18px; margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: #AEB3C3"><span style="flex-shrink: 0; display: flex; margin-top: 3px; color: #C8B2FF"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6z"></path></svg></span><span style="min-width: 0">Reach registry.npmjs.org denied: “Use the openapi-typescript in tools/, no installs.”</span></div>
 
 </div>
 <div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
@@ -212,7 +223,7 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 <span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">~/code/acme-web/src/api/client.ts</span>
 <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:14</span>
 </div>
-<div aria-label="Permission" style="display: flex; align-items: flex-start; gap: 6px; padding-left: 18px; margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: #AEB3C3"><span style="flex-shrink: 0; display: flex; margin-top: 3px; color: #7FD1C7"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17l9-10"></path></svg></span><span style="min-width: 0">Write ~/code/acme-web/src/api allowed for this workspace</span></div>
+<div aria-label="Permission" style="display: flex; align-items: flex-start; gap: 6px; padding-left: 18px; margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: #AEB3C3"><span style="flex-shrink: 0; display: flex; margin-top: 3px; color: #C8B2FF"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6z"></path></svg></span><span style="min-width: 0">Write ~/code/acme-web/src/api allowed for this workspace</span></div>
 <div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">New file, 2,140 lines</div>
 
 </div>
@@ -223,11 +234,10 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 <span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">git push origin api-client</span>
 <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:17</span>
 </div>
-<div aria-label="Permission" style="display: flex; align-items: flex-start; gap: 6px; padding-left: 18px; margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: #AEB3C3"><span style="flex-shrink: 0; display: flex; margin-top: 3px; color: #7FD1C7"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17l9-10"></path></svg></span><span style="min-width: 0">Outside the sandbox allowed once</span></div>
+<div aria-label="Permission" style="display: flex; align-items: flex-start; gap: 6px; padding-left: 18px; margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: #AEB3C3"><span style="flex-shrink: 0; display: flex; margin-top: 3px; color: #C8B2FF"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6z"></path></svg></span><span style="min-width: 0">Outside the sandbox allowed once</span></div>
 <div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">Pushed api-client</div>
 
 </div>
-<div data-narr="1" style="flex-shrink: 0; margin: 6px 4px 6px 12px; padding: 2px 0 2px 12px; border-left: 2px solid #3D425E; font-size: 13px; line-height: 1.5; color: #AEB3C3">The client is in. Running the integration tests next. <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:20</span></div>
 <div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
 <div style="display: flex; align-items: center; gap: 10px">
 <span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #E58FA8"></span>
@@ -236,6 +246,16 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:20</span>
 </div>
 <div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">Can’t reach Postgres on localhost:5432</div>
+
+</div>
+<div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #C8B2FF"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: #E6E8F0">Bash</span>
+<span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">docker compose up -d db</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:21</span>
+</div>
+<div aria-label="Permission" style="display: flex; align-items: flex-start; gap: 6px; padding-left: 18px; margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: #AEB3C3"><span style="flex-shrink: 0; display: flex; margin-top: 3px; color: #C8B2FF"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6z"></path></svg></span><span style="min-width: 0">Waiting on you: run outside the sandbox</span></div>
 
 </div>
 </div>
