@@ -74,6 +74,24 @@ outside, ask the supervisor.
 - **UI changes need an e2e spec.** A PR that changes the UI adds or extends a Playwright spec in `e2e/` that drives the
   real app through the workflow. Use the fixtures in `e2e/fixtures.ts` (`launch`, `tempFolder`, `chooseFolder`) and the
   locators in `e2e/selectors.ts`, and wait on locators, never on timers.
+- **A failed e2e test keeps its evidence** (#483, `e2e/evidence.ts`). Read it before guessing at a cause, and before
+  running the test again: a rare failure may not come back. It's in the test's folder under `out/e2e-results/`, and
+  the list reporter prints each path under the failure:
+  - `attachments/main-log-….log`: the app's main log for the test, every launch (`docs/logs.md`). Follow one task with
+    `grep '"taskId":"<id>"'`: the commands main got (`ipc`), its turns (`runner`), its messages (`chat`) and each
+    change sent to the window (`task`; a `task updated` line names the fields that changed, `unread` among them).
+  - `attachments/tasks-json-….json`: the tasks as main had them when the test failed (id, workspace, title, state,
+    activity, unread, asking, awaiting permission, background work), with the workspace main had as shown and the task
+    it counted as viewed, which a reply is judged against. If the test had closed its app, it says so instead.
+  - `error-context.md`: Playwright's own snapshot of the page, which is the window's side of the same moment.
+
+  On CI, a failed e2e shard uploads the folder as the run's `e2e-results-<shard>` artefact:
+  `node scripts/gh-team.mjs run download <run id> -n e2e-results-<shard> -D /tmp/e2e-results`. A test that passes keeps
+  nothing. The log's lines about the environment are left out and the home folder is written `~`, so nothing kept
+  names whose Mac it ran on; `e2e/evidence.spec.ts` checks all of this on tests that fail on purpose.
+- **Stress specs** (`e2e/stress/`) hunt for a rare failure over hundreds of runs on a loaded machine. They're no part
+  of `npm run test:e2e` or CI (`playwright.config.ts` ignores the folder unless `GLADE_E2E_STRESS` is set); each says
+  at its top how to run it and what it writes down.
 - **Tools that launch Electron run outside the command sandbox, in the background.** `npm run render-design`,
   `npm run check-design`, `npm run screenshot`, `npm run record` and `npm run test:e2e` (and long test runs) go
   outside the sandbox and in the background, then you wait for them to finish: never as a long, silent foreground
