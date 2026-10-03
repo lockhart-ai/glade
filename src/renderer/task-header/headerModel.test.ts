@@ -133,7 +133,8 @@ describe('stateLabel', () => {
     expect(stateLabel({ ...waiting, asking: true })).toBe('Active · waiting on you')
     expect(stateLabel({ ...waiting, awaitingPermission: true })).toBe('Active · waiting on you')
     expect(stateLabel({ ...waiting, backgroundWork: true })).toBe('Active · working')
-    expect(stateLabel({ ...waiting, backgroundWork: true, unread: true })).toBe('Active · working')
+    // An unread reply needs you whether or not its background work runs (#461).
+    expect(stateLabel({ ...waiting, backgroundWork: true, unread: true })).toBe('Active · waiting on you')
     expect(stateLabel(waiting)).toBe('Active · idle')
     expect(stateLabel({ ...waiting, sessionId: null, unread: true })).toBe('Active · idle')
   })

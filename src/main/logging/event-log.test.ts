@@ -724,7 +724,7 @@ describe('the rest of the app', () => {
       { type: EventType.UiStateChanged, entry: { key: UiStateKey.SelectedTaskId, value: 'task-1' } },
       { type: EventType.MenuCommand, command: appCommand(AppCommandId.NewTask) },
       { type: EventType.CloseBlocked, kind: CloseKind.Quit },
-      { type: EventType.TaskOpenRequested, taskId: 'task-1' },
+      { type: EventType.TaskOpenRequested, taskId: 'task-1', subagentId: null },
       { type: EventType.TerminalTabsChanged, tabs: [] },
       { type: EventType.TerminalCleared, tabId: 'term-1' },
       { type: EventType.TerminalOutput, tabId: 'term-1', offset: 0, data: 'secret typed here' },

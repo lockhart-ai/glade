@@ -114,12 +114,87 @@ afterEach(() => {
 })
 
 describe('TaskList', () => {
-  it('shows every section, with a zero count, in an empty workspace', async () => {
+  it('shows Active and Done with a zero count in an empty workspace, but leaves out Pinned entirely (#456)', async () => {
     await renderList([])
 
-    expect(section('Pinned')).toHaveTextContent(/^Pinned0$/)
+    expect(screen.queryByRole('region', { name: 'Pinned' })).toBeNull()
     expect(section('Active')).toHaveTextContent(/^Active0$/)
     expect(section('Done')).toHaveTextContent(/^Done0$/)
+  })
+
+  it('shows the Pinned section once a task is pinned, and hides it again once the last one is unpinned (#456)', async () => {
+    const { fake } = await renderList([task('a1', 'Add rate limiting to public API', 4)])
+    expect(screen.queryByRole('region', { name: 'Pinned' })).toBeNull()
+
+    act(() => {
+      fake.emit({
+        type: EventType.TaskUpdated,
+        task: task('a1', 'Add rate limiting to public API', 4, { pinned: true }),
+      })
+    })
+    expect(section('Pinned')).toBeInTheDocument()
+    expect(rowTitles('Pinned')).toEqual(['Add rate limiting to public API4m'])
+
+    act(() => {
+      fake.emit({ type: EventType.TaskUpdated, task: task('a1', 'Add rate limiting to public API', 4) })
+    })
+    expect(screen.queryByRole('region', { name: 'Pinned' })).toBeNull()
+  })
+
+  it('keeps a folded Pinned section’s collapsed state while it’s hidden, and restores it on a later mount (#456)', async () => {
+    const pinned = task('p1', 'Draft release notes for 2.4', 25, { pinned: true })
+    const { store, fake } = await renderList([pinned])
+    const header = within(section('Pinned')).getByRole('button', { name: /Pinned/ })
+
+    // Collapse it, then unpin the only pinned task: the section goes, but what it's folded to is still stored.
+    fireEvent.click(header)
+    await vi.waitFor(() => {
+      expect(header).toHaveAttribute('aria-expanded', 'false')
+    })
+    expect(fake.invoke).toHaveBeenCalledWith(CommandName.UiStateSet, {
+      key: UiStateKey.PinnedSectionCollapsed,
+      value: 'true',
+    })
+    act(() => {
+      fake.emit({ type: EventType.TaskUpdated, task: task('p1', 'Draft release notes for 2.4', 25) })
+    })
+    expect(screen.queryByRole('region', { name: 'Pinned' })).toBeNull()
+    expect(store.getState().uiState[UiStateKey.PinnedSectionCollapsed]).toBe('true')
+
+    // A later mount (a relaunch, say) with that stored state and a pinned task again comes back folded, not reset.
+    await renderList([pinned], [{ key: UiStateKey.PinnedSectionCollapsed, value: 'true' }])
+    expect(within(section('Pinned')).getByRole('button', { name: /Pinned/ })).toHaveAttribute('aria-expanded', 'false')
+    expect(rowTitles('Pinned')).toEqual([])
+  })
+
+  it('keeps ⌥↑ / ⌥↓ working as the Pinned section comes and goes (#456)', async () => {
+    const tasks = [task('a1', 'Add rate limiting to public API', 4), task('a2', 'Move image uploads to S3', 0)]
+    const { store, fake } = await renderList(tasks, [{ key: UiStateKey.SelectedTaskId, value: 'a2' }])
+
+    // With nothing pinned, ⌥↓ moves within Active as if Pinned were never there.
+    pressAlt('ArrowDown')
+    await vi.waitFor(() => {
+      expect(store.getState().selectedTaskId).toBe('a1')
+    })
+
+    // Pinning the selected task, then collapsing the section it's now in, doesn't strand the selection or the keys:
+    // ⌥↑ with the selected task hidden inside a collapsed Pinned section still finds the last visible task.
+    act(() => {
+      fake.emit({
+        type: EventType.TaskUpdated,
+        task: task('a1', 'Add rate limiting to public API', 4, { pinned: true }),
+      })
+    })
+    const pinnedHeader = within(section('Pinned')).getByRole('button', { name: /Pinned/ })
+    fireEvent.click(pinnedHeader)
+    await vi.waitFor(() => {
+      expect(pinnedHeader).toHaveAttribute('aria-expanded', 'false')
+    })
+
+    pressAlt('ArrowUp')
+    await vi.waitFor(() => {
+      expect(store.getState().selectedTaskId).toBe('a2')
+    })
   })
 
   it('shows the workspace’s tasks in Pinned, Active and Done, most recently updated first, with counts', async () => {
@@ -287,7 +362,7 @@ describe('TaskList', () => {
     expect(dotOf('Upgrade Django')).toBe('done')
   })
 
-  it('shows a task whose turn ended as working while its background work runs, then by whether its reply is read', async () => {
+  it('shows a task whose turn ended as working while its background work runs if its reply is read, and needing you straight away if not (#461)', async () => {
     const running = [
       task('b1', 'Profile the checkout queries', 2, { backgroundWork: true }),
       task('b2', 'Watch the deploy', 3, { backgroundWork: true, unread: true }),
@@ -296,9 +371,11 @@ describe('TaskList', () => {
     const dotOf = (title: string): string | null =>
       row(title).querySelector('[data-state]')?.getAttribute('data-state') ?? null
     expect(dotOf('Profile the checkout queries')).toBe('working')
-    expect(dotOf('Watch the deploy')).toBe('working')
+    // Its reply is unread: it needs you though its background work runs (#461).
+    expect(dotOf('Watch the deploy')).toBe('waiting')
 
-    // The background work finishes: main sends each task again, read without it.
+    // The background work finishes: main sends each task again, read without it. Nothing changes for the unread
+    // one: it already needed you.
     act(() => {
       for (const current of running) {
         fake.emit({ type: EventType.TaskUpdated, task: { ...current, backgroundWork: false } })

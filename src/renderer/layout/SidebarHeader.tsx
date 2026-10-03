@@ -14,6 +14,11 @@ export interface SidebarHeaderSwitcher {
   expanded: boolean
   /** Opens or closes the switcher, given the header's button to anchor its menu to. */
   onToggle: (trigger: HTMLElement) => void
+  /**
+   * The button's tooltip: "Switch workspace", plus how many tasks need you, if any (`switcherTitle` in
+   * `../workspace-switcher/switcherModel`).
+   */
+  title: string
 }
 
 export interface SidebarHeaderProps {
@@ -25,6 +30,8 @@ export interface SidebarHeaderProps {
   switcher?: SidebarHeaderSwitcher
   /** The button that collapses the task list (see `PanelToggle`), where the window offers it. */
   collapseButton?: ReactNode
+  /** The switcher's own count pill (`SwitcherAttentionPill`), just left of the chevron. */
+  pill?: ReactNode
 }
 
 /**
@@ -36,6 +43,7 @@ export function SidebarHeader({
   tone = BadgeTone.Blue,
   switcher,
   collapseButton,
+  pill,
 }: SidebarHeaderProps): React.JSX.Element {
   const content: ReactNode = (
     <>
@@ -46,6 +54,7 @@ export function SidebarHeader({
           {workspace === undefined ? 'Open a folder to begin' : shortenHomePath(workspace.rootPath)}
         </span>
       </span>
+      {pill}
       <span className={styles.chevron}>
         <Icon icon={faChevronDown} />
       </span>
@@ -61,6 +70,7 @@ export function SidebarHeader({
           aria-label="Switch workspace"
           aria-haspopup="menu"
           aria-expanded={switcher.expanded}
+          title={switcher.title}
           className={classNames(styles.workspace, styles.switch, switcher.expanded && styles.expanded)}
           onClick={(event) => {
             switcher.onToggle(event.currentTarget)

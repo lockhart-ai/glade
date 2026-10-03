@@ -40,12 +40,15 @@
   as the next turn, as when a turn ends on its own (#441); a task found stuck with a queue sends it at launch.
 - **Notifications:** native OS notifications for any agent message in a task you're not viewing, even while Glade is
   focused. Task name + start of the message. Sound off. Focus/DND handled by the OS.
-- **Needs you (#430):** a task needs you when it's blocked on you or has a reply you haven't read: asking a question,
-  waiting on a permission card, stopped on an error (or declined by a safety check), or its turn ended with a reply
-  and the task is unread. A read reply with nothing running is neither needs-you nor working (idle). A task whose turn
-  has ended but which still has subagents or watchers running counts as working everywhere until they finish, or it
-  asks, waits on permission or errors; a reply meanwhile marks it unread without making it need you. Mark as unread
-  makes a read task need you again. One rule drives the dots, the switcher, the menu bar, ⌘⌥↓ and the plugin feed.
+- **Needs you (#430, corrected by #461):** a task needs you when it's blocked on you or has a reply you haven't read:
+  asking a question, waiting on a permission card, stopped on an error (or declined by a safety check), or its turn
+  ended with a reply and the task is unread. Background work it left running masks none of these: an unread reply
+  needs you whether or not subagents or watchers still run (#430 shipped with the opposite call — background work
+  took precedence over an unread reply — which hid replies from a supervisor task that nearly always has subagents
+  running; Jared corrected it). A read reply with nothing running is neither needs-you nor working (idle). A task
+  whose turn has ended, whose reply is read, but which still has subagents or watchers running counts as working
+  until they finish, or it asks, waits on permission or errors. Mark as unread makes a read task need you again. One
+  rule drives the dots, the switcher, the menu bar, ⌘⌥↓ and the plugin feed.
 - **Terminal** is per workspace, not per task (#347): each workspace has its own tabs, and the bottom bar shows the
   tabs of the workspace you're looking at, with the one you last picked there. Switching workspace never ends a shell;
   the others keep running, and their output is kept. Close workspace is a switch too: its shells keep running for
@@ -147,6 +150,24 @@
     needs you. The call itself can't survive (its Claude Code process is gone), so answering then resumes the session
     and tells the agent the decision in a message, as a question answered after a restart does. See
     `sdk-notes.md` §9.
+  - The agent sandbox (P15, #445) is **off by default while P15 is being built** (the `sandboxEnabled` setting,
+    which has no switch yet): main is released from, and without the sandbox's permission cards and settings a
+    sandboxed task would have no way to be granted anything. The default flips to on in P15's last PR (#452).
+  - With the sandbox on, Allow all runs as Claude Code's `acceptEdits`, never bypassing, and crossing the sandbox's
+    bounds asks in either mode: a read outside the workspace root and the granted folders under the home folder,
+    `/Users` or `/Volumes` (reads elsewhere, like `/etc` or `/usr`, don't ask), a write outside the root and the
+    read-write grants, `WebFetch` to a domain that isn't granted (so `WebFetch` no longer always goes ahead), a
+    command's connection to such a domain, and every request to run a command outside the sandbox. `WebSearch` never
+    asks. A sandbox that can't start fails every command: the task stops on that error, and every request in that
+    session to run outside the sandbox is refused without a card. A session that won't take its sandbox settings is
+    closed rather than left running, with the same error, before any message reaches the agent. See `sdk-notes.md`
+    §15.
+  - With the sandbox on, folders are compared by where they really are (symbolic links followed, `~` and the data
+    volume's alias resolved, case ignored), so another spelling of a denied folder asks too. Credential files are
+    refused outright. A write that Claude Code's own safety check holds back (`.mcp.json`, `.claude/`, `.git/`, shell
+    startup files) asks even in Allow all. Until the sandbox's own cards (P15-05), a boundary crossing can only be
+    allowed once: **Allow for this task** isn't offered on it, and a whole-tool `Edit` or `Write` rule a task was
+    granted in the ask mode applies only inside the workspace root and the read-write grants.
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
     `manifest.json`: `id` (the folder's name), `name`, `version`, `entry` (an HTML file in the folder) and an optional
@@ -156,7 +177,14 @@
     in a sandboxed view of its own: a separate process (a `WebContentsView` with its own session), no Node, a preload
     that only relays messages, a CSP that blocks all network except localhost, no navigation and no new windows.
   - Glade sends it typed task and agent events with `postMessage`, in a versioned schema (`plugin-api.md`). The plugin
-    sends back only `ready` and a short header status. It can't command Glade.
+    sends back only `ready`, a short header status and `openTask`. It can't change anything in Glade.
+  - A plugin can navigate, only when you ask it to (#466): `openTask` selects a task, as clicking its row does
+    (switching workspace if it has to), and with a subagent opens the Subagents tab on it, as picking it there does.
+    Glade honours it only within a second of a click or key press in the plugin's own view, as main hears the input
+    the OS routes to that view (never anything the page says, which can't prove a click), one `openTask` per click,
+    and only for a task the plugin has been told of and that's still active, or a subagent of it it was told of.
+    Anything else is dropped and logged, never shown. No capability switch: it's your click, and only opens what the
+    plugin already shows. Additive, so the API stays version 1.
   - Nothing about the machine, unless the plugin asks for it and you allow it (#403, replacing P12's "nothing about
     the machine"): a manifest's `capabilities` can ask for `machine`, which Settings › Plugins shows as "Can see your
     Mac's CPU, GPU and Docker load" with a switch per plugin, off until you turn it on (saved in SQLite). With it on,

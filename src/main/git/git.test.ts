@@ -2,8 +2,12 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommitFileStatus } from '../../shared/domain'
 import {
+  BASE_ARGS,
+  COMMAND_ARGS,
   createGit,
   execGit,
+  gitArgs,
+  GitCommand,
   parseCommitFiles,
   parseReflog,
   parseSummaries,
@@ -206,9 +210,9 @@ describe('files', () => {
 
   it('reads nothing when git can’t read the blob, even once it knows its size', async () => {
     let calls = 0
-    const flaky: GitRun = async (args, cwd, maxBytes) => {
+    const flaky: GitRun = async (request) => {
       calls += 1
-      return calls === 1 ? TEST_GIT_RUN(args, cwd, maxBytes) : { ok: false, stdout: Buffer.from(''), truncated: false }
+      return calls === 1 ? TEST_GIT_RUN(request) : { ok: false, stdout: Buffer.from(''), truncated: false }
     }
     const api = repos.repo('acme-api')
     const { commonDir } = await located(api)
@@ -242,15 +246,52 @@ describe('the parsers', () => {
 describe('execGit', () => {
   it('reads what git prints, up to the most it’s allowed, and says when it was cut short', async () => {
     const api = repos.repo('acme-api', { 'big.txt': 'x'.repeat(4096) })
-    const whole = await TEST_GIT_RUN(['cat-file', 'blob', 'HEAD:big.txt'], api, 1 << 20)
+    const blob = { command: GitCommand.CatFile, args: ['blob', 'HEAD:big.txt'], cwd: api }
+    const whole = await TEST_GIT_RUN({ ...blob, maxBytes: 1 << 20 })
     expect(whole).toMatchObject({ ok: true, truncated: false })
     expect(whole.stdout).toHaveLength(4096)
-    const cut = await TEST_GIT_RUN(['cat-file', 'blob', 'HEAD:big.txt'], api, 100)
+    const cut = await TEST_GIT_RUN({ ...blob, maxBytes: 100 })
     expect(cut).toMatchObject({ ok: false, truncated: true })
     expect(cut.stdout.length).toBeLessThanOrEqual(4096)
-    const failed = await TEST_GIT_RUN(['rev-parse', '--verify', 'nowhere'], api, 100)
+    const verify = { command: GitCommand.RevParse, maxBytes: 100 }
+    const failed = await TEST_GIT_RUN({ ...verify, args: ['--verify', 'nowhere'], cwd: api })
     expect(failed).toMatchObject({ ok: false, truncated: false })
-    // With no folder, it runs where Glade runs.
-    expect((await TEST_GIT_RUN(['--version'], null, 100)).ok).toBe(true)
+    // With no folder, it runs where Glade runs, on the repository whose git dir it's given.
+    const head = await TEST_GIT_RUN({ ...verify, args: ['--verify', 'HEAD'], cwd: null, gitDir: join(api, '.git') })
+    expect(head.stdout.toString().trim()).toBe(repos.sh('git rev-parse HEAD', api).trim())
+  })
+})
+
+describe('gitArgs', () => {
+  it('starts every command with the overrides, then its git dir, the command and its own arguments', () => {
+    expect(gitArgs({ command: GitCommand.RevParse, args: ['-q', '--verify', 'HEAD'] })).toEqual([
+      ...BASE_ARGS,
+      'rev-parse',
+      '-q',
+      '--verify',
+      'HEAD',
+    ])
+    expect(gitArgs({ command: GitCommand.CatFile, args: ['-s', 'HEAD:a'], gitDir: '/acme/.git' })).toEqual([
+      ...BASE_ARGS,
+      '--git-dir=/acme/.git',
+      'cat-file',
+      '-s',
+      'HEAD:a',
+    ])
+  })
+
+  it('gives log and show their own overrides last among the options, so nothing a call says outranks them', () => {
+    for (const command of [GitCommand.Log, GitCommand.Show]) {
+      expect(COMMAND_ARGS[command]).toEqual(['--no-ext-diff', '--no-textconv'])
+      expect(
+        gitArgs({ command, args: ['--ext-diff', '--textconv', 'HEAD', '--', 'a.txt'] }).slice(BASE_ARGS.length),
+      ).toEqual([command, '--ext-diff', '--textconv', 'HEAD', '--no-ext-diff', '--no-textconv', '--', 'a.txt'])
+      expect(gitArgs({ command, args: ['-1'] }).slice(BASE_ARGS.length)).toEqual([
+        command,
+        '-1',
+        '--no-ext-diff',
+        '--no-textconv',
+      ])
+    }
   })
 })

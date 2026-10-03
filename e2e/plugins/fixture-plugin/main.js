@@ -16,4 +16,13 @@ window.addEventListener('message', (event) => {
   }
 })
 
+// What to post when you click or press a key in the page, if anything (`window.postOnInput`): how the specs make it
+// answer a click with `openTask`, as Nekomata's cats do.
+window.postOnInput = null
+function answerInput() {
+  if (window.postOnInput !== null) window.glade.post(window.postOnInput)
+}
+document.addEventListener('click', answerInput)
+document.addEventListener('keydown', answerInput)
+
 window.glade.post({ type: 'ready' })

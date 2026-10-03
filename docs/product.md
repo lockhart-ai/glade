@@ -38,7 +38,9 @@ There are no follow-up tasks. One task can refer to another through its folder o
 ## The window
 
 - **Left sidebar** — workspace switcher, search, New task (+), and the task list in three collapsible sections:
-  Pinned, Active, Done. Each row shows a state dot, title and relative time, then a one-line status. Under them, only while there's something to show, a compact third line of what's going on in the
+  Pinned, Active, Done. Pinned is left out entirely while nothing is pinned, so it doesn't take a row for an empty
+  header; Active and Done keep showing, even at zero. Each row shows a state dot, title and relative time, then a
+  one-line status. Under them, only while there's something to show, a compact third line of what's going on in the
   task, in this order: its todo progress (a ring and `3/7`, a check once all are done, the item in progress as its
   tooltip), its running subagents and its live watchers, each an icon and a count with a tooltip. Unread rows are bold
   with a blue dot. At its foot, under a divider, the **usage meter** (see Usage). Resizable, collapsible.
@@ -61,11 +63,14 @@ There are no follow-up tasks. One task can refer to another through its folder o
   still queued and nothing to deliver them, as a Stop before this left it, sends them when Glade next launches.
   A message's pasted images show as thumbnails above its text in the chat, and small in its row while it's queued.
   Clicking one (or ↵ or Space on it) opens the **image viewer** over the window: the image as large as fits, never
-  scaled past its own size, on a dimmed backdrop. With several, ← and → step through the message's images, round from
-  the last to the first, under a "2 of 3"; Esc, a click on the backdrop or × closes it, and the focus goes to the
-  task's input (#415). ![Image viewer](design/screens/30-image-viewer.png)
+  scaled past its own size, on a dimmed backdrop. With several, ← and → step through the message's images, stopping
+  at the first and last rather than going round (#463) — the pager's own Previous / next buttons disable there too,
+  and the keys still step back from an end a click on one reached — under a "2 of 3"; Esc, a click on the backdrop or
+  × closes it, and the focus goes to the task's input (#415).
+  ![Image viewer](design/screens/30-image-viewer.png)
   The same viewer opens an image artifact from the Artifacts tab, and the one file showing in the Files tab (#372): for
-  an artifact, it also shows the artifact's title and two actions, Open in Files and Reveal in Finder, and steps
+  an artifact, it also shows the artifact's title, just above the image's left edge (it appears with the image, once
+  that has loaded, never before it: #478), and two actions, Open in Files and Reveal in Finder, and steps
   through the image artifacts the Artifacts tab lists, in its order (not those in a folded date group, #378); for a
   Files tab image, it shows that one file alone. Opened either of those ways, closing it returns the focus to the row
   or thumbnail that opened it, not to the task's input: a keyboard user stepping through a list keeps their place in it.
@@ -142,7 +147,9 @@ There are no follow-up tasks. One task can refer to another through its folder o
   ![Browse files](design/screens/37-browse-files.png)
 - **Bottom bar** (full width) — the workspace's terminal, with tabs, and a plugin panel (Nekomata). Resizable,
   collapsible. Each workspace has its own terminal tabs; switching workspace switches them, and the other
-  workspaces' shells keep running. Removing a workspace ends its shells.
+  workspaces' shells keep running. Removing a workspace ends its shells. Clicking something in a plugin can open the
+  task it shows (a Nekomata cat), switching workspace if it has to, and a subagent of it (a kitten) in the Subagents
+  tab; a plugin can't do that without your click (`plugin-api.md`, `openTask`).
 
 Each resizable panel has a drag handle in the gap on its inner edge. Dragging it takes room from the chat or gives it
 back, within limits (the chat keeps its minimum width and height); collapsing a panel and showing it again brings it
@@ -182,15 +189,18 @@ Claude · log in?". Glade never sees the credential: Claude Code saves it, as it
 
 ## Attention
 
-**Needs you.** A task needs you when it's blocked on you or has a reply you haven't read (#430): it's **asking a
-question**, waiting on a **permission card**, stopped on an **error** (or declined by a safety check), or its turn
-ended with a **reply and the task is still unread**. Opening the task reads it, so a reply you've read no longer needs
-you; Mark as unread (⌘⇧U) makes it need you again. A brand-new task never does.
+**Needs you.** A task needs you when it's blocked on you or has a reply you haven't read (#430, corrected by #461):
+it's **asking a question**, waiting on a **permission card**, stopped on an **error** (or declined by a safety
+check), or its turn ended with a **reply and the task is still unread**. Background work it left running (see below)
+masks none of these: an unread reply needs you whether or not subagents or watchers still run. Opening the task reads
+it, so a reply you've read no longer needs you; Mark as unread (⌘⇧U) makes it need you again. A brand-new task never
+does.
 
-**Background work counts as working.** A task whose own turn has ended but which still has subagents or watchers
-running (a `Monitor` watch or a background command whose process runs; not a wakeup or cron job that's only
-scheduled) shows as working, until that work finishes or the task asks a question, waits on permission or errors. A
-reply that arrives meanwhile still marks the task unread, but doesn't make it need you until the work has finished.
+**Background work counts as working, once its reply is read.** A task whose own turn has ended, whose reply you've
+read, but which still has subagents or watchers running (a `Monitor` watch or a background command whose process
+runs; not a wakeup or cron job that's only scheduled) shows as working, until that work finishes or the task asks a
+question, waits on permission or errors. A reply that arrives while it's working in the background marks the task
+unread and needing you straight away, background work or not.
 
 A task with a read reply and nothing running is neither: it's **idle** (a slate dot, "Active · idle"), and counts only
 as active.
@@ -200,8 +210,16 @@ and in its header (purple needs you, blue working, pink error, slate idle), the 
 (else "N active"), the menu bar's count and its Needs you and Working lists, Next task that needs you (⌘⌥↓), and the
 plugin feed's `needsYou`. It's worked out from what's stored (the unread flag, open questions and permission requests,
 the tool log's running subagents and the watchers), so it's right after a relaunch too: a relaunch ends the subagents
-and watchers that were running, so a task that was working in the background then needs you if its reply is unread,
-and is idle if not.
+and watchers that were running, which changes nothing for a task whose reply was already unread (it still needs you),
+and leaves a task whose reply was read idle.
+
+The switcher's closed button shows the same thing before you even open it: a small purple pill, just left of the
+chevron, totalling how many tasks need you across *every* workspace, the open one included, "9+" past nine, hidden at
+zero. Its tooltip spells it out ("Switch workspace — 3 tasks need you").
+
+Every count Glade shows you is a count of tasks, never of workspaces, and they're all the same rule: the switcher's
+pill and the menu bar's number are the same total, and each workspace's row in the switcher's open dropdown shows its
+own share of it ("N needs you"), so the rows always add up to the pill (#480).
 
 A task you aren't looking at can still need you. When its agent sends a **final reply**, **asks a question** (`ask`)
 or waits on a **permission card**, in a task you're not viewing, Glade marks the task unread, shows it

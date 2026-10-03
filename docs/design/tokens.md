@@ -22,6 +22,7 @@ can nest one level (header and right panel float inside the task card).
 | `faint` | `#999DB0` | Labels, timestamps, hints |
 | `blue` | `#5B8DEF` | Working, primary buttons, links (`#8FB2F5` for text on dark) |
 | `purple` | `#C8B2FF` | Waiting on you (a question, a permission card, an unread reply), questions, the lit blade |
+| `purple-bg` | `#2E2748` | Background for `purple` on a filled surface: a workspace's badge, the closed switcher's "needs you" count pill |
 | `slate` | `#5C6378` | Done, an active task that's idle (#430), finished tool calls, a withdrawn permission's shield |
 | `pink` | `#E58FA8` | Errors, destructive menu items, deleted lines, a denied or blocked permission |
 | `teal` | `#7FD1C7` | Added lines, strings in code, done todos, a granted permission |

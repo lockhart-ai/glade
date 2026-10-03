@@ -88,6 +88,12 @@ export enum TaskErrorSource {
    * refusal's category (`api_refusal_category`), e.g. `cyber`; null when the SDK gave none.
    */
   Refusal = 'refusal',
+  /**
+   * The agent sandbox couldn't start in the session (`docs/sdk-notes.md` §15): every command it ran failed, and the
+   * error's `details` is Claude Code's message, which names why (`sandboxFailureReason`); or the session wouldn't take
+   * its sandbox settings, and `details` says so and why.
+   */
+  Sandbox = 'sandbox',
 }
 
 /** What stopped a task's agent, for the chat's error card and the task list's status line. */

@@ -1,6 +1,6 @@
 {
   "name": "glade",
-  "version": "0.20.1",
+  "version": "0.21.0",
   "private": true,
   "description": "A calm macOS app for running Claude agent sessions as tasks.",
   "license": "MIT",
@@ -22,6 +22,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run --coverage",
+    "test:perf": "vitest run --coverage --coverage.thresholds.lines=0 --coverage.reporter=text-summary --no-file-parallelism .perf.test.ts",
     "test:e2e": "node scripts/e2e.mjs",
     "record": "node scripts/e2e.mjs --record",
     "check-design": "node scripts/render-design.mjs --check"

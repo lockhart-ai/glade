@@ -375,7 +375,7 @@ it('reads where each task stands with you the same after a relaunch: reply, ques
   expect(standing(third.store)).toEqual(expected)
 })
 
-it('counts a task as working while its background subagent runs, and by its reply once that ends or the app relaunches (#430)', async () => {
+it('counts a task as working while its background subagent runs if its reply is read, and needing you straight away if not (#461)', async () => {
   const first = await launch()
   const workspace = createWorkspace(first.database.db, { name: 'Acme API', rootPath: '/code/acme-api' }, 1_000)
   const viewed = sampleTask(first.database.db, workspace.id)
@@ -418,10 +418,15 @@ it('counts a task as working while its background subagent runs, and by its repl
   )
   await settle()
 
-  // Both are working, whether the reply was read: neither needs you while its subagent runs.
+  // The one you read while watching counts as working while its subagent runs; the one that landed while you were
+  // away is unread, so it needs you straight away, subagent or not (#461).
   expect(standing(second.store, viewed.id)).toEqual([TaskAttention.Working, false, true])
-  expect(standing(second.store, away.id)).toEqual([TaskAttention.Working, true, true])
-  expect(Object.values(getState().tasks).filter(needsYou)).toEqual([])
+  expect(standing(second.store, away.id)).toEqual([TaskAttention.NeedsYou, true, true])
+  expect(
+    Object.values(getState().tasks)
+      .filter(needsYou)
+      .map(({ id }) => id),
+  ).toEqual([away.id])
 
   // The app quits with both still running: they died with their sessions, so after the relaunch the read reply is
   // idle and the unread one needs you.
@@ -440,7 +445,7 @@ it('counts a task as working while its background subagent runs, and by its repl
   ])
 })
 
-it('tells the window when a background subagent ends, so the task stops counting as working (#430)', async () => {
+it('an unread reply needs you while its background subagent runs, not only once it ends (#461)', async () => {
   const first = await launch()
   const workspace = createWorkspace(first.database.db, { name: 'Acme API', rootPath: '/code/acme-api' }, 1_000)
   const task = sampleTask(first.database.db, workspace.id)
@@ -461,17 +466,18 @@ it('tells the window when a background subagent ends, so the task stops counting
     const current = getState().tasks[task.id]
     return current === undefined ? undefined : taskAttention(current)
   }
-  expect(attention()).toBe(TaskAttention.Working)
-  // Next task that needs you has nowhere to go.
-  expect(nextNeedingYou(listSections(getState(), workspace.id), other.id)).toBeNull()
+  // The reply landed while you were away: it needs you though its subagent still runs (#461), unlike before #461.
+  expect(attention()).toBe(TaskAttention.NeedsYou)
+  expect(nextNeedingYou(listSections(getState(), workspace.id), other.id)).toBe(task.id)
 
-  // The subagent ends without waking the agent's turn: nothing writes the task, yet the window hears it needs you.
+  // The subagent ends without waking the agent's turn: nothing writes the task, and it already needed you, so
+  // nothing changes.
   first.backend.session.emit(...sdk.subagentEnded('toolu_q', 'aq1', 'completed', 'An N+1 in load_cart.'))
   await settle()
   expect(attention()).toBe(TaskAttention.NeedsYou)
   expect(nextNeedingYou(listSections(getState(), workspace.id), other.id)).toBe(task.id)
 
-  // Opening it reads it.
+  // Opening it reads it, and nothing is left running, so it's idle.
   await getState().selectTask(task.id)
   expect(attention()).toBe(TaskAttention.Idle)
 })

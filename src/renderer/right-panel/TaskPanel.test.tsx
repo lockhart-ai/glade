@@ -679,6 +679,91 @@ describe('TaskPanel', () => {
       expect(api).toHaveTextContent('1 tool call')
       expect(screen.getByRole('group', { name: 'Check links' })).toHaveTextContent('Fixed both links.')
     })
+
+    describe('showing a subagent a plugin opens', () => {
+      const header = (name: string): HTMLElement =>
+        within(screen.getByRole('group', { name })).getByRole('button', { name: new RegExp(`^${name}`) })
+
+      it('opens the panel at Subagents, with that subagent’s log open, and scrolls to it once', async () => {
+        const { emit } = await renderPanel({
+          toolEvents: [agent('api', 'API changes'), agent('links', 'Check links')],
+          uiState: [
+            { key: UiStateKey.RightPanelCollapsed, value: 'true' },
+            { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: 'files' }) },
+          ],
+        })
+
+        act(() => {
+          emit({ type: EventType.TaskOpenRequested, taskId: 't1', subagentId: 'use-links' })
+        })
+
+        await waitFor(() => {
+          expect(header('Check links')).toHaveAttribute('aria-expanded', 'true')
+        })
+        expect(tab(/^Subagents/)).toHaveAttribute('aria-selected', 'true')
+        expect(header('API changes')).toHaveAttribute('aria-expanded', 'false')
+        expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: 'nearest' })
+        expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('group', { name: 'Check links' }))
+
+        // Shown once: coming back to the tab doesn't show it again.
+        fireEvent.click(tab('Files'))
+        fireEvent.click(tab(/^Subagents/))
+        expect(header('Check links')).toHaveAttribute('aria-expanded', 'false')
+        expect(scrollIntoView).toHaveBeenCalledOnce()
+      })
+
+      it('keeps an open log open, rather than closing it as a click would', async () => {
+        const { emit } = await renderPanel({
+          toolEvents: [agent('links', 'Check links')],
+          uiState: [{ key: UiStateKey.RightPanelTab, value: 'subagents' }],
+        })
+        fireEvent.click(header('Check links'))
+
+        act(() => {
+          emit({ type: EventType.TaskOpenRequested, taskId: 't1', subagentId: 'use-links' })
+        })
+
+        await waitFor(() => {
+          expect(scrollIntoView).toHaveBeenCalledOnce()
+        })
+        expect(header('Check links')).toHaveAttribute('aria-expanded', 'true')
+      })
+
+      it('selects another task first, and shows its subagent', async () => {
+        const { emit, store } = await renderPanel({
+          toolEvents: [agent('links', 'Check links'), agent('kitten', 'Migrate webhooks', { taskId: 't2' })],
+        })
+
+        act(() => {
+          emit({ type: EventType.TaskOpenRequested, taskId: 't2', subagentId: 'use-kitten' })
+        })
+
+        await waitFor(() => {
+          expect(header('Migrate webhooks')).toHaveAttribute('aria-expanded', 'true')
+        })
+        expect(store.getState().selectedTaskId).toBe('t2')
+        expect(screen.queryByRole('group', { name: 'Check links' })).toBeNull()
+      })
+
+      it('waits for a subagent that isn’t in the tab yet, and shows it when it starts', async () => {
+        const { emit } = await renderPanel({ toolEvents: [agent('links', 'Check links')] })
+
+        act(() => {
+          emit({ type: EventType.TaskOpenRequested, taskId: 't1', subagentId: 'use-late' })
+        })
+        await waitFor(() => {
+          expect(tab(/^Subagents/)).toHaveAttribute('aria-selected', 'true')
+        })
+        expect(scrollIntoView).not.toHaveBeenCalled()
+
+        act(() => {
+          emit({ type: EventType.ToolEventAppended, toolEvent: agent('late', 'Late arrival') })
+        })
+        expect(header('Late arrival')).toHaveAttribute('aria-expanded', 'true')
+        expect(header('Check links')).toHaveAttribute('aria-expanded', 'false')
+        expect(scrollIntoView).toHaveBeenCalledOnce()
+      })
+    })
   })
 
   describe('the Watchers tab', () => {

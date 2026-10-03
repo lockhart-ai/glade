@@ -1,15 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import { TaskActivity, TaskState, type Task } from '../../shared/domain'
+import { menuBarIcon, menuBarSnapshot } from '../../shared/menuBar'
+import { TaskActivity, TaskState, type Task, type Workspace } from '../../shared/domain'
 import { sampleTask, sampleWorkspace } from '../store/test-bridge'
 import {
   badgeTone,
   BadgeTone,
   describeStatus,
+  needsYouCount,
+  pillText,
+  switcherTitle,
   workspaceAt,
   workspaceInitial,
   workspaceStatus,
   WorkspaceStatusKind,
 } from './switcherModel'
+
+/** `menuBarIcon`'s count, as a number: `''` reads as 0. */
+function menuBarCount(tasks: readonly Task[], workspaces: readonly Workspace[]): number {
+  const icon = menuBarIcon(menuBarSnapshot({ tasks, workspaces, turnStartedAt: () => null, recent: [] }))
+  return icon.title === '' ? 0 : Number(icon.title)
+}
 
 /** A task in `workspaceId` whose agent is working. */
 function working(id: string, workspaceId = 'w1'): Task {
@@ -50,19 +60,26 @@ describe('workspaceStatus', () => {
     })
   })
 
-  it('counts a reply you have read, and a task still working in the background, as active only (#430)', () => {
+  it('counts a read reply still working in the background as active only, and an unread one as needing you whether or not background work runs (#461)', () => {
     const read = { ...waiting('t1'), unread: false }
-    const background = { ...waiting('t2'), backgroundWork: true }
-    expect(workspaceStatus([read, background], 'w1')).toEqual({ kind: WorkspaceStatusKind.Active, count: 2 })
-
-    // The background work finishes on its unread reply; the read one is marked unread.
-    expect(workspaceStatus([read, { ...background, backgroundWork: false }], 'w1')).toEqual({
+    const readBackground = { ...read, backgroundWork: true }
+    const unreadBackground = { ...waiting('t2'), backgroundWork: true }
+    expect(workspaceStatus([read, readBackground], 'w1')).toEqual({ kind: WorkspaceStatusKind.Active, count: 2 })
+    // The unread one needs you though its background work runs (#461).
+    expect(workspaceStatus([readBackground, unreadBackground], 'w1')).toEqual({
       kind: WorkspaceStatusKind.NeedsYou,
       count: 1,
     })
-    expect(workspaceStatus([{ ...read, unread: true }, background], 'w1')).toEqual({
+
+    // Its background work finishes while it's still unread: it already needed you, so nothing changes.
+    expect(workspaceStatus([readBackground, { ...unreadBackground, backgroundWork: false }], 'w1')).toEqual({
       kind: WorkspaceStatusKind.NeedsYou,
       count: 1,
+    })
+    // The read one is marked unread too: now both need you.
+    expect(workspaceStatus([{ ...readBackground, unread: true }, unreadBackground], 'w1')).toEqual({
+      kind: WorkspaceStatusKind.NeedsYou,
+      count: 2,
     })
     // Asking or erroring needs you whatever runs in the background, and whether it's read.
     const asking = { ...read, backgroundWork: true, asking: true }
@@ -102,6 +119,83 @@ describe('workspaceInitial', () => {
     expect(workspaceInitial('acme API')).toBe('A')
     expect(workspaceInitial('élan')).toBe('É')
     expect(workspaceInitial('')).toBe('?')
+  })
+})
+
+describe('needsYouCount', () => {
+  const workspaces = [sampleWorkspace('w1'), sampleWorkspace('w2'), sampleWorkspace('w3')]
+
+  it('is 0 with nothing needing you', () => {
+    expect(needsYouCount([], workspaces)).toBe(0)
+    expect(needsYouCount([working('t1'), done('t2')], workspaces)).toBe(0)
+  })
+
+  it('counts tasks that need you across every workspace, the current one included (#480)', () => {
+    const tasks = [waiting('t1', 'w1'), waiting('t2', 'w2'), waiting('t3', 'w3'), working('t4', 'w2')]
+    // Unlike #472's count, w1's own task counts too: every workspace is the same rule now.
+    expect(needsYouCount(tasks, workspaces)).toBe(3)
+  })
+
+  it('leaves out a task whose workspace isn’t in the list, the same way `menuBarSnapshot` does (#480)', () => {
+    const tasks = [waiting('t1', 'w1'), waiting('t2', 'gone')]
+    expect(needsYouCount(tasks, workspaces)).toBe(1)
+  })
+
+  it('always equals the menu bar icon’s count: needing in the current workspace and in others, working, idle, done, and a task whose workspace is gone (#480)', () => {
+    const tasks = [
+      waiting('t1', 'w1'), // needs you, the current workspace
+      waiting('t2', 'w2'), // needs you, another workspace
+      working('t3', 'w1'), // working, not needing you
+      sampleTask('t4', 'w1'), // brand new, idle
+      done('t5', 'w2'), // done, never counted
+      waiting('t6', 'gone'), // a workspace the app no longer has: left out of both
+    ]
+
+    expect(needsYouCount(tasks, workspaces)).toBe(2)
+    expect(needsYouCount(tasks, workspaces)).toBe(menuBarCount(tasks, workspaces))
+  })
+
+  it('is 0, and the menu bar’s count is blank, with nothing needing you at all', () => {
+    const tasks = [working('t1', 'w1'), done('t2', 'w2')]
+    expect(needsYouCount(tasks, workspaces)).toBe(0)
+    expect(menuBarCount(tasks, workspaces)).toBe(0)
+  })
+})
+
+describe('needsYouCount and workspaceStatus (docs/product.md, "Attention")', () => {
+  it('the pill’s count is the sum of every workspace’s own "N needs you", exactly as the menu bar counts it too', () => {
+    const workspaces = [sampleWorkspace('w1'), sampleWorkspace('w2'), sampleWorkspace('w3')]
+    const tasks = [waiting('t1', 'w1'), waiting('t2', 'w2'), waiting('t3', 'w2'), working('t4', 'w3'), done('t5', 'w1')]
+
+    const sumOfRows = workspaces.reduce((total, workspace) => {
+      const status = workspaceStatus(tasks, workspace.id)
+      return total + (status.kind === WorkspaceStatusKind.NeedsYou ? status.count : 0)
+    }, 0)
+
+    expect(sumOfRows).toBe(3)
+    expect(sumOfRows).toBe(needsYouCount(tasks, workspaces))
+    expect(sumOfRows).toBe(menuBarCount(tasks, workspaces))
+  })
+})
+
+describe('pillText', () => {
+  it('is the count, or 9+ past nine', () => {
+    expect(pillText(1)).toBe('1')
+    expect(pillText(9)).toBe('9')
+    expect(pillText(10)).toBe('9+')
+    expect(pillText(42)).toBe('9+')
+  })
+})
+
+describe('switcherTitle', () => {
+  it('is just "Switch workspace" at 0', () => {
+    expect(switcherTitle(0)).toBe('Switch workspace')
+  })
+
+  it('says how many tasks need you, past 0, with the exact count (not 9+)', () => {
+    expect(switcherTitle(1)).toBe('Switch workspace — 1 task needs you')
+    expect(switcherTitle(3)).toBe('Switch workspace — 3 tasks need you')
+    expect(switcherTitle(10)).toBe('Switch workspace — 10 tasks need you')
   })
 })
 

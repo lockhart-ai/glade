@@ -349,6 +349,25 @@ describe('SidebarHeader', () => {
 
     expect(screen.getByRole('region', { name: 'Workspace' })).toHaveTextContent('?/code/w1')
   })
+
+  it('gives the switcher button the title it is handed, and renders its pill just before the chevron (#472)', () => {
+    render(
+      <SidebarHeader
+        workspace={sampleWorkspace('w1')}
+        switcher={{
+          expanded: false,
+          onToggle: vi.fn(),
+          title: 'Switch workspace — 3 tasks need you',
+        }}
+        pill={<span data-testid="attention-pill">3</span>}
+      />,
+    )
+
+    const trigger = screen.getByRole('button', { name: 'Switch workspace' })
+    expect(trigger).toHaveAttribute('title', 'Switch workspace — 3 tasks need you')
+    const pill = within(trigger).getByTestId('attention-pill')
+    expect(pill.nextElementSibling?.querySelector('svg')).not.toBeNull()
+  })
 })
 
 describe('TaskCard', () => {

@@ -217,6 +217,22 @@ describe('the unsaved edits prompt', () => {
     await store.getState().selectTask('t2')
   })
 
+  it('asks before a task main opens (a plugin, on a subagent): Cancel stays, showing nothing', async () => {
+    const { store, emit, edit } = await setup()
+    edit(A).type('mine')
+
+    emit({ type: EventType.TaskOpenRequested, taskId: 't3', subagentId: 'toolu_kitten' })
+    await answer(store, UnsavedChoice.Cancel)
+
+    await vi.waitFor(() => {
+      expect(store.getState().unsavedPrompt).toBeNull()
+    })
+    expect(store.getState().selectedTaskId).toBe('t1')
+    expect(store.getState().selectedWorkspaceId).toBe('w1')
+    expect(store.getState().subagentFocus).toBeNull()
+    expect(store.getState().uiState[UiStateKey.RightPanelTabs]).toBeUndefined()
+  })
+
   it('asks before a new task, and before another workspace: Discard drops the edits and goes', async () => {
     const { store, data, edit } = await setup()
     edit(A).type('mine')

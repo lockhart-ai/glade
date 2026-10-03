@@ -60,6 +60,17 @@ export interface ToolPermissionCall {
   readonly mcpServer: McpServerOrigin | null
   /** Whether a user `permissions.ask` rule forced the prompt. */
   readonly matchedAskRule: boolean
+  /**
+   * The path a `Bash` call's path check stopped at, outside the folders it may use; null for every other call. A file
+   * tool's ask about a path outside them names it only in its input (`docs/sdk-notes.md` §15).
+   */
+  readonly blockedPath: string | null
+  /**
+   * Why Claude Code asked, in its words, e.g. `Path is outside allowed working directories` for a file tool outside the
+   * folders it may use, or `dangerouslyDisableSandbox` for a command that asks to run outside the sandbox; null when it
+   * doesn't say (`docs/sdk-notes.md` §15).
+   */
+  readonly decisionReason: string | null
   /** Aborted when the SDK cancels the call, e.g. on an interrupt. */
   readonly signal: AbortSignal
 }
@@ -120,11 +131,42 @@ export interface BashCallStarting {
 }
 
 /**
+ * A `Bash` call that has run, as the session's `PostToolUse` hook (it exited 0) or `PostToolUseFailure` hook (it
+ * didn't) tells it, before its result goes back to the agent (`docs/sdk-notes.md` §15). A `Monitor` call's command
+ * is told the same way: it runs in the sandbox too.
+ */
+export interface BashCallFinished {
+  /** The call's `tool_use` id, a subagent's call's too. */
+  readonly toolUseId: string
+  readonly command: string
+  /** What the call's result says: what the command printed, or, for one that failed, the error Claude Code gives. */
+  readonly output: string
+  /** Whether it failed (`PostToolUseFailure`): it exited non-zero, or couldn't run at all. */
+  readonly failed: boolean
+  /** Aborted when the SDK gives up on the hook, e.g. on an interrupt. */
+  readonly signal: AbortSignal
+}
+
+/** What the host tells the agent about a `Bash` call that has run (`SessionHooks.onBashFinished`). */
+export interface BashFinishedAnswer {
+  /**
+   * Added to what the agent reads of the call's result (`additionalContext`), e.g. that the folder it was blocked from
+   * is now allowed and it can run the command again; null to add nothing.
+   */
+  readonly context: string | null
+}
+
+/**
  * What the session tells the host as it runs, through Claude Code's hooks (`docs/sdk-notes.md` §13 and §14), parsed at
  * the SDK boundary: the prompts that start its turns, the jobs it has scheduled, the summaries its compactions write
- * (§5) and the `Bash` calls about to run.
+ * (§5) and the `Bash` calls about to run and run (§15).
  */
 export interface SessionHooks {
+  /**
+   * A `Bash` call has run, and its result waits until this resolves, however long that takes: the agent's turn holds
+   * meanwhile (`docs/sdk-notes.md` §15). What it answers is added to what the agent reads of the result.
+   */
+  readonly onBashFinished?: (call: BashCallFinished) => Promise<BashFinishedAnswer>
   /**
    * A `Bash` call is about to run (`PreToolUse`): the call waits until this resolves, for a while at most, so the host
    * can see where things stand first. It never stops the call.
@@ -139,6 +181,64 @@ export interface SessionHooks {
   readonly onTurnEnded: (jobs: readonly SessionJob[]) => void
   /** A compaction wrote its summary (`PostCompact`), just before the SDK reports it done (`compact_boundary`). */
   readonly onCompacted: (compaction: CompactSummary) => void
+}
+
+/** The folders a sandboxed command may read and write (the SDK's `sandbox.filesystem`), as absolute paths or `~/…`. */
+export interface SandboxFilesystem {
+  readonly denyRead?: readonly string[]
+  /** Folders inside `denyRead` that stay readable. */
+  readonly allowRead?: readonly string[]
+  readonly allowWrite?: readonly string[]
+  readonly denyWrite?: readonly string[]
+}
+
+/** The hosts a sandboxed command may reach without asking (the SDK's `sandbox.network`). */
+export interface SandboxNetwork {
+  readonly allowedDomains?: readonly string[]
+}
+
+/** A credential file or folder no sandboxed command may read, even in a folder it may (`sandbox.credentials`). */
+export interface SandboxCredentialFile {
+  readonly path: string
+  readonly mode: 'deny'
+}
+
+/**
+ * As much of the SDK's `sandbox` setting as Glade sets (`docs/sdk-notes.md` §15): Seatbelt around the agent's commands,
+ * with the folders and hosts they may use.
+ */
+export interface SandboxSettings {
+  readonly enabled: boolean
+  /** Whether a sandbox that can't start fails every command rather than running it unsandboxed: true by default. */
+  readonly failIfUnavailable?: boolean
+  /** Whether a sandboxed command runs without asking, whatever the permission mode. */
+  readonly autoAllowBashIfSandboxed?: boolean
+  readonly filesystem?: SandboxFilesystem
+  readonly network?: SandboxNetwork
+  readonly credentials?: { readonly files?: readonly SandboxCredentialFile[] }
+}
+
+/**
+ * Permission rules set as settings (`settings.permissions`), each a rule string such as `Read(//Users/me/notes/**)` or
+ * `WebFetch(domain:registry.npmjs.org)`. Unlike `allowedTools`, a `WebFetch(domain:…)` rule here also lets the
+ * sandbox's commands reach the host (`docs/sdk-notes.md` §15).
+ */
+export interface SettingsPermissions {
+  readonly allow?: readonly string[]
+  readonly ask?: readonly string[]
+  readonly deny?: readonly string[]
+  /** Folders the file tools may read and write, besides the session's own. */
+  readonly additionalDirectories?: readonly string[]
+}
+
+/**
+ * What Glade sets of a session's sandbox in its flag settings: at start, and on a live session with
+ * `applyFlagSettings`. Each key given replaces what an earlier `applyFlagSettings` set for it (null clears it), but
+ * never narrows what the session started with: the two are merged (`docs/sdk-notes.md` §15).
+ */
+export interface SandboxFlagSettings {
+  readonly sandbox?: SandboxSettings | null
+  readonly permissions?: SettingsPermissions | null
 }
 
 /** How to start one task's agent session. */
@@ -160,6 +260,11 @@ export interface AgentSessionOptions extends AgentSessionSettings {
    * without asking, in the ask mode. None by default.
    */
   readonly allowedRules?: readonly PermissionRule[]
+  /**
+   * The sandbox the session runs its commands in, and the permission rules set with it, as it starts: what a later
+   * `applyFlagSettings` can add to but never take back (`docs/sdk-notes.md` §15). No sandbox by default.
+   */
+  readonly flagSettings?: SandboxFlagSettings
   /** Where the backend logs the session's agent process: the task's agent log. The backend's own by default. */
   readonly log?: Logger
   /**
@@ -189,6 +294,12 @@ export interface AgentSession {
    * permission mode applies from the next tool call, so it can change at any time.
    */
   configure(settings: AgentSessionSettings): void
+  /**
+   * Changes the session's sandbox and the permission rules set with it, from its next tool call, mid-turn too, in order
+   * with the messages and changes before it (the SDK's `applyFlagSettings`, `docs/sdk-notes.md` §15). Each key given
+   * replaces what the last call set for it. Resolves once applied; rejects if the SDK refuses it.
+   */
+  applyFlagSettings(settings: SandboxFlagSettings): Promise<void>
   /** Interrupts the running turn, which then ends with an aborted result; the session stays alive. Stop uses it. */
   interrupt(): Promise<void>
   /**

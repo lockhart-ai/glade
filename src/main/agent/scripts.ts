@@ -15,6 +15,13 @@ import {
   type Question,
   type ToolInput,
 } from '../../shared/domain'
+import {
+  FileAccess,
+  SandboxOperation,
+  commandFailure,
+  sandboxInitFailure,
+  type SandboxDenial,
+} from './sandbox-requests'
 
 export enum ScriptStepKind {
   /** `system/init` for the session, which the SDK sends at the start of every turn. */
@@ -135,6 +142,45 @@ export enum ScriptStepKind {
    * step pinned, in this session or an earlier one (after a relaunch).
    */
   MessageSubagent = 'message_subagent',
+  /**
+   * A sandboxed `Bash` call that connects to a host (`docs/sdk-notes.md` §15): the `tool_use`, then, when the session
+   * runs sandboxed and may not reach the host (it isn't in the sandbox's `allowedDomains`, a `WebFetch(domain:…)` rule
+   * in its flag settings, or allowed earlier in the session), the session asks the runner about
+   * `SandboxNetworkAccess` for the host, under a fresh id, and waits, however long, going idle. Allowed, the host stays
+   * allowed for the session and the call's result is `output`; denied, it fails with `deniedOutput` and a
+   * `<sandbox_violations>` block naming the host. Unsandboxed, it just runs. Either way the session's `Bash` hook
+   * (`hooks.onBashFinished`) hears the result before it's streamed, and the turn waits for it. Stop cuts either wait
+   * short.
+   */
+  NetworkAccess = 'network_access',
+  /**
+   * A `WebFetch` call (`docs/sdk-notes.md` §15): sandboxed, it asks the runner about a domain the session may not reach
+   * (as `NetworkAccess` decides it, or a task rule for it) in any permission mode, suggesting the domain's rule;
+   * unsandboxed, it asks as a `Permission` step does. Allowed, its result is `output`; denied, the denial.
+   */
+  WebFetch = 'web_fetch',
+  /**
+   * A file tool's call on a file outside the folders it may use (`docs/sdk-notes.md` §15): sandboxed, in any permission
+   * mode, it asks the runner with the reason Claude Code gives and a suggestion naming the file's folder, unless the
+   * file is in the session's folder or an additional directory, or (for a read) a `Read` rule's folder; unsandboxed, it
+   * asks as a `Permission` step does. Allowed, its result is `output`; denied, the denial.
+   */
+  OutsideFile = 'outside_file',
+  /**
+   * A `Bash` call asking to run outside the sandbox (`dangerouslyDisableSandbox: true`, `docs/sdk-notes.md` §15):
+   * sandboxed, it asks the runner, saying so, whatever the permission mode, unless a task rule covers the command and
+   * the session has no ask rule for it (`SANDBOX_OVERRIDE_ASK_RULE`); unsandboxed, it asks as a `Permission` step
+   * does. Allowed, its result is `output`; denied, the denial. The session's `Bash` hook hears the result first.
+   */
+  SandboxOverride = 'sandbox_override',
+  /**
+   * A sandboxed `Bash` call whose result the script gives (`docs/sdk-notes.md` §15): one the sandbox blocked, or one
+   * that failed because the sandbox couldn't start. The `tool_use`; then what Seatbelt logs of its `denials`, each
+   * naming the call (`onSandboxLog`); then the session's `Bash` hook hears the result and the turn waits for its
+   * answer, going idle, however long; then the result. If the hook answered with something to tell the agent, the
+   * agent plays `retried` (such as the same command, run again); otherwise `gaveUp`. Stop cuts the wait short.
+   */
+  SandboxedBash = 'sandboxed_bash',
 }
 
 export interface InitStep {
@@ -428,7 +474,79 @@ export interface ShellStep {
   readonly parent?: string
 }
 
+export interface NetworkAccessStep {
+  readonly kind: ScriptStepKind.NetworkAccess
+  readonly id: string
+  readonly command: string
+  /** The host the command connects to, bare (`registry.npmjs.org`). */
+  readonly host: string
+  /** The port it connects to: 443 by default. */
+  readonly port?: number
+  /** The call's result once the connection is allowed (or needs no asking). */
+  readonly output: string
+  /** What the command prints when the connection is denied, before Claude Code's block: `Exit code 1` by default. */
+  readonly deniedOutput?: string
+  /** The `Agent` call's id when a subagent makes the call. */
+  readonly parent?: string
+}
+
+export interface WebFetchStep {
+  readonly kind: ScriptStepKind.WebFetch
+  readonly id: string
+  /** An `http` or `https` URL. */
+  readonly url: string
+  /** What the agent asks of the page; a short default. */
+  readonly prompt?: string
+  readonly output: string
+  readonly parent?: string
+}
+
+export interface OutsideFileStep {
+  readonly kind: ScriptStepKind.OutsideFile
+  readonly id: string
+  /** A file tool: `Read`, `Write`, `Edit`, `MultiEdit` or `NotebookEdit`. */
+  readonly tool: string
+  /** The call's input; its `file_path` (`notebook_path` for `NotebookEdit`) is an absolute path. */
+  readonly input: ToolInput
+  /** Whether the tool reads the file or writes it: `Read` reads, the others write. */
+  readonly access: FileAccess
+  readonly output: string
+  readonly parent?: string
+}
+
+export interface SandboxOverrideStep {
+  readonly kind: ScriptStepKind.SandboxOverride
+  readonly id: string
+  readonly command: string
+  readonly description?: string
+  readonly output: string
+  readonly parent?: string
+}
+
+export interface SandboxedBashStep {
+  readonly kind: ScriptStepKind.SandboxedBash
+  readonly id: string
+  readonly command: string
+  readonly description?: string
+  /** The call's result, as Claude Code gives it: for a failed call, `Exit code <n>` and what the command printed. */
+  readonly output: string
+  /** Whether it failed (exited non-zero): true by default. */
+  readonly failed?: boolean
+  /** What Seatbelt denied it, in order. */
+  readonly denials?: readonly SandboxDenial[]
+  /** What the agent does when the hook told it something, such as that it may run the command again. */
+  readonly retried?: ScriptTurn
+  /** What the agent does when it didn't. */
+  readonly gaveUp?: ScriptTurn
+  readonly parent?: string
+}
+
 export type ScriptStep =
+  | NetworkAccessStep
+  | WebFetchStep
+  | OutsideFileStep
+  | SandboxOverrideStep
+  | SandboxedBashStep
   | ShellStep
   | InitStep
   | TextStep
@@ -637,6 +755,67 @@ export const permission = (
   output: string,
   options: Omit<PermissionStep, 'kind' | 'id' | 'name' | 'input' | 'output'> = {},
 ): PermissionStep => ({ kind: ScriptStepKind.Permission, id, name, input, output, ...options })
+
+/** A sandboxed `Bash` call that connects to `host` (see `ScriptStepKind.NetworkAccess`). */
+export const networkAccess = (
+  id: string,
+  command: string,
+  host: string,
+  output: string,
+  options: Omit<NetworkAccessStep, 'kind' | 'id' | 'command' | 'host' | 'output'> = {},
+): NetworkAccessStep => ({ kind: ScriptStepKind.NetworkAccess, id, command, host, output, ...options })
+
+/** A `WebFetch` call (see `ScriptStepKind.WebFetch`). */
+export const webFetch = (
+  id: string,
+  url: string,
+  output: string,
+  options: Omit<WebFetchStep, 'kind' | 'id' | 'url' | 'output'> = {},
+): WebFetchStep => ({ kind: ScriptStepKind.WebFetch, id, url, output, ...options })
+
+/** A `Read` of a file outside the folders the file tools may use (see `ScriptStepKind.OutsideFile`). */
+export const outsideRead = (id: string, path: string, output: string, parent?: string): OutsideFileStep => ({
+  kind: ScriptStepKind.OutsideFile,
+  id,
+  tool: 'Read',
+  input: { file_path: path },
+  access: FileAccess.Read,
+  output,
+  ...(parent === undefined ? {} : { parent }),
+})
+
+/** A `Write` of a file outside the folders the file tools may use (see `ScriptStepKind.OutsideFile`). */
+export const outsideWrite = (
+  id: string,
+  path: string,
+  content: string,
+  output: string,
+  parent?: string,
+): OutsideFileStep => ({
+  kind: ScriptStepKind.OutsideFile,
+  id,
+  tool: 'Write',
+  input: { file_path: path, content },
+  access: FileAccess.Write,
+  output,
+  ...(parent === undefined ? {} : { parent }),
+})
+
+/** A `Bash` call asking to run outside the sandbox (see `ScriptStepKind.SandboxOverride`). */
+export const sandboxOverride = (
+  id: string,
+  command: string,
+  output: string,
+  options: Omit<SandboxOverrideStep, 'kind' | 'id' | 'command' | 'output'> = {},
+): SandboxOverrideStep => ({ kind: ScriptStepKind.SandboxOverride, id, command, output, ...options })
+
+/** A sandboxed `Bash` call with a scripted result (see `ScriptStepKind.SandboxedBash`). */
+export const sandboxedBash = (
+  id: string,
+  command: string,
+  output: string,
+  options: Omit<SandboxedBashStep, 'kind' | 'id' | 'command' | 'output'> = {},
+): SandboxedBashStep => ({ kind: ScriptStepKind.SandboxedBash, id, command, output, ...options })
 
 /** What Claude Code suggests for a `Bash` call that asks: an exact rule for the command (as probed, §9). */
 export const bashSuggestions = (command: string): readonly PermissionSuggestion[] => [
@@ -2465,6 +2644,96 @@ const asksPermission: AgentScript = {
   ],
 }
 
+/** What the `asks-sandbox` script's agent reaches for outside its workspace (`docs/sdk-notes.md` §15). */
+export const ASKS_SANDBOX = {
+  host: 'registry.npmjs.org',
+  install: 'npm install',
+  docs: 'https://docs.acme.dev/api/retries',
+  notes: '/code/acme-shared/notes.md',
+  changelog: '/code/acme-shared/CHANGELOG.md',
+  config: '/code/acme-shared/config.json',
+  compose: 'docker compose up -d',
+  reply: 'Installed the dependencies, read the shared notes and config, and started the database.',
+} as const
+
+/** What Seatbelt denies the `asks-sandbox` script's command. */
+const CONFIG_DENIAL: SandboxDenial = { process: 'cat', operation: SandboxOperation.ReadData, path: ASKS_SANDBOX.config }
+
+/**
+ * A turn that reaches past its workspace every way the sandbox asks about, in the order a task might: a command
+ * connecting to a host, `WebFetch` to a domain, a file read and a file write outside the workspace, a command the
+ * sandbox blocks (then, once the hook says it may, run again), and one that asks to run outside the sandbox. Run
+ * sandboxed, each asks; unsandboxed, only the file tools and the override ask, and only in the ask mode.
+ */
+const asksSandbox: AgentScript = {
+  name: 'asks-sandbox',
+  turns: [
+    [
+      ...turnStart(),
+      say("I'll install the dependencies, then check the shared notes."),
+      networkAccess('install', ASKS_SANDBOX.install, ASKS_SANDBOX.host, 'added 312 packages in 4s', {
+        deniedOutput: commandFailure(`npm error request to https://${ASKS_SANDBOX.host}/ failed`),
+      }),
+      webFetch('docs', ASKS_SANDBOX.docs, 'Retries back off exponentially, up to 5 attempts.'),
+      outsideRead('notes', ASKS_SANDBOX.notes, '1\t# Shared notes\n2\tUse the staging database for tests.'),
+      outsideWrite(
+        'changelog',
+        ASKS_SANDBOX.changelog,
+        '## Unreleased\n\n- Retries back off.',
+        `The file ${ASKS_SANDBOX.changelog} has been updated.`,
+      ),
+      sandboxedBash(
+        'config',
+        `cat ${ASKS_SANDBOX.config}`,
+        commandFailure(`cat: ${ASKS_SANDBOX.config}: Operation not permitted`),
+        {
+          denials: [CONFIG_DENIAL],
+          retried: [
+            sandboxedBash('config-again', `cat ${ASKS_SANDBOX.config}`, '{ "db": "staging" }', { failed: false }),
+          ],
+          gaveUp: [say("I couldn't read the shared config, so I'll use the defaults.")],
+        },
+      ),
+      sandboxOverride('compose', ASKS_SANDBOX.compose, 'Container acme-db  Started', {
+        description: 'Start the database',
+      }),
+      say(ASKS_SANDBOX.reply),
+      result(),
+    ],
+  ],
+}
+
+/** What the `sandbox-fails` script's agent runs, and why its sandbox couldn't start (`docs/sdk-notes.md` §15). */
+export const SANDBOX_FAILS = {
+  command: 'npm test',
+  build: 'npm run build',
+  reason: 'tlsTerminate: caCertPath and caKeyPath must be provided together',
+  reply: "The sandbox couldn't start, so I couldn't run the tests or the build.",
+} as const
+
+/**
+ * A turn in a session whose sandbox couldn't start, as the probe saw one: the command fails with Claude Code's message,
+ * then the agent asks to run it outside the sandbox, twice, and gives up.
+ */
+const sandboxFails: AgentScript = {
+  name: 'sandbox-fails',
+  turns: [
+    [
+      ...turnStart(),
+      say("I'll run the tests."),
+      sandboxedBash('test', SANDBOX_FAILS.command, sandboxInitFailure(SANDBOX_FAILS.reason)),
+      sandboxOverride('test-unsandboxed', SANDBOX_FAILS.command, 'Tests: 42 passed', {
+        description: 'Run the tests outside the sandbox',
+      }),
+      sandboxOverride('build-unsandboxed', SANDBOX_FAILS.build, 'Built in 3.1s', {
+        description: 'Build outside the sandbox',
+      }),
+      say(SANDBOX_FAILS.reply),
+      result(),
+    ],
+  ],
+}
+
 /** What the `asks-permission-from-a-subagent` script's agent and subagent do and say. */
 export const SUBAGENT_PERMISSION = {
   subagent: 'Upgrade guide',
@@ -3599,6 +3868,8 @@ export const AGENT_SCRIPT_NAMES = [
   'stop-spares-background',
   'subagent-calls',
   'asks-permission',
+  'asks-sandbox',
+  'sandbox-fails',
   'asks-permission-from-a-subagent',
   'allows-for-task',
   'permission-at-quit',
@@ -3663,6 +3934,8 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'stop-spares-background': stopSparesBackground,
   'subagent-calls': subagentCalls,
   'asks-permission': asksPermission,
+  'asks-sandbox': asksSandbox,
+  'sandbox-fails': sandboxFails,
   'asks-permission-from-a-subagent': asksPermissionFromASubagent,
   'allows-for-task': allowsForTask,
   'permission-at-quit': permissionAtQuit,

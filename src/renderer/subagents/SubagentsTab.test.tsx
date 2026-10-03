@@ -1,5 +1,5 @@
 import { act, fireEvent, render as renderUnwrapped, screen, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName } from '../../shared/bridge'
 import {
   ToolCallState,
@@ -438,5 +438,78 @@ describe('a subagent’s background work (#291)', () => {
       vi.advanceTimersByTime(5 * ELAPSED_REFRESH_MS)
     })
     expect(row('Run the e2e suite')).toHaveTextContent('1m 05s')
+  })
+
+  describe('asked to show a subagent', () => {
+    let scrollIntoView: ReturnType<typeof vi.fn>
+
+    beforeEach(() => {
+      scrollIntoView = vi.fn()
+      Element.prototype.scrollIntoView = scrollIntoView as unknown as Element['scrollIntoView']
+    })
+
+    it('opens its log and scrolls to it, once per request, and says it has', () => {
+      const shown = vi.fn()
+      const { rerender } = render(
+        <SubagentsTab
+          taskId="t1"
+          events={EVENTS}
+          focus={{ subagentId: 'use-dash', request: 1 }}
+          onFocusShown={shown}
+        />,
+      )
+
+      expect(header('Dashboard changes')).toHaveAttribute('aria-expanded', 'true')
+      expect(header('API changes')).toHaveAttribute('aria-expanded', 'false')
+      expect(scrollIntoView.mock.contexts).toEqual([row('Dashboard changes')])
+      expect(shown).toHaveBeenCalledOnce()
+
+      // You close it: the same request doesn't open it again; a new one does.
+      fireEvent.click(header('Dashboard changes'))
+      rerender(
+        <SubagentsTab
+          taskId="t1"
+          events={EVENTS}
+          focus={{ subagentId: 'use-dash', request: 1 }}
+          onFocusShown={shown}
+        />,
+      )
+      expect(header('Dashboard changes')).toHaveAttribute('aria-expanded', 'false')
+      rerender(
+        <SubagentsTab
+          taskId="t1"
+          events={EVENTS}
+          focus={{ subagentId: 'use-dash', request: 2 }}
+          onFocusShown={shown}
+        />,
+      )
+      expect(header('Dashboard changes')).toHaveAttribute('aria-expanded', 'true')
+    })
+
+    it('does nothing for a subagent it doesn’t have, until it does', () => {
+      const shown = vi.fn()
+      const focus = { subagentId: 'use-late', request: 1 }
+      const { rerender } = render(<SubagentsTab taskId="t1" events={EVENTS} focus={focus} onFocusShown={shown} />)
+
+      expect(scrollIntoView).not.toHaveBeenCalled()
+      expect(shown).not.toHaveBeenCalled()
+      expect(screen.queryAllByRole('button', { expanded: true })).toEqual([])
+
+      rerender(
+        <SubagentsTab
+          taskId="t1"
+          events={[...EVENTS, agent('late', 'Late arrival')]}
+          focus={focus}
+          onFocusShown={shown}
+        />,
+      )
+      expect(header('Late arrival')).toHaveAttribute('aria-expanded', 'true')
+      expect(shown).toHaveBeenCalledOnce()
+    })
+
+    it('shows it with no one to tell', () => {
+      render(<SubagentsTab taskId="t1" events={EVENTS} focus={{ subagentId: 'use-api', request: 1 }} />)
+      expect(header('API changes')).toHaveAttribute('aria-expanded', 'true')
+    })
   })
 })

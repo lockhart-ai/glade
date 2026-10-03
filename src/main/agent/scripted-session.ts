@@ -46,13 +46,19 @@
  * - A `Shell` step is a `Bash` call that really runs its command, in the session's folder or one beside it: its call,
  *   then the session's `PreToolUse` hook (`hooks.onBashStarting`), which it waits for, then its result, what the
  *   command printed. The Changes tab's scripts make real commits with it (`docs/sdk-notes.md` §14).
+ * - The sandbox steps (`NetworkAccess`, `WebFetch`, `OutsideFile`, `SandboxOverride`, `SandboxedBash`) play what a
+ *   sandboxed session sends, in the probed shapes (`./sandbox-requests`, `docs/sdk-notes.md` §15): crossing the
+ *   sandbox's bounds asks the runner in any permission mode, unless the session's grants cover it, which are what it
+ *   started with (`flagSettings`) merged with what `applyFlagSettings` set last. A `Bash` call's result first goes
+ *   through the session's `Bash` hook (`hooks.onBashFinished`), which the turn waits on. A step that can't be played as
+ *   written kills the session with a `MalformedStepError` naming it.
  * - A `Fail` step kills the session: its message stream throws, and it plays nothing more.
  * - The script can be picked by the session's first message (a `ScriptChooser`), so different tasks can play different
  *   scripts. A chooser that has none for it kills the session as a `Fail` step would.
  */
 import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import { randomUUID } from 'node:crypto'
-import { resolve } from 'node:path'
+import { isAbsolute, resolve } from 'node:path'
 import { autoCompactThreshold, contextWindowFor } from '../../shared/contextWindow'
 import { CompactionTrigger, PermissionMode, type PermissionRule, type ToolInput } from '../../shared/domain'
 import { AsyncQueue } from './async-queue'
@@ -62,7 +68,11 @@ import {
   type AgentSession,
   type AgentSessionOptions,
   type AgentSessionSettings,
+  type BashFinishedAnswer,
   type McpServerOrigin,
+  type SandboxFlagSettings,
+  type SandboxSettings,
+  type SettingsPermissions,
   type ToolPermissionAnswer,
 } from './backend'
 import { CONTROL_SERVER } from '../control/names'
@@ -70,12 +80,30 @@ import { GLADE_SERVER, GladeTool } from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller, type McpToolOutcome } from './mcp-tool-caller'
 import { runShell } from './scripted-shell'
 import {
+  FILE_TOOL_PATHS,
+  FileAccess,
+  HTTPS_PORT,
+  SANDBOX_OVERRIDE_ASK_RULE,
+  SandboxOperation,
+  hostMatches,
+  isBareHost,
+  isInside,
+  networkAccessCall,
+  networkDenial,
+  outsideFileCall,
+  sandboxOverrideCall,
+  sandboxViolations,
+  seatbeltLog,
+  webFetchCall,
+  type SandboxCall,
+} from './sandbox-requests'
+import {
   ANSWERED_AFTER_RESTART_PROMPT,
   COMPACT_COMMAND,
   PERMISSIONS_DECIDED_AFTER_RESTART_PROMPT,
   RESUME_PROMPT,
 } from './runner'
-import { BLOCKED_PROMPT_REASON, NO_ONE_TO_ASK, sdkOptions, sdkPermissionMode } from './sdk-backend'
+import { BLOCKED_PROMPT_REASON, NO_ONE_TO_ASK, isSandboxed, sdkOptions, sdkPermissionMode } from './sdk-backend'
 import {
   DEFAULT_COMPACT_SUMMARY,
   DEFAULT_COMPACT_TURN,
@@ -87,7 +115,12 @@ import {
   type CompactStep,
   type ControlToolStep,
   type MessageSubagentStep,
+  type NetworkAccessStep,
+  type OutsideFileStep,
   type PermissionStep,
+  type SandboxOverrideStep,
+  type SandboxedBashStep,
+  type WebFetchStep,
   type ProgressStep,
   type ScriptStep,
   type ShellStep,
@@ -170,6 +203,50 @@ export interface ScriptedSessionOptions {
    * them: the real backend's (`sdkOptions`) by default.
    */
   readonly sdkOptions?: (session: AgentSessionOptions) => SdkStopOptions
+  /**
+   * Hears what Seatbelt writes to the system log for each denial a `SandboxedBash` step's command meets, as
+   * `log stream` prints it (`seatbeltLog`, `docs/sdk-notes.md` §15), as the call runs. Nothing hears it by default.
+   */
+  readonly onSandboxLog?: (text: string) => void
+}
+
+/** A script step that can't be played as written: the session dies with this, naming the step and what's wrong. */
+export class MalformedStepError extends Error {
+  constructor(kind: ScriptStepKind, id: string, problem: string) {
+    super(`Malformed ${kind} step "${id}": ${problem}`)
+  }
+}
+
+/** What a `WebFetch` step asks of its page when the script doesn't say. */
+const DEFAULT_FETCH_PROMPT = 'Summarize the page.'
+
+/** The answer for a call that runs without asking. */
+const ALLOWED: ToolPermissionAnswer = { behavior: ToolPermissionBehavior.Allow, byUser: false }
+
+/**
+ * Whether a promise settles at once, within a few turns of the microtask queue: a hook that answers without waiting on
+ * anything, as opposed to one waiting on the user. No timers, so it holds under fake ones.
+ */
+async function settlesAtOnce(promise: Promise<unknown>): Promise<boolean> {
+  let settled = false
+  const done = (): void => {
+    settled = true
+  }
+  promise.then(done, done)
+  const isSettled = (): boolean => settled
+  for (let tick = 0; tick < 10 && !isSettled(); tick += 1) await Promise.resolve()
+  return settled
+}
+
+/** The folder a `Read` rule's content covers (`//<folder>/**`), or null for one that names no folder like that. */
+function readRuleFolder(content: string | undefined): string | null {
+  const match = /^\/(\/.+?)\/\*\*$/.exec(content ?? '')
+  return match?.[1] ?? null
+}
+
+/** The host a `WebFetch(domain:<host>)` rule string names, or null for any other rule. */
+function domainOfRuleString(rule: string): string | null {
+  return /^WebFetch\(domain:(.+)\)$/.exec(rule)?.[1] ?? null
 }
 
 /**
@@ -441,6 +518,12 @@ export class ScriptedSession implements AgentSession {
   private readonly rules: PermissionRule[]
   /** Whether an interrupt stops the background subagents too, as the SDK decides from the session's options. */
   private readonly interruptStopsSubagents: boolean
+  /** The sandbox flag settings `applyFlagSettings` set last, by key: merged with the session's start's. */
+  private applied: SandboxFlagSettings = {}
+  /** Every `applyFlagSettings` call, in order. */
+  readonly flagSettingsApplied: SandboxFlagSettings[] = []
+  /** The hosts the runner let a sandboxed command reach: they stay allowed for the session, as the SDK keeps them. */
+  private readonly allowedHosts = new Set<string>()
 
   constructor(private readonly options: ScriptedSessionOptions) {
     this.model = options.session.model
@@ -507,6 +590,16 @@ export class ScriptedSession implements AgentSession {
     this.queue = this.queue.then(() => {
       this.model = model
     })
+  }
+
+  /**
+   * Changes the session's sandbox from its next call, as the SDK's `applyFlagSettings` does: each key given replaces
+   * what the last call set for it, merged with what the session started with, which it never narrows.
+   */
+  applyFlagSettings(settings: SandboxFlagSettings): Promise<void> {
+    this.flagSettingsApplied.push(settings)
+    this.applied = { ...this.applied, ...settings }
+    return Promise.resolve()
   }
 
   interrupt(): Promise<void> {
@@ -727,6 +820,21 @@ export class ScriptedSession implements AgentSession {
         return
       case ScriptStepKind.Shell:
         await this.shell(turn, step, uuid)
+        return
+      case ScriptStepKind.NetworkAccess:
+        await this.networkAccess(turn, step, uuid)
+        return
+      case ScriptStepKind.WebFetch:
+        await this.webFetch(turn, step, uuid)
+        return
+      case ScriptStepKind.OutsideFile:
+        await this.outsideFile(turn, step, uuid)
+        return
+      case ScriptStepKind.SandboxOverride:
+        await this.sandboxOverride(turn, step, uuid)
+        return
+      case ScriptStepKind.SandboxedBash:
+        await this.sandboxedBash(turn, step, uuid)
         return
       case ScriptStepKind.LimitReached:
         this.push({
@@ -1100,29 +1208,52 @@ export class ScriptedSession implements AgentSession {
     if (this.permissionMode === PermissionMode.AllowAll || covered) {
       return { behavior: ToolPermissionBehavior.Allow, byUser: false }
     }
+    return this.askRunner(
+      turn,
+      call.parent,
+      {
+        toolName: call.name,
+        input: call.input,
+        toolUseId: this.sdkToolId(turn, call.id),
+        agentId: null,
+        title: call.title ?? null,
+        displayName: call.name,
+        description: call.description ?? null,
+        suggestions: call.suggestions ?? [],
+        defaultToNo: call.defaultToNo ?? false,
+        suppressAlwaysAllowRule: false,
+        mcpServer,
+        matchedAskRule: false,
+        blockedPath: null,
+        decisionReason: null,
+      },
+      call.agentId,
+    )
+  }
+
+  /**
+   * Asks the runner about a call (`onToolPermission`), going idle while it decides, however long that takes, and keeps
+   * the rule an Allow for this task adds. A subagent's call (`parent`) names it: by `agentId`, or a made-up id. Null
+   * when the turn was interrupted meanwhile: the interrupt cancels the call's signal, as the SDK does.
+   */
+  private async askRunner(
+    turn: TurnState,
+    parent: string | undefined,
+    call: SandboxCall,
+    agentId?: string,
+  ): Promise<ToolPermissionAnswer | null> {
     this.idle(turn)
     const cancel = new AbortController()
     void turn.interrupted.then(() => {
       cancel.abort()
     })
-    const agentId = call.parent === undefined ? null : (call.agentId ?? `a${this.idPrefix}${call.parent}`)
     const handler = this.options.session.onToolPermission
     const answer: ToolPermissionAnswer =
       handler === undefined
         ? { behavior: ToolPermissionBehavior.Deny, message: NO_ONE_TO_ASK, byUser: false }
         : await handler({
-            toolName: call.name,
-            input: call.input,
-            toolUseId: this.sdkToolId(turn, call.id),
-            agentId,
-            title: call.title ?? null,
-            displayName: call.name,
-            description: call.description ?? null,
-            suggestions: call.suggestions ?? [],
-            defaultToNo: call.defaultToNo ?? false,
-            suppressAlwaysAllowRule: false,
-            mcpServer,
-            matchedAskRule: false,
+            ...call,
+            agentId: parent === undefined ? null : (agentId ?? `a${this.idPrefix}${parent}`),
             signal: cancel.signal,
           })
     if (turn.isInterrupted) return null
@@ -1182,6 +1313,239 @@ export class ScriptedSession implements AgentSession {
     await this.options.session.hooks?.onBashStarting?.({ toolUseId: this.sdkToolId(turn, step.id), cwd, command })
     const { output, failed } = await runShell(command, cwd)
     if (!turn.isInterrupted) this.toolResult(turn, step.id, output, failed)
+  }
+
+  /** The sandbox the session runs in now: what `applyFlagSettings` set last, else its start's; null for none. */
+  private sandbox(): SandboxSettings | null {
+    return this.applied.sandbox ?? this.options.session.flagSettings?.sandbox ?? null
+  }
+
+  /** Whether the session's commands run sandboxed now. */
+  private sandboxed(): boolean {
+    return this.sandbox()?.enabled === true
+  }
+
+  /** A list of the session's sandbox, its start's and the last applied merged, as the SDK merges them. */
+  private sandboxList(pick: (sandbox: SandboxSettings) => readonly string[] | undefined): string[] {
+    const start = this.options.session.flagSettings?.sandbox
+    const applied = this.applied.sandbox
+    return [...(start == null ? [] : (pick(start) ?? [])), ...(applied == null ? [] : (pick(applied) ?? []))]
+  }
+
+  /** A list of the session's settings permissions, its start's and the last applied merged. */
+  private permissionList(pick: (permissions: SettingsPermissions) => readonly string[] | undefined): string[] {
+    const start = this.options.session.flagSettings?.permissions
+    const applied = this.applied.permissions
+    return [...(start == null ? [] : (pick(start) ?? [])), ...(applied == null ? [] : (pick(applied) ?? []))]
+  }
+
+  /**
+   * Whether a sandboxed command may reach `host` without asking: the runner allowed it earlier in the session, or the
+   * sandbox's `allowedDomains` or a `WebFetch(domain:…)` rule in the settings permissions names it. Task rules
+   * (`allowedTools`) don't count: the SDK doesn't merge those into the sandbox (`docs/sdk-notes.md` §15).
+   */
+  private mayReach(host: string): boolean {
+    if (this.allowedHosts.has(host)) return true
+    const domains = [
+      ...this.sandboxList((sandbox) => sandbox.network?.allowedDomains),
+      ...this.permissionList((permissions) => permissions.allow).flatMap((rule) => domainOfRuleString(rule) ?? []),
+    ]
+    return domains.some((domain) => hostMatches(host, domain))
+  }
+
+  /** Whether `WebFetch` may reach `host` without asking: as a command may, or by a task rule for its domain. */
+  private mayFetch(host: string): boolean {
+    const ruled = this.rules.some(
+      (rule) =>
+        rule.toolName === 'WebFetch' &&
+        rule.ruleContent?.startsWith('domain:') === true &&
+        hostMatches(host, rule.ruleContent.slice('domain:'.length)),
+    )
+    return ruled || this.mayReach(host)
+  }
+
+  /**
+   * Whether a file tool may use `path` without asking: it's in the session's folder or an additional directory, or,
+   * for a read, a folder a `Read` rule covers (in the settings permissions, or a task rule).
+   */
+  private mayUseFile(path: string, access: FileAccess): boolean {
+    const folders = [
+      this.options.session.cwd,
+      ...this.permissionList((permissions) => permissions.additionalDirectories),
+    ]
+    if (folders.some((folder) => isInside(path, folder))) return true
+    if (access === FileAccess.Write) return false
+    const readFolders = [
+      ...this.permissionList((permissions) => permissions.allow).map((rule) =>
+        readRuleFolder(/^Read\((.*)\)$/.exec(rule)?.[1]),
+      ),
+      ...this.rules.filter((rule) => rule.toolName === 'Read').map((rule) => readRuleFolder(rule.ruleContent)),
+    ]
+    return readFolders.some((folder) => folder !== null && isInside(path, folder))
+  }
+
+  /**
+   * A sandboxed `Bash` call connecting to a host (see `ScriptStepKind.NetworkAccess`): asked about under a fresh id,
+   * as the SDK asks, when the session may not reach the host.
+   */
+  private async networkAccess(turn: TurnState, step: NetworkAccessStep, uuid: string | null): Promise<void> {
+    const { id, command, host } = step
+    if (!isBareHost(host)) {
+      throw new MalformedStepError(step.kind, id, `"${host}" isn't a bare host name, like "registry.npmjs.org"`)
+    }
+    if (command.trim() === '') throw new MalformedStepError(step.kind, id, 'it has no command')
+    this.toolUse(turn, id, 'Bash', { command }, step.parent ?? null, uuid)
+    let allowed = true
+    if (this.sandboxed() && !this.mayReach(host)) {
+      const answer = await this.askRunner(turn, step.parent, networkAccessCall(host, randomUUID()))
+      if (answer === null) return
+      allowed = answer.behavior === ToolPermissionBehavior.Allow
+      if (allowed) this.allowedHosts.add(host)
+    }
+    const output = allowed
+      ? step.output
+      : `${step.deniedOutput ?? 'Exit code 1'}\n${sandboxViolations([networkDenial(host, step.port ?? HTTPS_PORT)])}`
+    await this.finishBash(turn, id, command, output, !allowed)
+  }
+
+  /** A `WebFetch` call (see `ScriptStepKind.WebFetch`). */
+  private async webFetch(turn: TurnState, step: WebFetchStep, uuid: string | null): Promise<void> {
+    const url = URL.parse(step.url)
+    if (url === null || (url.protocol !== 'https:' && url.protocol !== 'http:')) {
+      throw new MalformedStepError(step.kind, step.id, `"${step.url}" isn't an http or https URL`)
+    }
+    const input = { url: step.url, prompt: step.prompt ?? DEFAULT_FETCH_PROMPT }
+    this.toolUse(turn, step.id, 'WebFetch', input, step.parent ?? null, uuid)
+    const answer = !this.sandboxed()
+      ? await this.permitted(turn, { id: step.id, name: 'WebFetch', input, parent: step.parent }, null)
+      : this.mayFetch(url.hostname)
+        ? ALLOWED
+        : await this.askRunner(turn, step.parent, webFetchCall(this.sdkToolId(turn, step.id), input))
+    this.answered(turn, step.id, step.output, answer)
+  }
+
+  /** A file tool's call outside the folders it may use (see `ScriptStepKind.OutsideFile`). */
+  private async outsideFile(turn: TurnState, step: OutsideFileStep, uuid: string | null): Promise<void> {
+    const { id, tool, input, access } = step
+    const field = FILE_TOOL_PATHS[tool]
+    if (field === undefined) throw new MalformedStepError(step.kind, id, `"${tool}" isn't a file tool`)
+    const path = input[field]
+    if (typeof path !== 'string' || !isAbsolute(path)) {
+      throw new MalformedStepError(step.kind, id, `its ${field} must be an absolute path`)
+    }
+    if ((tool === 'Read') !== (access === FileAccess.Read)) {
+      throw new MalformedStepError(step.kind, id, `${tool} doesn't ${access} files`)
+    }
+    this.toolUse(turn, id, tool, input, step.parent ?? null, uuid)
+    const answer = !this.sandboxed()
+      ? await this.permitted(turn, { id, name: tool, input, parent: step.parent }, null)
+      : this.mayUseFile(path, access)
+        ? ALLOWED
+        : await this.askRunner(turn, step.parent, outsideFileCall(this.sdkToolId(turn, id), tool, input, path, access))
+    this.answered(turn, id, step.output, answer)
+  }
+
+  /** A `Bash` call asking to run outside the sandbox (see `ScriptStepKind.SandboxOverride`). */
+  private async sandboxOverride(turn: TurnState, step: SandboxOverrideStep, uuid: string | null): Promise<void> {
+    const { id, command } = step
+    if (command.trim() === '') throw new MalformedStepError(step.kind, id, 'it has no command')
+    const input = {
+      command,
+      ...(step.description === undefined ? {} : { description: step.description }),
+      dangerouslyDisableSandbox: true,
+    }
+    this.toolUse(turn, id, 'Bash', input, step.parent ?? null, uuid)
+    const askRule = this.permissionList((permissions) => permissions.ask).includes(SANDBOX_OVERRIDE_ASK_RULE)
+    const covered = this.rules.some((rule) => scriptedRuleCovers(rule, 'Bash', input))
+    const answer = !this.sandboxed()
+      ? await this.permitted(turn, { id, name: 'Bash', input, parent: step.parent }, null)
+      : !askRule && covered
+        ? ALLOWED
+        : await this.askRunner(turn, step.parent, sandboxOverrideCall(this.sdkToolId(turn, id), input, askRule))
+    if (answer === null) return
+    switch (answer.behavior) {
+      case ToolPermissionBehavior.Allow:
+        await this.finishBash(turn, id, command, step.output, false)
+        return
+      case ToolPermissionBehavior.Deny:
+        this.toolResult(turn, id, answer.message, true)
+        return
+    }
+  }
+
+  /**
+   * A sandboxed `Bash` call with a scripted result (see `ScriptStepKind.SandboxedBash`): its denials logged, the hook
+   * waited for, the result, then what the agent does about what the hook told it.
+   */
+  private async sandboxedBash(turn: TurnState, step: SandboxedBashStep, uuid: string | null): Promise<void> {
+    const { id, command } = step
+    if (command.trim() === '') throw new MalformedStepError(step.kind, id, 'it has no command')
+    const operations: readonly string[] = Object.values(SandboxOperation)
+    for (const denial of step.denials ?? []) {
+      if (!operations.includes(denial.operation)) {
+        throw new MalformedStepError(step.kind, id, `"${denial.operation}" isn't a file operation Seatbelt denies`)
+      }
+      if (!isAbsolute(denial.path)) throw new MalformedStepError(step.kind, id, `"${denial.path}" isn't absolute`)
+    }
+    const input = { command, ...(step.description === undefined ? {} : { description: step.description }) }
+    this.toolUse(turn, id, 'Bash', input, step.parent ?? null, uuid)
+    const toolUseId = this.sdkToolId(turn, id)
+    for (const denial of step.denials ?? []) this.options.onSandboxLog?.(seatbeltLog(toolUseId, denial))
+    const answer = await this.finishBash(turn, id, command, step.output, step.failed ?? true)
+    if (answer === null) return
+    for (const next of (answer.context === null ? step.gaveUp : step.retried) ?? []) {
+      if (turn.isInterrupted) return
+      await this.step(turn, next, uuid)
+    }
+  }
+
+  /** A call's result once answered: its output when allowed, its denial when not; nothing when interrupted. */
+  private answered(turn: TurnState, id: string, output: string, answer: ToolPermissionAnswer | null): void {
+    if (answer === null) return
+    switch (answer.behavior) {
+      case ToolPermissionBehavior.Allow:
+        this.toolResult(turn, id, output, false)
+        return
+      case ToolPermissionBehavior.Deny:
+        this.toolResult(turn, id, answer.message, true)
+        return
+    }
+  }
+
+  /**
+   * A `Bash` call has run: the session's hook (`hooks.onBashFinished`) hears it, as `PostToolUse` or
+   * `PostToolUseFailure` would, and the result follows once it answers, however long it takes. The session goes idle if
+   * the hook doesn't answer at once. A hook that fails adds nothing, as the SDK backend's does. Null, with no result,
+   * when the turn is interrupted meanwhile: the interrupt cancels the hook's signal.
+   */
+  private async finishBash(
+    turn: TurnState,
+    id: string,
+    command: string,
+    output: string,
+    failed: boolean,
+  ): Promise<BashFinishedAnswer | null> {
+    const hook = this.options.session.hooks?.onBashFinished
+    let answer: BashFinishedAnswer = { context: null }
+    if (hook !== undefined) {
+      const cancel = new AbortController()
+      void turn.interrupted.then(() => {
+        cancel.abort()
+      })
+      const pending = hook({
+        toolUseId: this.sdkToolId(turn, id),
+        command,
+        output,
+        failed,
+        signal: cancel.signal,
+      }).catch((): BashFinishedAnswer => ({ context: null }))
+      if (!(await settlesAtOnce(pending))) this.idle(turn)
+      const decided = await Promise.race([pending, turn.interrupted.then(() => null)])
+      if (decided === null || turn.isInterrupted) return null
+      answer = decided
+    }
+    this.toolResult(turn, id, output, failed)
+    return answer
   }
 
   private async ask(turn: TurnState, step: AskStep, uuid: string | null): Promise<void> {
@@ -1266,7 +1630,7 @@ export class ScriptedSession implements AgentSession {
       subtype: 'init',
       cwd,
       model: this.model,
-      permissionMode: sdkPermissionMode(this.permissionMode),
+      permissionMode: sdkPermissionMode(this.permissionMode, isSandboxed(this.options.session)),
       apiKeySource: 'none',
       tools: [
         'Agent',

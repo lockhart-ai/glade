@@ -3,6 +3,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import type { z } from 'zod'
 import {
+  MAX_PLUGIN_MESSAGE_BYTES,
   MAX_PLUGIN_TEXT,
   PluginEventType,
   PluginMessageType,
@@ -169,5 +170,49 @@ describe('pluginMessageSchema', () => {
     })
     expect(pluginMessageSchema.safeParse({ type: 'ready', extra: true }).success).toBe(false)
     expect(pluginMessageSchema.safeParse({ type: 'task.create' }).success).toBe(false)
+  })
+
+  describe('openTask', () => {
+    it('takes a task id, with or without a subagent id (null is none)', () => {
+      expect(pluginMessageSchema.parse({ type: PluginMessageType.OpenTask, taskId: 't1' })).toEqual({
+        type: 'openTask',
+        taskId: 't1',
+      })
+      expect(pluginMessageSchema.parse({ type: 'openTask', taskId: 't1', subagentId: 'toolu_01' })).toEqual({
+        type: 'openTask',
+        taskId: 't1',
+        subagentId: 'toolu_01',
+      })
+      expect(pluginMessageSchema.parse({ type: 'openTask', taskId: 't1', subagentId: null })).toEqual({
+        type: 'openTask',
+        taskId: 't1',
+        subagentId: null,
+      })
+    })
+
+    it('refuses one without a task id, or with an empty or non-string one', () => {
+      for (const taskId of [undefined, '', 42, null, ['t1'], { id: 't1' }]) {
+        expect(pluginMessageSchema.safeParse({ type: 'openTask', taskId }).success).toBe(false)
+      }
+      expect(pluginMessageSchema.safeParse({ type: 'openTask', subagentId: 'toolu_01' }).success).toBe(false)
+    })
+
+    it('refuses an empty or non-string subagent id', () => {
+      for (const subagentId of ['', 7, false, ['toolu_01']]) {
+        expect(pluginMessageSchema.safeParse({ type: 'openTask', taskId: 't1', subagentId }).success).toBe(false)
+      }
+    })
+
+    it('refuses extra fields: nothing else rides along, a claimed gesture least of all', () => {
+      for (const extra of [{ gesture: true }, { workspaceId: 'w1' }, { focus: true }, { tab: 'files' }]) {
+        expect(pluginMessageSchema.safeParse({ type: 'openTask', taskId: 't1', ...extra }).success).toBe(false)
+      }
+    })
+
+    it('refuses ids longer than a message may be', () => {
+      const long = 'x'.repeat(MAX_PLUGIN_MESSAGE_BYTES + 1)
+      expect(pluginMessageSchema.safeParse({ type: 'openTask', taskId: long }).success).toBe(false)
+      expect(pluginMessageSchema.safeParse({ type: 'openTask', taskId: 't1', subagentId: long }).success).toBe(false)
+    })
   })
 })

@@ -239,8 +239,8 @@ describe('SelectedTaskHeader', () => {
     [
       'working in the background, its reply unread',
       { activity: TaskActivity.Waiting, sessionId: 's1', backgroundWork: true, unread: true },
-      TaskIndicator.Working,
-      'Active · working',
+      TaskIndicator.Waiting,
+      'Active · waiting on you',
     ],
     ['stopped by an error', { activity: TaskActivity.Error }, TaskIndicator.Error, 'Active · stopped by an error'],
     [

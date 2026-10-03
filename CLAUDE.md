@@ -65,6 +65,27 @@ other agents), `docs/design/tokens.md` (colours, type, spacing), `docs/keymap.md
   isn't enough on its own: a bug fix adds a test that fails without the fix, and a feature adds tests that stress it
   (edge cases, failure paths, interactions).
 
+## Performance
+
+Glade should feel instant, even in a task with thousands of messages, a long tool log and a dozen subagents running.
+We don't measure every change, but every change keeps these in mind, and Jared will say when something feels slow
+(input lag in #413 came from ignoring them).
+
+- **Re-render only what changed.** An event for one task, message, tool call or subagent re-renders that row, not the
+  list or the panel around it. Memoise list rows on their own data, and select narrow, stable slices from the store,
+  never a whole object or a freshly built array.
+- **Keep the keystroke path clear.** Typing in the input bar never waits on the chat, the tool log or the panels, and
+  nothing expensive runs in an input's change handler.
+- **Ticking things stay small.** A timer, an elapsed-time counter or a poll updates the smallest element that shows
+  it, not a parent list.
+- **Avoid layout churn.** Don't interleave layout reads and style writes across many elements, and avoid layout that
+  flips back and forth (a scrollbar appearing and disappearing re-lays out the whole history).
+- **Send main's changes small.** Batch bursts of events before they reach the renderer, and send what changed rather
+  than whole snapshots.
+- **Think about the big case.** Picture 500 messages, 100 tool calls and 50 subagents. A change to a hot path (chat,
+  tool log, subagents, task list, input bar) runs `src/renderer/history-renders.test.tsx` and
+  `e2e/typing-latency.spec.ts`, and a new list row gets a render-count test there.
+
 ## Stack
 
 Electron, TypeScript, SQLite, the Claude Agent SDK (TypeScript), electron-vite, React, CSS Modules, Zustand,

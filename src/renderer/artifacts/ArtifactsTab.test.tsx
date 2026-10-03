@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import {
   ArtifactDateGroup,
@@ -211,6 +211,11 @@ function row(title: string): HTMLElement {
 
 function button(title: string, name: string): HTMLElement {
   return within(row(title)).getByRole('button', { name })
+}
+
+/** Fires `load` on every image the viewer holds, shown or not, as the browser does once it has loaded each (#478). */
+function loadViewerImages(viewer: HTMLElement): void {
+  for (const image of viewer.querySelectorAll('img')) fireEvent.load(image)
 }
 
 /** How many times the tab asked main for a file's thumbnail. */
@@ -752,8 +757,14 @@ describe('the image viewer', () => {
     return screen.getByRole('dialog', { name: VIEWER_LABEL })
   }
 
-  const viewerTitle = (viewer: HTMLElement): string | null =>
-    within(viewer).getByTestId('image-viewer-title').textContent
+  /**
+   * The title over the image showing. It's there only once its image has loaded (#478), and jsdom loads none: each
+   * image the viewer holds gets its `load` here, as the browser would fire it.
+   */
+  const viewerTitle = (viewer: HTMLElement): string | null => {
+    loadViewerImages(viewer)
+    return within(viewer).getByTestId('image-viewer-title').textContent
+  }
 
   it('opens an image artifact’s row, steps through the task’s images (in date order, not the group’s), and returns the focus on close', async () => {
     await renderTab({ files: IMAGE_FILES })
@@ -772,15 +783,19 @@ describe('the image viewer', () => {
       landingImage.dataUrl,
     )
     expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('1 of 2')
+    expect(within(viewer).getByRole('button', { name: 'Previous image' })).toBeDisabled()
+    expect(within(viewer).getByRole('button', { name: 'Next image' })).toBeEnabled()
 
     // → steps to the task's other image artifact (Yesterday's Search results), skipping every non-image one between.
     fireEvent.keyDown(viewer, { key: 'ArrowRight' })
     expect(viewerTitle(viewer)).toBe('Search results on mobile')
     expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('2 of 2')
+    expect(within(viewer).getByRole('button', { name: 'Next image' })).toBeDisabled()
 
-    // Round from the last back to the first.
+    // → again does nothing: it's the last (#463).
     fireEvent.keyDown(viewer, { key: 'ArrowRight' })
-    expect(viewerTitle(viewer)).toBe('Landing page, dark theme')
+    expect(viewerTitle(viewer)).toBe('Search results on mobile')
+    expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('2 of 2')
 
     fireEvent.keyDown(viewer, { key: 'Escape' })
     await settleFloating()
@@ -788,7 +803,7 @@ describe('the image viewer', () => {
     expect(trigger).toHaveFocus()
   })
 
-  it('takes the focus synchronously, so a ← pressed the instant it opens still steps it (#393)', async () => {
+  it('takes the focus synchronously, so a → pressed the instant it opens still steps it (#393)', async () => {
     await renderTab({ files: IMAGE_FILES })
     const trigger = within(row('Landing page, dark theme')).getByRole('button', {
       name: /^Landing page, dark theme/,
@@ -799,10 +814,82 @@ describe('the image viewer', () => {
     const viewer = screen.getByRole('dialog', { name: VIEWER_LABEL })
     expect(document.activeElement).toBe(within(viewer).getByRole('button', { name: 'Close image' }))
 
-    fireEvent.keyDown(document.activeElement ?? viewer, { key: 'ArrowLeft' })
+    fireEvent.keyDown(document.activeElement ?? viewer, { key: 'ArrowRight' })
 
-    // Round from the first back to the last: Yesterday's Search results.
+    // Steps on to Yesterday's Search results, though no image has been read yet, so none shows, nor its title (#478).
+    expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('2 of 2')
+    expect(viewer.querySelector('img')).toBeNull()
+    expect(within(viewer).queryByTestId('image-viewer-title')).not.toBeInTheDocument()
+    await settleFloating()
     expect(viewerTitle(viewer)).toBe('Search results on mobile')
+  })
+
+  it('shows no title until its image has loaded and has its size, then both at once (#478)', async () => {
+    await renderTab({ files: IMAGE_FILES })
+    const viewer = await openViewer('Landing page, dark theme')
+
+    // Read from main, but not loaded by the browser yet: the element has no size, and its frame isn't painted.
+    const image = within(viewer).getByRole('img', { name: 'Landing page, dark theme' })
+    const frame = image.parentElement
+    expect(frame).toHaveAttribute('data-pending')
+    expect(within(viewer).queryByTestId('image-viewer-title')).not.toBeInTheDocument()
+    // The chips don't wait for it.
+    expect(within(viewer).getByRole('button', { name: 'Open in Files' })).toBeInTheDocument()
+    expect(within(viewer).getByRole('button', { name: 'Close image' })).toHaveFocus()
+
+    // Loaded: the frame shows, with the title in it, in the one update.
+    fireEvent.load(image)
+    expect(frame).not.toHaveAttribute('data-pending')
+    const title = within(viewer).getByTestId('image-viewer-title')
+    expect(title).toHaveTextContent('Landing page, dark theme')
+    expect(title.parentElement).toBe(frame)
+  })
+
+  it('holds each image’s title back for its own load: stepping to one still loading shows none (#478)', async () => {
+    await renderTab({ files: IMAGE_FILES })
+    const viewer = await openViewer('Landing page, dark theme')
+    fireEvent.load(within(viewer).getByRole('img', { name: 'Landing page, dark theme' }))
+    expect(within(viewer).getByTestId('image-viewer-title')).toHaveTextContent('Landing page, dark theme')
+
+    // The next one hasn't loaded: the first's title goes, and the next's waits.
+    fireEvent.keyDown(viewer, { key: 'ArrowRight' })
+    expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('2 of 2')
+    expect(within(viewer).queryByTestId('image-viewer-title')).not.toBeInTheDocument()
+    const next = within(viewer).getByRole('img', { name: 'Search results on mobile' })
+    expect(next.parentElement).toHaveAttribute('data-pending')
+
+    fireEvent.load(next)
+    expect(within(viewer).getByTestId('image-viewer-title')).toHaveTextContent('Search results on mobile')
+
+    // Back on the first, already loaded: its title is there at once.
+    fireEvent.keyDown(viewer, { key: 'ArrowLeft' })
+    expect(within(viewer).getByTestId('image-viewer-title')).toHaveTextContent('Landing page, dark theme')
+  })
+
+  it('shows an image the browser already holds, and its title, as it mounts (#478)', async () => {
+    // As the browser reports one it has decoded before: complete the moment its element has its source.
+    const complete = vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true)
+    try {
+      await renderTab({ files: IMAGE_FILES })
+      const viewer = await openViewer('Landing page, dark theme')
+
+      const image = within(viewer).getByRole('img', { name: 'Landing page, dark theme' })
+      expect(image.parentElement).not.toHaveAttribute('data-pending')
+      expect(within(viewer).getByTestId('image-viewer-title')).toHaveTextContent('Landing page, dark theme')
+    } finally {
+      complete.mockRestore()
+    }
+  })
+
+  it('shows the title once an image fails to load too, over what the browser puts in its place (#478)', async () => {
+    await renderTab({ files: IMAGE_FILES })
+    const viewer = await openViewer('Landing page, dark theme')
+    const image = within(viewer).getByRole('img', { name: 'Landing page, dark theme' })
+
+    fireEvent.error(image)
+
+    expect(image.parentElement).not.toHaveAttribute('data-pending')
+    expect(within(viewer).getByTestId('image-viewer-title')).toHaveTextContent('Landing page, dark theme')
   })
 
   it('steps only through the image artifacts the list shows, not those in a folded date group (#378)', async () => {
@@ -817,9 +904,10 @@ describe('the image viewer', () => {
     fireEvent.keyDown(viewer, { key: 'ArrowRight' })
     expect(viewerTitle(viewer)).toBe('Search results on mobile')
     expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('2 of 2')
-    // Round to the first, never to the folded one.
+    // → again does nothing: it's the last, and the folded one was never reachable (#463).
     fireEvent.keyDown(viewer, { key: 'ArrowRight' })
-    expect(viewerTitle(viewer)).toBe('Landing page, dark theme')
+    expect(viewerTitle(viewer)).toBe('Search results on mobile')
+    expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('2 of 2')
     fireEvent.keyDown(viewer, { key: 'Escape' })
     await settleFloating()
 
@@ -829,7 +917,9 @@ describe('the image viewer', () => {
     })
     viewer = await openViewer('Landing page, dark theme')
     expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('1 of 3')
-    fireEvent.keyDown(viewer, { key: 'ArrowLeft' })
+    fireEvent.keyDown(viewer, { key: 'ArrowRight' })
+    expect(viewerTitle(viewer)).toBe('Search results on mobile')
+    fireEvent.keyDown(viewer, { key: 'ArrowRight' })
     expect(viewerTitle(viewer)).toBe('Landing page, light theme')
     expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('3 of 3')
   })
@@ -906,8 +996,11 @@ describe('the image viewer', () => {
     await renderTab({ files: {} })
     const viewer = await openViewer('Landing page, dark theme')
 
-    expect(within(viewer).getByRole('img', { name: 'Image not available' })).toBeInTheDocument()
+    const card = within(viewer).getByRole('img', { name: 'Image not available' })
     expect(within(viewer).queryByRole('img', { name: 'Landing page, dark theme' })).not.toBeInTheDocument()
+    // The card has its size as it mounts: it shows at once, with the title over it (#478).
+    expect(card.parentElement).not.toHaveAttribute('data-pending')
+    expect(within(viewer).getByTestId('image-viewer-title')).toHaveTextContent('Landing page, dark theme')
   })
 
   it('shows the missing card when the read itself fails', async () => {
@@ -1115,6 +1208,7 @@ describe('link artifacts (#407)', () => {
     const viewer = screen.getByRole('dialog', { name: VIEWER_LABEL })
     expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('1 of 2')
     fireEvent.keyDown(viewer, { key: 'ArrowRight' })
+    loadViewerImages(viewer)
     expect(within(viewer).getByTestId('image-viewer-title')).toHaveTextContent('Search results on mobile')
     fireEvent.keyDown(viewer, { key: 'Escape' })
     await settleFloating()

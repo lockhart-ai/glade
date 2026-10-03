@@ -1,2 +1,2 @@
-export { SubagentsTab, type SubagentsTabProps } from './SubagentsTab'
+export { SubagentsTab, type SubagentShown, type SubagentsTabProps } from './SubagentsTab'
 export { subagentCount } from './subagentsModel'
