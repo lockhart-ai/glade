@@ -15,6 +15,7 @@ import {
 } from './backend'
 import {
   BASH_FINISHED_TIMEOUT_S,
+  COMMAND_TOOLS,
   createSdkBackend,
   isSandboxed,
   sdkFlagSettings,
@@ -318,7 +319,7 @@ it('hooks every Bash call that runs, failed or not, only when the session wants 
   const hooks = sdkHooks(handlers(() => Promise.resolve({ context: null })))
 
   // Claude Code gives a hook 10 minutes unless told otherwise (docs/sdk-notes.md §15); a card can wait far longer.
-  const hooked = { matcher: 'Bash', hooks: [expect.any(Function)], timeout: BASH_FINISHED_TIMEOUT_S }
+  const hooked = { matcher: 'Bash|Monitor', hooks: [expect.any(Function)], timeout: BASH_FINISHED_TIMEOUT_S }
   expect(hooks.PostToolUse).toEqual([hooked])
   expect(hooks.PostToolUseFailure).toEqual([hooked])
   expect(BASH_FINISHED_TIMEOUT_S).toBe(2_147_483)
@@ -390,6 +391,41 @@ it('waits as long as the host takes: the result and the turn wait with it', asyn
   expect(done).toBe(false)
   answer({ context: 'Run it again.' })
   await expect(returned).resolves.toMatchObject({ hookSpecificOutput: { additionalContext: 'Run it again.' } })
+})
+
+it('tells the host of a Monitor call’s command too, since it runs in the sandbox, but not of one that opens a socket', async () => {
+  const heard: BashCallFinished[] = []
+  const hooks = sdkHooks(
+    handlers((finished) => {
+      heard.push(finished)
+      return Promise.resolve({ context: null })
+    }),
+  )
+  const failure = 'Sandbox is required but failed to initialize: seatbelt profile rejected. Restart to retry.'
+  const monitor = {
+    ...failedWith('npm run dev', failure),
+    tool_name: 'Monitor',
+    tool_use_id: 'toolu_01monitor',
+    tool_input: { command: 'npm run dev', description: 'Watch the dev server', timeout_ms: 60_000, persistent: false },
+  } as HookInput
+  const socket = {
+    ...monitor,
+    tool_input: { ws: { url: 'wss://events.acme.dev/stream' }, description: 'Deploy events', timeout_ms: 60_000 },
+  } as HookInput
+
+  await expect(call(hooks, 'PostToolUseFailure', monitor)).resolves.toEqual({})
+  await expect(call(hooks, 'PostToolUseFailure', socket)).resolves.toEqual({})
+
+  expect(COMMAND_TOOLS).toBe('Bash|Monitor')
+  expect(heard).toEqual([
+    {
+      toolUseId: 'toolu_01monitor',
+      command: 'npm run dev',
+      output: failure,
+      failed: true,
+      signal: expect.any(AbortSignal) as unknown,
+    },
+  ])
 })
 
 it("adds nothing for input of a shape Glade doesn't know, without asking the host", async () => {

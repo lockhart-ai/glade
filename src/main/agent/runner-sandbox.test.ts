@@ -1,24 +1,33 @@
 // The agent sandbox in a running task (#445, `docs/sdk-notes.md` §15): what a session starts with, the overlay it gets
 // straight after and on every mode change, which of its calls ask, and a sandbox that couldn't start. A fake agent
-// session behind the real bridge, saving to a database in a temporary folder.
-import { homedir } from 'node:os'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+// session behind the real bridge, saving to a database in a temporary folder. The home folder is a temporary one too,
+// so the paths the sandbox resolves are never the machine's own.
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createBridge } from '../../preload/bridge'
 import { CommandName, type GladeBridge } from '../../shared/bridge'
 import {
   AgentErrorKind,
   PermissionDecisionKind,
+  PermissionDestination,
   PermissionMode,
+  PermissionRequestState,
+  PermissionRuleBehavior,
+  PermissionUpdateType,
   TaskActivity,
   TaskErrorSource,
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  type PermissionDecision,
   type PermissionRequest,
   type Task,
   type ToolCallEvent,
   type Workspace,
 } from '../../shared/domain'
+import { taskPermissionRule } from '../../shared/permissions'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { errorHeadline, errorOpening } from '../../shared/taskError'
 import { registerBridge } from '../bridge'
@@ -26,10 +35,13 @@ import { fakeIpcPair } from '../bridge/fake-ipc'
 import { listMessages } from '../db/repositories/messages'
 import { listPermissionRequests } from '../db/repositories/permission-requests'
 import { updateSettings } from '../db/repositories/settings'
+import { addTaskPermissionRule, listTaskPermissionRules } from '../db/repositories/task-permission-rules'
 import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { setUiState } from '../db/repositories/ui-state'
+import { LogScope } from '../logging/logger'
+import { createMemoryLog } from '../logging/memory-sink'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
 import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
 import { ToolPermissionBehavior, type ToolPermissionAnswer } from './backend'
@@ -40,7 +52,7 @@ import {
   type FakeAgentSession,
   type PermissionCallFields,
 } from './fake-backend'
-import { NO_GRANTS, sandboxOverlay, sandboxStartSettings } from './sandbox'
+import { GrantProblem, NO_GRANTS, SandboxAccess, sandboxOverlay, sandboxStartSettings } from './sandbox'
 import {
   networkAccessCall,
   outsideFileCall,
@@ -49,8 +61,33 @@ import {
   sandboxOverrideCall,
   webFetchCall,
 } from './sandbox-requests'
-import { SANDBOX_FAILED_REFUSAL, SANDBOX_NOT_APPLIED, type AgentRunner } from './runner'
+import {
+  createAgentRunner,
+  CREDENTIAL_REFUSAL,
+  SANDBOX_FAILED_REFUSAL,
+  SANDBOX_NOT_APPLIED,
+  SANDBOX_RESTARTED_NOTE,
+  type AgentRunner,
+} from './runner'
 import * as sdk from './test-sdk-messages'
+
+/** A home folder of the tests' own, made before anything reads where home is. */
+const FAKE_HOME = await vi.hoisted(async () => {
+  const fs = await import('node:fs')
+  const os = await import('node:os')
+  const path = await import('node:path')
+  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glade-home-')))
+})
+
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>()
+  const mocked = { ...actual, homedir: () => FAKE_HOME }
+  return { ...mocked, default: mocked }
+})
+
+afterAll(() => {
+  rmSync(FAKE_HOME, { recursive: true, force: true })
+})
 
 const HOME = homedir()
 const ROOT = `${HOME}/src/acme-api`
@@ -150,7 +187,19 @@ function toolCall(toolUseId: string, taskId = task.id): ToolCallEvent {
   return found
 }
 
+function only(toolUseId: string, taskId = task.id): PermissionRequest {
+  const found = requests(taskId).find((request) => request.toolUseId === toolUseId)
+  if (found === undefined) throw new Error(`No request for ${toolUseId}`)
+  return found
+}
+
+async function answer(toolUseId: string, decision: PermissionDecision, taskId = task.id): Promise<void> {
+  await glade.invoke(CommandName.PermissionsAnswer, { id: only(toolUseId, taskId).id, decision })
+  await settle()
+}
+
 const ALLOWED_AT_ONCE: ToolPermissionAnswer = { behavior: ToolPermissionBehavior.Allow, byUser: false }
+const ALLOWED_BY_YOU: ToolPermissionAnswer = { behavior: ToolPermissionBehavior.Allow, byUser: true }
 const REFUSED: ToolPermissionAnswer = {
   behavior: ToolPermissionBehavior.Deny,
   message: SANDBOX_FAILED_REFUSAL,
@@ -503,16 +552,105 @@ describe('what asks', () => {
     },
   )
 
-  it('lets everything else inside the bounds go in Allow all, as acceptEdits would ask about it', async () => {
+  it('lets a command Claude Code asks about go in Allow all: the sandbox bounds it', async () => {
     const session = await startTurn()
 
-    const asked = [
-      await callTool(session, { toolUseId: 'toolu_bash', toolName: 'Bash', input: { command: 'npm test' } }),
-      await callTool(session, { toolUseId: 'toolu_edit', toolName: 'Edit', input: { file_path: `${ROOT}/a.ts` } }),
-    ]
+    const asked = await callTool(session, { toolUseId: 'toolu_bash', toolName: 'Bash', input: { command: 'npm test' } })
 
-    for (const answer of asked) await expect(answer.answer).resolves.toEqual(ALLOWED_AT_ONCE)
+    await expect(asked.answer).resolves.toEqual(ALLOWED_AT_ONCE)
     expect(requests()).toEqual([])
+  })
+
+  it.each([
+    ['the MCP servers the next session starts', '.mcp.json'],
+    ['Claude Code’s own settings', '.claude/settings.local.json'],
+    ['git’s config', '.git/config'],
+    ['an ordinary file an ask rule or a safety check held back', 'src/retry.ts'],
+  ])('asks, in Allow all, about a write inside the root that reaches it: %s', async (_what, file) => {
+    const session = await startTurn()
+
+    const asked = await callTool(session, {
+      toolUseId: 'toolu_write',
+      toolName: 'Write',
+      input: { file_path: `${ROOT}/${file}`, content: '{}' },
+    })
+
+    expect(requests()).toEqual([
+      expect.objectContaining({ toolUseId: 'toolu_write', state: PermissionRequestState.Open }),
+    ])
+    // Only once, or not at all.
+    expect(taskPermissionRule(only('toolu_write'))).toBeNull()
+    await answer('toolu_write', { kind: PermissionDecisionKind.AllowOnce })
+    await expect(asked.answer).resolves.toEqual(ALLOWED_BY_YOU)
+  })
+
+  it.each([PermissionMode.AllowAll, PermissionMode.AskBeforeEdits])(
+    'refuses a credential path in %s without a card, however it’s spelled',
+    async (mode) => {
+      await setMode(mode)
+      const session = await startTurn()
+
+      const asked = [
+        await callTool(session, {
+          toolUseId: 'toolu_key',
+          toolName: 'Read',
+          input: { file_path: `${HOME}/.ssh/id_rsa` },
+        }),
+        await callTool(session, {
+          toolUseId: 'toolu_tilde',
+          toolName: 'Read',
+          input: { file_path: '~/.aws/credentials' },
+        }),
+        await callTool(session, {
+          toolUseId: 'toolu_alias',
+          toolName: 'Edit',
+          input: { file_path: `/System/Volumes/Data${HOME}/.netrc` },
+        }),
+      ]
+
+      for (const { answer: given } of asked) {
+        await expect(given).resolves.toEqual({
+          behavior: ToolPermissionBehavior.Deny,
+          message: CREDENTIAL_REFUSAL,
+          byUser: false,
+        })
+      }
+      expect(requests()).toEqual([])
+    },
+  )
+
+  it('asks about another spelling of the home folder, and a link in the root that leads out of it', async () => {
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), 'glade-sandbox-')))
+    try {
+      const root = join(folder, 'acme-api')
+      mkdirSync(root)
+      mkdirSync(join(folder, 'private'))
+      // What a sandboxed command may do: make a link in the root, here to a folder standing in for ~/Documents.
+      symlinkSync(join(folder, 'private'), join(root, 'link'))
+      const linked = sampleTask(database.db, sampleWorkspace(database.db, root).id, 4_000)
+      const session = await startTurn('Read the notes.', linked.id)
+
+      const through = await callTool(session, {
+        toolUseId: 'toolu_link',
+        toolName: 'Write',
+        input: { file_path: join(root, 'link', 'out.txt'), content: 'x' },
+      })
+      await callTool(session, {
+        toolUseId: 'toolu_case',
+        toolName: 'Read',
+        input: { file_path: `${HOME.toUpperCase()}/Documents/taxes.pdf` },
+      })
+      await callTool(session, {
+        toolUseId: 'toolu_tilde',
+        toolName: 'Read',
+        input: { file_path: '~/Documents/taxes.pdf' },
+      })
+
+      expect(requests(linked.id).map(({ toolUseId }) => toolUseId)).toEqual(['toolu_link', 'toolu_case', 'toolu_tilde'])
+      through.abort()
+    } finally {
+      rmSync(folder, { recursive: true, force: true })
+    }
   })
 
   it.each([PermissionMode.AllowAll, PermissionMode.AskBeforeEdits])(
@@ -543,6 +681,208 @@ describe('what asks', () => {
     await expect(asked.answer).resolves.toEqual(ALLOWED_AT_ONCE)
     await expect(read.answer).resolves.toEqual(ALLOWED_AT_ONCE)
     expect(requests()).toEqual([])
+  })
+})
+
+describe('Allow for this task', () => {
+  const WHOLE_WRITE = { toolName: 'Write' }
+  const WHOLE_EDIT = { toolName: 'Edit' }
+  const NPM_TEST = { toolName: 'Bash', ruleContent: 'npm test *' }
+
+  function rules(taskId = task.id): unknown[] {
+    return listTaskPermissionRules(database.db, taskId).map(({ rule }) => rule)
+  }
+
+  it.each([PermissionMode.AllowAll, PermissionMode.AskBeforeEdits])(
+    'isn’t offered on a boundary crossing in %s: the write’s rule would be the whole tool, for every folder',
+    async (mode) => {
+      await setMode(mode)
+      const session = await startTurn()
+      const out = '/tmp/glade-out.txt'
+      const write = outsideFileCall('toolu_write', 'Write', { file_path: out, content: 'x' }, out, FileAccess.Write)
+      const asked = await callTool(session, write)
+      await callTool(session, webFetchCall('toolu_fetch', { url: 'https://docs.acme.dev/x', prompt: 'Summarize.' }))
+      await callTool(session, sandboxOverrideCall('toolu_out', OVERRIDE, true))
+
+      for (const toolUseId of ['toolu_write', 'toolu_fetch', 'toolu_out']) {
+        expect(only(toolUseId).suppressAlwaysAllowRule).toBe(true)
+        expect(taskPermissionRule(only(toolUseId))).toBeNull()
+      }
+      await expect(answer('toolu_write', { kind: PermissionDecisionKind.AllowForTask })).rejects.toThrow()
+      expect(only('toolu_write').state).toBe(PermissionRequestState.Open)
+      expect(rules()).toEqual([])
+
+      await answer('toolu_write', { kind: PermissionDecisionKind.AllowOnce })
+      await expect(asked.answer).resolves.toEqual(ALLOWED_BY_YOU)
+      // Once only: the same write asks again.
+      await callTool(session, { ...write, toolUseId: 'toolu_again' })
+      expect(only('toolu_again').state).toBe(PermissionRequestState.Open)
+    },
+  )
+
+  it('keeps a whole-tool rule the task already has from a sandboxed session, and decides its calls itself', async () => {
+    for (const rule of [WHOLE_WRITE, WHOLE_EDIT, NPM_TEST, { toolName: 'Read' }, { toolName: 'WebFetch' }]) {
+      addTaskPermissionRule(database.db, { taskId: task.id, rule })
+    }
+    await setMode(PermissionMode.AskBeforeEdits)
+    const session = await startTurn()
+
+    // Claude Code would take `Write` for every folder: only the command rule reaches it.
+    expect(session.options.allowedRules).toEqual([NPM_TEST])
+
+    const inside = await callTool(session, {
+      toolUseId: 'toolu_in',
+      toolName: 'Write',
+      input: { file_path: `${ROOT}/CHANGELOG.md`, content: 'x' },
+    })
+    await expect(inside.answer).resolves.toEqual(ALLOWED_AT_ONCE)
+
+    await callTool(session, {
+      toolUseId: 'toolu_agents',
+      toolName: 'Write',
+      input: { file_path: `${HOME}/Library/LaunchAgents/x.plist`, content: 'x' },
+    })
+    await callTool(session, {
+      toolUseId: 'toolu_mcp',
+      toolName: 'Edit',
+      input: { file_path: `${ROOT}/.mcp.json` },
+    })
+    await callTool(session, { toolUseId: 'toolu_read', toolName: 'Read', input: { file_path: `${HOME}/Documents/a` } })
+    await callTool(session, { toolUseId: 'toolu_fetch', toolName: 'WebFetch', input: { url: 'https://example.org/' } })
+    expect(requests().map(({ toolUseId }) => toolUseId)).toEqual([
+      'toolu_agents',
+      'toolu_mcp',
+      'toolu_read',
+      'toolu_fetch',
+    ])
+  })
+
+  it('in Allow all, still asks about a write that reaches it, whatever the task was granted', async () => {
+    addTaskPermissionRule(database.db, { taskId: task.id, rule: WHOLE_WRITE })
+    const session = await startTurn()
+
+    expect(session.options.allowedRules).toEqual([])
+    await callTool(session, { toolUseId: 'toolu_mcp', toolName: 'Write', input: { file_path: `${ROOT}/.mcp.json` } })
+    expect(only('toolu_mcp').state).toBe(PermissionRequestState.Open)
+  })
+
+  it('granted on an edit in the ask mode, is kept by the task and never handed to the sandboxed session', async () => {
+    await setMode(PermissionMode.AskBeforeEdits)
+    const session = await startTurn()
+    const edit = { toolName: 'Edit', input: { file_path: `${ROOT}/src/retry.ts` } }
+
+    const first = await callTool(session, { ...edit, toolUseId: 'toolu_01' })
+    expect(taskPermissionRule(only('toolu_01'))).toEqual(WHOLE_EDIT)
+    await answer('toolu_01', { kind: PermissionDecisionKind.AllowForTask })
+
+    // The session gets the allow, not the rule: it would let Edit write anywhere.
+    await expect(first.answer).resolves.toEqual(ALLOWED_BY_YOU)
+    expect(rules()).toEqual([WHOLE_EDIT])
+
+    const second = await callTool(session, { ...edit, toolUseId: 'toolu_02' })
+    await expect(second.answer).resolves.toEqual(ALLOWED_AT_ONCE)
+    await callTool(session, { toolName: 'Edit', toolUseId: 'toolu_03', input: { file_path: `${HOME}/.zshrc` } })
+    expect(only('toolu_03').state).toBe(PermissionRequestState.Open)
+    // Another write tool wasn't granted.
+    await callTool(session, { toolName: 'Write', toolUseId: 'toolu_04', input: { file_path: `${ROOT}/a.md` } })
+    expect(only('toolu_04').state).toBe(PermissionRequestState.Open)
+  })
+
+  it('hands a command’s rule to a sandboxed session as before', async () => {
+    await setMode(PermissionMode.AskBeforeEdits)
+    const session = await startTurn()
+    const suggestions = [
+      {
+        type: PermissionUpdateType.AddRules,
+        rules: [NPM_TEST],
+        behavior: PermissionRuleBehavior.Allow,
+        destination: PermissionDestination.LocalSettings,
+      },
+    ] as const
+
+    const asked = await callTool(session, {
+      toolUseId: 'toolu_01',
+      toolName: 'Bash',
+      input: { command: 'npm test' },
+      suggestions,
+    })
+    await answer('toolu_01', { kind: PermissionDecisionKind.AllowForTask })
+
+    await expect(asked.answer).resolves.toEqual({ ...ALLOWED_BY_YOU, rule: NPM_TEST })
+  })
+
+  it('with the sandbox off, passes whole-tool rules to the session, and hands it the ones granted, as before', async () => {
+    updateSettings(database.db, { sandboxEnabled: false })
+    addTaskPermissionRule(database.db, { taskId: task.id, rule: WHOLE_WRITE })
+    await setMode(PermissionMode.AskBeforeEdits)
+    const session = await startTurn()
+
+    expect(session.options.allowedRules).toEqual([WHOLE_WRITE])
+    const asked = await callTool(session, { toolUseId: 'toolu_01', toolName: 'Edit', input: { file_path: 'a.ts' } })
+    await answer('toolu_01', { kind: PermissionDecisionKind.AllowForTask })
+    await expect(asked.answer).resolves.toEqual({ ...ALLOWED_BY_YOU, rule: WHOLE_EDIT })
+  })
+})
+
+describe('grants', () => {
+  it('leaves a grant the sandbox can’t take out of the overlay and the bounds, and logs it', async () => {
+    runner.close()
+    const log = createMemoryLog(LogScope.Runner)
+    backend = new FakeAgentBackend()
+    runner = createAgentRunner({
+      db: database.db,
+      emit: () => undefined,
+      backend,
+      log: log.logger,
+      sandboxGrants: () => ({
+        folders: [
+          { path: `${HOME}/notes`, access: SandboxAccess.Read },
+          { path: `${HOME}/x/../shared/`, access: SandboxAccess.ReadWrite },
+          { path: `${HOME}/a*`, access: SandboxAccess.Read },
+        ],
+        domains: ['registry.npmjs.org', '*'],
+      }),
+    })
+    runner.send(task.id, 'Read the notes.')
+    await settle()
+    const session = backend.session
+
+    const usable = {
+      folders: [
+        { path: `${HOME}/notes`, access: SandboxAccess.Read },
+        { path: `${HOME}/shared`, access: SandboxAccess.ReadWrite },
+      ],
+      domains: ['registry.npmjs.org'],
+    }
+    expect(session.options.flagSettings).toEqual(sandboxStartSettings(ROOT))
+    expect(session.flagSettings).toEqual([sandboxOverlay(ROOT, PermissionMode.AllowAll, usable)])
+    expect(session.flagSettings[0]?.permissions?.allow).toEqual([
+      `Read(/${HOME}/notes/**)`,
+      'WebFetch(domain:registry.npmjs.org)',
+    ])
+    expect(log.withMessage('left a grant out of the sandbox').map(({ fields }) => fields)).toEqual([
+      { taskId: task.id, value: `${HOME}/a*`, problem: GrantProblem.Pattern },
+      { taskId: task.id, value: '*', problem: GrantProblem.NotAHost },
+    ])
+
+    // The classifier reads the same grants: the granted folder and domain don't ask, the rejected ones do.
+    session.emit(sdk.init())
+    await settle()
+    const read = await callTool(session, {
+      toolUseId: 't1',
+      toolName: 'Read',
+      input: { file_path: `${HOME}/notes/a.md` },
+    })
+    const fetch = await callTool(session, {
+      toolUseId: 't2',
+      toolName: 'WebFetch',
+      input: { url: 'https://registry.npmjs.org/x' },
+    })
+    await expect(read.answer).resolves.toEqual(ALLOWED_AT_ONCE)
+    await expect(fetch.answer).resolves.toEqual(ALLOWED_AT_ONCE)
+    await callTool(session, { toolUseId: 't3', toolName: 'Read', input: { file_path: `${HOME}/abc/a.md` } })
+    await callTool(session, { toolUseId: 't4', toolName: 'WebFetch', input: { url: 'https://example.org/' } })
+    expect(requests().map(({ toolUseId }) => toolUseId)).toEqual(['t3', 't4'])
   })
 })
 
@@ -680,5 +1020,26 @@ describe('a sandbox that can’t start', () => {
       id: requests()[0]?.id ?? '',
       decision: { kind: PermissionDecisionKind.Deny },
     })
+  })
+
+  it('retries in a new session even with background work going on, which ends saying why', async () => {
+    const first = await startTurn()
+    first.emit(...sdk.backgroundLaunch('toolu_bg', 'af1', 'Survey the tests'))
+    await settle()
+    await failingCommand(first, 'toolu_01')
+    first.emit(sdk.result('Done.'))
+    await settle()
+    expect(current()).toMatchObject({ activity: TaskActivity.Error, error: { source: TaskErrorSource.Sandbox } })
+    expect(toolCall('toolu_bg').state).toBe(ToolCallState.Running)
+
+    await glade.invoke(CommandName.TasksRetry, { id: task.id })
+    await settle()
+
+    // Kept, the retry would only replay into the sandbox that failed.
+    expect(first.closed).toBe(true)
+    expect(backend.sessions).toHaveLength(2)
+    expect(toolCall('toolu_bg')).toMatchObject({ state: ToolCallState.Error, output: SANDBOX_RESTARTED_NOTE })
+    expect(backend.session.sent.map(({ text }) => text)).toEqual(['Run the tests.'])
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, error: null })
   })
 })

@@ -1,7 +1,11 @@
+import { execFileSync } from 'node:child_process'
+import { existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommitFileStatus } from '../../shared/domain'
+import { SHELL_GIT_ENV } from '../agent/scripted-shell'
 import {
+  BASE_ARGS,
   createGit,
   execGit,
   parseCommitFiles,
@@ -252,5 +256,21 @@ describe('execGit', () => {
     expect(failed).toMatchObject({ ok: false, truncated: false })
     // With no folder, it runs where Glade runs.
     expect((await TEST_GIT_RUN(['--version'], null, 100)).ok).toBe(true)
+  })
+
+  it('never runs the command a repository’s config names as its file system monitor (#448)', async () => {
+    const api = repos.repo('acme-api', { 'README.md': '# Acme API\n' })
+    const marker = join(api, 'fsmonitor-ran')
+    const hook = join(api, 'fsmonitor.sh')
+    writeFileSync(hook, `#!/bin/sh\ntouch "${marker}"\n`, { mode: 0o755 })
+    expect((await TEST_GIT_RUN(['config', 'core.fsmonitor', hook], api, 1024)).ok).toBe(true)
+
+    expect((await TEST_GIT_RUN(['status', '--porcelain'], api, 1 << 16)).ok).toBe(true)
+    expect(existsSync(marker)).toBe(false)
+
+    // Git by itself does run it: what the override is there to stop.
+    execFileSync('git', ['status', '--porcelain'], { cwd: api, env: { ...process.env, ...SHELL_GIT_ENV } })
+    expect(existsSync(marker)).toBe(true)
+    expect(BASE_ARGS).toContain('core.fsmonitor=false')
   })
 })

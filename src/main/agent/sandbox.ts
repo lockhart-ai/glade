@@ -13,16 +13,21 @@
  *   read-write ones as additional directories; and domains as `WebFetch(domain:…)` rules in `permissions.allow`, which
  *   is the only place they reach commands too (never `allowedTools`).
  *
- * `autoAllowBashIfSandboxed` is in the overlay only, never the start: whether the overlay's value would override the
- * start's for a boolean isn't probed (§15 probed lists only), and with it left out at start, the SDK's default (on)
- * applies only until the overlay lands, before the session's first message.
+ * `autoAllowBashIfSandboxed` is in the overlay only, never the start: left out at start, the SDK's default (on) applies
+ * until the overlay lands, and the overlay's value then holds either way (probed, §15: in `default` mode a command
+ * ran unasked before the overlay, asked once the overlay said false, and ran unasked again once it said true). The
+ * runner holds a session's messages until the overlay is applied, and never runs a session that won't take it.
+ *
+ * A grant that could widen the sandbox past what it names never reaches the settings (`usableGrants`): a folder that
+ * isn't an absolute path, is `/`, or has a glob character (sandbox paths and rule contents are patterns), and a
+ * domain that isn't a host name, with an optional leading `*.`.
  */
 import { homedir } from 'node:os'
 import { posix } from 'node:path'
 import { PermissionMode } from '../../shared/domain'
 import { permissionRuleString } from '../../shared/permissions'
 import type { SandboxCredentialFile, SandboxFlagSettings, SandboxSettings, SettingsPermissions } from './backend'
-import { domainRuleString, readRuleContent, SANDBOX_OVERRIDE_ASK_RULE } from './sandbox-requests'
+import { domainRuleString, isBareHost, readRuleContent, SANDBOX_OVERRIDE_ASK_RULE } from './sandbox-requests'
 
 /** How much of a granted folder the agent may use. */
 export enum SandboxAccess {
@@ -44,6 +49,66 @@ export interface SandboxGrants {
 
 /** Nothing granted: what every task has until P15-04's grants. */
 export const NO_GRANTS: SandboxGrants = { folders: [], domains: [] }
+
+/** Why a grant can't go into the sandbox's settings. */
+export enum GrantProblem {
+  /** A folder that isn't an absolute path (a relative or empty one). */
+  NotAbsolute = 'not_absolute',
+  /** A folder that is `/`, or comes to it once its `..`s are followed: it would grant everything. */
+  WholeDisk = 'whole_disk',
+  /** A folder with a glob character (`*`, `?`, `[`, `]`, `{`, `}` or a backslash): it would match more than itself. */
+  Pattern = 'pattern',
+  /** A domain that isn't a host name, with an optional leading `*.`. */
+  NotAHost = 'not_a_host',
+}
+
+/** A grant left out of the sandbox's settings, and why. */
+export interface RejectedGrant {
+  /** The folder's path or the domain, as granted. */
+  readonly value: string
+  readonly problem: GrantProblem
+}
+
+/** Grants sorted into those the sandbox's settings can take, their folders normalized, and those they can't. */
+export interface CheckedGrants {
+  readonly grants: SandboxGrants
+  readonly rejected: readonly RejectedGrant[]
+}
+
+/** The characters sandbox paths and permission rules read as a pattern. */
+const GLOB_CHARACTERS = /[*?[\]{}\\]/
+
+/** What's wrong with a folder as a grant, or null when it can be one. */
+function folderProblem(path: string): GrantProblem | null {
+  if (!path.startsWith('/')) return GrantProblem.NotAbsolute
+  if (GLOB_CHARACTERS.test(path)) return GrantProblem.Pattern
+  return sandboxFolder(path) === '/' ? GrantProblem.WholeDisk : null
+}
+
+/** Whether a domain can be granted: a bare host name, or one under a leading `*.`. */
+function isGrantableDomain(domain: string): boolean {
+  return isBareHost(domain.startsWith('*.') ? domain.slice(2) : domain)
+}
+
+/**
+ * The grants the sandbox's settings can take (see the module comment), each folder normalized, and the ones left out,
+ * for whoever applies them to log.
+ */
+export function usableGrants(grants: SandboxGrants): CheckedGrants {
+  const rejected: RejectedGrant[] = []
+  const folders = grants.folders.flatMap(({ path, access }) => {
+    const problem = folderProblem(path)
+    if (problem === null) return [{ path: sandboxFolder(path), access }]
+    rejected.push({ value: path, problem })
+    return []
+  })
+  const domains = grants.domains.filter((domain) => {
+    if (isGrantableDomain(domain)) return true
+    rejected.push({ value: domain, problem: GrantProblem.NotAHost })
+    return false
+  })
+  return { grants: { folders, domains }, rejected }
+}
 
 /** Whether a credential path is a folder (everything in it) or a single file. */
 export enum CredentialKind {
@@ -156,6 +221,7 @@ export function sandboxStartSettings(root: string, home: string = homedir()): Sa
  * the root and the read-write ones. The file tools may read the read-only folders (`Read(//<folder>/**)` rules) and use
  * the read-write ones (`additionalDirectories`). Domains are `WebFetch(domain:…)` rules in `permissions.allow`, which
  * Claude Code merges into the sandbox's network allowlist too. The credential paths stay denied whatever is granted.
+ * A grant the settings can't take is left out (`usableGrants`).
  */
 export function sandboxOverlay(
   root: string,
@@ -164,13 +230,13 @@ export function sandboxOverlay(
   home: string = homedir(),
 ): SandboxFlagSettings {
   const folder = sandboxFolder(root)
-  const granted = grants.folders.map(({ path, access }) => ({ path: sandboxFolder(path), access }))
+  const { folders: granted, domains } = usableGrants(grants).grants
   const readOnly = unique(granted.filter(({ access }) => access === SandboxAccess.Read).map(({ path }) => path))
   const readWrite = unique(granted.filter(({ access }) => access === SandboxAccess.ReadWrite).map(({ path }) => path))
   const permissions: SettingsPermissions = {
     allow: [
       ...readOnly.map((path) => permissionRuleString({ toolName: 'Read', ruleContent: readRuleContent(path) })),
-      ...unique(grants.domains).map(domainRuleString),
+      ...unique(domains).map(domainRuleString),
     ],
     ask: [SANDBOX_OVERRIDE_ASK_RULE],
     deny: credentialDenyRules(home),

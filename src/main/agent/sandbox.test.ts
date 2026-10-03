@@ -9,11 +9,13 @@ import {
   credentialDenyRules,
   credentialPaths,
   CredentialKind,
+  GrantProblem,
   NO_GRANTS,
   SandboxAccess,
   sandboxFolder,
   sandboxOverlay,
   sandboxStartSettings,
+  usableGrants,
   type SandboxGrants,
 } from './sandbox'
 import { SANDBOX_OVERRIDE_ASK_RULE } from './sandbox-requests'
@@ -260,5 +262,93 @@ describe('sandboxOverlay', () => {
       '/Users/me/My Notes',
       '/Volumes/Données/café (old)',
     ])
+  })
+
+  it('leaves out every grant that would open more than it names', () => {
+    const wide: SandboxGrants = {
+      folders: [
+        { path: '/Users/me/a*', access: SandboxAccess.Read },
+        { path: '/Users/me/Music [2024]', access: SandboxAccess.ReadWrite },
+        { path: '/Users/me/x/../../..', access: SandboxAccess.ReadWrite },
+        { path: '/', access: SandboxAccess.Read },
+        { path: '', access: SandboxAccess.Read },
+        { path: 'notes', access: SandboxAccess.ReadWrite },
+        { path: '/Users/me/notes', access: SandboxAccess.Read },
+      ],
+      domains: ['*', 'registry.npmjs.org', 'https://evil.example/x', '*.acme.dev', 'a b.example', '*.*'],
+    }
+    const { sandbox, permissions } = sandboxOverlay(ROOT, PermissionMode.AllowAll, wide, HOME)
+
+    expect(sandbox?.filesystem?.allowRead).toEqual([ROOT, '/Users/me/notes'])
+    expect(sandbox?.filesystem?.allowWrite).toEqual([ROOT])
+    expect(permissions?.additionalDirectories).toEqual([])
+    expect(permissions?.allow).toEqual([
+      'Read(//Users/me/notes/**)',
+      'WebFetch(domain:registry.npmjs.org)',
+      'WebFetch(domain:*.acme.dev)',
+    ])
+  })
+})
+
+describe('usableGrants', () => {
+  it('keeps the grants the sandbox can take, their folders normalized', () => {
+    const grants: SandboxGrants = {
+      folders: [
+        { path: '/Users/me/notes/', access: SandboxAccess.Read },
+        { path: '/Users/me/src/./shared-lib', access: SandboxAccess.ReadWrite },
+        { path: '/Users/me/My Notes (old)', access: SandboxAccess.Read },
+      ],
+      domains: ['registry.npmjs.org', '*.acme.dev', 'localhost'],
+    }
+
+    expect(usableGrants(grants)).toEqual({
+      grants: {
+        folders: [
+          { path: '/Users/me/notes', access: SandboxAccess.Read },
+          { path: '/Users/me/src/shared-lib', access: SandboxAccess.ReadWrite },
+          { path: '/Users/me/My Notes (old)', access: SandboxAccess.Read },
+        ],
+        domains: ['registry.npmjs.org', '*.acme.dev', 'localhost'],
+      },
+      rejected: [],
+    })
+    expect(usableGrants(NO_GRANTS)).toEqual({ grants: NO_GRANTS, rejected: [] })
+  })
+
+  it.each([
+    ['', GrantProblem.NotAbsolute],
+    ['notes', GrantProblem.NotAbsolute],
+    ['./notes', GrantProblem.NotAbsolute],
+    ['~/notes', GrantProblem.NotAbsolute],
+    ['/', GrantProblem.WholeDisk],
+    ['//', GrantProblem.WholeDisk],
+    ['/Users/me/x/../../..', GrantProblem.WholeDisk],
+    ['/Users/me/a*', GrantProblem.Pattern],
+    ['/Users/me/a?c', GrantProblem.Pattern],
+    ['/Users/me/Music [2024]', GrantProblem.Pattern],
+    ['/Users/me/{a,b}', GrantProblem.Pattern],
+    ['/Users/me/a\\*', GrantProblem.Pattern],
+    ['/Users/**', GrantProblem.Pattern],
+  ])('rejects the folder %j', (path, problem) => {
+    const { grants, rejected } = usableGrants({ folders: [{ path, access: SandboxAccess.Read }], domains: [] })
+    expect(grants.folders).toEqual([])
+    expect(rejected).toEqual([{ value: path, problem }])
+  })
+
+  it.each([
+    '*',
+    '*.*',
+    '',
+    '*.',
+    'https://registry.npmjs.org',
+    'registry.npmjs.org/x',
+    'a b.example',
+    'evil.example:443',
+    '**.acme.dev',
+    'acme.*',
+  ])('rejects the domain %j', (domain) => {
+    const { grants, rejected } = usableGrants({ folders: [], domains: [domain] })
+    expect(grants.domains).toEqual([])
+    expect(rejected).toEqual([{ value: domain, problem: GrantProblem.NotAHost }])
   })
 })

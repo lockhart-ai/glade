@@ -162,6 +162,12 @@
     session to run outside the sandbox is refused without a card. A session that won't take its sandbox settings is
     closed rather than left running, with the same error, before any message reaches the agent. See `sdk-notes.md`
     §15.
+  - With the sandbox on, folders are compared by where they really are (symbolic links followed, `~` and the data
+    volume's alias resolved, case ignored), so another spelling of a denied folder asks too. Credential files are
+    refused outright. A write that Claude Code's own safety check holds back (`.mcp.json`, `.claude/`, `.git/`, shell
+    startup files) asks even in Allow all. Until the sandbox's own cards (P15-05), a boundary crossing can only be
+    allowed once: **Allow for this task** isn't offered on it, and a whole-tool `Edit` or `Write` rule a task was
+    granted in the ask mode applies only inside the workspace root and the read-write grants.
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
     `manifest.json`: `id` (the folder's name), `name`, `version`, `entry` (an HTML file in the folder) and an optional

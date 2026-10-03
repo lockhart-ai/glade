@@ -352,8 +352,8 @@ export function subagentGladeToolGuard(log: Logger = SILENT_LOGGER): HookCallbac
  * it can turn away, the jobs the session has scheduled at the end of each turn (`Stop`), the summary each compaction
  * writes (`PostCompact`, §5), and each `Bash` call about to run (`PreToolUse`), which waits for the host a while at
  * most. A hook that fails lets the prompt or call through, and tells nothing. When the session wants to hear of each
- * `Bash` call that has run (`onBashFinished`, §15), its `PostToolUse` and `PostToolUseFailure` hooks tell it, and the
- * call's result waits for the answer.
+ * `Bash` call that has run (`onBashFinished`, §15), its `PostToolUse` and `PostToolUseFailure` hooks tell it, of
+ * `Monitor`'s commands too, and the call's result waits for the answer.
  */
 export function sdkHooks(
   hooks: SessionHooks | undefined,
@@ -430,14 +430,28 @@ export function sdkHooks(
       ? {}
       : {
           PostToolUse: [
-            { matcher: 'Bash', hooks: [bashFinishedHook(onBashFinished, log)], timeout: BASH_FINISHED_TIMEOUT_S },
+            {
+              matcher: COMMAND_TOOLS,
+              hooks: [bashFinishedHook(onBashFinished, log)],
+              timeout: BASH_FINISHED_TIMEOUT_S,
+            },
           ],
           PostToolUseFailure: [
-            { matcher: 'Bash', hooks: [bashFinishedHook(onBashFinished, log)], timeout: BASH_FINISHED_TIMEOUT_S },
+            {
+              matcher: COMMAND_TOOLS,
+              hooks: [bashFinishedHook(onBashFinished, log)],
+              timeout: BASH_FINISHED_TIMEOUT_S,
+            },
           ],
         }),
   }
 }
+
+/**
+ * The tools that run a shell command, as a hook matcher: `Bash`, and `Monitor`, whose command runs in the sandbox too
+ * (a `Monitor` call that opens a socket instead has no command, and isn't told).
+ */
+export const COMMAND_TOOLS = 'Bash|Monitor'
 
 /**
  * How long, in seconds, a `Bash` call's result waits for the host's `onBashFinished`: as long as a timer can, about 24.8
