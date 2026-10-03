@@ -51,7 +51,10 @@ jobs:
           cache: npm
 
       - run: npm ci
-      - run: npm test
+      # Without the perf tests (`*.perf.test.ts`): their budgets were set on a Mac, and on these runners the same code
+      # lands on both sides of them (#442). `check-design` runs them, on macOS. They cover no line of their own, so
+      # the 100% threshold holds without them.
+      - run: npm test -- --exclude '**/*.perf.test.ts'
 
   check-design:
     name: check-design
@@ -70,6 +73,10 @@ jobs:
       # block, so it still runs here, once, to keep it exercised (#418).
       - name: unit (macOS-only, #418)
         run: npx vitest run src/main/plugins/machine-samplers.integration.test.ts
+      # The perf tests (`*.perf.test.ts`), which `unit` leaves out: their budgets were set on a Mac, with coverage on as
+      # `npm test` runs them, so they run here, with nothing else running alongside (#442).
+      - name: perf (macOS-only, #442)
+        run: npm run test:perf
 
   e2e:
     name: e2e (${{ matrix.shard }}/${{ strategy.job-total }})

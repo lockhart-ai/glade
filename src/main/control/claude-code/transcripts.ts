@@ -146,7 +146,7 @@ export async function findTranscript(projectsDir: string, sessionId: string): Pr
  */
 export async function readTranscript(file: TranscriptFile): Promise<ClaudeCodeTranscript> {
   // TEMPORARY (#442 measurement): the regressions the perf test guards against, switched on by an environment variable.
-  const sabotage = process.env['GLADE_PERF_SABOTAGE']
+  const sabotage = process.env.GLADE_PERF_SABOTAGE
   if (sabotage === 'double') await readTranscriptOnce(file, false)
   return readTranscriptOnce(file, sabotage === 'quadratic')
 }

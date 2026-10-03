@@ -111,7 +111,7 @@ afterEach(() => {
 
 /** TEMPORARY (#442 measurement): prints what a test measured, for the CI logs. Removed before this merges. */
 function report(test: string, measured: Record<string, unknown>): void {
-  const sabotage = process.env['GLADE_PERF_SABOTAGE'] ?? 'none'
+  const sabotage = process.env.GLADE_PERF_SABOTAGE ?? 'none'
   console.log(
     `PERF442 ${JSON.stringify({ test, platform: process.platform, arch: process.arch, sabotage, ...measured })}`,
   )

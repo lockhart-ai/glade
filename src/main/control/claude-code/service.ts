@@ -143,7 +143,7 @@ type SummaryCache = Map<string, SessionSummary>
 
 async function summaryOf(cache: SummaryCache, file: TranscriptFile): Promise<SessionSummary> {
   // TEMPORARY (#442 measurement): a listing that reads every transcript again for each page.
-  const cached = process.env['GLADE_PERF_SABOTAGE'] === 'nocache' ? undefined : cache.get(file.path)
+  const cached = process.env.GLADE_PERF_SABOTAGE === 'nocache' ? undefined : cache.get(file.path)
   if (cached?.size === file.size && cached.modifiedAt === file.modifiedAt) return cached
   const transcript = await readTranscript(file)
   const summary: SessionSummary = {
@@ -442,7 +442,8 @@ async function importSession(
   })
   let written: Written
   // TEMPORARY (#442 measurement): twice the writing, the first lot rolled back.
-  if (process.env['GLADE_PERF_SABOTAGE'] === 'double') {
+  /* v8 ignore start -- @preserve */
+  if (process.env.GLADE_PERF_SABOTAGE === 'double') {
     try {
       db.transaction(() => {
         write()
@@ -452,6 +453,7 @@ async function importSession(
       // Rolled back.
     }
   }
+  /* v8 ignore stop -- @preserve */
   try {
     written = write()
   } catch (error) {

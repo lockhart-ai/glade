@@ -1,4 +1,6 @@
-# TEMPORARY (#442): measures service.perf.test.ts on the CI runners, to set its budgets from. Removed before this merges.
+# TEMPORARY (#442): runs the perf tests as `check-design` now does, on ten macOS runners, three times each, and then
+# with the work doubled, the read made quadratic and the listing's cache off, which must each fail. Removed before this
+# merges.
 name: perf-measure
 
 on:
@@ -9,18 +11,12 @@ permissions:
 
 jobs:
   measure:
-    name: measure ${{ matrix.os }} ${{ matrix.run }}
-    runs-on: ${{ matrix.os }}
+    name: measure ${{ matrix.run }}
+    runs-on: macos-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
         run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        include:
-          - os: macos-latest
-            run: 1
-          - os: macos-latest
-            run: 2
     steps:
       - uses: actions/checkout@v7
 
@@ -35,26 +31,24 @@ jobs:
         run: |
           node -p "const os = require('os'); JSON.stringify({ cpu: os.cpus()[0].model, cpus: os.cpus().length, node: process.version })"
 
-      - name: full suite, as npm test runs it (twice)
+      - name: the perf tests, three times (each must pass)
         run: |
-          for i in 1 2; do
-            npx vitest run --coverage > full.log 2>&1 || true
-            grep -E "PERF442|AssertionError|perf\.test" full.log || true
+          failed=0
+          for i in 1 2 3; do
+            npm run test:perf > perf.log 2>&1 && status=0 || status=$?
+            grep -E "PERF442|AssertionError|Test Files|Tests " perf.log || true
+            echo "RESULT442 normal run $i: exit $status"
+            [ "$status" -eq 0 ] || failed=1
           done
+          exit $failed
 
-      - name: full suite, twice the work
+      - name: the perf tests on worse code (each must fail)
         run: |
-          GLADE_PERF_SABOTAGE=double npx vitest run --coverage > full.log 2>&1 || true
-          grep -E "PERF442|AssertionError|perf\.test" full.log || true
-
-      - name: the file alone
-        run: |
-          for sabotage in none none double quadratic nocache; do
-            GLADE_PERF_SABOTAGE=$sabotage npx vitest run --coverage src/main/control/claude-code/service.perf.test.ts > alone.log 2>&1 || true
-            grep -E "PERF442|AssertionError" alone.log || true
+          failed=0
+          for sabotage in double quadratic nocache; do
+            GLADE_PERF_SABOTAGE=$sabotage npm run test:perf > perf.log 2>&1 && status=0 || status=$?
+            grep -E "PERF442|AssertionError|FAIL|Test Files|Tests " perf.log || true
+            echo "RESULT442 sabotage $sabotage: exit $status"
+            [ "$status" -ne 0 ] || failed=1
           done
-
-      - name: the file alone, without coverage
-        run: |
-          npx vitest run src/main/control/claude-code/service.perf.test.ts > alone.log 2>&1 || true
-          grep -E "PERF442|AssertionError" alone.log || true
+          exit $failed
