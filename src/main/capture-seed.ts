@@ -32,11 +32,14 @@ import {
   type AutoCompact,
   type EpochMs,
   type PermissionSuggestion,
+  type Question,
   type TaskError,
   type ToolInput,
   type TurnSummary,
 } from '../shared/domain'
 import { taskPermissionRule } from '../shared/permissions'
+import { preambleSchema, questionsSchema } from './questions/schema'
+import { appendQuestionSet } from './db/repositories/question-sets'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
 import { addArtifact, addLinkArtifact, setArtifactFile, setArtifactFilter } from './db/repositories/artifacts'
 import { standInForWorkspaceRoot, workspaceFilesRoot } from './files/files'
@@ -228,6 +231,8 @@ export interface SeedTask {
   readonly permissionMode?: PermissionMode | undefined
   /** Its agent's tool calls that wait, or waited, on your OK, in the order they asked. */
   readonly permissionRequests?: readonly SeedPermissionRequest[] | undefined
+  /** An open question set (the question card) its agent asked; none unless given. */
+  readonly questionSet?: SeedQuestionSet | undefined
   /** What its agent left running or scheduled (the Watchers tab), in the order it started them. */
   readonly watchers?: readonly SeedWatcher[] | undefined
   /**
@@ -248,6 +253,19 @@ export interface SeedWorkspace {
 /** A sample notification sent about a task, with its title: what it said, and how long before the capture. */
 export interface SeedNotification {
   readonly body: string
+  readonly minutesAgo: number
+}
+
+/**
+ * A sample open question set (`QuestionSet`, the question card): the agent's `ask` call, still waiting on your
+ * answers. Seeds can't express an answered or withdrawn one; only the card a capture or spec needs open.
+ */
+export interface SeedQuestionSet {
+  /** What the agent said before its questions; none unless given. */
+  readonly preamble?: string | undefined
+  /** At least one. */
+  readonly questions: readonly Question[]
+  readonly turn: number
   readonly minutesAgo: number
 }
 
@@ -586,6 +604,14 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
           }),
         )
         .optional(),
+      questionSet: z
+        .strictObject({
+          preamble: preambleSchema.optional(),
+          questions: questionsSchema,
+          turn,
+          minutesAgo,
+        })
+        .optional(),
       watchers: z
         .array(
           z.strictObject({
@@ -901,6 +927,10 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       if (sample.handoff !== undefined) setHandoff(db, task.id, sample.handoff.body, ago(sample.handoff.minutesAgo))
       for (const request of sample.permissionRequests ?? []) {
         seedPermissionRequest(db, task.id, request, ago(request.minutesAgo))
+      }
+      if (sample.questionSet !== undefined) {
+        const { preamble, questions, turn, minutesAgo } = sample.questionSet
+        appendQuestionSet(db, { taskId: task.id, turn, preamble, questions }, ago(minutesAgo))
       }
       for (const watcher of sample.watchers ?? []) seedWatcher(db, task.id, watcher, ago(watcher.minutesAgo))
       for (const { body, minutesAgo } of sample.notifications ?? []) {

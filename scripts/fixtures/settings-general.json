@@ -15,6 +15,7 @@
       "title": "Draft release notes for 2.4",
       "status": "Waiting on you: two questions",
       "pinned": true,
+      "unread": true,
       "minutesAgo": 25
     },
     {
@@ -39,20 +40,23 @@
           "body": "Add per-key rate limiting to the public API so one client can't starve the others. Over the limit, return 429 with a Retry-After header.",
           "turn": 1,
           "minutesAgo": 28
-        },
-        {
-          "role": "agent",
-          "body": "Tests pass — 14 new ones cover the limit, the 429 response and the Retry-After header.\n\nOne decision before I finish: **/search** is much heavier than the other endpoints. Should it get a tighter limit of 60 a minute, or share the default 120?",
-          "turn": 1,
-          "minutesAgo": 4,
-          "summary": {
-            "durationMs": 1450000,
-            "filesChanged": 4,
-            "linesAdded": 61,
-            "linesRemoved": 3
-          }
         }
       ],
+      "questionSet": {
+        "preamble": "Tests pass — 14 new ones cover the limit, the 429 response and the Retry-After header.",
+        "turn": 1,
+        "minutesAgo": 4,
+        "questions": [
+          {
+            "kind": "choice",
+            "prompt": "How strict should the /search limit be?",
+            "options": [
+              { "id": "sixty", "label": "60 a minute" },
+              { "id": "share", "label": "Share the default 120" }
+            ]
+          }
+        ]
+      },
       "toolEvents": [
         {
           "kind": "narration",

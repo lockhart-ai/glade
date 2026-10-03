@@ -326,7 +326,8 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
         // The plugins log themselves as they're read and turned on or off, and their views as their statuses change.
         return
       case EventType.UiStateChanged:
-        app.debug('ui state changed', { key: event.entry.key, value: excerpt(event.entry.value) })
+        // `name`, not `key`: a field called `key` reads as a secret's, and the log's line would redact which it was.
+        app.debug('ui state changed', { name: event.entry.key, value: excerpt(event.entry.value) })
         return
       case EventType.MenuCommand:
         app.debug('menu command', { command: event.command })

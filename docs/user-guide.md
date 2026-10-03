@@ -288,7 +288,7 @@ A section only shows while it has something in it; with nothing at all, the list
 keeps up while it's open. Click a row to open Glade on that task, in its workspace. **Open Glade** brings the window
 up and **Quit** quits. Esc, or clicking anywhere else, closes the list.
 
-![The menu bar list: two tasks that need you, one working with its todo progress, and recent notifications](images/guide/menu-bar.png)
+![The menu bar list: tasks that need you (an unread reply, a permission request, an error), tasks working (one with its todo progress), and recent notifications](images/guide/menu-bar.png)
 
 Settings › General › **Show Glade in the menu bar** turns the icon off, and on again (it's on to begin with).
 

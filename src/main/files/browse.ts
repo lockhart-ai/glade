@@ -25,7 +25,7 @@ import {
 } from '../../shared/browse'
 import { BridgeErrorCode } from '../../shared/bridge'
 import { CommandFailure } from '../bridge/errors'
-import { execGit, type GitRun } from '../git/git'
+import { execGit, GitCommand, type GitRun } from '../git/git'
 import { resolveWorkspaceFile } from './files'
 
 /** The most output a git listing may give, in bytes: far more than a large repository's file list. */
@@ -62,17 +62,24 @@ export function createWorkspaceGit(run: GitRun = execGit()): WorkspaceGit {
     async ignored(dir, names) {
       // The names go in on its input, NUL-separated, so any name (and any number of them) passes through as it is.
       const input = names.map((name) => `${name}\0`).join('')
-      const output = await run(['check-ignore', '-z', '--stdin'], dir, MAX_GIT_OUTPUT_BYTES, input)
+      const output = await run({
+        command: GitCommand.CheckIgnore,
+        args: ['-z', '--stdin'],
+        cwd: dir,
+        maxBytes: MAX_GIT_OUTPUT_BYTES,
+        input,
+      })
       // It exits 1 when none is ignored, and 128 outside a repository: either way, nothing to hide.
       return new Set(output.ok ? entries(output.stdout) : [])
     },
 
     async files(dir) {
-      const output = await run(
-        ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
-        dir,
-        MAX_GIT_OUTPUT_BYTES,
-      )
+      const output = await run({
+        command: GitCommand.LsFiles,
+        args: ['-z', '--cached', '--others', '--exclude-standard'],
+        cwd: dir,
+        maxBytes: MAX_GIT_OUTPUT_BYTES,
+      })
       return output.ok ? entries(output.stdout) : null
     },
   }

@@ -150,6 +150,24 @@
     needs you. The call itself can't survive (its Claude Code process is gone), so answering then resumes the session
     and tells the agent the decision in a message, as a question answered after a restart does. See
     `sdk-notes.md` §9.
+  - The agent sandbox (P15, #445) is **off by default while P15 is being built** (the `sandboxEnabled` setting,
+    which has no switch yet): main is released from, and without the sandbox's permission cards and settings a
+    sandboxed task would have no way to be granted anything. The default flips to on in P15's last PR (#452).
+  - With the sandbox on, Allow all runs as Claude Code's `acceptEdits`, never bypassing, and crossing the sandbox's
+    bounds asks in either mode: a read outside the workspace root and the granted folders under the home folder,
+    `/Users` or `/Volumes` (reads elsewhere, like `/etc` or `/usr`, don't ask), a write outside the root and the
+    read-write grants, `WebFetch` to a domain that isn't granted (so `WebFetch` no longer always goes ahead), a
+    command's connection to such a domain, and every request to run a command outside the sandbox. `WebSearch` never
+    asks. A sandbox that can't start fails every command: the task stops on that error, and every request in that
+    session to run outside the sandbox is refused without a card. A session that won't take its sandbox settings is
+    closed rather than left running, with the same error, before any message reaches the agent. See `sdk-notes.md`
+    §15.
+  - With the sandbox on, folders are compared by where they really are (symbolic links followed, `~` and the data
+    volume's alias resolved, case ignored), so another spelling of a denied folder asks too. Credential files are
+    refused outright. A write that Claude Code's own safety check holds back (`.mcp.json`, `.claude/`, `.git/`, shell
+    startup files) asks even in Allow all. Until the sandbox's own cards (P15-05), a boundary crossing can only be
+    allowed once: **Allow for this task** isn't offered on it, and a whole-tool `Edit` or `Write` rule a task was
+    granted in the ask mode applies only inside the workspace root and the read-write grants.
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
     `manifest.json`: `id` (the folder's name), `name`, `version`, `entry` (an HTML file in the folder) and an optional

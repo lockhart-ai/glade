@@ -12,6 +12,7 @@ import {
   type Workspace,
 } from '../../../shared/domain'
 import { AttachedFileKind, type AttachedFile } from '../../../shared/attachedFiles'
+import { SandboxGrantKind, SandboxGrantScope } from '../../../shared/sandbox'
 import { GIF, PNG } from '../../../shared/test-images'
 import { setArtifactGroupOpen } from './artifact-groups'
 import { setBrowseFolderExpanded } from './browse-folders'
@@ -24,6 +25,7 @@ import { recordNotification } from './notifications'
 import { setOpenFiles } from './open-files'
 import { appendPermissionRequest } from './permission-requests'
 import { addTaskPermissionRule } from './task-permission-rules'
+import { addSandboxGrant } from './sandbox-grants'
 import { appendQuestionSet } from './question-sets'
 import { appendQueuedMessage } from './queued-messages'
 import { deleteTask, getTask, listTasks } from './tasks'
@@ -123,6 +125,10 @@ function fillTask(db: Database, task: Task): void {
     suppressAlwaysAllowRule: false,
   })
   addTaskPermissionRule(db, { taskId, rule: { toolName: 'Bash', ruleContent: 'npm test *' } })
+  addSandboxGrant(db, {
+    target: { scope: SandboxGrantScope.Task, taskId },
+    grant: { kind: SandboxGrantKind.Domain, domain: 'registry.npmjs.org' },
+  })
   setHandoff(db, taskId, '## Where it got to')
   setExternalId(db, taskId, `notes/${taskId}`)
   setSessionContext(db, taskId, { instructions: true, instructionUpdates: 1, handoffAt: 1 })
@@ -184,6 +190,8 @@ const FILLED_TABLES = [
   'permission_requests',
   'question_sets',
   'queued_messages',
+  // The folders and domains its sandbox was granted for it alone (#449).
+  'sandbox_grants',
   // The search index's rows for its fields and messages, which a new task and `fillTask`'s message make.
   'search_documents',
   // What its agent session has been given of Glade's instructions and its handoff note.

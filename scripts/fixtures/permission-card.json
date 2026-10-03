@@ -190,6 +190,7 @@
     {
       "title": "Add rate limiting to public API",
       "status": "Waiting on you: pick a limit for /search",
+      "unread": true,
       "minutesAgo": 4
     },
     {
