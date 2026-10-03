@@ -535,6 +535,8 @@ it('parses a canUseTool call into Glade’s terms, keeping the suggestions it kn
       defaultToNo: true,
       suppressAlwaysAllowRule: true,
       matchedAskRule: { source: 'userSettings', toolName: 'Bash' },
+      blockedPath: '/Users/me/src/acme-shared/notes.txt',
+      decisionReason: 'Path is outside allowed working directories',
     }),
     log.logger,
   )
@@ -560,6 +562,8 @@ it('parses a canUseTool call into Glade’s terms, keeping the suggestions it kn
     suppressAlwaysAllowRule: true,
     mcpServer: null,
     matchedAskRule: true,
+    blockedPath: '/Users/me/src/acme-shared/notes.txt',
+    decisionReason: 'Path is outside allowed working directories',
     signal,
   })
   expect(log.withMessage('ignored a permission suggestion of a shape Glade does not know')).toEqual([
@@ -578,6 +582,8 @@ it('fills in what a bare canUseTool call leaves out, and keeps an MCP tool’s s
     suppressAlwaysAllowRule: false,
     mcpServer: null,
     matchedAskRule: false,
+    blockedPath: null,
+    decisionReason: null,
   })
   expect(
     toolPermissionCall('mcp__glade__set_status', {}, canUseOptions({ mcpServer: { name: 'glade', source: 'sdk' } })),

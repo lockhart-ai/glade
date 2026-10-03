@@ -9,8 +9,11 @@ import {
   type AgentSession,
   type AgentSessionOptions,
   type AgentSessionSettings,
+  type BashCallFinished,
+  type BashFinishedAnswer,
   type CompactSummary,
   type BashCallStarting,
+  type SandboxFlagSettings,
   type SessionJob,
   type ToolPermissionAnswer,
   type ToolPermissionCall,
@@ -75,6 +78,8 @@ export class FakeAgentSession implements AgentSession {
       suppressAlwaysAllowRule: false,
       mcpServer: null,
       matchedAskRule: false,
+      blockedPath: null,
+      decisionReason: null,
       ...fields,
       signal: controller.signal,
     }
@@ -125,6 +130,33 @@ export class FakeAgentSession implements AgentSession {
    */
   startBash(call: BashCallStarting): Promise<void> {
     return this.options.hooks?.onBashStarting?.(call) ?? Promise.resolve()
+  }
+
+  /**
+   * Tells the session's `PostToolUse` (or, for a failed call, `PostToolUseFailure`) hook a `Bash` call has run, as the
+   * SDK does before the call's result (`docs/sdk-notes.md` §15), and resolves with what the hook answered: nothing to
+   * add with no hook. `abort` cancels the hook's signal, as the SDK does on an interrupt.
+   */
+  finishBash(call: Omit<BashCallFinished, 'signal'>): { readonly answer: Promise<BashFinishedAnswer>; abort(): void } {
+    const controller = new AbortController()
+    const hook = this.options.hooks?.onBashFinished
+    return {
+      answer: hook === undefined ? Promise.resolve({ context: null }) : hook({ ...call, signal: controller.signal }),
+      abort: () => {
+        controller.abort()
+      },
+    }
+  }
+
+  /** Every `applyFlagSettings` the runner asked for, in order. */
+  readonly flagSettings: SandboxFlagSettings[] = []
+
+  /** What applying flag settings does once recorded, as the SDK would: applies them at once by default. */
+  onApplyFlagSettings: (settings: SandboxFlagSettings) => Promise<void> = () => Promise.resolve()
+
+  applyFlagSettings(settings: SandboxFlagSettings): Promise<void> {
+    this.flagSettings.push(settings)
+    return this.onApplyFlagSettings(settings)
   }
 
   /** Tells the session's `Stop` hook the jobs it has, as the SDK does as each turn ends. */
