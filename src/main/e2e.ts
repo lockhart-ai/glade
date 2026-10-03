@@ -6,6 +6,7 @@
  */
 import { isAbsolute } from 'node:path'
 import { z } from 'zod'
+import type { SandboxFlagSettings } from './agent/backend'
 import { AGENT_SCRIPT_NAMES, type AgentScriptName } from './agent/scripts'
 import type { UserContent } from './agent/user-content'
 import { isInTempFolder, isolateApp, type IsolatedApp } from './isolation'
@@ -117,6 +118,8 @@ export interface E2eAgentSession {
   readonly systemPromptAppend: string
   /** The session it resumed, or null for a new one. */
   readonly resumeSessionId: string | null
+  /** Its sandbox and the permission rules set with it, as it started; null for none (`docs/sdk-notes.md` §15). */
+  readonly flagSettings: SandboxFlagSettings | null
 }
 
 /** What e2e mode's scripted agent was sent (`E2E_AGENT_GLOBAL`), oldest first. */
@@ -125,12 +128,20 @@ export interface E2eAgent {
   readonly received: UserContent[]
   /** Each session started or resumed. */
   readonly sessions: E2eAgentSession[]
+  /** Each `applyFlagSettings` a session was asked for: its sandbox and permissions as they changed. */
+  readonly flagSettings: SandboxFlagSettings[]
+  /** What Seatbelt logged of the sessions' sandboxed commands, one denial each, as `log stream` prints it. */
+  readonly sandboxLog: string[]
 }
 
 /** What records the scripted agent's sessions and messages for a spec (`createE2eAgent`). */
 export interface E2eAgentRecorder {
   readonly onSent: (content: UserContent) => void
-  readonly onStart: (session: E2eAgentSession) => void
+  readonly onStart: (
+    session: Omit<E2eAgentSession, 'flagSettings'> & { readonly flagSettings?: SandboxFlagSettings },
+  ) => void
+  readonly onFlagSettings: (settings: SandboxFlagSettings) => void
+  readonly onSandboxLog: (text: string) => void
 }
 
 /**
@@ -139,14 +150,20 @@ export interface E2eAgentRecorder {
  * message's content.
  */
 export function createE2eAgent(): E2eAgentRecorder {
-  const agent: E2eAgent = { received: [], sessions: [] }
+  const agent: E2eAgent = { received: [], sessions: [], flagSettings: [], sandboxLog: [] }
   Reflect.set(globalThis, E2E_AGENT_GLOBAL, agent)
   return {
     onSent: (content) => {
       agent.received.push(content)
     },
-    onStart: ({ systemPromptAppend, resumeSessionId }) => {
-      agent.sessions.push({ systemPromptAppend, resumeSessionId })
+    onStart: ({ systemPromptAppend, resumeSessionId, flagSettings }) => {
+      agent.sessions.push({ systemPromptAppend, resumeSessionId, flagSettings: flagSettings ?? null })
+    },
+    onFlagSettings: (settings) => {
+      agent.flagSettings.push(settings)
+    },
+    onSandboxLog: (text) => {
+      agent.sandboxLog.push(text)
     },
   }
 }

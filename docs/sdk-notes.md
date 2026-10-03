@@ -1594,6 +1594,311 @@ commits, or by a script in a folder the command doesn't name. A rebase's rewritt
 Unconfirmed: that a subagent isolated in a worktree gets its worktree as the hook's `cwd`; a command that `cd`s into
 it is covered either way.
 
+## 15. Sandbox
+
+What the agent sandbox (P15, #445) relies on, probed for P15-01 (#446). SDK 0.3.283 (Claude Code 2.1.283), macOS
+arm64, October 2026: about twenty scratch `query()`s, all on `haiku` but one on `sonnet` (for effort), in streaming
+input mode with `settingSources: []` (one `['project']`, to load a `.mcp.json`), a `canUseTool` that logged every call,
+and `PostToolUse` and `PostToolUseFailure` hooks on `Bash`. The probe folders sat under the home folder, as a workspace
+usually does: the workspace `/Users/me/probe/ws` (the `cwd`), and siblings `/Users/me/probe/outside`,
+`/Users/me/probe/outside2` and `/Users/me/probe/rw` standing in for folders the agent isn't granted, with dummy
+credential files of their own. Unless a point says otherwise, the session ran in `acceptEdits` with:
+
+```js
+sandbox: {
+  enabled: true, // failIfUnavailable then defaults to true
+  autoAllowBashIfSandboxed: true,
+  filesystem: { denyRead: ['~', '/Users', '/Volumes'], allowRead: ['/Users/me/probe/ws'], allowWrite: ['/Users/me/probe/ws'] },
+}
+```
+
+Where a probe left a question, the bundled CLI's own code (strings in the binary) answered it; those points say so.
+
+### What this changes in #445 [verified]
+
+Each is explained, with its evidence, below.
+
+1. **No `<sandbox_violations>` block for a blocked file read or write.** Claude Code only annotates a result with the
+   file denials its own log monitor saw, and an SDK session never starts that monitor. The block appears for network
+   denials only. **Alternative:** Glade reads Seatbelt's denials itself, from the system log (`log stream`), where each
+   one names the `Bash` call it belongs to. See "A command's blocked read or write".
+2. **`PostToolUse` doesn't fire for a `Bash` call that fails.** Most blocked commands exit non-zero, and those get a
+   `PostToolUseFailure` hook instead, which can hold the turn and add context the same way. **Glade hooks both**, each
+   with a long `timeout`: without one, Claude Code stops waiting on a hook after 10 minutes.
+3. **`applyFlagSettings` can't narrow what the session started with.** The `sandbox` and `settings` lists given at
+   start stay in force: a later `applyFlagSettings` adds to them, and replacing it only takes back what an earlier
+   `applyFlagSettings` added. **Alternative:** start each session with only what can never be revoked (the workspace
+   root, the read denies, the credential denies, the override ask rule), and apply the grants with `applyFlagSettings`
+   straight after start, before the first message, and again on every change.
+4. **Domain rules in `allowedTools` don't reach commands.** `WebFetch(domain:…)` rules widen the sandbox's network
+   allowlist only from settings (`settings.permissions.allow`, or `applyFlagSettings({ permissions })`). P11's task
+   rules stay in `allowedTools`; domain grants go in the flag settings.
+5. **A file-tool ask has no `blockedPath`.** The path is the call's own input (`file_path`), and `decisionReason` is
+   `"Path is outside allowed working directories"`. `blockedPath` comes with a `Bash` call's path check only.
+6. **A sandbox that can't start doesn't stop the session.** It starts and answers as usual; each `Bash` call then fails
+   with `Sandbox is required but failed to initialize: <why>. Restart to retry.`, and the agent goes on to ask to run
+   the command outside the sandbox. **Glade has to spot that error** (in `PostToolUseFailure`, or the result) to show
+   the task's error, and must keep denying the override that follows.
+7. **The sandbox override's reason isn't `sandboxOverride`.** `canUseTool` says `decisionReason:
+   "dangerouslyDisableSandbox"` (or nothing, when an allow rule also matched): Glade tells the request apart by the
+   call's input, `dangerouslyDisableSandbox: true`.
+
+Smaller things later issues need to know:
+
+- **Reads outside the home folder ask too** (`/etc/hosts`, in `acceptEdits`): the file tools have no notion of "outside
+  the home folder", so Glade's classifier must let those reads through itself, as #445 says.
+- **`Grep` and `Glob` aren't tools** in an SDK session of this version (`system/init` lists neither; a model that
+  looked for them with `ToolSearch` found nothing). Searches run through `Bash`, inside the sandbox.
+- **Denying `~` hides the user's shell setup from commands.** Every sandboxed command's shell failed to read
+  `~/.zshenv` and Claude Code's own shell snapshot (`~/.claude/shell-snapshots/snapshot-zsh-….sh`). The commands
+  still ran, with Glade's `PATH`, but without the user's aliases and functions. Granting
+  `~/.claude/shell-snapshots` read-only should bring the snapshot back (not probed).
+
+### Reads and writes: `denyRead` with `allowRead` [verified]
+
+- **`denyRead: ['~']` with `allowRead` of a workspace under `~` works.** `cat` and writes inside the workspace went
+  through; `cat` of a sibling folder failed with `Operation not permitted`, and so did a write there.
+- **`/Users` and `/Volumes` are denied the same way:** `ls /Users` and `ls /Volumes` failed with `Operation not
+  permitted`, while `head /etc/hosts`, `ls /usr/bin` and `ls /opt/homebrew` worked.
+- **Writes outside `allowWrite` are blocked, `/tmp` included** (`echo hi > /tmp/x` failed). Claude Code's own temp
+  folders stay writable (docs).
+- **A credential folder stays unreadable inside a granted one:** with `allowRead` naming `/Users/me/probe/outside`
+  and `credentials.files: [{ path: '/Users/me/probe/outside/.ssh', mode: 'deny' }]`, `cat outside/secret.txt` worked and
+  `cat outside/.ssh/id_dummy` failed.
+- **Seatbelt never asks.** A sandboxed command (auto-allowed by `autoAllowBashIfSandboxed`) never reached `canUseTool`
+  for a path; it ran, and the blocked read or write failed inside it.
+
+### A command's blocked read or write [verified]
+
+**The result.** A blocked `cat` or `mkdir` is an ordinary failure: the command's own error, with no
+`<sandbox_violations>` block anywhere (the result, the hook inputs, the SDK's messages):
+
+```jsonc
+// tool_result, is_error: true (the PostToolUseFailure hook's `error` is the same text)
+"Exit code 1\ncat: /Users/me/probe/outside/secret.txt: Operation not permitted"
+"Exit code 1\n(eval):1: operation not permitted: /Users/me/probe/outside/new.txt" // a shell redirect
+"Exit code 1\nmkdir: /Users/me/probe/outside2/newdir: Operation not permitted"
+// a command that carries on after the blocked part exits 0: is_error false, and PostToolUse fires instead
+"cat: /Users/me/probe/outside/secret.txt: Operation not permitted"
+```
+
+Neither the operation nor the path can be read off that reliably: not every tool prints the path, and none says
+whether it was a read or a write.
+
+**Why there's no block** (from the CLI's code): Claude Code appends `<sandbox_violations>` from a violation store
+that its macOS log monitor fills, and the monitor only starts when the sandbox is initialised with it on. Claude Code
+initialises it with only the config and the network-ask callback, so the store stays empty for files. The block that
+does appear comes from the network proxy (below).
+
+**Where the denials are: the system log.** Claude Code tags each sandboxed command's Seatbelt profile so its denials
+are logged with a marker naming the call: `CMD64_<base64 of the tool_use id, first 100 characters>_END_<a random
+per-process suffix ending in _SBX>`. Glade's own `log stream --predicate '(eventMessage ENDSWITH "_SBX")' --style
+compact`, run by the host (no admin rights needed), saw every denial within a few milliseconds, before the call's
+result came back. Each comes as two lines:
+
+```text
+2026-10-02 23:11:16.513 E  kernel[0:3f874aa] (Sandbox) Sandbox: cat(44794) deny(1) file-read-data /Users/me/probe/outside/secret.txt
+CMD64_dG9vbHVfMDFLeDdRbTJWd1A5c0o0blI4dFliM0xj_END__k3j9x2abc_SBX
+```
+
+- The base64 decodes to the `tool_use` id (`toolu_01Kx7Qm2VwP9sJ4nR8tYb3Lc`), so a denial maps to its call exactly,
+  even with several tasks running.
+- The operations seen: `file-read-data` and `file-read-metadata` for a read, `file-write-create` (a new file or
+  folder) and `file-write-unlink` (`rm`) for a write. A write is any `file-write-*`.
+- Every command also logs noise to drop: `sysctl-read kern.iossupportversion`, `mach-lookup com.apple.diagnosticd`
+  (Claude Code itself drops `mDNSResponder`, `diagnosticd` and `analyticsd` lookups), and the shell's own startup reads
+  of `~/.zshenv` and the shell snapshot.
+- **Best effort:** one write by a shell redirect left no log line in one run (the kernel limits how much it logs). The
+  card can only follow the denials the log shows.
+- **Undocumented:** the tag is Claude Code's internal format, not an SDK interface. Re-check it on each SDK bump.
+
+This is the proposed replacement for the violation block: a host-side monitor feeding the `PostToolUse` /
+`PostToolUseFailure` hook, which waits a moment for the call's denials before it decides whether to show a card.
+
+### Holding the turn in a `Bash` hook [verified]
+
+- **The hook that fires depends on the exit code:** `PostToolUse` (with `tool_response: { stdout, stderr, interrupted,
+  isImage, noOutputExpected }`, stderr folded into stdout) for exit 0, `PostToolUseFailure` (with `error`, the same
+  text as the result, and `is_interrupt: false`) otherwise. Both can return `additionalContext`.
+- **The hook holds the turn,** with a `timeout` on its matcher. The `tool_result` streams only once the hook returns.
+  A `PostToolUseFailure` hook held for 100 seconds with no `timeout` set, for 150 seconds with `timeout: 600`, and for
+  11 minutes with `timeout: 86400`; each run carried on afterwards as usual, the hook's answer applied.
+- **Without a `timeout`, Claude Code gives a hook callback 10 minutes.** Held for 11 minutes with none, the result went
+  to the agent after exactly 600 seconds, without the hook's answer, and the answer that came later was ignored. Glade
+  sets the longest a timer allows (`BASH_FINISHED_TIMEOUT_S`, about 24.8 days, `src/main/agent/sdk-backend.ts`).
+- **`applyFlagSettings` works while the hook waits:** widening the sandbox from inside the held hook, then returning
+  `additionalContext`, had the agent retry, and the retry read the file.
+- **The context reaches the model.** The hook returned:
+
+  ```js
+  { hookSpecificOutput: { hookEventName: 'PostToolUseFailure',
+      additionalContext: 'Glade: the user has now allowed this task to read and write the folder the command was blocked from. Run the same command again, once.' } }
+  ```
+
+  Haiku ran the same command again at once. With the sandbox not widened, the retry failed the same way and it gave up,
+  saying the user had allowed it but the read still failed.
+
+### File tools in `acceptEdits` [verified]
+
+With `additionalDirectories: ['/Users/me/probe/rw']` and `allowedTools: ['Read(//Users/me/probe/outside2/**)']`:
+
+| Call | Asked? |
+| --- | --- |
+| `Read` / `Edit` inside the workspace | no |
+| `Read` / `Write` in `rw` (an additional directory) | no |
+| `Read` in `outside2` (a `Read(//…/**)` rule) | no |
+| `Write` in `outside2` | yes |
+| `Read` / `Write` in `outside` | yes |
+| `Read` of `outside/.ssh/id_dummy` | yes |
+| `Read` of `/etc/hosts` | yes |
+
+A read rule's path takes two slashes for an absolute path (`Read(//Users/me/…/**)`), as the suggestions show. What
+`canUseTool` got (no `blockedPath`, no `title`, no `matchedAskRule`):
+
+```jsonc
+// Read /Users/me/probe/outside/secret.txt
+{ "suggestions": [{ "type": "addRules", "rules": [{ "toolName": "Read", "ruleContent": "//Users/me/probe/outside/**" }],
+                    "behavior": "allow", "destination": "session" }],
+  "decisionReason": "Path is outside allowed working directories",
+  "displayName": "Read", "description": "~/probe/outside/secret.txt", "toolUseID": "toolu_01…", "requestId": "c732d965-…" }
+// Write /Users/me/probe/outside/by-write.txt (Edit and NotebookEdit weren't probed)
+{ "suggestions": [{ "type": "addDirectories", "directories": ["/Users/me/probe/outside"], "destination": "session" }],
+  "decisionReason": "Path is outside allowed working directories",
+  "displayName": "Write", "description": "~/probe/outside/by-write.txt", "toolUseID": "toolu_01…", "requestId": "f2c4fad0-…" }
+// Read /etc/hosts: a rule for both spellings of the folder
+{ "suggestions": [{ "type": "addRules", "rules": [{ "toolName": "Read", "ruleContent": "//etc/**" }], "behavior": "allow", "destination": "session" },
+                  { "type": "addRules", "rules": [{ "toolName": "Read", "ruleContent": "//private/etc/**" }], "behavior": "allow", "destination": "session" }],
+  "decisionReason": "Path is outside allowed working directories", "displayName": "Read", "description": "/etc/hosts", … }
+```
+
+- **The folder a suggestion names is the file's own folder**, for a read (`Read(//<folder>/**)`) and a write
+  (`addDirectories: [<folder>]`), already `session`-scoped. So "the agent wants to read `<folder>`" can come straight
+  from the suggestion, or from `dirname(file_path)`.
+- **`description`** abbreviates the home folder to `~`.
+
+### Network: commands and `WebFetch` [verified]
+
+**A command reaching an ungranted host** asks with a tool that isn't a model tool call, `SandboxNetworkAccess`, while
+the connection waits: an answer held for 20 seconds, then allowed, let `curl` finish with `200`.
+
+```jsonc
+// canUseTool("SandboxNetworkAccess", input, options), during `curl https://www.example.org/`
+{ "host": "www.example.org" }
+{ "suggestions": [{ "type": "addRules", "rules": [{ "toolName": "WebFetch", "ruleContent": "domain:www.example.org" }],
+                    "behavior": "allow", "destination": "localSettings" }],
+  "displayName": "SandboxNetworkAccess", "description": "Allow network connection to www.example.org?",
+  "toolUseID": "9d760934-dd51-…", // a fresh UUID: not the Bash call's tool_use id, and no agentID for the call
+  "requestId": "c3810df8-…" }
+```
+
+- **The request doesn't name its `Bash` call.** Its `toolUseID` is a new UUID each time; the call it belongs to is the
+  `Bash` call running at the time.
+- **An allowed host stays allowed for the session:** the next command to the same host didn't ask.
+- **A denied connection** fails the command, and its result (and `PostToolUseFailure`'s `error`) carries the one
+  `<sandbox_violations>` block Claude Code writes in an SDK session:
+
+  ```text
+  Exit code 56
+  curl: (56) CONNECT tunnel failed, response 403
+  000
+  <sandbox_violations>
+  deny network-outbound www.example.org:443 (user denied)
+  </sandbox_violations>
+  ```
+
+**`WebFetch` to an ungranted domain** asks as its own tool:
+
+```jsonc
+// canUseTool("WebFetch", { "url": "https://www.example.org/help/", "prompt": "…" }, options)
+{ "suggestions": [{ "type": "addRules", "destination": "localSettings",
+                    "rules": [{ "toolName": "WebFetch", "ruleContent": "domain:www.example.org" }], "behavior": "allow" }],
+  "displayName": "WebFetch", "description": "https://www.example.org/help/", "toolUseID": "toolu_01…", "requestId": "889de9a8-…" }
+```
+
+Both suggest the same rule, `WebFetch(domain:<host>)`, to `localSettings`: Glade rewrites the destination.
+
+**A domain rule reaches both, from settings only.** `applyFlagSettings({ permissions: { allow:
+['WebFetch(domain:www.example.org)'] } })` mid-session let both `curl` and `WebFetch` to that host through without
+asking, while other hosts still asked. The same rule in `allowedTools` at start did not: `curl` to it still asked.
+
+### Running outside the sandbox [verified]
+
+The model sets `dangerouslyDisableSandbox: true` on its `Bash` call, on its own after a sandbox failure, or when told.
+`canUseTool("Bash", …)` then gets:
+
+```jsonc
+// in acceptEdits, autoAllowBashIfSandboxed: true, with Glade's ask rule given at start:
+// settings: { permissions: { ask: ['Bash(dangerouslyDisableSandbox:true)'] } }
+{ "command": "touch /Users/me/probe/ws/a.txt", "dangerouslyDisableSandbox": true }
+{ "decisionReason": "dangerouslyDisableSandbox", "displayName": "Bash", "description": "touch /Users/me/probe/ws/a.txt",
+  "toolUseID": "toolu_01…", "requestId": "b5a6dac2-…",
+  "matchedAskRule": { "source": "flagSettings", "toolName": "Bash", "ruleContent": "dangerouslyDisableSandbox:true" } }
+```
+
+- **The ask rule is needed, and works:** with a P11 task rule matching the command (`Bash(touch *)` in
+  `allowedTools`), the override still asked with the ask rule (with no `decisionReason` or `matchedAskRule` that time),
+  and **ran without asking** without it. With neither rule, it asked, with `decisionReason:
+  "dangerouslyDisableSandbox"`.
+- **No suggestions** for a path in the workspace; for a path outside it, the `Bash` path check adds `blockedPath` and an
+  `addRules` + `addDirectories` pair. A card for it shouldn't offer to remember anything.
+- **The ask rule survives `applyFlagSettings({ permissions })`** that leaves it out, since it was given at start (see
+  below).
+
+### Changing a running session's sandbox: `applyFlagSettings` [verified]
+
+- **Widening applies from the next command,** mid-turn too (from inside a held hook, above).
+- **Narrowing works only for what `applyFlagSettings` added.** Started with `allowRead`/`allowWrite` of the workspace
+  alone, widened to the sibling folder (the next `cat` worked), then narrowed back (the next `cat` failed again). But
+  started with the sibling folder already allowed, in the `sandbox` option or in `settings.sandbox`, narrowing with
+  `applyFlagSettings` left it readable. The lists of the two layers are merged, and only the later one is replaced.
+- **The same for permissions:** `applyFlagSettings({ permissions: { allow: ['Read(//…/outside/**)'],
+  additionalDirectories: ['…/outside2'] } })` let a `Read` and a `Write` there through without asking, and
+  `applyFlagSettings({ permissions: { allow: [], additionalDirectories: [] } })` made both ask again. The `ask` rule
+  given at start in `settings.permissions` still applied after both.
+- **It merges with the other flag settings:** after `applyFlagSettings({ sandbox, permissions })`, a project server
+  named in the start's `settings.deniedMcpServers` stayed left out, and the effort set by an earlier
+  `applyFlagSettings({ effortLevel: 'high' })` stayed `high` (the `PreToolUse` hook's `effort.level`, on Sonnet). Each
+  call replaces only the top-level keys it names (`sdk.d.ts`).
+- **A host already allowed stays allowed** until the session restarts (docs; consistent with the probe above).
+
+So Glade starts a sandboxed session with the parts that never change, and the grants as a flag-settings overlay:
+
+```js
+// query() options at start
+sandbox: { enabled: true, autoAllowBashIfSandboxed, filesystem: { denyRead: ['~', '/Users', '/Volumes'],
+           allowRead: [root], allowWrite: [root] }, credentials: { files: [...credential denies] } },
+settings: { deniedMcpServers: [...], permissions: { ask: ['Bash(dangerouslyDisableSandbox:true)'] } },
+// then, before the first message, and again on every grant change: the whole overlay each time
+await q.applyFlagSettings({
+  sandbox: { ...the same base, filesystem: { ...base, allowRead: [root, ...grants], allowWrite: [root, ...rwGrants] } },
+  permissions: { allow: ['Read(//<ro grant>/**)', 'WebFetch(domain:<domain>)', …], additionalDirectories: [...rwGrants] },
+})
+```
+
+### When the sandbox can't start [verified]
+
+macOS has no sandbox dependency to miss (the CLI's dependency check only fails an unsupported platform), so the probe
+broke the config instead: `network.tlsTerminate` with a CA certificate and no key.
+
+- **The session starts and runs.** `system/init` came as usual, and the model answered. Nothing failed until a command.
+- **Each `Bash` call fails** (a `PostToolUseFailure`, and an error result):
+  `Sandbox is required but failed to initialize: tlsTerminate: caCertPath and caKeyPath must be provided together.
+  Restart to retry.` (The CLI's code has a variant for a settings error: `…Fix the sandbox settings to retry (a
+  --settings file is pinned for the process: restart).`)
+- **The model then asks to run it outside the sandbox** (`dangerouslyDisableSandbox: true`,
+  `decisionReason: "dangerouslyDisableSandbox"`), which ran once allowed. Glade must deny those itself, since the user
+  would see an override card for every command.
+- **With `failIfUnavailable: false`** the CLI's code instead says `Sandbox is enabled but failed to initialize…` once
+  and runs every command unsandboxed for the rest of the session: Glade never sets it.
+- **[docs]** Where a dependency is missing (bubblewrap on Linux), `query()` "will emit an error result and exit": not
+  reachable on macOS.
+
+### Test backends
+
+The scripted and fake backends play these shapes (`src/main/agent/sandbox-requests.ts`): see the sandbox steps in
+`src/main/agent/scripts.ts`, and `FakeAgentSession` (`fake-backend.ts`). They record the `sandbox` and `permissions`
+a session starts with and every `applyFlagSettings` call.
+
 ---
 
 ## SDK bumps

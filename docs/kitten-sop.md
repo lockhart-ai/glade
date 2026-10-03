@@ -47,6 +47,11 @@ instead (step 6, below), never through Glade's own tools.
    `check-design` and `e2e` (three `playwright test --shard` jobs, each building its own `out/testing`) on
    `macos-latest`, since pixel comparisons and the real app's behaviour need macOS. A final `ci` job needs all of them
    and fails if any failed or was cancelled, so branch protection and the merge queue still gate on one check.
+   `unit` runs the perf tests (`*.perf.test.ts`) apart from the rest, with `npm run test:perf`: one file at a time
+   with nothing alongside, since their timings swing too far among the other test files on a runner. `npm test` on
+   your Mac still runs them with the rest. A budget counted in references differs by platform (a Mac's for your
+   machine, the Linux runners' for CI), and each perf file says where its budgets were measured; a new one needs
+   measuring on both.
 6. **Report back** briefly: the PR URL, how you checked each acceptance criterion, the docs you updated, media paths,
    and decisions or open questions.
 

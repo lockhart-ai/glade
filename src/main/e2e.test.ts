@@ -168,20 +168,29 @@ describe('createE2eAgent', () => {
     Reflect.deleteProperty(globalThis, E2E_AGENT_GLOBAL)
   })
 
-  it("records each session's options and the content of each message the agent is sent on the global object", () => {
-    const { onSent, onStart } = createE2eAgent()
+  it("records each session's options, sandbox changes and log, and each message the agent is sent, on the global object", () => {
+    const { onSent, onStart, onFlagSettings, onSandboxLog } = createE2eAgent()
+    const sandboxed = {
+      sandbox: { enabled: true, filesystem: { allowWrite: ['/code/acme-api'] } },
+      permissions: { ask: ['Bash(dangerouslyDisableSandbox:true)'] },
+    }
 
     onStart({ systemPromptAppend: 'You are running inside Glade.', resumeSessionId: null })
     onSent('Hi')
     onSent([{ type: 'text', text: 'Again' }])
-    onStart({ systemPromptAppend: 'Again inside Glade.', resumeSessionId: 'session-1' })
+    onStart({ systemPromptAppend: 'Again inside Glade.', resumeSessionId: 'session-1', flagSettings: sandboxed })
+    onFlagSettings({ permissions: { allow: ['WebFetch(domain:registry.npmjs.org)'] } })
+    onFlagSettings({ sandbox: null })
+    onSandboxLog('… Sandbox: cat(4242) deny(1) file-read-data /code/acme-shared/notes.txt')
 
     expect(Reflect.get(globalThis, E2E_AGENT_GLOBAL) as E2eAgent).toEqual({
       received: ['Hi', [{ type: 'text', text: 'Again' }]],
       sessions: [
-        { systemPromptAppend: 'You are running inside Glade.', resumeSessionId: null },
-        { systemPromptAppend: 'Again inside Glade.', resumeSessionId: 'session-1' },
+        { systemPromptAppend: 'You are running inside Glade.', resumeSessionId: null, flagSettings: null },
+        { systemPromptAppend: 'Again inside Glade.', resumeSessionId: 'session-1', flagSettings: sandboxed },
       ],
+      flagSettings: [{ permissions: { allow: ['WebFetch(domain:registry.npmjs.org)'] } }, { sandbox: null }],
+      sandboxLog: ['… Sandbox: cat(4242) deny(1) file-read-data /code/acme-shared/notes.txt'],
     })
   })
 })
