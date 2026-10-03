@@ -99,6 +99,16 @@ export function listSections(state: Pick<GladeData, 'tasks' | 'doneLists'>, work
   return sectionTasks(Object.values(state.tasks), workspaceId, (task) => isLoaded(task, pages))
 }
 
+/**
+ * The sections the task list shows, top to bottom: every section but Pinned while it holds no tasks, so an empty
+ * "Pinned" header doesn't take a row for nothing. Active and Done keep showing at zero, as they always have. This
+ * only hides the header and its rows; it doesn't change the collapsed state `isCollapsed` reads, which is kept in the
+ * UI state regardless, so a folded Pinned section comes back folded once something is pinned again.
+ */
+export function shownSections(sections: readonly TaskSection[]): TaskSection[] {
+  return sections.filter((section) => section.id !== SectionId.Pinned || section.tasks.length > 0)
+}
+
 /** The ids of the tasks in the sections that aren't collapsed, top to bottom: the order ⌥↑ and ⌥↓ move through. */
 export function visibleTaskIds(sections: readonly TaskSection[], uiState: UiStateValues): string[] {
   return sections.filter(({ id }) => !isCollapsed(uiState, id)).flatMap(({ tasks }) => tasks.map((task) => task.id))
