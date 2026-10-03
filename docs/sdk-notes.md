@@ -1589,7 +1589,8 @@ test` (`[main (root-commit) …]`, `[detached HEAD …]`), which is resolved in 
 **What's read later.** A commit's row (`git log --no-walk=unsorted --shortstat -M --diff-merges=first-parent`) is kept
 in SQLite; its files (`git show --format= -z --raw --numstat -M --diff-merges=first-parent`) and a file as it left it
 (`git cat-file blob <hash>:<path>`) are read through the common git dir (`--git-dir`), which outlives a removed
-worktree. Every read runs with `GIT_OPTIONAL_LOCKS=0`, `core.quotepath=off` and no colour, pager or signatures.
+worktree. Every read runs with `GIT_OPTIONAL_LOCKS=0`, `core.quotepath=off` and no colour, pager or signatures, and
+with every setting that names a command overridden (§15, "Glade's own git").
 
 **Not seen.** A commit made by a command left running in the background (`run_in_background`), which returns before it
 commits, or by a script in a folder the command doesn't name. A rebase's rewritten commits aren't counted as made.
@@ -1984,8 +1985,8 @@ it on (`src/main/agent/sandbox.ts`, wired in `runner.ts` and `sdk-backend.ts`):
   Code's own check of the files that run code (`.mcp.json`, `.claude/`, `.git/`, `.vscode/`, `.idea/`, `.gitconfig`,
   `.gitmodules`, `.ripgreprc`, shell startup files: its list in the bundled binary), or by a user's ask rule: writing
   `.mcp.json`, `.claude/settings.local.json` or `.git/config` would each run code outside the sandbox later. Glade
-  shows the card for it, in either mode, and Allow for this task isn't offered. (Glade's own `git` also runs with
-  `-c core.fsmonitor=false`, `src/main/git/git.ts`: that config names a command, and Glade's git runs on the host.)
+  shows the card for it, in either mode, and Allow for this task isn't offered. (Glade's own `git` doesn't rely on
+  that: it runs nothing a repository's config names. See "Glade's own git", below.)
 - **Whole-tool rules never reach a sandboxed session** (`isUnboundedRule`). P11's Allow for this task on an `Edit` or
   `Write` grants the whole tool, which Claude Code takes for every folder, in `allowedTools` and as a session rule
   alike: with it, `Write ~/Library/LaunchAgents/x.plist` runs unasked. So a sandboxed session is started without the
@@ -2008,6 +2009,70 @@ it on (`src/main/agent/sandbox.ts`, wired in `runner.ts` and `sdk-backend.ts`):
   session with background subagents or watchers too, which end saying the session was restarted, since retrying in
   the same session would only fail the same way. Other tasks' sessions are unaffected. `failIfUnavailable` stays
   true, so nothing ever runs unsandboxed.
+
+### Glade's own git (P15-09, #487) [verified]
+
+Glade runs `git` itself, on the host and outside the sandbox, in the repositories a task works in: to follow its
+commits (§14) and to hide what git ignores in the Files tab's Browse tab. A sandboxed agent can write in its workspace,
+a repository's config included, and git runs whatever command a setting names. Claude Code write-protects `.git/config`
+and `.git/hooks` from sandboxed commands, but Glade doesn't rely on it: a worktree's `config.worktree`, a submodule's
+config, a file the config includes and a repository the agent makes itself are all config too. So every git call Glade
+makes goes through one helper, `execGit` (`src/main/git/git.ts`), which runs nothing a repository names. Tested with git
+2.50.1 (`src/main/git/hardening.test.ts`): for each setting below, a repository names a script that leaves a marker
+file; every git call Glade makes leaves none, the command that would run the script leaves none with Glade's override
+by itself, and git by itself does leave one. The same file fails if any other source file starts a git process.
+
+Four things do it:
+
+- **Only commands that read** (`GitCommand`): `rev-parse`, `rev-list`, `symbolic-ref`, `log`, `show`, `cat-file`,
+  `check-ignore` and `ls-files`. `GitRun` takes no other, so a new one fails the typecheck until it's added, with what
+  it needs.
+- **`-c` overrides, on every command** (`BASE_ARGS`). The command line outranks the repository's config, a worktree's
+  and every file they include, and git hands the overrides on to the git it runs inside a submodule.
+- **Options `log` and `show` are always given** (`COMMAND_ARGS`): `--no-ext-diff --no-textconv`, put after the call's
+  own options so they win.
+- **The environment** (`gitEnv`): `GIT_OPTIONAL_LOCKS=0`, `GIT_TERMINAL_PROMPT=0`, `GIT_ALLOW_PROTOCOL=` (empty: no
+  transport at all, whatever `protocol.*.allow` says) and `GIT_NO_LAZY_FETCH=1`.
+
+| Setting | What would run it | Neutralised by |
+| --- | --- | --- |
+| `core.fsmonitor` | `ls-files` and `check-ignore` (Glade's own calls), `status` | `-c core.fsmonitor=false` |
+| `core.pager`, `pager.<command>` | Nothing: git pages only to a terminal, and Glade reads a pipe | `--no-pager` |
+| `core.editor`, `sequence.editor` | `commit`, `rebase -i` | `-c core.editor=:`, `-c sequence.editor=:`; no such command |
+| `core.sshCommand` | A fetch over ssh | `-c core.sshCommand=false`; no transport |
+| `core.gitProxy` | A fetch over `git://` | No transport (the first value that matches wins, so `-c` can't override it) |
+| `core.hooksPath`, hooks in `.git/hooks` | `post-index-change`, when a read (`status`, `diff`) refreshes the index and writes it | `-c core.hooksPath=/dev/null`; `GIT_OPTIONAL_LOCKS=0`; no such command |
+| `core.alternateRefsCommand` | `--alternate-refs`, a fetch | `-c core.alternateRefsCommand=true` |
+| `filter.<driver>.clean`, `.smudge`, `.process` | `status`, `diff`, `add`, `checkout`, `cat-file --filters` | No such command: nothing turns a filter off, and its driver is named by the repository's attributes, so no `-c` reaches it |
+| `diff.external`, `diff.<driver>.command` | `diff`; `log -p` and `show` with `--ext-diff` | `--no-ext-diff` on every `log` and `show` |
+| `diff.<driver>.textconv` | `log -p`, `show` | `--no-textconv` on every `log` and `show` |
+| `credential.helper`, `credential.<url>.helper` | A fetch that needs a login, `credential fill` | `-c credential.helper=` (an empty value clears them all); no transport |
+| `core.askPass` | The same | `-c core.askPass=` |
+| `gpg.program`, `gpg.ssh.program`, `gpg.x509.program` | Checking a signature: `log` and `show` with `log.showSignature` on (Glade's own calls), `--show-signature`, `%G?` | `-c log.showSignature=false`; `-c gpg.program=false` and the same for `gpg.ssh.program` and `gpg.x509.program` |
+| `merge.<driver>.driver` | A merge. With `log.diffMerges=remerge`, also `log -m` and `show -m`, which merge again to show a merge's diff | `-c log.diffMerges=separate`; Glade's own calls say `--diff-merges=first-parent` |
+| `uploadpack.packObjectsHook` | Serving a fetch. Git takes it from the user's config only, never a repository's, but that config may include a file in the workspace | No transport |
+| `remote.<name>.uploadpack`, an `ext::` URL, a remote helper | A fetch, and **a lazy one**: with `extensions.partialClone` set, reading an object the repository lacks fetches it from the promisor remote. Glade's own `rev-parse`, `cat-file`, `log` and `show` did, for a hash a command printed | `GIT_NO_LAZY_FETCH=1`; no transport |
+| `include.path`, `includeIf.*.path` | Bring in any of the above from another file | The command line outranks an included file |
+| A linked worktree's `config.worktree` | The same | The command line outranks it |
+| A submodule's own config | `status` and `diff` run git inside each submodule. With `diff.submodule=diff`, so do `log -p` and `show`, and the outer command's options don't reach it | Git hands the `-c` overrides on; `-c diff.submodule=short` |
+| `.gitmodules` | An `ext::` URL runs when the submodule is cloned (`submodule update`), and only if the user's config allows the protocol; git itself refuses a command in `submodule.<name>.update` there | No transport; no such command |
+
+What it doesn't cover:
+
+- **Settings only a command Glade never runs would use,** and that have no override: `alias.*`, `difftool` and
+  `mergetool` commands, `sendemail.*`, `trailer.<token>.command`, `gpg.ssh.defaultKeyCommand` (signing),
+  `tar.<format>.command`, `submodule.<name>.update` in a repository's own config. The command list is what keeps them
+  out, as it does filters.
+- **An option only a call itself could pass,** on a command Glade does run, with nothing to cancel it:
+  `cat-file --filters` or `--textconv` (filters, text conversions), `log --remerge-diff` or `show --remerge-diff`
+  (merge drivers). No call passes one, and a new one mustn't.
+- **The user's own setup is trusted:** Glade's environment (`GIT_EDITOR`, `GIT_SSH_COMMAND`) and the user's and
+  system's config, which Glade still reads (the Browse tab hides what the user's global excludes ignore). The
+  overrides outrank that config too, which a read never notices.
+- **An older git that doesn't know `GIT_NO_LAZY_FETCH`** ignores it, tries the fetch, and is refused its transport
+  by `GIT_ALLOW_PROTOCOL`.
+- **What git reads, as opposed to runs.** A repository's config can still point git elsewhere (`core.worktree`,
+  alternates, replace refs): that changes what the Changes tab shows, not what runs.
 
 ### Test backends
 
