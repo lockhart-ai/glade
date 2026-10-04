@@ -1,6 +1,7 @@
 /**
  * The todo hub in main (P16, #491; `src/shared/todoHub.ts`): reading a task's children grouped by todo, giving them the
- * short ids the agent names them by, filing them, and remembering each todo's panel.
+ * short ids the agent names them by, filing them, and remembering each todo's panel. What the agent's own two tools do
+ * with them (`list_children`, `file_children`) is in `./agent-children`.
  *
  * **Built dark.** Everything here is behind the hidden setting `todoHubEnabled`, off until the phase's last issue
  * (#501), and each entry point checks it itself: with it off, a read or a panel change is refused, a filing changes
@@ -40,7 +41,8 @@ export function isTodoHubEnabled(db: Database): boolean {
   return getSettings(db).todoHubEnabled
 }
 
-function requireTodoHub(db: Database): void {
+/** Refuses while the hub is off: `invalid_transition`, saying so (`TODO_HUB_OFF`). */
+export function requireTodoHub(db: Database): void {
   if (!isTodoHubEnabled(db)) throw new CommandFailure(BridgeErrorCode.InvalidTransition, TODO_HUB_OFF)
 }
 

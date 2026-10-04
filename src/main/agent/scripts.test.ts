@@ -35,13 +35,15 @@ import { getOpenQuestionSet } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { listOpenPermissionRequests, listPermissionRequests } from '../db/repositories/permission-requests'
-import { updateSettings } from '../db/repositories/settings'
+import { getSettings, updateSettings } from '../db/repositories/settings'
+import { listTaskCommits } from '../db/repositories/task-commits'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
 import type { NotifyReply } from '../notifications/notifications'
 import { createQuestionBroker } from '../questions/questions'
 import { createdTaskId } from '../todos/schema'
+import { readTodoHub } from '../todo-hub/todo-hub'
 import { todoListFor } from '../todos/todos'
 import { listWatchers } from '../db/repositories/watchers'
 import { ChildTool, namedTodo, TODO_FIELDS } from './child-calls'
@@ -64,6 +66,7 @@ import {
   RELEASE_NOTES_PREAMBLE,
   RELEASE_NOTES_QUESTIONS,
   S3_PLAN,
+  SORTS_CHILDREN,
   SUBAGENT_CALLS_REPLY,
   TRACKS_LINKS_REPLY,
   ASKS_SANDBOX,
@@ -107,8 +110,10 @@ function start(
     ...(notifyReply === undefined ? {} : { notifyReply }),
     ...(log === undefined ? {} : { log }),
     ...(account === undefined ? {} : { account }),
-    // The real Glade tools, as the app gives every session.
-    mcpServers: (forTask) => ({ [GLADE_SERVER]: createGladeMcpServer(context, forTask.id) }),
+    // The real Glade tools, as the app gives every session: the ones Settings has on as it starts.
+    mcpServers: (forTask) => ({
+      [GLADE_SERVER]: createGladeMcpServer(context, forTask.id, getSettings(database.db)),
+    }),
   })
   return runner
 }
@@ -348,6 +353,177 @@ describe('AGENT_SCRIPTS', () => {
       // The todo list is the first turn's: the second made nothing a todo.
       expect(todoListFor(database.db, task.id)?.items).toHaveLength(3)
       expect(listMessages(database.db, task.id).at(-1)?.body).toBe(FILES_CHILDREN.unnamed.reply)
+    })
+  })
+
+  describe('unsorted-children, then sorts-children', () => {
+    let root: string
+    const { todos, writeup, pr } = SORTS_CHILDREN
+
+    beforeEach(() => {
+      root = mkdtempSync(join(tmpdir(), 'glade-sorts-children-'))
+      task = sampleTask(database.db, sampleWorkspace(database.db, root).id)
+      // Real timers: its commit and its artifact's file are real, which fake timers would race with.
+      vi.useRealTimers()
+    })
+
+    afterEach(() => {
+      rmSync(root, { recursive: true, force: true })
+    })
+
+    /** Plays `unsorted-children`'s turn, and waits for Glade to have found the commit it made (it reads git). */
+    async function make(): Promise<AgentRunner> {
+      const maker = start('unsorted-children')
+      maker.send(task.id, SORTS_CHILDREN.prompt)
+      await backend.whenIdle()
+      await vi.waitFor(() => {
+        expect(listTaskCommits(database.db, task.id)).toHaveLength(1)
+      })
+      return maker
+    }
+
+    /** Plays `unsorted-children`'s turn, then starts the task's session again on `sorts-children`, as a relaunch. */
+    async function makeThenRelaunch(todoHubEnabled: boolean): Promise<AgentRunner> {
+      const maker = await make()
+      maker.close()
+      updateSettings(database.db, { todoHubEnabled })
+      return start('sorts-children')
+    }
+
+    async function say(agent: AgentRunner, text: string): Promise<void> {
+      agent.send(task.id, text)
+      await backend.whenIdle()
+    }
+
+    /** The agent's calls to one of Glade's tools, as `[state, output]`, in order. */
+    function gladeCalls(tool: string): [ToolCallState, string | null][] {
+      return calls()
+        .filter(({ name }) => name === `mcp__glade__${tool}`)
+        .map(({ state, output }) => [state, output])
+    }
+
+    /** Each todo's children, then the ones under no todo, each as `kind source`, sorted. */
+    function placed(): string[][] {
+      const { children } = readTodoHub(database.db, task.id)
+      return [...children.todos, children.unfiled].map((group) =>
+        group.children.map(({ kind, source }) => `${kind} ${source ?? 'unfiled'}`).sort(),
+      )
+    }
+
+    it('makes one of each kind of child, a subagent’s commit and tests among them, with nothing filed', async () => {
+      await make()
+
+      expect(todoListFor(database.db, task.id)?.items.map(({ id, text }) => [id, text])).toEqual(
+        todos.map(({ subject }, index) => [String(index + 1), subject]),
+      )
+      expect(listArtifacts(database.db, task.id).map(({ kind, title }) => [kind, title])).toEqual([
+        [ArtifactKind.File, writeup.title],
+        [ArtifactKind.Link, pr.title],
+      ])
+      const subagent = calls().find(({ name }) => name === 'Agent')
+      expect(subagent).toMatchObject({ state: ToolCallState.Done, input: { description: SORTS_CHILDREN.subagent } })
+      expect(listWatchers(database.db, task.id).map(({ label, parentToolUseId }) => [label, parentToolUseId])).toEqual([
+        [SORTS_CHILDREN.tests, subagent?.toolUseId],
+        [SORTS_CHILDREN.ci, null],
+      ])
+      expect(
+        listTaskCommits(database.db, task.id).map(({ subject, subagentToolUseId }) => [subject, subagentToolUseId]),
+      ).toEqual([[SORTS_CHILDREN.commitSubject, subagent?.toolUseId]])
+      expect(reply()).toBe(SORTS_CHILDREN.made)
+      // With the hub off, the session has neither tool and nothing of the hub is written.
+      expect(database.db.prepare('SELECT COUNT(*) FROM child_ids').pluck().get()).toBe(0)
+    })
+
+    it('lists what the task made and files each under a todo in one call, once the hub is on', async () => {
+      const agent = await makeThenRelaunch(true)
+      expect(placed()).toEqual([
+        [],
+        [],
+        [],
+        ['commit unfiled', 'file unfiled', 'link unfiled', 'subagent unfiled', 'watcher unfiled', 'watcher unfiled'],
+      ])
+
+      await say(agent, SORTS_CHILDREN.sortPrompt)
+
+      const hash = listTaskCommits(database.db, task.id)[0]?.hash ?? ''
+      expect(hash).toMatch(/^[0-9a-f]{40}$/)
+      expect(gladeCalls('list_children')).toEqual([
+        [
+          ToolCallState.Done,
+          [
+            '#1 Review the date helpers (completed), no children',
+            '#2 Write up the review (completed), no children',
+            '#3 Watch CI on PR #42 (in progress), no children',
+            'Not under a todo, 6 children:',
+            '- c1: file "Date helpers review"',
+            '- c2: link "Fix the UTC date test"',
+            '- c3: subagent "Review the date helpers"',
+            '- c4: watcher "Date helper tests" (follows c3)',
+            '- c5: watcher "CI checks on PR #42"',
+            `- c6: commit "${hash.slice(0, 7)} Fix the UTC date test" (follows c3)`,
+          ].join('\n'),
+        ],
+      ])
+      expect(gladeCalls('file_children')).toEqual([
+        [
+          ToolCallState.Done,
+          'Filed 4 children: c1 under #2; c2, c5 under #3; c3 under #1. Moved with their subagent: c4, c6.',
+        ],
+      ])
+      // The subagent brought its commit and its tests; the placeholder is empty.
+      expect(placed()).toEqual([
+        ['commit inherited', 'subagent asked', 'watcher inherited'],
+        ['file asked'],
+        ['link asked', 'watcher asked'],
+        [],
+      ])
+      expect(listMessages(database.db, task.id).at(-1)?.body).toBe(SORTS_CHILDREN.sorted)
+    })
+
+    it('moves the subagent with what it made, then is refused a todo and a child that aren’t there', async () => {
+      const agent = await makeThenRelaunch(true)
+      await say(agent, SORTS_CHILDREN.sortPrompt)
+
+      await say(agent, SORTS_CHILDREN.movePrompt)
+
+      expect(gladeCalls('file_children').at(-1)).toEqual([
+        ToolCallState.Done,
+        'Filed 1 child: c3 under #2. Moved with their subagent: c4, c6.',
+      ])
+      const moved = [
+        [],
+        ['commit inherited', 'file asked', 'subagent moved', 'watcher inherited'],
+        ['link asked', 'watcher asked'],
+        [],
+      ]
+      expect(placed()).toEqual(moved)
+
+      await say(agent, SORTS_CHILDREN.badPrompt)
+
+      expect(gladeCalls('file_children').at(-1)).toEqual([
+        ToolCallState.Error,
+        "Nothing was filed. Not a child of this task: c12. List the task's children for their ids. There's no " +
+          "todo #9 in this task's list. Your todos: #1 Review the date helpers (completed) · #2 Write up the review " +
+          '(completed) · #3 Watch CI on PR #42 (in progress)',
+      ])
+      expect(gladeCalls('list_children').at(-1)).toEqual([ToolCallState.Done, 'Not under a todo, no children'])
+      expect(placed()).toEqual(moved)
+      expect(listMessages(database.db, task.id).at(-1)?.body).toBe(SORTS_CHILDREN.refused)
+    })
+
+    it('has neither tool in a session that starts with the hub off: its calls fail and nothing is filed', async () => {
+      const agent = await makeThenRelaunch(false)
+
+      await say(agent, SORTS_CHILDREN.sortPrompt)
+
+      expect(gladeCalls('list_children')).toEqual([
+        [ToolCallState.Error, expect.stringContaining('not found') as unknown],
+      ])
+      expect(gladeCalls('file_children')).toEqual([
+        [ToolCallState.Error, expect.stringContaining('not found') as unknown],
+      ])
+      expect(database.db.prepare('SELECT COUNT(*) FROM child_filings').pluck().get()).toBe(0)
+      expect(database.db.prepare('SELECT COUNT(*) FROM child_ids').pluck().get()).toBe(0)
     })
   })
 

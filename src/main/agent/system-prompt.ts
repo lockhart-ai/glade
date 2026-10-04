@@ -6,7 +6,7 @@
  */
 import type { Task, TaskHandoff } from '../../shared/domain'
 import { CONTROL_SERVER } from '../control/names'
-import { ALL_UPKEEP, GladeTool, type AgentUpkeep } from './glade-tools'
+import { ALL_UPKEEP, GladeTool, type GladeToolSettings } from './glade-tools'
 
 /**
  * What the prompt says of the `glade-control` tools (`docs/control-api.md`), when the session has them: that they
@@ -60,6 +60,19 @@ export const SANDBOX_LINE =
   'allowed, run the command again.'
 
 /**
+ * What the prompt says of the todo hub's tools (P16-05, #496), in a session that has them: one that started with the
+ * hidden `todoHubEnabled` setting on. That they exist and what they're for, which is all a task needs to sort what it
+ * made before the hub when asked to ("file your things under your todos"). It isn't in `INSTRUCTION_UPDATES`, being
+ * only for sessions with the tools: a session resumed from before the switch has the tools, whose own descriptions
+ * say the same. The lines about filing a child as it's made are #495's.
+ */
+export const TODO_HUB_TOOLS_LINE =
+  'What this task has made (its artifacts, subagents, watchers and commits) shows to the user under its todos. ' +
+  `${GladeTool.ListChildren} lists them, each with a short id and the todo it's under, and ${GladeTool.FileChildren} ` +
+  'files them under a todo or moves them to another, by those ids. When the user asks you to file or sort what you ' +
+  'made, list them, then file them all in one call.'
+
+/**
  * The instructions added to the prompt after sessions had started with it, oldest first. Claude Code keeps a session's
  * prompt when it resumes it, so a session that started before one was added is sent it once, ahead of its next message
  * (`./session-context`). Only ever append: a session's place in this list is saved as a count. Only what every session
@@ -88,15 +101,16 @@ export function handoffSection(handoff: TaskHandoff): string {
 }
 
 /**
- * The prompt for `task`'s session. With `upkeep` turned off in Settings, it leaves out asking for a title or a status,
- * as the session's Glade tools leave out the tools for them. With `control`, the session has the `glade-control`
+ * The prompt for `task`'s session. With upkeep turned off in `settings`, it leaves out asking for a title or a status,
+ * as the session's Glade tools leave out the tools for them; with the todo hub on in them, it says the session has the
+ * hub's tools (`TODO_HUB_TOOLS_LINE`), and otherwise nothing of them. With `control`, the session has the `glade-control`
  * tools, and the prompt says so in one line. With a `handoff`, the prompt ends with it (`handoffSection`). In a
  * `sandboxed` session it says what the sandbox is and to ask with `request_access` (`SANDBOX_LINE`); with the sandbox
  * off it doesn't mention it.
  */
 export function systemPromptAppend(
   task: Task,
-  upkeep: AgentUpkeep = ALL_UPKEEP,
+  settings: GladeToolSettings = ALL_UPKEEP,
   control = false,
   handoff: TaskHandoff | null = null,
   sandboxed = false,
@@ -113,7 +127,7 @@ export function systemPromptAppend(
   ]
   // Only what isn't set yet: a title the user chose, or an objective already recorded, stays as it is.
   const unset = [
-    ...(named || !upkeep.taskTitles ? [] : [`${GladeTool.SetTitle} with a short name for the task`]),
+    ...(named || !settings.taskTitles ? [] : [`${GladeTool.SetTitle} with a short name for the task`]),
     ...(task.objective === '' ? [`${GladeTool.SetObjective} with its objective`] : []),
   ]
   if (unset.length > 0) {
@@ -121,7 +135,7 @@ export function systemPromptAppend(
       `- After the user's first message, before anything else, even for a quick question, call ${unset.join(' and ')}.`,
     )
   }
-  if (upkeep.statusSummary) {
+  if (settings.statusSummary) {
     lines.push(
       `- Every turn, call ${GladeTool.SetStatus} with one line on where the work stands, and again before you end ` +
         'the turn if that changed. When the task is done, the status is its outcome.',
@@ -142,6 +156,7 @@ export function systemPromptAppend(
     '',
     WATCHERS_LINE,
   )
+  if (settings.todoHubEnabled === true) lines.push('', TODO_HUB_TOOLS_LINE)
   if (sandboxed) lines.push('', SANDBOX_LINE)
   if (control) lines.push('', CONTROL_TOOLS_LINE)
   if (handoff !== null) lines.push('', handoffSection(handoff))

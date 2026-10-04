@@ -10,6 +10,7 @@ import {
   LINK_ARTIFACTS_LINE,
   SANDBOX_LINE,
   systemPromptAppend,
+  TODO_HUB_TOOLS_LINE,
   WATCHERS_LINE,
 } from './system-prompt'
 
@@ -155,5 +156,48 @@ describe('the sandbox line', () => {
       expect(prompt).not.toContain('sandbox')
       expect(prompt).not.toContain('request_access')
     }
+  })
+})
+
+describe("the todo hub's line", () => {
+  const HUB_ON = { statusSummary: true, taskTitles: true, todoHubEnabled: true }
+
+  it("tells a session that has the hub's tools that they exist, in one line, after the watchers line", () => {
+    const prompt = systemPromptAppend(task, HUB_ON)
+
+    expect(prompt).toBe(`${systemPromptAppend(task)}\n\n${TODO_HUB_TOOLS_LINE}`)
+    expect(TODO_HUB_TOOLS_LINE).not.toContain('\n')
+    expect(TODO_HUB_TOOLS_LINE).toContain("list_children lists them, each with a short id and the todo it's under")
+    expect(TODO_HUB_TOOLS_LINE).toContain('file_children files them under a todo or moves them to another')
+    // Ahead of the sandbox's and the control tools' lines and the handoff note, which stay last.
+    const all = systemPromptAppend(task, HUB_ON, true, { taskId: task.id, body: 'Notes.', addedAt: 1_000 }, true)
+    const places = [WATCHERS_LINE, TODO_HUB_TOOLS_LINE, SANDBOX_LINE, CONTROL_TOOLS_LINE, HANDOFF_HEADING].map((line) =>
+      all.indexOf(line),
+    )
+    expect(places).toEqual([...places].sort((a, b) => a - b))
+    expect(places[0]).toBeGreaterThan(0)
+  })
+
+  it("says nothing of the hub or its tools with the switch off, as it's off unless given", () => {
+    const off = [
+      systemPromptAppend(task),
+      systemPromptAppend(task, { statusSummary: true, taskTitles: true }),
+      systemPromptAppend(task, { statusSummary: true, taskTitles: true, todoHubEnabled: false }),
+      systemPromptAppend(
+        task,
+        { statusSummary: false, taskTitles: false, todoHubEnabled: undefined },
+        true,
+        null,
+        true,
+      ),
+    ]
+
+    for (const prompt of off) {
+      expect(prompt).not.toContain('list_children')
+      expect(prompt).not.toContain('file_children')
+      expect(prompt).not.toContain(TODO_HUB_TOOLS_LINE)
+    }
+    // It's for sessions with the tools alone, so it isn't among the instructions every resumed session is sent.
+    expect(INSTRUCTION_UPDATES).not.toContain(TODO_HUB_TOOLS_LINE)
   })
 })

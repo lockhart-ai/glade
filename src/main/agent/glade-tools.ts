@@ -11,6 +11,9 @@
  * bounds every MCP tool call, about 28 hours by default, so the server raises its own bound as far as it goes
  * (`GLADE_TOOL_TIMEOUT_MS`, `docs/sdk-notes.md` §3). `request_access` blocks the same way, on its permission card
  * (#450): the agent calls it when the sandbox blocked a command, and it's the one tool a subagent may call too.
+ *
+ * `list_children` and `file_children` (P16-05, #496) are the agent's side of the todo hub (`../todo-hub/agent-children`):
+ * a session has them only when it starts with the hidden `todoHubEnabled` setting on.
  */
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
@@ -42,6 +45,14 @@ import {
 import { toolResultFor, type QuestionBroker } from '../questions/questions'
 import { preambleSchema, questionsSchema } from '../questions/schema'
 import { updateTaskFromAgent, type TaskServiceContext } from '../tasks/service'
+import {
+  filedText,
+  fileForAgent,
+  listForAgent,
+  listingText,
+  NO_TODO,
+  type FilingRequest,
+} from '../todo-hub/agent-children'
 
 /**
  * What Settings › Agent has the agent keep current besides the objective: the status every turn (`set_status`), and
@@ -52,6 +63,15 @@ export type AgentUpkeep = Pick<Settings, 'statusSummary' | 'taskTitles'>
 
 /** Both kinds of upkeep on, as they are until you change them. */
 export const ALL_UPKEEP: AgentUpkeep = { statusSummary: true, taskTitles: true }
+
+/**
+ * What of Settings a session's Glade tools and prompt follow, read when the session starts: its upkeep, and whether
+ * the todo hub is on (the hidden `todoHubEnabled`, P16). Only with the hub on does a session get `list_children` and
+ * `file_children`, and the prompt's line about them; it's off unless given.
+ */
+export interface GladeToolSettings extends AgentUpkeep {
+  readonly todoHubEnabled?: boolean | undefined
+}
 
 /** The server's name: the `glade` in `mcp__glade__set_title`. */
 export const GLADE_SERVER = 'glade'
@@ -90,6 +110,10 @@ export enum GladeTool {
   UpdateArtifact = 'update_artifact',
   RemoveArtifact = 'remove_artifact',
   RequestAccess = 'request_access',
+  /** Only while the todo hub is on (`GladeToolSettings.todoHubEnabled`). */
+  ListChildren = 'list_children',
+  /** Only while the todo hub is on. */
+  FileChildren = 'file_children',
 }
 
 export interface SetTitleInput {
@@ -133,6 +157,15 @@ export interface UpdateArtifactInput extends ArtifactTarget {
 }
 
 export type RemoveArtifactInput = ArtifactTarget
+
+export interface ListChildrenInput {
+  /** A todo's id, for its children alone, or `NO_TODO` for the ones under no todo; every child when left out. */
+  readonly todo?: string | undefined
+}
+
+export interface FileChildrenInput {
+  readonly filings: readonly FilingRequest[]
+}
 
 /** Text the model sends: trimmed, and never empty. */
 function text(what: string) {
@@ -195,6 +228,27 @@ const removeArtifactInput = z.object({
     .describe("A file artifact's path, as it was added: absolute, or relative to the workspace root."),
   url: text('url').optional().describe("A link artifact's url, as it was added."),
 }) satisfies z.ZodType<RemoveArtifactInput>
+
+const listChildrenInput = z.object({
+  todo: text('todo')
+    .optional()
+    .describe(
+      `Only the children under this todo, by its id (the N of Task #N), or "${NO_TODO}" for the ones under no todo. ` +
+        'Leave it out to list them all.',
+    ),
+}) satisfies z.ZodType<ListChildrenInput>
+
+const fileChildrenInput = z.object({
+  filings: z
+    .array(
+      z.object({
+        child: text('child').describe('The child\'s short id, e.g. "c3".'),
+        todo: text('todo').describe('The id of the todo to put it under: the N of Task #N, e.g. "2".'),
+      }),
+    )
+    .min(1, 'Give at least one filing.')
+    .describe('Every filing to make, in this one call: each a child and the todo it goes under.'),
+}) satisfies z.ZodType<FileChildrenInput>
 
 /** The longest path `request_access` takes: macOS's own limit is far below it. */
 export const ACCESS_PATH_MAX = 4096
@@ -330,6 +384,16 @@ export interface GladeToolHandlers {
    * error result when the path isn't absolute, or the answer is no.
    */
   requestAccess(input: AccessRequest, call: AccessCall): Promise<GladeToolResult>
+  /**
+   * Lists the task's children by the todo each is under, with their short ids; an error result for a todo that isn't
+   * in the task's list, and while the todo hub is off.
+   */
+  listChildren(input: ListChildrenInput): GladeToolResult
+  /**
+   * Files children under todos, or moves them, all of them or none; an error result, with nothing filed, when a child
+   * or a todo isn't there, and while the todo hub is off.
+   */
+  fileChildren(input: FileChildrenInput): GladeToolResult
 }
 
 export function createGladeToolHandlers(context: GladeToolContext, taskId: string): GladeToolHandlers {
@@ -428,6 +492,20 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
         return failure(error)
       }
     },
+    listChildren({ todo }) {
+      try {
+        return reply(listingText(listForAgent(context.db, taskId, todo)))
+      } catch (error) {
+        return failure(error)
+      }
+    },
+    fileChildren({ filings }) {
+      try {
+        return reply(filedText(fileForAgent(context, taskId, filings)))
+      } catch (error) {
+        return failure(error)
+      }
+    },
   }
 }
 
@@ -472,6 +550,19 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
     'instead of retrying the command outside the sandbox. Give the absolute path that was blocked, whether you need ' +
     'to read or write it, and a short reason the user will read. It returns the decision: once it says the access ' +
     "is allowed, run the command again; if it's denied, don't, and it returns the user's note if they left one.",
+  [GladeTool.ListChildren]:
+    'List what this task has made, its children: the files and links among its artifacts, its subagents, its ' +
+    'watchers and its commits. They come grouped by the todo each is under, with the ones under no todo last, and ' +
+    'each has a short id (c1, c2, …) to file it by, its kind and its title. A child marked "follows cN" was made by ' +
+    `that subagent and goes wherever it goes. Give a todo's id to list that todo's children alone, or "${NO_TODO}" ` +
+    'for the ones under no todo.',
+  [GladeTool.FileChildren]:
+    'File children of this task under its todos, or move them from one todo to another: the user finds each child ' +
+    "under its todo in the Todos tab. Give every filing in one call, each a child's short id (from " +
+    `${GladeTool.ListChildren}, or as Glade named it to you) and the id of the todo to put it under (the N of Task ` +
+    '#N). A subagent brings what it made (its commits, its watchers, its own subagents), so file those apart only to ' +
+    "keep them somewhere else. If a child or a todo isn't there, nothing is filed and the error says which. Create " +
+    'the todo first (TaskCreate) if none fits.',
 }
 
 /** The signal an MCP tool call is cancelled by, from the handler's `extra` (MCP's `RequestHandlerExtra`). */
@@ -488,13 +579,14 @@ function toolUseIdOf(extra: unknown): string | null {
 }
 
 /**
- * The Glade MCP server for one task's session, without the tools for any `upkeep` that's off, and with
- * `request_access` when there's someone to ask (`GladeToolContext.requestAccess`).
+ * The Glade MCP server for one task's session, without the tools for any upkeep that's off in `settings`, with
+ * `list_children` and `file_children` when the todo hub is on in them, and with `request_access` when there's someone
+ * to ask (`GladeToolContext.requestAccess`).
  */
 export function createGladeMcpServer(
   context: GladeToolContext,
   taskId: string,
-  upkeep: AgentUpkeep = ALL_UPKEEP,
+  settings: GladeToolSettings = ALL_UPKEEP,
 ): McpSdkServerConfigWithInstance {
   const handlers = createGladeToolHandlers(context, taskId)
   // The SDK's handlers are async; ours write SQLite synchronously, so they only need wrapping.
@@ -503,7 +595,7 @@ export function createGladeMcpServer(
     alwaysLoad: true,
     timeout: GLADE_TOOL_TIMEOUT_MS,
     tools: [
-      ...(upkeep.taskTitles
+      ...(settings.taskTitles
         ? [
             tool(GladeTool.SetTitle, DESCRIPTIONS[GladeTool.SetTitle], setTitleInput.shape, (input) =>
               Promise.resolve(handlers.setTitle(input)),
@@ -513,7 +605,7 @@ export function createGladeMcpServer(
       tool(GladeTool.SetObjective, DESCRIPTIONS[GladeTool.SetObjective], setObjectiveInput.shape, (input) =>
         Promise.resolve(handlers.setObjective(input)),
       ),
-      ...(upkeep.statusSummary
+      ...(settings.statusSummary
         ? [
             tool(GladeTool.SetStatus, DESCRIPTIONS[GladeTool.SetStatus], setStatusInput.shape, (input) =>
               Promise.resolve(handlers.setStatus(input)),
@@ -535,6 +627,16 @@ export function createGladeMcpServer(
       tool(GladeTool.RemoveArtifact, DESCRIPTIONS[GladeTool.RemoveArtifact], removeArtifactInput.shape, (input) =>
         Promise.resolve(handlers.removeArtifact(input)),
       ),
+      ...(settings.todoHubEnabled === true
+        ? [
+            tool(GladeTool.ListChildren, DESCRIPTIONS[GladeTool.ListChildren], listChildrenInput.shape, (input) =>
+              Promise.resolve(handlers.listChildren(input)),
+            ),
+            tool(GladeTool.FileChildren, DESCRIPTIONS[GladeTool.FileChildren], fileChildrenInput.shape, (input) =>
+              Promise.resolve(handlers.fileChildren(input)),
+            ),
+          ]
+        : []),
       ...(context.requestAccess === undefined
         ? []
         : [

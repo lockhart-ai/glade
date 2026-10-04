@@ -43,7 +43,7 @@ import { MAX_PLUGIN_SETTING_OPTIONS, MAX_PLUGIN_SETTINGS, PluginCapability, Plug
 import { connectCommand, controlUrl, DEFAULT_CONTROL_PORT } from '../shared/control'
 import { APP_SECTIONS, SECTION_TITLES } from '../renderer/settings/sections'
 import { GladeTool } from './agent/glade-tools'
-import { HANDOFF_HEADING, systemPromptAppend } from './agent/system-prompt'
+import { HANDOFF_HEADING, systemPromptAppend, TODO_HUB_TOOLS_LINE } from './agent/system-prompt'
 import { openTestDatabase, sampleTask, sampleWorkspace } from './db/repositories/test-database'
 import { ControlErrorCode } from './control/errors'
 import { ControlEnv } from './control/endpoint'
@@ -284,6 +284,9 @@ describe('docs/model-surface.md', () => {
       const quoted = /```\n(You are running inside Glade[\s\S]*?)\n```/.exec(section(surface, '## System prompt'))
       expect(quoted?.[1]).toBe(systemPromptAppend(task))
       expect(surface).toContain(`## ${HANDOFF_HEADING}`)
+      // The line a session gets with the todo hub's switch on, which the default prompt above doesn't have.
+      expect(section(surface, '## System prompt')).toContain(`\n  ${TODO_HUB_TOOLS_LINE}\n`)
+      expect(quoted?.[1]).not.toContain(TODO_HUB_TOOLS_LINE)
     } finally {
       database.close()
     }
