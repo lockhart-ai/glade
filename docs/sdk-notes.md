@@ -2993,8 +2993,10 @@ what the probes above saw, and tested on the fake and scripted backends.
   `{ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput } }`, the whole input with the marker taken off,
   and never a `permissionDecision`. A call with no marker is answered `{}`. A marker naming a todo that isn't in the
   task's list still comes off, and files nothing. The hook sits beside Glade's others on `PreToolUse` (the guard for
-  its own tools, the `Bash` hook for commits, the sandbox's), each of which answers `{}` or a decision of its own;
-  how Claude Code merges an `updatedInput` from one hook with a decision from another wasn't probed.
+  its own tools, the `Bash` hook for commits, the sandbox's), each of which answers `{}` or a decision of its own.
+  That combination wasn't probed. By the bundled binary's code (2.1.283), each hook's answer is taken by itself: an
+  `updatedInput` with no decision becomes the call's input whatever the other hooks answered, and one that fails the
+  tool's input schema refuses the call, which is why the whole input goes back, changed in one text field only.
 - **The marker comes off the tool log too.** The `tool_use` block in the stream is the model's own, so the runner
   takes the marker off as it logs the call, and files what the call makes there and then, before the row is written:
   a subagent and a watcher are named by their call's id, so they're filed before they exist, and the window hears the
