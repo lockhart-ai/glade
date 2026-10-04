@@ -41,3 +41,11 @@ the agent's job. Ask agent about this puts the todo in your message to it. With 
 line); **Not under a todo** has none, and a tile's own menu comes with its kind (#498, #499). A PR, an issue or a
 ticket a todo names, which is a link while the task has it as one (#500), has the link's menu, not the todo's: Open
 link and Copy link, with no Add to artifacts, since it's one already.
+
+**A file's and a link's tile** in the todo hub (#498, behind the same hidden `todoHubEnabled` setting until #501) have
+the menus their rows in the Artifacts tab have, item for item: a file's is **Artifact**'s above, and a link's is
+**Link artifact**'s. A tile's menu opens from a right-click on it, from Context menu (⇧F10) while it or one of its
+buttons has the focus, and from its **More** button, which shows with Open and Reveal in folder (or Open link and
+Copy link) in place of the tile's age while the tile is under the pointer or has the focus. Remove from artifacts
+takes the tile out of its todo's list and count, and leaves the file. A file that's gone keeps its menu, so it can
+still be removed. With the setting off there are no tiles, and the Artifacts tab's rows have their menus as before.
