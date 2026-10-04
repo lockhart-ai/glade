@@ -25,6 +25,7 @@ New here? The [README](../README.md) says what Glade is. The [docs index](README
 - [Permissions](#permissions)
 - [The sandbox](#the-sandbox)
   - [The sandbox's cards](#the-sandboxs-cards)
+  - [MCP servers and other agents](#mcp-servers-and-other-agents)
   - [If the sandbox can't start](#if-the-sandbox-cant-start)
   - [What you'll run into, and what to allow](#what-youll-run-into-and-what-to-allow)
   - [Your own Claude Code settings](#your-own-claude-code-settings)
@@ -509,7 +510,9 @@ With the sandbox on and nothing allowed yet, an agent can:
 
 That holds for the commands it runs and for its file tools alike, and for its subagents. Every other folder it reads
 or writes, and every domain it reaches, is something you allow: for **this task**, for **this workspace**, or, in
-Settings only, **Glade-wide** for every workspace. Nothing is allowed to begin with.
+Settings only, **Glade-wide** for every workspace. So is every **MCP server** Glade doesn't build (one from your
+Claude Code config, a project's `.mcp.json`, or a claude.ai connector such as Gmail), and reaching **other agents**
+(see [MCP servers and other agents](#mcp-servers-and-other-agents)). Nothing is allowed to begin with.
 
 The terminal tabs, and Glade itself, aren't in the sandbox: a terminal is your own shell.
 
@@ -556,9 +559,11 @@ way; a card of a subagent's names it at the top right.
 
 ![A domain card for a command's connection, and under it the card the agent raised after its command was blocked: it wants to write to ~/.cache/uv, with its reason; the Tool calls list shows the blocked command](images/guide/sandbox-domain-card.png)
 
-**Credential files** (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.netrc`, `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`,
-`~/.claude.json`, your keychains, and the `gh`, `gcloud`, Azure, Kubernetes, Docker, 1Password and other cloud
-tools' logins) are never opened, even inside a folder you allowed, and no card offers them. Nor is Glade's own data.
+**Credential files** (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.netrc`, `~/.git-credentials`, `~/.claude.json`, your
+keychains, and the `gh`, `gcloud`, Azure, Kubernetes, Docker, 1Password and other cloud tools' logins) are never
+opened, even inside a folder you allowed, and no card offers them. Nor is Glade's own data. `~/.npmrc` and
+`~/.pypirc` aren't among them: an agent asks for each by itself, as for any file in your home folder, and what you
+allow is that one file.
 
 **Files that run code** (a git hook, `.git/config`, a shell startup file such as `.zshrc`, `.vscode`, `.mcp.json`,
 Claude Code's own settings) stay closed to the agent's commands even inside a folder you allowed to write. When the
@@ -579,17 +584,49 @@ Nothing you allow is written to your project or to `~/.claude`: Glade keeps it, 
 Once answered, a sandbox card leaves the chat like any other, and its call's row in the **Tool calls** tab says what
 you decided and what it was about: "Allowed for this task: read ~/code/acme-web", "Allowed for this workspace: write
 to ~/code/acme-web/src/api", "Allowed once: run outside the sandbox", "Denied: reach registry.npmjs.org · “your
-note”". A connection's line is on the row of the command that made it. The same shield marks the calls nobody had to
+note”", "Allowed for this workspace: use the Gmail MCP server", "Allowed for this task: message other Claude
+sessions". A connection's line is on the row of the command that made it. The same shield marks the calls nobody had to
 ask you about, because a rule decided them:
 
 | The line | What happened |
 |---|---|
-| Teal: **Allowed by task grant**, **by workspace grant** or **by Glade-wide grant: read ~/code/acme-shared** | A folder or domain you allowed earlier, on a card or in Settings, let the call through. |
+| Teal: **Allowed by task grant**, **by workspace grant** or **by Glade-wide grant: read ~/code/acme-shared** | A folder, domain, MCP server or other agents you allowed earlier, on a card or in Settings, let the call through ("Allowed by workspace grant: use the Gmail MCP server"). |
 | Teal: **Allowed by task rule: npm run lint commands** | A rule from an earlier Allow for this task let it through. |
 | Pink: **Blocked by the sandbox** | The sandbox stopped a command from reading or writing something (it failed with "Operation not permitted"), or a credential file was refused. When the agent's next call asks for the folder, the line says which: "Blocked by the sandbox: write to ~/.cache/uv". |
 
 A call inside the workspace folder, with no rule involved, has no line. In the task list, a task waiting on a card
 shows the shield and what it waits on: "Waiting on you: read ~/code/acme-web".
+
+### MCP servers and other agents
+
+An MCP server that Glade doesn't build runs **outside the sandbox**, with whatever access it has: a server from your
+own Claude Code config, one from the project's `.mcp.json`, or a claude.ai connector such as Gmail, Drive or Claude
+Docs. So with the sandbox on, an agent can use one only once you've allowed it, in either permission mode:
+
+![The card for an MCP server: the agent wants to use the claude.ai Acme Docs MCP server, with the tool it's calling and its input; the Tool calls list shows a server allowed for the workspace, a later call its grant let through, a message to another session allowed for the task, and cloud agents denied](images/guide/sandbox-server-card.png)
+
+- **"The agent wants to use the `<server>` MCP server"**, with the tool it's calling and that call's input, and the
+  same three answers. The server is named as Claude Code names it (`claude.ai Acme Docs`).
+- **One answer covers the whole server:** every tool of it, for the task or the workspace. There's no card per tool
+  or per call. If the agent calls several of the server's tools at once, they all wait on the one card.
+- **Once allowed, the server's tools behave as they did before the sandbox:** they run without asking in Allow all,
+  and each call asks on its own card in Ask before edits and commands.
+- **Glade's own tools never ask** (setting the task's title and status, asking you questions, artifacts).
+- **A rule in your own Claude Code settings that allows the server's tools doesn't skip the card.** Nor does a
+  server that calls itself `glade`: only the tools Glade itself gives the agent are Glade's.
+
+Two of Claude Code's own tools reach **other agents**, which also run outside the task's sandbox, so each asks the
+same way, once, with the same three answers:
+
+- **"The agent wants to message other Claude sessions":** a message (`SendMessage`) to another Claude session on
+  this Mac, or a remote one. One answer covers every other session. **A message to one of the task's own subagents
+  never asks:** they run in the same sandbox. (A subagent addressed by a name rather than the id it was started
+  with counts as another session, and asks.)
+- **"The agent wants to manage cloud agents":** `RemoteTrigger`, which lists, creates, changes and runs Claude's
+  cloud agents.
+
+What you allow for the workspace is listed in Settings, under **MCP servers** (see
+[Sandbox folders and domains](#sandbox-folders-and-domains)).
 
 ### If the sandbox can't start
 
@@ -614,7 +651,7 @@ them. Add what every workspace needs once, under **Glade-wide** in Settings › 
 | A toolchain installed in your home folder: nvm, pyenv, rustup, cargo, go | Its folder, read-only (`~/.nvm`, `~/.pyenv`, `~/.rustup`, `~/.cargo`, `~/go`); read-write if the agent installs versions or packages into it. |
 | Package installs: npm, uv, pip | The package cache, read-write (`~/.npm`, `~/.cache/uv`), and the registry's domains (`registry.npmjs.org`; `pypi.org` and `files.pythonhosted.org`). |
 | `git commit` has no author, or ignores your aliases and settings | `~/.gitconfig` (the agent's card asks for that file alone), or `~/.config/git` if you keep it there. |
-| npm can't see your registry settings or token | Nothing to allow: `~/.npmrc` holds a login, so it's never opened. A command that needs it asks to run outside the sandbox; or keep the registry settings, without the token, in the project's own `.npmrc`. |
+| npm or pip can't see your registry settings or token | `~/.npmrc` or `~/.pypirc`: each is allowed as a file by itself, read-only (the agent's card asks for that file alone, or it asks after a command is blocked). It may hold a registry token, so allow it only for work that needs it; to keep the token out of reach, keep the registry settings, without the token, in the project's own `.npmrc`. |
 
 - **A file allowed by itself can be changed but not replaced.** The agent's edits work, and so does a command that
   writes into it. A tool that saves by writing a new file beside it and renaming it over (`sed -i`, some formatters)
@@ -640,9 +677,12 @@ without asking you**:
 - **The switches that loosen the sandbox** in your settings (turning off its file system bounds, Apple Events, local
   ports, Unix sockets) are off in Glade's tasks, whatever your settings say.
 
+- **An allow rule for an MCP server's tools doesn't skip its card either:** the server asks until you've allowed it
+  in Glade.
+
 What still applies from your settings: domains and Unix sockets in your own `sandbox` lists (lists merge, so an
-agent can reach those), and your hooks and MCP servers, which run on your Mac, outside the sandbox. If an agent can
-reach more than Glade's lists show, look there.
+agent can reach those), and your hooks, which run on your Mac, outside the sandbox. Your MCP servers run outside it
+too, once you've allowed them. If an agent can reach more than Glade's lists show, look there.
 
 ## Settings
 
@@ -651,13 +691,13 @@ reach more than Glade's lists show, look there.
 | Section | What's there |
 |---|---|
 | General | **Show Glade in the menu bar**: the icon with what needs you and what's working (see [Glade in the menu bar](#glade-in-the-menu-bar)). On to begin with. Then the **account** your tasks run on and bill to, as Claude Code reports it (below). |
-| Agent | Defaults for new tasks: **Model** and **Effort**, from the same list as the input bar's pickers (Effort shows only the levels the model supports, and hides for one with none), and **Permissions** (Ask first or Allow all; Allow edits isn't available yet). **Status summary**: have the agent rewrite the task's status after every turn. **Task titles**: have the agent name the task from your first message. **Sandbox**: whether agents run in the sandbox, and the folders and domains every workspace's agents may use (see [Sandbox folders and domains](#sandbox-folders-and-domains)). |
+| Agent | Defaults for new tasks: **Model** and **Effort**, from the same list as the input bar's pickers (Effort shows only the levels the model supports, and hides for one with none), and **Permissions** (Ask first or Allow all; Allow edits isn't available yet). **Status summary**: have the agent rewrite the task's status after every turn. **Task titles**: have the agent name the task from your first message. **Sandbox**: whether agents run in the sandbox, and the folders, domains and MCP servers every workspace's agents may use (see [Sandbox folders and domains](#sandbox-folders-and-domains)). |
 | Notifications | **Notifications** on or off, and **Sound**. |
 | Appearance | Nothing yet: Glade has one theme, dark. |
 | Keyboard | Every shortcut, and a way to change it (below). |
 | Plugins | The installed plugins, a switch for each (and for what each asks to see, such as your Mac's load), each plugin's own settings, and **Open plugins folder** (see [Plugins](#plugins)). |
 | Control | **Let agents control Glade** (see [below](#let-agents-control-glade)). |
-| *(your workspace)* | Its **Name** and **Root folder**, then its **Sandbox**: the folders and domains this workspace's agents may use (see [Sandbox folders and domains](#sandbox-folders-and-domains)). |
+| *(your workspace)* | Its **Name** and **Root folder**, then its **Sandbox**: the folders, domains and MCP servers this workspace's agents may use (see [Sandbox folders and domains](#sandbox-folders-and-domains)). |
 
 ### Your account
 
@@ -683,7 +723,7 @@ begin with, while its security review is finished.
 
 ![Settings › Agent: the Sandbox group, with the Run agents in a sandbox switch and the Glade-wide folders under it](images/guide/settings-sandbox.png)
 
-What you allow is kept in two pairs of lists, **Folders** and **Domains**:
+What you allow is kept in two sets of lists, **Folders**, **Domains** and **MCP servers**:
 
 - **Glade-wide**, in Settings › Agent under the switch: for the agents in every workspace, like a toolchain or a package
   cache in your home folder (`~/.nvm`, `~/.npm`) and the registry they download from. They start empty, and only you
@@ -697,16 +737,27 @@ A grant for one task (Allow for this task, on a card) isn't listed anywhere: it 
 
 ![Settings › Workspace: the workspace root, read-write and fixed, then the folders and the domains allowed for this workspace](images/guide/settings-workspace-sandbox.png)
 
+**MCP servers**, the third list, has the MCP servers allowed (each by the name Claude Code reports it under; hover
+for the name its tools carry) and, with them, **Messaging other Claude sessions** and **Cloud agents** when those
+are allowed (see [MCP servers and other agents](#mcp-servers-and-other-agents)).
+
+![Settings › Workspace scrolled to its MCP servers list: a server and Messaging other Claude sessions allowed, and the row Add… opens, with a server chosen to add](images/guide/settings-mcp-servers.png)
+
 - **Add…** a folder opens the folder picker, then a row with the folder and its access, **Read-only** to start or
   **Read-write**; **Add** grants it, **Cancel** doesn't.
 - **Add…** a domain opens a row with a field: type a host (`pypi.org`), or `*.` and a domain for every host under it
   (`*.example.com`), then **Add** or ↵. Esc or **Cancel** closes the row. A domain covers both the agents' commands
   and their web fetches.
+- **Add…** an MCP server opens a row with a menu of what there is to add: the servers this workspace's tasks have
+  used or been offered (for the Glade-wide list, any workspace's), by name, then **Messaging other Claude sessions**
+  and **Cloud agents**. Choose one, then **Add**. A server shows in the menu once a task's session has reported it,
+  so run a task in the workspace first if it isn't there; with nothing left to add, Glade says so under the list.
 - Each folder's access is a menu on its row: change it there at any time.
 - **×** on a row removes it.
 
 Every change takes effect in the running tasks it covers at once, without restarting them: a folder you remove, or
-make read-only, stops being usable from the agent's next call. (One exception: a domain a running task has already
+make read-only, stops being usable from the agent's next call, and an MCP server you remove asks again at its next
+call. (One exception: a domain a running task has already
 been allowed to reach on a card stays reachable until that task's session restarts.)
 
 Glade says why when it can't add something, under the list:
@@ -714,13 +765,13 @@ Glade says why when it can't add something, under the list:
 - A domain has to be a bare host, with no `https://`, port or path, and `*.` can only come first, before at least two
   labels (`*.example.com`, not `*.com`).
 - A folder can't be the whole disk, or have a pattern character in its path (`*`, `?`, `[`, `]`, `{`, `}` or `\`).
-- A folder or domain already in the list isn't added twice. A folder that's there read-only, added again read-write,
+- A folder, domain or MCP server already in the list isn't added twice. A folder that's there read-only, added again read-write,
   becomes read-write.
 - A workspace doesn't take its own root, or a folder inside it: its agents can already use those. (The Glade-wide
   list does, since it's for other workspaces' agents.)
 
-**With the switch off**, agents can use any folder and reach any domain, as before the sandbox. Both pairs of lists dim
-and can't be changed, but nothing in them is lost: they apply again when the sandbox is back on.
+**With the switch off**, agents can use any folder and MCP server and reach any domain, as before the sandbox. Both
+sets of lists dim and can't be changed, but nothing in them is lost: they apply again when the sandbox is back on.
 
 ## Keyboard shortcuts
 

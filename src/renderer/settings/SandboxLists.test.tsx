@@ -781,7 +781,7 @@ describe('Settings › Workspace › Sandbox', () => {
 
     const group = screen.getByRole('region', { name: 'Sandbox' })
     expect(group).toHaveTextContent(
-      'What this workspace’s agents can use, on top of the Glade-wide folders and domains in Agent. Allow for this workspace, on a permission card, adds here.',
+      'What this workspace’s agents can use, on top of the Glade-wide folders, domains and MCP servers in Agent. Allow for this workspace, on a permission card, adds here.',
     )
     expect(group).toHaveTextContent('The workspace root, then the folders you’ve allowed.')
     expect(group).toHaveTextContent('The domains you’ve allowed.')
