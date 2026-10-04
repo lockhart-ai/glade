@@ -76,7 +76,7 @@ import {
   type ToolPermissionAnswer,
   type ToolStartDecision,
 } from './backend'
-import { BOUNDED_TOOLS } from '../permissions/sandbox-classify'
+import { BOUNDED_TOOLS, isOutsideTool } from '../permissions/sandbox-classify'
 import { CONTROL_SERVER } from '../control/names'
 import { GLADE_SERVER, GladeTool } from './glade-tools'
 import { ruleCovers } from '../../shared/permissions'
@@ -796,7 +796,7 @@ export class ScriptedSession implements AgentSession {
         this.background(turn, step, uuid)
         return
       case ScriptStepKind.MessageSubagent:
-        this.messageSubagent(turn, step, uuid)
+        await this.messageSubagent(turn, step, uuid)
         return
       case ScriptStepKind.Permission:
         await this.permission(turn, step, uuid)
@@ -1037,17 +1037,20 @@ export class ScriptedSession implements AgentSession {
   /**
    * Messages a subagent (see `ScriptStepKind.MessageSubagent`): the `SendMessage` call, then, for one that has ended,
    * its task starting again and the call's "resuming" result, and the subagent plays its new run on its own, as
-   * `background` does. One still running only gets the message.
+   * `background` does. One still running only gets the message. The session's hook hears of the call first, as of any
+   * `SendMessage`: one it turns away ends as its refusal, and wakes nothing.
    */
-  private messageSubagent(turn: TurnState, step: MessageSubagentStep, uuid: string | null): void {
+  private async messageSubagent(turn: TurnState, step: MessageSubagentStep, uuid: string | null): Promise<void> {
     const { agentId: taskId, message } = step
     const callId = this.sdkToolId(turn, step.id)
-    this.assistant(
-      turn,
-      { type: 'tool_use', id: callId, name: 'SendMessage', input: { to: taskId, message, summary: message } },
-      null,
-      uuid,
-    )
+    const input = { to: taskId, message, summary: message }
+    this.assistant(turn, { type: 'tool_use', id: callId, name: 'SendMessage', input }, null, uuid)
+    const started = await this.started(turn, undefined, 'SendMessage', input, step.id)
+    if (started === null) return
+    if (started?.behavior === ToolPermissionBehavior.Deny) {
+      this.toolResult(turn, step.id, started.message, true)
+      return
+    }
     if (this.running.has(taskId)) {
       this.toolResultMessage(callId, `Message queued for delivery to ${taskId} at its next tool round.`, {
         success: true,
@@ -1197,9 +1200,10 @@ export class ScriptedSession implements AgentSession {
     mcpServer: McpServerOrigin | null,
   ): Promise<ToolPermissionAnswer | null> {
     // The session's hook decides first, in every mode and before any rule: its decision is final.
-    const started = await this.started(turn, call.parent, call.name, call.input, call.id, call.agentId)
+    const started = await this.started(turn, call.parent, call.name, call.input, call.id, call.agentId, mcpServer)
     if (started !== undefined) return started
-    const covered = this.rules.some((rule) => scriptedRuleCovers(rule, call.name, call.input))
+    const covered =
+      call.settingsAllow === true || this.rules.some((rule) => scriptedRuleCovers(rule, call.name, call.input))
     if (this.permissionMode === PermissionMode.AllowAll || covered) {
       return { behavior: ToolPermissionBehavior.Allow, byUser: false }
     }
@@ -1227,7 +1231,8 @@ export class ScriptedSession implements AgentSession {
   }
 
   /**
-   * Puts a call to one of the tools the sandbox bounds to the session's `PreToolUse` hook (`hooks.onToolStarting`), as
+   * Puts a call to one of the tools the sandbox bounds, or one that reaches outside it (an MCP tool, with the server
+   * it's on; `SendMessage`; `RemoteTrigger`), to the session's `PreToolUse` hook (`hooks.onToolStarting`), as
    * Claude Code does before it matches a single rule, in every permission mode (`docs/sdk-notes.md` §15). The session
    * goes idle if the hook doesn't answer at once (a card waits on the user). Answers its decision; undefined when
    * there's no such hook, the tool isn't one it hears of, or it leaves the call to Claude Code; null when the turn was
@@ -1240,9 +1245,10 @@ export class ScriptedSession implements AgentSession {
     input: ToolInput,
     id: string,
     agentId?: string,
+    mcpServer: McpServerOrigin | null = null,
   ): Promise<ToolStartDecision | null | undefined> {
     const hook = this.options.session.hooks?.onToolStarting
-    if (hook === undefined || !BOUNDED_TOOLS.includes(toolName)) return undefined
+    if (hook === undefined || !(BOUNDED_TOOLS.includes(toolName) || isOutsideTool(toolName))) return undefined
     const cancel = new AbortController()
     void turn.interrupted.then(() => {
       cancel.abort()
@@ -1250,6 +1256,7 @@ export class ScriptedSession implements AgentSession {
     const pending = hook({
       toolName,
       input,
+      mcpServer,
       toolUseId: this.sdkToolId(turn, id),
       agentId: parent === undefined ? null : (agentId ?? `a${this.idPrefix}${parent}`),
       signal: cancel.signal,
@@ -1296,7 +1303,7 @@ export class ScriptedSession implements AgentSession {
    */
   private async permission(turn: TurnState, step: PermissionStep, uuid: string | null): Promise<void> {
     this.toolUse(turn, step.id, step.name, step.input, step.parent ?? null, uuid)
-    const answer = await this.permitted(turn, step, null)
+    const answer = await this.permitted(turn, step, step.mcpServer ?? null)
     if (answer === null) return
     switch (answer.behavior) {
       case ToolPermissionBehavior.Allow:
@@ -1780,7 +1787,11 @@ export class ScriptedSession implements AgentSession {
         'Write',
         ...Object.keys(mcpServers).map((name) => `mcp__${name}`),
       ],
-      mcp_servers: Object.keys(mcpServers).map((name) => ({ name, status: 'connected', source: 'sdk' })),
+      mcp_servers: [
+        ...Object.keys(mcpServers).map((name) => ({ name, status: 'connected', source: 'sdk' })),
+        // The servers the script says the user, the repository or claude.ai gave it.
+        ...(this.script?.mcpServers ?? []).map(({ name, source }) => ({ name, status: 'connected', source })),
+      ],
       agents: ['general-purpose', 'Explore', 'Plan'],
       uuid: randomUUID(),
     })

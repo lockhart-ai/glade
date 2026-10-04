@@ -36,6 +36,7 @@ import { TOOL_USE_ID_META } from './mcp-tool-caller'
 import { REJECTED_TOOL_OUTPUT, ScriptedSession, type ScriptedSessionOptions } from './scripted-session'
 import {
   init,
+  messageSubagent,
   networkAccess,
   outsideRead,
   outsideWrite,
@@ -1330,14 +1331,122 @@ describe('the hook on a call about to run', () => {
     expect(played.heard[0]?.agentId).toMatch(/^a.*agent$/)
   })
 
-  it('hears nothing of a tool the sandbox doesn’t bound', async () => {
-    const played = hooked([turn(permission('issue', 'mcp__github__create_issue', { title: 'Sample' }, 'Created.'))], {
+  it('hears nothing of a tool the sandbox doesn’t bound, and that doesn’t reach outside it', async () => {
+    const played = hooked([turn(permission('todos', 'TodoWrite', { todos: [] }, 'Updated.'))], {
       permissionMode: PermissionMode.AskBeforeEdits,
     })
     await start(played)
 
     expect(played.heard).toEqual([])
-    expect(played.asked.map(({ toolName }) => toolName)).toEqual(['mcp__github__create_issue'])
+    expect(played.asked.map(({ toolName }) => toolName)).toEqual(['TodoWrite'])
+  })
+
+  // #515: an MCP tool, `SendMessage` and `RemoteTrigger` reach outside the sandbox, so the hook hears of each call.
+  it('hears of an MCP tool’s call, with the server it’s on, and of the tools that reach other agents', async () => {
+    const tracker = { name: 'acme-tracker', source: 'project' }
+    const played = hooked(
+      [
+        turn(
+          permission('issue', 'mcp__acme-tracker__create_issue', { title: 'Sample' }, 'Created.', {
+            mcpServer: tracker,
+          }),
+          permission('bare', 'mcp__github__create_issue', {}, 'Created.'),
+          permission('peer', 'SendMessage', { to: 'release-notes', message: 'Hi' }, 'Sent.'),
+          permission('routines', 'RemoteTrigger', { action: 'list' }, '[]'),
+        ),
+      ],
+      { permissionMode: PermissionMode.AskBeforeEdits },
+    )
+    await start(played)
+    // The hook leaves each to Claude Code, which asks about it in the ask mode; allowed, the next call starts.
+    for (let call = 0; call < 4; call += 1) {
+      await played.decide(null)
+      played.give({ behavior: ToolPermissionBehavior.Allow, byUser: true })
+      await flush()
+    }
+
+    const calls = [
+      ['mcp__acme-tracker__create_issue', tracker],
+      ['mcp__github__create_issue', null],
+      ['SendMessage', null],
+      ['RemoteTrigger', null],
+    ]
+    expect(played.heard.map(({ toolName, mcpServer }) => [toolName, mcpServer])).toEqual(calls)
+    // Claude Code says which server a tool is on as it asks, too.
+    expect(played.asked.map(({ toolName, mcpServer }) => [toolName, mcpServer])).toEqual(calls)
+    expect(results(played).map(([output]) => output)).toEqual(['Created.', 'Created.', 'Sent.', '[]'])
+  })
+
+  it('ends an MCP tool’s call the hook turns away as its refusal, with Claude Code never asked', async () => {
+    const played = hooked([turn(permission('issue', 'mcp__github__create_issue', {}, 'Created.'))], {
+      permissionMode: PermissionMode.AskBeforeEdits,
+    })
+    await start(played)
+    await played.decide(REFUSED)
+
+    expect(played.asked).toEqual([])
+    expect(results(played)).toEqual([['Glade refused this.', true]])
+  })
+
+  it('lets a call a rule in the user’s settings allows through unasked, once the hook has', async () => {
+    const played = hooked(
+      [turn(permission('issue', 'mcp__github__create_issue', {}, 'Created.', { settingsAllow: true }))],
+      { permissionMode: PermissionMode.AskBeforeEdits },
+    )
+    await start(played)
+    await played.decide(null)
+
+    expect(played.heard.map(({ toolName }) => toolName)).toEqual(['mcp__github__create_issue'])
+    expect(played.asked).toEqual([])
+    expect(results(played)).toEqual([['Created.', false]])
+  })
+
+  it('puts a message to a subagent to the hook, as any SendMessage, and wakes nothing when it’s turned away', async () => {
+    const wake = messageSubagent('nudge', 'check', 'a3d91c07e5b24f68', 'Check the backoff test too.', {
+      steps: [],
+      summary: 'Done.',
+    })
+    const refused = hooked([turn(wake)])
+    await start(refused)
+
+    expect(refused.heard.map(({ toolName, input, mcpServer }) => [toolName, input, mcpServer])).toEqual([
+      [
+        'SendMessage',
+        { to: 'a3d91c07e5b24f68', message: 'Check the backoff test too.', summary: 'Check the backoff test too.' },
+        null,
+      ],
+    ])
+    await refused.decide(REFUSED)
+    expect(results(refused)).toEqual([['Glade refused this.', true]])
+    expect(refused.events.some((event) => event.kind === AgentEventKind.SubagentStarted)).toBe(false)
+
+    // Left to Claude Code, it wakes the subagent as before.
+    const allowed = hooked([turn(wake)])
+    await start(allowed)
+    await allowed.decide(null)
+    expect(results(allowed)).toEqual([['Resuming agent a3d91c07e5b24f68', false]])
+    expect(allowed.events.some((event) => event.kind === AgentEventKind.SubagentStarted)).toBe(true)
+  })
+
+  it('names the servers its script says it has, besides its in-process ones, as each turn starts', async () => {
+    const script: AgentScript = {
+      name: 'test',
+      mcpServers: [{ name: 'claude.ai Acme Docs', source: 'claudeai' }],
+      turns: [turn()],
+    }
+    const session = new ScriptedSession({ script, session: SESSION })
+    const messages: unknown[] = []
+    void (async () => {
+      for await (const message of session.messages) messages.push(message)
+    })()
+    session.send('Go.', 'uuid-1')
+    await flush()
+
+    expect(messages[0]).toMatchObject({
+      subtype: 'init',
+      mcp_servers: [{ name: 'claude.ai Acme Docs', status: 'connected', source: 'claudeai' }],
+    })
+    session.close()
   })
 
   it('puts a tool call that asks permission to the hook first, then to Claude Code’s own rules', async () => {

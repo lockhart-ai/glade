@@ -16,6 +16,7 @@ import type { BroadcastOutcome } from '../../shared/broadcast'
 import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../shared/settings'
 import type { InstalledPlugin, PluginCapability } from '../../shared/plugins'
+import type { ReportedMcpServer } from '../../shared/mcpServers'
 import type { FolderAccess, Grant, GrantKey, SettingsGrantTarget } from '../../shared/sandbox'
 import type { ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
@@ -416,8 +417,13 @@ export interface GladeActions {
   addSandboxGrant: (target: SettingsGrantTarget, grant: Grant) => Promise<void>
   /** Sets a listed folder's access (`sandbox.setFolderAccess`); running tasks have it from their next call. */
   setSandboxFolderAccess: (target: SettingsGrantTarget, path: string, access: FolderAccess) => Promise<void>
-  /** Removes a folder or domain from a scope's list (`sandbox.removeGrant`). */
+  /** Removes a folder, domain, MCP server or other agents from a scope's list (`sandbox.removeGrant`). */
   removeSandboxGrant: (target: SettingsGrantTarget, grant: GrantKey) => Promise<void>
+  /**
+   * Reads the MCP servers a scope's sessions have reported (`sandbox.listReportedServers`): what its MCP servers list
+   * offers under Add…. Asked for as Add… is clicked, and not kept: a session may report another at any time.
+   */
+  listReportedServers: (target: SettingsGrantTarget) => Promise<readonly ReportedMcpServer[]>
   /** Reads the control endpoint's status (`control.status`). */
   loadControlStatus: () => Promise<void>
   /** Replaces the control endpoint's token (Regenerate token, `control.regenerateToken`); the old one stops working. */

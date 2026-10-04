@@ -71,6 +71,7 @@ import {
   type PluginsReloadRequest,
   type SandboxAddGrantRequest,
   type SandboxListGrantsRequest,
+  type SandboxListReportedServersRequest,
   type SandboxRemoveGrantRequest,
   type SandboxSetFolderAccessRequest,
   type WorkspacesUpdateRequest,
@@ -95,7 +96,7 @@ import { MAX_MENU_BAR_HEIGHT } from '../../shared/menuBar'
 import { hasImageSignature, ImageMediaType, MAX_IMAGE_BASE64_LENGTH, type ImageData } from '../../shared/images'
 import { MAX_PASTED_BLOCK_LENGTH, PASTE_ID_PATTERN } from '../../shared/pastedContent'
 import { PluginCapability } from '../../shared/plugins'
-import { FolderAccess, SandboxGrantKind, SandboxGrantScope } from '../../shared/sandbox'
+import { FolderAccess, OtherAgents, SandboxGrantKind, SandboxGrantScope } from '../../shared/sandbox'
 import { MAX_TERMINAL_NAME, MAX_TERMINAL_SIZE, MAX_TERMINAL_WRITE } from '../../shared/terminal'
 import { ChildFilter } from '../../shared/todoHub'
 import { SETTING_SCHEMAS } from '../db/repositories/settings'
@@ -481,6 +482,8 @@ const sandboxAddGrantRequest = z.strictObject({
   grant: z.discriminatedUnion('kind', [
     z.strictObject({ kind: z.literal(SandboxGrantKind.Folder), path: z.string(), access: z.enum(FolderAccess) }),
     z.strictObject({ kind: z.literal(SandboxGrantKind.Domain), domain: z.string() }),
+    z.strictObject({ kind: z.literal(SandboxGrantKind.McpServer), server: z.string(), name: z.string() }),
+    z.strictObject({ kind: z.literal(SandboxGrantKind.Agents), agents: z.enum(OtherAgents) }),
   ]),
 }) satisfies z.ZodType<SandboxAddGrantRequest>
 
@@ -495,8 +498,14 @@ const sandboxRemoveGrantRequest = z.strictObject({
   grant: z.discriminatedUnion('kind', [
     z.strictObject({ kind: z.literal(SandboxGrantKind.Folder), path: z.string() }),
     z.strictObject({ kind: z.literal(SandboxGrantKind.Domain), domain: z.string() }),
+    z.strictObject({ kind: z.literal(SandboxGrantKind.McpServer), server: z.string() }),
+    z.strictObject({ kind: z.literal(SandboxGrantKind.Agents), agents: z.enum(OtherAgents) }),
   ]),
 }) satisfies z.ZodType<SandboxRemoveGrantRequest>
+
+const sandboxListReportedServersRequest = z.strictObject({
+  target: settingsGrantTarget,
+}) satisfies z.ZodType<SandboxListReportedServersRequest>
 
 const clipboardWriteTextRequest = z.strictObject({ text: z.string() }) satisfies z.ZodType<ClipboardWriteTextRequest>
 
@@ -665,6 +674,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.SandboxAddGrant]: sandboxAddGrantRequest,
   [CommandName.SandboxSetFolderAccess]: sandboxSetFolderAccessRequest,
   [CommandName.SandboxRemoveGrant]: sandboxRemoveGrantRequest,
+  [CommandName.SandboxListReportedServers]: sandboxListReportedServersRequest,
   [CommandName.TerminalList]: emptyRequest,
   [CommandName.TerminalCreate]: terminalCreateRequest,
   [CommandName.TerminalDuplicate]: terminalIdRequest,

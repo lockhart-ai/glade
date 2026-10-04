@@ -101,10 +101,29 @@ describe('REQUEST_SCHEMAS', () => {
     const folder = { kind: 'folder', path: '/Users/sam/.nvm', access: 'read' }
     const domain = { kind: 'domain', domain: '*.example.com' }
 
+    // An MCP server by the key its tools' names carry, with its name; other agents by which (#515).
+    const server = { kind: 'mcp_server', server: 'claude_ai_Acme_Docs', name: 'claude.ai Acme Docs' }
+    const agents = { kind: 'agents', agents: 'sessions' }
+
     for (const target of [glade, workspace]) {
       expect(REQUEST_SCHEMAS[CommandName.SandboxListGrants].parse({ target })).toEqual({ target })
-      for (const grant of [folder, domain]) {
+      expect(REQUEST_SCHEMAS[CommandName.SandboxListReportedServers].parse({ target })).toEqual({ target })
+      for (const grant of [folder, domain, server, agents]) {
         expect(REQUEST_SCHEMAS[CommandName.SandboxAddGrant].parse({ target, grant })).toEqual({ target, grant })
+      }
+      // A server is removed by its key alone; other agents as they were added.
+      for (const grant of [{ kind: 'mcp_server', server: 'claude_ai_Acme_Docs' }, agents]) {
+        expect(REQUEST_SCHEMAS[CommandName.SandboxRemoveGrant].parse({ target, grant })).toEqual({ target, grant })
+      }
+      expect(REQUEST_SCHEMAS[CommandName.SandboxRemoveGrant].safeParse({ target, grant: server }).success).toBe(false)
+      // A server needs both its key and its name; agents are one of the two kinds.
+      for (const grant of [
+        { kind: 'mcp_server', server: 'gmail' },
+        { kind: 'mcp_server', name: 'Gmail' },
+        { kind: 'agents', agents: 'everyone' },
+        { kind: 'agents' },
+      ]) {
+        expect(REQUEST_SCHEMAS[CommandName.SandboxAddGrant].safeParse({ target, grant }).success).toBe(false)
       }
       const access = { target, path: '/Users/sam/.nvm', access: 'read_write' }
       expect(REQUEST_SCHEMAS[CommandName.SandboxSetFolderAccess].parse(access)).toEqual(access)
@@ -119,6 +138,7 @@ describe('REQUEST_SCHEMAS', () => {
       CommandName.SandboxAddGrant,
       CommandName.SandboxSetFolderAccess,
       CommandName.SandboxRemoveGrant,
+      CommandName.SandboxListReportedServers,
     ] as const) {
       const request = { target: task, grant: domain, path: '/Users/sam/.nvm', access: 'read' }
       expect(REQUEST_SCHEMAS[command].safeParse(request).success).toBe(false)

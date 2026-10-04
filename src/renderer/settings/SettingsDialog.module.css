@@ -611,6 +611,17 @@
   white-space: nowrap;
 }
 
+/* A row that names something in words (other agents), not a path or a host: set as the rest of Settings is. */
+.grantWords {
+  font-family: inherit;
+  font-size: var(--font-size-secondary);
+}
+
+/* What fills a row being added between its select and its buttons, where a folder has its path. */
+.grantSpacer {
+  flex-grow: 1;
+}
+
 .grantEmpty {
   font-size: var(--font-size-secondary);
   color: var(--color-faint);

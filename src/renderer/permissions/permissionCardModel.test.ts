@@ -8,10 +8,12 @@ import {
   type PermissionRequest,
   type ToolCallEvent,
 } from '../../shared/domain'
-import { FolderAccess, SandboxAskKind, type SandboxAsk } from '../../shared/sandbox'
+import { FolderAccess, OtherAgents, SandboxAskKind, type SandboxAsk } from '../../shared/sandbox'
 import { REQUEST_ACCESS_TOOL } from '../../shared/toolName'
 import {
   InputLineKind,
+  MCP_SERVER_NOTE,
+  OTHER_AGENTS_NOTES,
   OUTSIDE_SANDBOX_NOTE,
   permissionBody,
   PermissionBodyKind,
@@ -474,6 +476,69 @@ describe('a sandbox request', () => {
       detail('Bash', { command: 'git push', description: 'Push the branch' }, outside, 'Claude Code’s own words'),
     ).toMatchObject({ body: { description: 'Push the branch' } })
     expect(detail('Bash', {}, outside)).toEqual({ kind: SandboxDetailKind.None })
+  })
+
+  // #515: built from the folder and domain cards; no design of its own.
+  describe('for an MCP server, or other agents', () => {
+    const docs: SandboxAsk = {
+      kind: SandboxAskKind.McpServer,
+      server: 'claude_ai_Acme_Docs',
+      name: 'claude.ai Acme Docs',
+    }
+    const sessions: SandboxAsk = { kind: SandboxAskKind.Agents, agents: OtherAgents.Sessions }
+    const cloud: SandboxAsk = { kind: SandboxAskKind.Agents, agents: OtherAgents.Cloud }
+
+    it('titles the card with the server’s name, set as code, or with what reaching the agents does', () => {
+      expect(sandboxTitle(docs)).toEqual({
+        text: 'The agent wants to use the',
+        subject: 'claude.ai Acme Docs',
+        after: 'MCP server',
+      })
+      // A name with nothing to show reads as the key its tools carry.
+      expect(sandboxTitle({ kind: SandboxAskKind.McpServer, server: 'gmail', name: '' })).toMatchObject({
+        subject: 'gmail',
+      })
+      expect(sandboxTitle(sessions)).toEqual({
+        text: 'The agent wants to message other Claude sessions',
+        subject: null,
+      })
+      expect(sandboxTitle(cloud)).toEqual({ text: 'The agent wants to manage cloud agents', subject: null })
+    })
+
+    it('says what allowing it means, under the title', () => {
+      expect(sandboxCaution(docs)).toBe(MCP_SERVER_NOTE)
+      expect(MCP_SERVER_NOTE).toContain('covers every tool of the server')
+      expect(sandboxCaution(sessions)).toBe(OTHER_AGENTS_NOTES[OtherAgents.Sessions])
+      expect(OTHER_AGENTS_NOTES[OtherAgents.Sessions]).toContain('own subagents never ask')
+      expect(sandboxCaution(cloud)).toBe(OTHER_AGENTS_NOTES[OtherAgents.Cloud])
+      // A folder's card, and a command's, say nothing more.
+      expect(sandboxCaution(folder(FolderAccess.Read))).toBeNull()
+      expect(sandboxCaution(outside)).toBeNull()
+    })
+
+    it('shows the tool being called and its input, as a card in the ask mode does', () => {
+      expect(detail('mcp__claude_ai_Acme_Docs__search', { query: 'retry policy' }, docs)).toEqual({
+        kind: SandboxDetailKind.Call,
+        tool: 'mcp__claude_ai_Acme_Docs__search',
+        body: {
+          kind: PermissionBodyKind.Json,
+          lines: [
+            { kind: InputLineKind.Plain, text: '{' },
+            { kind: InputLineKind.Plain, text: '  "query": "retry policy"' },
+            { kind: InputLineKind.Plain, text: '}' },
+          ],
+        },
+      })
+      expect(detail('SendMessage', { to: 'release-notes', message: 'Hi' }, sessions)).toMatchObject({
+        kind: SandboxDetailKind.Call,
+        tool: 'SendMessage',
+      })
+      expect(detail('RemoteTrigger', {}, cloud)).toEqual({
+        kind: SandboxDetailKind.Call,
+        tool: 'RemoteTrigger',
+        body: { kind: PermissionBodyKind.Json, lines: [{ kind: InputLineKind.Plain, text: '{}' }] },
+      })
+    })
   })
 
   it('splits a reason at its backticks into words and code', () => {

@@ -1,14 +1,18 @@
 /**
  * The sandbox in Settings (P15-06, #451; `docs/design/html/39-settings-sandbox.html`, `40-settings-sandbox-states.html`
  * and `41-settings-workspace-sandbox.html`): its heading, with the shield, and the Folders and Domains lists of one
- * scope, the Glade-wide ones in Settings › Agent or a workspace's in Settings › Workspace.
+ * scope, the Glade-wide ones in Settings › Agent or a workspace's in Settings › Workspace. Under them, a third list,
+ * **MCP servers** (#515): the servers Glade doesn't build that the scope's agents may use, and whether they may reach
+ * other agents. It has no design of its own: it's built from the other two lists' parts.
  *
  * - Each list has its name, a line on what it's for and **Add…**, over a bordered box of rows: a granted folder with
  *   its access (a select: Read-only or Read-write) and a remove button, a domain with a remove button. A workspace's
  *   Folders start with its root, tagged, read-write and fixed.
  * - **Add…** for a folder opens the macOS folder picker, then a highlighted row with the folder, its access (read-only
  *   to start), Add and Cancel. For a domain it opens a row with a field, Add and Cancel; ↵ adds and Esc cancels. What
- *   main refuses (`sandbox.addGrant`) shows under the list, with why, and the row stays open.
+ *   main refuses (`sandbox.addGrant`) shows under the list, with why, and the row stays open. For an MCP server it
+ *   opens a row with a select of what there is to add (the servers the scope's sessions have reported, by name, then
+ *   the other agents), Add and Cancel; with nothing left to add, the line under the list says so.
  * - The lists are main's: read as they open (`sandbox.listGrants`) and kept current by its broadcasts
  *   (`sandbox.grantsChanged`), so a grant made on a permission card shows while Settings is open, and a change here
  *   shows once it's saved, never before.
@@ -17,19 +21,26 @@
  *   opens, and Add… takes it back when the row closes or a row is removed.
  */
 import { faFolder } from '@fortawesome/free-regular-svg-icons'
-import { faGlobe, faShield, faXmark } from '@fortawesome/free-solid-svg-icons'
+import { faCloud, faComments, faGlobe, faPlug, faShield, faXmark } from '@fortawesome/free-solid-svg-icons'
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 import { BridgeErrorCode, isBridgeError } from '../../shared/bridge'
+import { MCP_TOOL_PREFIX, mcpServerLabel, type ReportedMcpServer } from '../../shared/mcpServers'
 import {
   FOLDER_ACCESS_LABELS,
   FolderAccess,
+  OTHER_AGENTS_LABELS,
+  OTHER_AGENTS_TOOLS,
+  OtherAgents,
   SandboxGrantKind,
   SandboxGrantScope,
   settingsGrantScopeKey,
+  type AgentsGrant,
   type DomainGrant,
   type FolderGrant,
   type Grant,
+  type GrantKey,
+  type McpServerGrant,
   type SettingsGrantTarget,
 } from '../../shared/sandbox'
 import { Button, ButtonSize, ButtonVariant, Icon, IconSize, Input } from '../components'
@@ -72,10 +83,19 @@ interface ListText {
   readonly list: string
 }
 
+/** What Add says when a scope's MCP servers list has nothing left to add. */
+export const NOTHING_TO_ADD: Readonly<Record<SettingsGrantTarget['scope'], string>> = {
+  [SandboxGrantScope.Glade]:
+    'Nothing to add: no task has used an MCP server that isn’t listed yet. A server shows here once a task’s session reports it.',
+  [SandboxGrantScope.Workspace]:
+    'Nothing to add: this workspace’s tasks haven’t used an MCP server that isn’t listed yet. A server shows here once a task’s session reports it.',
+}
+
 /** The words of a scope's lists and notes. */
 interface ScopeText {
   readonly folders: ListText
   readonly domains: ListText
+  readonly servers: ListText
   /** The line under the lists while the sandbox is on; none for a workspace's. */
   readonly note: string | null
   /** The line under them while it's off. */
@@ -94,9 +114,14 @@ const SCOPE_TEXT: Readonly<Record<SettingsGrantTarget['scope'], ScopeText>> = {
       add: 'Add a Glade-wide domain',
       list: 'Glade-wide domains',
     },
-    note: 'Each workspace has its own folders and domains too, in its settings under Workspace.',
+    servers: {
+      description: 'MCP servers the agents in every workspace can use, and the other agents they can reach.',
+      add: 'Add a Glade-wide MCP server',
+      list: 'Glade-wide MCP servers',
+    },
+    note: 'Each workspace has its own folders, domains and MCP servers too, in its settings under Workspace.',
     offNote:
-      'While the sandbox is off, agents can use any folder and reach any domain, as before. These lists apply again when it’s back on.',
+      'While the sandbox is off, agents can use any folder and MCP server and reach any domain, as before. These lists apply again when it’s back on.',
   },
   [SandboxGrantScope.Workspace]: {
     folders: {
@@ -105,6 +130,11 @@ const SCOPE_TEXT: Readonly<Record<SettingsGrantTarget['scope'], ScopeText>> = {
       list: 'Folders',
     },
     domains: { description: 'The domains you’ve allowed.', add: 'Add a domain', list: 'Domains' },
+    servers: {
+      description: 'The MCP servers you’ve allowed, and the other agents its agents can reach.',
+      add: 'Add an MCP server',
+      list: 'MCP servers',
+    },
     note: null,
     offNote: 'The sandbox is off in Agent, so these are dimmed too. They apply again when it’s back on.',
   },
@@ -200,12 +230,14 @@ interface GrantValueProps {
   shown: string
   /** The whole value, shown on hover when the row cuts it short. */
   value: string
+  /** Whether it's a name in words rather than a path or a host: set as the rest of Settings is, not in mono. */
+  words?: boolean
 }
 
 /** A row's folder or domain, in mono, cut short with an ellipsis when it's longer than the row. */
-function GrantValue({ shown, value }: GrantValueProps): React.JSX.Element {
+function GrantValue({ shown, value, words = false }: GrantValueProps): React.JSX.Element {
   return (
-    <span className={styles.grantValue} title={value}>
+    <span className={classNames(styles.grantValue, words && styles.grantWords)} title={value}>
       {shown}
     </span>
   )
@@ -555,6 +587,207 @@ function DomainList({ target, grants, disabled, text }: GrantListProps<DomainGra
   )
 }
 
+/** What a scope's MCP servers list holds: the servers granted, and the other agents. */
+type OutsideGrant = McpServerGrant | AgentsGrant
+
+/** What tells one of them from the others, in the list and in Add…'s select. */
+function outsideKey(grant: OutsideGrant): string {
+  switch (grant.kind) {
+    case SandboxGrantKind.McpServer:
+      return `${grant.kind}:${grant.server}`
+    case SandboxGrantKind.Agents:
+      return `${grant.kind}:${grant.agents}`
+  }
+}
+
+/** How a row names it: the server as reported, or what the agents are. */
+function outsideLabel(grant: OutsideGrant): string {
+  switch (grant.kind) {
+    case SandboxGrantKind.McpServer:
+      return mcpServerLabel(grant.name, grant.server)
+    case SandboxGrantKind.Agents:
+      return OTHER_AGENTS_LABELS[grant.agents]
+  }
+}
+
+/** What takes it back from its scope: a server by its key alone, other agents as they were granted. */
+function outsideGrantKey(grant: OutsideGrant): GrantKey {
+  switch (grant.kind) {
+    case SandboxGrantKind.McpServer:
+      return { kind: grant.kind, server: grant.server }
+    case SandboxGrantKind.Agents:
+      return grant
+  }
+}
+
+/** What its row shows on hover: the server as its tools' names carry it, or the tool that reaches the agents. */
+function outsideTitle(grant: OutsideGrant): string {
+  switch (grant.kind) {
+    case SandboxGrantKind.McpServer:
+      return `${MCP_TOOL_PREFIX}${grant.server}`
+    case SandboxGrantKind.Agents:
+      return OTHER_AGENTS_TOOLS[grant.agents]
+  }
+}
+
+const AGENTS_ICONS: Readonly<Record<OtherAgents, IconDefinition>> = {
+  [OtherAgents.Sessions]: faComments,
+  [OtherAgents.Cloud]: faCloud,
+}
+
+function outsideIcon(grant: OutsideGrant): IconDefinition {
+  switch (grant.kind) {
+    case SandboxGrantKind.McpServer:
+      return faPlug
+    case SandboxGrantKind.Agents:
+      return AGENTS_ICONS[grant.agents]
+  }
+}
+
+/**
+ * What Add… offers a scope: each server its sessions have reported, by name, then the other agents, leaving out what
+ * the scope already has.
+ */
+export function addableGrants(
+  reported: readonly ReportedMcpServer[],
+  granted: readonly OutsideGrant[],
+): OutsideGrant[] {
+  const have = new Set(granted.map(outsideKey))
+  const offered: OutsideGrant[] = [
+    ...reported.map(({ server, name }) => ({ kind: SandboxGrantKind.McpServer, server, name }) as const),
+    ...Object.values(OtherAgents).map((agents) => ({ kind: SandboxGrantKind.Agents, agents }) as const),
+  ]
+  return offered.filter((grant) => !have.has(outsideKey(grant)))
+}
+
+interface OutsideRowProps {
+  grant: OutsideGrant
+  disabled: boolean
+  onRemove: (grant: OutsideGrant) => void
+}
+
+/** A granted MCP server, or other agents, and its remove button. Memoised on the grant, as a folder's row is. */
+const OutsideRow = memo(function OutsideRow({ grant, disabled, onRemove }: OutsideRowProps) {
+  const label = outsideLabel(grant)
+  return (
+    <GrantRow label={label} icon={outsideIcon(grant)}>
+      <GrantValue shown={label} value={outsideTitle(grant)} words={grant.kind === SandboxGrantKind.Agents} />
+      <Button
+        variant={ButtonVariant.Icon}
+        icon={faXmark}
+        aria-label={`Remove ${label}`}
+        title={`Remove ${label}`}
+        disabled={disabled}
+        onClick={() => {
+          onRemove(grant)
+        }}
+      />
+    </GrantRow>
+  )
+})
+
+/** What Add… is offering, and which of them is chosen: the row under the list's. */
+interface PendingOutside {
+  readonly offered: readonly OutsideGrant[]
+  readonly chosen: OutsideGrant
+}
+
+/**
+ * A scope's MCP servers (#515): the servers granted, the other agents granted, and the one being added. Built from the
+ * Folders and Domains lists' parts.
+ */
+function ServerList({ target, grants, disabled, text }: GrantListProps<OutsideGrant>): React.JSX.Element {
+  const addGrant = useGladeStore((state) => state.addSandboxGrant)
+  const removeGrant = useGladeStore((state) => state.removeSandboxGrant)
+  const listReported = useGladeStore((state) => state.listReportedServers)
+  const [pending, setPending] = useState<PendingOutside | null>(null)
+  const { error, setError, attempt } = useAttempts()
+  const addButton = useRef<HTMLButtonElement>(null)
+  const confirmButton = useRef<HTMLButtonElement>(null)
+  // The row waits out of sight while the sandbox is off.
+  const adding = disabled ? null : pending
+  const open = adding !== null
+
+  // The row just opened: Add has the focus, so ↵ adds what's chosen.
+  useEffect(() => {
+    if (open) confirmButton.current?.focus()
+  }, [open])
+
+  const offer = (): void => {
+    void attempt(async () => {
+      const offered = addableGrants(await listReported(target), grants ?? [])
+      const [first] = offered
+      if (first === undefined) setError(NOTHING_TO_ADD[target.scope])
+      else setPending({ offered, chosen: first })
+    })
+  }
+
+  const close = (): void => {
+    setPending(null)
+    setError(null)
+    addButton.current?.focus()
+  }
+
+  const confirm = async (grant: OutsideGrant): Promise<void> => {
+    if (await attempt(() => addGrant(target, grant))) close()
+  }
+
+  const remove = useCallback(
+    (grant: OutsideGrant): void => {
+      // The row's own button goes with it, so Add… takes the focus.
+      addButton.current?.focus()
+      void attempt(() => removeGrant(target, outsideGrantKey(grant)))
+    },
+    [attempt, removeGrant, target],
+  )
+
+  return (
+    <>
+      <ListHeader name="MCP servers" text={text} disabled={disabled} addButton={addButton} onAdd={offer} />
+      <div
+        role="list"
+        aria-label={text.list}
+        aria-busy={grants === null}
+        className={classNames(styles.grantList, disabled && styles.dimmed)}
+      >
+        {grants?.map((grant) => (
+          <OutsideRow key={outsideKey(grant)} grant={grant} disabled={disabled} onRemove={remove} />
+        ))}
+        {adding === null && (grants === null || grants.length === 0) && (
+          <EmptyRow>{grants === null ? null : 'No MCP servers yet.'}</EmptyRow>
+        )}
+        {adding !== null && (
+          <GrantRow label="New MCP server" icon={outsideIcon(adding.chosen)} pending>
+            <SettingSelect
+              name="MCP server to add"
+              menuLabel="MCP servers"
+              options={adding.offered.map((grant) => ({ value: outsideKey(grant), label: outsideLabel(grant) }))}
+              value={outsideKey(adding.chosen)}
+              onChoose={(key) => {
+                const chosen = adding.offered.find((grant) => outsideKey(grant) === key)
+                if (chosen !== undefined) setPending({ offered: adding.offered, chosen })
+              }}
+            />
+            <span className={styles.grantSpacer} aria-hidden="true" />
+            <Button
+              ref={confirmButton}
+              variant={ButtonVariant.Primary}
+              size={ButtonSize.Small}
+              onClick={() => void confirm(adding.chosen)}
+            >
+              Add
+            </Button>
+            <Button variant={ButtonVariant.Ghost} size={ButtonSize.Small} onClick={close}>
+              Cancel
+            </Button>
+          </GrantRow>
+        )}
+      </div>
+      {!disabled && <GrantError message={error} />}
+    </>
+  )
+}
+
 /** A scope's folders, from its grants. */
 function foldersOf(grants: readonly Grant[]): FolderGrant[] {
   return grants.filter((grant) => grant.kind === SandboxGrantKind.Folder)
@@ -565,6 +798,11 @@ function domainsOf(grants: readonly Grant[]): DomainGrant[] {
   return grants.filter((grant) => grant.kind === SandboxGrantKind.Domain)
 }
 
+/** A scope's MCP servers and other agents, from its grants. */
+function outsideOf(grants: readonly Grant[]): OutsideGrant[] {
+  return grants.filter((grant) => grant.kind === SandboxGrantKind.McpServer || grant.kind === SandboxGrantKind.Agents)
+}
+
 export interface SandboxListsProps {
   /** The workspace whose lists these are; null for the Glade-wide ones. */
   workspaceId: string | null
@@ -573,8 +811,8 @@ export interface SandboxListsProps {
 }
 
 /**
- * A scope's Folders and Domains lists, with the line under them: read from main as they open, and kept current by its
- * broadcasts. Dimmed and disabled while the sandbox is off.
+ * A scope's Folders, Domains and MCP servers lists, with the line under them: read from main as they open, and kept
+ * current by its broadcasts. Dimmed and disabled while the sandbox is off.
  */
 export function SandboxLists({ workspaceId, root }: SandboxListsProps): React.JSX.Element {
   const target = useMemo(
@@ -589,6 +827,7 @@ export function SandboxLists({ workspaceId, root }: SandboxListsProps): React.JS
   const [error, setError] = useState<string | null>(null)
   const folders = useMemo(() => (grants === undefined ? null : foldersOf(grants)), [grants])
   const domains = useMemo(() => (grants === undefined ? null : domainsOf(grants)), [grants])
+  const servers = useMemo(() => (grants === undefined ? null : outsideOf(grants)), [grants])
 
   useEffect(() => {
     // Aborted when the section closes before main has answered.
@@ -607,6 +846,7 @@ export function SandboxLists({ workspaceId, root }: SandboxListsProps): React.JS
     <>
       <FolderList target={target} grants={folders} disabled={!enabled} text={text.folders} root={root} />
       <DomainList target={target} grants={domains} disabled={!enabled} text={text.domains} />
+      <ServerList target={target} grants={servers} disabled={!enabled} text={text.servers} />
       <GrantError message={error} />
       {note !== null && <p className={styles.sandboxNote}>{note}</p>}
     </>

@@ -4,8 +4,10 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType, type SandboxGrantsResponse } from '../../shared/bridge'
 import { UiStateKey } from '../../shared/domain'
+import type { ReportedMcpServer } from '../../shared/mcpServers'
 import {
   FolderAccess,
+  OtherAgents,
   SandboxGrantKind,
   SandboxGrantScope,
   SETTINGS_GRANT_REFUSALS,
@@ -25,7 +27,7 @@ import {
   type FakeHandlers,
   type FakeMain,
 } from '../store/test-bridge'
-import { BLANK_DOMAIN, grantFailureMessage } from './SandboxLists'
+import { addableGrants, BLANK_DOMAIN, grantFailureMessage, NOTHING_TO_ADD } from './SandboxLists'
 import { SettingsSection } from './sections'
 import { SettingsDialog } from './SettingsDialog'
 import { setHomeFolder } from '../../shared/homeFolder'
@@ -36,6 +38,15 @@ setHomeFolder('/Users/sam')
 const read = (path: string): Grant => ({ kind: SandboxGrantKind.Folder, path, access: FolderAccess.Read })
 const readWrite = (path: string): Grant => ({ kind: SandboxGrantKind.Folder, path, access: FolderAccess.ReadWrite })
 const domain = (host: string): Grant => ({ kind: SandboxGrantKind.Domain, domain: host })
+const server = (key: string, name = key) => ({ kind: SandboxGrantKind.McpServer, server: key, name }) as const
+const agents = (which: OtherAgents) => ({ kind: SandboxGrantKind.Agents, agents: which }) as const
+
+const DOCS = server('claude_ai_Acme_Docs', 'claude.ai Acme Docs')
+const TRACKER = server('acme-tracker')
+const REPORTED: readonly ReportedMcpServer[] = [
+  { server: 'acme-tracker', name: 'acme-tracker' },
+  { server: 'claude_ai_Acme_Docs', name: 'claude.ai Acme Docs' },
+]
 
 const GLADE: SettingsGrantTarget = { scope: SandboxGrantScope.Glade }
 const WORKSPACE: SettingsGrantTarget = { scope: SandboxGrantScope.Workspace, workspaceId: 'w1' }
@@ -66,6 +77,8 @@ interface Setup {
   readonly enabled?: boolean
   readonly glade?: readonly Grant[]
   readonly workspace?: readonly Grant[]
+  /** The MCP servers each scope's sessions have reported, which its Add… offers. None unless given. */
+  readonly reported?: FakeMain['reportedServers']
   readonly overrides?: Partial<FakeHandlers>
 }
 
@@ -74,6 +87,7 @@ async function renderSettings({
   enabled = true,
   glade = [],
   workspace = [],
+  reported = {},
   overrides = {},
 }: Setup = {}): Promise<Rendered> {
   const main: FakeMain = {
@@ -82,6 +96,7 @@ async function renderSettings({
     uiState: [{ key: UiStateKey.ActiveWorkspaceId, value: 'w1' }],
     settings: { ...DEFAULT_SETTINGS, sandboxEnabled: enabled },
     sandboxGrants: { glade, 'workspace:w1': workspace },
+    reportedServers: reported,
   }
   const fake = fakeBridge(main, overrides)
   const store = createGladeStore(fake.bridge)
@@ -162,7 +177,12 @@ describe('Settings › Agent › Sandbox', () => {
     expect(rows('Glade-wide folders')).toEqual(['~/.nvm', '~/.config/git', '~/.npm'])
     expect(rows('Glade-wide domains')).toEqual(['pypi.org', 'files.pythonhosted.org'])
     expect(group).toHaveTextContent(
-      'Each workspace has its own folders and domains too, in its settings under Workspace.',
+      'MCP servers the agents in every workspace can use, and the other agents they can reach.',
+    )
+    expect(rows('Glade-wide MCP servers')).toEqual([])
+    expect(list('Glade-wide MCP servers')).toHaveTextContent('No MCP servers yet.')
+    expect(group).toHaveTextContent(
+      'Each workspace has its own folders, domains and MCP servers too, in its settings under Workspace.',
     )
   })
 
@@ -273,9 +293,11 @@ describe('Settings › Agent › Sandbox', () => {
       expect(screen.getByRole('button', { name: 'Add a Glade-wide domain' })).toBeDisabled()
       const group = screen.getByRole('region', { name: 'Sandbox' })
       expect(group).toHaveTextContent(
-        'While the sandbox is off, agents can use any folder and reach any domain, as before. These lists apply again when it’s back on.',
+        'While the sandbox is off, agents can use any folder and MCP server and reach any domain, as before. These lists apply again when it’s back on.',
       )
-      expect(group).not.toHaveTextContent('Each workspace has its own folders and domains too')
+      expect(group).not.toHaveTextContent('Each workspace has its own folders')
+      expect(list('Glade-wide MCP servers').className).toContain('dimmed')
+      expect(screen.getByRole('button', { name: 'Add a Glade-wide MCP server' })).toBeDisabled()
       // The switch itself is never dimmed: it's how you turn it back on.
       expect(screen.getByRole('switch', { name: 'Run agents in a sandbox' })).toBeEnabled()
 
@@ -940,6 +962,267 @@ describe('Settings › Workspace › Sandbox', () => {
     await click(screen.getByRole('button', { name: 'Change…' }))
 
     expect(rows('Folders')).toEqual(['~/code/acme'])
+  })
+})
+
+// #515: the third list. No design of its own: it's built from the other two lists' parts.
+describe('the MCP servers list', () => {
+  const GRANTED: readonly Grant[] = [DOCS, agents(OtherAgents.Sessions), domain('pypi.org'), TRACKER]
+  const addButton = (): HTMLElement => screen.getByRole('button', { name: 'Add a Glade-wide MCP server' })
+  const pending = (): HTMLElement => row('Glade-wide MCP servers', 'New MCP server')
+  const select = (): HTMLElement => within(pending()).getByRole('button', { name: /^MCP server to add/ })
+
+  it('lists the servers by the name they were reported under, and the other agents, in the order granted', async () => {
+    await renderSettings({ glade: GRANTED })
+
+    expect(rows('Glade-wide MCP servers')).toEqual([
+      'claude.ai Acme Docs',
+      'Messaging other Claude sessions',
+      'acme-tracker',
+    ])
+    // The other lists keep their own.
+    expect(rows('Glade-wide domains')).toEqual(['pypi.org'])
+    // On hover, a server shows what its tools' names carry, and the other agents the tool that reaches them.
+    const docs = row('Glade-wide MCP servers', 'claude.ai Acme Docs')
+    expect(within(docs).getByText('claude.ai Acme Docs')).toHaveAttribute('title', 'mcp__claude_ai_Acme_Docs')
+    const sessions = row('Glade-wide MCP servers', 'Messaging other Claude sessions')
+    expect(within(sessions).getByText('Messaging other Claude sessions')).toHaveAttribute('title', 'SendMessage')
+    // Words, not a path: set as the rest of Settings is.
+    expect(within(sessions).getByText('Messaging other Claude sessions').className).toContain('grantWords')
+    expect(within(docs).getByText('claude.ai Acme Docs').className).not.toContain('grantWords')
+    for (const name of ['claude.ai Acme Docs', 'Messaging other Claude sessions', 'acme-tracker']) {
+      const granted = row('Glade-wide MCP servers', name)
+      expect(within(granted).getByRole('button', { name: `Remove ${name}` })).toBeEnabled()
+      expect(within(granted).queryByRole('button', { name: /^Access/ })).not.toBeInTheDocument()
+    }
+  })
+
+  it('shows a name with nothing to show as the key its tools carry', async () => {
+    await renderSettings({ glade: [server('gmail', ' \n ')] })
+
+    expect(rows('Glade-wide MCP servers')).toEqual(['gmail'])
+  })
+
+  it('removes a server by its key alone, and other agents as granted, giving Add… the focus', async () => {
+    const { invoke } = await renderSettings({ glade: GRANTED })
+
+    await click(within(row('Glade-wide MCP servers', 'claude.ai Acme Docs')).getByRole('button', { name: /^Remove/ }))
+    expect(addButton()).toHaveFocus()
+    await click(
+      within(row('Glade-wide MCP servers', 'Messaging other Claude sessions')).getByRole('button', {
+        name: /^Remove/,
+      }),
+    )
+
+    expect(requests(invoke, CommandName.SandboxRemoveGrant)).toEqual([
+      { target: GLADE, grant: { kind: SandboxGrantKind.McpServer, server: 'claude_ai_Acme_Docs' } },
+      { target: GLADE, grant: agents(OtherAgents.Sessions) },
+    ])
+    expect(rows('Glade-wide MCP servers')).toEqual(['acme-tracker'])
+    expect(rows('Glade-wide domains')).toEqual(['pypi.org'])
+  })
+
+  it('Add… offers what the scope’s sessions have reported, by name, then the other agents, with Add focused', async () => {
+    const { invoke } = await renderSettings({ reported: { glade: REPORTED } })
+
+    await click(addButton())
+
+    expect(requests(invoke, CommandName.SandboxListReportedServers)).toEqual([{ target: GLADE }])
+    // The first of them is chosen to start, and ↵ adds it.
+    expect(select()).toHaveAccessibleName('MCP server to add: acme-tracker')
+    expect(within(pending()).getByRole('button', { name: 'Add' })).toHaveFocus()
+    expect(list('Glade-wide MCP servers')).not.toHaveTextContent('No MCP servers yet.')
+    await click(select())
+    const menu = screen.getByRole('menu', { name: 'MCP servers' })
+    expect(
+      within(menu)
+        .getAllByRole('menuitemradio')
+        .map((item) => item.textContent),
+    ).toEqual(['acme-tracker', 'claude.ai Acme Docs', 'Messaging other Claude sessions', 'Cloud agents'])
+    expect(within(menu).getByRole('menuitemradio', { name: 'acme-tracker' })).toBeChecked()
+  })
+
+  it('adds the one chosen, with its key and its name, closes the row and gives Add… the focus back', async () => {
+    const { invoke } = await renderSettings({ reported: { glade: REPORTED } })
+    await click(addButton())
+    await click(select())
+    await click(screen.getByRole('menuitemradio', { name: 'claude.ai Acme Docs' }))
+    expect(select()).toHaveAccessibleName('MCP server to add: claude.ai Acme Docs')
+
+    await click(within(pending()).getByRole('button', { name: 'Add' }))
+
+    expect(requests(invoke, CommandName.SandboxAddGrant)).toEqual([{ target: GLADE, grant: DOCS }])
+    expect(rows('Glade-wide MCP servers')).toEqual(['claude.ai Acme Docs'])
+    expect(addButton()).toHaveFocus()
+
+    // What's listed isn't offered again, and the other agents are added the same way.
+    await click(addButton())
+    await click(select())
+    expect(screen.getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
+      'acme-tracker',
+      'Messaging other Claude sessions',
+      'Cloud agents',
+    ])
+    await click(screen.getByRole('menuitemradio', { name: 'Cloud agents' }))
+    await click(within(pending()).getByRole('button', { name: 'Add' }))
+    expect(requests(invoke, CommandName.SandboxAddGrant)[1]).toEqual({
+      target: GLADE,
+      grant: agents(OtherAgents.Cloud),
+    })
+    expect(rows('Glade-wide MCP servers')).toEqual(['claude.ai Acme Docs', 'Cloud agents'])
+  })
+
+  it('offers only the other agents until a session has reported a server', async () => {
+    await renderSettings()
+
+    await click(addButton())
+
+    expect(select()).toHaveAccessibleName('MCP server to add: Messaging other Claude sessions')
+  })
+
+  it('says there’s nothing to add once everything there is has been granted', async () => {
+    await renderSettings({
+      glade: [TRACKER, DOCS, agents(OtherAgents.Sessions), agents(OtherAgents.Cloud)],
+      reported: { glade: REPORTED },
+    })
+
+    await click(addButton())
+
+    expect(screen.getByRole('alert')).toHaveTextContent(NOTHING_TO_ADD[SandboxGrantScope.Glade])
+    expect(rows('Glade-wide MCP servers')).not.toContain('New MCP server')
+    // Removing one makes it addable again, and the line goes.
+    await click(within(row('Glade-wide MCP servers', 'Cloud agents')).getByRole('button', { name: /^Remove/ }))
+    await click(addButton())
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(select()).toHaveAccessibleName('MCP server to add: Cloud agents')
+  })
+
+  it('adds nothing on Cancel, and gives Add… the focus back', async () => {
+    const { invoke } = await renderSettings({ reported: { glade: REPORTED } })
+    await click(addButton())
+
+    await click(within(pending()).getByRole('button', { name: 'Cancel' }))
+
+    expect(rows('Glade-wide MCP servers')).toEqual([])
+    expect(requests(invoke, CommandName.SandboxAddGrant)).toEqual([])
+    expect(addButton()).toHaveFocus()
+  })
+
+  it('says why when main refuses one, or can’t say what’s been reported, and keeps the row open', async () => {
+    const adding = held<SandboxGrantsResponse>()
+    await renderSettings({
+      reported: { glade: REPORTED },
+      overrides: { [CommandName.SandboxAddGrant]: adding.answer },
+    })
+    await click(addButton())
+    await click(within(pending()).getByRole('button', { name: 'Add' }))
+    await act(async () => {
+      adding.reject(
+        bridgeError(BridgeErrorCode.InvalidRequest, `sandbox.addGrant: ${SETTINGS_GRANT_REFUSALS.duplicateServer}`),
+      )
+      await Promise.resolve()
+    })
+
+    expect(screen.getByRole('alert')).toHaveTextContent(SETTINGS_GRANT_REFUSALS.duplicateServer)
+    expect(pending()).toBeInTheDocument()
+
+    await renderSettings({
+      section: SettingsSection.Workspace,
+      overrides: {
+        [CommandName.SandboxListReportedServers]: () =>
+          refuse(bridgeError(BridgeErrorCode.Internal, 'sandbox.listReportedServers failed: the database is locked')),
+      },
+    })
+    await click(screen.getByRole('button', { name: 'Add an MCP server' }))
+    expect(screen.getAllByRole('alert').at(-1)).toHaveTextContent('the database is locked')
+  })
+
+  it('says one is already in the list when it was granted elsewhere while the row was open', async () => {
+    const { store } = await renderSettings({ reported: { glade: REPORTED } })
+    await click(addButton())
+    // A permission card, or another window, grants what the row offers before Add is clicked.
+    await act(() => store.getState().addSandboxGrant(GLADE, TRACKER))
+
+    await click(within(pending()).getByRole('button', { name: 'Add' }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent(SETTINGS_GRANT_REFUSALS.duplicateServer)
+    expect(rows('Glade-wide MCP servers')).toEqual(['acme-tracker', 'New MCP server'])
+
+    // The same for the other agents.
+    await click(select())
+    await click(screen.getByRole('menuitemradio', { name: 'Cloud agents' }))
+    await act(() => store.getState().addSandboxGrant(GLADE, agents(OtherAgents.Cloud)))
+    await click(within(pending()).getByRole('button', { name: 'Add' }))
+    expect(screen.getByRole('alert')).toHaveTextContent(SETTINGS_GRANT_REFUSALS.duplicateAgents)
+  })
+
+  it('puts the row away while the sandbox is off, and dims the list', async () => {
+    await renderSettings({ glade: [DOCS], reported: { glade: REPORTED } })
+    await click(addButton())
+    expect(pending()).toBeInTheDocument()
+
+    await click(screen.getByRole('switch', { name: 'Run agents in a sandbox' }))
+
+    expect(rows('Glade-wide MCP servers')).toEqual(['claude.ai Acme Docs'])
+    expect(list('Glade-wide MCP servers').className).toContain('dimmed')
+    expect(within(row('Glade-wide MCP servers', 'claude.ai Acme Docs')).getByRole('button')).toBeDisabled()
+    expect(addButton()).toBeDisabled()
+  })
+
+  it('shows a server granted on a permission card while Settings is open: main’s broadcast', async () => {
+    const { emit } = await renderSettings({ section: SettingsSection.Workspace, workspace: [TRACKER] })
+
+    act(() => {
+      emit({ type: EventType.SandboxGrantsChanged, target: WORKSPACE, grants: [TRACKER, DOCS] })
+    })
+
+    expect(rows('MCP servers')).toEqual(['acme-tracker', 'claude.ai Acme Docs'])
+  })
+
+  it('in Settings › Workspace, is the workspace’s own, offering what its own sessions have reported', async () => {
+    const { invoke } = await renderSettings({
+      section: SettingsSection.Workspace,
+      workspace: [...WORKSPACE_GRANTS, agents(OtherAgents.Cloud)],
+      glade: [DOCS],
+      reported: { glade: REPORTED, 'workspace:w1': REPORTED.slice(0, 1) },
+    })
+
+    const group = screen.getByRole('region', { name: 'Sandbox' })
+    expect(group).toHaveTextContent('The MCP servers you’ve allowed, and the other agents its agents can reach.')
+    expect(rows('MCP servers')).toEqual(['Cloud agents'])
+    await click(screen.getByRole('button', { name: 'Add an MCP server' }))
+    expect(requests(invoke, CommandName.SandboxListReportedServers)).toEqual([{ target: WORKSPACE }])
+    await click(within(row('MCP servers', 'New MCP server')).getByRole('button', { name: 'Add' }))
+
+    expect(requests(invoke, CommandName.SandboxAddGrant)).toEqual([{ target: WORKSPACE, grant: TRACKER }])
+    expect(rows('MCP servers')).toEqual(['Cloud agents', 'acme-tracker'])
+    // With nothing left but what's listed, it says so in the workspace's words.
+    await click(screen.getByRole('button', { name: 'Add an MCP server' }))
+    await click(within(row('MCP servers', 'New MCP server')).getByRole('button', { name: 'Add' }))
+    await click(screen.getByRole('button', { name: 'Add an MCP server' }))
+    expect(screen.getByRole('alert')).toHaveTextContent(NOTHING_TO_ADD[SandboxGrantScope.Workspace])
+  })
+})
+
+describe('addableGrants', () => {
+  it('is each reported server, then the other agents, without what’s already granted', () => {
+    expect(addableGrants(REPORTED, [])).toEqual([
+      TRACKER,
+      DOCS,
+      agents(OtherAgents.Sessions),
+      agents(OtherAgents.Cloud),
+    ])
+    // A server granted under another name is still that server.
+    expect(addableGrants(REPORTED, [server('acme-tracker', 'Tracker'), agents(OtherAgents.Cloud)])).toEqual([
+      DOCS,
+      agents(OtherAgents.Sessions),
+    ])
+    expect(addableGrants([], [agents(OtherAgents.Sessions), agents(OtherAgents.Cloud)])).toEqual([])
+    // A server named like one of the agents is a server.
+    expect(addableGrants([{ server: 'sessions', name: 'sessions' }], [agents(OtherAgents.Sessions)])).toEqual([
+      server('sessions'),
+      agents(OtherAgents.Cloud),
+    ])
   })
 })
 

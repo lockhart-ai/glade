@@ -84,7 +84,7 @@ export const SIDE_EFFECT_TOOLS: readonly string[] = [
 const ALLOWED: ReadonlySet<string> = new Set([...READ_ONLY_TOOLS, ...TODO_TOOLS, ...SUBAGENT_TOOLS, ...SELF_TOOLS])
 
 /** The SDK's `mcpServer.source` for an in-process server the host registered. */
-const HOST_SOURCE = 'sdk'
+export const HOST_SOURCE = 'sdk'
 
 /** What deciding a call reads. */
 export interface ClassifiedCall {

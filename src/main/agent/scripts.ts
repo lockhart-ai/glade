@@ -15,6 +15,7 @@ import {
   type Question,
   type ToolInput,
 } from '../../shared/domain'
+import type { McpServerOrigin } from './backend'
 import { ChildTool, nameTodo } from './child-calls'
 import {
   FileAccess,
@@ -454,6 +455,17 @@ export interface PermissionStep {
   readonly title?: string
   /** Whether the prompt mustn't be approvable by a stray key; false by default. */
   readonly defaultToNo?: boolean
+  /**
+   * The server an MCP tool is on, as the SDK says it (`{ name, source }`): one from the user's config, a repository's
+   * `.mcp.json` or a claude.ai connector. The session's hook and the runner are told of it with the call. None by
+   * default, as for any tool that isn't an MCP server's.
+   */
+  readonly mcpServer?: McpServerOrigin
+  /**
+   * Whether a rule in the user's own Claude Code settings allows the call, so Claude Code wouldn't ask about it in any
+   * mode: only the session's `PreToolUse` hook then stands in its way. False by default.
+   */
+  readonly settingsAllow?: boolean
 }
 
 export interface ControlToolStep {
@@ -657,6 +669,11 @@ export interface AgentScript {
    * call would, so the usage meter reads the rate limit events alone.
    */
   readonly usage?: ScriptedUsage
+  /**
+   * The MCP servers the session has besides its in-process ones, as its `system/init` names them: the user's own, a
+   * repository's, a claude.ai connector. None by default.
+   */
+  readonly mcpServers?: readonly McpServerOrigin[]
 }
 
 /** A cron job a resumed session has from before (`AgentScript.restoredJobs`), as its `Stop` hook lists it. */
@@ -2785,6 +2802,86 @@ const asksSandbox: AgentScript = {
   ],
 }
 
+/** What the `reaches-outside` script's agent uses that runs outside the sandbox (#515), and what it says. */
+export const REACHES_OUTSIDE = {
+  /** A claude.ai connector, by the name Claude Code reports it under, and the name its tools carry. */
+  connector: { name: 'claude.ai Acme Docs', source: 'claudeai' },
+  connectorKey: 'claude_ai_Acme_Docs',
+  search: 'mcp__claude_ai_Acme_Docs__search',
+  query: 'retry policy',
+  read: 'mcp__claude_ai_Acme_Docs__read',
+  /** A server from the workspace's own `.mcp.json`. */
+  tracker: { name: 'acme-tracker', source: 'project' },
+  issue: 'mcp__acme-tracker__create_issue',
+  issueTitle: 'Retries should back off',
+  /** The agent's own subagent, by the id the SDK gave it. */
+  subagent: 'Check the retry tests',
+  agentId: 'a3d91c07e5b24f68',
+  nudge: 'Check the backoff test too.',
+  /** Another Claude session, by the name it goes by. */
+  peer: 'release-notes',
+  peerMessage: 'Retries back off from 2.4: please add it to the notes.',
+  reply: 'I found the retry policy, filed the issue, told the release notes session and listed the cloud agents.',
+  again: 'The retry policy is unchanged.',
+} as const
+
+/**
+ * A turn that uses what runs outside the sandbox, in the order a task might (#515): two tools of a claude.ai connector
+ * (the first allowed by a rule in the user's own settings), a tool of a server from the workspace's `.mcp.json`, a
+ * message to its own subagent, a message to another Claude session, and `RemoteTrigger`. Sandboxed, the connector asks
+ * once, the second server once, the other session and the cloud agents once each, and the subagent's message never;
+ * unsandboxed, they ask only in the ask mode, each call for itself. Every later message calls the connector again.
+ */
+const reachesOutside: AgentScript = {
+  name: 'reaches-outside',
+  mcpServers: [REACHES_OUTSIDE.connector, REACHES_OUTSIDE.tracker],
+  turns: [
+    [
+      ...turnStart(),
+      say("I'll look up the retry policy and file what's missing."),
+      permission('search', REACHES_OUTSIDE.search, { query: REACHES_OUTSIDE.query }, '1 result: Retry policy', {
+        mcpServer: REACHES_OUTSIDE.connector,
+        settingsAllow: true,
+      }),
+      permission('read', REACHES_OUTSIDE.read, { id: 'doc_42' }, 'Retries back off exponentially, up to 5 attempts.', {
+        mcpServer: REACHES_OUTSIDE.connector,
+      }),
+      permission('issue', REACHES_OUTSIDE.issue, { title: REACHES_OUTSIDE.issueTitle }, 'Created ACME-212.', {
+        mcpServer: REACHES_OUTSIDE.tracker,
+      }),
+      background(
+        'check',
+        { description: REACHES_OUTSIDE.subagent, prompt: 'Run the retry tests.', subagent_type: 'general-purpose' },
+        [delay(BEAT_MS * 4), say('The retry tests pass.', 'check')],
+        { agentId: REACHES_OUTSIDE.agentId, summary: 'The retry tests pass.' },
+      ),
+      delay(BEAT_MS),
+      messageSubagent('nudge', 'check', REACHES_OUTSIDE.agentId, REACHES_OUTSIDE.nudge, {
+        steps: [],
+        summary: 'The backoff test passes too.',
+      }),
+      permission(
+        'peer',
+        'SendMessage',
+        { to: REACHES_OUTSIDE.peer, message: REACHES_OUTSIDE.peerMessage, summary: 'Retries back off' },
+        'Message sent to release-notes.',
+      ),
+      permission('routines', 'RemoteTrigger', { action: 'list' }, '{ "triggers": [] }'),
+      say(REACHES_OUTSIDE.reply),
+      result(),
+    ],
+    // Every message after the first looks the policy up again.
+    [
+      ...turnStart(),
+      permission('search', REACHES_OUTSIDE.search, { query: REACHES_OUTSIDE.query }, '1 result: Retry policy', {
+        mcpServer: REACHES_OUTSIDE.connector,
+      }),
+      say(REACHES_OUTSIDE.again),
+      result(),
+    ],
+  ],
+}
+
 /**
  * What the `crosses-sandbox` script's agent tries (#514): each a way past the sandbox the phase's security review
  * found, which a rule in the user's own Claude Code settings would have let through unasked.
@@ -4185,6 +4282,7 @@ export const AGENT_SCRIPT_NAMES = [
   'asks-permission',
   'asks-sandbox',
   'crosses-sandbox',
+  'reaches-outside',
   'sandbox-fails',
   'asks-permission-from-a-subagent',
   'allows-for-task',
@@ -4253,6 +4351,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'asks-permission': asksPermission,
   'asks-sandbox': asksSandbox,
   'crosses-sandbox': crossesSandbox,
+  'reaches-outside': reachesOutside,
   'sandbox-fails': sandboxFails,
   'asks-permission-from-a-subagent': asksPermissionFromASubagent,
   'allows-for-task': allowsForTask,
