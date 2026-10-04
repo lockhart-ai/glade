@@ -484,15 +484,40 @@
       filed, moved, made or changed shows at once, with no reload. A `filings.changed` that lands while the hub loads
       makes it read again, so an answer made before the change never wins.
     - **Renders stay small** (`CLAUDE.md`, Performance). A todo's card is memoised on its own todo, children and
-      panel; a closed todo builds no list; a tile is given only which child it is and reads it from the store through
-      an index made once per list, so one child's update renders that tile alone; and every age keeps its own clock.
-      `src/renderer/history-renders.test.tsx` holds it at 100 todos with 50 children under one.
+      panel, and the links its text names; a closed todo builds no list; a tile is given only which child it is and
+      reads it from the store through an index made once per list, so one child's update renders that tile alone; and
+      every age keeps its own clock. `src/renderer/history-renders.test.tsx` holds it at 100 todos with 50 children
+      under one.
     - **The tile** (`src/renderer/todos/tiles/`) is one shell (`Tile`: icon, title, tag, state, age; at rest, hover,
       focus, live, outlined) filled in by a component per kind. This issue's are plain: enough to show each child.
       What a tile does and opens to is #498 (files and links) and #499 (subagents, watchers and commits).
     - **Each todo's panel is as you left it:** the window changes it at once and has main remember it
       (`todoHub.setPanel`). A filter whose kind has no children shows All, and is remembered, for when it has some
       again.
+  - **Links in a todo's text** (P16-09, #500; the states strip of `design/screens/46-todo-hub.png`;
+    `src/renderer/todos/todoLinks.ts`). In a todo's title and its status line, done todos included, a PR, an issue or
+    a ticket the todo names is a link to it, when the task has it as a link artifact.
+    - **What's matched:** `#511` for a GitHub PR or issue among the task's links, with `PR ` before it as part of the
+      link when it's there (`PR #511`, as the screens draw it), and a Jira key in capitals (`API-123`) for a ticket.
+      What each of the task's links is comes from its address alone (`recogniseLink`): nothing is fetched.
+    - **Exact matches only, to the task's own links.** The number or key must be one the task has a link for: `#5`
+      isn't found in `#51`, nor `API-12` in `API-123`. One that two of the task's links share (the same number in two
+      repositories) could mean either, so it stays text. Nothing ever links to a page the task doesn't have.
+    - **It stands on its own.** Not straight after a letter, a digit or `_` (inside a word: `fix#511`), nor after `/`,
+      `#`, `=`, `&` or `-` (inside an address, an HTML entity or a branch's name: `example.com/#511`,
+      `fix-API-123`), and not straight before a letter, a digit or `_`. A URL that is a link already stays that link,
+      whole. A key in lower case (`api-123`) is text.
+    - **It's the app's link** (`Link`, [`product.md`](product.md), "Links"): it opens in the browser, underlines under
+      the pointer, shows its address as a tooltip, takes the focus with Tab, opens with ↵, and has the link menu
+      (Open link, Copy link; no Add to artifacts, since the task has it). Clicking it neither opens nor closes the
+      todo, and neither does choosing from its menu.
+    - **It follows the task's links:** adding the link artifact later turns the words into a link, and removing it
+      turns them back.
+    - **Worked out when something changes, not on every render.** The hub works out what the task's todos may name
+      once per change of its links (a file artifact that changes rebuilds nothing), then which of it each todo names,
+      once per change of the todos or the links, and gives each card only its own. So a link added or removed renders
+      the cards that name it and no other, and a card reads its text again only when its text or what it names
+      changed. A task with no PR, issue or ticket among its links reads no todo for what it names.
   - **Calls made without Jared, for the release notes (P16).** From the groundwork (P16-03, #494):
     1. A child whose own filing names a todo that's gone goes to the placeholder, even when the subagent that made
        it is under a todo that's still there: the agent filed it apart from its subagent, so it doesn't fall back to
@@ -535,8 +560,9 @@
         doesn't.
     17. The hub drops the line under the heading ("The agent writes this list and checks items off as it works."), as
         the screens do.
-    18. A task with no todos and nothing made says "No todos for this task." at the top, where the screens put it, and
-        not today's centred "No todos yet.".
+    18. A task that made things and kept no todos says "No todos for this task." at the top, above **Not under a
+        todo**, where the screens put it. One with nothing at all (no todos, and nothing made) keeps today's centred
+        "No todos yet.", as the tab shows with the switch off (#500; the hub first said the line at the top for both).
     19. A todo waiting on you keeps its purple icon and status line, as everywhere in the app. Nothing sets that
         state yet.
     20. A link's tile says `#511`, a ticket's key or a page's domain after its title, as the screens draw it, and not
@@ -548,6 +574,22 @@
     23. Until its filings have loaded, the hub shows the todos with nothing under them, and no placeholder group,
         rather than everything under no todo for a moment.
     24. A todo's context menu (Copy, Ask agent about this) opens from its head. The placeholder group has none.
+
+    From the links in a todo's text (P16-09, #500):
+
+    25. `PR ` is part of the link only as it's drawn: in capitals, with one space or none before the `#`. After
+        anything else (`pr #511`, `pull request #511`, `issue #501`) the number alone is the link. A number with no
+        `#` (`PR 511`) never links, and neither does `owner/repo#511`.
+    26. A ticket's key links only in capitals, as Jira writes it: `api-123` stays text. The link's own address may
+        write it either way.
+    27. A reference stands on its own: not straight after a letter, a digit, `_`, `/`, `#`, `=`, `&` or `-`, and not
+        straight before a letter, a digit or `_`. So `#511.` and `(#511)` link, `API-123-backport` links its key, and
+        `fix#511`, `example.com/#511` and `fix-API-123` don't.
+    28. "Two of the task's links share it" is read as written: one PR given by two of its pages (`pull/511` and
+        `pull/511/files`), or `issues/511` beside `pull/511` of one repository, are two links with the number, so it
+        stays text, as the same number in two repositories does.
+    29. Every link in a todo's text is a Tab stop, as every link in the app is, after its todo and before the todo's
+        pills.
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
     `manifest.json`: `id` (the folder's name), `name`, `version`, `entry` (an HTML file in the folder) and an optional

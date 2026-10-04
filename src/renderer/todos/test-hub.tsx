@@ -144,6 +144,7 @@ export function hubMain(task: HubTask): Partial<FakeMain> {
     todoHubReads: [],
     watchedArtifacts: [],
     copied: [],
+    opened: [],
   }
 }
 

@@ -10,6 +10,11 @@ import styles from './Todos.module.css'
 /** What the tab shows while the agent has no list. */
 export const NO_TODOS = 'No todos yet.'
 
+/** The tab's empty state: the line, centred. The hub shows the same for a task with no todos and nothing made. */
+export function NoTodos(): React.JSX.Element {
+  return <p className={styles.empty}>{NO_TODOS}</p>
+}
+
 /** The line under the heading, from 09-todos.html. */
 export const TODOS_EXPLAINER = 'The agent writes this list and checks items off as it works.'
 
@@ -130,7 +135,7 @@ export function Todos({ taskId, list, now }: TodosProps): React.JSX.Element {
   const menu = useContextMenu<Todo>()
   const { copy } = useMenuCommands()
   const insertIntoInput = useGladeStore((state) => state.insertIntoInput)
-  if (list === null || list === undefined || list.items.length === 0) return <p className={styles.empty}>{NO_TODOS}</p>
+  if (list === null || list === undefined || list.items.length === 0) return <NoTodos />
   const progress = todoProgress(list)
   const bar = progressBar(progress)
   const entries = (todo: Todo) =>
