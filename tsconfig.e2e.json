@@ -18,6 +18,7 @@
     "src/main/logging/format.ts",
     "src/main/logging/logger.ts",
     "src/main/agent/backend.ts",
+    "src/main/agent/child-calls.ts",
     "src/main/agent/sandbox-requests.ts",
     "src/main/agent/scripts.ts",
     "src/main/agent/scripted-shell.ts",
