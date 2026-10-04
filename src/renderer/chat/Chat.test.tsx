@@ -44,6 +44,7 @@ import {
   sampleWorkspace,
   type FakeBridge,
 } from '../store/test-bridge'
+import { BROADCAST_TAG } from './BroadcastTag'
 import { clockTime } from './chatModel'
 import { Chat } from './Chat'
 import { setHomeFolder } from '../../shared/homeFolder'
@@ -65,6 +66,7 @@ const ASK: Message = {
   images: [],
   pastedBlocks: [],
   files: [],
+  broadcast: false,
 }
 const REPLY: Message = {
   id: 'm2',
@@ -77,6 +79,7 @@ const REPLY: Message = {
   images: [],
   pastedBlocks: [],
   files: [],
+  broadcast: false,
 }
 
 const PREAMBLE = 'Looking at how the API views are set up.'
@@ -261,6 +264,27 @@ describe('Chat', () => {
     await renderChat({ selected: false, messages: [ASK] })
 
     expect(conversation()).toHaveTextContent(/^$/)
+  })
+
+  it('tags a message you broadcast, to the left of "you" and its time, and no other', async () => {
+    const broadcast: Message = {
+      ...ASK,
+      id: 'm3',
+      body: 'Is anyone restarting Docker?',
+      turn: 2,
+      createdAt: REPLIED_AT + 60_000,
+      broadcast: true,
+    }
+    await renderChat({ messages: [ASK, REPLY, broadcast] })
+
+    const [own, sent] = screen.getAllByRole('article', { name: 'You' })
+    expect(own).toHaveTextContent(`${ASK.body}you · ${clockTime(ASKED_AT)}`)
+    expect(own).not.toHaveTextContent(BROADCAST_TAG)
+    expect(sent).toHaveTextContent(
+      `Is anyone restarting Docker?${BROADCAST_TAG}you · ${clockTime(broadcast.createdAt)}`,
+    )
+    // The agent's replies are never tagged.
+    expect(within(screen.getByRole('article', { name: 'Agent' })).queryByText(BROADCAST_TAG)).not.toBeInTheDocument()
   })
 
   it('shows your message on the right and the agent’s reply as Markdown, each with its time', async () => {

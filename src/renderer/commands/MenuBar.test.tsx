@@ -16,6 +16,7 @@ import { acceleratorOf, COMMANDS, DEFAULT_KEYMAP, KeyScope, type Accelerator } f
 import { TaskActivity, TaskState, UiStateKey, type Task, type UiStateEntry } from '../../shared/domain'
 import { taskLink } from '../../shared/taskLink'
 import { App } from '../App'
+import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import {
@@ -184,6 +185,38 @@ describe('the menu bar’s commands', () => {
     await waitFor(() => {
       expect(commandsInvoked(rendered).filter((command) => command === CommandName.DialogChooseFolder)).toHaveLength(2)
     })
+  })
+
+  /** Two tasks whose agents have run, in two workspaces: who a broadcast reaches. */
+  const RAN: Task[] = [
+    { ...sampleTask('t1', 'w1', 'Add rate limiting'), sessionId: 's1' },
+    { ...sampleTask('t2', 'w2', 'Draft release notes'), sessionId: 's2' },
+  ]
+
+  it('open the Broadcast modal over whatever the window shows, listing every workspace’s active tasks', async () => {
+    const rendered = await renderApp({ tasks: RAN })
+
+    choose(rendered, appCommand(AppCommandId.Broadcast))
+    await settleFloating()
+
+    const dialog = within(screen.getByRole('dialog', { name: 'Broadcast' }))
+    expect(dialog.getByRole('textbox', { name: 'Broadcast message' })).toHaveFocus()
+    expect(dialog.getByText(/Goes to/)).toHaveTextContent('Goes to 2 active tasks in 2 workspaces.')
+    // Chosen again while it's open, it stays as it is.
+    choose(rendered, appCommand(AppCommandId.Broadcast))
+    expect(screen.getAllByRole('dialog', { name: 'Broadcast' })).toHaveLength(1)
+  })
+
+  it('open the Broadcast modal with no workspace shown, too', async () => {
+    const rendered = await renderApp({ tasks: RAN, uiState: [{ key: UiStateKey.ActiveWorkspaceId, value: '' }] })
+    expect(rendered.store.getState().selectedWorkspaceId).toBeNull()
+
+    choose(rendered, appCommand(AppCommandId.Broadcast))
+    await settleFloating()
+
+    expect(within(screen.getByRole('dialog', { name: 'Broadcast' })).getByText(/Goes to/)).toHaveTextContent(
+      'Goes to 2 active tasks in 2 workspaces.',
+    )
   })
 
   it('open the settings for Settings…, Workspace settings…, Rename workspace… and Change root folder…', async () => {

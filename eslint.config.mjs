@@ -6,6 +6,23 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
+/** Fixed sets of values are string enums, with every member's value written out. */
+const STRING_ENUMS = {
+  selector: 'TSEnumMember > :matches(UnaryExpression, Literal[raw=/^[0-9]/])',
+  message: 'Use string enums: give every member a string value.',
+}
+
+/**
+ * The specs run a function in the main process with `inMain` (e2e/in-main.ts), never Playwright's `app.evaluate`,
+ * which runs it inside whatever main is doing, even one of its queries (#486). It goes by the name: the app is `app`,
+ * or some launch's `.app`, in every spec.
+ */
+const NO_APP_EVALUATE = {
+  selector:
+    'CallExpression[callee.property.name=/^evaluate(Handle)?$/]:matches([callee.object.name="app"], [callee.object.property.name="app"])',
+  message: 'Run it with inMain (e2e/in-main.ts): app.evaluate runs inside whatever main is doing (#486).',
+}
+
 export default defineConfig(
   // The sample workspaces the design captures open are made-up files for the app to show, not code of Glade's.
   globalIgnores(['out/', 'dist/', 'release/', 'coverage/', 'docs/', 'scripts/fixtures/*-workspace/']),
@@ -33,16 +50,16 @@ export default defineConfig(
       ],
       // Fixed sets of values are string enums, with every member's value written out.
       '@typescript-eslint/prefer-enum-initializers': 'error',
-      'no-restricted-syntax': [
-        'error',
-        {
-          selector: 'TSEnumMember > :matches(UnaryExpression, Literal[raw=/^[0-9]/])',
-          message: 'Use string enums: give every member a string value.',
-        },
-      ],
+      'no-restricted-syntax': ['error', STRING_ENUMS],
       // Data shapes are named interfaces, not type aliases of object literals.
       '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
     },
+  },
+
+  // The e2e specs and their fixtures. (A rule's options replace the ones above, so the enums' are here again.)
+  {
+    files: ['e2e/**/*.ts'],
+    rules: { 'no-restricted-syntax': ['error', STRING_ENUMS, NO_APP_EVALUATE] },
   },
 
   // React, for the renderer.

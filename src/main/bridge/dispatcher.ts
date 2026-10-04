@@ -2,9 +2,11 @@ import {
   bridgeError,
   BridgeErrorCode,
   CommandName,
+  EVENT_BATCH,
   type BridgeResult,
   type CommandResponse,
   type GladeEvent,
+  type WindowEvent,
 } from '../../shared/bridge'
 import { SILENT_LOGGER, type LogFields, type Logger } from '../logging/logger'
 import { CommandFailure } from './errors'
@@ -104,12 +106,50 @@ export function createDispatcher(handlers: Handlers, schemas: RequestSchemas, lo
 
 /** Where events go: each open window's `webContents`. */
 export interface EventTarget {
-  send(channel: string, event: GladeEvent): void
+  send(channel: string, event: WindowEvent): void
 }
 
-/** Sends an event on `channel` to every target open when it's emitted. */
-export function createBroadcast(channel: string, targets: () => readonly EventTarget[]): Emit {
-  return (event) => {
+/**
+ * Runs `run`, and sends the windows every event emitted meanwhile as one `EventBatch`, once it has returned (or
+ * thrown). Answers with what `run` answered.
+ */
+export type Batch = <T>(run: () => T) => T
+
+/** What sends events to the windows. */
+export interface WindowBroadcast {
+  /** Sends an event to every window open when it's emitted, or adds it to the batch being gathered. */
+  readonly emit: Emit
+  /**
+   * Gathers a burst of events (`Batch`): a window applies them in one change, not one per event. A lone event goes as
+   * itself, and none sends nothing. A batch started inside another joins it.
+   */
+  readonly batch: Batch
+}
+
+/** Sends events on `channel` to every target open when they're sent. */
+export function createBroadcast(channel: string, targets: () => readonly EventTarget[]): WindowBroadcast {
+  const send = (event: WindowEvent): void => {
     for (const target of targets()) target.send(channel, event)
+  }
+  // The events of the batch being gathered, or null when each goes as it's emitted.
+  let gathered: GladeEvent[] | null = null
+  return {
+    emit: (event) => {
+      if (gathered === null) send(event)
+      else gathered.push(event)
+    },
+    batch: (run) => {
+      if (gathered !== null) return run()
+      const events: GladeEvent[] = []
+      gathered = events
+      try {
+        return run()
+      } finally {
+        gathered = null
+        const [only] = events
+        if (events.length > 1) send({ type: EVENT_BATCH, events })
+        else if (only !== undefined) send(only)
+      }
+    },
   }
 }

@@ -228,7 +228,8 @@ describe('the menu bar', () => {
       'Close workspace': false,
       'Remove from list…': false,
     })
-    expect(enabled(menu(template, 'File'))).toEqual({ 'New task': false, Close: true })
+    // Broadcast reaches every workspace's tasks, so it's there with no workspace shown.
+    expect(enabled(menu(template, 'File'))).toEqual({ 'New task': false, 'Broadcast…': true, Close: true })
     expect(enabled(menu(template, 'View'))).toEqual({
       'Toggle task list': false,
       'Toggle right panel': false,
@@ -241,11 +242,14 @@ describe('the menu bar', () => {
     expect(run).not.toHaveBeenCalled()
   })
 
-  it('has File’s New task and Close, and View’s panel toggles, zoom and full screen', () => {
+  it('has File’s New task, Broadcast and Close, and View’s panel toggles, zoom and full screen', () => {
     const { template, run } = build()
 
-    expect(outline(menu(template, 'File'))).toEqual(['New task', '—', 'Close'])
+    expect(outline(menu(template, 'File'))).toEqual(['New task', 'Broadcast…', '—', 'Close'])
     expect(item(menu(template, 'File'), 'New task').accelerator).toBe('CmdOrCtrl+N')
+    expect(item(menu(template, 'File'), 'Broadcast…').accelerator).toBe('CmdOrCtrl+Shift+B')
+    click(item(menu(template, 'File'), 'Broadcast…'))
+    expect(run).toHaveBeenLastCalledWith(appCommand(AppCommandId.Broadcast))
     expect(item(menu(template, 'File'), 'Close').accelerator).toBe('CmdOrCtrl+W')
     expect(outline(menu(template, 'View'))).toEqual([
       'Toggle task list',

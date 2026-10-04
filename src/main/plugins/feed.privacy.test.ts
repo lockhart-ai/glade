@@ -354,6 +354,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           images: [{ id: secret('image'), mediaType: ImageMediaType.Png }],
           pastedBlocks: [],
           files: [],
+          broadcast: false,
         },
       },
       {
@@ -369,6 +370,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           images: [],
           pastedBlocks: [],
           files: [],
+          broadcast: false,
         },
       },
     ],
@@ -385,6 +387,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
             images: [],
             pastedBlocks: [],
             files: [],
+            broadcast: false,
           },
         ],
       },

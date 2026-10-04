@@ -38,8 +38,29 @@ describe('appendMessage', () => {
       images: [],
       pastedBlocks: [],
       files: [],
+      broadcast: false,
     })
     expect(listMessages(test.db, task.id)).toEqual([message])
+  })
+
+  it('keeps whether a message was a broadcast, and only that one', () => {
+    const own = appendMessage(test.db, { taskId: task.id, role: MessageRole.User, body: 'Fix the date test.', turn: 1 })
+    const broadcast = appendMessage(test.db, {
+      taskId: task.id,
+      role: MessageRole.User,
+      body: 'Is anyone restarting Docker?',
+      turn: 2,
+      broadcast: true,
+    })
+
+    expect(own.broadcast).toBe(false)
+    expect(broadcast.broadcast).toBe(true)
+    expect(listMessages(test.db, task.id).map((message) => message.broadcast)).toEqual([false, true])
+  })
+
+  it('refuses a broadcast flag that is neither on nor off', () => {
+    const { id } = appendMessage(test.db, { taskId: task.id, role: MessageRole.User, body: 'Hi', turn: 1 })
+    expect(() => test.db.prepare('UPDATE messages SET broadcast = 2 WHERE id = ?').run(id)).toThrow(/CHECK/)
   })
 
   it("stores an agent reply's turn summary, with or without a duration", () => {

@@ -4,7 +4,8 @@
  * - **Commands** are request/response calls from the renderer to main. `CommandMap` is the single source of truth: the
  *   preload's `invoke`, the main-side handler registry and the request validators are all typed from it, so changing a
  *   command's request or response on one side without the other fails the typecheck.
- * - **Events** flow from main to every window. `GladeEvent` is a discriminated union on `type`.
+ * - **Events** flow from main to every window. `GladeEvent` is a discriminated union on `type`. A burst of them from
+ *   one command reaches the windows as one `EventBatch`.
  * - **Errors**: main answers every command with a `BridgeResult`. The preload unwraps it, resolving with the value or
  *   rejecting with a `BridgeError`. `BridgeError` is a plain object, not an `Error`: `contextBridge` copies an `Error`
  *   thrown into the renderer's world but drops its extra properties, so `code` wouldn't survive.
@@ -41,6 +42,7 @@ import type {
   Watcher,
   Workspace,
 } from './domain'
+import type { BroadcastOutcome } from './broadcast'
 import type { Command, MenuState } from './commands'
 import type { AttachedFile } from './attachedFiles'
 import type { ImageData } from './images'
@@ -86,6 +88,7 @@ export enum CommandName {
   TasksUpdate = 'tasks.update',
   TasksDelete = 'tasks.delete',
   TasksSend = 'tasks.send',
+  TasksBroadcast = 'tasks.broadcast',
   TasksStop = 'tasks.stop',
   TasksRetry = 'tasks.retry',
   TasksRetryLoggedOut = 'tasks.retryLoggedOut',
@@ -394,6 +397,24 @@ export interface TasksSendRequest {
 export interface TasksSendResponse {
   /** The user's message, as saved to the chat log. */
   readonly message: Message
+}
+
+/**
+ * Sends one message to every active task, in every workspace (Broadcast, #489): main decides who gets it as it runs,
+ * so a task marked done a moment before gets nothing. Each task takes it as it would a message of its own, saved as a
+ * broadcast (`Message.broadcast`): one whose agent is idle starts a turn with it, after anything it had queued; one
+ * whose agent is busy (mid-turn, paused, or waiting on your answers or your OK) gets it at the end of its queue. Unlike
+ * `tasks.send`, it never answers an agent's questions. A task that can't take it doesn't stop the others. Everything
+ * it changes reaches the windows as one `EventBatch`.
+ */
+export interface TasksBroadcastRequest {
+  /** Markdown. Not blank. */
+  readonly text: string
+}
+
+export interface TasksBroadcastResponse {
+  /** How the message reached each active task, in the order they were sent it. */
+  readonly recipients: readonly BroadcastOutcome[]
 }
 
 /**
@@ -1336,6 +1357,7 @@ export interface CommandMap {
   [CommandName.TasksUpdate]: CommandSpec<TasksUpdateRequest, TaskResponse>
   [CommandName.TasksDelete]: CommandSpec<TasksDeleteRequest, null>
   [CommandName.TasksSend]: CommandSpec<TasksSendRequest, TasksSendResponse>
+  [CommandName.TasksBroadcast]: CommandSpec<TasksBroadcastRequest, TasksBroadcastResponse>
   [CommandName.TasksStop]: CommandSpec<TasksStopRequest, TaskResponse>
   [CommandName.TasksRetry]: CommandSpec<TasksRetryRequest, TaskResponse>
   [CommandName.TasksRetryLoggedOut]: CommandSpec<EmptyRequest, TasksRetryLoggedOutResponse>
@@ -1851,7 +1873,26 @@ export type GladeEvent =
   | SandboxGrantsChangedEvent
   | CloseBlockedEvent
 
+/**
+ * A burst of events one command caused (a broadcast to every active task, #489), sent to the windows as one message,
+ * in the order they happened, so a window applies them in one change rather than one per event. Only the windows get
+ * it: everything in main that hears events hears each one.
+ */
+export interface EventBatch {
+  readonly type: typeof EVENT_BATCH
+  readonly events: readonly GladeEvent[]
+}
+
+/** What marks an `EventBatch` on the event channel: no event's own type. */
+export const EVENT_BATCH = 'events.batch'
+
+/** What main sends a window on the event channel: an event, or a burst of them as one. */
+export type WindowEvent = GladeEvent | EventBatch
+
 export type EventListener = (event: GladeEvent) => void
+
+/** Hears a burst of events main sent as one (`EventBatch`), in order. */
+export type BatchListener = (events: readonly GladeEvent[]) => void
 
 /** Stops a subscription. Calling it again does nothing. */
 export type Unsubscribe = () => void
@@ -1909,8 +1950,12 @@ export function isBridgeError(value: unknown): value is BridgeError {
 export interface GladeBridge {
   /** Runs a command in main. Rejects with a `BridgeError` when it fails. */
   invoke<C extends CommandName>(command: C, request: CommandRequest<C>): Promise<CommandResponse<C>>
-  /** Calls `listener` with every event main broadcasts, until unsubscribed. */
-  subscribe(listener: EventListener): Unsubscribe
+  /**
+   * Calls `listener` with every event main broadcasts, until unsubscribed. A burst main sent as one (`EventBatch`)
+   * goes to `batchListener` whole, for a subscriber that applies it in one change; without one, each of its events
+   * goes to `listener`, in order.
+   */
+  subscribe(listener: EventListener, batchListener?: BatchListener): Unsubscribe
   /**
    * The path on disk of a file dropped or pasted into the window (Electron's `webUtils.getPathForFile`), to attach it
    * with `attachments.add`; `''` for one that isn't a file on disk, such as an image copied from an app.

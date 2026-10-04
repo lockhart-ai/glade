@@ -34,6 +34,7 @@ export function useCommandRunner(): (command: Command) => void {
   const store = useGladeStoreApi()
   const shownWorkspaceId = useGladeStore((state) => state.selectedWorkspaceId)
   const openSettings = useGladeStore((state) => state.openSettings)
+  const openBroadcast = useGladeStore((state) => state.openBroadcast)
   const closeWorkspace = useGladeStore((state) => state.closeWorkspace)
   const requestRemoveWorkspace = useGladeStore((state) => state.requestRemoveWorkspace)
   const closeWindow = useGladeStore((state) => state.closeWindow)
@@ -52,6 +53,9 @@ export function useCommandRunner(): (command: Command) => void {
         case AppCommandId.NewTask:
           void newTask()
           return
+        case AppCommandId.Broadcast:
+          openBroadcast()
+          return
         case AppCommandId.Close:
           if (!requestClose()) run(closeWindow)
           return
@@ -68,7 +72,7 @@ export function useCommandRunner(): (command: Command) => void {
         }
       }
     },
-    [openSettings, newTask, closeWindow, workspaces, store, run],
+    [openSettings, openBroadcast, newTask, closeWindow, workspaces, store, run],
   )
 
   const runWorkspace = useCallback(

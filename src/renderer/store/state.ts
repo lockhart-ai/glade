@@ -12,6 +12,7 @@ import type {
   Unsubscribe,
   WorkspaceUserPatch,
 } from '../../shared/bridge'
+import type { BroadcastOutcome } from '../../shared/broadcast'
 import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../shared/settings'
 import type { InstalledPlugin, PluginCapability } from '../../shared/plugins'
@@ -271,6 +272,8 @@ export interface GladeData {
   readonly models: readonly ModelChoice[]
   /** The section the Settings modal shows; null while it's closed. A one-off UI intent. */
   readonly settingsSection: SettingsSection | null
+  /** Whether the Broadcast modal is open (#489). A one-off UI intent. */
+  readonly broadcastOpen: boolean
   /**
    * The plugins in the plugins folder, as main last read it (`plugins.list`, which Settings › Plugins asks for each time
    * it opens) or broadcast them; null until it's first read.
@@ -379,6 +382,16 @@ export interface GladeActions {
   openSettings: (section?: SettingsSection) => void
   /** Closes the Settings modal. */
   closeSettings: () => void
+  /** Opens the Broadcast modal (⌘⇧B), which sends one message to every active task. */
+  openBroadcast: () => void
+  /** Closes the Broadcast modal. */
+  closeBroadcast: () => void
+  /**
+   * Sends a message to every active task, in every workspace (`tasks.broadcast`): main decides who gets it. Resolves
+   * with how it went for each task once main has saved it; the messages, queues and turns arrive as one batch of
+   * events.
+   */
+  broadcast: (text: string) => Promise<readonly BroadcastOutcome[]>
   /** Reads the plugins folder again (`plugins.list`), finding plugins added, removed or changed since. */
   loadPlugins: () => Promise<void>
   /** Turns a plugin on or off (`plugins.setEnabled`); the change saves at once. */
@@ -789,6 +802,7 @@ export const INITIAL_DATA: GladeData = {
   settings: DEFAULT_SETTINGS,
   models: BUILT_IN_MODELS,
   settingsSection: null,
+  broadcastOpen: false,
   plugins: null,
   sandboxGrants: {},
   pluginStatuses: {},

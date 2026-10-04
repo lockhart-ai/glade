@@ -1,0 +1,199 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "tasks": [
+    {
+      "title": "Draft release notes for 2.4",
+      "status": "Waiting on you: two questions",
+      "pinned": true,
+      "unread": true,
+      "minutesAgo": 25
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "status": "Waiting on you: pick a limit for /search",
+      "unread": true,
+      "minutesAgo": 4
+    },
+    {
+      "title": "Move image uploads to S3",
+      "status": "Copying existing files, 1,240 of 3,900",
+      "activity": "working",
+      "minutesAgo": 1
+    },
+    {
+      "title": "Fix flaky login test",
+      "objective": "Find out why the login test fails on CI now and then, and fix it.",
+      "status": "Found the race; fix passes 200 local runs",
+      "minutesAgo": 0,
+      "startedMinutesAgo": 34,
+      "selected": true,
+      "contextUsedTokens": 41000,
+      "contextWindowTokens": 200000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "The login test failed again on CI. Find out why it's flaky and fix it.",
+          "turn": 1,
+          "minutesAgo": 34
+        },
+        {
+          "role": "agent",
+          "body": "Found the race: the session fixture and the login view both write the token, and the test reads it between the two. The fix passes 200 local runs.",
+          "turn": 1,
+          "minutesAgo": 21,
+          "summary": { "durationMs": 760000, "filesChanged": 2, "linesAdded": 14, "linesRemoved": 0 }
+        },
+        {
+          "role": "user",
+          "body": "Is anyone restarting Docker? If it's you, stop and tell me why.",
+          "turn": 2,
+          "minutesAgo": 1,
+          "broadcast": true
+        },
+        {
+          "role": "agent",
+          "body": "Not me. I haven't touched Docker in this task.",
+          "turn": 2,
+          "minutesAgo": 0,
+          "summary": { "durationMs": 4000, "filesChanged": 0, "linesAdded": 0, "linesRemoved": 0 }
+        }
+      ],
+      "toolEvents": [
+        { "kind": "divider", "dividerKind": "turn", "turn": 1, "minutesAgo": 34 },
+        {
+          "kind": "narration",
+          "text": "Looking at how the login test sets up its session.",
+          "turn": 1,
+          "minutesAgo": 34
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": { "file_path": "/Users/sample/code/api/tests/test_login.py" },
+          "output": "88 lines",
+          "turn": 1,
+          "minutesAgo": 33
+        },
+        {
+          "kind": "tool_call",
+          "name": "Grep",
+          "input": { "pattern": "session_token", "path": "/Users/sample/code/api" },
+          "output": "api/auth/views.py\ntests/conftest.py",
+          "turn": 1,
+          "minutesAgo": 32
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": { "file_path": "/Users/sample/code/api/tests/conftest.py" },
+          "output": "64 lines",
+          "turn": 1,
+          "minutesAgo": 31
+        },
+        {
+          "kind": "narration",
+          "text": "The fixture and the view both write the token. Running the test in a loop to catch it.",
+          "turn": 1,
+          "minutesAgo": 30
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": { "command": "pytest tests/test_login.py --count 200 -x -q" },
+          "output": "3 failed, 197 passed in 41.2s",
+          "turn": 1,
+          "minutesAgo": 29
+        },
+        {
+          "kind": "tool_call",
+          "name": "Edit",
+          "input": {
+            "file_path": "/Users/sample/code/api/tests/conftest.py",
+            "old_string": "client.session['token'] = token",
+            "new_string": "client.session['token'] = token\n    client.session.save()"
+          },
+          "output": "+1 -0",
+          "turn": 1,
+          "minutesAgo": 26
+        },
+        {
+          "kind": "tool_call",
+          "name": "Edit",
+          "input": {
+            "file_path": "/Users/sample/code/api/tests/test_login.py",
+            "old_string": "response = client.post('/login')",
+            "new_string": "client.session.flush()\n    response = client.post('/login')"
+          },
+          "output": "+13 -0",
+          "turn": 1,
+          "minutesAgo": 25
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": { "command": "pytest tests/test_login.py --count 200 -x -q" },
+          "output": "200 passed in 40.8s",
+          "turn": 1,
+          "minutesAgo": 23
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": { "command": "pytest tests -q" },
+          "output": "412 passed in 58.3s",
+          "turn": 1,
+          "minutesAgo": 22
+        },
+        { "kind": "divider", "dividerKind": "turn", "turn": 2, "minutesAgo": 1 }
+      ]
+    },
+    {
+      "title": "Upgrade Django to 5.2",
+      "status": "Upgraded; two deprecations fixed",
+      "state": "done",
+      "minutesAgo": 2880
+    },
+    {
+      "title": "Remove unused feature flags",
+      "status": "Removed 9 flags and their checks",
+      "state": "done",
+      "minutesAgo": 5760
+    },
+    {
+      "title": "Rebuild the checkout page",
+      "status": "Porting the address form",
+      "activity": "working",
+      "minutesAgo": 2,
+      "workspace": { "name": "Storefront", "rootPath": "/Users/sample/code/storefront" }
+    },
+    {
+      "title": "Audit the bundle size",
+      "status": "Waiting on you: drop the date library?",
+      "unread": true,
+      "minutesAgo": 12,
+      "workspace": { "name": "Storefront", "rootPath": "/Users/sample/code/storefront" }
+    },
+    {
+      "title": "Fix cart total rounding",
+      "status": "Totals round half up, as invoices do",
+      "minutesAgo": 95,
+      "workspace": { "name": "Storefront", "rootPath": "/Users/sample/code/storefront" }
+    },
+    {
+      "title": "Rewrite the quickstart",
+      "status": "Drafting the install section",
+      "activity": "working",
+      "minutesAgo": 3,
+      "workspace": { "name": "Docs site", "rootPath": "/Users/sample/code/docs" }
+    },
+    {
+      "title": "Check for broken links",
+      "status": "No broken links in 214 pages",
+      "minutesAgo": 240,
+      "workspace": { "name": "Docs site", "rootPath": "/Users/sample/code/docs" }
+    }
+  ]
+}

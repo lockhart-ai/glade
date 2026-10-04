@@ -28,6 +28,7 @@
     "src/shared/attachedFiles.ts",
     "src/shared/browse.ts",
     "src/shared/bridge.ts",
+    "src/shared/broadcast.ts",
     "src/shared/doneList.ts",
     "src/shared/homeFolder.ts",
     "src/shared/commands.ts",

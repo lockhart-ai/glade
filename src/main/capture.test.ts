@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AppCommandId } from '../shared/commands'
 import { READY_ATTRIBUTE } from '../shared/ready'
 import {
   CAPTURE_ENV,
@@ -64,6 +65,8 @@ describe('readCaptureSpec', () => {
     )
     const presses = [{ key: ',', metaKey: true, shiftKey: false, altKey: false, ctrlKey: false }]
     expect(readCaptureSpec(env(spec({ presses })), false, MINIMUM)).toEqual(spec({ presses }))
+    const commands = [AppCommandId.Broadcast]
+    expect(readCaptureSpec(env(spec({ commands })), false, MINIMUM)).toEqual(spec({ commands }))
     const extras = { clicks: ['nav button:nth-of-type(6)'], plugins: [join(folder, 'fixtures')] }
     expect(readCaptureSpec(env(spec(extras)), false, MINIMUM)).toEqual(spec(extras))
   })
@@ -191,7 +194,9 @@ describe('captureShots', () => {
                 ? 'press'
                 : code.includes('.click()')
                   ? 'click'
-                  : 'wait for size',
+                  : code.includes('innerWidth')
+                    ? 'wait for size'
+                    : 'wait until settled',
           )
           return Promise.resolve(true)
         }),
@@ -225,6 +230,49 @@ describe('captureShots', () => {
     expect(files).toEqual([join(folder, 'shots', 'app-1920x1200.png'), join(folder, 'shots', 'app-1100x700.png')])
     expect(readFileSync(files[0] ?? '', 'utf8')).toBe('png 1920x1200')
     expect(readFileSync(files[1] ?? '', 'utf8')).toBe('png 1100x700')
+  })
+
+  it('runs the commands asked for, in order, before the key presses, waiting for each to settle', async () => {
+    const window = { ...fakeWindow(1), runCommand: vi.fn<(command: AppCommandId) => void>() }
+    window.runCommand.mockImplementation((command) => {
+      window.calls.push(`run ${command}`)
+    })
+    const commands = [AppCommandId.Settings, AppCommandId.Broadcast]
+    const presses = [{ key: 'Escape', metaKey: false, shiftKey: false, altKey: false, ctrlKey: false }]
+
+    await captureShots(window, spec({ shots: [{ width: 1100, height: 700, file: 'a.png' }], commands, presses }))
+
+    expect(window.calls).toEqual([
+      'wait until ready',
+      'run app.settings',
+      'wait until settled',
+      'run app.broadcast',
+      'wait until settled',
+      'press',
+      'resize 1100x700',
+      'wait for size',
+      'capture',
+    ])
+    expect(window.scripts[1]).toContain(`document.querySelector('[aria-busy="true"]') === null`)
+    expect(window.scripts[1]).toContain('document.getAnimations()')
+  })
+
+  it('captures anyway in a window that can run no commands', async () => {
+    const window = fakeWindow(1)
+
+    const files = await captureShots(
+      window,
+      spec({ shots: [{ width: 1100, height: 700, file: 'a.png' }], commands: [AppCommandId.Broadcast] }),
+    )
+
+    expect(window.calls).toEqual([
+      'wait until ready',
+      'wait until settled',
+      'resize 1100x700',
+      'wait for size',
+      'capture',
+    ])
+    expect(files).toEqual([join(folder, 'shots', 'a.png')])
   })
 
   it('presses the keys asked for, in order, once the page is ready and before capturing', async () => {

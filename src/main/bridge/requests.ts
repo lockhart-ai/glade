@@ -54,6 +54,7 @@ import {
   type TasksCreateRequest,
   type TasksRetryRequest,
   type LoginStartRequest,
+  type TasksBroadcastRequest,
   type TasksSendRequest,
   type TasksUpdateRequest,
   type TasksListRequest,
@@ -235,6 +236,8 @@ const tasksSendRequest = withContent(
   }),
   ({ id }) => id,
 ) satisfies z.ZodType<TasksSendRequest>
+
+const tasksBroadcastRequest = z.strictObject({ text: messageText }) satisfies z.ZodType<TasksBroadcastRequest>
 
 const tasksRetryRequest = z.strictObject({
   id: z.string(),
@@ -579,6 +582,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.TasksUpdate]: tasksUpdateRequest,
   [CommandName.TasksDelete]: taskIdRequest,
   [CommandName.TasksSend]: tasksSendRequest,
+  [CommandName.TasksBroadcast]: tasksBroadcastRequest,
   [CommandName.TasksStop]: taskIdRequest,
   [CommandName.TasksRetry]: tasksRetryRequest,
   [CommandName.TasksRetryLoggedOut]: emptyRequest,

@@ -1,0 +1,58 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "tasks": [
+    {
+      "title": "Investigate slow dashboard query",
+      "status": "Added an index; 2.1s down to 90ms",
+      "state": "done",
+      "pinned": true,
+      "minutesAgo": 7200
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "objective": "Add per-key rate limiting to the public API so one client can't starve the others. Over the limit, return 429 with a Retry-After header.",
+      "status": "Per-key limits live; /search at 60/min",
+      "state": "done",
+      "minutesAgo": 1,
+      "startedMinutesAgo": 44,
+      "selected": true,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Add per-key rate limiting to the public API so one client can't starve the others.",
+          "turn": 1,
+          "minutesAgo": 44
+        },
+        {
+          "role": "agent",
+          "body": "Per-key rate limiting is live on the public API. Over the limit, clients get a 429 with a Retry-After header. `/search` has its own limit of 60 a minute, and 15 tests cover it.",
+          "turn": 1,
+          "minutesAgo": 2,
+          "summary": { "durationMs": 1450000, "filesChanged": 4, "linesAdded": 61, "linesRemoved": 3 }
+        }
+      ],
+      "toolEvents": [{ "kind": "divider", "dividerKind": "turn", "turn": 1, "minutesAgo": 44 }]
+    },
+    {
+      "title": "Upgrade Django to 5.2",
+      "status": "Upgraded; two deprecations fixed",
+      "state": "done",
+      "minutesAgo": 2880
+    },
+    {
+      "title": "Remove unused feature flags",
+      "status": "Removed 9 flags and their checks",
+      "state": "done",
+      "minutesAgo": 5760
+    },
+    {
+      "title": "Set up nightly backups",
+      "status": "Nightly dump, 14-day retention",
+      "state": "done",
+      "minutesAgo": 10080
+    }
+  ]
+}

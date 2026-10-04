@@ -8,8 +8,6 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import { ASKS_SANDBOX } from '../src/main/agent/scripts'
-import type { SandboxFlagSettings } from '../src/main/agent/backend'
-import { E2E_AGENT_GLOBAL, type E2eAgent } from '../src/main/e2e'
 import { CommandName } from '../src/shared/bridge'
 import {
   PermissionDecisionKind,
@@ -19,7 +17,7 @@ import {
   type Task,
   type ToolCallEvent,
 } from '../src/shared/domain'
-import { expect, test, type Glade } from './fixtures'
+import { agentFlagSettings, expect, test } from './fixtures'
 import { chat, firstRun, inputBar, settings, taskHeader, taskList, taskPanel, workspaceSwitcher } from './selectors'
 import { invoke } from './task-view'
 
@@ -37,11 +35,6 @@ async function tasks(window: Page): Promise<readonly Task[]> {
 async function toolCalls(window: Page, taskId: string): Promise<ToolCallEvent[]> {
   const { toolEvents } = await invoke(window, CommandName.TasksHistory, { id: taskId })
   return toolEvents.filter((event): event is ToolCallEvent => event.kind === ToolEventKind.ToolCall)
-}
-
-/** Every change to a session's sandbox the app has asked for, oldest first. */
-async function overlays({ app }: Glade): Promise<SandboxFlagSettings[]> {
-  return app.evaluate((_, name) => [...(Reflect.get(globalThis, name) as E2eAgent).flagSettings], E2E_AGENT_GLOBAL)
 }
 
 /** Starts a task on the script, in Allow all with the sandbox on. */
@@ -153,7 +146,7 @@ test('the sandbox’s cards: a domain, a folder, a blocked command’s request_a
   expect(calls.find(({ input }) => input.command === ASKS_SANDBOX.compose)?.state).toBe(ToolCallState.Done)
 
   // The session's sandbox as it ended up: every grant, the read-only folders readable, the write's folder writable.
-  const last = (await overlays(glade)).at(-1)
+  const last = (await agentFlagSettings(glade)).at(-1)
   expect(last?.sandbox?.filesystem?.allowRead).toEqual([root, SHARED, DOCS, ASKS_SANDBOX.configFolder])
   expect(last?.sandbox?.filesystem?.allowWrite).toEqual([root, DOCS])
   expect(last?.permissions?.allow).toEqual([
@@ -223,7 +216,7 @@ test('a request_access card open when Glade quits is still there after a relaunc
     `Allowed for this workspace: read ${ASKS_SANDBOX.configFolder}`,
   )
   await expect(chat(again).restarts).toHaveCount(1)
-  const [first] = await overlays(relaunched)
+  const [first] = await agentFlagSettings(relaunched)
   expect(first?.sandbox?.filesystem?.allowRead).toEqual([root, SHARED, DOCS, ASKS_SANDBOX.configFolder])
   expect(first?.permissions?.allow).toContain(`WebFetch(domain:${ASKS_SANDBOX.host})`)
 })

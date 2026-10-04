@@ -7,6 +7,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { inPlugin } from './fixture-plugin'
 import { expect, pluginsFolder, test, type Glade } from './fixtures'
+import { inMain } from './in-main'
 import { firstRun, inputBar, taskHeader, taskList } from './selectors'
 
 const NEKOMATA_PLUGIN = process.env.NEKOMATA_PLUGIN
@@ -21,7 +22,7 @@ interface ConsoleLine {
 
 /** Reloads the plugin's page (it posts `ready` again) with its console recorded, and resolves once it's loaded. */
 async function reloadWatchingConsole({ app }: Glade): Promise<void> {
-  await app.evaluate(async ({ webContents }) => {
+  await inMain(app, async ({ webContents }) => {
     const page = webContents.getAllWebContents().find((contents) => contents.getURL().startsWith('glade-plugin:'))
     if (page === undefined) throw new Error('No plugin page is running')
     const lines: ConsoleLine[] = []
@@ -38,7 +39,7 @@ async function reloadWatchingConsole({ app }: Glade): Promise<void> {
 }
 
 async function consoleLines({ app }: Glade): Promise<ConsoleLine[]> {
-  return app.evaluate(() => Reflect.get(globalThis, 'nekomataConsole') as ConsoleLine[])
+  return inMain(app, () => Reflect.get(globalThis, 'nekomataConsole') as ConsoleLine[])
 }
 
 /** What the cafe's overlay says: its speech bubbles and name tags. */

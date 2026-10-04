@@ -1558,6 +1558,19 @@ describe('startApp in capture mode', () => {
     expect(electron.appHandlers.has('will-quit')).toBe(false)
   })
 
+  it('runs the commands the capture asks for in the window, as their menu bar items would', async () => {
+    askForCapture({ commands: [AppCommandId.Broadcast] })
+
+    await startAndWaitUntilReady()
+    await waitForExit()
+
+    expect(onlyWindow().webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, {
+      type: EventType.MenuCommand,
+      command: appCommand(AppCommandId.Broadcast),
+    })
+    expect(electron.app.exit).toHaveBeenCalledWith(0)
+  })
+
   it("pastes a plugin's view into the capture of the page, which leaves it out", async () => {
     askForCapture()
     const view = new electron.FakePluginView({})

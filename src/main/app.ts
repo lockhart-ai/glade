@@ -19,6 +19,7 @@ import {
   type WebPreferences,
 } from 'electron'
 import { CloseKind, EventType, type GladeEvent } from '../shared/bridge'
+import { appCommand } from '../shared/commands'
 import { UiStateKey } from '../shared/domain'
 import { homeArgument, SAMPLE_HOME, setHomeFolder } from '../shared/homeFolder'
 import { PLUGINS_FOLDER_NAME } from '../shared/plugins'
@@ -309,6 +310,10 @@ async function capture(spec: CaptureSpec, { database, bridge, agent, log }: Capt
       },
       webContents: window.webContents,
       nativeViews,
+      // As the menu bar's item does: its command goes to the window.
+      runCommand: (id) => {
+        bridge.emit({ type: EventType.MenuCommand, command: appCommand(id) })
+      },
     },
     spec,
     ({ data, width, height }) => nativeImage.createFromBitmap(data, { width, height }),
