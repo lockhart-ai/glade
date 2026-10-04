@@ -107,10 +107,20 @@ const BOUNDED_ROOTS: readonly string[] = [...DENIED_READ_ROOTS, '/System/Volumes
 const CODE_FOLDERS: ReadonlySet<string> = new Set(PROTECTED_FOLDERS)
 const CODE_FILES: ReadonlySet<string> = new Set(PROTECTED_FILES)
 
-/** Whether the path with this key is one of the files that run code, or in one of the folders that do. */
+/** Where Claude Code keeps the worktrees it makes for subagents, under its own folder: `.claude/worktrees`. */
+const WORKTREES = ['.claude', 'worktrees'] as const
+
+/**
+ * Whether the path with this key is one of the files that run code, or in one of the folders that do. A worktree under
+ * `.claude/worktrees` is where an agent works, not Claude Code's own configuration (Claude Code's check leaves it out
+ * the same way, in the bundled CLI's code): what's in it is judged by the rest of its path, where a second `.claude`
+ * is Claude Code's own folder again.
+ */
 export function runsCode(key: string): boolean {
   const parts = key.split('/')
-  return CODE_FILES.has(parts.at(-1) ?? '') || parts.some((part) => CODE_FOLDERS.has(part))
+  if (CODE_FILES.has(parts.at(-1) ?? '')) return true
+  const worktrees = parts.findIndex((part, index) => part === WORKTREES[0] && parts[index + 1] === WORKTREES[1])
+  return parts.some((part, index) => CODE_FOLDERS.has(part) && index !== worktrees)
 }
 
 /** The tools that run a shell command, which the sandbox bounds, and the input field naming the command. */

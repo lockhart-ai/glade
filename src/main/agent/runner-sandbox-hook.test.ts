@@ -350,6 +350,8 @@ describe('a rule in the user’s own Claude Code settings', () => {
     const inside: [string, ToolInput][] = [
       ['Read', { file_path: `${ROOT}/README.md` }],
       ['Write', { file_path: 'src/retry.ts', content: 'x' }],
+      // A subagent's worktree, where Claude Code makes them: its files are the agent's own work.
+      ['Edit', { file_path: `${ROOT}/.claude/worktrees/agent-a1b2c3/src/retry.ts` }],
       ['Edit', { file_path: `${SHARED}/index.ts` }],
       ['Read', { file_path: '/etc/hosts' }],
       ['Grep', { pattern: 'TODO' }],

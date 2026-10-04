@@ -461,6 +461,26 @@ describe('sandboxCrossing: writes', () => {
     expect(crossing('Write', { file_path: `${ROOT}/mcp.json` })).toBe(SandboxCrossing.None)
   })
 
+  // Claude Code makes its subagents' worktrees under `.claude/worktrees`, and its own check leaves them out: Glade's
+  // decides every write now (#514), so a worktree's files mustn't each ask.
+  it('takes a worktree under .claude/worktrees for where an agent works, and what’s in it by the rest of its path', () => {
+    const worktree = `${ROOT}/.claude/worktrees/agent-a1b2c3`
+    expect(crossing('Write', { file_path: `${worktree}/src/retry.ts` })).toBe(SandboxCrossing.None)
+    expect(crossing('Edit', { file_path: `${worktree}/README.md` })).toBe(SandboxCrossing.None)
+    // What runs code inside the worktree still does.
+    for (const path of ['.git', '.mcp.json', '.claude/settings.json', '.vscode/tasks.json', '.zshrc']) {
+      expect(crossing('Write', { file_path: `${worktree}/${path}` })).toBe(SandboxCrossing.Protected)
+    }
+    // Only the first: a worktree's own `.claude/worktrees` is Claude Code's folder again.
+    expect(crossing('Write', { file_path: `${worktree}/.claude/worktrees/nested/a.ts` })).toBe(
+      SandboxCrossing.Protected,
+    )
+    // And the rest of Claude Code's own folder is as it was.
+    expect(crossing('Write', { file_path: `${ROOT}/.claude/worktrees.json` })).toBe(SandboxCrossing.Protected)
+    expect(crossing('Write', { file_path: `${ROOT}/.claude/skills/review/SKILL.md` })).toBe(SandboxCrossing.Protected)
+    expect(crossing('Write', { file_path: `${ROOT}/worktrees/.claude/settings.json` })).toBe(SandboxCrossing.Protected)
+  })
+
   // #514, finding 4: `Write ~/.zshrc` got the card for the file by itself, read-write, and `Write
   // ~/other/.git/hooks/pre-commit` the card for that folder: Allow for this task then granted the file that runs code.
   it.each([

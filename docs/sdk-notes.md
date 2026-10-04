@@ -2401,9 +2401,13 @@ command wrote `.zshrc` [verified, "Probed for P15-07"].
   probed]** that the entries Glade adds take effect: if a pattern didn't, the top-level entries still would.
 - **For the file tools,** a write to a file that runs code asks wherever it is (`runsCode`), on the plain card:
   Allow once or Deny. No folder or file grant is offered for it, and `request_access` is refused for a write to what
-  a command can't write in any grant (`isProtectedWrite`).
-- **Not covered:** a bare repository (`<folder>/repo.git/hooks`), and a grant made in Settings of a protected file or
-  folder itself, which is the user's own choice.
+  a command can't write in any grant (`isProtectedWrite`). Since the hook now decides by Glade's list, not Claude
+  Code's, the list leaves out what Claude Code's does: a worktree under `.claude/worktrees` is where an agent works,
+  and what's in it is judged by the rest of its path (from the bundled CLI's code).
+- **Not covered:** a bare repository (`<folder>/repo.git/hooks`); a grant made in Settings of a protected file or
+  folder itself, which is the user's own choice; and a protected name that isn't there yet, made in another case on a
+  volume that ignores case (`.VSCODE/tasks.json`), which the entries may not match [not probed; Claude Code's own
+  entries for the workspace root are written the same way].
 
 **The control endpoint's token.** With "Let agents control Glade" on, a session's environment has
 `GLADE_CONTROL_URL` and `GLADE_CONTROL_TOKEN`, and a sandboxed command could send them through the sandbox's own
