@@ -168,10 +168,58 @@
     needs you. The call itself can't survive (its Claude Code process is gone), so answering then resumes the session
     and tells the agent the decision in a message, as a question answered after a restart does. See
     `sdk-notes.md` §9.
-  - The agent sandbox (P15, #445) is **off by default while P15 is being built** (the `sandboxEnabled` setting,
-    Settings › Agent › Sandbox's switch): main is released from, and without the sandbox's permission cards a
-    sandboxed task would have no way to be granted anything from the chat. The default flips to on in P15's last PR
-    (#452).
+- **Agent sandbox (P15, #445).** How it's built, with the evidence, is in `sdk-notes.md` §15; how it behaves for the
+  user is in `product.md` and the user guide.
+  - **The Claude Agent SDK's built-in `sandbox`.** On macOS that's Seatbelt: nothing to install, and it's what Claude
+    Code's own `/sandbox` runs on. The alternatives surveyed were `srt` around the whole CLI, Docker Sandboxes, Apple
+    `container` and cloud sandboxes (E2B, Vercel). Each needs something installed or an account, and all are out of
+    scope; any of them could become a stronger opt-in tier later, through the SDK's `spawnClaudeCodeProcess` hook.
+  - **What it covers.** The agent's commands (`Bash`, `Monitor`) run under Seatbelt. The file tools (`Read`, `Edit`,
+    `Write`, `MultiEdit`, `NotebookEdit`), MCP servers and hooks run outside it, so the file tools are held to the
+    same folders by the permission mode and Glade's own check instead. The terminal tabs, Glade's git tracking and
+    Glade's own MCP tools run on the host, as before. Every task in a workspace shares the workspace root and the
+    workspace's grants; confining a task to its own folder is out of scope.
+  - **Nothing is granted by default.** An agent can read and write its workspace root, and read folders outside the
+    home folder (`/usr`, `/opt/homebrew`, `/Applications`), so system and Homebrew tools work. The home folder,
+    `/Users` and `/Volumes` are blocked apart from what's granted, and no domain is reachable. There's no starter set
+    of folders or domains (`github.com`, `registry.npmjs.org`, …). Claude Code always keeps its own temporary and log
+    paths writable (`/tmp/claude`, `~/.npm/_logs` and the like); Glade can't remove them.
+  - **Three grant scopes,** kept in SQLite (`sandbox_grants`): a **task**'s, from a permission card; a
+    **workspace**'s, from a card or Settings › Workspace; and **Glade-wide**, only from Settings › Agent, for what
+    every workspace needs. A grant is a folder, a single file or a domain. A folder is **read-only or read-write**:
+    a read asks for read-only access and a write for read-write. A domain is one grant for both the agent's commands
+    and `WebFetch`.
+  - **The card's actions:** Allow for this task · Allow for this workspace · Deny, with Deny's optional note, and no
+    Allow once: the SDK keeps an allowed host for the rest of the session anyway, so the smallest grant is the task.
+    The card doesn't offer "Allow everywhere"; the Glade-wide lists are filled only in Settings.
+  - **A command the sandbox blocked is surfaced by the agent,** with Glade's `request_access` tool, not by hooks or
+    the macOS log. Seatbelt never asks, and in an SDK session a blocked read or write leaves only "Operation not
+    permitted" in the command's result. Reading the denials from the system log and holding the turn in a `Bash`
+    hook was probed and not taken: the log is best effort and its tag is Claude Code's internal format.
+  - **Grants are applied with `applyFlagSettings` after a session starts, never in its start options.**
+    `applyFlagSettings` can't narrow what a session started with, only take back what an earlier `applyFlagSettings`
+    added. So a session starts with only the fixed parts (the workspace root, the read denies, the credential denies,
+    the rule that makes running outside the sandbox ask, no domains), and gets every grant that covers it as one
+    overlay before its first message and again on every change. That's what makes removing a grant, or making it
+    read-only, take effect from the agent's next call without a restart. One exception: a host a session was allowed
+    to reach on a card stays reachable until that session restarts (an SDK limit).
+  - **A sandbox that can't start refuses every run outside it.** On macOS the session still starts, and every command
+    fails with "Sandbox is required but failed to initialize". Glade spots that text, stops the task on the error
+    card with the reason, and denies every request in that session to run outside the sandbox, without a card.
+    `failIfUnavailable` stays true, so nothing falls back to running unsandboxed.
+  - **Running a command outside the sandbox is only ever allowed once.** It asks every time, in either mode,
+    whatever task rules exist, shows the command, and has no "always for this command".
+  - **Credential files stay blocked even inside a granted folder,** the home folder included: `~/.ssh`, `~/.aws`,
+    `~/.gnupg`, `~/.config/gh`, `~/.config/gcloud`, `~/.azure`, `~/.kube`, `~/Library/Keychains`, `~/.netrc`,
+    `~/.git-credentials` and `~/.docker/config.json`.
+  - **The user's own Claude Code settings still merge in** (`settingSources` includes `"user"`). Their allow rules
+    and any `sandbox` settings in `~/.claude` can widen what Glade grants. Documented, not fought.
+  - **The switch** (`sandboxEnabled`, Settings › Agent › Sandbox) is app-wide and **off by default until the phase's
+    security review is done** (#452); the default then flips to on. Existing workspaces and tasks take it on their
+    next session start, with no grants. With it off, a session starts exactly as it did before P15.
+  - **The shield** is the mark of the sandbox and of permissions: every card, tool-log line and setting that involves
+    them carries it, always filled. On a tool call's row its colour is the state (teal granted, pink denied or
+    blocked, purple waiting on you, dimmed withdrawn), and the line reads status first.
   - **The sandbox in Settings (P15-06, #451).** The switch is app-wide, in Settings › Agent, and a session reads it
     as it starts: a running session keeps what it started with. Under it are the Glade-wide Folders and Domains,
     which start empty and are filled only there; a workspace's are in Settings › Workspace, its root first, tagged,
@@ -246,7 +294,8 @@
     exist yet is asked for as it is, not by its parent folder; `request_access` takes `~` and `~/…` as the home
     folder; a call whose folder or host can't be granted (a path with a glob character or that can't be resolved, a
     host that isn't a name) keeps the plain card, allowed once or denied; and a session resumed from before the
-    sandbox was on keeps its old prompt and learns of `request_access` from the tool's description.
+    sandbox was on kept its old prompt and learnt of `request_access` only from the tool's description (P15-07 now
+    tells it, below).
   - Calls made without Jared in #510's security review (the supervisor's): **a card never offers the home folder,
     `/`, `/Users`, `/Volumes`, `/System/Volumes` or a folder above one of them.** A file whose folder is one of those
     is asked for by itself ("The agent wants to read `~/.gitconfig`") and granted alone, read-only or read-write: a
@@ -254,12 +303,73 @@
     path. Such a folder named outright is refused by `request_access` without a card, telling the agent to ask the
     user to add it in Settings, and gets the plain Allow once · Deny card from a file tool. Credential files are still
     refused outright. A single file reaches the session as its own path in the sandbox's lists and as `Read(//<file>)`
-    and, read-write, `Edit(//<file>)` rules, never as an additional directory; that Claude Code lets an edit through
-    on the `Edit` rule alone is from its documented rule syntax, not probed, and if it asks anyway the write gets the
-    plain card. Also in that review: a denied read denies a write to the same folder for the turn, while a denied
-    write still lets a read ask; a background subagent's requests belong to the turn its `Agent` call was made in; a
-    card's grant that matches one the scope already keeps in another case is kept as a grant of its own; and an
-    answer refused because its folder moved shows as "Denied" with Glade's note where yours would be.
+    and, read-write, `Edit(//<file>)` rules, never as an additional directory. That Claude Code lets a read and an
+    edit of exactly that file through on those rules, and that the sandbox takes a single file, was probed for
+    P15-07 (`sdk-notes.md` §15); a write it asks about anyway (a file whose name is on its list of files that run
+    code) gets the plain card. Also in that review: a denied read denies a write to the same folder for the turn,
+    while a denied write still lets a read ask; a background subagent's requests belong to the turn its `Agent` call
+    was made in; a card's grant that matches one the scope already keeps in another case is kept as a grant of its
+    own; and an answer refused because its folder moved shows as "Denied" with Glade's note where yours would be.
+  - **A session resumed into the sandbox is told of it once (P15-07, #452).** Claude Code keeps a session's system
+    prompt when it resumes it, so a session that started before the sandbox was on knows nothing of it, nor that a
+    blocked command is answered with `request_access`. When such a session runs sandboxed, Glade sends it what the
+    prompt says of the sandbox once, as a `[Glade: this session now runs in a sandbox] … [end]` block ahead of the
+    next message (the chat shows only the message), and records it in SQLite (`session_context.sandbox`) so a
+    relaunch neither loses nor repeats it. A session that still runs outside the sandbox isn't told.
+  - **Known friction.** Anything a command needs from the home folder fails until it's granted: toolchains
+    installed there (nvm, pyenv, rustup, cargo, go), `~/.gitconfig` (commits lose their author), `~/.npmrc` and
+    package caches. That's what the Glade-wide lists are for. `ssh` git remotes, Docker, localhost databases and some
+    tools that check TLS can't work inside the sandbox at all, and ask to run outside it each time. Denying the home
+    folder also hides `~/.zshenv` and Claude Code's own shell snapshot from commands: they run with Glade's `PATH`
+    but without the user's aliases and functions. A file granted by itself can be written in place but not replaced:
+    a tool that saves by writing a new file and renaming it (`sed -i`) fails on it.
+  - **Probed before turning it on (P15-07, `sdk-notes.md` §15).** Verified: a tool handler is given its call's
+    `tool_use` id; single-file grants work as built, for the file tools and for commands; the credential denies hold
+    under a granted parent, by path, link, case, the data volume's alias, hard link and rename; and `Monitor` fails
+    with the same text as `Bash` when the sandbox can't start. **Still open:** whether Claude Code's own `git`, run
+    in the workspace outside the sandbox, can be made to run a command by git config a sandboxed agent wrote (not
+    probed; `sdk-notes.md` covers only Glade's own git); and that a read-write grant covering a shell startup file
+    outside the workspace lets a sandboxed command write it (seen in the probe). Both are with the phase's security
+    review.
+  - **Calls made without Jared, for the release notes (P15).** From #445, accepted as a first pass:
+    1. Allow all with the sandbox runs as `acceptEdits`: nothing inside the grants asks, and boundary crossings do.
+    2. Credential files stay blocked even inside a granted folder (for example if `~` itself is granted).
+    3. The Sandbox switch is app-wide, in Settings › Agent, not per workspace or per task.
+    4. Running outside the sandbox can only be allowed once, with no "always for this command".
+    5. Existing workspaces and tasks get the sandbox on their next start after updating, with no grants.
+    6. `WebSearch` stays ungated: it runs on Anthropic's side and has no domain to check.
+    7. The Glade-wide lists can only be filled from Settings: the card doesn't offer "Allow everywhere".
+
+    From the cards (P15-05, #510):
+
+    8. A call the task's own grant covers reads "Allowed by task grant", beside the designs' "by workspace grant"
+       and "by Glade-wide grant".
+    9. A blocked command is told by "Operation not permitted" (in any case) in the error of a command that failed,
+       so one that failed for another reason with those words in its output is marked too.
+    10. A connection's card is put on the command running when it asked (the latest started, when several are),
+        since the SDK doesn't say which command made it.
+    11. A `request_access` path that doesn't exist yet is asked for as it is, not by its parent folder, and
+        `request_access` takes `~` and `~/…` as the home folder.
+    12. A call whose folder or host can't be granted (a path with a glob character or that can't be resolved, a host
+        that isn't a name) keeps the plain card, allowed once or denied.
+
+    From #510's security review (the supervisor's):
+
+    13. A card never offers the home folder, `/`, `/Users`, `/Volumes`, `/System/Volumes` or a folder above one of
+        them. A file whose folder is one of those is asked for by itself and granted alone (a single-file grant);
+        such a folder named outright is refused by `request_access`, and gets the plain card from a file tool.
+    14. A denied read also denies a write to the same folder for the turn; a denied write still lets a read ask.
+    15. A background subagent's requests belong to the turn its `Agent` call was made in.
+    16. A card's grant that matches one the scope already keeps in another case is kept as a grant of its own.
+    17. An answer refused because its folder moved while the card was open shows as "Denied", with Glade's note
+        where yours would be.
+
+    From this pass (P15-07, #452):
+
+    18. A session resumed into the sandbox is told of it in a block of its own, `[Glade: this session now runs in a
+        sandbox]`, once, ahead of its next message, and not at all while it still runs outside the sandbox. A
+        session recorded before this counts as not told, so one that started sandboxed while the sandbox was still
+        off by default is told once more.
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
     `manifest.json`: `id` (the folder's name), `name`, `version`, `entry` (an HTML file in the folder) and an optional

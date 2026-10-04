@@ -59,6 +59,7 @@ import {
   type Grant,
   type SandboxGrantTarget,
 } from '../shared/sandbox'
+import { sandboxFailureReason } from '../shared/sandboxFailure'
 import { DEFAULT_SETTINGS } from '../shared/settings'
 import { DRIVES_GLADE } from './agent/scripts'
 import { getSettings } from './db/repositories/settings'
@@ -1186,6 +1187,7 @@ describe('applySeed', () => {
   it.each([
     ['sandbox-folder-card.json', [SandboxAskKind.Folder, SandboxAskKind.Folder], 2],
     ['sandbox-domain-card.json', [SandboxAskKind.Folder, SandboxAskKind.Domain, SandboxAskKind.Folder], 2],
+    ['sandbox-file-card.json', [SandboxAskKind.Folder], 1],
     [
       'sandbox-outside-card.json',
       [
@@ -1205,6 +1207,30 @@ describe('applySeed', () => {
     expect(requests.map((request) => request.sandbox?.kind)).toEqual(kinds)
     expect(requests.filter((request) => request.state === undefined)).toHaveLength(open)
     applySeed(database.db, seed, NOW)
+  })
+
+  it('reads the file card fixture as a request for one file, and the failed sandbox fixture as its error', () => {
+    const fileCard = readSeed(join(FIXTURES, 'sandbox-file-card.json'))
+    const [request] = fileCard.tasks.find((one) => one.selected)?.permissionRequests ?? []
+    expect(request?.sandbox).toEqual({
+      kind: SandboxAskKind.Folder,
+      path: '/Users/sample/.gitconfig',
+      access: FolderAccess.Read,
+      file: true,
+    })
+
+    const failed = readSeed(join(FIXTURES, 'sandbox-failed.json'))
+    const stopped = failed.tasks.find((one) => one.selected)
+    expect(stopped?.error).toMatchObject({ kind: AgentErrorKind.Permanent, source: TaskErrorSource.Sandbox })
+    expect(sandboxFailureReason(stopped?.error?.details ?? '')).toBe(
+      'tlsTerminate: caCertPath and caKeyPath must be provided together',
+    )
+    applySeed(database.db, failed, NOW)
+    const tasks = listTasks(database.db, listWorkspaces(database.db)[0]?.id ?? '')
+    const failedTask = tasks.find((one) => one.title === stopped?.title)
+    expect(failedTask?.activity).toBe(TaskActivity.Error)
+    expect(failedTask?.error?.source).toBe(TaskErrorSource.Sandbox)
+    expect(tasks.filter((one) => one.error !== null)).toHaveLength(1)
   })
 
   it('refuses a sample allowed for the task that no rule could be granted for', () => {

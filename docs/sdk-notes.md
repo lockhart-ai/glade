@@ -1630,8 +1630,10 @@ Each is explained, with its evidence, below.
    names the `Bash` call it belongs to, was the alternative probed, and isn't used. See "A command's blocked read or
    write".
 2. **`PostToolUse` doesn't fire for a `Bash` call that fails.** Most blocked commands exit non-zero, and those get a
-   `PostToolUseFailure` hook instead, which can hold the turn and add context the same way. **Glade hooks both**, each
-   with a long `timeout`: without one, Claude Code stops waiting on a hook after 10 minutes.
+   `PostToolUseFailure` hook instead, which can hold the turn and add context the same way. **Glade hooks both**, on
+   `Bash` and `Monitor`, each with a long `timeout` (without one, Claude Code stops waiting on a hook after 10
+   minutes), but not to find what was blocked or to hold the turn for a card: that proposal wasn't taken. The hooks
+   answer at once, and are how Glade spots a sandbox that couldn't start and marks a command the sandbox blocked.
 3. **`applyFlagSettings` can't narrow what the session started with.** The `sandbox` and `settings` lists given at
    start stay in force: a later `applyFlagSettings` adds to them, and replacing it only takes back what an earlier
    `applyFlagSettings` added. **Alternative:** start each session with only what can never be revoked (the workspace
@@ -1935,10 +1937,12 @@ broke the config instead: `network.tlsTerminate` with a CA certificate and no ke
 ### What Glade does (P15-03, #448)
 
 The sandbox is on when Settings' `sandboxEnabled` is (Settings › Agent › Sandbox, P15-06), read as each session
-starts; a session keeps the sandbox it started with for its whole life. **The setting is off by default while P15 is
-being built**, since main is released from and a sandboxed task has no cards or settings to be granted anything with
-yet: the default flips to on in P15's last PR (#452). With it off, a session starts exactly as it did before P15. With
-it on (`src/main/agent/sandbox.ts`, wired in `runner.ts` and `sdk-backend.ts`):
+starts; a session keeps the sandbox it started with for its whole life. **The setting is off by default until the
+phase's security review is done** (#452), since main is released from; the default then flips to on. With it off, a
+session starts exactly as it did before P15. A session that started outside the sandbox and resumes in it keeps its
+old system prompt (§8), so Glade sends it what the prompt says of the sandbox once, ahead of its next message
+(`docs/model-surface.md`, "Resumed sessions"). With it on (`src/main/agent/sandbox.ts`, wired in `runner.ts` and
+`sdk-backend.ts`):
 
 - **At start, only the fixed parts** (`sandboxStartSettings`), since `applyFlagSettings` can't narrow them: `enabled`
   and `failIfUnavailable`; `filesystem.denyRead` the home folder (absolute, never `~`), `/Users` and `/Volumes`;

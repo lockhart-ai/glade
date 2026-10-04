@@ -3,7 +3,7 @@
 //
 //   node scripts/fixtures/doc-images.mjs [name…]
 //
-// With no names, it regenerates all 17 (see docs/doc-images.md for the list and what each shows). With one or more
+// With no names, it regenerates all 24 (see docs/doc-images.md for the list and what each shows). With one or more
 // names (e.g. `node scripts/fixtures/doc-images.mjs hero control`), it regenerates only those. Each image is captured
 // in a window that's never shown, from a seed in scripts/fixtures/ (`src/main/capture-seed.ts`), and saved with a
 // 256-colour palette (ffmpeg-static), as the rest of the docs' screenshots are.
@@ -35,6 +35,8 @@ const OPEN_SETTINGS = [
   '[role="menu"] button:nth-of-type(4)',
 ]
 const settingsSection = (nth) => ['--click', `nav[aria-label="Settings sections"] button:nth-of-type(${String(nth)})`]
+/** A click that changes nothing (the right panel's selected tab), and so only waits until the task is on screen. */
+const TASK_SHOWN = ['--click', '[role="tab"][aria-selected="true"]']
 
 /** One image captured straight from a seed and a size: `scripts/screenshot.mjs`'s own args, after `--out <dir>`. */
 const SCREENSHOTS = {
@@ -70,6 +72,38 @@ const SCREENSHOTS = {
   backfilled: {
     out: join(IMAGES, 'guide', 'backfilled.png'),
     args: ['--seed', 'backfilled.json', '--size', '1280x880'],
+  },
+  // The agent sandbox (P15): its permission cards, a sandbox that couldn't start, and its two Settings sections. Each
+  // card capture clicks the tab that's already selected (TASK_SHOWN), which changes nothing but waits for the task to
+  // be on screen: at the window's own size, a capture can otherwise land on the "Loading…" page.
+  'sandbox-folder-card': {
+    out: join(IMAGES, 'guide', 'sandbox-folder-card.png'),
+    args: ['--seed', 'sandbox-folder-card.json', '--size', '1280x800', ...TASK_SHOWN],
+  },
+  'sandbox-file-card': {
+    out: join(IMAGES, 'guide', 'sandbox-file-card.png'),
+    args: ['--seed', 'sandbox-file-card.json', '--size', '1280x800', ...TASK_SHOWN],
+  },
+  'sandbox-domain-card': {
+    out: join(IMAGES, 'guide', 'sandbox-domain-card.png'),
+    args: ['--seed', 'sandbox-domain-card.json', '--size', '1280x980', ...TASK_SHOWN],
+  },
+  'sandbox-outside-card': {
+    out: join(IMAGES, 'guide', 'sandbox-outside-card.png'),
+    args: ['--seed', 'sandbox-outside-card.json', '--size', '1280x800', ...TASK_SHOWN],
+  },
+  'sandbox-failed': {
+    out: join(IMAGES, 'guide', 'sandbox-failed.png'),
+    args: ['--seed', 'sandbox-failed.json', '--size', '1280x800', ...TASK_SHOWN],
+  },
+  'settings-sandbox': {
+    out: join(IMAGES, 'guide', 'settings-sandbox.png'),
+    args: ['--seed', 'settings-sandbox.json', '--size', '1280x800', ...OPEN_SETTINGS, ...settingsSection(2)],
+  },
+  // Workspace settings… opens on the workspace's own section: no nav click.
+  'settings-workspace-sandbox': {
+    out: join(IMAGES, 'guide', 'settings-workspace-sandbox.png'),
+    args: ['--seed', 'settings-sandbox.json', '--size', '1280x800', ...OPEN_SETTINGS],
   },
 }
 
