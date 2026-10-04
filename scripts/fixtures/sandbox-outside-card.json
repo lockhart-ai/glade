@@ -63,6 +63,7 @@
             "file_path": "/Users/sample/code/acme-shared/openapi/common.yaml"
           },
           "output": "210 lines",
+          "toolUseId": "read-shared",
           "turn": 1,
           "minutesAgo": 16
         },
@@ -85,6 +86,7 @@
           },
           "output": "Exit code 1\nerror: failed to create directory `/Users/sample/.cache/uv`: Operation not permitted (os error 1)",
           "state": "error",
+          "toolUseId": "uv-sync",
           "turn": 1,
           "minutesAgo": 13
         },
@@ -273,6 +275,31 @@
           },
           "turn": 3,
           "minutesAgo": 1
+        }
+      ],
+      "permissionMarks": [
+        {
+          "toolUseId": "read-shared",
+          "outcome": {
+            "kind": "grant",
+            "scope": "workspace",
+            "ask": {
+              "kind": "folder",
+              "path": "/Users/sample/code/acme-shared",
+              "access": "read"
+            }
+          }
+        },
+        {
+          "toolUseId": "uv-sync",
+          "outcome": {
+            "kind": "blocked",
+            "ask": {
+              "kind": "folder",
+              "path": "/Users/sample/.cache/uv",
+              "access": "read_write"
+            }
+          }
         }
       ]
     },

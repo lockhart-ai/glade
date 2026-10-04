@@ -71,6 +71,7 @@
             "file_path": "/Users/sample/code/acme-shared/openapi/common.yaml"
           },
           "output": "210 lines",
+          "toolUseId": "read-shared",
           "turn": 1,
           "minutesAgo": 27
         },
@@ -141,6 +142,20 @@
           },
           "turn": 1,
           "minutesAgo": 1
+        }
+      ],
+      "permissionMarks": [
+        {
+          "toolUseId": "read-shared",
+          "outcome": {
+            "kind": "grant",
+            "scope": "workspace",
+            "ask": {
+              "kind": "folder",
+              "path": "/Users/sample/code/acme-shared",
+              "access": "read"
+            }
+          }
         }
       ]
     },

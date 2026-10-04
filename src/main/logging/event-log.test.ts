@@ -8,6 +8,7 @@ import {
   MessageRole,
   PauseReason,
   PermissionMode,
+  PermissionMarkKind,
   PermissionRequestState,
   QuestionKind,
   QuestionReplyKind,
@@ -621,6 +622,27 @@ describe('permission requests', () => {
     createdAt: 1_000,
     closedAt: null,
   }
+
+  it('logs a call a rule decided, by what decided it, without the folder or command it names', () => {
+    logEvent({
+      type: EventType.PermissionMarked,
+      mark: {
+        taskId: 'task-1',
+        toolUseId: 'toolu_9',
+        outcome: { kind: PermissionMarkKind.TaskRule, rule: { toolName: 'Bash', ruleContent: 'npm run lint *' } },
+        createdAt: 1_000,
+      },
+    })
+
+    expect(logged()).toEqual([
+      {
+        level: LogLevel.Info,
+        scope: LogScope.Permissions,
+        message: 'permission marked',
+        fields: { taskId: 'task-1', toolUseId: 'toolu_9', outcome: PermissionMarkKind.TaskRule },
+      },
+    ])
+  })
 
   it('logs a request opened, with its input at debug, then allowed, denied with its note at debug, and withdrawn', () => {
     const closed = { ...REQUEST, closedAt: 2_000 }

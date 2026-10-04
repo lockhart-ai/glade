@@ -101,7 +101,9 @@ test('the sandbox’s cards: a domain, a folder, a blocked command’s request_a
   await expect(access).toContainText('cat needs to read the shared config.')
   await expect(answers(access)).toHaveText(['Allow for this task', 'Allow for this workspace', 'Deny'])
   await expect(taskPanel(window).call(/^Failed\s*Bash/)).toHaveCount(1)
-  await expect(taskPanel(window).call(/^Running\s*request_access/)).toBeVisible()
+  await expect(taskPanel(window).call(/^Waiting\s*request_access/)).toContainText(
+    `Waiting on you: read ${ASKS_SANDBOX.configFolder}`,
+  )
   await access.getByRole('button', { name: 'Allow for this task' }).click()
 
   // Running outside the sandbox: the command, what that means, and only Allow once and Deny.
@@ -217,7 +219,7 @@ test('a request_access card open when Glade quits is still there after a relaunc
   await card.getByRole('button', { name: 'Allow for this workspace' }).click()
 
   // The grant is saved, the session resumes with it, and the agent is told.
-  await expect(taskPanel(again).permissionLines.last()).toHaveText(
+  await expect(taskPanel(again).call(/^Interrupted\s*request_access/)).toContainText(
     `Allowed for this workspace: read ${ASKS_SANDBOX.configFolder}`,
   )
   await expect(chat(again).restarts).toHaveCount(1)

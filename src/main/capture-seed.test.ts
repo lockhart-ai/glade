@@ -28,8 +28,10 @@ import {
   WatcherState,
   type EpochMs,
   type Question,
+  PermissionMarkKind,
 } from '../shared/domain'
 import { SandboxAskKind } from '../shared/sandbox'
+import { listPermissionMarks } from './db/repositories/permission-marks'
 import { applySeed, readSeed, seedArtifactAt, type CaptureSeed } from './capture-seed'
 import { getArtifactFilter, listArtifacts, listFileArtifacts } from './db/repositories/artifacts'
 import { getHandoff } from './db/repositories/backfills'
@@ -1137,6 +1139,7 @@ describe('applySeed', () => {
               },
               { ...read, toolUseId: 'open', minutesAgo: 1 },
             ],
+            permissionMarks: [{ toolUseId: 'blocked', outcome: { kind: PermissionMarkKind.Blocked, ask: null } }],
           },
         ],
       },
@@ -1151,6 +1154,9 @@ describe('applySeed', () => {
       { toolUseId: 'open', sandbox: web, state: PermissionRequestState.Open, suppressAlwaysAllowRule: true },
     ])
     expect(listTaskPermissionRules(db, task?.id ?? '')).toEqual([])
+    expect(listPermissionMarks(db, task?.id ?? '')).toMatchObject([
+      { toolUseId: 'blocked', outcome: { kind: PermissionMarkKind.Blocked, ask: null }, createdAt: NOW },
+    ])
   })
 
   it.each([

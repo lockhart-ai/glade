@@ -39,7 +39,7 @@ about in `muted` text, so a row has a few coloured words, not a coloured line.
 | Allowed once | teal | You, on a card | "Allowed once: run outside the sandbox" |
 | Allowed for this task | teal | You, on a card | "Allowed for this task: read ~/code/acme-web" |
 | Allowed for this workspace | teal | You, on a card | "Allowed for this workspace: write to ~/code/acme-web/src/api" |
-| Allowed by Glade-wide grant, by workspace grant, by task rule | teal | A rule: a grant in Settings, an Allow for this task rule, your own allow rules | "Allowed by workspace grant: read ~/code/acme-shared", "Allowed by task rule: npm run lint commands" |
+| Allowed by Glade-wide grant, by workspace grant, by task grant, by task rule | teal | A rule: a grant in Settings, an Allow for this task rule, your own allow rules | "Allowed by workspace grant: read ~/code/acme-shared", "Allowed by task rule: npm run lint commands" |
 | Denied | pink | You, on a card, with your note | "Denied: reach registry.npmjs.org · “Use the openapi-typescript in tools/, no installs.”" |
 | Blocked by the sandbox | pink | A rule: the sandbox refusing something, such as a blocked command or a credential file | "Blocked by the sandbox: write to ~/.cache/uv" |
 | Waiting on you | purple | Nobody yet: its card is open | "Waiting on you: reach registry.npmjs.org" |

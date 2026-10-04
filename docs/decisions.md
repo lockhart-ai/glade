@@ -208,7 +208,19 @@
     is live, or at once when there's nothing to decide (the sandbox is off, the path is in the workspace or already
     usable as asked, or it's a credential path, which is refused). It's the one Glade tool a subagent may call; the
     card names the subagent. See `model-surface.md`.
-  - Calls made without Jared in P15-05: a connection's card is put on the command running when it asked (the latest
+  - The sandbox's decisions on the tool rows (#459's permission line). A sandbox request's line names what it was
+    about in every state ("Allowed for this workspace: write to ~/code/acme-web/src/api", "Withdrawn: write to
+    ~/.cache/uv"). Where Glade can tell a rule decided a call, it marks the call (`permission_marks`, one per call,
+    kept across relaunches, sent to the windows one at a time): a file tool or `WebFetch` a grant covers, by the
+    narrowest scope that grants it; in the ask mode, a call a task rule covers; a sandboxed `Bash` or `Monitor` call
+    whose result says "Operation not permitted", named once the agent's next `request_access` says what it was blocked
+    from; a credential path refused; and a `request_access` answered without a card. Your own answer on a call shows
+    over a rule's. A call in the workspace root with no rule involved has no line. In the task list, a task waiting on
+    a permission card shows the filled purple shield and "Waiting on you", with what a sandbox card asks for.
+  - Calls made without Jared in P15-05: a call the task's own grant covers reads "Allowed by task grant", beside the
+    designs' "by workspace grant" and "by Glade-wide grant"; a blocked command is told by "Operation not permitted" in
+    its result in any case, failed or not, so a command that only prints those words is marked too; the blocked
+    command a `request_access` names is the task's latest one not yet named; a connection's card is put on the command running when it asked (the latest
     started, when several are), since the SDK doesn't say which command made it; a `request_access` path that doesn't
     exist yet is asked for as it is, not by its parent folder; `request_access` takes `~` and `~/…` as the home
     folder; a call whose folder or host can't be granted (a path with a glob character or that can't be resolved, a

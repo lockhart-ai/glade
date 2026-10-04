@@ -486,6 +486,21 @@ sandbox", with the command. Outside the sandbox it can use any folder and reach 
 
 Nothing you allow is written to your project or to `~/.claude`: Glade keeps it, and gives it to the agent's session.
 
+Once answered, a sandbox card leaves the chat like any other, and its call's row in the **Tool calls** tab says what
+you decided and what it was about: "Allowed for this task: read ~/code/acme-web", "Allowed for this workspace: write
+to ~/code/acme-web/src/api", "Allowed once: run outside the sandbox", "Denied: reach registry.npmjs.org · “your
+note”". A connection's line is on the row of the command that made it. The same shield marks the calls nobody had to
+ask you about, because a rule decided them:
+
+| The line | What happened |
+|---|---|
+| Teal: **Allowed by task grant**, **by workspace grant** or **by Glade-wide grant: read ~/code/acme-shared** | A folder or domain you allowed earlier, on a card or in Settings, let the call through. |
+| Teal: **Allowed by task rule: npm run lint commands** | A rule from an earlier Allow for this task let it through. |
+| Pink: **Blocked by the sandbox** | The sandbox stopped a command from reading or writing something ("Operation not permitted"), or a credential file was refused. Once the agent asks for the folder, the line says which: "Blocked by the sandbox: write to ~/.cache/uv". |
+
+A call inside the workspace folder, with no rule involved, has no line. In the task list, a task waiting on a card
+shows the shield and what it waits on: "Waiting on you: read ~/code/acme-web".
+
 ## Settings
 
 ⌘, opens Settings. Every change saves as you make it.

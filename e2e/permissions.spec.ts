@@ -207,13 +207,16 @@ test('Allow for this task grants a command prefix or a whole tool: the calls it 
   await expect(edit.getByRole('button', { name: 'Allow Edit for this task' })).toBeFocused()
   await window.keyboard.press('Enter')
 
-  // The second edit didn't ask: the agent replied, with three lines for the three calls that asked.
+  // The second edit didn't ask: the agent replied. The three calls that asked have your answers on their rows, and
+  // the two the task's new rules let through say which rule did (#450).
   await expect(conversation.agentReplies.first()).toContainText(ALLOWS_FOR_TASK.reply)
   await expect(conversation.permissionRequests).toHaveCount(0)
   await expect(panel.permissionLines).toHaveText([
     'Allowed for this task: npm test commands',
+    'Allowed by task rule: npm test commands',
     'Allowed once',
     'Allowed for this task: Edit',
+    'Allowed by task rule: Edit',
   ])
   expect((await toolCall(window, 'Edit', ALLOWS_FOR_TASK.editAgain.file_path))?.output).toBe(
     'The file README.md has been updated.',
@@ -227,8 +230,10 @@ test('Allow for this task grants a command prefix or a whole tool: the calls it 
   // The decisions are still on their rows, and still out of the chat.
   await expect(taskPanel(again).permissionLines).toHaveText([
     'Allowed for this task: npm test commands',
+    'Allowed by task rule: npm test commands',
     'Allowed once',
     'Allowed for this task: Edit',
+    'Allowed by task rule: Edit',
   ])
   await expect(resumedChat.permissionRequests).toHaveCount(0)
   await inputBar(again).field.fill('Run them once more.')
@@ -237,8 +242,10 @@ test('Allow for this task grants a command prefix or a whole tool: the calls it 
   await expect(asked.getByLabel('Command')).toHaveText(ALLOWS_FOR_TASK.compound)
   await asked.getByRole('button', { name: 'Allow once' }).click()
   await expect(resumedChat.agentReplies).toHaveCount(2)
-  await expect(taskPanel(again).permissionLines).toHaveCount(4)
-  await expect(taskPanel(again).permissionLines.last()).toHaveText('Allowed once')
+  // The turn's other calls are let through by the task's rules, and say so; the compound command has your answer.
+  await expect(taskPanel(again).permissionLines).toHaveCount(10)
+  await expect(taskPanel(again).permissionLines.filter({ hasText: 'Allowed by task rule' })).toHaveCount(6)
+  await expect(taskPanel(again).permissionLines.filter({ hasText: 'Allowed once' })).toHaveCount(2)
   await expect(resumedChat.permissionRequests).toHaveCount(0)
 
   // Another task has none of them: its `npm test` asks.

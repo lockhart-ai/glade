@@ -260,7 +260,7 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
         permissionRequest(event.permissionRequest)
         return
       case EventType.PermissionMarked:
-        tools.info('permission marked', {
+        permissions.info('permission marked', {
           taskId: event.mark.taskId,
           toolUseId: event.mark.toolUseId,
           outcome: event.mark.outcome.kind,

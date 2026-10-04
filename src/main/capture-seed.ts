@@ -36,10 +36,12 @@ import {
   type TaskError,
   type ToolInput,
   type TurnSummary,
+  type PermissionMarkOutcome,
 } from '../shared/domain'
 import { taskPermissionRule } from '../shared/permissions'
 import type { CardGrantScope, SandboxAsk } from '../shared/sandbox'
-import { sandboxAskSchema } from './permissions/schema'
+import { permissionMarkOutcomeSchema, sandboxAskSchema } from './permissions/schema'
+import { setPermissionMark } from './db/repositories/permission-marks'
 import { preambleSchema, questionsSchema } from './questions/schema'
 import { appendQuestionSet } from './db/repositories/question-sets'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
@@ -183,6 +185,13 @@ export interface SeedPermissionRequest {
   readonly minutesAgo: number
 }
 
+/** A sample mark on a tool call a rule decided (`PermissionMark`). */
+export interface SeedPermissionMark {
+  /** The `toolUseId` of the sample tool call it's on. */
+  readonly toolUseId: string
+  readonly outcome: PermissionMarkOutcome
+}
+
 /** One sample tool log entry. */
 export type SeedToolEvent = SeedNarration | SeedToolCall | SeedDivider | SeedCompaction
 
@@ -245,6 +254,8 @@ export interface SeedTask {
   readonly permissionMode?: PermissionMode | undefined
   /** Its agent's tool calls that wait, or waited, on your OK, in the order they asked. */
   readonly permissionRequests?: readonly SeedPermissionRequest[] | undefined
+  /** Its tool calls a rule decided (a grant or task rule let through, or the sandbox blocked), by their `toolUseId`. */
+  readonly permissionMarks?: readonly SeedPermissionMark[] | undefined
   /** An open question set (the question card) its agent asked; none unless given. */
   readonly questionSet?: SeedQuestionSet | undefined
   /** What its agent left running or scheduled (the Watchers tab), in the order it started them. */
@@ -618,6 +629,9 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       permissionMode: z.enum(PermissionMode).optional(),
       workspace: z.strictObject({ name: z.string(), rootPath: z.string() }).optional(),
       notifications: z.array(z.strictObject({ body: z.string(), minutesAgo })).optional(),
+      permissionMarks: z
+        .array(z.strictObject({ toolUseId: z.string(), outcome: permissionMarkOutcomeSchema }))
+        .optional(),
       permissionRequests: z
         .array(
           z.strictObject({
@@ -975,6 +989,9 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       if (sample.handoff !== undefined) setHandoff(db, task.id, sample.handoff.body, ago(sample.handoff.minutesAgo))
       for (const request of sample.permissionRequests ?? []) {
         seedPermissionRequest(db, task.id, request, ago(request.minutesAgo))
+      }
+      for (const { toolUseId, outcome } of sample.permissionMarks ?? []) {
+        setPermissionMark(db, { taskId: task.id, toolUseId, outcome }, now)
       }
       if (sample.questionSet !== undefined) {
         const { preamble, questions, turn, minutesAgo } = sample.questionSet

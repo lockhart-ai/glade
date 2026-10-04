@@ -2044,6 +2044,13 @@ What each request above becomes (`src/main/permissions/sandbox-ask.ts`, the runn
   (`claudecode/toolUseId`: **from the bundled binary, not probed**, and `claudecode/agentId` is sent only to one of
   Claude Code's own servers), or, without one, as the oldest call for the same path and access still unanswered.
   Either way the card is the right one; only which of two identical calls is which could differ.
+- **What a rule decided** (`PermissionMark`, `permission_marks`). Claude Code doesn't ask about a call a rule or a
+  grant covers, so Glade works it out itself as the call's `tool_use` arrives: the same classification `canUseTool`
+  would get (`sandboxCrossing`), and then which scope's grant holds the path or host (`grantingGrant`), or, in the ask
+  mode, which task rule covers the call (`ruleCovers`, the prefix match the scripted agents use: close to Claude
+  Code's, not it). A request for the call, if one comes after all, shows over the mark. A blocked command is spotted
+  in the `Bash`/`Monitor` hook that already hears each result, by "Operation not permitted" in it (any case: a shell
+  redirect writes it lower-case), unless the call ran outside the sandbox.
 - **A relaunch:** a sandbox request left open is answered like any other the app quit on (§9). The grant is saved with
   the answer, the session Glade resumes starts with it in its first overlay, and the message that hands the agent the
   decisions says what was allowed and for whom. A folder or domain needs no pass for the retry, since its grant is in
