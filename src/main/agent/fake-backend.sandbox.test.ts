@@ -9,6 +9,7 @@ import {
   type AgentSessionOptions,
   type BashCallFinished,
   type SandboxFlagSettings,
+  type ToolCallStarting,
   type ToolPermissionCall,
 } from './backend'
 import { FakeAgentBackend } from './fake-backend'
@@ -115,4 +116,46 @@ it('records each applyFlagSettings, applying it at once unless the test says oth
     { permissions: { allow: ['WebFetch(domain:registry.npmjs.org)'] } },
     { sandbox: null },
   ])
+})
+
+it('puts a call about to run to the session’s hook, names its subagent, and can abort it as the SDK does', async () => {
+  const heard: ToolCallStarting[] = []
+  const session = new FakeAgentBackend().start({
+    ...OPTIONS,
+    hooks: {
+      onPrompt: () => PromptVerdict.Allow,
+      onTurnEnded: () => undefined,
+      onCompacted: () => undefined,
+      onToolStarting: (call) => {
+        heard.push(call)
+        return Promise.resolve({ behavior: ToolPermissionBehavior.Deny, message: 'Not that folder.', byUser: true })
+      },
+    },
+  })
+
+  const own = session.startTool({ toolName: 'Read', toolUseId: 'toolu_1', input: { file_path: '/code/other/a.md' } })
+  const theirs = session.startTool({ toolName: 'Bash', toolUseId: 'toolu_2', input: { command: 'ls' }, agentId: 'a1' })
+
+  await expect(own.decision).resolves.toEqual({
+    behavior: ToolPermissionBehavior.Deny,
+    message: 'Not that folder.',
+    byUser: true,
+  })
+  await theirs.decision
+  expect(heard.map(({ toolName, toolUseId, input, agentId }) => ({ toolName, toolUseId, input, agentId }))).toEqual([
+    { toolName: 'Read', toolUseId: 'toolu_1', input: { file_path: '/code/other/a.md' }, agentId: null },
+    { toolName: 'Bash', toolUseId: 'toolu_2', input: { command: 'ls' }, agentId: 'a1' },
+  ])
+  expect(heard[0]?.signal.aborted).toBe(false)
+  own.abort()
+  expect(heard[0]?.signal.aborted).toBe(true)
+  expect(heard[1]?.signal.aborted).toBe(false)
+})
+
+it('decides nothing of a call about to run when the session has no hook for it', async () => {
+  const session = new FakeAgentBackend().start(OPTIONS)
+  const started = session.startTool({ toolName: 'Read', toolUseId: 'toolu_1', input: {} })
+
+  await expect(started.decision).resolves.toBeNull()
+  started.abort()
 })

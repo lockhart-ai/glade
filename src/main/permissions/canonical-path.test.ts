@@ -1,10 +1,28 @@
 // One spelling for a path (#448): what the sandbox's folder checks compare, so a link, an alias, another case or `~`
 // can't stand in for a folder they deny.
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { absolutePath, canonicalKey, canonicalPath, keyInside, NATIVE_FS, pathKey, type PathFs } from './canonical-path'
+import {
+  absolutePath,
+  canonicalKey,
+  canonicalPath,
+  isAliasPath,
+  keyInside,
+  NATIVE_FS,
+  pathKey,
+  type PathFs,
+} from './canonical-path'
 
 /** A file system of the paths given: `real` maps each path that exists to where it really is, `links` each link. */
 function fakeFs(real: Readonly<Record<string, string>>, links: Readonly<Record<string, string>> = {}): PathFs {
@@ -149,6 +167,73 @@ describe('canonicalPath', () => {
   })
 })
 
+// #514, finding 1: macOS names any file by three other paths, which `realpath` doesn't turn back into the real one.
+describe('macOS’s magic folders', () => {
+  it.each([
+    '/.nofollow/Users/me/.ssh/id_rsa',
+    '/.vol/16777230/2/Users/me/.ssh/id_rsa',
+    '/.resolve/1/Users/me/Documents/taxes.pdf',
+    '/.NOFOLLOW/Users/me',
+    '/.Vol/1/2',
+    '/.nofollow',
+    '/.vol',
+    '/.resolve',
+    '/System/Volumes/Data/.nofollow/Users/me',
+  ])('knows %s for a path in one', (path) => {
+    expect(isAliasPath(path)).toBe(true)
+  })
+
+  it.each(['/.volumes/x', '/.nofollowed', '/Users/me/.vol/1', '/tmp/.resolve/1/etc', '/', '/Users/me'])(
+    'doesn’t take %s for one',
+    (path) => {
+      expect(isAliasPath(path)).toBe(false)
+    },
+  )
+
+  it('has no path, and no key, for one written through a magic folder, whatever the disk says of it', () => {
+    // As macOS answers: `/.nofollow/…` comes back unchanged, and the other two fail.
+    const fs = counting(fakeFs({ '/.nofollow/Users/me/.ssh/id_rsa': '/.nofollow/Users/me/.ssh/id_rsa' }))
+
+    for (const path of [
+      '/.nofollow/Users/me/.ssh/id_rsa',
+      '/.vol/16777230/2/Users/me/.ssh/id_rsa',
+      '/.resolve/1/Users/me/.ssh/id_rsa',
+      '/tmp/../.nofollow/Users/me/.ssh/id_rsa',
+    ]) {
+      expect(canonicalPath(path, fs)).toBeNull()
+      expect(canonicalKey(path, fs)).toBeNull()
+    }
+    // Refused before the disk is asked anything.
+    expect(fs.reads).toEqual([])
+  })
+
+  it('has none for a link that leads into one, there or not', () => {
+    const resolved = fakeFs({
+      '/Users/me/src/acme-api/link': '/.nofollow/Users/me/Documents',
+      '/Users/me/src/acme-api/link/taxes.pdf': '/.nofollow/Users/me/Documents/taxes.pdf',
+    })
+    expect(canonicalPath('/Users/me/src/acme-api/link', resolved)).toBeNull()
+    expect(canonicalPath('/Users/me/src/acme-api/link/taxes.pdf', resolved)).toBeNull()
+    // A file that isn't there yet, under a link that is.
+    expect(canonicalPath('/Users/me/src/acme-api/link/new.txt', resolved)).toBeNull()
+
+    // `realpath` fails through `/.vol` and `/.resolve`: the link is read instead, and leads there.
+    const unresolved = fakeFs({}, { '/Users/me/src/acme-api/link': '/.vol/16777230/2/Users/me/Documents' })
+    expect(canonicalPath('/Users/me/src/acme-api/link/taxes.pdf', unresolved)).toBeNull()
+    const relative = fakeFs({}, { '/Users/me/src/acme-api/link': '../../../../.resolve/1/Users/me' })
+    expect(canonicalPath('/Users/me/src/acme-api/link/x', relative)).toBeNull()
+    // And through a second link.
+    const twice = fakeFs({}, { '/tmp/a': '/tmp/b', '/tmp/b': '/.nofollow/Users/me' })
+    expect(canonicalPath('/tmp/a/x', twice)).toBeNull()
+  })
+
+  it('has none when the disk’s own answer is in one, in whatever case', () => {
+    const fs = fakeFs({ '/tmp/link': '/.NoFollow/Users/me', '/tmp/data': '/System/Volumes/Data/.vol/1/2/Users/me' })
+    expect(canonicalPath('/tmp/link', fs)).toBeNull()
+    expect(canonicalPath('/tmp/data/x', fs)).toBeNull()
+  })
+})
+
 describe('keyInside', () => {
   it('is the folder or something in it, never a folder whose name only starts the same', () => {
     expect(keyInside('/users/me/notes', '/users/me/notes')).toBe(true)
@@ -190,6 +275,34 @@ describe('the real file system', () => {
     expect(canonicalKey(join(folder, 'root', 'dangling', 'x.txt'))).toBe(
       pathKey(join(folder, 'private', 'later', 'x.txt')),
     )
+  })
+
+  // The same on the disk itself, where there are such folders: macOS only.
+  describe.skipIf(process.platform !== 'darwin')('macOS’s magic folders, for real', () => {
+    it('reads a file by each of its other names, and resolves none of them', () => {
+      const file = join(folder, 'private', 'taxes.txt')
+      const { dev, ino } = statSync(file)
+      const names = [`/.nofollow${file}`, `/.vol/${String(dev)}/${String(ino)}`, `/.resolve/1${file}`]
+
+      for (const name of names) {
+        // What makes them dangerous: the file reads by that name.
+        expect(readFileSync(name, 'utf8')).toBe('sample')
+        expect(canonicalPath(name)).toBeNull()
+        expect(canonicalKey(name)).toBeNull()
+      }
+    })
+
+    it('resolves no link in the root that leads into one', () => {
+      symlinkSync(`/.nofollow${join(folder, 'private')}`, join(folder, 'root', 'link'))
+      const { dev, ino } = statSync(join(folder, 'private'))
+      symlinkSync(`/.vol/${String(dev)}/${String(ino)}`, join(folder, 'root', 'vol'))
+
+      // Whether a read through such a link succeeds is macOS's to say (it failed when probed): it's refused either way.
+      expect(canonicalPath(join(folder, 'root', 'link', 'taxes.txt'))).toBeNull()
+      expect(canonicalPath(join(folder, 'root', 'link', 'new.txt'))).toBeNull()
+      expect(canonicalPath(join(folder, 'root', 'vol', 'taxes.txt'))).toBeNull()
+      expect(canonicalPath(join(folder, 'root', 'vol', 'new.txt'))).toBeNull()
+    })
   })
 
   it('reads a real path, and nothing for one that isn’t there or isn’t a link', () => {

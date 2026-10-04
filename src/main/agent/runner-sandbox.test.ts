@@ -857,10 +857,8 @@ describe('grants', () => {
     }
     expect(session.options.flagSettings).toEqual(sandboxStartSettings(ROOT))
     expect(session.flagSettings).toEqual([sandboxOverlay(ROOT, PermissionMode.AllowAll, usable)])
-    expect(session.flagSettings[0]?.permissions?.allow).toEqual([
-      `Read(/${HOME}/notes/**)`,
-      'WebFetch(domain:registry.npmjs.org)',
-    ])
+    expect(session.flagSettings[0]?.permissions?.allow).toEqual(['WebFetch(domain:registry.npmjs.org)'])
+    expect(session.flagSettings[0]?.sandbox?.filesystem?.allowRead).toEqual([ROOT, `${HOME}/notes`, `${HOME}/shared`])
     expect(log.withMessage('left a grant out of the sandbox').map(({ fields }) => fields)).toEqual([
       { taskId: task.id, value: `${HOME}/a*`, problem: GrantProblem.Pattern },
       { taskId: task.id, value: '*', problem: GrantProblem.NotAHost },

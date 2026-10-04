@@ -31,6 +31,7 @@ import { getSettings } from '../db/repositories/settings'
 import { setSdkModels } from '../db/repositories/sdk-models'
 import { getTask, listTasks, updateTask } from '../db/repositories/tasks'
 import { setUiState } from '../db/repositories/ui-state'
+import { OpenWith } from '../files/open-path'
 import { createFakeSpawner, fakeTerminalOptions, type FakeSpawner } from '../terminal/fake-pty'
 import { createPlugins } from '../plugins/plugins'
 import { sampleManifest, writePlugin } from '../plugins/test-plugins'
@@ -555,7 +556,10 @@ describe('the files commands', () => {
     const taskId = taskInRoot()
 
     await expect(handlers[CommandName.FilesOpenInEditor]({ taskId, path: 'docs/rate-limits.md' })).resolves.toBeNull()
-    expect(openPath).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/\/docs\/rate-limits\.md$/))
+    expect(openPath).toHaveBeenCalledExactlyOnceWith(
+      expect.stringMatching(/\/docs\/rate-limits\.md$/),
+      OpenWith.TextEditor,
+    )
   })
 })
 

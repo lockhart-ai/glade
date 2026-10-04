@@ -15,8 +15,10 @@ import {
   type BashCallStarting,
   type SandboxFlagSettings,
   type SessionJob,
+  type ToolCallStarting,
   type ToolPermissionAnswer,
   type ToolPermissionCall,
+  type ToolStartDecision,
 } from './backend'
 import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
 import { REQUEST_ACCESS_TOOL } from '../../shared/toolName'
@@ -141,6 +143,29 @@ export class FakeAgentSession implements AgentSession {
    */
   startBash(call: BashCallStarting): Promise<void> {
     return this.options.hooks?.onBashStarting?.(call) ?? Promise.resolve()
+  }
+
+  /**
+   * Puts a call to a tool the sandbox bounds to the session's `PreToolUse` hook, as the SDK does before it matches any
+   * rule, in every permission mode (`docs/sdk-notes.md` §15), and resolves with what the hook decided: null when it
+   * leaves the call to Claude Code, and with no such hook (a session that isn't sandboxed). `abort` cancels the hook's
+   * signal, as the SDK does on an interrupt.
+   */
+  startTool(call: Omit<ToolCallStarting, 'signal' | 'agentId'> & { readonly agentId?: string | null }): {
+    readonly decision: Promise<ToolStartDecision | null>
+    abort(): void
+  } {
+    const controller = new AbortController()
+    const hook = this.options.hooks?.onToolStarting
+    return {
+      decision:
+        hook === undefined
+          ? Promise.resolve(null)
+          : hook({ ...call, agentId: call.agentId ?? null, signal: controller.signal }),
+      abort: () => {
+        controller.abort()
+      },
+    }
   }
 
   /**

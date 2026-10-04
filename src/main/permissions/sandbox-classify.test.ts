@@ -9,6 +9,7 @@ import { NO_GRANTS, type SandboxGrants } from '../agent/sandbox'
 import type { PathFs } from './canonical-path'
 import { PermissionVerdict } from './classify'
 import {
+  BOUNDED_TOOLS,
   callStanding,
   isSandboxOverride,
   isUnboundedRule,
@@ -40,12 +41,22 @@ function fsWith(real: Readonly<Record<string, string>> = {}, links: Readonly<Rec
   }
 }
 
-function bounds(overrides: { root?: string; grants?: SandboxGrants; fs?: PathFs } = {}): SandboxBounds {
+interface BoundsOverrides {
+  readonly root?: string
+  readonly grants?: SandboxGrants
+  readonly fs?: PathFs
+  readonly denied?: readonly string[]
+  readonly unsandboxed?: (command: string) => boolean
+}
+
+function bounds(overrides: BoundsOverrides = {}): SandboxBounds {
   return sandboxBounds({
     root: overrides.root ?? ROOT,
     home: HOME,
     grants: overrides.grants ?? GRANTS,
     fs: overrides.fs ?? fsWith(),
+    ...(overrides.denied === undefined ? {} : { denied: overrides.denied }),
+    ...(overrides.unsandboxed === undefined ? {} : { unsandboxed: overrides.unsandboxed }),
   })
 }
 
@@ -157,7 +168,7 @@ describe('a single file’s grant', () => {
 
   it.each([
     ['its folder', '/Users/me'],
-    ['a file beside it', '/Users/me/.zshrc'],
+    ['a file beside it', '/Users/me/.vimrc'],
     ['a file whose name starts with its name', '/Users/me/notes.txt.bak'],
     ['another whose name starts with its name', '/Users/me/notes.txt2'],
     ['a path under it, as if it were a folder', '/Users/me/notes.txt/inside.md'],
@@ -229,7 +240,7 @@ describe('callStanding', () => {
     expect(none('Grep', { pattern: 'retry' })).toBeNull()
     const loop = bounds({ fs: fsWith({}, { '/Users/me/a': '/Users/me/b', '/Users/me/b': '/Users/me/a' }) })
     expect(callStanding({ toolName: 'Read', input: { file_path: '/Users/me/a/x' } }, loop)).toEqual({
-      crossing: SandboxCrossing.Boundary,
+      crossing: SandboxCrossing.Unresolvable,
       key: null,
     })
     expect(callStanding({ toolName: 'Write', input: { file_path: '/Users/me/a/x' } }, loop).key).toBeNull()
@@ -307,12 +318,12 @@ describe('sandboxCrossing: reads', () => {
     expect(crossing('Write', { file_path: '/tmp/other/out.txt' }, within)).toBe(SandboxCrossing.Boundary)
   })
 
-  it('asks about a path that can’t be resolved', () => {
+  it('can’t say where a path in a loop of links leads: it’s refused, not asked about', () => {
     const loop = fsWith({}, { [`${ROOT}/a`]: `${ROOT}/b`, [`${ROOT}/b`]: `${ROOT}/a` })
     const within = bounds({ grants: NO_GRANTS, fs: loop })
 
-    expect(crossing('Read', { file_path: `${ROOT}/a/x` }, within)).toBe(SandboxCrossing.Boundary)
-    expect(crossing('Write', { file_path: `${ROOT}/a/x` }, within)).toBe(SandboxCrossing.Boundary)
+    expect(crossing('Read', { file_path: `${ROOT}/a/x` }, within)).toBe(SandboxCrossing.Unresolvable)
+    expect(crossing('Write', { file_path: `${ROOT}/a/x` }, within)).toBe(SandboxCrossing.Unresolvable)
   })
 
   it.each([
@@ -414,7 +425,7 @@ describe('sandboxCrossing: writes', () => {
 
   it.each([
     ['in a read-only grant', '/Users/me/notes/staging.md'],
-    ['elsewhere in the home folder', '/Users/me/.zshrc'],
+    ['elsewhere in the home folder', '/Users/me/Desktop/plan.md'],
     ['outside the home folder', '/etc/hosts'],
     ['in the temporary folder', '/tmp/out.txt'],
     ['through ~', '~/Library/LaunchAgents/x.plist'],
@@ -448,6 +459,120 @@ describe('sandboxCrossing: writes', () => {
   it('doesn’t take a file whose name only looks like one of those for one', () => {
     expect(crossing('Write', { file_path: `${ROOT}/docs/git/config.md` })).toBe(SandboxCrossing.None)
     expect(crossing('Write', { file_path: `${ROOT}/mcp.json` })).toBe(SandboxCrossing.None)
+  })
+
+  // Claude Code makes its subagents' worktrees under `.claude/worktrees`, and its own check leaves them out: Glade's
+  // decides every write now (#514), so a worktree's files mustn't each ask.
+  it('takes a worktree under .claude/worktrees for where an agent works, and what’s in it by the rest of its path', () => {
+    const worktree = `${ROOT}/.claude/worktrees/agent-a1b2c3`
+    expect(crossing('Write', { file_path: `${worktree}/src/retry.ts` })).toBe(SandboxCrossing.None)
+    expect(crossing('Edit', { file_path: `${worktree}/README.md` })).toBe(SandboxCrossing.None)
+    // What runs code inside the worktree still does.
+    for (const path of ['.git', '.mcp.json', '.claude/settings.json', '.vscode/tasks.json', '.zshrc']) {
+      expect(crossing('Write', { file_path: `${worktree}/${path}` })).toBe(SandboxCrossing.Protected)
+    }
+    // Only the first: a worktree's own `.claude/worktrees` is Claude Code's folder again.
+    expect(crossing('Write', { file_path: `${worktree}/.claude/worktrees/nested/a.ts` })).toBe(
+      SandboxCrossing.Protected,
+    )
+    // And the rest of Claude Code's own folder is as it was.
+    expect(crossing('Write', { file_path: `${ROOT}/.claude/worktrees.json` })).toBe(SandboxCrossing.Protected)
+    expect(crossing('Write', { file_path: `${ROOT}/.claude/skills/review/SKILL.md` })).toBe(SandboxCrossing.Protected)
+    expect(crossing('Write', { file_path: `${ROOT}/worktrees/.claude/settings.json` })).toBe(SandboxCrossing.Protected)
+  })
+
+  // #514, finding 4: `Write ~/.zshrc` got the card for the file by itself, read-write, and `Write
+  // ~/other/.git/hooks/pre-commit` the card for that folder: Allow for this task then granted the file that runs code.
+  it.each([
+    ['a shell startup file in the home folder', '/Users/me/.zshrc'],
+    ['the user’s own git config', '~/.gitconfig'],
+    ['a git hook in another repository', '/Users/me/src/other-app/.git/hooks/pre-commit'],
+    ['Claude Code’s own settings', '/Users/me/.claude/settings.json'],
+    ['an editor’s tasks outside the home folder', '/tmp/x/.vscode/tasks.json'],
+    ['one inside a read-only grant', '/Users/me/notes/.zshrc'],
+  ])(
+    'knows a write to %s for one that runs code, outside the bounds too: never one a grant is offered for',
+    (_what, path) => {
+      expect(crossing('Write', { file_path: path })).toBe(SandboxCrossing.Protected)
+      expect(crossing('Edit', { file_path: path })).toBe(SandboxCrossing.Protected)
+    },
+  )
+
+  it('still refuses a credential path that’s also a file that runs code', () => {
+    expect(crossing('Write', { file_path: '/Users/me/.ssh/.zshrc' })).toBe(SandboxCrossing.Credential)
+  })
+})
+
+// #514, finding 1. macOS's magic folders name any file by another path, which `realpath` doesn't turn back: the key
+// Glade compared was `/.nofollow/users/…`, under none of the bounded folders and matching no credential path, so
+// `Read /.nofollow/Users/me/.ssh/id_rsa` was `allow / none`.
+describe('sandboxCrossing: macOS’s magic folders', () => {
+  it.each([
+    ['/.nofollow', '/.nofollow/Users/me/.ssh/id_rsa'],
+    ['/.vol, by device and inode', '/.vol/16777230/2/Users/me/.ssh/id_rsa'],
+    ['/.resolve', '/.resolve/1/Users/me/.ssh/id_rsa'],
+    ['/.nofollow, for any other file in the home folder', '/.nofollow/Users/me/Documents/taxes.pdf'],
+    ['/.nofollow in another case', '/.NoFollow/Users/me/Documents/taxes.pdf'],
+    ['/.vol in upper case', '/.VOL/16777230/2/Users/me/Documents/taxes.pdf'],
+    ['one through the data volume’s alias', '/System/Volumes/Data/.nofollow/Users/me/.ssh/id_rsa'],
+    ['one with dots in it', '/tmp/../.nofollow/Users/me/.ssh/id_rsa'],
+    ['the magic folder itself', '/.vol'],
+    ['one inside the workspace root, by its other name', `/.nofollow${ROOT}/README.md`],
+  ])('can’t resolve a path through %s: read or write', (_what, path) => {
+    for (const within of [bounds(), bounds({ grants: NO_GRANTS })]) {
+      expect(callStanding({ toolName: 'Read', input: { file_path: path } }, within)).toEqual({
+        crossing: SandboxCrossing.Unresolvable,
+        key: null,
+      })
+      expect(crossing('Write', { file_path: path }, within)).toBe(SandboxCrossing.Unresolvable)
+      expect(crossing('LS', { path }, within)).toBe(SandboxCrossing.Unresolvable)
+      expect(crossing('NotebookEdit', { notebook_path: path }, within)).toBe(SandboxCrossing.Unresolvable)
+    }
+  })
+
+  it('can’t resolve a link in the root that leads into one (`ln -s /.nofollow/Users/me/Documents link`)', () => {
+    // As macOS answers: `realpath` hands `/.nofollow/…` back unchanged, and fails for the other two.
+    const nofollow = fsWith({
+      [`${ROOT}/link/taxes.pdf`]: '/.nofollow/Users/me/Documents/taxes.pdf',
+      [`${ROOT}/link`]: '/.nofollow/Users/me/Documents',
+    })
+    const vol = fsWith({}, { [`${ROOT}/link`]: '/.vol/16777230/2/Users/me/Documents' })
+    const resolve = fsWith({}, { [`${ROOT}/link`]: '../../../../../.resolve/1/Users/me/Documents' })
+
+    for (const fs of [nofollow, vol, resolve]) {
+      const within = bounds({ grants: NO_GRANTS, fs })
+      expect(crossing('Read', { file_path: `${ROOT}/link/taxes.pdf` }, within)).toBe(SandboxCrossing.Unresolvable)
+      expect(crossing('Read', { file_path: 'link/taxes.pdf' }, within)).toBe(SandboxCrossing.Unresolvable)
+      expect(crossing('Write', { file_path: `${ROOT}/link/new.txt` }, within)).toBe(SandboxCrossing.Unresolvable)
+    }
+  })
+
+  it('doesn’t take a name that only starts like one for one', () => {
+    expect(crossing('Read', { file_path: '/.volumes/x' })).toBe(SandboxCrossing.None)
+    expect(crossing('Read', { file_path: `${ROOT}/.vol/x` })).toBe(SandboxCrossing.None)
+    expect(crossing('Read', { file_path: '/tmp/.nofollow/x' })).toBe(SandboxCrossing.None)
+  })
+})
+
+// #514, finding 8: Glade's own data folder wasn't denied inside a grant.
+describe('sandboxCrossing: Glade’s own data folder', () => {
+  const DATA = '/Users/me/Library/Application Support/glade'
+  const library: SandboxGrants = {
+    folders: [{ path: '/Users/me/Library', access: FolderAccess.ReadWrite }],
+    domains: [],
+  }
+
+  it('refuses it as a credential path, read or write, even inside a granted folder', () => {
+    const within = bounds({ grants: library, denied: [DATA] })
+    expect(crossing('Read', { file_path: `${DATA}/glade.db` }, within)).toBe(SandboxCrossing.Credential)
+    expect(crossing('Write', { file_path: `${DATA}/glade.db` }, within)).toBe(SandboxCrossing.Credential)
+    expect(crossing('Read', { file_path: '~/library/application support/GLADE/glade.db' }, within)).toBe(
+      SandboxCrossing.Credential,
+    )
+    // What's beside it in the granted folder is as granted.
+    expect(crossing('Write', { file_path: '/Users/me/Library/Caches/uv/x' }, within)).toBe(SandboxCrossing.None)
+    // And without it named, the grant covers it: what the review found.
+    expect(crossing('Write', { file_path: `${DATA}/glade.db` }, bounds({ grants: library }))).toBe(SandboxCrossing.None)
   })
 })
 
@@ -500,6 +625,48 @@ describe('sandboxCrossing: running outside the sandbox', () => {
     expect(crossing('Bash', { command: 'cat /Users/me/.ssh/id_rsa' })).toBe(SandboxCrossing.None)
     expect(crossing('Monitor', { command: 'npm run dev' })).toBe(SandboxCrossing.None)
     expect(crossing(`mcp__${GLADE_SERVER}__set_status`, { status: 'Working.' })).toBe(SandboxCrossing.None)
+  })
+
+  // #514, finding 3: `sandbox.excludedCommands: ["docker *"]` in the user's or the project's settings runs the command
+  // outside the sandbox without `dangerouslyDisableSandbox`, which was `allow / none` in Allow all.
+  it('takes a command the user’s settings keep out of the sandbox for one, though it never asked to leave it', () => {
+    const asked: string[] = []
+    const within = bounds({
+      unsandboxed: (command) => {
+        asked.push(command)
+        return command.includes('docker')
+      },
+    })
+
+    expect(crossing('Bash', { command: 'docker run -v ~:/h alpine cat /h/.ssh/id_rsa' }, within)).toBe(
+      SandboxCrossing.Override,
+    )
+    expect(crossing('Monitor', { command: 'docker logs -f api' }, within)).toBe(SandboxCrossing.Override)
+    expect(crossing('Bash', { command: 'npm test' }, within)).toBe(SandboxCrossing.None)
+    // Only a command is looked up: nothing for a call that names none, or another tool's `command`.
+    expect(crossing('Bash', {}, within)).toBe(SandboxCrossing.None)
+    expect(crossing('Bash', { command: 42 }, within)).toBe(SandboxCrossing.None)
+    expect(crossing('mcp__docker__run', { command: 'docker ps' }, within)).toBe(SandboxCrossing.None)
+    expect(asked).toEqual(['docker run -v ~:/h alpine cat /h/.ssh/id_rsa', 'docker logs -f api', 'npm test'])
+  })
+
+  it('names the tools whose every call is looked at before it runs', () => {
+    expect([...BOUNDED_TOOLS].sort()).toEqual(
+      [
+        'Bash',
+        'Edit',
+        'Glob',
+        'Grep',
+        'LS',
+        'Monitor',
+        'MultiEdit',
+        'NotebookEdit',
+        'NotebookRead',
+        'Read',
+        'WebFetch',
+        'Write',
+      ].sort(),
+    )
   })
 })
 
@@ -602,13 +769,109 @@ describe('toolCallVerdict', () => {
     }
   })
 
-  it('in Allow all, asks about every write that reaches it: acceptEdits lets the ordinary ones through by itself', () => {
+  it('in Allow all, asks about every write in the root that reaches it: acceptEdits lets the ordinary ones through by itself', () => {
     const mode = PermissionMode.AllowAll
     const held = { verdict: PermissionVerdict.Ask, crossing: SandboxCrossing.Protected }
     expect(decide('Write', { file_path: `${ROOT}/a.md` }, mode)).toEqual(held)
     expect(decide('Edit', { file_path: `${ROOT}/a.md` }, mode, { matchedAskRule: true })).toEqual(held)
     expect(decide('Edit', { file_path: `${ROOT}/a.md` }, mode, { writeRules: ['Edit'] })).toEqual(held)
     expect(decide('NotebookEdit', {}, mode)).toEqual(held)
+  })
+
+  // #514, finding 2: Claude Code isn't told of a granted folder any more, so it asks about every write in one. Before,
+  // such a write that reached Glade in Allow all asked as Protected.
+  it('in Allow all, lets a write inside a granted folder through: Claude Code asks about each, not knowing the grant', () => {
+    const mode = PermissionMode.AllowAll
+    const held = { verdict: PermissionVerdict.Ask, crossing: SandboxCrossing.Protected }
+    expect(decide('Write', { file_path: '/Users/me/src/shared-lib/index.ts' }, mode)).toEqual(ALLOW)
+    expect(decide('MultiEdit', { file_path: '/Users/me/src/shared-lib/a/b.ts' }, mode)).toEqual(ALLOW)
+    // A single file granted read-write, too.
+    const file = bounds({
+      grants: { folders: [{ path: '/Users/me/todo.txt', access: FolderAccess.ReadWrite, file: true }], domains: [] },
+    })
+    expect(decide('Edit', { file_path: '~/todo.txt' }, mode, { within: file })).toEqual(ALLOW)
+    // Never a file that runs code, and never one a user's own ask rule held back.
+    expect(decide('Write', { file_path: '/Users/me/src/shared-lib/.git/hooks/pre-commit' }, mode)).toEqual(held)
+    expect(decide('Write', { file_path: '/Users/me/src/shared-lib/.zshrc' }, mode)).toEqual(held)
+    expect(decide('Write', { file_path: '/Users/me/src/shared-lib/a.ts' }, mode, { matchedAskRule: true })).toEqual(
+      held,
+    )
+    // Nor a folder granted read-only.
+    expect(decide('Write', { file_path: '/Users/me/notes/a.md' }, mode)).toEqual(ASK_AT_THE_BOUNDARY)
+  })
+
+  // #514, finding 2, the attack: `request_access("~/newcache", write)` is allowed for the task, then a sandboxed
+  // command runs `rmdir ~/newcache && ln -s ~/Library/LaunchAgents ~/newcache`.
+  it.each(MODES)('asks about a write through a granted folder swapped for a link, in %s', (mode) => {
+    const grants: SandboxGrants = {
+      folders: [{ path: '/Users/me/newcache', access: FolderAccess.ReadWrite }],
+      domains: [],
+    }
+    const swapped = bounds({ grants, fs: fsWith({ '/Users/me/newcache': '/Users/me/Library/LaunchAgents' }) })
+
+    expect(decide('Write', { file_path: '/Users/me/newcache/x.plist' }, mode, { within: swapped })).toEqual(
+      ASK_AT_THE_BOUNDARY,
+    )
+    expect(decide('Write', { file_path: '~/Library/LaunchAgents/x.plist' }, mode, { within: swapped })).toEqual(
+      ASK_AT_THE_BOUNDARY,
+    )
+    expect(decide('Read', { file_path: '/Users/me/newcache/x.plist' }, mode, { within: swapped })).toEqual(
+      ASK_AT_THE_BOUNDARY,
+    )
+  })
+
+  it.each(MODES)('asks about a write through a granted path that was missing, then made as a link, in %s', (mode) => {
+    const grants: SandboxGrants = {
+      folders: [{ path: '/Users/me/newcache', access: FolderAccess.ReadWrite }],
+      domains: [],
+    }
+    // The link's target isn't there yet either: what's written through it lands there.
+    const made = bounds({ grants, fs: fsWith({}, { '/Users/me/newcache': '/Users/me/Library/LaunchAgents' }) })
+
+    expect(decide('Write', { file_path: '/Users/me/newcache/x.plist' }, mode, { within: made })).toEqual(
+      ASK_AT_THE_BOUNDARY,
+    )
+    // While the path is what it was granted as (a folder, or still missing), a write in it goes ahead or asks as ever.
+    const whole = bounds({ grants })
+    expect(decide('Write', { file_path: '/Users/me/newcache/x.plist' }, mode, { within: whole })).toEqual(
+      mode === PermissionMode.AllowAll ? ALLOW : ASK,
+    )
+  })
+
+  it.each(MODES)('refuses a path through one of macOS’s magic folders in %s, without asking', (mode) => {
+    const refused = { verdict: PermissionVerdict.Refuse, crossing: SandboxCrossing.Unresolvable }
+    expect(decide('Read', { file_path: '/.nofollow/Users/me/.ssh/id_rsa' }, mode)).toEqual(refused)
+    expect(decide('Read', { file_path: '/.vol/16777230/2/Users/me/.ssh/id_rsa' }, mode)).toEqual(refused)
+    expect(decide('Read', { file_path: '/.resolve/1/Users/me/Documents/taxes.pdf' }, mode)).toEqual(refused)
+    expect(decide('Write', { file_path: '/.nofollow/Users/me/.zshrc' }, mode)).toEqual(refused)
+    // Whatever the task was granted, and whatever asked.
+    expect(decide('Write', { file_path: '/.nofollow/Users/me/x' }, mode, { writeRules: ['Write'] })).toEqual(refused)
+    expect(decide('Read', { file_path: '/.nofollow/Users/me/x' }, mode, { matchedAskRule: true })).toEqual(refused)
+  })
+
+  it.each(MODES)(
+    'asks about a write to a file that runs code outside the bounds in %s, as one to allow once',
+    (mode) => {
+      const held = { verdict: PermissionVerdict.Ask, crossing: SandboxCrossing.Protected }
+      expect(decide('Write', { file_path: '~/.zshrc' }, mode)).toEqual(held)
+      expect(decide('Edit', { file_path: '/Users/me/src/other-app/.git/config' }, mode)).toEqual(held)
+      expect(decide('Write', { file_path: '~/.zshrc' }, mode, { writeRules: ['Write'] })).toEqual(held)
+    },
+  )
+
+  it.each(MODES)('asks about a command the user’s settings keep out of the sandbox in %s', (mode) => {
+    const within = bounds({ unsandboxed: (command) => command.startsWith('docker') })
+    const asks = { verdict: PermissionVerdict.Ask, crossing: SandboxCrossing.Override }
+    expect(decide('Bash', { command: 'docker compose up -d' }, mode, { within })).toEqual(asks)
+    expect(decide('Monitor', { command: 'docker logs -f api' }, mode, { within })).toEqual(asks)
+    // And refuses it once the sandbox couldn't start: nothing runs unsandboxed then.
+    expect(decide('Bash', { command: 'docker compose up -d' }, mode, { within, failed: true })).toEqual({
+      verdict: PermissionVerdict.Refuse,
+      crossing: SandboxCrossing.Override,
+    })
+    expect(decide('Bash', { command: 'npm test' }, mode, { within })).toEqual(
+      mode === PermissionMode.AllowAll ? ALLOW : ASK,
+    )
   })
 
   it('in Allow all, lets everything else inside the bounds go', () => {

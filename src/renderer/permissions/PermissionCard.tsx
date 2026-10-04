@@ -14,6 +14,7 @@ import {
   PermissionBodyKind,
   permissionTitle,
   reasonParts,
+  sandboxCaution,
   sandboxDetail,
   SandboxDetailKind,
   sandboxTitle,
@@ -193,6 +194,15 @@ function SandboxDetails({ detail }: { readonly detail: SandboxDetail }): React.J
   }
 }
 
+/**
+ * What a sandbox card says under its title about what allowing it would open, when the title alone doesn't
+ * (`sandboxCaution`): that a host is this Mac, a bare address or a name on the local network. Nothing for any other.
+ */
+function SandboxCaution({ ask }: { readonly ask: SandboxAsk }): React.JSX.Element | null {
+  const caution = sandboxCaution(ask)
+  return caution === null ? null : <p className={styles.description}>{caution}</p>
+}
+
 /** A sandbox card's title: what the agent wants, the folder or domain set as code. */
 function SandboxTitleText({ ask }: { readonly ask: SandboxAsk }): React.JSX.Element {
   const { text, subject } = sandboxTitle(ask)
@@ -348,7 +358,14 @@ function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps)
         )}
         {subagent !== null && <span className={styles.subagent}>{subagentLabel(subagent)}</span>}
       </div>
-      {sandbox === null ? <CallInput body={body} /> : <SandboxDetails detail={sandboxDetail(request, sandbox)} />}
+      {sandbox === null ? (
+        <CallInput body={body} />
+      ) : (
+        <>
+          <SandboxCaution ask={sandbox} />
+          <SandboxDetails detail={sandboxDetail(request, sandbox)} />
+        </>
+      )}
       {noting ? (
         // Keyed apart from the answers, so Deny's button isn't reused as the note's Deny, a submit button, while the
         // click that opened the note is still being handled: its default action would then send the denial at once.
