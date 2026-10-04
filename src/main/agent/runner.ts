@@ -392,7 +392,12 @@ import {
   type SandboxBounds,
 } from '../permissions/sandbox-classify'
 import { absolutePath, keyInside } from '../permissions/canonical-path'
-import { cardGrantTarget, createPermissionBroker, type PermissionBroker } from '../permissions/permissions'
+import {
+  cardGrantTarget,
+  createPermissionBroker,
+  FOLDER_MOVED_NOTE,
+  type PermissionBroker,
+} from '../permissions/permissions'
 import {
   AccessOutcomeKind,
   accessPlan,
@@ -2383,13 +2388,17 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   /**
    * Your denial, earlier in a turn, of the folder or domain a call now asks for (see the module comment): the latest,
-   * or undefined when you haven't denied it this turn. Running outside the sandbox asks every time.
+   * or undefined when you haven't denied it this turn. Running outside the sandbox asks every time. A request Glade
+   * itself closed denied, because its folder moved under its card (`FOLDER_MOVED_NOTE`), isn't yours: it may ask again.
    */
   const deniedEarlier = (taskId: string, turn: number, ask: SandboxAsk): PermissionRequest | undefined => {
     if (ask.kind === SandboxAskKind.Outside) return undefined
     return listPermissionRequests(db, taskId).findLast(
       (request) =>
-        request.turn === turn && request.state === PermissionRequestState.Denied && deniedCovers(request.sandbox, ask),
+        request.turn === turn &&
+        request.state === PermissionRequestState.Denied &&
+        request.denyNote !== FOLDER_MOVED_NOTE &&
+        deniedCovers(request.sandbox, ask),
     )
   }
 

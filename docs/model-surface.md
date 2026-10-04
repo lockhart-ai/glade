@@ -273,20 +273,31 @@ resumed session gets too.
 - **Input:** `{ path, access, reason }`, checked at the boundary. `path` is the absolute path that was blocked, a file
   or a folder (`~` and `~/…` are taken as the home folder); `access` is `"read"` or `"write"`; `reason` is a short
   sentence the user reads on the card. A missing or empty field, or another `access`, is a tool error from the SDK's
-  check; a relative path is a tool error from the handler (`Give the absolute path the command was blocked from…`).
-  Neither opens a card.
+  check, and so is a `path` over 4096 characters, a `reason` over 500, or either with a control character (a line
+  break, an escape) or a text-direction character (the bidirectional overrides, embeddings and isolates) in it, which
+  could make the card read as something it isn't. A relative path is a tool error from the handler (`Give the absolute
+  path the command was blocked from…`). None of these opens a card.
 - **The card:** the sandbox's folder card, "The agent wants to read `<folder>`" or "…write to `<folder>`", with the
   reason under it (backticks in it are set as code) and **Allow for this task** · **Allow for this workspace** ·
   **Deny**, with Deny's optional note. The folder is the path itself if it's a folder or doesn't exist yet, and
-  otherwise the folder the file is in, where it really is (links followed). A read asks for read-only access and a
-  write for read-write. A subagent's call names the subagent at the card's top right. The call waits for the answer,
+  otherwise the folder the file is in. Both the folder and what kind of thing the path is are taken where the path
+  really is (links followed): a link to a file asks for the real file's folder, never the link's. **A file whose
+  folder is too much to offer** (the home folder, `/Users`, `/Volumes`, `/System/Volumes`, or a folder above one) is
+  asked for by itself, "The agent wants to read `~/.gitconfig`", and the grant is that file alone. A read asks for
+  read-only access and a write for read-write. A subagent's call names the subagent at the card's top right. The call waits for the answer,
   however long (the `glade` server's timeout, as for `ask`); meanwhile the task needs you, as with any permission card.
 - **Allowed:** the grant is saved for the task or the workspace (`sandbox_grants`) and applied to the running sessions
   it covers; the call returns only once its own session has it, so the retry works:
   `Allowed for this task: you can now read /Users/me/code/acme-shared. Run the command that was blocked again.` (or
   `Allowed for this workspace: you can now read and write …`).
 - **Denied:** a tool error, `Denied: the user didn't allow <path>, so nothing was granted. Don't retry outside the
-  sandbox.`, then `The user said: <note>` when you left one. Nothing is granted.
+  sandbox.`, then `The user said: <note>` when you left one. Nothing is granted. Allowing a folder that was swapped
+  for a link while its card was open is a denial too, with Glade's note in place of yours (`Glade didn’t grant this:
+  the folder changed while the request was open…`).
+- **Denied earlier in the turn:** the same folder (or a write to a folder whose read was denied) asked for again
+  before the user's next message opens no card: a tool error at once, `Denied: the user already denied <path> earlier
+  in this turn, so they weren't asked again and nothing was granted…`, with the note they gave then. It holds for a
+  subagent repeating the agent's request and the other way round.
 - **Withdrawn** (Stop, the turn ending, the session closing): a tool error, `No decision was made: the request was
   withdrawn before the user answered.`
 - **No card when there's nothing to decide,** each answered at once:
@@ -300,8 +311,11 @@ resumed session gets too.
     write to a folder granted read-only does ask, for read-write.
   - the path is a credential file or folder (`~/.ssh`, `~/.aws`, …), which no grant opens: a tool error, `Refused:
     <path> is one of the credential files and folders the sandbox never opens…`
-  - the path can't be granted (the whole disk, a path with a glob character, one that can't be resolved): a tool error
-    saying why.
+  - the path is a folder that's too much to grant from a request (the home folder, `/Users`, `/Volumes`,
+    `/System/Volumes`, or a folder above one, the whole disk included): a tool error, `Refused: <path> is too much to
+    grant from a request… Ask for the folder inside it that the command needs. If the task really needs all of it,
+    tell the user: they can add it under Sandbox in Settings.`
+  - the path can't be granted (a path with a glob character, one that can't be resolved): a tool error saying why.
 - **After a relaunch:** a card open when Glade quit is still there. Answering it saves the grant, resumes the session
   (which starts with the grant) and tells the agent what was decided, as for any permission request the app quit on.
 - **Subagents may call it,** the one Glade tool they may ("Main agent only", above).

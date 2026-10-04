@@ -1754,6 +1754,12 @@ describe('a card grants exactly what it showed', () => {
     expect(taskGrants()).toEqual([])
     expect(workspaceGrants()).toEqual([])
     expect(overlay(session).allowWrite).toEqual([ROOT])
+
+    // That wasn't your denial: once the folder is itself again, the agent may ask for it in the same turn.
+    rmSync(CACHE)
+    renameSync(`${CACHE}.was`, CACHE)
+    await callTool(session, writeOf('toolu_again', `${CACHE}/index.json`))
+    expect(only('toolu_again')).toMatchObject({ state: PermissionRequestState.Open, sandbox: { path: CACHE } })
   })
 
   it('a granted folder swapped for a link afterwards opens nothing new: a file tool asks again, and the overlay still names the path granted', async () => {
