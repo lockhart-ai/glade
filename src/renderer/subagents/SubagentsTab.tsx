@@ -11,6 +11,7 @@ import {
   useMenuCommands,
   type ContextMenuTargetProps,
 } from '../context-menus'
+import type { PermissionLines } from '../permissions/permissionLineModel'
 import { useGladeStore } from '../store/react'
 import { useNow } from '../task-list/useNow'
 import { SubagentRows, ToolCallMenu } from '../tool-log'
@@ -207,6 +208,8 @@ export interface SubagentsTabProps {
   readonly watchers?: readonly Watcher[] | undefined
   /** The workspace root, so file arguments show relative to it. */
   readonly rootPath?: string | undefined
+  /** Each call's permission line, by its `tool_use` id: a subagent's call shows its own in its log. None by default. */
+  readonly permissions?: PermissionLines | undefined
   /** A subagent to show: its log opens, as clicking it does, and it scrolls into view. */
   readonly focus?: SubagentShown | null | undefined
   /** Called once the tab has shown `focus`, so its owner can clear it. */
@@ -217,7 +220,8 @@ export interface SubagentsTabProps {
  * The Subagents tab (docs/design/html/11-subagents.html): a tally of the task's subagents by status, then a row for
  * each, running ones first. A running subagent's elapsed time ticks. Rows open and close one at a time or several at
  * once; which are open is kept for as long as the tab shows the task. A row's context menu opens its log or copies it,
- * and stops it while it runs; the tool calls in an open log have their own. What a subagent left running in the
+ * and stops it while it runs; the tool calls in an open log have their own, and one a permission was decided about says
+ * so on its row, as in the Tool calls list (#459). What a subagent left running in the
  * background is under its log, with Stop while it's live. Asked to show a subagent (a plugin opening it), it opens its
  * log and scrolls it into view, once it's in the tab.
  */
@@ -225,11 +229,12 @@ export function SubagentsTab({
   taskId,
   events,
   rootPath,
+  permissions,
   watchers = NO_WATCHERS,
   focus,
   onFocusShown,
 }: SubagentsTabProps): React.JSX.Element {
-  const subagents = useMemo(() => deriveSubagents(events, rootPath), [events, rootPath])
+  const subagents = useMemo(() => deriveSubagents(events, rootPath, permissions), [events, rootPath, permissions])
   const ordered = useMemo(() => orderWatchers(watchers), [watchers])
   const now = useNow(anyRunning(subagents) || ordered.some(isLive) ? ELAPSED_REFRESH_MS : null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())

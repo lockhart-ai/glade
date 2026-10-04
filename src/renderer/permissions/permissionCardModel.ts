@@ -1,28 +1,22 @@
 /**
  * What the permission card (`docs/design/html/23-permission-card.html`) works out from a permission request: what's
  * asked, the input shown for it (a command, a file's change or new content, or formatted JSON), trimmed to a readable
- * length with the rest behind "Show all", which subagent made the call, what Allow for this task would grant, and what a
- * closed card's one line says. For a request of the agent sandbox's (`PermissionRequest.sandbox`,
+ * length with the rest behind "Show all", which subagent made the call, and what Allow for this task would grant. The
+ * card shows only while its request is open (#459); what became of it shows on its call's row in the Tool calls list
+ * (`./permissionLines`). For a request of the agent sandbox's (`PermissionRequest.sandbox`,
  * `docs/design/html/42-sandbox-folder-card.html` to `44-sandbox-outside-card.html`): what its title says the agent
  * wants, and what the card shows under it (the file or URL, the agent's reason, or the command).
  */
 import {
-  PermissionRequestState,
   ToolEventKind,
   type PermissionRequest,
+  type PermissionRule,
   type ToolCallEvent,
   type ToolEvent,
   type ToolInput,
 } from '../../shared/domain'
 import { permissionSubject, taskPermissionRule } from '../../shared/permissions'
-import {
-  folderVerb,
-  SandboxAskKind,
-  sandboxAskPhrase,
-  SandboxGrantScope,
-  shortenHomePath,
-  type SandboxAsk,
-} from '../../shared/sandbox'
+import { folderVerb, SandboxAskKind, shortenHomePath, type SandboxAsk } from '../../shared/sandbox'
 import { REQUEST_ACCESS_TOOL, toolDisplayName } from '../../shared/toolName'
 import { subagentName } from '../subagents/subagentsModel'
 import { relativePath } from '../tool-log/toolLogModel'
@@ -257,31 +251,6 @@ export function subagentLabel(origin: SubagentOrigin): string {
   return origin.name === null ? 'subagent' : `subagent · ${origin.name}`
 }
 
-/**
- * The call in a line, e.g. `Bash: npm test` or `Edit: src/date.ts` (relative to the workspace root); a sandbox request
- * by what it asked for, e.g. `read ~/code/acme-web`.
- */
-export function callSummary(
-  request: Pick<PermissionRequest, 'toolName' | 'input'> & Partial<Pick<PermissionRequest, 'sandbox'>>,
-  rootPath?: string,
-): string {
-  if (request.sandbox != null) return sandboxAskPhrase(request.sandbox)
-  const name = toolDisplayName(request.toolName)
-  const body = permissionBody({ ...request, description: null }, rootPath)
-  switch (body.kind) {
-    case PermissionBodyKind.Command:
-      return `${name}: ${body.lines
-        .map(({ text }) => text)
-        .join(' ')
-        .trim()}`
-    case PermissionBodyKind.FileChange:
-    case PermissionBodyKind.FileContent:
-      return `${name}: ${body.path}`
-    case PermissionBodyKind.Json:
-      return name
-  }
-}
-
 /** What Allow for this task grants, as the card names it. */
 export enum TaskGrantKind {
   /** Every call to the tool: "Allow Edit for this task". */
@@ -301,6 +270,16 @@ export interface TaskGrant {
 /** A rule's content that covers a prefix: `npm test *`, or the older `npm test:*`. */
 const PREFIX_RULE = /^(.+?)(?: \*|:\*)$/
 
+/** What a rule grants, as the card names it: the whole tool, a command prefix, or one command. */
+export function ruleGrant(rule: PermissionRule): TaskGrant {
+  const content = rule.ruleContent ?? ''
+  if (content === '') return { kind: TaskGrantKind.Tool, subject: toolDisplayName(rule.toolName) }
+  const prefix = PREFIX_RULE.exec(content)?.[1]
+  return prefix === undefined
+    ? { kind: TaskGrantKind.Command, subject: content }
+    : { kind: TaskGrantKind.Prefix, subject: prefix }
+}
+
 /**
  * What Allow for this task would grant for a request (`taskPermissionRule`), or null when the card doesn't offer it:
  * the whole tool, a command prefix, or one command.
@@ -309,13 +288,7 @@ export function taskGrant(
   request: Pick<PermissionRequest, 'toolName' | 'suggestions' | 'suppressAlwaysAllowRule'>,
 ): TaskGrant | null {
   const rule = taskPermissionRule(request)
-  if (rule === null) return null
-  const content = rule.ruleContent ?? ''
-  if (content === '') return { kind: TaskGrantKind.Tool, subject: toolDisplayName(rule.toolName) }
-  const prefix = PREFIX_RULE.exec(content)?.[1]
-  return prefix === undefined
-    ? { kind: TaskGrantKind.Command, subject: content }
-    : { kind: TaskGrantKind.Prefix, subject: prefix }
+  return rule === null ? null : ruleGrant(rule)
 }
 
 /** The words either side of what a grant names, e.g. "Allow" and "commands for this task". */
@@ -332,29 +305,6 @@ export function taskGrantWords(grant: TaskGrant): TaskGrantWords {
       return { before: 'Allow', after: 'for this task' }
     case TaskGrantKind.Prefix:
       return { before: 'Allow', after: 'commands for this task' }
-  }
-}
-
-/**
- * What a closed card says happened: "allowed once", "allowed for this task", "allowed for this workspace", "denied",
- * "denied: “the note”", "withdrawn"; null while open.
- */
-export function closedOutcome(
-  request: Pick<PermissionRequest, 'state' | 'denyNote' | 'grantedRule'> &
-    Partial<Pick<PermissionRequest, 'grantedScope'>>,
-): string | null {
-  switch (request.state) {
-    case PermissionRequestState.Open:
-      return null
-    case PermissionRequestState.Allowed:
-      if (request.grantedScope === SandboxGrantScope.Workspace) return 'allowed for this workspace'
-      return request.grantedRule === null && request.grantedScope == null ? 'allowed once' : 'allowed for this task'
-    case PermissionRequestState.Denied: {
-      const note = nonBlank(request.denyNote)
-      return note === null ? 'denied' : `denied: “${note}”`
-    }
-    case PermissionRequestState.Withdrawn:
-      return 'withdrawn'
   }
 }
 

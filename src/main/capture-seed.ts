@@ -38,7 +38,7 @@ import {
   type TurnSummary,
 } from '../shared/domain'
 import { taskPermissionRule } from '../shared/permissions'
-import { SandboxGrantScope, type CardGrantScope, type SandboxAsk } from '../shared/sandbox'
+import type { CardGrantScope, SandboxAsk } from '../shared/sandbox'
 import { sandboxAskSchema } from './permissions/schema'
 import { preambleSchema, questionsSchema } from './questions/schema'
 import { appendQuestionSet } from './db/repositories/question-sets'
@@ -78,6 +78,14 @@ import { SETTING_SCHEMAS, updateSettings } from './db/repositories/settings'
 import { replaceUsageReadings, saveAccount } from './db/repositories/account'
 import { usageLevel, UsageLevel, UsageLimitKind, type UsageLimit } from '../shared/account'
 import { storeControlToken, storedToken } from './control/token'
+import { addSandboxGrant } from './db/repositories/sandbox-grants'
+import {
+  FolderAccess,
+  SandboxGrantKind,
+  SandboxGrantScope,
+  type Grant,
+  type SandboxGrantTarget,
+} from '../shared/sandbox'
 import { refreshTodos } from './todos/todos'
 
 const MINUTE = 60_000
@@ -401,6 +409,17 @@ export interface CaptureSeed {
   readonly usage?: readonly SeedUsageReading[] | undefined
   /** The models the SDK offers, as a session reported them (`ModelChoice`); the built-in list unless given. */
   readonly models?: readonly ModelChoice[] | undefined
+  /** The sandbox grants Settings lists (#451); none unless given. */
+  readonly sandboxGrants?: SeedSandboxGrants | undefined
+}
+
+/**
+ * Sample sandbox grants, in the order they were granted: the Glade-wide ones (Settings › Agent) and the fixture's
+ * workspace's (Settings › Workspace). Saved as written: a fixture's folders are made up, so nothing is resolved.
+ */
+export interface SeedSandboxGrants {
+  readonly glade?: readonly Grant[] | undefined
+  readonly workspace?: readonly Grant[] | undefined
 }
 
 /** Which panels a seed collapses. */
@@ -484,6 +503,11 @@ const seedAccountSchema = z.strictObject({
   readMinutesAgo: minutesAgo,
 }) satisfies z.ZodType<SeedAccount>
 
+const seedGrant = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal(SandboxGrantKind.Folder), path: z.string().min(1), access: z.enum(FolderAccess) }),
+  z.strictObject({ kind: z.literal(SandboxGrantKind.Domain), domain: z.string().min(1) }),
+]) satisfies z.ZodType<Grant>
+
 const seedUsageReadingSchema = z
   .strictObject({
     kind: z.enum(UsageLimitKind),
@@ -523,6 +547,9 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
     )
     .optional(),
   settings: z.strictObject(SETTING_SCHEMAS).partial().optional(),
+  sandboxGrants: z
+    .strictObject({ glade: z.array(seedGrant).optional(), workspace: z.array(seedGrant).optional() })
+    .optional(),
   controlToken: storedToken.optional(),
   panelTab: z.string().optional(),
   panelWidth: z.int().positive().optional(),
@@ -822,6 +849,14 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
     if (files !== undefined) standInForWorkspaceRoot(shown.rootPath, files)
     const workspace = createWorkspace(db, shown, now)
     setUiState(db, { key: UiStateKey.ActiveWorkspaceId, value: workspace.id })
+    const granted: readonly [SandboxGrantTarget, readonly Grant[] | undefined][] = [
+      [{ scope: SandboxGrantScope.Glade }, seed.sandboxGrants?.glade],
+      [{ scope: SandboxGrantScope.Workspace, workspaceId: workspace.id }, seed.sandboxGrants?.workspace],
+    ]
+    for (const [target, grants] of granted) {
+      // A millisecond apart, so each list keeps the fixture's order.
+      for (const [index, grant] of (grants ?? []).entries()) addSandboxGrant(db, { target, grant }, now + index)
+    }
     if (seed.panelTab !== undefined) setUiState(db, { key: UiStateKey.RightPanelTab, value: seed.panelTab })
     if (seed.panelWidth !== undefined) {
       setUiState(db, { key: UiStateKey.RightPanelWidth, value: String(seed.panelWidth) })

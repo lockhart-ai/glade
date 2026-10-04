@@ -25,8 +25,14 @@ import {
   type Watcher,
 } from '../../shared/domain'
 import { noOpenFiles } from '../../shared/files'
-import { FolderAccess, SandboxAskKind, type SandboxFolderAsk } from '../../shared/sandbox'
 import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
+import {
+  FolderAccess,
+  SandboxAskKind,
+  SandboxGrantKind,
+  SandboxGrantScope,
+  type SandboxFolderAsk,
+} from '../../shared/sandbox'
 import {
   applyEvent,
   idFromUiState,
@@ -66,6 +72,30 @@ describe('applyEvent', () => {
 
   it("leaves the state alone for what's in flight, which only the menu bar popover is sent", () => {
     expect(applyEvent(state, { type: EventType.MenuBarChanged, snapshot: EMPTY_MENU_BAR_SNAPSHOT })).toBe(state)
+  })
+
+  it('keeps a scope’s sandbox grants as main broadcasts them, leaving the other scopes’ lists as they were (#451)', () => {
+    const glade = [{ kind: SandboxGrantKind.Domain, domain: 'pypi.org' }] as const
+    const listed = { ...state, sandboxGrants: { glade } }
+    const granted = [
+      { kind: SandboxGrantKind.Folder, path: '/Users/sam/code/acme-web', access: FolderAccess.ReadWrite },
+    ] as const
+
+    const next = applyEvent(listed, {
+      type: EventType.SandboxGrantsChanged,
+      target: { scope: SandboxGrantScope.Workspace, workspaceId: 'w1' },
+      grants: granted,
+    })
+
+    expect(next.sandboxGrants).toEqual({ glade, 'workspace:w1': granted })
+    // The untouched scope's list is the same array, so its rows don't redraw.
+    expect(next.sandboxGrants.glade).toBe(glade)
+    const emptied = applyEvent(next, {
+      type: EventType.SandboxGrantsChanged,
+      target: { scope: SandboxGrantScope.Glade },
+      grants: [],
+    })
+    expect(emptied.sandboxGrants).toEqual({ glade: [], 'workspace:w1': granted })
   })
 
   it('forgets a removed workspace, its tasks and the confirmation that named it', () => {

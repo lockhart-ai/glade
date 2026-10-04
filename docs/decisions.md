@@ -142,6 +142,18 @@
     **Allow for this task** (that tool, or for `Bash` that command prefix) and **Deny**, with an optional note that
     goes back to the agent. When the SDK says a request mustn't be remembered (`suppressAlwaysAllowRule`), Allow for
     this task isn't offered; when it says it mustn't be approved by a stray key (`defaultToNo`), Deny has the focus.
+  - **A card is in the chat only while it waits for your answer** (#459, Jared's call in the P15 design review): the
+    chat holds your messages and the agent's, and nothing else. Once a card is answered or withdrawn it leaves the
+    chat, live and after a relaunch, with no collapsed line left behind. What was decided shows on the tool call's
+    row in the Tool calls list (a subagent's call, on the row it already has in the Subagents tab), on a line under
+    the call that starts with a filled shield and puts the status first: "Waiting on you" while the card is open,
+    then "Allowed once", "Allowed for this task: npm test commands" (naming the rule it granted), "Denied" or
+    "Denied: “your note”", or "Withdrawn". The shield's colour is the state: purple waiting on you, teal granted,
+    pink denied, slate withdrawn (and the whole line dimmed). The row's dot still says only how the call itself went:
+    purple while it waits, pink for a denied call, and slate for one whose request was withdrawn, since it never ran
+    rather than failed. A call that never ran (waiting, denied, withdrawn) shows no result line; its output is still
+    there when you open the row. This holds for every permission card, the sandbox's (P15) included; the line is one
+    component (`PermissionLineView`, `src/renderer/permissions/`), which those reuse.
   - While a card waits, the task needs you, exactly as with an open question: purple dot, Needs you, unread and a
     native notification when you aren't viewing it. A message sent meanwhile is queued as usual; Stop withdraws the
     request.
@@ -151,8 +163,22 @@
     and tells the agent the decision in a message, as a question answered after a restart does. See
     `sdk-notes.md` §9.
   - The agent sandbox (P15, #445) is **off by default while P15 is being built** (the `sandboxEnabled` setting,
-    which has no switch yet): main is released from, and without the sandbox's permission cards and settings a
-    sandboxed task would have no way to be granted anything. The default flips to on in P15's last PR (#452).
+    Settings › Agent › Sandbox's switch): main is released from, and without the sandbox's permission cards a
+    sandboxed task would have no way to be granted anything from the chat. The default flips to on in P15's last PR
+    (#452).
+  - **The sandbox in Settings (P15-06, #451).** The switch is app-wide, in Settings › Agent, and a session reads it
+    as it starts: a running session keeps what it started with. Under it are the Glade-wide Folders and Domains,
+    which start empty and are filled only there; a workspace's are in Settings › Workspace, its root first, tagged,
+    read-write and fixed. A task's grants are listed nowhere. Each granted folder's access is a select on its row
+    (Read-only or Read-write), and every add, change and removal goes through the grants' store, so the running
+    tasks it covers have it at once, without a restart. While the switch is off both pairs of lists dim and can't be
+    changed; the grants are kept. Main owns the lists: Settings reads a scope's as it opens and follows a
+    `sandbox.grantsChanged` broadcast, sent whenever the Glade-wide grants or a workspace's change (from Settings,
+    or Allow for this workspace on a card), and shows a change only once it's saved. **Add… refuses**, with the
+    reason under the list: what the sandbox can't take (a pattern, the whole disk, anything but a bare host or a
+    leading `*.` over two labels or more), a folder or domain the list already has (a read-only folder added again
+    read-write is upgraded instead), and, for a workspace, its own root or a folder inside it, which its agents can
+    already use (the Glade-wide list takes one: it's for other workspaces' agents).
   - With the sandbox on, Allow all runs as Claude Code's `acceptEdits`, never bypassing, and crossing the sandbox's
     bounds asks in either mode: a read outside the workspace root and the granted folders under the home folder,
     `/Users` or `/Volumes` (reads elsewhere, like `/etc` or `/usr`, don't ask), a write outside the root and the

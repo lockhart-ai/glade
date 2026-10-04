@@ -11,9 +11,16 @@ import { ASKS_SANDBOX } from '../src/main/agent/scripts'
 import type { SandboxFlagSettings } from '../src/main/agent/backend'
 import { E2E_AGENT_GLOBAL, type E2eAgent } from '../src/main/e2e'
 import { CommandName } from '../src/shared/bridge'
-import { ToolCallState, ToolEventKind, type Task, type ToolCallEvent } from '../src/shared/domain'
+import {
+  PermissionDecisionKind,
+  PermissionRequestState,
+  ToolCallState,
+  ToolEventKind,
+  type Task,
+  type ToolCallEvent,
+} from '../src/shared/domain'
 import { expect, test, type Glade } from './fixtures'
-import { chat, firstRun, inputBar, taskHeader, taskList, taskPanel } from './selectors'
+import { chat, firstRun, inputBar, settings, taskHeader, taskList, taskPanel, workspaceSwitcher } from './selectors'
 import { invoke } from './task-view'
 
 /** The folders the script's agent reaches for, outside the workspace. */
@@ -113,15 +120,20 @@ test('the sandbox’s cards: a domain, a folder, a blocked command’s request_a
 
   await expect(conversation.agentReplies.last()).toContainText(ASKS_SANDBOX.reply)
   await expect(conversation.permissionCards).toHaveCount(0)
-  await expect(conversation.closedPermissions).toHaveText([
-    `reach ${ASKS_SANDBOX.host}·allowed for this task`,
-    'reach docs.acme.dev·allowed for this task',
-    `read ${SHARED}·allowed for this workspace`,
-    `write to ${DOCS}·allowed for this task`,
-    `read ${ASKS_SANDBOX.configFolder}·allowed for this task`,
-    'run outside the sandbox·allowed once',
-    'run outside the sandbox·denied: “I’ll push it myself.”',
+  // The answered cards are on their calls' rows, status first: the connection's on its command's row, the blocked
+  // command saying what it was blocked from once the agent's request named it, and its retry let through by the grant.
+  await expect(conversation.permissionRequests).toHaveCount(0)
+  await expect(taskPanel(window).permissionLines).toHaveText([
+    `Allowed for this task: reach ${ASKS_SANDBOX.host}`,
+    'Allowed for this task: reach docs.acme.dev',
+    `Allowed for this workspace: read ${SHARED}`,
+    `Allowed for this task: write to ${DOCS}`,
+    `Blocked by the sandbox: read ${ASKS_SANDBOX.configFolder}`,
+    `Allowed for this task: read ${ASKS_SANDBOX.configFolder}`,
+    'Allowed once: run outside the sandbox',
+    'Denied: run outside the sandbox · “I’ll push it myself.”',
   ])
+  await expect(taskPanel(window).permissionLines.nth(4)).toHaveAttribute('data-permission', 'blocked')
 
   // What the agent got: the blocked command, the grant, then the same command running; and the denial's note.
   const [task] = await tasks(window)
@@ -162,6 +174,11 @@ test('the sandbox’s cards: a domain, a folder, a blocked command’s request_a
   const [second] = await tasks(window)
   const reads = (await toolCalls(window, second?.id ?? '')).filter(({ name }) => name === 'Read')
   expect(reads.map(({ state }) => state)).toEqual([ToolCallState.Done])
+  // Its read's row says which rule let it through; the sidebar says what the task waits on now, led by the shield.
+  await expect(taskPanel(window).permissionLines.nth(2)).toHaveText(`Allowed by workspace grant: read ${SHARED}`)
+  const row = taskList(window).rows('Active').first()
+  await expect(row).toContainText(`Waiting on you: write to ${DOCS}`)
+  await expect(row.getByRole('img', { name: 'Permission' })).toBeVisible()
 })
 
 test('a request_access card open when Glade quits is still there after a relaunch, and allowing it carries the agent on', async ({
@@ -200,11 +217,57 @@ test('a request_access card open when Glade quits is still there after a relaunc
   await card.getByRole('button', { name: 'Allow for this workspace' }).click()
 
   // The grant is saved, the session resumes with it, and the agent is told.
-  await expect(chat(again).closedPermissions.last()).toHaveText(
-    `read ${ASKS_SANDBOX.configFolder}·allowed for this workspace`,
+  await expect(taskPanel(again).permissionLines.last()).toHaveText(
+    `Allowed for this workspace: read ${ASKS_SANDBOX.configFolder}`,
   )
   await expect(chat(again).restarts).toHaveCount(1)
   const [first] = await overlays(relaunched)
   expect(first?.sandbox?.filesystem?.allowRead).toEqual([root, SHARED, DOCS, ASKS_SANDBOX.configFolder])
   expect(first?.permissions?.allow).toContain(`WebFetch(domain:${ASKS_SANDBOX.host})`)
+})
+
+test('Allow for this workspace on a card adds to Settings › Workspace while it’s open', async ({
+  launch,
+  tempFolder,
+}) => {
+  const root = join(tempFolder(), 'acme-api')
+  mkdirSync(root)
+  const glade = await launch({ agentScript: 'asks-sandbox', chosenFolder: root })
+  const { window } = glade
+  await firstRun(window).openFolder.click()
+  await invoke(window, CommandName.SettingsUpdate, { patch: { sandboxEnabled: true } })
+  await startTask(window)
+  await openCard(window, `The agent wants to reach${ASKS_SANDBOX.host}`)
+
+  // Settings › Workspace, open over the chat: nothing granted yet but the root.
+  const modal = settings(window)
+  const switcher = workspaceSwitcher(window)
+  await switcher.trigger.click()
+  await switcher.action('Workspace settings…').click()
+  await expect(modal.grantRows('Folders')).toHaveCount(1)
+  await expect(modal.grantList('Domains')).toContainText('No domains yet.')
+
+  // The cards are behind the modal: each is answered as its button would, for the workspace.
+  const allowForWorkspace = async (): Promise<void> => {
+    const [task] = await tasks(window)
+    const { permissionRequests } = await invoke(window, CommandName.TasksHistory, { id: task?.id ?? '' })
+    const open = permissionRequests.find(({ state }) => state === PermissionRequestState.Open)
+    await invoke(window, CommandName.PermissionsAnswer, {
+      id: open?.id ?? '',
+      decision: { kind: PermissionDecisionKind.AllowForWorkspace },
+    })
+  }
+  await allowForWorkspace()
+  await expect(modal.grantRow('Domains', ASKS_SANDBOX.host)).toBeVisible()
+
+  // Then WebFetch's domain, and the read's folder, read-only, each as its card is answered.
+  await expect.poll(async () => (await tasks(window))[0]?.permissionAsk).toMatchObject({ domain: 'docs.acme.dev' })
+  await allowForWorkspace()
+  await expect(modal.grantRows('Domains')).toHaveCount(2)
+  await expect.poll(async () => (await tasks(window))[0]?.permissionAsk).toMatchObject({ path: SHARED })
+  await allowForWorkspace()
+  const shared = modal.grantRow('Folders', SHARED)
+  await expect(shared).toBeVisible()
+  await expect(shared).toContainText('Read-only')
+  await expect(modal.grantRows('Folders')).toHaveCount(2)
 })

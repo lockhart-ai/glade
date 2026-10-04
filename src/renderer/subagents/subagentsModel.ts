@@ -8,6 +8,7 @@
 import { isSubagentTool } from '../../shared/subagents'
 import { TaskIndicator } from '../../shared/taskIndicator'
 import { ToolCallState, ToolEventKind, type EpochMs, type ToolCallEvent, type ToolEvent } from '../../shared/domain'
+import type { PermissionLines } from '../permissions/permissionLineModel'
 import {
   argumentSummary,
   resultSummary,
@@ -155,10 +156,14 @@ function subagentCalls(rows: readonly (ToolLogRow | SubagentRow)[]): CallRow[] {
 
 /**
  * A task's subagents: running ones first, then paused, done, interrupted and failed, each in the order they started. `rootPath` makes
- * file arguments relative to the workspace root.
+ * file arguments relative to the workspace root, and `permissions` gives each call in their logs its permission line.
  */
-export function deriveSubagents(events: readonly ToolEvent[], rootPath?: string): Subagent[] {
-  const subagents = subagentCalls(toolLogRows(events)).map((row) => toSubagent(row, rootPath))
+export function deriveSubagents(
+  events: readonly ToolEvent[],
+  rootPath?: string,
+  permissions?: PermissionLines,
+): Subagent[] {
+  const subagents = subagentCalls(toolLogRows(events, permissions)).map((row) => toSubagent(row, rootPath))
   return SUBAGENT_STATUSES.flatMap((status) => subagents.filter((subagent) => subagent.status === status))
 }
 

@@ -7,6 +7,7 @@ import {
   type FilesWriteRequest,
   type LogRendererErrorRequest,
   type PluginsPlaceViewRequest,
+  type SandboxGrantsResponse,
   EventType,
   type CommandRequest,
   type CommandResponse,
@@ -68,7 +69,6 @@ import {
 import { commitFileKey, noOpenFiles, withClosedFile, withOpenedFile } from '../../shared/files'
 import { isSubagentTool } from '../../shared/subagents'
 import { taskPermissionRule } from '../../shared/permissions'
-import { SandboxAskKind, SandboxGrantScope } from '../../shared/sandbox'
 import type { ImageData, ImageRef } from '../../shared/images'
 import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
@@ -76,6 +76,16 @@ import { controlUrl, type ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
 import { IDLE_LOGIN, LoginState, type LoginStatus } from '../../shared/login'
 import { offersSetting, PluginStatus, withGrant, withSetting, type InstalledPlugin } from '../../shared/plugins'
+import {
+  coversAccess,
+  SandboxAskKind,
+  SandboxGrantKind,
+  SandboxGrantScope,
+  SETTINGS_GRANT_REFUSALS,
+  settingsGrantScopeKey,
+  type Grant,
+  type SettingsGrantTarget,
+} from '../../shared/sandbox'
 import { highlightParts, highlightPattern, SearchField, type SearchResult } from '../../shared/search'
 import type { TerminalTab } from '../../shared/terminal'
 import { addDoneCounts, doneCountsOf, isInDoneSection, NO_DONE_TASKS, pageOfDone } from '../../shared/doneList'
@@ -201,6 +211,12 @@ export interface FakeMain {
   /** The status `plugins.placeView` answers with for each plugin, by id; `''` when left out. */
   pluginStatuses?: Record<string, string>
   /**
+   * The sandbox grants `sandbox.listGrants` answers with, by scope (`settingsGrantScopeKey`); none when left out.
+   * `sandbox.addGrant`, `sandbox.setFolderAccess` and `sandbox.removeGrant` change a scope's and broadcast them, and
+   * adding refuses as main does: a domain that isn't one, a duplicate, a workspace's root or a folder inside it.
+   */
+  sandboxGrants?: Record<string, readonly Grant[]>
+  /**
    * The port the control endpoint listens on while it's on, when the chosen one is taken; the chosen one when left out.
    * `control.status` answers as main would: listening while `controlEnabled` is on, with `token-1` from the first time
    * it goes on; `settings.update` of the switch or the port and `control.regenerateToken` (`token-2`, …) broadcast it.
@@ -265,6 +281,9 @@ export interface FakeBridge {
  * workspace and `workspaces.open` answers with it opened at 5,000 and its selection from `workspaceSelections`, neither
  * broadcasting.
  */
+/** A domain the fake main grants, as main's rule goes: a bare host, or `*.` and a host of two labels or more. */
+const FAKE_DOMAIN = /^(\*\.[a-z0-9-]+\.)?[a-z0-9-]+(\.[a-z0-9-]+)*$/
+
 export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void): FakeHandlers {
   let sent = 0
   let settings = main.settings ?? DEFAULT_SETTINGS
@@ -282,6 +301,17 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       error: settings.controlEnabled ? (main.controlError ?? null) : null,
     }
   }
+  const sandboxGrants = (target: SettingsGrantTarget): readonly Grant[] =>
+    main.sandboxGrants?.[settingsGrantScopeKey(target)] ?? []
+  /** Saves a scope's grants and broadcasts them, as main does once a change is saved. */
+  const saveSandboxGrants = (target: SettingsGrantTarget, grants: readonly Grant[]): SandboxGrantsResponse => {
+    main.sandboxGrants = { ...main.sandboxGrants, [settingsGrantScopeKey(target)]: grants }
+    emit({ type: EventType.SandboxGrantsChanged, target, grants })
+    return { grants }
+  }
+  /** Refuses a grant as main does: its command, then why. */
+  const refuseGrant = (reason: string): Promise<never> =>
+    refuse(bridgeError(BridgeErrorCode.InvalidRequest, `${CommandName.SandboxAddGrant}: ${reason}`))
   let queued = 0
   const images = main.images ?? {}
   let stored = 0
@@ -791,6 +821,57 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       main.reloadedPlugins = [...(main.reloadedPlugins ?? []), id]
       return null
     },
+    [CommandName.SandboxListGrants]: ({ target }) => ({ grants: sandboxGrants(target) }),
+    [CommandName.SandboxAddGrant]: ({ target, grant }) => {
+      const grants = sandboxGrants(target)
+      switch (grant.kind) {
+        case SandboxGrantKind.Folder: {
+          const root =
+            target.scope === SandboxGrantScope.Workspace
+              ? main.workspaces.find(({ id }) => id === target.workspaceId)?.rootPath
+              : undefined
+          if (grant.path === root) return refuseGrant(SETTINGS_GRANT_REFUSALS.workspaceRoot)
+          if (root !== undefined && grant.path.startsWith(`${root}/`)) {
+            return refuseGrant(SETTINGS_GRANT_REFUSALS.insideWorkspaceRoot)
+          }
+          const kept = grants.find((other) => other.kind === grant.kind && other.path === grant.path)
+          if (kept === undefined) return saveSandboxGrants(target, [...grants, grant])
+          if (kept.kind === grant.kind && coversAccess(kept.access, grant.access)) {
+            return refuseGrant(SETTINGS_GRANT_REFUSALS.duplicateFolder)
+          }
+          return saveSandboxGrants(
+            target,
+            grants.map((other) => (other === kept ? grant : other)),
+          )
+        }
+        case SandboxGrantKind.Domain: {
+          const domain = grant.domain.trim().toLowerCase()
+          if (!FAKE_DOMAIN.test(domain)) return refuseGrant(`Can't grant "${grant.domain}": not a domain`)
+          if (grants.some((other) => other.kind === grant.kind && other.domain === domain)) {
+            return refuseGrant(SETTINGS_GRANT_REFUSALS.duplicateDomain)
+          }
+          return saveSandboxGrants(target, [...grants, { kind: grant.kind, domain }])
+        }
+      }
+    },
+    [CommandName.SandboxSetFolderAccess]: ({ target, path, access }) =>
+      saveSandboxGrants(
+        target,
+        sandboxGrants(target).map((grant) =>
+          grant.kind === SandboxGrantKind.Folder && grant.path === path ? { ...grant, access } : grant,
+        ),
+      ),
+    [CommandName.SandboxRemoveGrant]: ({ target, grant: key }) =>
+      saveSandboxGrants(
+        target,
+        sandboxGrants(target).filter(
+          (grant) =>
+            !(
+              (grant.kind === SandboxGrantKind.Folder && key.kind === grant.kind && grant.path === key.path) ||
+              (grant.kind === SandboxGrantKind.Domain && key.kind === grant.kind && grant.domain === key.domain)
+            ),
+        ),
+      ),
     [CommandName.TerminalList]: () => ({ tabs: [...terminalTabs] }),
     [CommandName.TerminalCreate]: ({ workspaceId }) => {
       const workspace = main.workspaces.find(({ id }) => id === workspaceId)

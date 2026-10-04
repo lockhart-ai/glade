@@ -47,7 +47,7 @@ import { listToolEvents } from '../db/repositories/tool-events'
 import { setUiState } from '../db/repositories/ui-state'
 import { ACCESS_WITHDRAWN, AccessOutcomeKind, accessReply } from '../permissions/sandbox-ask'
 import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
-import { grantSandboxAccess } from '../sandbox/grants'
+import { grantSandboxAccess, type SandboxGrantsContext } from '../sandbox/grants'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
 import { ToolPermissionBehavior, type ToolPermissionAnswer } from './backend'
 import {
@@ -220,6 +220,9 @@ function toolCall(toolUseId: string, taskId = task.id): ToolCallEvent {
 function grants(target: SandboxGrantTarget): Grant[] {
   return listSandboxGrants(database.db, target).map(({ grant }) => grant)
 }
+
+/** What granting from Settings needs: the database, the runner, and the windows to tell (nobody, here). */
+const grantsContext = (): SandboxGrantsContext => ({ db: database.db, runner, emit: () => undefined })
 
 const taskGrants = (taskId = task.id): Grant[] => grants({ scope: SandboxGrantScope.Task, taskId })
 const workspaceGrants = (workspaceId = workspace.id): Grant[] =>
@@ -1075,20 +1078,14 @@ describe('request_access', () => {
   })
 
   it('answers at once, with no card, when there’s nothing to decide', async () => {
-    await grantSandboxAccess(
-      { db: database.db, runner },
-      {
-        target: { scope: SandboxGrantScope.Workspace, workspaceId: workspace.id },
-        grant: { kind: SandboxGrantKind.Folder, path: `${HOME}/code/shared`, access: FolderAccess.Read },
-      },
-    )
-    await grantSandboxAccess(
-      { db: database.db, runner },
-      {
-        target: { scope: SandboxGrantScope.Glade },
-        grant: { kind: SandboxGrantKind.Folder, path: `${HOME}/code/tools`, access: FolderAccess.ReadWrite },
-      },
-    )
+    await grantSandboxAccess(grantsContext(), {
+      target: { scope: SandboxGrantScope.Workspace, workspaceId: workspace.id },
+      grant: { kind: SandboxGrantKind.Folder, path: `${HOME}/code/shared`, access: FolderAccess.Read },
+    })
+    await grantSandboxAccess(grantsContext(), {
+      target: { scope: SandboxGrantScope.Glade },
+      grant: { kind: SandboxGrantKind.Folder, path: `${HOME}/code/tools`, access: FolderAccess.ReadWrite },
+    })
     const session = await startTurn()
 
     await requestAccess(session, 'toolu_root', writing(`${ROOT}/build/out.txt`))
@@ -1130,13 +1127,10 @@ describe('request_access', () => {
   })
 
   it('refuses a credential path outright, with no card, even inside a granted folder', async () => {
-    await grantSandboxAccess(
-      { db: database.db, runner },
-      {
-        target: { scope: SandboxGrantScope.Task, taskId: task.id },
-        grant: { kind: SandboxGrantKind.Folder, path: HOME, access: FolderAccess.ReadWrite },
-      },
-    )
+    await grantSandboxAccess(grantsContext(), {
+      target: { scope: SandboxGrantScope.Task, taskId: task.id },
+      grant: { kind: SandboxGrantKind.Folder, path: HOME, access: FolderAccess.ReadWrite },
+    })
     const session = await startTurn()
 
     await requestAccess(session, 'toolu_ssh', reading('~/.ssh/id_ed25519'))
@@ -1319,7 +1313,7 @@ describe('what a rule decided', () => {
 
   const folder = (path: string, access: FolderAccess) => ({ kind: SandboxAskKind.Folder, path, access }) as const
   const grant = (target: SandboxGrantTarget, granted: Grant) =>
-    grantSandboxAccess({ db: database.db, runner }, { target, grant: granted })
+    grantSandboxAccess(grantsContext(), { target, grant: granted })
 
   it('marks a file tool or WebFetch that a grant lets through, by the narrowest scope that grants it', async () => {
     await grant(

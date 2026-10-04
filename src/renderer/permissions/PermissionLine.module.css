@@ -1,0 +1,56 @@
+/*
+ * A permission line on a tool call's row, from docs/design/html/23-permission-card.html, 24-permissions-picker.html and
+ * 42–44: the filled shield and the status in the state's colour, the rest in the row's grey.
+ */
+.line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+
+/* Teal: granted. */
+.allowed {
+  --permission-color: var(--color-teal);
+}
+
+/* Pink: denied by you, or blocked by the sandbox. */
+.denied,
+.blocked {
+  --permission-color: var(--color-pink);
+}
+
+/* Purple: waiting on you. */
+.waiting {
+  --permission-color: var(--color-purple);
+}
+
+/* Slate: withdrawn. Only the shield takes it; the words are all dimmed. */
+.withdrawn {
+  --permission-color: var(--color-slate);
+
+  color: var(--color-faint);
+}
+
+/* Set down a little, so the shield sits on the first line's middle when the line wraps. */
+.shield {
+  flex-shrink: 0;
+  display: flex;
+  margin-top: 3px;
+  color: var(--permission-color);
+}
+
+.text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.status {
+  color: var(--permission-color);
+}
+
+.withdrawn .status {
+  color: inherit;
+}

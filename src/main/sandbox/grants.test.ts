@@ -40,6 +40,7 @@ import { NO_GRANTS, sandboxOverlay, sandboxStartSettings, usableGrants } from '.
 import * as sdk from '../agent/test-sdk-messages'
 import { registerBridge } from '../bridge'
 import { CommandFailure } from '../bridge/errors'
+import type { Emit } from '../bridge/events'
 import { fakeIpcPair } from '../bridge/fake-ipc'
 import { listPermissionRequests } from '../db/repositories/permission-requests'
 import { addSandboxGrant, listSandboxGrants, SandboxGrantChange } from '../db/repositories/sandbox-grants'
@@ -110,6 +111,7 @@ let workspace: Workspace
 let task: Task
 let backend: FakeAgentBackend
 let runner: AgentRunner
+let emit: Emit
 let glade: GladeBridge
 let log: MemoryLog
 let grants: SandboxGrantsContext
@@ -119,7 +121,7 @@ function launch(): void {
   backend = new FakeAgentBackend()
   log = createMemoryLog()
   const ipc = fakeIpcPair()
-  ;({ runner } = registerBridge({
+  ;({ runner, emit } = registerBridge({
     ipc: ipc.main,
     db: database.db,
     targets: () => [ipc.window],
@@ -133,7 +135,7 @@ function launch(): void {
     log: log.logger,
   }))
   glade = createBridge(ipc.renderer)
-  grants = { db: database.db, runner }
+  grants = { db: database.db, runner, emit }
 }
 
 beforeEach(() => {

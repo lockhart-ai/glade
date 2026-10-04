@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   PermissionDestination,
-  PermissionRequestState,
   PermissionRuleBehavior,
   PermissionUpdateType,
   ToolCallState,
@@ -9,12 +8,9 @@ import {
   type PermissionRequest,
   type ToolCallEvent,
 } from '../../shared/domain'
-import { FolderAccess, SandboxAskKind, SandboxGrantScope, type SandboxAsk } from '../../shared/sandbox'
+import { FolderAccess, SandboxAskKind, type SandboxAsk } from '../../shared/sandbox'
 import { REQUEST_ACCESS_TOOL } from '../../shared/toolName'
-import { samplePermissionRequest } from '../store/test-bridge'
 import {
-  callSummary,
-  closedOutcome,
   InputLineKind,
   OUTSIDE_SANDBOX_NOTE,
   permissionBody,
@@ -24,6 +20,7 @@ import {
   sandboxDetail,
   SandboxDetailKind,
   sandboxTitle,
+  ruleGrant,
   showAllLabel,
   shownLines,
   subagentLabel,
@@ -245,38 +242,24 @@ describe('what the card says', () => {
     expect(showAllLabel([plain('a')])).toBe('Show all 1 line')
     expect(showAllLabel([plain('a'), plain('b')])).toBe('Show all 2 lines')
   })
+})
 
-  it('puts the call in a line: the command, the file, or just the tool', () => {
-    const request = samplePermissionRequest('p1', 't1')
-    expect(callSummary({ ...request, input: { command: 'npm run build\nnpm test' } })).toBe(
-      'Bash: npm run build npm test',
-    )
-    expect(callSummary({ toolName: 'Write', input: { file_path: `${ROOT}/a.md`, content: '' } }, ROOT)).toBe(
-      'Write: a.md',
-    )
-    expect(
-      callSummary({ toolName: 'Edit', input: { file_path: `${ROOT}/a.md`, old_string: 'a', new_string: 'b' } }, ROOT),
-    ).toBe('Edit: a.md')
-    expect(callSummary({ toolName: 'mcp__browser__open', input: { url: 'x' } })).toBe('mcp__browser__open')
-  })
-
-  it('says what happened to a closed request, with the note it was denied with', () => {
-    const request = samplePermissionRequest('p1', 't1')
-    expect(closedOutcome(request)).toBeNull()
-    expect(closedOutcome({ state: PermissionRequestState.Allowed, denyNote: null, grantedRule: null })).toBe(
-      'allowed once',
-    )
-    expect(closedOutcome({ state: PermissionRequestState.Denied, denyNote: null, grantedRule: null })).toBe('denied')
-    expect(closedOutcome({ state: PermissionRequestState.Denied, denyNote: '  ', grantedRule: null })).toBe('denied')
-    expect(closedOutcome({ state: PermissionRequestState.Denied, denyNote: ' Not on main ', grantedRule: null })).toBe(
-      'denied: “Not on main”',
-    )
-    expect(closedOutcome({ state: PermissionRequestState.Withdrawn, denyNote: null, grantedRule: null })).toBe(
-      'withdrawn',
-    )
-    expect(
-      closedOutcome({ state: PermissionRequestState.Allowed, denyNote: null, grantedRule: { toolName: 'Edit' } }),
-    ).toBe('allowed for this task')
+describe('ruleGrant', () => {
+  it('names what a rule covers: a prefix (either form), one command, or the whole tool by its display name', () => {
+    expect(ruleGrant({ toolName: 'Bash', ruleContent: 'npm test *' })).toEqual({
+      kind: TaskGrantKind.Prefix,
+      subject: 'npm test',
+    })
+    expect(ruleGrant({ toolName: 'Bash', ruleContent: 'npm run lint:*' })).toEqual({
+      kind: TaskGrantKind.Prefix,
+      subject: 'npm run lint',
+    })
+    expect(ruleGrant({ toolName: 'Bash', ruleContent: 'touch a.txt' })).toEqual({
+      kind: TaskGrantKind.Command,
+      subject: 'touch a.txt',
+    })
+    expect(ruleGrant({ toolName: 'mcp__glade__ask' })).toEqual({ kind: TaskGrantKind.Tool, subject: 'ask' })
+    expect(ruleGrant({ toolName: 'Edit', ruleContent: '' })).toEqual({ kind: TaskGrantKind.Tool, subject: 'Edit' })
   })
 })
 
@@ -477,17 +460,5 @@ describe('a sandbox request', () => {
     expect(reasonParts('No code here.')).toEqual([{ text: 'No code here.', code: false }])
     // An unclosed backtick is left as written.
     expect(reasonParts('Half a `thought')).toEqual([{ text: 'Half a `thought', code: false }])
-  })
-
-  it('says a closed card by what it asked for, and who it was granted to', () => {
-    const request = { toolName: 'Read', input: { file_path: `${WEB}/package.json` } }
-    expect(callSummary({ ...request, sandbox: folder(FolderAccess.Read) })).toBe('read ~/code/acme-web')
-    expect(callSummary({ ...request, sandbox: domain('npm ci') })).toBe('reach registry.npmjs.org')
-    expect(callSummary({ ...request, sandbox: outside })).toBe('run outside the sandbox')
-    expect(callSummary({ ...request, sandbox: null }, WEB)).toBe('Read')
-    const allowed = { state: PermissionRequestState.Allowed, denyNote: null, grantedRule: null }
-    expect(closedOutcome({ ...allowed, grantedScope: SandboxGrantScope.Task })).toBe('allowed for this task')
-    expect(closedOutcome({ ...allowed, grantedScope: SandboxGrantScope.Workspace })).toBe('allowed for this workspace')
-    expect(closedOutcome({ ...allowed, grantedScope: null })).toBe('allowed once')
   })
 })

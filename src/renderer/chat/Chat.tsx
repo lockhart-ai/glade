@@ -243,7 +243,7 @@ function samePermission(a: AgentPermissionProps, b: AgentPermissionProps): boole
   )
 }
 
-/** A tool call of the agent's (or a subagent's) waiting, or that waited, on your OK: the permission card. */
+/** A tool call of the agent's (or a subagent's) waiting on your OK: the permission card. */
 const AgentPermission = memo(function AgentPermission({
   request,
   toolEvents,
@@ -258,9 +258,7 @@ const AgentPermission = memo(function AgentPermission({
         subagent={subagentOrigin(request, toolEvents)}
         autoFocus={first}
       />
-      {request.state === PermissionRequestState.Open && (
-        <span className={styles.meta}>agent · {clockTime(request.createdAt)}</span>
-      )}
+      <span className={styles.meta}>agent · {clockTime(request.createdAt)}</span>
     </div>
   )
 }, samePermission)

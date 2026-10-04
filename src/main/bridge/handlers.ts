@@ -72,6 +72,12 @@ import type { AccountTracker } from '../account/account'
 import { retryLoggedOutTasks, type LoginService } from '../account/login'
 import type { MenuBarCommands } from '../menu-bar/menu-bar'
 import { readMenuBarSnapshot } from '../menu-bar/snapshot'
+import {
+  addSettingsGrant,
+  listSettingsGrants,
+  removeSettingsGrant,
+  setSettingsFolderAccess,
+} from '../sandbox/settings-grants'
 
 /**
  * One handler per command, taking the parsed request. A command in `CommandMap` without a handler here, or a handler
@@ -149,6 +155,8 @@ export function createHandlers(context: HandlerContext): Handlers {
   const changes = { db, emit, git: context.git ?? createGit() }
   const attachmentsLog = (context.log ?? SILENT_LOGGER).scoped(LogScope.Chat)
   const workspaceGit = context.workspaceGit ?? createWorkspaceGit()
+  // Settings' sandbox lists: each change is saved, broadcast and applied to the running sessions it covers.
+  const sandboxGrants = { db, runner, emit }
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
     [CommandName.WorkspacesCreate]: ({ rootPath }) => {
@@ -402,6 +410,16 @@ export function createHandlers(context: HandlerContext): Handlers {
       plugins.reload(id)
       return null
     },
+    [CommandName.SandboxListGrants]: ({ target }) => ({ grants: listSettingsGrants(db, target) }),
+    [CommandName.SandboxAddGrant]: async ({ target, grant }) => ({
+      grants: await addSettingsGrant(sandboxGrants, target, grant),
+    }),
+    [CommandName.SandboxSetFolderAccess]: async ({ target, path, access }) => ({
+      grants: await setSettingsFolderAccess(sandboxGrants, target, path, access),
+    }),
+    [CommandName.SandboxRemoveGrant]: async ({ target, grant }) => ({
+      grants: await removeSettingsGrant(sandboxGrants, target, grant),
+    }),
     [CommandName.TerminalList]: () => ({ tabs: terminals.list() }),
     [CommandName.TerminalCreate]: ({ workspaceId }) => ({
       tab: terminals.create(terminalWorkspace(db, workspaceId)),

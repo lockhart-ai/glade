@@ -51,7 +51,7 @@ import {
 import { addTaskPermissionRule } from '../db/repositories/task-permission-rules'
 import { getTask } from '../db/repositories/tasks'
 import type { NotifyReply } from '../notifications/notifications'
-import { saveSandboxGrant } from '../sandbox/grants'
+import { broadcastGrants, saveSandboxGrant } from '../sandbox/grants'
 import { noteAgentReply } from '../tasks/attention'
 import { updateTaskFromRunner, type TaskServiceContext } from '../tasks/service'
 
@@ -186,6 +186,11 @@ export function createPermissionBroker(
       return request
     })()
     if (closed === undefined) return undefined
+    // A workspace's grants show in Settings, which hears of the card's at once.
+    const granted = getTask(db, closed.taskId)
+    if (closed.grantedScope !== null && granted !== undefined) {
+      broadcastGrants(context, cardGrantTarget(closed.grantedScope, granted))
+    }
     emitPermissionRequest(emit, closed)
     awaitingChanged(closed.taskId)
     const resolve = waiting.get(id)

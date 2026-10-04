@@ -7,7 +7,7 @@ import { DRIVES_GLADE, REPLIES_BRIEFLY } from '../src/main/agent/scripts'
 import { CommandName } from '../src/shared/bridge'
 import { TaskState, type Task } from '../src/shared/domain'
 import { expect, seedPath, test } from './fixtures'
-import { chat, inputBar, taskHeader, taskList } from './selectors'
+import { chat, inputBar, taskHeader, taskList, taskPanel } from './selectors'
 import { invoke } from './task-view'
 
 const SCRIPTS = { [DRIVES_GLADE.prompt]: 'drives-glade', [DRIVES_GLADE.created.message]: 'replies-briefly' } as const
@@ -85,7 +85,7 @@ test("in the ask mode, the agent's control reads go ahead and each change waits 
   const create = conversation.permissionCards.first()
   await expect(create).toContainText('create_task')
   await expect(conversation.permissionCards).toHaveCount(1)
-  await expect(conversation.closedPermissions).toHaveCount(0)
+  await expect(taskPanel(window).permissionLines).toHaveText(['Waiting on you'])
   await expect(list.row('Active', DRIVES_GLADE.created.title)).toHaveCount(0)
   expect((await tasks(window)).map(({ title }) => title).sort()).toEqual([
     'Coordinate the release',
@@ -109,6 +109,7 @@ test("in the ask mode, the agent's control reads go ahead and each change waits 
   await expect(list.sectionHeader('Done')).toHaveText('Done1')
 
   await expect(conversation.agentReplies.last()).toContainText(DRIVES_GLADE.reply)
-  await expect(conversation.closedPermissions).toHaveCount(3)
-  await expect(conversation.permissionCards).toHaveCount(0)
+  // Each answered card left the chat; its decision is on its call's row.
+  await expect(conversation.permissionRequests).toHaveCount(0)
+  await expect(taskPanel(window).permissionLines).toHaveText(['Allowed once', 'Allowed once', 'Allowed once'])
 })

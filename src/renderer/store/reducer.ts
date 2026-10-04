@@ -18,6 +18,7 @@ import {
   type Watcher,
   type Workspace,
 } from '../../shared/domain'
+import { settingsGrantScopeKey, type Grant, type SettingsGrantTarget } from '../../shared/sandbox'
 import { isSubagentTool } from '../../shared/subagents'
 import { withCountedChange, withoutDoneLists } from './doneLists'
 import type { GladeData } from './state'
@@ -387,5 +388,16 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
     case EventType.MenuBarChanged:
       // Only the menu bar popover's page is sent it (`../menu-bar`); the window keeps its own tasks.
       return state
+    case EventType.SandboxGrantsChanged:
+      return { ...state, sandboxGrants: withSandboxGrants(state.sandboxGrants, event.target, event.grants) }
   }
+}
+
+/** The grants Settings lists, by scope, with one scope's as main now has them: the others keep their lists as they were. */
+export function withSandboxGrants(
+  grantsByScope: GladeData['sandboxGrants'],
+  target: SettingsGrantTarget,
+  grants: readonly Grant[],
+): GladeData['sandboxGrants'] {
+  return { ...grantsByScope, [settingsGrantScopeKey(target)]: grants }
 }

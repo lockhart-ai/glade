@@ -29,7 +29,7 @@ import {
   type EpochMs,
   type Question,
 } from '../shared/domain'
-import { FolderAccess, SandboxAskKind, SandboxGrantScope } from '../shared/sandbox'
+import { SandboxAskKind } from '../shared/sandbox'
 import { applySeed, readSeed, seedArtifactAt, type CaptureSeed } from './capture-seed'
 import { getArtifactFilter, listArtifacts, listFileArtifacts } from './db/repositories/artifacts'
 import { getHandoff } from './db/repositories/backfills'
@@ -40,6 +40,7 @@ import { listQuestionSets } from './db/repositories/question-sets'
 import { getOpenFiles } from './db/repositories/open-files'
 import { listBrowseFolders } from './db/repositories/browse-folders'
 import { listQueuedMessages } from './db/repositories/queued-messages'
+import { listSandboxGrants } from './db/repositories/sandbox-grants'
 import { listTaskPermissionRules } from './db/repositories/task-permission-rules'
 import { listToolEvents } from './db/repositories/tool-events'
 import { listTasks } from './db/repositories/tasks'
@@ -49,6 +50,13 @@ import { listWatchers } from './db/repositories/watchers'
 import { listWorkspaces } from './db/repositories/workspaces'
 import { readTaskFile, workspaceFilesRoot } from './files/files'
 import { openTestDatabase, type TestDatabase } from './db/repositories/test-database'
+import {
+  FolderAccess,
+  SandboxGrantKind,
+  SandboxGrantScope,
+  type Grant,
+  type SandboxGrantTarget,
+} from '../shared/sandbox'
 import { DEFAULT_SETTINGS } from '../shared/settings'
 import { DRIVES_GLADE } from './agent/scripts'
 import { getSettings } from './db/repositories/settings'
@@ -281,6 +289,31 @@ describe('readSeed', () => {
       readSeed(write(JSON.stringify(task({ artifacts: [{ url: 'not a url', title: 'X', minutesAgo: 1 }] })))),
     ).toThrow(/is invalid: /)
     expect(() => readSeed(write(JSON.stringify(task({ artifactFilter: 'images' }))))).toThrow(/is invalid: /)
+  })
+
+  it('reads the sandbox settings fixture: the switch on, and the grants both lists show (#451)', () => {
+    const seed = readSeed(join(FIXTURES, 'settings-sandbox.json'))
+
+    expect(seed.settings).toEqual({ sandboxEnabled: true })
+    expect(seed.sandboxGrants?.glade?.map((grant) => grant.kind)).toEqual([
+      'folder',
+      'folder',
+      'folder',
+      'domain',
+      'domain',
+    ])
+    expect(seed.sandboxGrants?.workspace).toHaveLength(4)
+  })
+
+  it('refuses a sandbox grant of no kind, a folder with no access, or a scope it does not know', () => {
+    const withGrants = (sandboxGrants: unknown): string => write(JSON.stringify({ ...SEED, sandboxGrants }))
+
+    expect(() => readSeed(withGrants({ glade: [{ kind: 'socket', path: '/tmp/x' }] }))).toThrow(/is invalid: /)
+    expect(() => readSeed(withGrants({ glade: [{ kind: 'folder', path: '/Users/sample/.nvm' }] }))).toThrow(
+      /is invalid: /,
+    )
+    expect(() => readSeed(withGrants({ workspace: [{ kind: 'domain', domain: '' }] }))).toThrow(/is invalid: /)
+    expect(() => readSeed(withGrants({ task: [] }))).toThrow(/is invalid: /)
   })
 
   it('refuses settings it does not know, or of the wrong kind', () => {
@@ -734,6 +767,35 @@ describe('applySeed', () => {
 
     expect(getSettings(db)).toEqual(DEFAULT_SETTINGS)
     expect(readControlToken(db)).toBeNull()
+  })
+
+  it('grants the sandbox folders and domains it gives, Glade-wide and to its workspace, in its order (#451)', () => {
+    const { db } = database
+    const glade: Grant[] = [
+      { kind: SandboxGrantKind.Folder, path: '/Users/sample/.nvm', access: FolderAccess.Read },
+      { kind: SandboxGrantKind.Domain, domain: 'pypi.org' },
+      { kind: SandboxGrantKind.Folder, path: '/Users/sample/.npm', access: FolderAccess.ReadWrite },
+    ]
+    const workspace: Grant[] = [{ kind: SandboxGrantKind.Domain, domain: 'github.com' }]
+
+    applySeed(db, { ...SEED, workspace: { ...SEED.workspace, id: 'workspace-1' }, sandboxGrants: { glade, workspace } })
+
+    const granted = (target: SandboxGrantTarget): Grant[] => listSandboxGrants(db, target).map(({ grant }) => grant)
+    expect(granted({ scope: SandboxGrantScope.Glade })).toEqual(glade)
+    expect(granted({ scope: SandboxGrantScope.Workspace, workspaceId: 'workspace-1' })).toEqual(workspace)
+  })
+
+  it('grants nothing unless given, and only the scope it gives', () => {
+    const { db } = database
+
+    applySeed(db, {
+      ...SEED,
+      workspace: { ...SEED.workspace, id: 'workspace-1' },
+      sandboxGrants: { workspace: [{ kind: SandboxGrantKind.Domain, domain: 'github.com' }] },
+    })
+
+    expect(listSandboxGrants(db, { scope: SandboxGrantScope.Glade })).toEqual([])
+    expect(listSandboxGrants(db, { scope: SandboxGrantScope.Workspace, workspaceId: 'workspace-1' })).toHaveLength(1)
   })
 
   it('stores the control token it gives, which turning control on then keeps', () => {

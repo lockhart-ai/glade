@@ -50,6 +50,47 @@ export interface DomainGrant {
 /** What one grant allows. */
 export type Grant = FolderGrant | DomainGrant
 
+/** Which grant of a scope: a folder by its path (whatever its access), or a domain. */
+export type GrantKey = Pick<FolderGrant, 'kind' | 'path'> | DomainGrant
+
+/**
+ * The scopes Settings lists and edits (#451): the Glade-wide grants (Settings › Agent) and a workspace's (Settings ›
+ * Workspace). A task's grants come only from its permission cards, and end with it.
+ */
+export type SettingsGrantTarget = Exclude<SandboxGrantTarget, { readonly scope: SandboxGrantScope.Task }>
+
+/** Whether a scope is one Settings lists: any but a task's. */
+export function isSettingsGrantTarget(target: SandboxGrantTarget): target is SettingsGrantTarget {
+  return target.scope !== SandboxGrantScope.Task
+}
+
+/** What a scope Settings lists is kept under, where its grants are kept by scope: `glade`, or `workspace:<id>`. */
+export function settingsGrantScopeKey(target: SettingsGrantTarget): string {
+  switch (target.scope) {
+    case SandboxGrantScope.Glade:
+      return target.scope
+    case SandboxGrantScope.Workspace:
+      return `${target.scope}:${target.workspaceId}`
+  }
+}
+
+/**
+ * Why Settings' Add… refuses a folder or domain the sandbox could take, as Settings shows it under the list: one the
+ * scope already has, and, for a workspace, its own root or a folder inside it, which its agents can already use.
+ */
+export const SETTINGS_GRANT_REFUSALS = {
+  duplicateFolder: 'That folder is already in the list.',
+  duplicateDomain: 'That domain is already in the list.',
+  workspaceRoot: 'That folder is the workspace root, which its agents can already use.',
+  insideWorkspaceRoot: 'That folder is inside the workspace root, which its agents can already use.',
+} as const
+
+/** How a folder's access reads, in Settings' lists and their selects. */
+export const FOLDER_ACCESS_LABELS: Readonly<Record<FolderAccess, string>> = {
+  [FolderAccess.Read]: 'Read-only',
+  [FolderAccess.ReadWrite]: 'Read-write',
+}
+
 /** One grant as stored: what it allows, the tasks it covers, and when it was first granted. */
 export interface SandboxGrant {
   readonly target: SandboxGrantTarget

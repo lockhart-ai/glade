@@ -267,6 +267,7 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.AccountChanged:
       case EventType.LoginChanged:
       case EventType.MenuBarChanged:
+      case EventType.SandboxGrantsChanged:
         return [event.type]
     }
   })
@@ -3679,6 +3680,7 @@ describe('several tasks at once', () => {
       case EventType.AccountChanged:
       case EventType.LoginChanged:
       case EventType.MenuBarChanged:
+      case EventType.SandboxGrantsChanged:
         return null
     }
   }
@@ -3733,6 +3735,7 @@ describe('several tasks at once', () => {
       case EventType.AccountChanged:
       case EventType.LoginChanged:
       case EventType.MenuBarChanged:
+      case EventType.SandboxGrantsChanged:
         return [event.type]
     }
   }

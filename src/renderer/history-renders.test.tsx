@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType } from '../shared/bridge'
 import {
   MessageRole,
+  PermissionRequestState,
   ToolCallState,
   ToolEventKind,
   UiStateKey,
@@ -18,6 +19,7 @@ import {
 import { FolderAccess, SandboxAskKind } from '../shared/sandbox'
 import { Chat } from './chat'
 import { clockTime } from './chat/chatModel'
+import { permissionLinesByToolUse } from './permissions/permissionLines'
 import { samplePermissionRequest, sampleTask, sampleWatcher, sampleWorkspace } from './store/test-bridge'
 import { storeWrapper, type StoreWrapper } from './store/test-wrapper'
 import { ELAPSED_REFRESH_MS, SubagentsTab } from './subagents/SubagentsTab'
@@ -183,6 +185,64 @@ describe('the tool log, with a long history', () => {
     rerender(<ToolLog taskId="t1" events={TOOL_EVENTS} rootPath="/Users/sample/code/api" />)
     expect(renders(clockTime)).toBe(TURNS)
   })
+
+  it('renders only the row whose permission request opened, was answered or was withdrawn (#459)', () => {
+    const { wrapper } = storeWrapper()
+    /** A request about the call of a turn. */
+    const about = (turn: number, patch: Partial<PermissionRequest> = {}): PermissionRequest => ({
+      ...samplePermissionRequest(`p-${String(turn)}`, 't1'),
+      toolUseId: `use-call-${String(turn)}`,
+      ...patch,
+    })
+    const log = (requests: PermissionRequest[]): React.JSX.Element => (
+      <ToolLog taskId="t1" events={TOOL_EVENTS} permissions={permissionLinesByToolUse(requests)} />
+    )
+    // Every tenth call was asked about and allowed, long ago.
+    const old = Array.from({ length: TURNS / 10 }, (_, index) =>
+      about((index + 1) * 10, { state: PermissionRequestState.Allowed, closedAt: AT }),
+    )
+    const { rerender } = render(log(old), { wrapper })
+    expect(document.querySelectorAll('[data-permission]')).toHaveLength(old.length)
+
+    // A request opens for another call: its row alone.
+    vi.mocked(clockTime).mockClear()
+    rerender(log([...old, about(7)]))
+    expect(renders(clockTime)).toBe(1)
+    expect(document.querySelectorAll('[data-permission="waiting"]')).toHaveLength(1)
+
+    // The same requests, in a list made anew, as every other event to the task brings: none.
+    vi.mocked(clockTime).mockClear()
+    rerender(log([...old.map((request) => ({ ...request })), about(7)]))
+    expect(renders(clockTime)).toBe(0)
+
+    // It's denied with a note: its row alone.
+    vi.mocked(clockTime).mockClear()
+    const denied = about(7, { state: PermissionRequestState.Denied, denyNote: 'Not yet', closedAt: AT })
+    rerender(log([...old, denied]))
+    expect(renders(clockTime)).toBe(1)
+    expect(document.querySelector('[data-permission="denied"]')).toHaveTextContent('Denied: “Not yet”')
+
+    // Two more open at once, and one of them is withdrawn: two rows, then one.
+    vi.mocked(clockTime).mockClear()
+    rerender(log([...old, denied, about(8), about(9)]))
+    expect(renders(clockTime)).toBe(2)
+    vi.mocked(clockTime).mockClear()
+    rerender(log([...old, denied, about(8), about(9, { state: PermissionRequestState.Withdrawn, closedAt: AT })]))
+    expect(renders(clockTime)).toBe(1)
+
+    // A request about a call that isn't in the log changes no row.
+    vi.mocked(clockTime).mockClear()
+    rerender(
+      log([
+        ...old,
+        denied,
+        about(8),
+        about(9, { state: PermissionRequestState.Withdrawn, closedAt: AT }),
+        about(TURNS + 1),
+      ]),
+    )
+    expect(renders(clockTime)).toBe(0)
+  })
 })
 
 describe('the Subagents tab, with many subagents', () => {
@@ -257,6 +317,31 @@ describe('the Subagents tab, with many subagents', () => {
     )
     vi.mocked(statusLabel).mockClear()
     rerender(<SubagentsTab taskId="t1" events={back} />)
+    expect(renders(statusLabel)).toBe(1)
+  })
+
+  it("renders only the subagent whose call's permission request changed (#459)", () => {
+    const { wrapper } = storeWrapper()
+    const request: PermissionRequest = {
+      ...samplePermissionRequest('p1', 't1'),
+      toolUseId: 'use-did-3',
+      agentId: 'agent-3',
+    }
+    const tab = (requests: PermissionRequest[]): React.JSX.Element => (
+      <SubagentsTab taskId="t1" events={EVENTS} permissions={permissionLinesByToolUse(requests)} />
+    )
+    const { rerender } = render(tab([]), { wrapper })
+
+    // The fourth subagent's call waits on a card: that subagent alone.
+    vi.mocked(statusLabel).mockClear()
+    rerender(tab([request]))
+    expect(renders(statusLabel)).toBe(1)
+
+    // The same request in a new list: none. Then it's allowed: that subagent again.
+    vi.mocked(statusLabel).mockClear()
+    rerender(tab([{ ...request }]))
+    expect(renders(statusLabel)).toBe(0)
+    rerender(tab([{ ...request, state: PermissionRequestState.Allowed, closedAt: AT }]))
     expect(renders(statusLabel)).toBe(1)
   })
 

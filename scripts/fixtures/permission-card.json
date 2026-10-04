@@ -60,13 +60,38 @@
           "kind": "tool_call",
           "name": "Bash",
           "input": {
+            "command": "npm run lint",
+            "description": "Lint the release notes"
+          },
+          "output": "2 warnings",
+          "toolUseId": "lint",
+          "turn": 1,
+          "minutesAgo": 16
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
             "command": "rm -rf dist"
           },
-          "output": "Keep dist, the smoke test reads it.",
+          "output": "The user denied permission for this tool call, so it did not run. They said: Keep dist, the smoke test reads it.",
           "state": "error",
           "toolUseId": "clean",
           "turn": 1,
           "minutesAgo": 12
+        },
+        {
+          "kind": "tool_call",
+          "name": "Write",
+          "input": {
+            "file_path": "/Users/sample/code/api/out/announcement-2.4.txt",
+            "content": "Acme API 2.4 is out."
+          },
+          "output": "The permission request for this tool call was withdrawn before the user answered, so it did not run.",
+          "state": "error",
+          "toolUseId": "announce",
+          "turn": 1,
+          "minutesAgo": 8
         },
         {
           "kind": "tool_call",

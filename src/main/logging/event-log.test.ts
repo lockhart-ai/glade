@@ -25,6 +25,7 @@ import {
   type ToolCallEvent,
 } from '../../shared/domain'
 import { ImageMediaType } from '../../shared/images'
+import { FolderAccess, SandboxGrantKind, SandboxGrantScope } from '../../shared/sandbox'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { createEventLog } from './event-log'
@@ -743,6 +744,16 @@ describe('the rest of the app', () => {
           recent: [{ seq: 1, taskId: 'task-1', title: 'Add rate limiting', body: 'secret reply', sentAt: 1 }],
         },
       },
+      // A scope's sandbox grants: how many, never which.
+      {
+        type: EventType.SandboxGrantsChanged,
+        target: { scope: SandboxGrantScope.Workspace, workspaceId: 'ws-1' },
+        grants: [
+          { kind: SandboxGrantKind.Folder, path: '/Users/sam/secret-project', access: FolderAccess.Read },
+          { kind: SandboxGrantKind.Domain, domain: 'secret.example.com' },
+        ],
+      },
+      { type: EventType.SandboxGrantsChanged, target: { scope: SandboxGrantScope.Glade }, grants: [] },
     ]
     for (const event of events) logEvent(event)
 
@@ -756,12 +767,20 @@ describe('the rest of the app', () => {
       'info app task open requested',
       'debug terminal terminal tabs changed',
       'debug terminal terminal cleared',
+      'info app sandbox grant list changed',
+      'info app sandbox grant list changed',
     ])
     expect(log.withMessage('workspace updated')[0]?.fields).toEqual({
       workspaceId: 'ws-1',
       name: 'Acme API',
       rootPath: '/code/acme-api',
     })
+    expect(log.withMessage('sandbox grant list changed').map(({ fields }) => fields)).toEqual([
+      { scope: 'workspace', workspaceId: 'ws-1', grants: 2 },
+      { scope: 'glade', workspaceId: null, grants: 0 },
+    ])
+    expect(JSON.stringify(log.records)).not.toContain('secret-project')
+    expect(JSON.stringify(log.records)).not.toContain('secret.example.com')
     expect(JSON.stringify(log.records)).not.toContain('secret typed here')
     expect(JSON.stringify(log.records)).not.toContain('secret reply')
   })
