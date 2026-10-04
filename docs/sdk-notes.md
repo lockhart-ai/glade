@@ -2456,9 +2456,80 @@ decimal parts.
 - **On each SDK bump,** check the tools that take a path or run a command against the hook's list (`BOUNDED_TOOLS`):
   a new one isn't bounded until it's added, and the user's settings could then allow it.
 
+### A stand-in for the model (P15-12, #516) [verified]
+
+The sandbox's acceptance test, the escape battery (`docs/escape-battery.md`), runs the real backend and the bundled
+Claude Code (2.1.283) with no real API call: the model is a server on the same Mac that replays a fixed list of tool
+calls. What that relies on, each seen in the battery's runs (SDK 0.3.283, macOS arm64, October 2026):
+
+- **`ANTHROPIC_BASE_URL` and a dummy `ANTHROPIC_API_KEY` in the session's `env` are enough.** `system/init` says
+  `apiKeySource: "ANTHROPIC_API_KEY"`, and every model request goes to the stand-in as `POST /v1/messages?beta=true`,
+  streaming, with the dummy key in `x-api-key` and no `Authorization` header. With `HOME` a dummy folder, no login was
+  read from anywhere else. The stand-in answers with the Messages API's stream events (`message_start`, one
+  `content_block_start` / `content_block_delta` / `content_block_stop` for a `tool_use` or a text block,
+  `message_delta` with the `stop_reason`, `message_stop`), and Claude Code runs the tool as it would a model's.
+- **Nothing else is asked of it.** A turn made no side requests: no title, no classifier, no token count. A subagent's
+  requests come to the same endpoint, their `system` starting `…cc_is_subagent=true`, with the `Agent` call's prompt
+  in the first messages; that's how the stand-in tells the conversations apart. Each request holds the whole
+  conversation, so every tool result passes back through the stand-in.
+- **Nothing leaves the Mac.** With `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` and the process's proxy
+  (`HTTPS_PROXY`, `HTTP_PROXY`, loopback in `NO_PROXY`) pointed at a server that refuses everything, the proxy saw no
+  request over a whole run. An allowed `WebFetch` is the exception: it first asks `api.anthropic.com` whether the
+  domain is safe (refused by the proxy, and the fetch then fails with "Unable to verify if domain … is safe to
+  fetch"), unless the user's settings have `skipWebFetchPreflight: true`, and then it fetches through the proxy.
+  `WebFetch` rewrites `http:` to `https:`, and refuses `localhost` and other names without a dot by itself.
+- **How the app is kept to it** is in `src/main/agent/stand-in.ts`: an e2e run may name a stand-in
+  (`E2eSpec.standInModel`), main takes it only at `http://127.0.0.1:<port>`, drops every variable that names an
+  endpoint or a login from the session's environment, and refuses to start unless `$HOME` is a throwaway folder.
+
+Seen on the way, with the session's sandbox as Glade sets it and nothing granted:
+
+- **What a command may write,** as Claude Code tells the model in the conversation's opening ("How the sandbox is
+  configured in this session"): `/dev/stdout`, `/dev/stderr`, `/dev/null`, `/dev/tty`, `/tmp/claude`,
+  `/private/tmp/claude`, `$TMPDIR` (which Claude Code sets to `/tmp/claude-<uid>`), `~/.npm/_logs`,
+  `~/.claude/debug`, and the workspace root. The system temp folder (`/var/folders/…/T`) and `/tmp` are not
+  writable. The two folders in the home folder are, though the home folder can't be read.
+- **Claude Code writes the home folder itself,** outside the sandbox: `~/.claude/`, `~/.claude.json`,
+  `~/.config/anthropic`, `~/Library/Caches/claude-cli-nodejs`, and, in a git repository, `~/.config/git/ignore`
+  (one line, `**/.claude/.cc-writes/`).
+- **The loopback address is shut to commands** in every form tried: `curl` to `127.0.0.1`, `localhost`, `[::1]`,
+  `2130706433`, `0x7f.1` and `127.1` fails to connect, as do `nc`, `/dev/tcp`, UDP and a Unix socket in the
+  workspace; `dig`, `nslookup` and `host` can't bind a socket. `http://0:<port>` and a name outside the Mac go to the
+  sandbox's proxy, which asks (`SandboxNetworkAccess`). The sandboxed command's environment has the session's own
+  (`ANTHROPIC_BASE_URL` and the key among it), with the proxy variables replaced by the sandbox's own.
+- **`dangerouslyDisableSandbox` takes `true` and the string `"true"`,** and both ask. Any other value (`"TRUE"`,
+  `"yes"`, `1`, `{}`) is refused as input: `InputValidationError: … expected as boolean`.
+- **`Write` and `Edit` on a file that exists are refused before anything is asked** when the session hasn't read it:
+  `File has not been read yet. Read it first before writing to it.`
+- **A command that names a wrapper the settings exclude isn't excluded:** with `sandbox.excludedCommands: ["env *"]`,
+  `env sh -c '…'` still ran sandboxed. A plain command (`tail <file>` under `tail *`) ran outside the sandbox once
+  allowed. Glade asks about both.
+- **`Monitor` isn't offered** to a session on the stand-in (`No such tool available: Monitor. Monitor is disabled for
+  this session`), though a session on the real API has it (§13). Not looked into further.
+- **An `Agent` call runs in the background unless it says `run_in_background: false`.**
+
+**The security review's fixes, one reverted at a time.** The review's findings were read from Claude Code's code, not
+probed ("The phase's security review", above). The battery ran against each fix taken out in turn, with the dummy
+home's Claude Code settings allowing every file tool, `WebFetch` and `Bash` whole, turning the sandbox's switches to
+their loosest and keeping a command out of the sandbox:
+
+| Fix taken out | What then got out |
+| --- | --- |
+| The `PreToolUse` hook (`sandboxToolGuard`) | `Read` read the canaries in the home folder, `Write` and `Edit` wrote it (a launch agent among them), and `WebFetch` reached the listener and sent requests for outside names, all unasked: the settings' allow rules decided first. A write to a shell startup file still asked, by Claude Code's own check. |
+| The switches pinned off | With `sandbox.filesystem.disabled: true` in the user's settings, commands read every canary and wrote the home folder and the workspace's protected files. |
+| Asking about `sandbox.excludedCommands` | The excluded commands ran outside the sandbox unasked, and read canaries. |
+| `EnterWorktree` disallowed | `EnterWorktree { path }` on a linked worktree in the home folder answered `Entered worktree at … on branch …`; the session's commands then ran there (`pwd`), and one wrote a file there. A folder that isn't a registered worktree is refused (`Cannot enter worktree: … is not a registered worktree of …`). `ExitWorktree` takes `{ action: 'keep' \| 'remove' }`. |
+| The control endpoint's variables denied (`credentials.envVars`) | `printenv GLADE_CONTROL_TOKEN` printed the token. |
+| macOS's magic folders refused (`isAliasPath`) | **Nothing.** Claude Code refuses them itself: `Read` of `/.nofollow/<path>`, `/.resolve/1/<path>` and `/.vol/<device>/<inode>` each failed with `Refusing to read …: where it leads on disk could not be determined (a link on the way could not be examined, or the links do not resolve).` So the read the review inferred doesn't happen on 2.1.283, and Glade's refusal is a second check. |
+
+So, of what the review left open: a `PreToolUse` hook's `deny` does stop a call that a settings allow rule covers, in
+`acceptEdits` and in `default` (the battery switches mode mid-turn); and the `credentials.envVars` denies and the
+switches set off take effect. The `denyWrite` entries inside a granted folder, and how long a hook can be held, are
+still unprobed: the battery grants nothing, and answers every card at once.
+
 ### Test backends
 
-The scripted and fake backends play these shapes (`src/main/agent/sandbox-requests.ts`): see the sandbox steps in
+The battery aside, tests play these shapes without Claude Code. The scripted and fake backends play them (`src/main/agent/sandbox-requests.ts`): see the sandbox steps in
 `src/main/agent/scripts.ts`, and `FakeAgentSession` (`fake-backend.ts`). They record the `sandbox` and `permissions`
 a session starts with and every `applyFlagSettings` call. The `sandbox-fails` script plays a session whose sandbox
 couldn't start (`e2e/sandbox.spec.ts`). A scripted command can say what it needs of the sandbox (`needs`), so it's

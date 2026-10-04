@@ -86,6 +86,7 @@ the task, the workspace or Glade-wide (`decisions.md`, "Agent sandbox"; `sdk-not
 | P15-07 (#452) | The docs pass, the probes before launch, telling a resumed session of the sandbox, and turning the sandbox on by default once the phase's security review is done. |
 | P15-08 (#459) | Answered permission cards leave the chat; the decision shows on the tool call's row. |
 | P15-09 (#487) | Glade's own git calls hardened against config the agent can write. |
+| P15-12 (#516) | The zero-grant escape battery: the phase's acceptance test, on every PR (`escape-battery.md`). |
 
 Order: 01 → 02 → (03, 04) → (05, 06, 08, 09) → 07.
 
