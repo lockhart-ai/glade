@@ -208,15 +208,18 @@ export function taskPanel(page: Page) {
 }
 
 /**
- * The right panel's Agents tab (P16, #536), which takes the place of Tool calls and Subagents while the hidden
- * `todoHubEnabled` setting is on: a strip with a tab for every agent in the task, and under it the tool calls of the
- * agent showing (`taskPanel(page).log`, as the Tool calls tab's).
+ * The right panel's Agents tab (P16, #536), which takes the place of Tool calls, Subagents and Watchers while the
+ * hidden `todoHubEnabled` setting is on: a strip with a tab for every agent in the task, under it the tool calls of the
+ * agent showing (`taskPanel(page).log`, as the Tool calls tab's), and under those what that agent is watching (#537).
  */
 export function agentsTab(page: Page) {
   const panel = regions(page).taskPanel
   const strip = panel.getByRole('tablist', { name: 'Agents' })
   const list = panel.getByRole('log', { name: 'Tool log' })
   const line = panel.locator('[data-agent-line]')
+  const tab = (name: string) => strip.getByTitle(name, { exact: true })
+  const watching = panel.getByRole('group', { name: 'Watching' })
+  const pinned = (label: string) => watching.getByRole('group', { name: label, exact: true })
   return {
     strip,
     /**
@@ -225,7 +228,26 @@ export function agentsTab(page: Page) {
      */
     tabs: strip.getByRole('tab'),
     /** An agent's tab, by its name; `aria-selected` while it's the one showing. */
-    tab: (name: string) => strip.getByTitle(name, { exact: true }),
+    tab,
+    /**
+     * The eye on an agent's tab, named "2 watching": its text is how many watchers the agent has pinned, and it has
+     * `data-live` (it's blue) while one of them has its process running.
+     */
+    eye: (name: string) => tab(name).getByRole('img', { name: /watching$/ }),
+    /** What the agent showing is watching, pinned under its tool calls: there only while it has a watcher live. */
+    watching,
+    /** The pinned watchers' cards, top to bottom, each named by its watcher's label; `data-state` is its state. */
+    pinnedWatchers: watching.locator('[data-kind]'),
+    /** A pinned watcher's card, by its label. */
+    pinnedWatcher: pinned,
+    /** A pinned watcher's Stop. */
+    stopWatcher: (label: string) => pinned(label).getByRole('button', { name: `Stop ${label}` }),
+    /** The rows of the agent's watchers that have ended, in its list, top to bottom; `data-state` is how each ended. */
+    endedWatchers: list.locator('[data-watcher]'),
+    /** An ended watcher's row in the list, by its label. */
+    endedWatcher: (label: string) => list.locator('[data-watcher]').filter({ hasText: label }),
+    /** Every row of the agent's list, top to bottom: calls, notes, dividers and ended watchers. */
+    rows: list.locator(':scope > div > *'),
     /** The chevron over an end of the strip with more agents past it. */
     scroll: (side: 'left' | 'right') => strip.getByRole('button', { name: `Scroll agents ${side}` }),
     /** The agent showing's side of the tab, named by its tab: the line about its todo, and its tool calls. */

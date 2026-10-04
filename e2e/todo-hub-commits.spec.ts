@@ -13,7 +13,7 @@ import { MAKES_COMMITS } from '../src/main/agent/scripts'
 import { SHELL_GIT_ENV } from '../src/main/agent/scripted-shell'
 import { CommandName } from '../src/shared/bridge'
 import { expect, test } from './fixtures'
-import { changesTab, chat, filesTab, firstRun, inputBar, taskList, taskPanel, todoHub } from './selectors'
+import { agentsTab, changesTab, chat, filesTab, firstRun, inputBar, taskList, taskPanel, todoHub } from './selectors'
 import { invoke } from './task-view'
 
 const MADE = [MAKES_COMMITS.merge, MAKES_COMMITS.guide, MAKES_COMMITS.bump, MAKES_COMMITS.fix]
@@ -116,6 +116,13 @@ test('the todo hub: a commit’s tile opens to its branch, the subagent that mad
   await expect(tile(MAKES_COMMITS.fix)).toBeFocused()
   await window.keyboard.press('Enter')
   await expect(files(fix)).toHaveCount(0)
+
+  // The subagent's name on its commit goes to that subagent's tab in the Agents tab (#537).
+  await tile(MAKES_COMMITS.guide).click()
+  await tile(MAKES_COMMITS.guide).getByRole('button', { name: MAKES_COMMITS.subagent, exact: true }).click()
+  await expect(taskPanel(window).tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
+  await expect(agentsTab(window).tab(MAKES_COMMITS.subagent)).toHaveAttribute('aria-selected', 'true')
+  await expect(agentsTab(window).list).toContainText('git')
 
   // With the switch off again, the Changes tab is as it was: its rows, a row's files, and a file in Files.
   await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: false } })

@@ -332,6 +332,12 @@ export interface SeedWatcher {
   readonly detail: string
   readonly state?: WatcherState | undefined
   readonly minutesAgo: number
+  /** How many times it has woken the agent; none unless given. */
+  readonly wakes?: number | undefined
+  /** How long before the capture it last woke the agent; never unless given. */
+  readonly lastWokeMinutesAgo?: number | undefined
+  /** How long after the capture it's next due, for a wakeup or a cron job that's scheduled; not due unless given. */
+  readonly dueInMinutes?: number | undefined
   /** The `toolUseId` of the `Agent` call whose subagent started it; the task's own unless given. */
   readonly parentToolUseId?: string | undefined
   /** The last thing it reported; nothing unless given. */
@@ -792,6 +798,9 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
             detail: z.string(),
             state: z.enum(WatcherState).optional(),
             minutesAgo,
+            wakes: count.optional(),
+            lastWokeMinutesAgo: minutesAgo.optional(),
+            dueInMinutes: minutesAgo.optional(),
             parentToolUseId: z.string().optional(),
             lastOutput: z.string().optional(),
             outcome: z.string().optional(),
@@ -825,6 +834,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
 /** Adds a sample watcher to a task, started `at`, as it stands at `now`. */
 function seedWatcher(db: Database, taskId: string, watcher: SeedWatcher, at: EpochMs, now: EpochMs): void {
   const { kind, toolUseId, label, detail, lastOutput, outcome, endedMinutesAgo } = watcher
+  const { wakes, lastWokeMinutesAgo, dueInMinutes } = watcher
   const added = addWatcher(
     db,
     {
@@ -845,6 +855,9 @@ function seedWatcher(db: Database, taskId: string, watcher: SeedWatcher, at: Epo
     at,
   )
   updateWatcher(db, added.id, {
+    ...(wakes === undefined ? {} : { wakes }),
+    ...(lastWokeMinutesAgo === undefined ? {} : { lastWokeAt: now - lastWokeMinutesAgo * MINUTE }),
+    ...(dueInMinutes === undefined ? {} : { nextDueAt: now + dueInMinutes * MINUTE }),
     ...(lastOutput === undefined ? {} : { lastOutput }),
     ...(outcome === undefined ? {} : { outcome }),
     ...(endedMinutesAgo === undefined ? {} : { endedAt: now - endedMinutesAgo * MINUTE }),

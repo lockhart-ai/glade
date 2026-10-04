@@ -1,0 +1,358 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "settings": {
+    "todoHubEnabled": true
+  },
+  "panelTab": "agents",
+  "tasks": [
+    {
+      "title": "Draft release notes for 2.4",
+      "status": "Waiting on you: two questions",
+      "pinned": true,
+      "minutesAgo": 25
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "status": "Waiting on you: pick a limit for /search",
+      "minutesAgo": 4
+    },
+    {
+      "title": "Ship the rate-limit fixes for 2.5",
+      "objective": "Work #501, #502 and #503 for 2.5: a subagent each, open PRs, watch CI, then draft the release notes.",
+      "status": "CI failed on PR #511; a subagent is fixing it",
+      "activity": "working",
+      "minutesAgo": 0,
+      "startedMinutesAgo": 41,
+      "selected": true,
+      "contextUsedTokens": 88000,
+      "contextWindowTokens": 200000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Work #501, #502 and #503 for 2.5: a subagent each, open PRs, watch CI, then draft the release notes.",
+          "turn": 1,
+          "minutesAgo": 41
+        },
+        {
+          "role": "agent",
+          "turn": 1,
+          "minutesAgo": 0,
+          "body": "CI failed on PR #511: `test_retry_after_burst` expects the header on every 429 in a burst, and the second one comes back without it.\n\nI've started a second subagent on it under the same todo. PR #513 is still waiting on CI, and the docs PR is merged."
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "narration",
+          "text": "Three issues, so three subagents, one for each todo.",
+          "turn": 1,
+          "minutesAgo": 41
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "#501 Return Retry-After on 429s",
+            "description": "#501 Return Retry-After on 429s"
+          },
+          "turn": 1,
+          "minutesAgo": 41,
+          "output": "Task #1 created successfully: #501 Return Retry-After on 429s"
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "#502 Per-key limits for /search",
+            "description": "#502 Per-key limits for /search"
+          },
+          "turn": 1,
+          "minutesAgo": 41,
+          "output": "Task #2 created successfully: #502 Per-key limits for /search"
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "#503 Document the rate limits",
+            "description": "#503 Document the rate limits"
+          },
+          "turn": 1,
+          "minutesAgo": 41,
+          "output": "Task #3 created successfully: #503 Document the rate limits"
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "Draft the 2.5 release notes",
+            "description": "Draft the 2.5 release notes"
+          },
+          "turn": 1,
+          "minutesAgo": 41,
+          "output": "Task #4 created successfully: Draft the 2.5 release notes"
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "1",
+            "status": "in_progress",
+            "activeForm": "A subagent is on it"
+          },
+          "turn": 1,
+          "minutesAgo": 41,
+          "output": "Updated task #1 status"
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "2",
+            "status": "in_progress",
+            "activeForm": "A subagent is on it"
+          },
+          "turn": 1,
+          "minutesAgo": 41,
+          "output": "Updated task #2 status"
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "3",
+            "status": "in_progress",
+            "activeForm": "Writing the reference"
+          },
+          "turn": 1,
+          "minutesAgo": 41,
+          "output": "Updated task #3 status"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "fix-501",
+            "prompt": "Fix #501 and open a PR.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 40,
+          "toolUseId": "use-fix-501",
+          "todo": "1",
+          "output": "Opened PR #511.",
+          "finishedMinutesAgo": 12
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "pytest tests/test_throttle.py -q"
+          },
+          "turn": 1,
+          "minutesAgo": 31,
+          "output": "..............\n14 passed",
+          "parentToolUseId": "use-fix-501"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "gh pr create --fill"
+          },
+          "turn": 1,
+          "minutesAgo": 13,
+          "output": "https://github.com/acme/api/pull/511\nOpened PR #511",
+          "parentToolUseId": "use-fix-501"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "docs-503",
+            "prompt": "Document the rate limits.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 40,
+          "toolUseId": "use-docs-503",
+          "todo": "3",
+          "output": "Opened PR #512.",
+          "finishedMinutesAgo": 7
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "gh pr create --fill"
+          },
+          "turn": 1,
+          "minutesAgo": 8,
+          "output": "https://github.com/acme/api/pull/512\nOpened PR #512",
+          "parentToolUseId": "use-docs-503"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "limits-502",
+            "prompt": "Per-key limits for /search.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 39,
+          "toolUseId": "use-limits-502",
+          "todo": "2",
+          "output": "Opened PR #513.",
+          "finishedMinutesAgo": 3
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "pytest tests/test_search_limits.py"
+          },
+          "turn": 1,
+          "minutesAgo": 21,
+          "output": "22 passed",
+          "parentToolUseId": "use-limits-502"
+        },
+        {
+          "kind": "narration",
+          "text": "fix-501 has opened PR #511. The other two are still running.",
+          "turn": 1,
+          "minutesAgo": 12
+        },
+        {
+          "kind": "narration",
+          "text": "Watching the checks on PR #511.",
+          "turn": 1,
+          "minutesAgo": 10
+        },
+        {
+          "kind": "tool_call",
+          "name": "Monitor",
+          "input": {
+            "description": "CI checks on PR #511",
+            "command": "gh pr checks 511 --watch --interval 30",
+            "timeout_ms": 1800000
+          },
+          "turn": 1,
+          "minutesAgo": 10,
+          "toolUseId": "use-watch-ci",
+          "output": "Monitor started (task bm7c2x1, expires in 30m unless the source ends first). You will be notified on each event."
+        },
+        {
+          "kind": "narration",
+          "text": "docs-503 has opened PR #512. Its preview takes a while to build, so I’ll look again at 13:50.",
+          "turn": 1,
+          "minutesAgo": 7
+        },
+        {
+          "kind": "tool_call",
+          "name": "ScheduleWakeup",
+          "input": {
+            "delaySeconds": 840,
+            "reason": "Check the docs preview for PR #512",
+            "prompt": "Check whether the docs preview for PR #512 built, and report."
+          },
+          "turn": 1,
+          "minutesAgo": 7,
+          "toolUseId": "use-wake-preview",
+          "output": "Next wakeup scheduled (in 840s)."
+        },
+        {
+          "kind": "narration",
+          "text": "limits-502 has opened PR #513, and PR #512 is merged.",
+          "turn": 1,
+          "minutesAgo": 3
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "3",
+            "status": "completed"
+          },
+          "turn": 1,
+          "minutesAgo": 3,
+          "output": "Updated task #3 status"
+        },
+        {
+          "kind": "narration",
+          "text": "CI failed on #511: the burst test. A second subagent takes it, under the same todo.",
+          "turn": 1,
+          "minutesAgo": 1
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "fix-501-ci",
+            "prompt": "Fix the burst test on #511.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 1,
+          "toolUseId": "use-fix-501-ci",
+          "todo": "1",
+          "progressSummary": "Rerunning tests/test_throttle.py"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "pytest tests/test_throttle.py -k burst"
+          },
+          "turn": 1,
+          "minutesAgo": 1,
+          "output": "1 failed, 2 passed",
+          "parentToolUseId": "use-fix-501-ci"
+        }
+      ],
+      "watchers": [
+        {
+          "kind": "monitor",
+          "toolUseId": "use-watch-ci",
+          "label": "CI checks on PR #511",
+          "detail": "gh pr checks 511 --watch --interval 30",
+          "state": "finished",
+          "minutesAgo": 9,
+          "wakes": 1,
+          "lastWokeMinutesAgo": 1,
+          "lastOutput": "unit-tests fail test_retry_after_burst",
+          "outcome": "Monitor \"CI checks on PR #511\" stream ended",
+          "endedMinutesAgo": 1
+        },
+        {
+          "kind": "wakeup",
+          "toolUseId": "use-wake-preview",
+          "label": "Check the docs preview for PR #512",
+          "detail": "Check whether the docs preview for PR #512 built, and report.",
+          "state": "scheduled",
+          "minutesAgo": 7,
+          "dueInMinutes": 7
+        }
+      ]
+    },
+    {
+      "title": "Fix flaky login test",
+      "status": "Found the race; fix passes 200 local runs",
+      "minutesAgo": 9
+    },
+    {
+      "title": "Upgrade Django to 5.2",
+      "status": "Upgraded; two deprecations fixed",
+      "state": "done",
+      "minutesAgo": 2880
+    },
+    {
+      "title": "Set up nightly backups",
+      "status": "Nightly dump, 14-day retention",
+      "state": "done",
+      "minutesAgo": 10080
+    }
+  ]
+}

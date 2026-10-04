@@ -1637,6 +1637,11 @@ command }`, which the task messages already say.)
   exact prompt, as long as no live job of the task has the same prompt.
 - A relaunch ends running watchers and wakeups ("Stopped by the relaunch.", as §11 found) and suspends cron jobs until
   the resumed session's first `Stop` hook lists them again.
+- Where they show: the Watchers tab lists the task's own, and the Subagents tab a subagent's under it. With the hidden
+  `todoHubEnabled` setting on (P16-14, #537), each is in the Agents tab under the agent whose call started it: pinned
+  under that agent's tool calls while it's live, and a row among them at the time it ended (`endedAt`, which is when
+  the wake's prompt reached the hook, so before the turn the wake starts). The call that started it isn't a row there.
+  Nothing about following or stopping them changes (`decisions.md`, "Watchers in the tool calls").
 
 ## 14. Commits: what a task's `Bash` calls committed [not probed]
 

@@ -619,6 +619,17 @@ describe('applySeed', () => {
                 state: WatcherState.Finished,
                 minutesAgo: 5,
               },
+              {
+                kind: WatcherKind.Wakeup,
+                toolUseId: 'w3',
+                label: 'Check the rollout',
+                detail: 'Check the rollout, and report.',
+                state: WatcherState.Scheduled,
+                minutesAgo: 2,
+                dueInMinutes: 12,
+                wakes: 3,
+                lastWokeMinutesAgo: 1,
+              },
             ],
           },
           { title: 'Plain', minutesAgo: 0 },
@@ -647,6 +658,19 @@ describe('applySeed', () => {
         state: WatcherState.Finished,
         startedAt: now - 5 * MINUTE,
       },
+      {
+        kind: WatcherKind.Wakeup,
+        label: 'Check the rollout',
+        detail: 'Check the rollout, and report.',
+        state: WatcherState.Scheduled,
+        startedAt: now - 2 * MINUTE,
+      },
+    ])
+    // How often each woke the agent, when it last did and when it's next due: none unless the fixture says.
+    expect(watchers.map(({ wakes, lastWokeAt, nextDueAt }) => ({ wakes, lastWokeAt, nextDueAt }))).toEqual([
+      { wakes: 0, lastWokeAt: null, nextDueAt: null },
+      { wakes: 0, lastWokeAt: null, nextDueAt: null },
+      { wakes: 3, lastWokeAt: now - MINUTE, nextDueAt: now + 12 * MINUTE },
     ])
     expect(listWatchers(db, byTitle.get('Plain') ?? '')).toEqual([])
   })
