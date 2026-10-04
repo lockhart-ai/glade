@@ -527,8 +527,8 @@ rebinding, are in [the keymap](keymap.md). What you can right-click, and what ea
 
 A plugin is a small web page that sits in the bottom bar beside the terminal and watches your tasks. Each runs in its
 own sandbox: no access to your files, no network beyond your own Mac, and it sees only task and agent events (titles,
-states, one-line tool-call summaries, subagents, questions and permission requests), never your chat, tool output or
-files.
+states, one-line tool-call summaries, subagents, how many watchers a task has running, questions and permission
+requests), never your chat, tool output or files.
 
 **Your Mac's load.** A plugin can ask to see how busy your Mac is. If it does, Settings › Plugins shows **Can see your
 Mac's CPU, GPU and Docker load** under it, with its own switch, off until you turn it on. With it on, the plugin gets

@@ -48,6 +48,7 @@ export const pluginTaskSchema = z.strictObject({
   activity: z.enum(PluginTaskActivity),
   needsYou: z.boolean(),
   waitingOn: z.enum(PluginWaitingOn).nullable(),
+  watchers: z.int().nonnegative(),
   createdAt: time,
   updatedAt: time,
   doneAt: time.nullable(),
