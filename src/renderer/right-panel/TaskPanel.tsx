@@ -87,8 +87,9 @@ export function TaskPanel(): React.JSX.Element | null {
   const [focus, setFocus] = useState<TurnFocus | null>(null)
   const subagentFocus = useGladeStore((state) => state.subagentFocus)
   const [handledSubagentRequest, setHandledSubagentRequest] = useState(subagentFocus?.request)
-  // The subagent last asked to show, and its task, until the Subagents tab has shown it. Tracked here, since the tab
-  // may only mount in answer to the request (the store opens it, and the panel, for it).
+  // The subagent last asked to show, and its task, until the Subagents tab has shown it (or, with the todo hub on, the
+  // Todos tab). Tracked here, since the tab may only mount in answer to the request (the store opens it, and the
+  // panel, for it).
   const [subagentShown, setSubagentShown] = useState<(SubagentShown & { readonly taskId: string }) | null>(null)
   // The last request acted on, so an old request is never acted on again, e.g. when its task is selected again.
   const [handledRequest, setHandledRequest] = useState(toolLogFocus?.request)
@@ -106,7 +107,8 @@ export function TaskPanel(): React.JSX.Element | null {
     setFileLine(fileFocus)
   }
 
-  // A new request to show a subagent of this task: pass it to the tab (the store has already opened it).
+  // A new request to show a subagent of this task: pass it to the tab the store has already opened for it, which is
+  // Subagents, or Todos while the todo hub is on.
   if (subagentFocus !== null && subagentFocus.taskId === task?.id && subagentFocus.request !== handledSubagentRequest) {
     setHandledSubagentRequest(subagentFocus.request)
     setSubagentShown(subagentFocus)
@@ -156,7 +158,13 @@ export function TaskPanel(): React.JSX.Element | null {
       case PanelTab.Todos:
         if (task === undefined) return false
         return todoHub ? (
-          <TodoHub key={task.id} taskId={task.id} list={todos} />
+          <TodoHub
+            key={task.id}
+            taskId={task.id}
+            list={todos}
+            focus={subagentShown?.taskId === task.id ? subagentShown : null}
+            onFocusShown={clearSubagentShown}
+          />
         ) : (
           <Todos taskId={task.id} list={todos} now={now} />
         )

@@ -62,6 +62,33 @@ function Latest({ line }: { readonly line: LatestLine }): React.JSX.Element {
   }
 }
 
+export interface SubagentLogProps {
+  /** The subagent's name, which names its log. */
+  readonly name: string
+  /** What it did, in order (`Subagent.log`). */
+  readonly log: Subagent['log']
+  /** The workspace root, so file arguments show relative to it. */
+  readonly rootPath: string | undefined
+  /** The box the log sits in: the caller's own, since the tab and a tile in the todo hub draw it differently. */
+  readonly className?: string | undefined
+}
+
+/**
+ * A subagent's log: its tool calls (each opens its output) and its notes, in order, each call on one line; `Nothing
+ * yet.` before it has done anything. Under a subagent's row here, and in its opened tile in the todo hub (P16).
+ */
+export function SubagentLog({ name, log, rootPath, className }: SubagentLogProps): React.JSX.Element {
+  return (
+    <div role="log" aria-label={`${name} log`} className={className}>
+      {log.length === 0 ? (
+        <p className={styles.nothingYet}>Nothing yet.</p>
+      ) : (
+        <SubagentRows rows={log} rootPath={rootPath} compact />
+      )}
+    </div>
+  )
+}
+
 interface RowProps {
   readonly subagent: Subagent
   /** What it left running or scheduled (`subagentWatchers`), live ones first. */
@@ -162,13 +189,7 @@ const SubagentRow = memo(function SubagentRow({
         <span className={styles.meta}>{metaLine(subagent, now)}</span>
       </button>
       <Collapse open={expanded}>
-        <div role="log" aria-label={`${name} log`} className={styles.log}>
-          {log.length === 0 ? (
-            <p className={styles.nothingYet}>Nothing yet.</p>
-          ) : (
-            <SubagentRows rows={log} rootPath={rootPath} compact />
-          )}
-        </div>
+        <SubagentLog name={name} log={log} rootPath={rootPath} className={styles.log} />
         {watchers.length > 0 && (
           <div role="group" aria-label={`${name} background work`} className={styles.background}>
             <p className={styles.backgroundLabel}>Background work</p>

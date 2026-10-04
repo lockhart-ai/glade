@@ -125,6 +125,24 @@ export function outputLine(watcher: Watcher): OutputLine | null {
   return watcher.lastOutput === null ? null : { kind: OutputLineKind.Last, text: watcher.lastOutput }
 }
 
+/**
+ * The line a watcher's tile shows in the todo hub (P16; `docs/design/html/46-todo-hub.html`): the last thing it
+ * reported, as `last`, while it's live and once it has finished; how it ended, as `end`, for one that failed or was
+ * stopped, and for a finished one that never reported anything. Null when there's nothing to say yet.
+ */
+export function reportLine(watcher: Watcher): OutputLine | null {
+  switch (watcher.state) {
+    case WatcherState.Running:
+    case WatcherState.Scheduled:
+    case WatcherState.Suspended:
+    case WatcherState.Finished:
+      return watcher.lastOutput === null ? outputLine(watcher) : { kind: OutputLineKind.Last, text: watcher.lastOutput }
+    case WatcherState.Failed:
+    case WatcherState.Stopped:
+      return outputLine(watcher)
+  }
+}
+
 /** "3 wakes", "1 wake". */
 export function wakesLabel(wakes: number): string {
   return `${String(wakes)} wake${wakes === 1 ? '' : 's'}`

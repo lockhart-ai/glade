@@ -2,8 +2,9 @@
 // Subagents tab render again with every change to the task, its logs or the clock, so each of their rows must render
 // only when its own data changed. Rows are counted by a function each calls exactly once per render. The Broadcast
 // modal's recipients (#489) are held to the same: one row per active task, in every workspace. So is the todo hub
-// (P16, #497): a card per todo, and a tile per child of an open one.
-import { act, fireEvent, render, screen } from '@testing-library/react'
+// (P16, #497): a card per todo, and a tile per child of an open one; and what a tile opens to (#499): a subagent's log
+// renders its own rows alone, as the Subagents tab's rows do.
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType } from '../shared/bridge'
 import {
@@ -52,6 +53,7 @@ import { ChildFilter } from '../shared/todoHub'
 import { rowStatus } from './task-list/rowStatus'
 import { NOW_REFRESH_MS } from './task-list/useNow'
 import { ToolLog } from './tool-log'
+import { WATCHERS_REFRESH_MS } from './watchers/WatchersTab'
 import { setHomeFolder } from '../shared/homeFolder'
 
 // The sample data's home folder, which paths under it are shown from as `~`.
@@ -690,6 +692,123 @@ describe('the todo hub, with 100 todos and 50 children under one (P16, #497)', (
       })
     })
     expect(rendered()).toEqual({ cards: 0, tiles: 1 })
+  })
+
+  it('renders no tile as a running watcher’s time ticks: the line that counts it renders by itself (#499)', async () => {
+    const { fake } = await renderHub()
+    expect(screen.getAllByText(/^0 wakes · 30m 00s · since/)).toHaveLength(1)
+
+    // A second passes: ten watchers run, and each one's elapsed time moves on.
+    act(() => {
+      vi.advanceTimersByTime(WATCHERS_REFRESH_MS)
+    })
+    expect(rendered()).toEqual({ cards: 0, tiles: 0 })
+    expect(screen.getAllByText(/^0 wakes · 30m 01s · since/)).toHaveLength(1)
+
+    // One of them is stopped from its tile: that tile alone, and its todo's card, whose eye counts one fewer running.
+    const [first, ...others] = WATCHERS
+    act(() => {
+      fake.emit({
+        type: EventType.WatchersChanged,
+        taskId: 't1',
+        watchers: [
+          { ...first, state: WatcherState.Stopped, endedAt: Date.now(), outcome: 'You stopped it.' } as never,
+          ...others.map((each) => ({ ...each })),
+          { ...ELSEWHERE },
+        ],
+      })
+    })
+    expect(rendered()).toEqual({ cards: 1, tiles: 1 })
+    // Nine still tick, and still render no tile.
+    act(() => {
+      vi.advanceTimersByTime(WATCHERS_REFRESH_MS)
+    })
+    expect(rendered()).toEqual({ cards: 0, tiles: 0 })
+  })
+
+  it('renders only an opened subagent’s own rows as its log grows: no other tile, and no other open log (#499)', async () => {
+    const { fake } = await renderHub()
+    const [running, second, third] = AGENTS
+    if (running === undefined || second === undefined || third === undefined) throw new Error('No subagents')
+    const did = (id: string, parent: ToolCallEvent, at: number): ToolCallEvent =>
+      call(id, 1, { parentToolUseId: parent.toolUseId, createdAt: at, finishedAt: at })
+    act(() => {
+      fake.emitBatch([
+        { type: EventType.ToolEventAppended, toolEvent: did('ran-1', running, HUB_NOW) },
+        { type: EventType.ToolEventAppended, toolEvent: did('ran-2', running, HUB_NOW) },
+        { type: EventType.ToolEventAppended, toolEvent: did('was-1', second, HUB_NOW - 60_000) },
+      ])
+    })
+    rendered()
+
+    // Two tiles open to their logs: each renders, and each row of its log once.
+    vi.mocked(clockTime).mockClear()
+    fireEvent.click(screen.getByRole('group', { name: 'Subagent: kitten-0' }))
+    fireEvent.click(screen.getByRole('group', { name: 'Subagent: kitten-1' }))
+    expect(rendered()).toEqual({ cards: 0, tiles: 2 })
+    expect(renders(clockTime)).toBe(3)
+
+    // The running one makes another call: its tile (dated by it), and the new row alone.
+    vi.mocked(clockTime).mockClear()
+    act(() => {
+      fake.emit({ type: EventType.ToolEventAppended, toolEvent: did('ran-3', running, HUB_NOW + 1_000) })
+    })
+    expect(rendered()).toEqual({ cards: 0, tiles: 1 })
+    expect(renders(clockTime)).toBe(1)
+    expect(within(screen.getByRole('log', { name: 'kitten-0 log' })).getAllByRole('button')).toHaveLength(3)
+
+    // A subagent whose tile is shut is dated by a call of its own (which leaves it where it is in the list), and the
+    // task's own agent makes one: the first one's tile, and no row.
+    vi.mocked(clockTime).mockClear()
+    act(() => {
+      fake.emitBatch([
+        { type: EventType.ToolEventAppended, toolEvent: did('other-1', third, HUB_NOW - 90_000) },
+        { type: EventType.ToolEventAppended, toolEvent: call('own-call', TURNS) },
+        { type: EventType.ToolEventAppended, toolEvent: note('own-note', TURNS) },
+      ])
+    })
+    expect(rendered()).toEqual({ cards: 0, tiles: 1 })
+    expect(renders(clockTime)).toBe(0)
+
+    // One of the open log's calls waits on a permission card, then it's allowed: that row each time, and no tile.
+    const request: PermissionRequest = {
+      ...samplePermissionRequest('p1', 't1'),
+      toolUseId: 'use-ran-2',
+      agentId: running.toolUseId,
+    }
+    act(() => {
+      fake.emit({ type: EventType.PermissionOpened, permissionRequest: request })
+    })
+    expect(rendered()).toEqual({ cards: 0, tiles: 0 })
+    expect(renders(clockTime)).toBe(1)
+    vi.mocked(clockTime).mockClear()
+    act(() => {
+      fake.emit({
+        type: EventType.PermissionAnswered,
+        permissionRequest: { ...request, state: PermissionRequestState.Allowed, closedAt: HUB_NOW },
+      })
+    })
+    expect(rendered()).toEqual({ cards: 0, tiles: 0 })
+    expect(renders(clockTime)).toBe(1)
+  })
+
+  it('renders only the commit’s tile that opens to its files, and nothing when another commit is made (#499)', async () => {
+    const { fake } = await renderHub()
+
+    fireEvent.click(screen.getByRole('group', { name: 'Change: Commit 0' }))
+    await act(() => Promise.resolve())
+    // Opened, then its files read (here: that they can't be).
+    expect(rendered()).toEqual({ cards: 0, tiles: 2 })
+
+    // A new commit is filed elsewhere, and main sends every commit again: no tile, and the closed todo's card.
+    const made = hubCommit('f'.repeat(40), 'Another', 0)
+    act(() => {
+      fake.emitBatch([
+        { type: EventType.CommitsChanged, taskId: 't1', commits: [made, ...COMMITS.map((each) => ({ ...each }))] },
+        { type: EventType.FilingsChanged, taskId: 't1', filed: [hubFiling(refOf.commit(made), '2')], removed: [] },
+      ])
+    })
+    expect(rendered()).toEqual({ cards: 1, tiles: 0 })
   })
 
   it('renders nothing when the task changes in a way no child shows: its log grows, its lists arrive anew, the clock ticks', async () => {

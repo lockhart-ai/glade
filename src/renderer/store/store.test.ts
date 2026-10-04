@@ -463,6 +463,26 @@ describe('a task main asks to open', () => {
     })
   })
 
+  it('with a subagent and the todo hub on, opens the Todos tab on it instead, which shows it under its todo (#499)', async () => {
+    const { store, emit } = await hydrated({
+      ...main([
+        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+        { key: UiStateKey.RightPanelCollapsed, value: 'true' },
+        { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: 'files', w2: 'subagents' }) },
+      ]),
+      settings: { ...DEFAULT_SETTINGS, todoHubEnabled: true },
+    })
+
+    emit({ type: EventType.TaskOpenRequested, taskId: 't2', subagentId: 'toolu_kitten' })
+
+    await vi.waitFor(() => {
+      expect(store.getState().subagentFocus).toEqual({ taskId: 't2', subagentId: 'toolu_kitten', request: 1 })
+    })
+    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Todos)
+    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Files)
+    expect(store.getState().uiState).toMatchObject({ [UiStateKey.RightPanelCollapsed]: 'false' })
+  })
+
   it('without a subagent, leaves the panel as it is', async () => {
     const { store, emit } = await hydrated(
       main([

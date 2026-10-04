@@ -1,62 +1,15 @@
 import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons'
 import { useEffect, useState } from 'react'
-import { isBridgeError } from '../../shared/bridge'
-import type { CommitFile, CommitFiles, EpochMs, TaskCommit, ToolEvent } from '../../shared/domain'
+import type { EpochMs, TaskCommit, ToolEvent } from '../../shared/domain'
 import { classNames } from '../components/classNames'
 import { Collapse, Icon, IconSize } from '../components'
 import { useMenuCommands } from '../context-menus'
 import { useGladeStore } from '../store/react'
 import { useNow } from '../task-list/useNow'
-import {
-  additionsLabel,
-  commitMeta,
-  deletionsLabel,
-  filePathLabel,
-  madeBy,
-  moreFilesLabel,
-  shortHash,
-  statusLetter,
-  statusName,
-} from './changesModel'
+import { commitMeta, madeBy, madeByTitle, shortHash } from './changesModel'
+import { CommitFileList, readCommitFiles, Stats, type LoadedFiles } from './CommitFiles'
+import { SubagentTag } from './SubagentTag'
 import styles from './ChangesTab.module.css'
-
-/** What reading a commit's files has come to. */
-type LoadedFiles =
-  | { readonly state: 'loading' }
-  | { readonly state: 'loaded'; readonly files: CommitFiles }
-  | { readonly state: 'failed'; readonly message: string }
-
-/** `+12 −3`, or `binary` for a file with no lines to count. */
-function Stats({ additions, deletions }: { additions: number | null; deletions: number | null }): React.JSX.Element {
-  if (additions === null || deletions === null) return <span className={styles.binary}>binary</span>
-  return (
-    <span className={styles.stats}>
-      <span className={styles.added}>{additionsLabel(additions)}</span>
-      <span className={styles.deleted}>{deletionsLabel(deletions)}</span>
-    </span>
-  )
-}
-
-interface FileRowProps {
-  readonly file: CommitFile
-  readonly onOpen: () => void
-}
-
-/** One file a commit changed: its status letter, path and lines. Click it to open it in Files. */
-function FileRow({ file, onOpen }: FileRowProps): React.JSX.Element {
-  const path = filePathLabel(file)
-  return (
-    <li>
-      <button type="button" className={styles.file} onClick={onOpen} title={path} data-status={file.status}>
-        <span className={classNames(styles.letter, styles[file.status])} aria-label={statusName(file.status)}>
-          {statusLetter(file.status)}
-        </span>
-        <span className={styles.path}>{path}</span>
-        <Stats additions={file.additions} deletions={file.deletions} />
-      </button>
-    </li>
-  )
-}
 
 interface CommitRowProps {
   readonly commit: TaskCommit
@@ -95,39 +48,12 @@ function CommitRow({ commit, now, by, expanded, onToggle, files, onOpenFile }: C
         </span>
         <span className={styles.meta}>
           <span className={styles.metaText}>{commitMeta(commit, now)}</span>
-          {by !== null && (
-            <span className={styles.subagent} title={`Made by the subagent “${by}”`}>
-              {by}
-            </span>
-          )}
+          {by !== null && <SubagentTag name={by} title={madeByTitle(by)} />}
         </span>
       </button>
       <Collapse open={expanded}>
         <div className={styles.files}>
-          {files === undefined || files.state === 'loading' ? (
-            <p className={styles.note}>Reading its files…</p>
-          ) : files.state === 'failed' ? (
-            <p className={classNames(styles.note, styles.failed)} role="status">
-              Its files can’t be read: {files.message}
-            </p>
-          ) : (
-            <>
-              <ul className={styles.fileList} aria-label={`Files in ${hash}`}>
-                {files.files.files.map((file) => (
-                  <FileRow
-                    key={`${file.oldPath ?? ''}\0${file.path}`}
-                    file={file}
-                    onOpen={() => {
-                      onOpenFile(file.path)
-                    }}
-                  />
-                ))}
-              </ul>
-              {moreFilesLabel(files.files.files.length, files.files.total) !== null && (
-                <p className={styles.note}>{moreFilesLabel(files.files.files.length, files.files.total)}</p>
-              )}
-            </>
-          )}
+          <CommitFileList hash={hash} files={files} onOpenFile={onOpenFile} />
         </div>
       </Collapse>
     </div>
@@ -192,15 +118,9 @@ export function ChangesTab({ taskId, commits, events }: ChangesTabProps): React.
 
   const load = (id: string): void => {
     setFiles((loaded) => ({ ...loaded, [id]: { state: 'loading' } }))
-    commitFiles(taskId, id).then(
-      (list) => {
-        setFiles((loaded) => ({ ...loaded, [id]: { state: 'loaded', files: list } }))
-      },
-      (error: unknown) => {
-        const message = isBridgeError(error) ? error.message : String(error)
-        setFiles((loaded) => ({ ...loaded, [id]: { state: 'failed', message } }))
-      },
-    )
+    void readCommitFiles(() => commitFiles(taskId, id)).then((read) => {
+      setFiles((loaded) => ({ ...loaded, [id]: read }))
+    })
   }
 
   const toggle = (id: string): void => {

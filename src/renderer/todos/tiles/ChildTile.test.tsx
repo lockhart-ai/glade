@@ -186,7 +186,7 @@ describe('a watcher’s tile', () => {
     await renderTile({ watchers: [watcher] }, ChildKind.Watcher, 'watch-a')
 
     expect(screen.getByRole('group', { name: 'Watcher: CI checks on PR #513' })).toHaveTextContent(
-      /^CI checks on PR #513Running · 3mlastlint pass 38s · unit-tests running$/,
+      /^CI checks on PR #513Running · 3mStopMonitorgh pr checks 42 --watchlastlint pass 38s · unit-tests running0 wakes/,
     )
     expect(tile()).toHaveAttribute('data-live')
   })
@@ -205,8 +205,8 @@ describe('a watcher’s tile', () => {
     const wrapper = await renderTile({ watchers: [woke, ended] }, ChildKind.Watcher, 'woke')
     expect(tile()).toHaveTextContent('Finished · 4m')
     render(<ChildTile taskId="t1" kind={ChildKind.Watcher} childKey="ended" />, { wrapper: wrapper.wrapper })
-    expect(screen.getAllByRole('group')[1]).toHaveTextContent(/Stopped · 9mendYou stopped it\.$/)
-    expect(screen.getByText('You stopped it.')).not.toHaveClass(styles.failed ?? '')
+    expect(screen.getAllByRole('group')[1]).toHaveTextContent(/Stopped · 9mMonitor.*endYou stopped it\.0 wakes/)
+    expect(screen.getByText('You stopped it.').closest(`.${styles.failed ?? ''}`)).toBeNull()
   })
 
   it('says a failed one failed, and how, in pink, and stays grey around it', async () => {
@@ -219,9 +219,9 @@ describe('a watcher’s tile', () => {
     })
     await renderTile({ watchers: [failed] }, ChildKind.Watcher, 'watch-a')
 
-    expect(tile()).toHaveTextContent(/^Build the docs siteFailed · 12mendfailed with exit code 1$/)
+    expect(tile()).toHaveTextContent(/^Build the docs siteFailed · 12mCommand.*endfailed with exit code 10 wakes/)
     expect(screen.getByText('Failed')).toHaveClass(styles.failed ?? '')
-    expect(screen.getByText('failed with exit code 1')).toHaveClass(styles.failed ?? '')
+    expect(screen.getByText('failed with exit code 1').parentElement).toHaveClass(styles.failed ?? '')
     expect(tile()).not.toHaveAttribute('data-live')
   })
 
@@ -235,7 +235,8 @@ describe('a watcher’s tile', () => {
     const cron = hubWatcher('cron', 10, { kind: WatcherKind.Cron, label: 'Queue depth', state: WatcherState.Suspended })
     const wrapper = await renderTile({ watchers: [wakeup, cron] }, ChildKind.Watcher, 'wake')
 
-    expect(tile()).toHaveTextContent(/^Check the nightly flake reportDue in 20m · 10m$/)
+    // It says when it's due in place of its age.
+    expect(tile()).toHaveTextContent(/^Check the nightly flake reportDue in 20mStopWakeup/)
     expect(tile()).not.toHaveAttribute('data-live')
     expect(screen.getByText('Due in 20m').parentElement).not.toHaveClass(styles.liveText ?? '')
     act(() => {
@@ -248,13 +249,13 @@ describe('a watcher’s tile', () => {
     expect(screen.getByRole('group', { name: 'Watcher: Queue depth' })).toHaveTextContent(/^Queue depthSuspended/)
   })
 
-  it('has no line under its label before it has reported anything', async () => {
+  it('has no line for what it last said before it has reported anything', async () => {
     await renderTile(
       { watchers: [hubWatcher('watch-a', 0, { label: 'Tail the deploy log' })] },
       ChildKind.Watcher,
       'watch-a',
     )
-    expect(tile()).toHaveTextContent(/^Tail the deploy logRunning · now$/)
+    expect(tile()).toHaveTextContent(/^Tail the deploy logRunning · nowStopMonitorgh pr checks 42 --watch0 wakes/)
   })
 
   it('shows nothing for a watcher the task hasn’t got', async () => {

@@ -22,6 +22,7 @@ import {
   subagentCount,
   subagentLogText,
   subagentName,
+  subagentsByToolUse,
   subagentsRunningLabel,
   SubagentStatus,
   tally,
@@ -115,6 +116,33 @@ describe('deriveSubagents', () => {
       ['Outer', 1],
       ['Inner', 1],
     ])
+  })
+
+  it('finds each by the tool_use id of its Agent call, nested ones too, as the todo hub’s tiles look them up (#499)', () => {
+    const events = [
+      agent('done', 'Done first', { state: ToolCallState.Done, output: 'Fine.' }),
+      agent('outer', 'Outer'),
+      agent('inner', 'Inner', { parentToolUseId: 'use-outer' }),
+      call({
+        id: 'read',
+        toolUseId: 'use-read',
+        input: { file_path: '/code/api/views.py' },
+        parentToolUseId: 'use-inner',
+      }),
+    ]
+    const byToolUse = subagentsByToolUse(events, '/code/api')
+
+    expect([...byToolUse.keys()]).toEqual(['use-done', 'use-outer', 'use-inner'])
+    // Each is the subagent the tab derives: the same call, log and latest line.
+    expect([...byToolUse.values()]).toEqual(expect.arrayContaining(deriveSubagents(events, '/code/api')))
+    expect(byToolUse.get('use-inner')?.latest).toEqual({
+      kind: LatestLineKind.ToolCall,
+      name: 'Read',
+      argument: 'views.py',
+    })
+    expect(byToolUse.get('use-outer')?.log).toHaveLength(1)
+    expect(byToolUse.get('use-read')).toBeUndefined()
+    expect(subagentsByToolUse([]).size).toBe(0)
   })
 
   describe('the latest line', () => {

@@ -39,8 +39,11 @@ export interface TileProps {
   readonly state?: ReactNode
   /** How its state reads (`TileTone`); plain unless given. */
   readonly tone?: TileTone
-  /** When it last changed: its age, last on the first line. */
-  readonly at: EpochMs
+  /**
+   * When it last changed: its age, last on the first line. Null for one whose state already says a time, which then
+   * stands alone: a scheduled watcher's `Due in 20m` (#499).
+   */
+  readonly at: EpochMs | null
   /** Whether it's running now (a running subagent, a watcher whose process runs): the tile takes the live tint. */
   readonly live?: boolean
   /** Whether it's outlined, e.g. the file the Files tab shows (#498). */
@@ -50,6 +53,8 @@ export interface TileProps {
    * buttons (#498). Its age stays unless given.
    */
   readonly actions?: ReactNode
+  /** A control that's always there, after its age: a live watcher's Stop (#499). None unless given. */
+  readonly control?: ReactNode
   /**
    * What a click on the tile does, and ↵ or Space while it has the focus: open a file, a subagent's log, a commit's
    * files (#498, #499). Nothing unless given. A click on a control inside the tile is the control's own.
@@ -86,6 +91,7 @@ export function Tile({
   live = false,
   selected = false,
   actions,
+  control,
   onOpen,
   children,
 }: TileProps): React.JSX.Element {
@@ -126,11 +132,12 @@ export function Tile({
           {state !== undefined && (
             <>
               <span className={classNames(tone === TileTone.Failed && styles.failed)}>{state}</span>
-              {' · '}
+              {at !== null && ' · '}
             </>
           )}
-          <Age at={at} />
+          {at !== null && <Age at={at} />}
         </div>
+        {control !== undefined && <span className={styles.control}>{control}</span>}
         {actions !== undefined && <span className={styles.actions}>{actions}</span>}
       </div>
       {children !== undefined && children !== null && children !== false && (

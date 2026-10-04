@@ -145,6 +145,15 @@ function subagentCalls(rows: readonly (ToolLogRow | SubagentRow)[]): CallRow[] {
   })
 }
 
+/** A task's subagents, nested ones included, in the order they started. */
+function subagentsInOrder(
+  events: readonly ToolEvent[],
+  rootPath: string | undefined,
+  permissions: PermissionLines | undefined,
+): Subagent[] {
+  return subagentCalls(toolLogRows(events, permissions)).map((row) => toSubagent(row, rootPath))
+}
+
 /**
  * A task's subagents: running ones first, then paused, done, interrupted and failed, each in the order they started. `rootPath` makes
  * file arguments relative to the workspace root, and `permissions` gives each call in their logs its permission line.
@@ -154,8 +163,20 @@ export function deriveSubagents(
   rootPath?: string,
   permissions?: PermissionLines,
 ): Subagent[] {
-  const subagents = subagentCalls(toolLogRows(events, permissions)).map((row) => toSubagent(row, rootPath))
+  const subagents = subagentsInOrder(events, rootPath, permissions)
   return SUBAGENT_STATUSES.flatMap((status) => subagents.filter((subagent) => subagent.status === status))
+}
+
+/**
+ * A task's subagents (as `deriveSubagents` makes them) by the `tool_use` id of the `Agent` call that started each:
+ * what a subagent's tile in the todo hub (P16) finds its own in, to show its log.
+ */
+export function subagentsByToolUse(
+  events: readonly ToolEvent[],
+  rootPath?: string,
+  permissions?: PermissionLines,
+): Map<string, Subagent> {
+  return new Map(subagentsInOrder(events, rootPath, permissions).map((subagent) => [subagent.call.toolUseId, subagent]))
 }
 
 /** How many subagents a task has started: the Subagents tab's count. */
