@@ -239,6 +239,20 @@ export function todoHub(page: Page) {
     tiles: (card: Locator) => card.locator('[role="group"][data-kind]'),
     /** The tiles of an open card that are running now. */
     liveTiles: (card: Locator) => card.locator('[role="group"][data-kind][data-live]'),
+    /**
+     * One of an open card's tiles, by its kind and title (`File: Rate limits reference`). A file's has `aria-current`
+     * while the Files tab shows its file, and `aria-busy` until its file has been looked at.
+     */
+    tile: (card: Locator, name: string) => card.getByRole('group', { name, exact: true }),
+    /**
+     * One of a file's or a link's icon buttons, which show in its age's place under the pointer or with the focus:
+     * Open, Reveal in folder and More; Open link, Copy link and More.
+     */
+    tileAction: (tile: Locator, name: string) => tile.getByRole('button', { name, exact: true }),
+    /** An image file's thumbnail on its tile, once main has made it. */
+    tileThumbnail: (tile: Locator) => tile.locator('img'),
+    /** A tile's title, with its tag: what's cut short when it's too long. Its tooltip is the title, whole. */
+    tileTitle: (tile: Locator, title: string) => tile.getByTitle(title, { exact: true }),
   }
 }
 

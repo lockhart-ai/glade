@@ -67,6 +67,14 @@ previous task (⌥↓ / ⌥↑) work from a todo too. Tab reaches every todo, th
 in order: ↵ or Space on a pill shows that kind alone, or all of them (All), and what ↵ does on a tile is each kind's
 own (#498, #499). A closed todo's counts are skipped, since → opens the todo and its pills say the same.
 
+On a file's tile (#498), ↵ or Space opens the file in the Files tab, as a click does, or the image viewer for an
+image: there ← and → (Previous / next image) step through the images of that todo alone, in its list's order,
+stopping at the first and last, and Esc closes it and puts the focus back on the tile. On a link's tile, ↵ or Space
+opens the link in your browser. A tile with the focus shows its icon buttons in place of its age, and Tab reaches
+each in turn, after the tile: Open, Reveal in folder and More on a file, Open link, Copy link and More on a link; ↵
+or Space presses one. Context menu (⇧F10) on the tile, or on one of its buttons, opens the artifact's menu
+(`context-menus.md`), as More does. A file that's gone opens nothing, and its Open and Reveal in folder are off.
+
 ## Rebinding
 
 The keymap lives in `src/shared/keymap.ts` (the commands themselves are in `src/shared/commands.ts`): one command per
