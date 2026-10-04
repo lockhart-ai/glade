@@ -221,4 +221,3 @@ export function listFileArtifacts(db: Database, taskId: string): FileArtifact[] 
     .all(taskId)
     .map(parseFileArtifact)
 }
-

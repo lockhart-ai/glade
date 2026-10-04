@@ -70,7 +70,6 @@ test('the todo hub on: a commit is under a todo, and a subagent has one, by the 
   const panel = taskPanel(window)
   await firstRun(window).openFolder.click()
   // The hub is turned on by hand, before the task's session starts: there's nothing for it in Settings.
-  await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
   await taskList(window).newTask.click()
   const taskId = await onlyTaskId(window)
 

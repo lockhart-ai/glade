@@ -302,16 +302,9 @@ export const COMMANDS: readonly CommandDefinition[] = [
   command(AppCommandId.ToggleSidebar, Panels, 'Toggle task list', MenuBar, 'Meta+B'),
   command(AppCommandId.ToggleRightPanel, Panels, 'Toggle right panel', MenuBar, 'Meta+Alt+B'),
   command(AppCommandId.ToggleBottomBar, Panels, 'Toggle bottom bar', MenuBar, 'Meta+J'),
-  command(
-    WindowCommandId.ShowPanelTab,
-    Panels,
-    'Agents · Files · Todos',
-    Window,
-    'Meta+Alt+1',
-    {
-      digits: { from: 1, to: 3 },
-    },
-  ),
+  command(WindowCommandId.ShowPanelTab, Panels, 'Agents · Files · Todos', Window, 'Meta+Alt+1', {
+    digits: { from: 1, to: 3 },
+  }),
   command(AppCommandId.Close, Panels, 'Close file tab', MenuBar, 'Meta+W', {
     fixed: FixedReason.Window,
   }),

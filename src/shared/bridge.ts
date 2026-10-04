@@ -99,7 +99,6 @@ export enum CommandName {
   WatchersStop = 'watchers.stop',
   ChangesFiles = 'changes.files',
   ChangesOpenFile = 'changes.openFile',
-  ChangesRepository = 'changes.repository',
   TasksHistory = 'tasks.history',
   QueueAdd = 'queue.add',
   QueueEdit = 'queue.edit',
@@ -547,17 +546,6 @@ export interface ChangesOpenFileRequest {
   readonly id: string
   /** The file's path, relative to the top of the commit's repository, as the commit's files list it. */
   readonly path: string
-}
-
-/**
- * Whether a task's workspace root is in a git repository: what a task's commits can be read from.
- */
-export interface ChangesRepositoryRequest {
-  readonly taskId: string
-}
-
-export interface ChangesRepositoryResponse {
-  readonly repository: boolean
 }
 
 /**
@@ -1418,7 +1406,6 @@ export interface CommandMap {
   [CommandName.WatchersStop]: CommandSpec<WatchersStopRequest, null>
   [CommandName.ChangesFiles]: CommandSpec<ChangesFilesRequest, ChangesFilesResponse>
   [CommandName.ChangesOpenFile]: CommandSpec<ChangesOpenFileRequest, OpenFilesResponse>
-  [CommandName.ChangesRepository]: CommandSpec<ChangesRepositoryRequest, ChangesRepositoryResponse>
   [CommandName.TasksHistory]: CommandSpec<TaskIdRequest, TasksHistoryResponse>
   [CommandName.QueueAdd]: CommandSpec<QueueAddRequest, QueuedMessageResponse>
   [CommandName.QueueEdit]: CommandSpec<QueueEditRequest, QueuedMessageResponse>

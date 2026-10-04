@@ -284,9 +284,8 @@ describe('docs/model-surface.md', () => {
       const quoted = /```\n(You are running inside Glade[\s\S]*?)\n```/.exec(section(surface, '## System prompt'))
       expect(quoted?.[1]).toBe(systemPromptAppend(task))
       expect(surface).toContain(`## ${HANDOFF_HEADING}`)
-      // The line a session gets with the todo hub's switch on, which the default prompt above doesn't have.
-      expect(section(surface, '## System prompt')).toContain(`\n  ${TODO_HUB_TOOLS_LINE}\n`)
-      expect(quoted?.[1]).not.toContain(TODO_HUB_TOOLS_LINE)
+      // The todo hub's lines are part of every task's prompt (#501).
+      expect(quoted?.[1]?.endsWith(`\n\n${TODO_HUB_TOOLS_LINE}`)).toBe(true)
     } finally {
       database.close()
     }

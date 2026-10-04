@@ -19,14 +19,7 @@ import type { ImageData } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import { describeFailure, lastOpenedWorkspace, loadSnapshot } from './hydrate'
 import { isLoaded, withDoneCounts, withDonePage, withLoadedTasks } from './doneLists'
-import {
-  applyEvent,
-  withAgentTab,
-  withHistory,
-  withOpenedWorkspace,
-  withSandboxGrants,
-  withTodoHub,
-} from './reducer'
+import { applyEvent, withAgentTab, withHistory, withOpenedWorkspace, withSandboxGrants, withTodoHub } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState, type TerminalEvent } from './state'
 import {
   UnsavedChoice,
@@ -1034,11 +1027,6 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       async showCommitFile(taskId, commitId, path) {
         applyOpenFiles(await bridge.invoke(CommandName.ChangesOpenFile, { taskId, id: commitId, path }))
         showPanelTab(taskId, PanelTab.Files)
-      },
-
-      async inRepository(taskId) {
-        const { repository } = await bridge.invoke(CommandName.ChangesRepository, { taskId })
-        return repository
       },
 
       async copyText(text) {

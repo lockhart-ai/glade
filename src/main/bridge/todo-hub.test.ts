@@ -133,7 +133,7 @@ describe('todoHub.get', () => {
     })
   })
 
-  it('hears what was filed as it happens: the change alone', async () => {
+  it('hears what was filed as it happens: the change alone', () => {
     const plan = { kind: ChildKind.File, key: 'docs/plan.md' }
 
     const filed = fileChildren({ db: database.db, emit }, task.id, [

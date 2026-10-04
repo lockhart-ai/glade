@@ -11,10 +11,8 @@ import {
   SUBAGENT_BACKGROUND_WORK as WORK,
   WATCHES_THINGS as WATCHES,
 } from '../src/main/agent/scripts'
-import { CommandName } from '../src/shared/bridge'
 import { desktop, expect, test } from './fixtures'
 import { agentsTab, chat, contextMenu, firstRun, inputBar, taskList, taskPanel } from './selectors'
-import { invoke } from './task-view'
 
 /** The labels of some pinned watchers' cards, or ended watchers' rows, top to bottom. */
 function labels(watchers: Locator): Promise<(string | null)[]> {
@@ -35,7 +33,6 @@ test('watchers in the Agents tab: pinned while live with Stop, a row once ended,
   const first = await launch({ agentScript: 'watches-things', chosenFolder: root })
   const { window } = first
   await firstRun(window).openFolder.click()
-  await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
   await taskList(window).newTask.click()
   await inputBar(window).field.fill(WATCHES.prompt)
   await inputBar(window).field.press('Enter')
@@ -149,7 +146,6 @@ test('a subagent’s watcher is on its own tab, with the eye, and its tab’s me
   const glade = await launch({ agentScript: 'subagent-background-work', chosenFolder: root })
   const { window } = glade
   await firstRun(window).openFolder.click()
-  await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
   await taskList(window).newTask.click()
   await inputBar(window).field.fill(WORK.prompt)
   await inputBar(window).field.press('Enter')
@@ -226,7 +222,6 @@ test('a running subagent’s Agent call says what it’s doing now, until it has
   mkdirSync(root)
   const { window } = await launch({ agentScript: 'background-subagents', chosenFolder: root })
   await firstRun(window).openFolder.click()
-  await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
   await taskList(window).newTask.click()
   await inputBar(window).field.fill('Find why the checkout endpoint got slower since 2.3.')
   await inputBar(window).field.press('Enter')
@@ -261,7 +256,6 @@ test('a watcher that ends doesn’t move the list of someone reading back, and t
     seed,
     JSON.stringify({
       workspace: { name: 'Acme API', rootPath: '/Users/sample/code/api' },
-      settings: { todoHubEnabled: true },
       panelTab: 'agents',
       tasks: [
         {

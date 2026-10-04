@@ -377,7 +377,13 @@ describe('link artifacts through the control API (#407)', () => {
     expect(await detailArtifacts()).toEqual(
       expect.arrayContaining([
         { kind: ArtifactKind.Link, url: PR, title: '#412', addedAt: expect.any(Number) as unknown, todo: null },
-        { kind: ArtifactKind.Link, url: TICKET, title: 'Docs refresh epic', addedAt: expect.any(Number) as unknown, todo: null },
+        {
+          kind: ArtifactKind.Link,
+          url: TICKET,
+          title: 'Docs refresh epic',
+          addedAt: expect.any(Number) as unknown,
+          todo: null,
+        },
       ]),
     )
 

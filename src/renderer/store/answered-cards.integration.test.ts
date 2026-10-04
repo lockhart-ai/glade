@@ -165,9 +165,7 @@ function toolCallRows(): string[] {
 function subagentRows(): string[] {
   const calls = (rows: readonly SubagentRow[]): string[] =>
     rows.flatMap((row) => (row.kind === ToolEventKind.ToolCall ? [shown(row)] : []))
-  return deriveSubagents(store.getState().toolEvents[task.id] ?? [], lines()).flatMap(({ log }) =>
-    calls(log),
-  )
+  return deriveSubagents(store.getState().toolEvents[task.id] ?? [], lines()).flatMap(({ log }) => calls(log))
 }
 
 const ALLOW_ONCE: PermissionDecision = { kind: PermissionDecisionKind.AllowOnce }

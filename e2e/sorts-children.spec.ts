@@ -62,7 +62,6 @@ test('a task from before the todo hub: asked to, its agent lists what it made an
 
   // The hub is turned on by hand: there's nothing for it in Settings. Everything the task produced is under no todo;
   // its subagent and its two watchers are under nothing.
-  await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
   const unfiled = async () => (await invoke(window, CommandName.TodoHubGet, { taskId })).children.unfiled
   // Glade reads git for the subagent's commit once its command has run.
   await expect.poll(async () => (await unfiled()).tallies[ChildKind.Commit]).toBe(1)

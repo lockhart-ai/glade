@@ -118,7 +118,6 @@ test('the todo hub: the words become a link when the task gets the link, and tex
   await firstRun(window).openFolder.click()
   await taskList(window).newTask.click()
   const taskId = await onlyTaskId(window)
-  await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
 
   // A task with nothing at all, neither a todo nor anything made, has the Todos tab's own centred empty state.
   await panel.tab(/^Todos/).click()
@@ -159,12 +158,4 @@ test('the todo hub: the words become a link when the task gets the link, and tex
   await invoke(window, CommandName.ArtifactsRemove, { taskId, ref: { kind: ArtifactKind.Link, url: web } })
   await expect(hub.links(watch)).toHaveCount(0)
   await expect(watch).toHaveText(/^Doing: Watch CI on PR #42Watching CI on PR #42$/)
-
-  // With the switch off, the Todos tab is the plain list, and a todo naming the task's PR is text.
-  await invoke(window, CommandName.ArtifactsAddLink, { taskId, url: api, text: '' })
-  await expect(hub.links(watch)).toHaveCount(2)
-  await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: false } })
-  await expect(hub.heads).toHaveCount(0)
-  await expect(panel.todos.filter({ hasText: 'Watch CI on PR #42' })).toHaveCount(1)
-  await expect(panel.tabPanel.getByRole('link')).toHaveCount(0)
 })

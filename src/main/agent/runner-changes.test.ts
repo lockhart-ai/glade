@@ -207,7 +207,5 @@ describe('the commits a task makes, end to end', () => {
 
     const history = await glade.invoke(CommandName.TasksHistory, { id: task.id })
     expect(history.commits.map(({ subject }) => subject)).toEqual(['Fix the UTC date test'])
-    const { repository } = await glade.invoke(CommandName.ChangesRepository, { taskId: task.id })
-    expect(repository).toBe(true)
   })
 })

@@ -224,24 +224,22 @@ describe('statuses', () => {
 
 describe('subagentLogText', () => {
   it('writes the log out: its name, each call with its argument and result, each note, nested ones indented', () => {
-    const [explore] = deriveSubagents(
-      [
-        agent('explore', 'Find flaky tests', { state: ToolCallState.Done, output: 'Found one.\n' }),
-        said('n1', 'Looking for timezone use.', 'use-explore'),
-        call({
-          id: 'grep',
-          name: 'Grep',
-          toolUseId: 'use-grep',
-          input: { pattern: 'new Date' },
-          output: 'test/date.test.ts',
-          state: ToolCallState.Done,
-          parentToolUseId: 'use-explore',
-        }),
-        agent('inner', 'Check one', { parentToolUseId: 'use-explore' }),
-        said('n2', 'Checking.', 'use-inner'),
-        call({ id: 'ls', name: 'LS', toolUseId: 'use-ls', parentToolUseId: 'use-explore' }),
-      ],
-    ).filter((subagent) => subagent.name === 'Find flaky tests')
+    const [explore] = deriveSubagents([
+      agent('explore', 'Find flaky tests', { state: ToolCallState.Done, output: 'Found one.\n' }),
+      said('n1', 'Looking for timezone use.', 'use-explore'),
+      call({
+        id: 'grep',
+        name: 'Grep',
+        toolUseId: 'use-grep',
+        input: { pattern: 'new Date' },
+        output: 'test/date.test.ts',
+        state: ToolCallState.Done,
+        parentToolUseId: 'use-explore',
+      }),
+      agent('inner', 'Check one', { parentToolUseId: 'use-explore' }),
+      said('n2', 'Checking.', 'use-inner'),
+      call({ id: 'ls', name: 'LS', toolUseId: 'use-ls', parentToolUseId: 'use-explore' }),
+    ]).filter((subagent) => subagent.name === 'Find flaky tests')
 
     if (explore === undefined) throw new Error('No subagent')
     expect(subagentLogText(explore, '/code/api')).toBe(

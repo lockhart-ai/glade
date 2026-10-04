@@ -40,14 +40,7 @@ import {
 import { CommandFailure } from '../bridge/errors'
 import { listFilings } from '../db/repositories/child-filings'
 import { truncate } from '../notifications/notifications'
-import {
-  childWithId,
-  fileChildren,
-  identifyChildren,
-  taskChildren,
-  wasWatcherId,
-  type FilingContext,
-} from './todo-hub'
+import { childWithId, fileChildren, identifyChildren, taskChildren, wasWatcherId, type FilingContext } from './todo-hub'
 
 /** A todo children can be filed under: one with an id (`TaskCreate`'s; a `TodoWrite` item has none). */
 export interface FilingTodo extends Todo {

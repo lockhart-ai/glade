@@ -40,7 +40,13 @@ export function sampleTask(db: Database, workspaceId: string, now = 2_000): Task
  * A todo in a task's list, as Claude Code's `TaskCreate` leaves it in the tool log: `id` is the N of the `Task #N` it
  * answers with, which is what a child is filed under.
  */
-export function sampleTodo(db: Database, taskId: string, id = '1', subject = 'Draft the release notes', at = 3_000): void {
+export function sampleTodo(
+  db: Database,
+  taskId: string,
+  id = '1',
+  subject = 'Draft the release notes',
+  at = 3_000,
+): void {
   const toolUseId = `toolu_create_${id}`
   appendToolCall(db, { taskId, turn: 1, name: 'TaskCreate', input: { subject }, toolUseId, parentToolUseId: null }, at)
   const output = `Task #${id} created successfully: ${subject}`

@@ -7,7 +7,7 @@ import type { AgentRunner } from '../agent/runner'
 import { listArtifacts } from '../db/repositories/artifacts'
 import { listLiveWatchers, listWatchers, publicWatcher } from '../db/repositories/watchers'
 import { listTaskCommits } from '../db/repositories/task-commits'
-import { commitFiles, openCommitFile, readCommitFile, workspaceInRepository } from '../changes/changes'
+import { commitFiles, openCommitFile, readCommitFile } from '../changes/changes'
 import { createGit, type Git } from '../git/git'
 import { getHandoff } from '../db/repositories/backfills'
 import { getImage } from '../db/repositories/images'
@@ -261,9 +261,6 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.ChangesFiles]: async ({ taskId, id }) => ({ files: await commitFiles(changes, taskId, id) }),
     [CommandName.ChangesOpenFile]: async ({ taskId, id, path }) => ({
       openFiles: await openCommitFile(changes, taskId, id, path),
-    }),
-    [CommandName.ChangesRepository]: async ({ taskId }) => ({
-      repository: await workspaceInRepository(changes, taskId),
     }),
     [CommandName.QueueAdd]: ({ taskId, text, images, pastedBlocks, files }) => ({
       queuedMessage: runner.queue(taskId, text, images, pastedBlocks, files),

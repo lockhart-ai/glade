@@ -43,7 +43,6 @@ import {
   type DividerRow,
   type LogWatchers,
   type NarrationRow,
-  type SubagentRow,
 } from './toolLogModel'
 import { ToolCallMenu, useToolCallMenuTarget } from './ToolCallMenu'
 import styles from './ToolLog.module.css'
@@ -74,14 +73,7 @@ interface TurnStartProps {
   readonly turnStart?: number | undefined
 }
 
-/**
- * How a row is laid out: `compact` puts a call on one line, without its result, and tightens a note, for rows nested under a call.
- */
-interface DensityProps {
-  readonly compact?: boolean | undefined
-}
-
-interface CallProps extends TurnStartProps, DensityProps {
+interface CallProps extends TurnStartProps {
   readonly row: CallRow
   readonly rootPath: string | undefined
 }
@@ -92,21 +84,15 @@ interface CallProps extends TurnStartProps, DensityProps {
  * event, so only the rows whose own data changed render.
  */
 function sameCall(a: CallProps, b: CallProps): boolean {
-  return (
-    sameSubagentRow(a.row, b.row) && a.rootPath === b.rootPath && a.turnStart === b.turnStart && a.compact === b.compact
-  )
+  return sameSubagentRow(a.row, b.row) && a.rootPath === b.rootPath && a.turnStart === b.turnStart
 }
 
 /** A call's first line: its dot, the tool's name, its argument and when it was made. */
-function CallLine({
-  row,
-  rootPath,
-  compact = false,
-}: Pick<CallProps, 'row' | 'rootPath' | 'compact'>): React.JSX.Element {
+function CallLine({ row, rootPath }: Pick<CallProps, 'row' | 'rootPath'>): React.JSX.Element {
   const { call, name } = row
   return (
     <span className={styles.callLine}>
-      <Dot state={rowIndicator(row)} label={rowStateLabel(row)} className={compact ? styles.smallDot : undefined} />
+      <Dot state={rowIndicator(row)} label={rowStateLabel(row)} />
       <span className={styles.name}>{name}</span>
       <span className={styles.argument}>{argumentSummary(call, rootPath)}</span>
       <span className={styles.time}>{clockTime(call.createdAt)}</span>
@@ -121,15 +107,15 @@ function CallLine({
  * result yet to show; one whose request was withdrawn never ran, so its dot is slate, not a failed call's pink
  * (`docs/design/html/23-permission-card.html`, `24-permissions-picker.html`).
  */
-const Call = memo(function Call({ row, rootPath, turnStart, compact = false }: CallProps): React.JSX.Element {
-  const { call, name, children, permission } = row
+const Call = memo(function Call({ row, rootPath, turnStart }: CallProps): React.JSX.Element {
+  const { call, name, permission } = row
   const [expanded, setExpanded] = useState(false)
   const menuTarget = useToolCallMenuTarget(call)
 
   return (
     <div className={styles.callGroup} {...{ [TURN_START]: turnStart }}>
       <div
-        className={classNames(styles.call, showsCallState(row) && styles[call.state], compact && styles.compact)}
+        className={classNames(styles.call, showsCallState(row) && styles[call.state])}
         data-state={call.state}
         {...menuTarget}
       >
@@ -141,9 +127,9 @@ const Call = memo(function Call({ row, rootPath, turnStart, compact = false }: C
             setExpanded((open) => !open)
           }}
         >
-          <CallLine row={row} rootPath={rootPath} compact={compact} />
+          <CallLine row={row} rootPath={rootPath} />
           {permission !== null && <PermissionLineView line={permission} className={styles.permission} />}
-          {!compact && showsResult(row) && <span className={styles.result}>{resultSummary(call)}</span>}
+          {showsResult(row) && <span className={styles.result}>{resultSummary(call)}</span>}
         </button>
         <Collapse open={expanded}>
           <pre className={styles.output} aria-label={`${name} output`}>
@@ -155,11 +141,6 @@ const Call = memo(function Call({ row, rootPath, turnStart, compact = false }: C
           </pre>
         </Collapse>
       </div>
-      {children.length > 0 && (
-        <div role="group" aria-label={`${name} subagent calls`} className={styles.children}>
-          <SubagentRows rows={children} rootPath={rootPath} compact={compact} />
-        </div>
-      )}
     </div>
   )
 }, sameCall)
@@ -336,13 +317,9 @@ const Compaction = memo(function Compaction({
 })
 
 /** One of the agent's working notes between tool calls, with its inline code and emphasis. */
-const Narration = memo(function Narration({
-  narration,
-  turnStart,
-  compact = false,
-}: NarrationRow & TurnStartProps & DensityProps): React.JSX.Element {
+const Narration = memo(function Narration({ narration, turnStart }: NarrationRow & TurnStartProps): React.JSX.Element {
   return (
-    <p className={classNames(styles.narration, compact && styles.compact)} {...{ [TURN_START]: turnStart }}>
+    <p className={styles.narration} {...{ [TURN_START]: turnStart }}>
       <InlineMarkdown source={narration.text} />{' '}
       <span className={styles.narrationTime}>{clockTime(narration.createdAt)}</span>
     </p>
@@ -359,27 +336,6 @@ const Divider = memo(function Divider({ label, turnStart }: DividerRow & TurnSta
     </div>
   )
 })
-
-export interface SubagentRowsProps extends DensityProps {
-  readonly rows: readonly SubagentRow[]
-  /** The workspace root, so file arguments show relative to it. */
-  readonly rootPath: string | undefined
-}
-
-/** What a subagent did, in order: its tool calls (each opens its output) and its notes, laid out as the tool log's. */
-export function SubagentRows({ rows, rootPath, compact }: SubagentRowsProps): React.JSX.Element {
-  return (
-    <>
-      {rows.map((row) =>
-        row.kind === ToolEventKind.ToolCall ? (
-          <Call key={row.call.id} row={row} rootPath={rootPath} compact={compact} />
-        ) : (
-          <Narration key={row.narration.id} {...row} compact={compact} />
-        ),
-      )}
-    </>
-  )
-}
 
 export interface ToolLogProps {
   readonly taskId: string

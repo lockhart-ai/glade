@@ -159,8 +159,6 @@ export interface FakeMain {
    * that `changes.openFile` opens for each; any other opens as its commit left it (its commit file key).
    */
   readonly currentCommitFiles?: Readonly<Record<string, string>>
-  /** Whether `changes.repository` says the workspace is in a git repository; it is when left out. */
-  readonly inRepository?: boolean
   /** Each task's todo list, by task id; none when left out. */
   readonly todos?: Readonly<Record<string, TodoList>>
   /** Every task's artifacts; none when left out. `artifacts.remove` removes one, from the fake's own copy. */
@@ -680,7 +678,6 @@ export function fakeHandlers(
       changeOpenFiles(taskId, (open) =>
         withOpenedFile(open, main.currentCommitFiles?.[`${id}:${path}`] ?? commitFileKey({ commitId: id, path })),
       ),
-    [CommandName.ChangesRepository]: () => ({ repository: main.inRepository ?? true }),
     [CommandName.FilesThumbnail]: ({ path }) => ({
       thumbnail: main.thumbnails?.[path] ?? { kind: FileThumbnailKind.None },
     }),

@@ -112,7 +112,6 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.WatchersStop]: () => null,
     [CommandName.ChangesFiles]: () => ({ files: { files: [], total: 0 } }),
     [CommandName.ChangesOpenFile]: () => ({ openFiles: {} as OpenFiles }),
-    [CommandName.ChangesRepository]: () => ({ repository: true }),
     [CommandName.ClipboardWriteText]: () => null,
     [CommandName.LinksOpen]: () => null,
     [CommandName.FilesThumbnail]: () => ({ thumbnail: { kind: FileThumbnailKind.Missing } }),

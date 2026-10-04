@@ -184,7 +184,6 @@ describe('the context menus', () => {
       'Remove from artifacts',
       'Remove from artifacts',
       'Stop subagent',
-      'Stop subagent',
       'Kill process',
     ])
   })
@@ -294,4 +293,3 @@ describe('agentTabMenu', () => {
     expect(stop).toHaveBeenCalledOnce()
   })
 })
-

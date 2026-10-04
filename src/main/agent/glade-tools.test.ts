@@ -669,9 +669,7 @@ describe('add_artifact', () => {
     )
 
   it('declares a file of the workspace, by a relative or absolute path, and broadcasts the list', async () => {
-    await expect(
-      add({ path: 'docs/releases/2.4.md', title: 'Release notes 2.4' }),
-    ).resolves.toEqual({
+    await expect(add({ path: 'docs/releases/2.4.md', title: 'Release notes 2.4' })).resolves.toEqual({
       output: 'Added docs/releases/2.4.md to the artifacts as "Release notes 2.4". It\'s under todo #1.',
       isError: false,
     })
@@ -695,9 +693,7 @@ describe('add_artifact', () => {
     await add({ path: 'docs/releases/2.4.md', title: 'Release notes' })
     vi.setSystemTime(2_000)
 
-    await expect(
-      add({ path: './docs/releases/2.4.md', title: 'Release notes 2.4' }),
-    ).resolves.toEqual({
+    await expect(add({ path: './docs/releases/2.4.md', title: 'Release notes 2.4' })).resolves.toEqual({
       output: 'Renamed the artifact docs/releases/2.4.md to "Release notes 2.4". It\'s under todo #1.',
       isError: false,
     })
@@ -723,9 +719,7 @@ describe('add_artifact', () => {
     const outside = await add({ path: '/etc/hosts', title: 'Hosts' })
     expect(outside.isError).toBe(true)
     expect(outside.output).toContain('is outside the workspace')
-    await expect(
-      add({ path: '../secrets.txt', title: 'Secrets' }),
-    ).resolves.toMatchObject({ isError: true })
+    await expect(add({ path: '../secrets.txt', title: 'Secrets' })).resolves.toMatchObject({ isError: true })
     await expect(add({ path: 'docs/gone.md', title: 'Gone' })).resolves.toEqual({
       output: "There's no file at docs/gone.md.",
       isError: true,

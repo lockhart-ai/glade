@@ -167,7 +167,6 @@ test('the Agents tab: the switch turned on mid-task, and a subagent’s tab movi
   await expect(agents.strip).toHaveCount(0)
 
   // Turned on while the task runs, the panel is the three tabs, on Agents, with a tab for each agent it has.
-  await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
   await expect(panel.tabs).toHaveText(['Agents 4', 'Files', 'Todos'])
   await expect(panel.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
   await expect(agents.tab('Main')).toHaveAttribute('aria-selected', 'true')

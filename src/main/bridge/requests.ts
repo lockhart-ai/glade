@@ -39,7 +39,6 @@ import {
   type WatchersStopRequest,
   type ChangesFilesRequest,
   type ChangesOpenFileRequest,
-  type ChangesRepositoryRequest,
   type TaskIdRequest,
   type TasksGetRequest,
   type TasksListDoneRequest,
@@ -80,13 +79,7 @@ import {
 } from '../../shared/bridge'
 import { AttachedFileKind, isAttachedFileName, isAttachedFileOf, type AttachedFile } from '../../shared/attachedFiles'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
-import {
-  ArtifactKind,
-  Effort,
-  PermissionMode,
-  UiStateKey,
-  type PastedBlock,
-} from '../../shared/domain'
+import { ArtifactKind, Effort, PermissionMode, UiStateKey, type PastedBlock } from '../../shared/domain'
 import { isWorkspaceRelativePath, parseCommitFileKey } from '../../shared/files'
 import { MAX_SEARCH_QUERY, MAX_WATCHED_FOLDERS } from '../../shared/browse'
 import { MAX_MENU_BAR_HEIGHT } from '../../shared/menuBar'
@@ -384,8 +377,6 @@ const changesOpenFileRequest = z.strictObject({
   path: z.string().refine(isWorkspaceRelativePath, 'Expected a normalized path relative to the repository'),
 }) satisfies z.ZodType<ChangesOpenFileRequest>
 
-const changesRepositoryRequest = z.strictObject({ taskId: z.string() }) satisfies z.ZodType<ChangesRepositoryRequest>
-
 const settingsUpdateRequest = z.strictObject({
   patch: z.strictObject(SETTING_SCHEMAS).partial(),
 }) satisfies z.ZodType<SettingsUpdateRequest>
@@ -606,7 +597,6 @@ export const REQUEST_SCHEMAS = {
   [CommandName.WatchersStop]: watchersStopRequest,
   [CommandName.ChangesFiles]: changesFilesRequest,
   [CommandName.ChangesOpenFile]: changesOpenFileRequest,
-  [CommandName.ChangesRepository]: changesRepositoryRequest,
   [CommandName.TasksHistory]: taskIdRequest,
   [CommandName.QueueAdd]: queueAddRequest,
   [CommandName.QueueEdit]: queueEditRequest,

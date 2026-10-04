@@ -1159,7 +1159,6 @@ describe('context menu actions', () => {
     )
   })
 
-
   it('asks the input bar to add text, as a new request each time, without calling main', async () => {
     const { store, invoke } = await hydrated()
     const calls = invoke.mock.calls.length

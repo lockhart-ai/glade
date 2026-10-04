@@ -197,9 +197,7 @@ describe('what a session is missing of the todo hub', () => {
   })
 
   it('comes after the instructions added since and the sandbox, and before the handoff note', () => {
-    expect(
-      missingContext(check({ recorded: has(1, null, false, false), handoff: HANDOFF, sandboxed: true })),
-    ).toEqual([
+    expect(missingContext(check({ recorded: has(1, null, false, false), handoff: HANDOFF, sandboxed: true }))).toEqual([
       { kind: MissingContextKind.Updates, updates: [LINK_ARTIFACTS_LINE] },
       { kind: MissingContextKind.Sandbox },
       todoHub,

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { ArtifactKind, type EpochMs, type FileArtifact, type LinkArtifact } from '../../shared/domain'
-import { artifactTime, artifactTypeName, fileTileKind, FileTileKind, fileTypeName, isImageArtifact } from './artifactsModel'
+import {
+  artifactTime,
+  artifactTypeName,
+  fileTileKind,
+  FileTileKind,
+  fileTypeName,
+  isImageArtifact,
+} from './artifactsModel'
 
 /** A local time: `month` counts from 1. */
 function local(year: number, month: number, day: number, hours = 0, minutes = 0): EpochMs {

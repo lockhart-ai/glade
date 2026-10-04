@@ -451,7 +451,6 @@ describe('the changes commands', () => {
       await expect(handlers[CommandName.FilesRead]({ taskId, path: key })).resolves.toEqual({
         content: { kind: FileContentKind.Text, text: '# Upgrading\n', truncated: false, size: 12 },
       })
-      await expect(handlers[CommandName.ChangesRepository]({ taskId })).resolves.toEqual({ repository: true })
       await expect(handlers[CommandName.ChangesFiles]({ taskId, id: 'nope' })).rejects.toMatchObject({
         code: BridgeErrorCode.NotFound,
       })
@@ -681,7 +680,6 @@ describe('link artifacts (#407)', () => {
     )
     expect(emit).not.toHaveBeenCalled()
   })
-
 })
 
 describe('artifacts.watch and artifacts.unwatch', () => {

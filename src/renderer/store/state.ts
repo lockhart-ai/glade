@@ -737,8 +737,6 @@ export interface GladeActions {
    * (`changes.openFile`), and shows it there: for the selected task, the right panel opens at Files too.
    */
   showCommitFile: (taskId: string, commitId: string, path: string) => Promise<void>
-  /** Whether a task's workspace is in a git repository (`changes.repository`). Not kept in the store. */
-  inRepository: (taskId: string) => Promise<boolean>
   /** Puts text on the clipboard (`clipboard.writeText`). */
   copyText: (text: string) => Promise<void>
   /** Opens a link in the browser, through main, which opens only web and mail links (`links.open`). */

@@ -464,4 +464,3 @@ export function agentLogRows(
   endedBy(Infinity)
   return merged
 }
-

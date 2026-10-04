@@ -476,6 +476,27 @@ describe('permission lines', () => {
     expect(sameSubagentRows(agent.children, agentNested?.children ?? [])).toBe(false)
   })
 
+  it('tell a subagent’s note from another, and from a call, by the event it holds', () => {
+    const said = { ...narration('n1', 1), parentToolUseId: 'use-agent' }
+    const events = [
+      call({ id: 'agent', name: 'Agent', toolUseId: 'use-agent' }),
+      said,
+      call({ id: 'write', name: 'Write', toolUseId: 'use-write', parentToolUseId: 'use-agent' }),
+    ]
+    const nested = (log: readonly ToolEvent[]) => onlyCall(toolLogRows(log)).children
+    const [note, write] = nested(events)
+    if (note === undefined || write === undefined) throw new Error('Rows missing')
+
+    // The same events, their rows made anew: each is the same row.
+    expect(sameSubagentRows(nested(events), nested([...events]))).toBe(true)
+    expect(sameSubagentRow(note, nested([...events])[0] ?? write)).toBe(true)
+    // A note isn't a call, and another note isn't this one.
+    expect(sameSubagentRow(note, write)).toBe(false)
+    expect(sameSubagentRow(write, note)).toBe(false)
+    const reworded = nested([events[0] ?? said, { ...said, text: 'Something else.' }])
+    expect(sameSubagentRow(note, reworded[0] ?? write)).toBe(false)
+  })
+
   it('show a running call that waits on its card as waiting on you; a call that ended keeps its own dot', () => {
     const running = call({ state: ToolCallState.Running })
     const waiting = { call: running, permission: WAITING }

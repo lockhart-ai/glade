@@ -110,7 +110,6 @@ function hubSeed(folder: string): { readonly seed: string; readonly root: string
     seed,
     JSON.stringify({
       workspace: { name: 'Acme API', rootPath: realpathSync(root) },
-      settings: { todoHubEnabled: true },
       panelTab: 'todos',
       tasks: [
         {

@@ -329,7 +329,9 @@ describe('AGENT_SCRIPTS', () => {
     /** The subagents and commits a call's marker filed, each as `kind #todo`. */
     function namedFilings(): string[] {
       return listFilings(database.db, task.id)
-        .filter(({ kind, source }) => source === FilingSource.Named && kind !== ChildKind.File && kind !== ChildKind.Link)
+        .filter(
+          ({ kind, source }) => source === FilingSource.Named && kind !== ChildKind.File && kind !== ChildKind.Link,
+        )
         .map(({ kind, todoId }) => `${kind} #${todoId}`)
     }
 

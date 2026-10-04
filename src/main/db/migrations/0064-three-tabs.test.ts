@@ -50,8 +50,20 @@ function call(db: Database, toolUseId: string, name: string, input: Record<strin
  */
 function taskFromBeforeThePhase(): Database {
   const db = databaseBefore(59)
-  call(db, 'toolu_create_1', 'TaskCreate', { subject: 'Return Retry-After on 429s' }, 'Task #1 created successfully: Return Retry-After on 429s')
-  call(db, 'toolu_create_2', 'TaskCreate', { subject: 'Document the rate limits' }, 'Task #2 created successfully: Document the rate limits')
+  call(
+    db,
+    'toolu_create_1',
+    'TaskCreate',
+    { subject: 'Return Retry-After on 429s' },
+    'Task #1 created successfully: Return Retry-After on 429s',
+  )
+  call(
+    db,
+    'toolu_create_2',
+    'TaskCreate',
+    { subject: 'Document the rate limits' },
+    'Task #2 created successfully: Document the rate limits',
+  )
   call(db, 'toolu_fix', 'Agent', { description: 'Fix the 429 handler', prompt: 'Fix it.' }, 'Fixed and committed.')
   addArtifact(db, { taskId: 't', path: 'docs/rate-limits.md', title: 'Rate limits' }, 4_000)
   addLinkArtifact(db, { taskId: 't', url: PR, title: 'Return Retry-After on 429s' }, 4_100)
@@ -101,7 +113,10 @@ function taskFromBeforeThePhase(): Database {
 }
 
 const tables = (db: Database): unknown[] =>
-  db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'artifact%' ORDER BY name").pluck().all()
+  db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'artifact%' ORDER BY name")
+    .pluck()
+    .all()
 
 it('is migration 64, after every earlier one', () => {
   expect(threeTabsMigration.version).toBe(64)
@@ -153,7 +168,9 @@ describe('a database from before the phase (pre-0059), migrated', () => {
 
     const listed = listForAgent(db, 't')
 
-    expect(listed.map(({ todo, children }) => [todo?.id ?? null, children.map(({ id, kind }) => `${id} ${kind}`)])).toEqual([
+    expect(
+      listed.map(({ todo, children }) => [todo?.id ?? null, children.map(({ id, kind }) => `${id} ${kind}`)]),
+    ).toEqual([
       ['1', []],
       ['2', []],
       [null, ['c1 file', 'c2 link', 'c3 subagent', 'c4 commit']],
@@ -167,10 +184,16 @@ describe('a database from before the phase (pre-0059), migrated', () => {
     migrate(db, MIGRATIONS)
 
     const recorded = getSessionContext(db, 't')
-    expect(recorded).toEqual({ instructions: true, instructionUpdates: 2, handoffAt: null, sandbox: false, todoHub: false })
-    expect(
-      missingContext({ recorded, startedElsewhere: false, handoff: null, prompt: '', sandboxed: false }),
-    ).toEqual([{ kind: MissingContextKind.TodoHub }])
+    expect(recorded).toEqual({
+      instructions: true,
+      instructionUpdates: 2,
+      handoffAt: null,
+      sandbox: false,
+      todoHub: false,
+    })
+    expect(missingContext({ recorded, startedElsewhere: false, handoff: null, prompt: '', sandboxed: false })).toEqual([
+      { kind: MissingContextKind.TodoHub },
+    ])
     db.close()
   })
 
@@ -219,15 +242,18 @@ describe('a database from while the phase was built behind its switch, migrated'
     db.close()
   })
 
-  it.each(['not json', '[]', '"agents"', '7'])('leaves each workspace’s tabs alone when what’s stored is %s, not an object', (stored) => {
-    const db = databaseBefore(64)
-    setUiState(db, { key: UiStateKey.RightPanelTabs, value: stored })
+  it.each(['not json', '[]', '"agents"', '7'])(
+    'leaves each workspace’s tabs alone when what’s stored is %s, not an object',
+    (stored) => {
+      const db = databaseBefore(64)
+      setUiState(db, { key: UiStateKey.RightPanelTabs, value: stored })
 
-    migrate(db, MIGRATIONS)
+      migrate(db, MIGRATIONS)
 
-    expect(getUiState(db, UiStateKey.RightPanelTabs)).toBe(stored)
-    db.close()
-  })
+      expect(getUiState(db, UiStateKey.RightPanelTabs)).toBe(stored)
+      db.close()
+    },
+  )
 
   it('leaves an empty object when every workspace was on a removed tab, and applies to a database with nothing stored', () => {
     const db = databaseBefore(64)

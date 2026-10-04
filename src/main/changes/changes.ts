@@ -103,8 +103,3 @@ export async function readCommitFile(
     (await git.fileAt(commit.gitDir, `${commit.hash}^`, path, MAX_FILE_BYTES))
   return blob === null ? { kind: FileContentKind.Missing } : fileContentOf(blob.bytes, blob.size)
 }
-
-/** `changes.repository`: whether the task's workspace root is in a git repository. */
-export async function workspaceInRepository(context: ChangesContext, taskId: string): Promise<boolean> {
-  return (await context.git.locate(workspaceRoot(context, taskId))) !== null
-}

@@ -239,16 +239,6 @@
   overflow-wrap: anywhere;
 }
 
-/* A subagent's calls, indented under the call that started it. */
-.children {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-left: 16px;
-  padding-left: 4px;
-  border-left: 2px solid var(--color-inner-border);
-}
-
 .narration {
   flex-shrink: 0;
   /* The rule runs down the middle of the calls' dots. */
@@ -307,52 +297,4 @@
   to {
     background: transparent;
   }
-}
-
-/* Rows nested under a call, laid out tighter: each call on one line, notes tighter. */
-.call.compact {
-  padding: 4px 2px;
-  border-radius: 6px;
-}
-
-.call.compact .callLine {
-  gap: 8px;
-}
-
-.call.compact .name,
-.call.compact .argument {
-  font-size: 11.5px;
-}
-
-.call.compact .time {
-  font-size: 10.5px;
-}
-
-.call.compact .smallDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 3px;
-}
-
-/* Under the smaller dot and its tighter gap. */
-.call.compact .permission {
-  padding-left: 14px;
-  margin-top: 2px;
-  font-size: 11.5px;
-}
-
-/* The blue dot says it's running; the log is already on its own dark ground. */
-.call.compact.running {
-  background: transparent;
-}
-
-.narration.compact {
-  margin: 2px 0 2px 2px;
-  padding: 0 0 0 10px;
-  font-size: var(--font-size-secondary-sm);
-  line-height: 1.45;
-}
-
-.narration.compact .narrationTime {
-  font-size: 10.5px;
 }

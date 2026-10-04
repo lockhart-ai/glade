@@ -310,7 +310,6 @@ export function writeLongHistorySeed(
   const seed = {
     workspace: { name: 'Acme API', rootPath: '/Users/sample/code/api' },
     panelTab,
-    ...(hub ? { settings: { todoHubEnabled: true } } : {}),
     tasks: [
       historyTask(SHORT_TASK_TITLE, SHORT_HISTORY, selected === SelectedHistory.Short, hub),
       historyTask(LONG_TASK_TITLE, LONG_HISTORY, selected === SelectedHistory.Long, hub),

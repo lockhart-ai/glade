@@ -204,7 +204,9 @@ const artifacts = z
       })
       .refine(pathOrUrl, PATH_OR_URL),
   )
-  .describe("Files of the task's workspace, each by absolute path, and links, to show in its Todos tab, under no todo until its agent files them.")
+  .describe(
+    "Files of the task's workspace, each by absolute path, and links, to show in its Todos tab, under no todo until its agent files them.",
+  )
 
 /** An artifact's path, as it was registered: absolute, inside the workspace. */
 const artifactPath = absolutePath(
@@ -238,7 +240,9 @@ const updateArtifacts = z
       ),
   )
   .min(1, 'is empty')
-  .describe("Artifacts to rename or point at another file or page, each staying under its todo in the task's Todos tab.")
+  .describe(
+    "Artifacts to rename or point at another file or page, each staying under its todo in the task's Todos tab.",
+  )
 
 /** Artifacts to take off a task's list. */
 const removeArtifacts = z
