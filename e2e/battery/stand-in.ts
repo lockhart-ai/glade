@@ -90,7 +90,6 @@ const messagesRequest = z.looseObject({
   model: z.string(),
   stream: z.boolean().optional(),
   messages: z.array(message),
-  tools: z.array(z.looseObject({ name: z.string() })).optional(),
 })
 
 type Message = z.infer<typeof message>
@@ -196,7 +195,6 @@ export class StandIn {
   private readonly passedGates = new Map<string, Promise<void>>()
   private readonly kept = new Map<string, ToolResult>()
   private readonly seenTokens = new Set<string>()
-  private readonly reached = new Map<string, number>()
   private port = 0
   private replies = 0
   private lastCall: string | null = null
@@ -207,8 +205,6 @@ export class StandIn {
   readonly strays: string[] = []
   /** How many requests were no part of a conversation, and were answered `SIDE_REPLY`. */
   sideRequests = 0
-  /** The tools the model was offered in the latest request of each conversation, by its marker. */
-  readonly offered = new Map<string, readonly string[]>()
   /**
    * How Claude Code described the sandbox to the model, as the conversation's opening had it: what commands may read
    * and write, and reach. Null until a conversation starts, or if it said nothing.
@@ -261,11 +257,6 @@ export class StandIn {
   readonly during = (): string | null =>
     this.lastCall !== null && !this.kept.has(this.lastCall) ? this.lastCall : null
 
-  /** How many steps of a conversation have been sent. */
-  stepsSent(marker: string): number {
-    return this.reached.get(marker) ?? 0
-  }
-
   close(): Promise<void> {
     return new Promise((resolve) => {
       this.server.close(() => {
@@ -300,8 +291,8 @@ export class StandIn {
       response.writeHead(400).end()
       return
     }
-    const { model, messages, stream, tools } = parsed.data
-    const step = await this.nextStep(messages, tools?.map(({ name }) => name) ?? [])
+    const { model, messages, stream } = parsed.data
+    const step = await this.nextStep(messages)
     this.replies += 1
     const id = `msg_battery_${String(this.replies)}`
     const events = streamed(model, id, step, this.kept)
@@ -330,7 +321,7 @@ export class StandIn {
   }
 
   /** The step a request gets: its conversation's next, once any gate before it has been passed. */
-  private async nextStep(messages: readonly Message[], tools: readonly string[]): Promise<Step> {
+  private async nextStep(messages: readonly Message[]): Promise<Step> {
     const opening = messages
       .slice(0, 2)
       .map(({ content }) => textOf(content))
@@ -358,13 +349,11 @@ export class StandIn {
       this.sideRequests += 1
       return { kind: StepKind.Say, text: SIDE_REPLY }
     }
-    this.offered.set(conversation.marker, tools)
     this.sandboxDescription ??= SANDBOX_DESCRIPTION.exec(opening)?.[1]?.trim() ?? null
     const index = messages.filter(({ role }) => role === 'assistant').length
     const step = conversation.steps[index]
     if (step === undefined) return { kind: StepKind.Say, text: OUT_OF_STEPS }
     if (step.kind === StepKind.Tool && step.gate !== undefined) await this.passGate(step.gate)
-    this.reached.set(conversation.marker, Math.max(this.stepsSent(conversation.marker), index + 1))
     if (step.kind === StepKind.Tool) this.lastCall = step.id
     return step
   }

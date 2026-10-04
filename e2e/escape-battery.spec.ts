@@ -25,6 +25,7 @@ import {
   type AttackGroup,
   type Targets,
 } from './battery/attacks'
+import { strayNames } from './battery/isolation'
 import { Listeners } from './battery/listeners'
 import { DeadEnd, StandIn } from './battery/stand-in'
 import { failures, judge, Outcome, report, snapshotWorld, type Evidence, type Verdict } from './battery/verdict'
@@ -175,6 +176,8 @@ async function runBattery(
       controlUrl: status.url ?? 'http://127.0.0.1:9',
     }
     const all = attackGroups(world, targets)
+    // Before anything runs: no attack names a real path or a real host.
+    expect(strayNames(world, all)).toEqual([])
     const groups = only === undefined ? all : all.filter(({ name }) => only.includes(name))
     const watched = [
       ...Object.values(world.canaries).map(({ token }) => token),
@@ -223,7 +226,10 @@ async function runBattery(
       controlToken,
     }
     const verdict = judge(evidence)
-    const text = report(verdict, groups, standIn.sandboxDescription)
+    const text = report(verdict, groups, {
+      sandbox: standIn.sandboxDescription,
+      sideRequests: standIn.sideRequests,
+    })
     await testInfo.attach('escape-battery-report.md', { body: text, contentType: 'text/markdown' })
     // The whole report, attack by attack, for whoever asked to keep it: a passing test's attachment isn't kept.
     if (REPORT_FILE !== undefined) appendFileSync(REPORT_FILE, `# ${testInfo.title}\n\n${text}\n`)

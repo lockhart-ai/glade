@@ -289,14 +289,19 @@ function outcomeOf(
   return { ...base, outcome: Outcome.Stopped, reasons: [], result: text }
 }
 
-/**
- * The verdict as text: a line for the run, then each group's attacks, then the sandbox as Claude Code described it to
- * the agent (`sandbox`), which is the floor as the session had it.
- */
+/** What a report says of the run besides its verdict. */
+export interface RunNotes {
+  /** The sandbox as Claude Code described it to the agent, which is the floor as the session had it; null for none. */
+  readonly sandbox: string | null
+  /** How many requests the stand-in got that were no part of the list (`StandIn.sideRequests`). */
+  readonly sideRequests: number
+}
+
+/** The verdict as text: a line for the run, then each group's attacks, then the run's notes. */
 export function report(
   { outcomes, problems, passed }: Verdict,
   groups: readonly AttackGroup[],
-  sandbox: string | null = null,
+  { sandbox, sideRequests }: RunNotes,
 ): string {
   const count = (outcome: Outcome): number => outcomes.filter((entry) => entry.outcome === outcome).length
   const lines = [
@@ -315,6 +320,7 @@ export function report(
       )
     }
   }
+  lines.push('', `Claude Code asked the stand-in for ${String(sideRequests)} things besides the list's turns.`)
   if (sandbox !== null) lines.push('', '## The sandbox, as Claude Code described it to the agent', '', sandbox)
   return `${lines.join('\n')}\n`
 }

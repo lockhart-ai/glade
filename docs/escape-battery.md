@@ -53,7 +53,10 @@ the agent its commands may read and write) is at the end of the battery's report
 
 No attack names anything outside the dummy home folder, the workspace, Glade's throwaway data folder and this Mac's
 loopback address. "Somewhere else" is a name under `.invalid`, which never resolves. No real path, domain or
-credential is ever named.
+credential is ever named. The spec checks that before anything runs (`e2e/battery/isolation.ts`): every absolute path
+in a call's input must be in the dummy world, and every URL's host the loopback address or under
+`glade-battery.invalid`. The only real paths named are the two the floor reads (`/usr/bin/true`, `/etc/shells`) and
+`/dev/null`.
 
 ## What it covers
 
@@ -127,7 +130,7 @@ A new finding from a review gets an entry in the PR that fixes it.
 
 1. Add the attack to its group in `e2e/battery/attacks.ts` (or a new group to `attackGroups`), with an id of its own.
    Use the helpers there (`bash`, `read`, `write`, `webFetch`, `requestAccess`), and name only the world's paths and
-   the listeners' ports.
+   the listeners' ports: the spec fails, before any attack runs, on an entry that names anything else.
 2. Make getting out leave evidence. A read prints a canary. A write writes `markerOf(id)`. A connection carries the id
    (`/x/<id>` in a URL, the id as the first line on a raw socket, `<id>.glade-battery.invalid` as a host). Where only
    the result can show it, give the entry an `escapedIf`.
