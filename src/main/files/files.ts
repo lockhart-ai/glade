@@ -29,6 +29,7 @@ import { getOpenFiles, setOpenFiles } from '../db/repositories/open-files'
 import { getTask } from '../db/repositories/tasks'
 import { getWorkspace } from '../db/repositories/workspaces'
 import type { TaskServiceContext } from '../tasks/service'
+import { OpenWith, type OpenPath } from './open-path'
 import {
   IMAGE_HEAD_BYTES,
   imageMediaTypeOf,
@@ -38,8 +39,7 @@ import {
   type Thumbnails,
 } from '../artifacts/thumbnails'
 
-/** Opens a file in the app macOS opens its kind of file with: Electron's `shell.openPath`, which answers with an error message, or `''`. */
-export type OpenPath = (path: string) => Promise<string>
+export { OpenWith, type OpenPath }
 
 /** Shows a file in Finder, selected: Electron's `shell.showItemInFolder`. */
 export type RevealPath = (path: string) => void
@@ -332,11 +332,47 @@ export function closeTaskFile(context: TaskServiceContext, taskId: string, path:
   return changeOpenFiles(context, taskId, (openFiles) => withClosedFile(openFiles, path))
 }
 
-/** `files.openInEditor`: opens a file of the task's workspace in the app macOS opens its kind of file with. */
+/**
+ * The kinds of file that are only ever looked at, by extension: Open in editor opens them in the app macOS shows them
+ * with (Preview, say), since a text editor would show their bytes.
+ */
+const VIEWED_EXTENSIONS: ReadonlySet<string> = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'heic',
+  'tif',
+  'tiff',
+  'bmp',
+  'pdf',
+])
+
+/** A file name's extension, lower-cased; `''` for none. */
+function extensionOf(path: string): string {
+  const name = path.slice(path.lastIndexOf(sep) + 1)
+  const dot = name.lastIndexOf('.')
+  return dot <= 0 ? '' : name.slice(dot + 1).toLowerCase()
+}
+
+/**
+ * `files.openInEditor`: opens a file of the task's workspace in your text editor. **It never runs the file** (#514):
+ * the agent writes the workspace's files, and macOS runs some kinds of file when they're opened (a Unix executable
+ * or a `.command` file in Terminal, an app or a workflow bundle by itself), outside any sandbox. So a file opens as
+ * text in the default text editor, whatever it is; only an image or a PDF, which a text editor can't show, opens in
+ * the app macOS shows it with. Its kind is read off where the file really is, so a link named `shot.png` to a script
+ * is a script. A folder is shown in Finder, not opened: a bundle is a folder too.
+ */
 export async function openTaskFileInEditor(context: FilesContext, taskId: string, path: string): Promise<void> {
   const real = await resolveWorkspaceFile(workspaceRoot(context, taskId), path)
   if (real === null) throw new CommandFailure(BridgeErrorCode.NotFound, `No file at ${path}`)
-  const failure = await context.openPath(real)
+  if (!(await stat(real)).isFile()) {
+    context.revealPath(real)
+    return
+  }
+  const how = VIEWED_EXTENSIONS.has(extensionOf(real)) ? OpenWith.Default : OpenWith.TextEditor
+  const failure = await context.openPath(real, how)
   if (failure !== '') throw new Error(`Couldn't open ${path}: ${failure}`)
 }
 

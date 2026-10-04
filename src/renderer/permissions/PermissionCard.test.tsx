@@ -1040,6 +1040,44 @@ describe('the sandbox’s cards', () => {
     expect(within(card(1)).queryByLabelText('Command')).not.toBeInTheDocument()
   })
 
+  // #514, finding 5: `curl -x "$HTTP_PROXY" -H "Authorization: Bearer $GLADE_CONTROL_TOKEN" $GLADE_CONTROL_URL/…`
+  // opened a card that said only "The agent wants to reach 127.0.0.1".
+  it('says a host is this Mac, a bare address or a local name, under the title, and nothing of an ordinary one', async () => {
+    const reaching = (id: string, host: string) =>
+      request(id, {
+        toolName: 'SandboxNetworkAccess',
+        toolUseId: `${id}-call`,
+        input: { host },
+        suppressAlwaysAllowRule: true,
+        sandbox: {
+          kind: SandboxAskKind.Domain,
+          domain: host,
+          command: `curl -x "$HTTP_PROXY" http://${host}/v1/tools`,
+          commandDescription: null,
+        },
+      })
+    await renderChat([
+      reaching('loopback', '127.0.0.1'),
+      reaching('address', '169.254.169.254'),
+      reaching('local', 'intranet'),
+      DOMAIN,
+    ])
+
+    expect(card().firstElementChild).toHaveTextContent('The agent wants to reach127.0.0.1')
+    expect(card()).toHaveTextContent(
+      'This is your own Mac. Allowing it lets the agent reach every service running on it.',
+    )
+    // The caution comes before the command, as the run-outside card's does.
+    const caution = within(card()).getByText(/This is your own Mac/)
+    const command = within(card()).getByLabelText('Command')
+    expect(caution.compareDocumentPosition(command) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(card(1)).toHaveTextContent('This is an IP address, not a name, so nothing here says whose server it is.')
+    expect(card(2)).toHaveTextContent('This is a name on your local network, not a public domain.')
+    for (const text of [/your own Mac/, /an IP address/, /local network/]) {
+      expect(within(card(3)).queryByText(text)).not.toBeInTheDocument()
+    }
+  })
+
   it('shows the agent’s own reason for a request_access call, its backticks as code', async () => {
     await renderChat([ACCESS])
 

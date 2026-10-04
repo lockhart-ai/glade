@@ -24,6 +24,7 @@ import { UiStateKey } from '../shared/domain'
 import { homeArgument, SAMPLE_HOME, setHomeFolder } from '../shared/homeFolder'
 import { PLUGINS_FOLDER_NAME } from '../shared/plugins'
 import type { AgentBackend } from './agent/backend'
+import { sessionSettingsFiles } from './agent/excluded-commands'
 import { claudeCodeBinary, createSdkBackend, type SdkBackendOptions } from './agent/sdk-backend'
 import { claudeLogin, type RunLogin, type SpawnLogin } from './account/login'
 import { createE2eLogin, WAITING_LOGIN } from './account/test-login'
@@ -58,7 +59,8 @@ import {
   readE2eSpec,
   type E2eSpec,
 } from './e2e'
-import type { OpenPath, RevealPath, WriteClipboard } from './files/files'
+import { OpenWith, type OpenPath, type RevealPath, type WriteClipboard } from './files/files'
+import { createOpenAsText } from './files/open-as-text'
 import type { OpenExternal } from './links/links'
 import { createThumbnails, THUMBNAILS_FOLDER_NAME } from './artifacts/thumbnails'
 import { definedEnv, LoginEnvSource, resolveLoginEnv, type Environment, type LoginEnv } from './login-env'
@@ -453,11 +455,15 @@ function createNotifier(testMode: TestMode): Notifier {
 }
 
 /**
- * What Open in editor opens a file with: the app macOS opens its kind of file with. A test mode never opens one: e2e
- * mode records the paths instead, for the spec to read (`E2E_EDITOR_GLOBAL`), and a capture ignores them.
+ * What Open in editor opens a file with: the default text editor, so it's shown and never run, or, for an image or a
+ * PDF (and the plugins folder), the app macOS opens it with. A test mode never opens one: e2e mode records the paths
+ * instead, for the spec to read (`E2E_EDITOR_GLOBAL`), and a capture ignores them.
  */
 function createOpenPath(testMode: TestMode): OpenPath {
-  if (testMode === null) return (path) => shell.openPath(path)
+  if (testMode === null) {
+    const openAsText = createOpenAsText()
+    return (path, how) => (how === OpenWith.TextEditor ? openAsText(path) : shell.openPath(path))
+  }
   if (testMode.kind === TestModeKind.E2e) return createE2eEditor()
   return () => Promise.resolve('')
 }
@@ -786,6 +792,11 @@ export function startApp({
           : () => chooseFolder(dialog, BrowserWindow.getFocusedWindow()),
       openPath: createOpenPath(testMode),
       ...createDesktop(testMode),
+      // Glade's own data is shut to sandboxed agents, whatever folder they're granted.
+      dataDir: app.getPath('userData'),
+      // The settings Claude Code merges under Glade's, for the commands they keep out of the sandbox. A test mode reads
+      // only its workspace's own: never the settings of the Mac it runs on.
+      claudeSettings: sessionSettingsFiles(testMode === null ? app.getPath('home') : null),
       // Kept in the data folder, so a test mode's are in its throwaway one.
       thumbnails: createThumbnails({
         folder: join(app.getPath('userData'), THUMBNAILS_FOLDER_NAME),

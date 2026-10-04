@@ -320,8 +320,11 @@ the switch the next time its agent's session starts. With it on:
   its reason, on the same card, and runs the command again once you allow it. Subagents ask the same way.
 - **Running a command outside the sandbox** always asks, in Allow all too, shows the command, and is only ever
   **Allow once** or **Deny**.
-- **Credential files** (`~/.ssh`, `~/.aws`, `~/.netrc` and the like) are never opened, even inside a folder you
-  granted.
+- **Credential files** (`~/.ssh`, `~/.aws`, `~/.netrc`, `~/.npmrc` and the like) and Glade's own data are never
+  opened, even inside a folder you granted.
+- **Files that run code** (git hooks and config, shell startup files, `.vscode`, `.mcp.json`, Claude Code's own
+  settings) stay closed to the agent's commands inside a folder granted read-write, and a file tool's write to one
+  is only ever **Allow once** or **Deny**.
 - **Changes apply at once.** A grant added, removed or made read-only reaches the running tasks it covers from their
   next call, without restarting them. One exception: a domain a running task was already allowed to reach on a card
   stays reachable until its session restarts.
@@ -333,7 +336,8 @@ the switch the next time its agent's session starts. With it on:
 
 The sandbox covers the agent's commands and file tools. The terminal tabs, Glade's own reading of your repository and
 Glade's own tools run as you, as before. Your own Claude Code settings (`~/.claude/settings.json`) still apply to a
-task's session, and an allow rule or sandbox setting there can widen what Glade grants. How it's built on the Claude
+task's session, but an allow rule there can't let a call past the sandbox unasked, and a command they exclude from
+the sandbox asks each time; a domain in their own sandbox lists, and their hooks and MCP servers, still apply. How it's built on the Claude
 Agent SDK's sandbox is in `decisions.md` and `sdk-notes.md` §15; how to use it is in the user guide.
 
 ## Settings

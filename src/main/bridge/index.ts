@@ -113,6 +113,16 @@ export interface BridgeOptions {
    */
   readonly claudeProjectsDir?: string
   /**
+   * Glade's own data folder (Electron's `userData`), which no sandboxed agent may read or write, even inside a granted
+   * folder (`AgentRunnerOptions.dataDir`). None by default.
+   */
+  readonly dataDir?: string
+  /**
+   * The Claude Code settings files a session in a workspace root merges with Glade's own, read for the commands they
+   * keep out of the sandbox (`AgentRunnerOptions.claudeSettings`). None by default.
+   */
+  readonly claudeSettings?: (root: string) => readonly string[]
+  /**
    * Where the bridge logs its commands and events, and the runner and terminals what they do (`docs/logs.md`).
    * Nothing by default.
    */
@@ -213,6 +223,8 @@ export function registerBridge({
   runLogin = UNAVAILABLE_LOGIN,
   log = SILENT_LOGGER,
   claudeProjectsDir,
+  dataDir,
+  claudeSettings,
 }: BridgeOptions): RegisteredBridge {
   const windows = createBroadcast(EVENT_CHANNEL, targets)
   // Tasks that kept a todo list before Glade kept its summary get theirs before any window lists them.
@@ -303,6 +315,9 @@ export function registerBridge({
     log: log.scoped(LogScope.Runner),
     // A sandboxed session's grants: the Glade-wide ones, its workspace's and its task's, as saved.
     sandboxGrants: (task) => taskSandboxGrants(db, task),
+    // What a sandboxed session is kept out of whatever is granted, and the settings its commands may be excluded by.
+    ...(dataDir === undefined ? {} : { dataDir }),
+    ...(claudeSettings === undefined ? {} : { claudeSettings }),
     // Each session gets its own Glade tools, built for its task, with the upkeep Settings has on as it starts, and,
     // while agents may control Glade, the control tools, calling as its task.
     mcpServers: (task) => {

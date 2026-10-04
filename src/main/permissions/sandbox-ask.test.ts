@@ -39,6 +39,7 @@ writeFileSync(`${WEB}/package.json`, '{}')
 // Files directly in the home folder, whose folder is too much for a card to offer.
 writeFileSync(`${HOME}/.gitconfig`, '[user]\n')
 writeFileSync(`${HOME}/.zshrc`, '')
+writeFileSync(`${HOME}/todo.md`, '')
 // A link in the workspace to a file outside it, and a link in the home folder to a folder.
 symlinkSync(`${WEB}/package.json`, `${ROOT}/linked.json`)
 symlinkSync(WEB, `${HOME}/web-link`)
@@ -83,8 +84,13 @@ function ask(
 }
 
 describe('sandboxAskFor', () => {
-  it('asks nothing of the sandbox for a call that stays in bounds, a protected write, or a credential path', () => {
-    for (const crossing of [SandboxCrossing.None, SandboxCrossing.Protected, SandboxCrossing.Credential]) {
+  it('asks nothing of the sandbox for a call that stays in bounds, a protected write, or one that’s refused', () => {
+    for (const crossing of [
+      SandboxCrossing.None,
+      SandboxCrossing.Protected,
+      SandboxCrossing.Credential,
+      SandboxCrossing.Unresolvable,
+    ]) {
       expect(ask('Write', { file_path: `${WEB}/a.ts` }, [], crossing)).toBeNull()
     }
   })
@@ -173,9 +179,9 @@ describe('sandboxAskFor', () => {
       access: FolderAccess.Read,
       file: true,
     })
-    expect(ask('Edit', { file_path: gitconfig }, folderSuggestions(HOME, FileAccess.Write))).toEqual({
+    expect(ask('Edit', { file_path: `${HOME}/todo.md` }, folderSuggestions(HOME, FileAccess.Write))).toEqual({
       kind: SandboxAskKind.Folder,
-      path: gitconfig,
+      path: `${HOME}/todo.md`,
       access: FolderAccess.ReadWrite,
       file: true,
     })
@@ -190,6 +196,31 @@ describe('sandboxAskFor', () => {
     expect(ask('Write', { file_path: '/Volumes/notes.txt' })).toMatchObject({ path: '/Volumes/notes.txt', file: true })
     // A file whose name can't be a grant's asks for nothing, as its folder would.
     expect(ask('Read', { file_path: `${HOME}/a[1].md` })).toBeNull()
+  })
+
+  // #514, finding 4: `Write ~/.zshrc` got the card for that file by itself, read-write, and a write to a git hook in
+  // another repository the card for its folder: Allow for this task granted a file that runs code.
+  it('never asks for a file that runs code, or for its folder: its write gets the plain card, allowed once', () => {
+    mkdirSync(`${WEB}/.git/hooks`, { recursive: true })
+    for (const path of [
+      `${HOME}/.zshrc`,
+      '~/.gitconfig',
+      `${HOME}/.bashrc`,
+      `${WEB}/.git/hooks/pre-commit`,
+      `${WEB}/.git/config`,
+      `${WEB}/.vscode/tasks.json`,
+      `${WEB}/.claude/settings.local.json`,
+      `${WEB}/.mcp.json`,
+    ]) {
+      for (const tool of ['Write', 'Edit', 'MultiEdit']) {
+        expect(ask(tool, { file_path: path }, folderSuggestions(dirname(path), FileAccess.Write))).toBeNull()
+      }
+      // Reading it is as any other read: its folder, or the file by itself in the home folder.
+      expect(ask('Read', { file_path: path })).toMatchObject({ kind: SandboxAskKind.Folder, access: FolderAccess.Read })
+    }
+    // Through a link, too: what's written is where the link leads.
+    symlinkSync(`${HOME}/.zshrc`, `${WEB}/shell-setup`)
+    expect(ask('Write', { file_path: `${WEB}/shell-setup` })).toBeNull()
   })
 
   it('never asks for a folder that’s too much: named outright, it gets the plain card', () => {
@@ -242,6 +273,27 @@ describe('sandboxAskFor', () => {
       command: null,
       commandDescription: null,
     })
+  })
+
+  // #514, finding 5: `curl -x "$HTTP_PROXY" http://2130706433/…` opened a card "reach 2130706433", which is
+  // `127.0.0.1`, and one Allow gave a command every service on this Mac.
+  it.each(['2130706433', '0x7f.1', '0x7f000001', '127.1', '0177.0.0.1', '017700000001', '1.2.3.256'])(
+    'never asks for the address written as %s: its connection is refused',
+    (host) => {
+      expect(ask(SANDBOX_NETWORK_TOOL, { host }, [], SandboxCrossing.Boundary, COMMAND)).toBeNull()
+    },
+  )
+
+  it('asks for this Mac, a bare address and a local name as what they are: a card says which', () => {
+    for (const host of ['127.0.0.1', 'localhost', '169.254.169.254', '10.0.0.5', 'intranet']) {
+      expect(ask(SANDBOX_NETWORK_TOOL, { host }, [], SandboxCrossing.Boundary, COMMAND)).toMatchObject({
+        kind: SandboxAskKind.Domain,
+        domain: host,
+      })
+    }
+    // `WebFetch` names an address by its four parts, however the URL spelled it.
+    expect(ask('WebFetch', { url: 'http://2130706433:8080/v1/tools' })).toMatchObject({ domain: '127.0.0.1' })
+    expect(ask('WebFetch', { url: 'http://0x7f.1/' })).toMatchObject({ domain: '127.0.0.1' })
   })
 
   it('asks for nothing when the host isn’t one a grant can name', () => {
@@ -329,9 +381,9 @@ describe('accessPlan', () => {
       kind: AccessPlanKind.Ask,
       ask: { kind: SandboxAskKind.Folder, path: `${HOME}/.gitconfig`, access: FolderAccess.Read, file: true },
     })
-    expect(plan(`${HOME}/.gitconfig`, FileAccess.Write)).toEqual({
+    expect(plan(`${HOME}/todo.md`, FileAccess.Write)).toEqual({
       kind: AccessPlanKind.Ask,
-      ask: { kind: SandboxAskKind.Folder, path: `${HOME}/.gitconfig`, access: FolderAccess.ReadWrite, file: true },
+      ask: { kind: SandboxAskKind.Folder, path: `${HOME}/todo.md`, access: FolderAccess.ReadWrite, file: true },
     })
     // A folder in the home folder, there or not yet, is asked for as a folder.
     expect(plan('~/code', FileAccess.Read)).toEqual({
@@ -378,10 +430,8 @@ describe('accessPlan', () => {
       key: pathKey(`${HOME}/.zshrc`),
       access: FolderAccess.Read,
     })
-    // The file is granted read-only: a write asks, for the file again.
-    expect(plan('~/.zshrc', FileAccess.Write)).toMatchObject({
-      ask: { path: `${HOME}/.zshrc`, access: FolderAccess.ReadWrite, file: true },
-    })
+    // The file is granted read-only, and runs code: nothing lets a command write it.
+    expect(plan('~/.zshrc', FileAccess.Write)).toEqual({ kind: AccessPlanKind.Protected })
     expect(plan('~/.gitconfig', FileAccess.Read)).toMatchObject({ kind: AccessPlanKind.Ask })
     expect(plan('~/.zshrc.bak', FileAccess.Read)).toMatchObject({ kind: AccessPlanKind.Ask })
   })
@@ -402,6 +452,46 @@ describe('accessPlan', () => {
     expect(plan(SHARED, FileAccess.Write)).toMatchObject({ ask: { path: SHARED, access: FolderAccess.ReadWrite } })
     for (const path of [`${HOME}/.ssh/id_ed25519`, '~/.aws', `${HOME}/.docker/config.json`]) {
       expect(plan(path, FileAccess.Read)).toEqual({ kind: AccessPlanKind.Credential })
+    }
+  })
+
+  // #514, finding 4: a command could write `.zshrc` and `.git/hooks` inside a folder granted read-write, and
+  // `request_access` opened a card for either.
+  it('refuses to ask for a write to what runs code: no grant lets a command write it', () => {
+    for (const path of [
+      '~/.zshrc',
+      `${HOME}/.gitconfig`,
+      `${WEB}/.git/hooks`,
+      `${WEB}/.git/hooks/pre-commit`,
+      `${WEB}/.git/config`,
+      `${WEB}/.vscode`,
+      `${WEB}/.claude/settings.json`,
+      `${WEB}/.claude/hooks/pre.sh`,
+      // Inside a folder already granted read-write, too: it says so, not that there's nothing to grant.
+      `${HOME}/code/tools/.git/hooks/pre-push`,
+      `${HOME}/code/tools/.zshenv`,
+    ]) {
+      expect(plan(path, FileAccess.Write)).toEqual({ kind: AccessPlanKind.Protected })
+    }
+    // Reading one is asked for as any read is, and the rest of a repository's own folder can be written.
+    expect(plan(`${WEB}/.git/config`, FileAccess.Read)).toMatchObject({ kind: AccessPlanKind.Ask })
+    expect(plan(`${WEB}/.git`, FileAccess.Write)).toMatchObject({ ask: { path: `${WEB}/.git` } })
+    expect(plan(`${WEB}/.claude/worktrees/agent-1`, FileAccess.Write)).toMatchObject({ kind: AccessPlanKind.Ask })
+    // In the workspace, it's the workspace's answer: Claude Code protects those itself.
+    expect(plan(`${ROOT}/.git/hooks/pre-commit`, FileAccess.Write)).toEqual({ kind: AccessPlanKind.InWorkspace })
+  })
+
+  // #514, finding 1: `request_access("/.nofollow/Users/me", write)` opened a folder card for `/.nofollow/Users/me`,
+  // where `request_access("/Users/me", write)` is refused as too much.
+  it.each([
+    ['/.nofollow', `/.nofollow${HOME}`],
+    ['/.nofollow, a folder in it', `/.nofollow${WEB}`],
+    ['/.vol', '/.vol/16777230/2/Users/me'],
+    ['/.resolve', `/.resolve/1${HOME}/.ssh`],
+    ['/.nofollow in another case', `/.NOFOLLOW${HOME}`],
+  ])('can’t grant a path through %s: no card', (_what, path) => {
+    for (const access of [FileAccess.Read, FileAccess.Write]) {
+      expect(plan(path, access)).toEqual({ kind: AccessPlanKind.NotGrantable, problem: `Can't resolve "${path}"` })
     }
   })
 
@@ -517,6 +607,14 @@ describe('accessReply', () => {
       accessReply({ kind: AccessOutcomeKind.NotGrantable, problem: 'Can\'t grant "/": the whole disk' }, request),
     ).toEqual({ text: 'Can\'t grant "/": the whole disk. Ask for a folder, by its absolute path.', isError: true })
     expect(ACCESS_PATH_NOT_ABSOLUTE).toContain('absolute path')
+  })
+
+  it('refuses a write to what runs code, and says not to write it another way', () => {
+    const reply = accessReply({ kind: AccessOutcomeKind.Protected }, { path: '/Users/me/code/tools/.git/hooks' })
+    expect(reply.isError).toBe(true)
+    expect(reply.text).toContain('Refused: /Users/me/code/tools/.git/hooks is one of the files that run code later')
+    expect(reply.text).toContain('even inside a granted folder')
+    expect(reply.text).toContain("Don't try to write it another way")
   })
 
   it('refuses a folder that’s too much to grant, and says where the user can add it', () => {

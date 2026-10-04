@@ -511,6 +511,14 @@ export async function openedInEditor({ app }: Glade): Promise<string[]> {
 }
 
 /**
+ * Those of the files Open in editor opened that it opened as text, in the text editor, where macOS never runs them
+ * (#514): every file but an image or a PDF.
+ */
+export async function openedAsText({ app }: Glade): Promise<string[]> {
+  return inMain(app, (_, name) => [...(Reflect.get(globalThis, name) as E2eEditor).asText], E2E_EDITOR_GLOBAL)
+}
+
+/**
  * What an artifact's Reveal in folder, the menus' Copy items and clicked links did so far: the real paths shown in
  * Finder, the text put on the clipboard and the links opened in the browser, oldest first. An e2e run never opens
  * Finder or a browser, or touches the clipboard: main records them in their place (`E2E_DESKTOP_GLOBAL`).

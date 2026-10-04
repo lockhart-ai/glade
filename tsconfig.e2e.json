@@ -12,6 +12,7 @@
     "e2e/**/*",
     "src/main/e2e.ts",
     "src/main/isolation.ts",
+    "src/main/files/open-path.ts",
     "src/main/login-env.ts",
     "src/main/logging/file-sink.ts",
     "src/main/logging/format.ts",

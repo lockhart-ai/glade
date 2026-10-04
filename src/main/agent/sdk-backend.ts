@@ -18,6 +18,7 @@ import { CONTROL_SERVER_NAME } from '../../shared/control'
 import type { ImageData } from '../../shared/images'
 import type { Environment } from '../login-env'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
+import { BOUNDED_TOOLS } from '../permissions/sandbox-classify'
 import { permissionSuggestionSchema } from '../permissions/schema'
 import { AsyncQueue } from './async-queue'
 import { ACCESS_TOOL_NAME, gladeOwnServers, GLADE_SERVER } from './glade-tools'
@@ -367,6 +368,82 @@ export function subagentGladeToolGuard(
   }
 }
 
+/** What the agent is told when Glade couldn't check a call against the sandbox's bounds: it doesn't run. */
+export const SANDBOX_CHECK_FAILED = 'Glade could not check this tool call against the sandbox, so it did not run.'
+
+/** The tools the agent sandbox bounds, as a hook matcher (`BOUNDED_TOOLS`). */
+export const SANDBOX_TOOLS = BOUNDED_TOOLS.join('|')
+
+const sandboxedToolInput = z.looseObject({
+  tool_name: z.string(),
+  tool_use_id: z.string(),
+  tool_input: z.record(z.string(), z.unknown()).optional().catch(undefined),
+  agent_id: z.string().optional(),
+})
+
+/** A `PreToolUse` hook's answer that settles a call: it runs, or it doesn't, with what the agent is told. */
+function hookDecision(decision: 'allow' | 'deny', reason?: string): Awaited<ReturnType<HookCallback>> {
+  return {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: decision,
+      ...(reason === undefined ? {} : { permissionDecisionReason: reason }),
+    },
+  }
+}
+
+/**
+ * The `PreToolUse` hook that holds a sandboxed session's file tools, `WebFetch`, `Bash` and `Monitor` to the sandbox's
+ * bounds (#514, `docs/sdk-notes.md` §15). A `PreToolUse` hook runs in every permission mode and before Claude Code
+ * matches a single rule, so this is where Glade decides a call that crosses the bounds, whatever the user's, the
+ * project's or the local settings would allow: it asks the host (`SessionHooks.onToolStarting`), waits on its answer
+ * however long that takes (a card may wait on the user), and returns it as the hook's own decision. `deny` stops the
+ * call. `allow` lets it run; if Claude Code still asks about it (an ask rule of its own, or its check of the files
+ * that run code), the host answers the same again. Nothing is returned for a call the host leaves alone: Claude Code
+ * decides it as it always has.
+ *
+ * It answers `allow` or `deny`, never `ask`. An `ask` should hand the call to `canUseTool` whatever the rules say (the
+ * bundled CLI's code reads that way), but that isn't probed, and a call that slipped past would run unasked: deciding
+ * here doesn't depend on it.
+ *
+ * Fails closed: input of a shape Glade doesn't know, or a host that throws, denies the call.
+ */
+export function sandboxToolGuard(
+  onToolStarting: NonNullable<SessionHooks['onToolStarting']>,
+  log: Logger = SILENT_LOGGER,
+): HookCallback {
+  const bounded = new Set(BOUNDED_TOOLS)
+  return async (input, _toolUseId, { signal }) => {
+    const parsed = sandboxedToolInput.safeParse(input)
+    if (!parsed.success) {
+      log.error('refused a tool call whose hook input Glade does not know', { problem: parsed.error.message })
+      return hookDecision('deny', SANDBOX_CHECK_FAILED)
+    }
+    const { tool_name: toolName, tool_use_id: toolUseId, tool_input: toolInput, agent_id: agentId } = parsed.data
+    // The matcher may match more than the names it lists (another server's `mcp__x__Read`): only these are bounded.
+    if (!bounded.has(toolName)) return {}
+    try {
+      const decision = await onToolStarting({
+        toolName,
+        input: toolInput ?? {},
+        toolUseId,
+        agentId: agentId ?? null,
+        signal,
+      })
+      if (decision === null) return {}
+      switch (decision.behavior) {
+        case ToolPermissionBehavior.Allow:
+          return hookDecision('allow')
+        case ToolPermissionBehavior.Deny:
+          return hookDecision('deny', decision.message)
+      }
+    } catch (error) {
+      log.error('failed to check a tool call against the sandbox', { toolName, toolUseId, error })
+      return hookDecision('deny', SANDBOX_CHECK_FAILED)
+    }
+  }
+}
+
 /**
  * The SDK hooks every session gets (`docs/sdk-notes.md` §9, §13 and §14): a subagent's call to one of Glade's own
  * tools is always refused (`subagentGladeToolGuard`, above), whether or not the session tells the runner anything
@@ -375,7 +452,8 @@ export function subagentGladeToolGuard(
  * writes (`PostCompact`, §5), and each `Bash` call about to run (`PreToolUse`), which waits for the host a while at
  * most. A hook that fails lets the prompt or call through, and tells nothing. When the session wants to hear of each
  * `Bash` call that has run (`onBashFinished`, §15), its `PostToolUse` and `PostToolUseFailure` hooks tell it, of
- * `Monitor`'s commands too, and the call's result waits for the answer.
+ * `Monitor`'s commands too, and the call's result waits for the answer. A sandboxed session's calls to the tools the
+ * sandbox bounds are decided before they run (`onToolStarting`, `sandboxToolGuard`): that hook fails closed.
  */
 export function sdkHooks(
   hooks: SessionHooks | undefined,
@@ -386,6 +464,15 @@ export function sdkHooks(
     { hooks: [subagentGladeToolGuard(log, hooks?.onAccessRequested)] },
   ]
   if (hooks === undefined) return { PreToolUse: preToolUse }
+  const { onToolStarting } = hooks
+  if (onToolStarting !== undefined) {
+    // As long as a timer allows: a card may wait on the user, and a hook that timed out would let its call through.
+    preToolUse.push({
+      matcher: SANDBOX_TOOLS,
+      hooks: [sandboxToolGuard(onToolStarting, log)],
+      timeout: BASH_FINISHED_TIMEOUT_S,
+    })
+  }
   const onPrompt: HookCallback = (input) => {
     const parsed = promptHookInput.safeParse(input)
     if (!parsed.success) return Promise.resolve({})
@@ -534,6 +621,16 @@ function bashFinishedHook(onBashFinished: NonNullable<SessionHooks['onBashFinish
   }
 }
 
+/** The tools no session of Glade's is offered: Claude Code's own asking tool, which has no UI here. */
+export const DISALLOWED_TOOLS: readonly string[] = ['AskUserQuestion']
+
+/**
+ * The tools a sandboxed session isn't offered either (#514): `EnterWorktree` moves the session's working folder into
+ * another worktree of the repository, outside the workspace root, where Claude Code's file tools would follow while
+ * Glade's bounds stayed with the root; `ExitWorktree` is its other half.
+ */
+export const SANDBOX_DISALLOWED_TOOLS: readonly string[] = ['EnterWorktree', 'ExitWorktree']
+
 /** The SDK options for a session that runs in `env`. */
 export function sdkOptions(
   options: AgentSessionOptions,
@@ -581,7 +678,8 @@ export function sdkOptions(
     systemPrompt: { type: 'preset', preset: 'claude_code', append: options.systemPromptAppend },
     mcpServers: { ...options.mcpServers },
     // Questions go through Glade's own `ask`, which shows them on a card; Claude Code's own asking tool has no UI here.
-    disallowedTools: ['AskUserQuestion'],
+    // A sandboxed session can't move into another worktree either: its sandbox is bounded by the folder it started in.
+    disallowedTools: sandboxed ? [...DISALLOWED_TOOLS, ...SANDBOX_DISALLOWED_TOOLS] : [...DISALLOWED_TOOLS],
     // A subagent's own text too, not just its tool calls: the Subagents tab shows the last thing each one said.
     forwardSubagentText: true,
     // A running subagent's one-line summary of what it's doing now, about every 30 seconds, from a small fork of its
@@ -601,7 +699,7 @@ export function sdkOptions(
 
 /** The SDK's sandbox setting for Glade's (`docs/sdk-notes.md` §15), its lists copied, since the SDK may change them. */
 export function sdkSandbox(settings: SandboxSettings): SdkSandboxSettings {
-  const { filesystem, network, credentials } = settings
+  const { filesystem, network, credentials, ignoreViolations } = settings
   return {
     enabled: settings.enabled,
     failIfUnavailable: settings.failIfUnavailable,
@@ -614,10 +712,31 @@ export function sdkSandbox(settings: SandboxSettings): SdkSandboxSettings {
             allowRead: copy(filesystem.allowRead),
             allowWrite: copy(filesystem.allowWrite),
             denyWrite: copy(filesystem.denyWrite),
+            disabled: filesystem.disabled,
           },
-    network: network === undefined ? undefined : { allowedDomains: copy(network.allowedDomains) },
+    network:
+      network === undefined
+        ? undefined
+        : {
+            allowedDomains: copy(network.allowedDomains),
+            allowLocalBinding: network.allowLocalBinding,
+            allowAllUnixSockets: network.allowAllUnixSockets,
+            allowUnixSockets: copy(network.allowUnixSockets),
+          },
     credentials:
-      credentials === undefined ? undefined : { files: credentials.files?.map(({ path, mode }) => ({ path, mode })) },
+      credentials === undefined
+        ? undefined
+        : {
+            files: credentials.files?.map(({ path, mode }) => ({ path, mode })),
+            envVars: credentials.envVars?.map(({ name, mode }) => ({ name, mode })),
+          },
+    allowAppleEvents: settings.allowAppleEvents,
+    enableWeakerNestedSandbox: settings.enableWeakerNestedSandbox,
+    enableWeakerNetworkIsolation: settings.enableWeakerNetworkIsolation,
+    ignoreViolations:
+      ignoreViolations === undefined
+        ? undefined
+        : Object.fromEntries(Object.entries(ignoreViolations).map(([pattern, denials]) => [pattern, [...denials]])),
   }
 }
 

@@ -17,6 +17,7 @@ import {
 } from '../../shared/domain'
 import { permissionSubject, taskPermissionRule } from '../../shared/permissions'
 import { shortenHomePath } from '../../shared/homeFolder'
+import { hostNote } from '../../shared/hosts'
 import { folderVerb, SandboxAskKind, type SandboxAsk } from '../../shared/sandbox'
 import { REQUEST_ACCESS_TOOL, toolDisplayName } from '../../shared/toolName'
 import { subagentName } from '../subagents/subagentsModel'
@@ -330,6 +331,15 @@ export function sandboxTitle(ask: SandboxAsk): SandboxTitle {
 
 /** What the run-outside-the-sandbox card says the answer means, above the command. */
 export const OUTSIDE_SANDBOX_NOTE = 'Outside the sandbox, it can use any folder and reach any domain you can.'
+
+/**
+ * What a sandbox card says under its title about what it would open, when its subject alone doesn't (#514): for a
+ * domain that isn't an ordinary name (this Mac, a bare address, a name on the local network), what it is. Null for
+ * every other request.
+ */
+export function sandboxCaution(ask: SandboxAsk): string | null {
+  return ask.kind === SandboxAskKind.Domain ? hostNote(ask.domain) : null
+}
 
 /** What a sandbox card shows under its title. */
 export enum SandboxDetailKind {

@@ -23,18 +23,21 @@ import {
   ToolCallState,
   ToolEventKind,
   type PermissionDecision,
+  type PermissionRequest,
   type Task,
   type TaskPause,
   type ToolCallEvent,
   type ToolEvent,
 } from '../../shared/domain'
 import { autoCompactThreshold } from '../../shared/contextWindow'
+import { FolderAccess, SandboxAskKind, SandboxGrantScope } from '../../shared/sandbox'
 import { listArtifacts, listFileArtifacts } from '../db/repositories/artifacts'
 import { listMessages } from '../db/repositories/messages'
 import { getOpenQuestionSet } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { listOpenPermissionRequests, listPermissionRequests } from '../db/repositories/permission-requests'
+import { listSandboxGrants } from '../db/repositories/sandbox-grants'
 import { updateSettings } from '../db/repositories/settings'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
@@ -45,7 +48,13 @@ import { createdTaskId } from '../todos/schema'
 import { todoListFor } from '../todos/todos'
 import { listWatchers } from '../db/repositories/watchers'
 import { ChildTool, namedTodo, TODO_FIELDS } from './child-calls'
-import { createAgentRunner, SANDBOX_FAILED_REFUSAL, STOPPED_NOTE, type AgentRunner } from './runner'
+import {
+  createAgentRunner,
+  SANDBOX_FAILED_REFUSAL,
+  STOPPED_NOTE,
+  UNRESOLVABLE_REFUSAL,
+  type AgentRunner,
+} from './runner'
 import { sandboxInitFailure } from './sandbox-requests'
 import { createGladeMcpServer, GLADE_SERVER } from './glade-tools'
 import {
@@ -67,6 +76,7 @@ import {
   SUBAGENT_CALLS_REPLY,
   TRACKS_LINKS_REPLY,
   ASKS_SANDBOX,
+  CROSSES_SANDBOX,
   SANDBOX_FAILS,
   type AgentScriptName,
   type FiledChild,
@@ -93,11 +103,13 @@ interface Listeners {
   readonly account?: AccountSink
   /** Whether the account's extra usage is turned on, asked with each usage call. On by default. */
   readonly extraUsageOn?: () => boolean
+  /** The Claude Code settings files a session's excluded commands are read from. None by default. */
+  readonly claudeSettings?: (root: string) => readonly string[]
 }
 
 function start(
   name: AgentScriptName,
-  { emit = () => undefined, notifyReply, log, account, extraUsageOn }: Listeners = {},
+  { emit = () => undefined, notifyReply, log, account, extraUsageOn, claudeSettings }: Listeners = {},
 ): AgentRunner {
   backend = createTestModeAgentBackend({
     script: AGENT_SCRIPTS[name],
@@ -112,6 +124,7 @@ function start(
     ...(notifyReply === undefined ? {} : { notifyReply }),
     ...(log === undefined ? {} : { log }),
     ...(account === undefined ? {} : { account }),
+    ...(claudeSettings === undefined ? {} : { claudeSettings }),
     // The real Glade tools, as the app gives every session.
     mcpServers: (forTask) => ({ [GLADE_SERVER]: createGladeMcpServer(context, forTask.id) }),
   })
@@ -1087,6 +1100,77 @@ describe('AGENT_SCRIPTS', () => {
     ])
     expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, awaitingPermission: true })
   })
+
+  it('crosses-sandbox: runs straight through unsandboxed in Allow all, nothing stopped and nothing asked for', async () => {
+    updateSettings(database.db, { sandboxEnabled: false })
+    await send(start('crosses-sandbox'), 'Set things up.')
+
+    expect(listPermissionRequests(database.db, task.id)).toEqual([])
+    expect(calls().map(({ name, state }) => [name, state])).toEqual([
+      ['Write', ToolCallState.Done],
+      ['Read', ToolCallState.Done],
+      ['Bash', ToolCallState.Done],
+      ['Bash', ToolCallState.Done],
+      ['Write', ToolCallState.Done],
+    ])
+  })
+
+  // #514: every call here has a rule in the user's own settings that keeps Claude Code from asking about it, so
+  // without Glade's own hook each ran unasked, as it does unsandboxed above.
+  it.each([PermissionMode.AllowAll, PermissionMode.AskBeforeEdits])(
+    'crosses-sandbox: sandboxed in %s, stops each at the sandbox: a card, or a refusal',
+    async (mode) => {
+      updateSettings(database.db, { sandboxEnabled: true })
+      updateTask(database.db, task.id, { permissionMode: mode })
+      const settings = join(mkdtempSync(join(tmpdir(), 'glade-settings-')), 'settings.json')
+      writeFileSync(settings, JSON.stringify({ sandbox: { excludedCommands: [CROSSES_SANDBOX.excluded] } }))
+      const agent = start('crosses-sandbox', { claudeSettings: () => [settings] })
+      await sendAndWaitAnHour(agent, 'Set things up.')
+      const open = (): PermissionRequest | undefined => listOpenPermissionRequests(database.db, task.id)[0]
+      const decide = async (decision: PermissionDecision): Promise<void> => {
+        agent.answerPermission(open()?.id ?? '', decision)
+        await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+      }
+      const deny: PermissionDecision = { kind: PermissionDecisionKind.Deny }
+
+      // The write where a file runs at the next login: its folder's card.
+      expect(open()).toMatchObject({
+        toolName: 'Write',
+        sandbox: { kind: SandboxAskKind.Folder, path: CROSSES_SANDBOX.plistFolder, access: FolderAccess.ReadWrite },
+      })
+      await decide(deny)
+      // The read through `/.nofollow` was refused with no card; the connection to this Mac is the next card.
+      expect(open()).toMatchObject({
+        toolName: 'SandboxNetworkAccess',
+        sandbox: { kind: SandboxAskKind.Domain, domain: CROSSES_SANDBOX.local, command: CROSSES_SANDBOX.curl },
+      })
+      await decide(deny)
+      // The command the settings keep out of the sandbox asks to run outside it, and can only be allowed once.
+      expect(open()).toMatchObject({
+        toolName: 'Bash',
+        input: { command: CROSSES_SANDBOX.docker },
+        sandbox: { kind: SandboxAskKind.Outside },
+      })
+      await decide({ kind: PermissionDecisionKind.AllowOnce })
+      // The git hook in another repository: the plain card, to allow once, never a folder to grant.
+      expect(open()).toMatchObject({ toolName: 'Write', sandbox: null, suppressAlwaysAllowRule: true })
+      await decide(deny)
+
+      await vi.waitFor(() => {
+        expect(listMessages(database.db, task.id).at(-1)?.body).toBe(CROSSES_SANDBOX.reply)
+      })
+      expect(calls().map(({ name, state }) => [name, state])).toEqual([
+        ['Write', ToolCallState.Error],
+        ['Read', ToolCallState.Error],
+        ['Bash', ToolCallState.Error],
+        ['Bash', ToolCallState.Done],
+        ['Write', ToolCallState.Error],
+      ])
+      expect(calls()[1]?.output).toBe(UNRESOLVABLE_REFUSAL)
+      expect(listSandboxGrants(database.db, { scope: SandboxGrantScope.Task, taskId: task.id })).toEqual([])
+      rmSync(join(settings, '..'), { recursive: true, force: true })
+    },
+  )
 
   it.each([PermissionMode.AllowAll, PermissionMode.AskBeforeEdits])(
     'sandbox-fails: in %s, refuses both requests to run outside the sandbox without asking, and stops on the error',

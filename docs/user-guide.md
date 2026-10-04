@@ -353,7 +353,7 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   (PNG, JPEG, GIF, WebP or SVG, up to 8 MB) shows as a picture instead, fit to the panel but never larger than its own
   size, on a checkerboard behind any transparency; click it to see it full size, in the same viewer artifacts open (see
   Artifacts, below). A larger, or any other kind of binary, file shows a notice instead of its contents. **Open in
-  editor** (⌘⇧E) opens the file in the app macOS uses for it, and ⌘W, with the focus in the panel, closes the tab. The
+  editor** (⌘⇧E) opens the file in your text editor (an image or a PDF in the app that shows it), and ⌘W, with the focus in the panel, closes the tab. The
   agent can open a file here for you.
 
   The folder icon before the tabs is **Browse**: the whole workspace as a tree, folders first. Click a folder to open
@@ -564,9 +564,17 @@ way; a card of a subagent's names it at the top right.
 
 ![A domain card for a command's connection, and under it the card the agent raised after its command was blocked: it wants to write to ~/.cache/uv, with its reason; the Tool calls list shows the blocked command](images/guide/sandbox-domain-card.png)
 
-**Credential files** (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.netrc`, `~/.git-credentials`, your keychains, and the
-`gh`, `gcloud`, Azure, Kubernetes and Docker logins) are never opened, even inside a folder you allowed, and no card
-offers them.
+**Credential files** (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.netrc`, `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`,
+`~/.claude.json`, your keychains, and the `gh`, `gcloud`, Azure, Kubernetes, Docker, 1Password and other cloud
+tools' logins) are never opened, even inside a folder you allowed, and no card offers them. Nor is Glade's own data.
+
+**Files that run code** (a git hook, `.git/config`, a shell startup file such as `.zshrc`, `.vscode`, `.mcp.json`,
+Claude Code's own settings) stay closed to the agent's commands even inside a folder you allowed to write. When the
+agent edits one itself, the card shows the file and what it would write, and offers only **Allow once** or **Deny**.
+
+**A host that isn't an ordinary name** says so on its card: "This is your own Mac. Allowing it lets the agent reach
+every service running on it." for `localhost` or `127.0.0.1`, and a line each for a bare IP address and for a name on
+your local network.
 
 **Running a command outside the sandbox** has a card of its own: "The agent wants to run a command outside the
 sandbox", with the command. Outside the sandbox it can use any folder and reach any domain you can, so it's only ever
@@ -614,7 +622,7 @@ them. Add what every workspace needs once, under **Glade-wide** in Settings › 
 | A toolchain installed in your home folder: nvm, pyenv, rustup, cargo, go | Its folder, read-only (`~/.nvm`, `~/.pyenv`, `~/.rustup`, `~/.cargo`, `~/go`); read-write if the agent installs versions or packages into it. |
 | Package installs: npm, uv, pip | The package cache, read-write (`~/.npm`, `~/.cache/uv`), and the registry's domains (`registry.npmjs.org`; `pypi.org` and `files.pythonhosted.org`). |
 | `git commit` has no author, or ignores your aliases and settings | `~/.gitconfig` (the agent's card asks for that file alone), or `~/.config/git` if you keep it there. |
-| npm can't see your registry settings or token | `~/.npmrc`, read-only. |
+| npm can't see your registry settings or token | Nothing to allow: `~/.npmrc` holds a login, so it's never opened. A command that needs it asks to run outside the sandbox; or keep the registry settings, without the token, in the project's own `.npmrc`. |
 
 - **A file allowed by itself can be changed but not replaced.** The agent's edits work, and so does a command that
   writes into it. A tool that saves by writing a new file beside it and renaming it over (`sed -i`, some formatters)
@@ -630,10 +638,19 @@ them. Add what every workspace needs once, under **Glade-wide** in Settings › 
 ### Your own Claude Code settings
 
 A task's session still reads your own Claude Code settings (`~/.claude/settings.json`, and the project's), as
-`claude` in a terminal does. They merge with what Glade sets, and **can widen it**: an allow rule of yours lets a
-call through without a card, and `sandbox` settings of yours (allowed domains, extra writable folders, commands
-excluded from the sandbox) apply to Glade's tasks too. Glade doesn't override them. If an agent can reach more than
-Glade's lists show, look there.
+`claude` in a terminal does. They merge with what Glade sets, but **they can't let the agent past the sandbox
+without asking you**:
+
+- **An allow rule or an extra folder of yours doesn't skip a card.** Glade checks every file, `WebFetch` and command
+  call against the workspace and what you've allowed in Glade before your rules are looked at.
+- **A command you've excluded from the sandbox** (`sandbox.excludedCommands`) asks each time, with the card for
+  running outside the sandbox: Glade asks whenever the command names one you excluded.
+- **The switches that loosen the sandbox** in your settings (turning off its file system bounds, Apple Events, local
+  ports, Unix sockets) are off in Glade's tasks, whatever your settings say.
+
+What still applies from your settings: domains and Unix sockets in your own `sandbox` lists (lists merge, so an
+agent can reach those), and your hooks and MCP servers, which run on your Mac, outside the sandbox. If an agent can
+reach more than Glade's lists show, look there.
 
 ## Settings
 
