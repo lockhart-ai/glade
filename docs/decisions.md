@@ -56,6 +56,16 @@
   itself changes (extra usage goes and comes back, or the limit's window rolls over), so a reading that's wrong costs
   one refused request a task, not a loop. Which readings count is one pure rule
   (`canRunAgain`, `src/main/agent/pauses.ts`). Offline pauses are untouched.
+- **The usage meter shows the money spent on extra usage (#530, Jared, Oct 4):** this replaces #327's "extra usage
+  only as a percentage, not in money". With no monthly cap there was no percentage to show, so the one number that
+  matters wasn't there. Extra usage's row reads "CA$12.34 spent" with no cap (and has no bar: nothing to be a fraction
+  of), and "CA$12.34 of CA$50.00" with one, the bar at its percentage. While the account is running on extra usage (a
+  plan limit is spent and the last usage call said extra usage is available, by #519's rule) the sidebar's one line
+  shows extra usage and the amount, in blue, in place of the limit that ran out; a spent limit with extra usage not
+  available keeps the "limited" highlight. The amount is the usage call's (`extra_usage`: minor units, currency and
+  decimal places), kept in SQLite with the reading and never logged; anything missing or malformed means no amount,
+  never a guessed one. Money is written in `en-US`, as Glade's dates and numbers are, so a currency other than the US
+  dollar is always named ("CA$", "¥") whatever the Mac's locale.
 - **Notifications:** native OS notifications for any agent message in a task you're not viewing, even while Glade is
   focused. Task name + start of the message. Sound off. Focus/DND handled by the OS.
 - **Needs you (#430, corrected by #461):** a task needs you when it's blocked on you or has a reply you haven't read:

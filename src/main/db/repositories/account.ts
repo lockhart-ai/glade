@@ -1,11 +1,13 @@
 // The account the tasks run on (migration 33: one row at most, `id` 1), and the latest reading of each of its usage
-// limits (migration 42: one row per limit). See `src/shared/account.ts`.
+// limits (migration 42: one row per limit; migration 61: what the usage call says of extra usage, with its reading).
+// See `src/shared/account.ts`.
 import type { Database } from 'better-sqlite3'
 import {
   sortUsageReadings,
   UsageLevel,
   UsageLimitKind,
   type Account,
+  type ExtraUsageStatus,
   type UsageLimit,
   type UsageReading,
 } from '../../../shared/account'
@@ -50,16 +52,37 @@ function limitRowKey(limit: UsageLimit): LimitRowKey {
   return { kind: limit.kind, model: limit.kind === UsageLimitKind.WeeklyModel ? limit.model : '' }
 }
 
+/** What a row keeps of extra usage (`ExtraUsageStatus`), or undefined for a row that keeps none of it. */
+function extraUsageFrom(row: Row): ExtraUsageStatus | undefined {
+  const available = row.nullableInteger('extra_available')
+  if (available === null) return undefined
+  const spent = row.nullableReal('spent')
+  return {
+    available: available === 1,
+    spend:
+      spent === null
+        ? null
+        : {
+            spent,
+            cap: row.nullableReal('spend_cap'),
+            currency: row.text('spend_currency'),
+            decimalPlaces: row.integer('spend_decimal_places'),
+          },
+  }
+}
+
 function readingFrom(raw: unknown): UsageReading {
   const row = new Row('usage_readings', raw)
   const kind = row.oneOf('kind', Object.values(UsageLimitKind))
   const limit: UsageLimit = kind === UsageLimitKind.WeeklyModel ? { kind, model: row.text('model') } : { kind }
+  const extraUsage = extraUsageFrom(row)
   return {
     limit,
     utilization: row.nullableReal('utilization'),
     resetsAt: row.nullableInteger('resets_at'),
     level: row.oneOf('level', Object.values(UsageLevel)),
     readAt: row.integer('read_at'),
+    ...(extraUsage === undefined ? {} : { extraUsage }),
   }
 }
 
@@ -70,17 +93,28 @@ export function listUsageReadings(db: Database): UsageReading[] {
 
 /** Stores a reading in place of its limit's last one. */
 export function saveUsageReading(db: Database, reading: UsageReading): void {
+  const { extraUsage } = reading
+  const spend = extraUsage?.spend
   db.prepare(
-    `INSERT INTO usage_readings (kind, model, utilization, resets_at, level, read_at)
-    VALUES (@kind, @model, @utilization, @resetsAt, @level, @readAt)
+    `INSERT INTO usage_readings (kind, model, utilization, resets_at, level, read_at, extra_available, spent,
+      spend_cap, spend_currency, spend_decimal_places)
+    VALUES (@kind, @model, @utilization, @resetsAt, @level, @readAt, @extraAvailable, @spent, @spendCap,
+      @spendCurrency, @spendDecimalPlaces)
     ON CONFLICT (kind, model) DO UPDATE SET utilization = excluded.utilization, resets_at = excluded.resets_at,
-      level = excluded.level, read_at = excluded.read_at`,
+      level = excluded.level, read_at = excluded.read_at, extra_available = excluded.extra_available,
+      spent = excluded.spent, spend_cap = excluded.spend_cap, spend_currency = excluded.spend_currency,
+      spend_decimal_places = excluded.spend_decimal_places`,
   ).run({
     ...limitRowKey(reading.limit),
     utilization: reading.utilization,
     resetsAt: reading.resetsAt,
     level: reading.level,
     readAt: reading.readAt,
+    extraAvailable: extraUsage === undefined ? null : Number(extraUsage.available),
+    spent: spend?.spent ?? null,
+    spendCap: spend?.cap ?? null,
+    spendCurrency: spend?.currency ?? null,
+    spendDecimalPlaces: spend?.decimalPlaces ?? null,
   })
 }
 
