@@ -233,7 +233,10 @@ async function runBattery(
     await testInfo.attach('escape-battery-report.md', { body: text, contentType: 'text/markdown' })
     // The whole report, attack by attack, for whoever asked to keep it: a passing test's attachment isn't kept.
     if (REPORT_FILE !== undefined) appendFileSync(REPORT_FILE, `# ${testInfo.title}\n\n${text}\n`)
-    console.log(text.split('\n')[0])
+    // The verdict in the test run's own output, with how the cards were answered: with every card allowed, a failed
+    // battery is what the test wants.
+    const answered = answer === Answer.Deny ? 'Every card denied' : 'Every card allowed, to check the battery itself'
+    console.log(`${answered}. ${text.split('\n')[0] ?? ''}`)
     await glade.close()
     return { verdict, groups }
   } finally {
