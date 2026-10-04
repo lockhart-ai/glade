@@ -27,9 +27,6 @@ import type { FileEdits, OpenEditSession, TaskFile, UnsavedChoice, UnsavedPrompt
 import type { Command, MenuState } from '../../shared/commands'
 import type {
   Artifact,
-  ArtifactDateGroup,
-  ArtifactFilter,
-  ArtifactGroupFold,
   ArtifactRef,
   CommitFiles,
   Watcher,
@@ -110,18 +107,6 @@ export interface FileFocus {
   readonly path: string
   /** From 1; null for the top of the file. */
   readonly line: number | null
-  readonly request: number
-}
-
-/**
- * A request to show a subagent in the Subagents tab, as picking it there does (its log open): made when a plugin opens
- * a task on one of its subagents (`openTask`), and acted on by the Subagents tab. `request` goes up by one with every
- * request, like `ToolLogFocus`'s.
- */
-export interface SubagentFocus {
-  readonly taskId: string
-  /** The subagent's `Agent` call's tool_use id. */
-  readonly subagentId: string
   readonly request: number
 }
 
@@ -223,21 +208,11 @@ export interface GladeData {
    */
   readonly artifactsVersion: Readonly<Record<string, number>>
   /**
-   * The Artifacts tab's date groups you opened or folded, by task id: loaded with its logs, then changed as you open
-   * or fold one.
-   */
-  readonly artifactGroups: Readonly<Record<string, readonly ArtifactGroupFold[]>>
-  /**
-   * Which of each task's artifacts its Artifacts tab shows (#407), by task id: loaded with its logs, then changed as
-   * you choose.
-   */
-  readonly artifactFilters: Readonly<Record<string, ArtifactFilter>>
-  /**
-   * Each task's watchers (the Watchers tab), by task id: every task's live ones loaded on start, for the task list's
+   * Each task's watchers (the Agents tab pins the live ones under their agent's tool calls), by task id: every task's live ones loaded on start, for the task list's
    * marks; all of a task's loaded with its logs; then kept current by events.
    */
   readonly watchers: Readonly<Record<string, readonly Watcher[]>>
-  /** Each task's commits (the Changes tab), newest first, by task id: loaded with its logs, then kept current by events. */
+  /** Each task's commits (the Todos tab's commit tiles), newest first, by task id: loaded with its logs, then kept current by events. */
   readonly commits: Readonly<Record<string, readonly TaskCommit[]>>
   /**
    * Each task's handoff note (the Backfilled card), by task id, null when it has none: loaded with its logs, then kept
@@ -251,8 +226,7 @@ export interface GladeData {
   readonly todos: Readonly<Record<string, TodoList | null>>
   /**
    * Each task's filings (the todo hub, P16: which todo each filed child is under), by task id. A task has none here
-   * until the hub's tab has shown it (`loadTodoHub`); `filings.changed` then keeps them current. Empty while the hub
-   * is off (`todoHubEnabled`), which never loads or is sent any.
+   * until the hub's tab has shown it (`loadTodoHub`); `filings.changed` then keeps them current.
    */
   readonly filings: Readonly<Record<string, readonly Filing[]>>
   /**
@@ -268,8 +242,8 @@ export interface GladeData {
   readonly todoPanels: Readonly<Record<string, TodoPanels>>
   /**
    * The subagent whose tab each task's Agents tab is on (P16, #536), by task id, as its `Agent` call's tool_use id: a
-   * task with none is on Main, the task's own agent. Loaded with the task's logs while the todo hub is on, then
-   * changed as you pick a tab (`selectAgentTab`). One that's no longer among the task's subagents shows Main
+   * task with none is on Main, the task's own agent. Loaded with the task's logs, then changed as you pick a tab
+   * (`selectAgentTab`). One that's no longer among the task's subagents shows Main
    * (`shownAgent`).
    */
   readonly agentTabs: Readonly<Record<string, string>>
@@ -289,11 +263,6 @@ export interface GladeData {
    * intent, like `toolLogFocus`: the file it opened is kept in `openFiles`.
    */
   readonly fileFocus: FileFocus | null
-  /**
-   * The latest request to show a subagent in the Subagents tab (a plugin's `openTask`); null until one is made. A
-   * one-off UI intent, like `toolLogFocus`.
-   */
-  readonly subagentFocus: SubagentFocus | null
   /**
    * The latest request to show a todo in the todo hub (the todo a subagent's tab names); null until one is made. A
    * one-off UI intent, like `toolLogFocus`.
@@ -657,8 +626,7 @@ export interface GladeActions {
   compactTask: (taskId: string) => Promise<void>
   /**
    * Asks the tool log to show a task's turn (see `ToolLogFocus`). For the selected task, it also opens the right panel
-   * at Tool calls, so the turn shows even when the panel was collapsed or on another tab. With the todo hub on, that's
-   * the Agents tab, on Main's tab (`showAgent`).
+   * at Agents, on Main's tab (`showAgent`), so the turn shows even when the panel was collapsed or on another tab.
    */
   focusTurn: (taskId: string, turn: number) => void
   /**
@@ -669,7 +637,7 @@ export interface GladeActions {
   /**
    * Shows one of a task's agents in the Agents tab: picks its tab (`selectAgentTab`) and, for the selected task, opens
    * the right panel at Agents, even when it was collapsed or on another tab. What a plugin's `openTask` with a
-   * subagent, the chat's tool-calls chip and an `Agent` call in a list do while the todo hub is on.
+   * subagent, the chat's tool-calls chip and an `Agent` call in a list do.
    */
   showAgent: (taskId: string, agentId: string | null) => void
   /**
@@ -744,10 +712,6 @@ export interface GladeActions {
   removeArtifact: (taskId: string, ref: ArtifactRef) => Promise<void>
   /** Adds a link to a task's artifacts, called what it says (`artifacts.addLink`, #407); one already there stays. */
   addLinkArtifact: (taskId: string, url: string, text: string) => Promise<void>
-  /** Shows all of a task's artifacts, or only its files or links, at once, and remembers it (`artifacts.setFilter`). */
-  setArtifactFilter: (taskId: string, filter: ArtifactFilter) => Promise<void>
-  /** Opens or folds one of a task's artifact date groups, at once, and remembers it (`artifacts.setGroupOpen`). */
-  setArtifactGroupOpen: (taskId: string, group: ArtifactDateGroup, open: boolean) => Promise<void>
   /**
    * The Artifacts tab shows a task (`artifacts.watch`): main looks at its artifacts' files again, and watches them for
    * edits from outside the agent until `unwatchArtifacts`.
@@ -757,7 +721,7 @@ export interface GladeActions {
   unwatchArtifacts: (taskId: string) => Promise<void>
   /**
    * Loads a task's todo hub (`todoHub.get`): its filings, and its todos' panels the first time. Called as the hub's
-   * tab shows the task. Fails while the hub is off.
+   * tab shows the task.
    */
   loadTodoHub: (taskId: string) => Promise<void>
   /** Opens, closes or filters a todo's panel in the hub, at once, and remembers it (`todoHub.setPanel`). */
@@ -864,8 +828,6 @@ export const INITIAL_DATA: GladeData = {
   openFiles: {},
   artifacts: {},
   artifactsVersion: {},
-  artifactGroups: {},
-  artifactFilters: {},
   watchers: {},
   commits: {},
   handoffs: {},
@@ -878,7 +840,6 @@ export const INITIAL_DATA: GladeData = {
   toolLogFocus: null,
   inputFocusRequest: 0,
   fileFocus: null,
-  subagentFocus: null,
   todoFocus: null,
   renamingTaskId: null,
   deletingTaskId: null,

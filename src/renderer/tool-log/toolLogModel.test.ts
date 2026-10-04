@@ -41,7 +41,6 @@ import {
   showsCallState,
   showsResult,
   withdrawnUnrun,
-  toolCallCount,
   toolLogRows,
   type AgentLogRow,
   type CallRow,
@@ -322,10 +321,9 @@ describe('compactions', () => {
     ...change,
   })
 
-  it('sit in the log as rows of their own, and count as no tool call', () => {
+  it('sit in the log as rows of their own', () => {
     const rows = toolLogRows([narration('n1', 1), compaction()])
     expect(rows[1]).toEqual({ kind: ToolEventKind.Compaction, compaction: compaction() })
-    expect(toolCallCount([compaction()])).toBe(0)
   })
 
   it('show the tokens before and after once done', () => {
@@ -344,22 +342,6 @@ describe('compactions', () => {
     expect(compactionResult(compaction({ trigger: CompactionTrigger.Auto }))).toBe(
       'Automatic · resuming from a summary',
     )
-  })
-})
-
-describe('toolCallCount', () => {
-  it('counts only the task’s own calls: a subagent’s, a nested one’s included, are the Subagents tab’s', () => {
-    expect(
-      toolCallCount([
-        narration('n1', 1),
-        call({ id: 'a', name: 'Agent', toolUseId: 'a' }),
-        call({ id: 'b', toolUseId: 'b', parentToolUseId: 'a' }),
-        call({ id: 'c', name: 'Agent', toolUseId: 'c', parentToolUseId: 'a' }),
-        call({ id: 'd', toolUseId: 'd', parentToolUseId: 'c' }),
-        divider('d', 2),
-        call({ id: 'e', toolUseId: 'e' }),
-      ]),
-    ).toBe(2)
   })
 })
 

@@ -4,7 +4,6 @@ import { AttachedFileKind } from '../../shared/attachedFiles'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
 import { MAX_SEARCH_QUERY, MAX_WATCHED_FOLDERS } from '../../shared/browse'
 import {
-  ArtifactFilter,
   ArtifactKind,
   Effort,
   PermissionDecisionKind,
@@ -178,12 +177,6 @@ describe('REQUEST_SCHEMAS', () => {
     // Its scheme is main's to check, as it adds it.
     expect(add.parse(request)).toEqual(request)
     expect(add.safeParse({ taskId: 't', url: 'https://example.com' }).success).toBe(false)
-
-    const filter = REQUEST_SCHEMAS[CommandName.ArtifactsSetFilter]
-    for (const chosen of Object.values(ArtifactFilter)) {
-      expect(filter.parse({ taskId: 't', filter: chosen })).toEqual({ taskId: 't', filter: chosen })
-    }
-    expect(filter.safeParse({ taskId: 't', filter: 'images' }).success).toBe(false)
   })
 
   it('refuses a Done page of no tasks, too many, a filter (the chips are gone, #411) or a malformed cursor', () => {

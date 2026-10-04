@@ -66,10 +66,9 @@ export interface AgentsTabProps {
 }
 
 /**
- * The Agents tab (P16, #536; `docs/design/html/50-agents.html` to `54-agents-overflow.html`), shown in place of the
- * Tool calls and Subagents tabs while the hidden `todoHubEnabled` setting is on: a strip with a tab for every agent in
- * the task (`AgentStrip`), and under it that agent's tool calls, its notes between them and their output, exactly as
- * the Tool calls tab draws them (`ToolLog`). Main's list shows each subagent it started as an `Agent` call, live while
+ * The Agents tab (P16, #536; `docs/design/html/50-agents.html` to `54-agents-overflow.html`): a strip with a tab for
+ * every agent in the task (`AgentStrip`), and under it that agent's tool calls, its notes between them and their
+ * output (`ToolLog`). Main's list shows each subagent it started as an `Agent` call, live while
  * the subagent runs; clicking it goes to that subagent's tab. A subagent's tab says which todo it's working on in a
  * line under the strip (`AgentLine`).
  *

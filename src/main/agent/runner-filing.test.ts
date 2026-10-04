@@ -12,8 +12,8 @@ import type { BashEnd, ChangeTracker } from '../changes/tracker'
 import { listFilings } from '../db/repositories/child-filings'
 import { listMessages } from '../db/repositories/messages'
 import { listOwedFilings } from '../db/repositories/owed-filings'
-import { getSessionContext } from '../db/repositories/session-context'
-import { getSettings, updateSettings } from '../db/repositories/settings'
+import { getSessionContext, setSessionContext, type SessionContext } from '../db/repositories/session-context'
+import { getSettings } from '../db/repositories/settings'
 import { addTaskCommit, CommitSource, listTaskCommits } from '../db/repositories/task-commits'
 import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
@@ -104,7 +104,6 @@ beforeEach(() => {
   db = database.db
   task = sampleTask(db, sampleWorkspace(db).id)
   events = []
-  updateSettings(db, { todoHubEnabled: true })
   launch()
 })
 
@@ -856,46 +855,28 @@ describe('a commit by a call that names its todo, found by git', () => {
   })
 })
 
-describe('the todo hub turned on while a task has a session', () => {
-  beforeEach(() => {
-    runner.close()
-    updateSettings(db, { todoHubEnabled: false })
-    launch()
-  })
-
-  it('leaves the live session as it started, and the session that resumes gets the hub and its lines, once', async () => {
-    await say('Review the date helpers.')
-    const before = session()
-    expect(Object.keys(before.options.hooks ?? {}).sort()).toEqual([
-      'onBashStarting',
-      'onCompacted',
-      'onPrompt',
-      'onTurnEnded',
-    ])
-    before.emit(...todos('Review the date helpers'), sdk.text('On it.', null, 'msg_02'), sdk.result('On it.'))
-    await settle()
-    const recorded = getSessionContext(db, task.id)
-    expect(recorded).toMatchObject({ todoHub: false, instructionUpdates: INSTRUCTION_UPDATES.length })
-
-    // The switch is turned on mid-task. The session that's running keeps the tools, prompt and hooks it started
-    // with: nothing is sent to it, a marker is left where it is, and nothing is asked or held.
-    updateSettings(db, { todoHubEnabled: true })
-    await say('And the order totals.')
-    expect(backend.sessions).toHaveLength(1)
-    expect(before.sent.at(-1)?.text).toBe('And the order totals.')
-    await subagent('toolu_old', { description: '[todo 1] Review the order totals' })
-    await expect(before.finishBatch(batch(['toolu_old', 'Agent']))).resolves.toBeNull()
-    await expect(before.tryToEnd()).resolves.toBeNull()
-    before.emit(sdk.text('Reviewing.', null, 'msg_03'), sdk.result('Reviewing.'))
-    await settle()
-    expect(logged('Agent')).toMatchObject([{ description: '[todo 1] Review the order totals' }])
-    expect(listFilings(db, task.id)).toEqual([])
-    expect(getSessionContext(db, task.id)).toEqual(recorded)
-
-    // Relaunched, the task's session resumes with the hub: its tools, its hooks, and, since Claude Code keeps the
-    // prompt the session started with, the hub's lines ahead of its next message.
+describe('a task whose session started before the hub was on for every task (#501)', () => {
+  /** The task as an updated app finds it: with a session, and what's recorded as told to it, if anything is. */
+  function startedBefore(recorded: SessionContext | null): void {
+    db.prepare('UPDATE tasks SET session_id = ? WHERE id = ?').run(sdk.SESSION_ID, task.id)
+    if (recorded !== null) setSessionContext(db, task.id, recorded)
     runner.close()
     launch()
+  }
+
+  const BEFORE: SessionContext = {
+    instructions: true,
+    instructionUpdates: INSTRUCTION_UPDATES.length,
+    handoffAt: null,
+    sandbox: false,
+    todoHub: false,
+  }
+
+  it('resumes with the hub, and is sent its lines once: not again with the next message, nor after a relaunch', async () => {
+    startedBefore(BEFORE)
+
+    // Its session resumes with the hub: its tools, its hooks, and, since Claude Code keeps the prompt the session
+    // started with, the hub's lines ahead of its next message.
     await say('How is the review?')
     const resumed = session()
     expect(resumed.options.resumeSessionId).toBe(sdk.SESSION_ID)
@@ -906,10 +887,12 @@ describe('the todo hub turned on while a task has a session', () => {
     ])
     // The chat keeps only what you wrote.
     expect(listMessages(db, task.id).at(-1)?.body).toBe('How is the review?')
-    // Recorded as told, apart from the count of instructions it has had, which is what it was.
-    expect(getSessionContext(db, task.id)).toEqual({ ...recorded, todoHub: true })
+    // Recorded as told, and nothing else of what it has had changes.
+    expect(getSessionContext(db, task.id)).toEqual({ ...BEFORE, todoHub: true })
 
     // It files from here on, as a session that started with the hub does.
+    resumed.emit(...todos('Review the date helpers'))
+    await settle()
     await subagent('toolu_new', { description: '[todo 1] Review the date helpers again' })
     expect(filings()).toEqual(['subagent toolu_new #1 named'])
     expect(logged('Agent').at(-1)).toMatchObject({ description: 'Review the date helpers again' })
@@ -925,15 +908,59 @@ describe('the todo hub turned on while a task has a session', () => {
     launch()
     await say('One more thing.')
     expect(session().sent.map(({ text: sent }) => sent)).toEqual(['One more thing.'])
-    // What the old session made, before the hub was its own, is nobody's to ask about.
-    await expect(session().tryToEnd()).resolves.toBeNull()
-    expect(placed()).toEqual([[], []])
     expect(Object.values(working())).toEqual(['1'])
+  })
+
+  it('is asked about nothing it made before the hub: that waits under no todo', async () => {
+    addTaskCommit(db, {
+      taskId: task.id,
+      gitDir: '/code/acme-api/.git',
+      repoPath: '/code/acme-api',
+      hash: 'a'.repeat(40),
+      subject: 'Fix the UTC date test',
+      branch: 'main',
+      committedAt: 1_000,
+      additions: 1,
+      deletions: 1,
+      filesChanged: 1,
+      parents: 1,
+      toolUseId: null,
+      source: CommitSource.Printed,
+    })
+    startedBefore(BEFORE)
+
+    await say('How is the review?')
+    session().emit(...todos('Review the date helpers'))
+    await settle()
+
+    await expect(session().tryToEnd()).resolves.toBeNull()
+    expect(listOwedFilings(db, task.id)).toEqual([])
+    expect(placed()).toEqual([[], ['commit unfiled']])
+  })
+
+  it('is sent them when nothing at all was recorded for it, with the instructions added since it started', async () => {
+    startedBefore(null)
+
+    await say('Carry on.')
+
+    const [sent] = session().sent
+    expect(sent?.text).toMatch(/^\[Glade: new instructions for this session\]/)
+    expect(sent?.text).toContain(
+      `[Glade: this session now files what it makes under its todos]\n${TODO_HUB_LINES.join('\n\n')}\n[end]`,
+    )
+    expect(getSessionContext(db, task.id)).toMatchObject({ instructions: true, todoHub: true })
+  })
+
+  it('isn’t sent them when it started with them, behind the switch', async () => {
+    startedBefore({ ...BEFORE, todoHub: true })
+
+    await say('Carry on.')
+
+    expect(session().sent.map(({ text: sent }) => sent)).toEqual(['Carry on.'])
   })
 
   it('sends a session that started elsewhere Glade’s whole prompt, hub and all, and records it as told', async () => {
     db.prepare('UPDATE tasks SET session_id = ?, imported_at = 1 WHERE id = ?').run(sdk.SESSION_ID, task.id)
-    updateSettings(db, { todoHubEnabled: true })
     runner.close()
     launch()
 

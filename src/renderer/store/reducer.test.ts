@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { EventType } from '../../shared/bridge'
 import { appCommand, AppCommandId } from '../../shared/commands'
 import {
-  ArtifactDateGroup,
-  ArtifactFilter,
   ArtifactKind,
   DividerKind,
   PermissionMarkKind,
@@ -37,7 +35,6 @@ import {
 import {
   applyEvent,
   idFromUiState,
-  withGroupFold,
   withHistory,
   withLiveWatchers,
   withOpenedWorkspace,
@@ -223,8 +220,6 @@ describe('a deleted task', () => {
         ],
       },
       artifactsVersion: { t1: 1 },
-      artifactGroups: { t1: [{ group: ArtifactDateGroup.Today, open: false }] },
-      artifactFilters: { t1: ArtifactFilter.Links },
       handoffs: { t1: { taskId: 't1', body: '## Where it got to', addedAt: 1 } },
       watchers: { t1: [sampleWatcher('w1', 't1')] },
       commits: { t1: [sampleCommit('c1', 't1')] },
@@ -249,8 +244,6 @@ describe('a deleted task', () => {
       openFiles: {},
       artifacts: {},
       artifactsVersion: {},
-      artifactGroups: {},
-      artifactFilters: {},
       handoffs: {},
       watchers: {},
       commits: {},
@@ -307,11 +300,10 @@ describe("a task's logs", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
-      artifactGroups: [],
-      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
+      agentTab: null,
     })
 
     expect(applyEvent(loaded, { type: EventType.ToolEventUpdated, toolEvent: done }).toolEvents).toEqual({
@@ -331,11 +323,10 @@ describe("a task's logs", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
-      artifactGroups: [],
-      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
+      agentTab: null,
     })
 
     expect(
@@ -365,11 +356,10 @@ describe("a task's logs", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
-      artifactGroups: [],
-      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
+      agentTab: null,
     })
 
     expect(next.messages.t1).toEqual([early, late])
@@ -385,11 +375,10 @@ describe("a task's logs", () => {
         openFiles: noOpenFiles('t2'),
         todos: null,
         artifacts: [],
-        artifactGroups: [],
-        artifactFilter: ArtifactFilter.All,
         handoff: null,
         watchers: [],
         commits: [],
+        agentTab: null,
       }).messages,
     ).toEqual({ t2: [] })
   })
@@ -416,11 +405,10 @@ describe("a task's queue", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
-      artifactGroups: [],
-      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
+      agentTab: null,
     })
     expect(loaded.queuedMessages).toEqual({ t1: [second] })
   })
@@ -460,11 +448,10 @@ describe("a task's questions", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
-      artifactGroups: [],
-      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
+      agentTab: null,
     }
     expect(withHistory(state, 't1', { ...empty, questionSets: [answered] }).questionSets).toEqual({ t1: [answered] })
   })
@@ -507,11 +494,10 @@ describe("a task's permission requests", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
-      artifactGroups: [],
-      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
+      agentTab: null,
     }
     // A request opened while the history loaded stays, after the loaded ones.
     const loaded = withHistory(asked, 't1', { ...empty, permissionRequests: [denied], permissionMarks: [] })
@@ -551,11 +537,10 @@ describe("a task's permission marks", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
-      artifactGroups: [],
-      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
+      agentTab: null,
     }
     // The load read `a` before it was named, and a call the window hadn't heard of; `b` came after the load was read.
     const loaded = withHistory(marked, 't1', { ...history, permissionMarks: [mark('earlier'), mark('a')] })
@@ -582,11 +567,10 @@ describe("a task's open files", () => {
       permissionMarks: [],
       todos: null,
       artifacts: [],
-      artifactGroups: [],
-      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
+      agentTab: null,
     }
     expect(withHistory(changed, 't1', { ...empty, openFiles: noOpenFiles('t1') }).openFiles).toEqual({
       t1: noOpenFiles('t1'),
@@ -629,11 +613,10 @@ describe("a task's artifacts", () => {
     openFiles: noOpenFiles('t1'),
     todos: null,
     artifacts,
-    artifactGroups: [],
-    artifactFilter: ArtifactFilter.All,
     handoff: null,
     watchers: [],
     commits: [],
+    agentTab: null,
   })
 
   it('takes the whole list from each change, and from a history load that started at or after the last one', () => {
@@ -687,24 +670,6 @@ describe("a task's artifacts", () => {
       artifact('a.png', 5, 50),
     ])
   })
-
-  it('takes the filter from the history, and forgets it with the task (#407)', () => {
-    const loaded = withHistory(state, 't1', { ...history([]), artifactFilter: ArtifactFilter.Links })
-
-    expect(loaded.artifactFilters).toEqual({ t1: ArtifactFilter.Links })
-    expect(applyEvent(loaded, { type: EventType.TaskDeleted, taskId: 't1' }).artifactFilters).toEqual({})
-  })
-
-  it('takes the date groups opened or folded from the history, and changes one in place', () => {
-    const loaded = withHistory(state, 't1', {
-      ...history([]),
-      artifactGroups: [{ group: ArtifactDateGroup.Older, open: true }],
-    })
-    expect(loaded.artifactGroups.t1).toEqual([{ group: ArtifactDateGroup.Older, open: true }])
-    expect(
-      withGroupFold([{ group: ArtifactDateGroup.Older, open: true }], { group: ArtifactDateGroup.Older, open: false }),
-    ).toEqual([{ group: ArtifactDateGroup.Older, open: false }])
-  })
 })
 
 describe("a task's watchers", () => {
@@ -718,11 +683,10 @@ describe("a task's watchers", () => {
     openFiles: noOpenFiles('t1'),
     todos: null,
     artifacts: [],
-    artifactGroups: [],
-    artifactFilter: ArtifactFilter.All,
     handoff: null,
     watchers,
     commits: [],
+    agentTab: null,
   })
 
   it('takes every task’s live ones on start, by task, over none', () => {
@@ -832,11 +796,10 @@ describe("every task's running subagents", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
-      artifactGroups: [],
-      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
+      agentTab: null,
     })
     expect(loaded.toolEvents.t1).toEqual([divider, finished])
   })
@@ -873,11 +836,10 @@ describe("a task's commits", () => {
     openFiles: noOpenFiles('t1'),
     todos: null,
     artifacts: [],
-    artifactGroups: [],
-    artifactFilter: ArtifactFilter.All,
     handoff: null,
     watchers: [],
     commits,
+    agentTab: null,
   })
 
   it('takes a task’s whole list with its history, and from each change, each task’s its own', () => {
@@ -907,11 +869,10 @@ describe("a task's handoff note", () => {
     openFiles: noOpenFiles('t1'),
     todos: null,
     artifacts: [],
-    artifactGroups: [],
-    artifactFilter: ArtifactFilter.All,
     handoff,
     watchers: [],
     commits: [],
+    agentTab: null,
   })
 
   it('takes the note from each change, and a cleared one as none', () => {
@@ -948,11 +909,10 @@ describe("a task's todo list", () => {
     openFiles: noOpenFiles('t1'),
     todos,
     artifacts: [],
-    artifactGroups: [],
-    artifactFilter: ArtifactFilter.All,
     handoff: null,
     watchers: [],
     commits: [],
+    agentTab: null,
   })
 
   it('takes the list from each change, whole', () => {

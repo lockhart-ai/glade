@@ -1,7 +1,7 @@
 /**
- * What the Todos tab shows as the hub (P16, #491; `docs/design/html/46-todo-hub.html`), worked out from each todo's
- * children: how many of each kind it has, what each count says in words, which filter an open todo is on, and the
- * children that filter shows. Pure, so it's tested on its own. Behind the hidden `todoHubEnabled` setting.
+ * What the Todos tab shows (P16, #491; `docs/design/html/46-todo-hub.html`), worked out from each todo's children: how
+ * many of each kind it has, what each count says in words, which filter an open todo is on, and the children that
+ * filter shows. Pure, so it's tested on its own.
  */
 import type { Todo } from '../../shared/domain'
 import {

@@ -1,5 +1,5 @@
 /**
- * The PRs, issues and tickets a todo's text names (P16, #500), behind the hidden `todoHubEnabled` setting. Where a todo's
+ * The PRs, issues and tickets a todo's text names (P16, #500). Where a todo's
  * title or status line says `PR #511`, `#511` or a Jira key such as `API-123`, and the task has that very PR, issue or
  * ticket as a link artifact, those words are a link to it. Only an exact match on the number or key, only to a link the
  * task itself has, and nothing is fetched: what a link is comes from its address alone (`recogniseLink`).

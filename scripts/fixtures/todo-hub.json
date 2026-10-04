@@ -4,9 +4,6 @@
     "rootPath": "/Users/sample/code/api",
     "files": "todo-hub-workspace"
   },
-  "settings": {
-    "todoHubEnabled": true
-  },
   "panelTab": "todos",
   "tasks": [
     {

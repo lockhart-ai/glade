@@ -8,12 +8,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createBridge } from '../../preload/bridge'
 import { CommandName, EventType, type GladeEvent } from '../../shared/bridge'
 import { ToolCallState, type Task } from '../../shared/domain'
-import { ChildKind, FilingSource, TODO_HUB_OFF } from '../../shared/todoHub'
+import { ChildKind, FilingSource } from '../../shared/todoHub'
 import { registerBridge } from '../bridge'
 import { fakeIpcPair } from '../bridge/fake-ipc'
 import { addArtifact, addLinkArtifact } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
-import { updateSettings } from '../db/repositories/settings'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
 import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
@@ -27,13 +26,11 @@ import {
   createGladeToolHandlers,
   GLADE_SERVER,
   GladeTool,
+  type AgentUpkeep,
   type GladeToolContext,
-  type GladeToolSettings,
 } from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
 import { TODO_HUB_TOOLS_LINE } from './system-prompt'
-
-const HUB_ON: GladeToolSettings = { statusSummary: true, taskTitles: true, todoHubEnabled: true }
 
 let database: TestDatabase
 let db: Database
@@ -49,8 +46,7 @@ beforeEach(() => {
   events = []
   const base = { db, emit: (event: GladeEvent) => events.push(event) }
   context = { ...base, questions: createQuestionBroker(base) }
-  updateSettings(db, { todoHubEnabled: true })
-  caller = createMcpToolCaller({ [GLADE_SERVER]: createGladeMcpServer(context, task.id, HUB_ON) })
+  caller = createMcpToolCaller({ [GLADE_SERVER]: createGladeMcpServer(context, task.id) })
 })
 
 afterEach(async () => {
@@ -86,7 +82,7 @@ function unsorted(): void {
 }
 
 /** The tools a server lists, as the SDK would read them. */
-async function toolsOf(settings?: GladeToolSettings) {
+async function toolsOf(settings?: AgentUpkeep) {
   const server = createGladeMcpServer(context, task.id, settings)
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
   await server.instance.connect(serverSide)
@@ -101,27 +97,24 @@ const list = (input: Record<string, unknown> = {}) => caller.call('mcp__glade__l
 const file = (input: Record<string, unknown>) => caller.call('mcp__glade__file_children', input)
 
 describe('the server', () => {
-  it('has the two tools only when the session starts with the hub on, loaded up front like the rest', async () => {
-    const on = await toolsOf(HUB_ON)
+  it('has the two tools in every session, loaded up front like the rest', async () => {
+    const tools = await toolsOf()
 
-    expect(on.map(({ name }) => name).slice(-3)).toEqual([
+    expect(tools.map(({ name }) => name).slice(-3)).toEqual([
       GladeTool.RemoveArtifact,
       GladeTool.ListChildren,
       GladeTool.FileChildren,
     ])
-    for (const listed of on) expect(listed._meta).toEqual({ 'anthropic/alwaysLoad': true })
+    for (const listed of tools) expect(listed._meta).toEqual({ 'anthropic/alwaysLoad': true })
 
-    // Off unless the settings say so, whatever the database says by then.
-    for (const settings of [undefined, { statusSummary: true, taskTitles: true, todoHubEnabled: false }]) {
-      const names = (await toolsOf(settings)).map(({ name }) => name)
-      expect(names).toContain(GladeTool.RemoveArtifact)
-      expect(names).not.toContain(GladeTool.ListChildren)
-      expect(names).not.toContain(GladeTool.FileChildren)
-    }
+    // Whatever upkeep the session has: they aren't upkeep.
+    const names = (await toolsOf({ statusSummary: false, taskTitles: false })).map(({ name }) => name)
+    expect(names).toContain(GladeTool.ListChildren)
+    expect(names).toContain(GladeTool.FileChildren)
   })
 
   it('takes an optional todo to list by, and one or more filings, each a child and a todo', async () => {
-    const tools = await toolsOf(HUB_ON)
+    const tools = await toolsOf()
     const schema = (name: string) => tools.find((listed) => listed.name === name)?.inputSchema
 
     expect(schema(GladeTool.ListChildren)).toMatchObject({ properties: { todo: { type: 'string' } } })
@@ -140,26 +133,6 @@ describe('the server', () => {
         },
       },
     })
-  })
-
-  it('answers a call to either with an unknown tool when the session started with the hub off', async () => {
-    const without = createMcpToolCaller({ [GLADE_SERVER]: createGladeMcpServer(context, task.id) })
-    unsorted()
-
-    const listed = await without.call('mcp__glade__list_children', {})
-    const filed = await without.call('mcp__glade__file_children', { filings: [{ child: 'c1', todo: '1' }] })
-
-    expect(listed).toMatchObject({
-      isError: true,
-      output: expect.stringContaining('list_children not found') as unknown,
-    })
-    expect(filed).toMatchObject({
-      isError: true,
-      output: expect.stringContaining('file_children not found') as unknown,
-    })
-    expect(listFilings(db, task.id)).toEqual([])
-    expect(events).toEqual([])
-    await without.close()
   })
 })
 
@@ -254,19 +227,6 @@ describe('the two tools, called as the agent calls them', () => {
     await expect(list({ todo: 2 })).resolves.toMatchObject({ isError: true })
   })
 
-  it('answers both with a tool error once the hub is turned off under a session that has them', async () => {
-    unsorted()
-    await list()
-    updateSettings(db, { todoHubEnabled: false })
-
-    await expect(list()).resolves.toEqual({ isError: true, output: TODO_HUB_OFF })
-    await expect(file({ filings: [{ child: 'c1', todo: '1' }] })).resolves.toEqual({
-      isError: true,
-      output: TODO_HUB_OFF,
-    })
-    expect(events).toEqual([])
-  })
-
   it('has handlers that answer as the tools do', () => {
     unsorted()
     const handlers = createGladeToolHandlers(context, task.id)
@@ -315,21 +275,11 @@ describe('through the app’s own wiring', () => {
     return { tools, prompt: options.systemPromptAppend }
   }
 
-  it('gives a session the two tools, and the prompt’s one line about them, when the switch is on as it starts', async () => {
+  it('gives a session the two tools, and the prompt’s one line about them', async () => {
     const { tools, prompt } = await startSession()
 
     expect(tools).toContain(GladeTool.ListChildren)
     expect(tools).toContain(GladeTool.FileChildren)
     expect(prompt.split(TODO_HUB_TOOLS_LINE)).toHaveLength(2)
-  })
-
-  it('gives it neither, and no line, with the switch off', async () => {
-    updateSettings(db, { todoHubEnabled: false })
-
-    const { tools, prompt } = await startSession()
-
-    expect(tools).not.toContain(GladeTool.ListChildren)
-    expect(tools).not.toContain(GladeTool.FileChildren)
-    expect(prompt).not.toContain('children')
   })
 })

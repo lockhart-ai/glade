@@ -12,10 +12,9 @@
  * (`GLADE_TOOL_TIMEOUT_MS`, `docs/sdk-notes.md` §3). `request_access` blocks the same way, on its permission card
  * (#450): the agent calls it when the sandbox blocked a command, and it's the one tool a subagent may call too.
  *
- * `list_children` and `file_children` (P16-05, #496) are the agent's side of the todo hub (`../todo-hub/agent-children`):
- * a session has them only when it starts with the hidden `todoHubEnabled` setting on. In such a session `add_artifact`
- * also takes `todo`, the id of the todo the artifact belongs under, and needs it (P16-04, #495; `../todo-hub/filing`).
- * With the setting off, the tools are exactly what they were before the hub.
+ * `list_children` and `file_children` (P16-05, #496) are the agent's side of the todo hub (`../todo-hub/agent-children`),
+ * and `add_artifact` takes `todo`, the id of the todo the artifact belongs under, and needs it (P16-04, #495;
+ * `../todo-hub/filing`).
  */
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
@@ -57,7 +56,6 @@ import {
   type FilingRequest,
 } from '../todo-hub/agent-children'
 import { artifactTodo, fileArtifact } from '../todo-hub/filing'
-import { isTodoHubEnabled } from '../todo-hub/todo-hub'
 
 /**
  * What Settings › Agent has the agent keep current besides the objective: the status every turn (`set_status`), and
@@ -68,15 +66,6 @@ export type AgentUpkeep = Pick<Settings, 'statusSummary' | 'taskTitles'>
 
 /** Both kinds of upkeep on, as they are until you change them. */
 export const ALL_UPKEEP: AgentUpkeep = { statusSummary: true, taskTitles: true }
-
-/**
- * What of Settings a session's Glade tools and prompt follow, read when the session starts: its upkeep, and whether
- * the todo hub is on (the hidden `todoHubEnabled`, P16). Only with the hub on does a session get `list_children` and
- * `file_children`, an `add_artifact` that takes a todo, and the prompt's lines about them; it's off unless given.
- */
-export interface GladeToolSettings extends AgentUpkeep {
-  readonly todoHubEnabled?: boolean | undefined
-}
 
 /** The server's name: the `glade` in `mcp__glade__set_title`. */
 export const GLADE_SERVER = 'glade'
@@ -115,9 +104,7 @@ export enum GladeTool {
   UpdateArtifact = 'update_artifact',
   RemoveArtifact = 'remove_artifact',
   RequestAccess = 'request_access',
-  /** Only while the todo hub is on (`GladeToolSettings.todoHubEnabled`). */
   ListChildren = 'list_children',
-  /** Only while the todo hub is on. */
   FileChildren = 'file_children',
 }
 
@@ -209,17 +196,14 @@ const showFileInput = z.object({
 }) satisfies z.ZodType<ShowFileInput>
 
 // The SDK checks only the fields' shape, so the handlers refuse a call that gives both a path and a url, or neither.
+// The todo is optional to the SDK's check too, so a call without one reaches the handler, whose refusal lists the
+// task's todos.
 const addArtifactInput = z.object({
   path: text('path').optional().describe("A file's path: absolute, or relative to the workspace root."),
   url: text('url')
     .optional()
     .describe('A link instead of a file: the http or https address of a PR, an issue, a ticket or another page.'),
   title: text('title').describe('A short name for the deliverable, e.g. "Release notes 2.4".'),
-}) satisfies z.ZodType<AddArtifactInput>
-
-// With the todo hub on: the same, and the todo. It's optional to the SDK's check, so a call without one reaches the
-// handler, whose refusal lists the task's todos.
-const addArtifactInputWithTodo = addArtifactInput.extend({
   todo: text('todo')
     .optional()
     .describe(
@@ -353,12 +337,12 @@ function updatedReply({ before, after }: UpdatedArtifact): string {
  * What `add_artifact` tells the model it did: added the artifact, or renamed one declared before; and, with the todo
  * hub on, which todo it's under.
  */
-function addedReply(artifact: Artifact, todoId: string | null): string {
+function addedReply(artifact: Artifact, todoId: string): string {
   const added =
     artifact.addedAt === artifact.updatedAt
       ? `Added ${nameOf(artifact)} to the artifacts as "${artifact.title}".`
       : `Renamed the artifact ${nameOf(artifact)} to "${artifact.title}".`
-  return todoId === null ? added : `${added} It's under todo #${todoId}.`
+  return `${added} It's under todo #${todoId}.`
 }
 
 /** A tool's error reply, from what its handler threw. */
@@ -425,13 +409,7 @@ export interface GladeToolHandlers {
   fileChildren(input: FileChildrenInput): GladeToolResult
 }
 
-export function createGladeToolHandlers(
-  context: GladeToolContext,
-  taskId: string,
-  settings: GladeToolSettings = ALL_UPKEEP,
-): GladeToolHandlers {
-  /** Whether `add_artifact` files under a todo: the session has the todo hub, and it's still on. */
-  const filesArtifacts = (): boolean => settings.todoHubEnabled === true && isTodoHubEnabled(context.db)
+export function createGladeToolHandlers(context: GladeToolContext, taskId: string): GladeToolHandlers {
   return {
     setTitle({ title }) {
       updateTaskFromAgent(context, taskId, { title })
@@ -465,7 +443,7 @@ export function createGladeToolHandlers(
       if (named === null) return { ...reply(PATH_OR_URL), isError: true }
       try {
         // Checked before anything is added: a call without a todo of the task's adds nothing.
-        const todoId = filesArtifacts() ? artifactTodo(context.db, taskId, input.todo) : null
+        const todoId = artifactTodo(context.db, taskId, input.todo)
         // The windows hear of the artifact once it's filed, so it's under its todo from the moment it shows.
         const added: GladeEvent[] = []
         const adding = { ...context, emit: (event: GladeEvent) => added.push(event) }
@@ -473,7 +451,7 @@ export function createGladeToolHandlers(
           named.kind === ArtifactKind.File
             ? await addTaskArtifact(adding, taskId, named.path, input.title)
             : addTaskLinkArtifact(adding, taskId, named.url, input.title)
-        if (todoId !== null) fileArtifact(context, taskId, artifact, todoId)
+        fileArtifact(context, taskId, artifact, todoId)
         for (const event of added) context.emit(event)
         return reply(addedReply(artifact, todoId))
       } catch (error) {
@@ -573,11 +551,12 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
     "Open a file in the user's Files tab, next to the chat, to point them at it: a change to review, say. Give a line " +
     'to scroll to and mark it. The file must be in the workspace.',
   [GladeTool.AddArtifact]:
-    "Add a file you made to the task's artifacts: its deliverables, which the user finds in the Artifacts tab and " +
-    'which stay with the task after it is done. Use it for what the user asked for (a report, a document, a draft), ' +
-    'not for every file you change. The file must exist in the workspace. Or give a url instead of a path to add a ' +
-    'link: a PR you open or work on, or the issue or ticket the task is about (http or https only). Adding the same ' +
-    'path or url again renames it.',
+    "Add a file you made to the task's artifacts: its deliverables, which the user finds under a todo in the Todos " +
+    'tab and which stay with the task after it is done. Use it for what the user asked for (a report, a document, a ' +
+    'draft), not for every file you change. The file must exist in the workspace. Or give a url instead of a path to ' +
+    'add a link: a PR you open or work on, or the issue or ticket the task is about (http or https only). Adding the ' +
+    'same path or url again renames it. Give the id of the todo it belongs under as todo: the user finds it under ' +
+    'that todo.',
   [GladeTool.UpdateArtifact]:
     "Change one of the task's artifacts, named by its path (a file) or its url (a link): give it a new title, point a " +
     'file at another file of the workspace (newPath), e.g. after you moved or renamed it, or a link at another page ' +
@@ -606,10 +585,6 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
     'which. Create the todo first (TaskCreate) if none fits.',
 }
 
-/** What `add_artifact`'s description adds in a session with the todo hub on, where it takes the artifact's todo. */
-export const ADD_ARTIFACT_TODO =
-  'Give the id of the todo it belongs under as todo: the user finds it under that todo in the Todos tab.'
-
 /** The signal an MCP tool call is cancelled by, from the handler's `extra` (MCP's `RequestHandlerExtra`). */
 function signalOf(extra: unknown): AbortSignal | undefined {
   const signal: unknown = typeof extra === 'object' && extra !== null ? Reflect.get(extra, 'signal') : undefined
@@ -624,17 +599,15 @@ function toolUseIdOf(extra: unknown): string | null {
 }
 
 /**
- * The Glade MCP server for one task's session, without the tools for any upkeep that's off in `settings`, with
- * `list_children`, `file_children` and an `add_artifact` that takes a todo when the todo hub is on in them, and with
+ * The Glade MCP server for one task's session, without the tools for any upkeep that's off in `settings`, and with
  * `request_access` when there's someone to ask (`GladeToolContext.requestAccess`).
  */
 export function createGladeMcpServer(
   context: GladeToolContext,
   taskId: string,
-  settings: GladeToolSettings = ALL_UPKEEP,
+  settings: AgentUpkeep = ALL_UPKEEP,
 ): McpSdkServerConfigWithInstance {
-  const handlers = createGladeToolHandlers(context, taskId, settings)
-  const todoHub = settings.todoHubEnabled === true
+  const handlers = createGladeToolHandlers(context, taskId)
   // The SDK's handlers are async; ours write SQLite synchronously, so they only need wrapping.
   return createSdkMcpServer({
     name: GLADE_SERVER,
@@ -664,32 +637,21 @@ export function createGladeMcpServer(
       tool(GladeTool.ShowFile, DESCRIPTIONS[GladeTool.ShowFile], showFileInput.shape, (input) =>
         handlers.showFile(input),
       ),
-      todoHub
-        ? tool(
-            GladeTool.AddArtifact,
-            `${DESCRIPTIONS[GladeTool.AddArtifact]} ${ADD_ARTIFACT_TODO}`,
-            addArtifactInputWithTodo.shape,
-            (input) => handlers.addArtifact(input),
-          )
-        : tool(GladeTool.AddArtifact, DESCRIPTIONS[GladeTool.AddArtifact], addArtifactInput.shape, (input) =>
-            handlers.addArtifact(input),
-          ),
+      tool(GladeTool.AddArtifact, DESCRIPTIONS[GladeTool.AddArtifact], addArtifactInput.shape, (input) =>
+        handlers.addArtifact(input),
+      ),
       tool(GladeTool.UpdateArtifact, DESCRIPTIONS[GladeTool.UpdateArtifact], updateArtifactInput.shape, (input) =>
         handlers.updateArtifact(input),
       ),
       tool(GladeTool.RemoveArtifact, DESCRIPTIONS[GladeTool.RemoveArtifact], removeArtifactInput.shape, (input) =>
         Promise.resolve(handlers.removeArtifact(input)),
       ),
-      ...(todoHub
-        ? [
-            tool(GladeTool.ListChildren, DESCRIPTIONS[GladeTool.ListChildren], listChildrenInput.shape, (input) =>
-              Promise.resolve(handlers.listChildren(input)),
-            ),
-            tool(GladeTool.FileChildren, DESCRIPTIONS[GladeTool.FileChildren], fileChildrenInput.shape, (input) =>
-              Promise.resolve(handlers.fileChildren(input)),
-            ),
-          ]
-        : []),
+      tool(GladeTool.ListChildren, DESCRIPTIONS[GladeTool.ListChildren], listChildrenInput.shape, (input) =>
+        Promise.resolve(handlers.listChildren(input)),
+      ),
+      tool(GladeTool.FileChildren, DESCRIPTIONS[GladeTool.FileChildren], fileChildrenInput.shape, (input) =>
+        Promise.resolve(handlers.fileChildren(input)),
+      ),
       ...(context.requestAccess === undefined
         ? []
         : [

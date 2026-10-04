@@ -305,11 +305,11 @@ export const COMMANDS: readonly CommandDefinition[] = [
   command(
     WindowCommandId.ShowPanelTab,
     Panels,
-    'Tool calls · Files · Todos · Artifacts · Subagents · Watchers · Changes',
+    'Agents · Files · Todos',
     Window,
     'Meta+Alt+1',
     {
-      digits: { from: 1, to: 7 },
+      digits: { from: 1, to: 3 },
     },
   ),
   command(AppCommandId.Close, Panels, 'Close file tab', MenuBar, 'Meta+W', {
@@ -643,12 +643,8 @@ export const KEYMAP_LAYOUT: readonly KeymapGroup[] = [
       row('Toggle right panel', AppCommandId.ToggleRightPanel),
       row('Toggle bottom bar', AppCommandId.ToggleBottomBar),
       {
-        action: 'Tool calls · Files · Todos',
+        action: 'Agents · Files · Todos',
         keys: [{ command: WindowCommandId.ShowPanelTab, digits: { from: 1, to: 3 } }],
-      },
-      {
-        action: 'Artifacts · Subagents · Watchers · Changes',
-        keys: [{ command: WindowCommandId.ShowPanelTab, digits: { from: 4, to: 7 } }],
       },
       row('Close file tab', AppCommandId.Close),
       row('Open file in editor', WindowCommandId.OpenInEditor),

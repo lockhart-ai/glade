@@ -56,9 +56,9 @@ describe('the command registry', () => {
     const showTab = vi.fn()
     renderWith(store, { [WindowCommandId.ShowPanelTab]: showTab })
 
-    fireEvent.keyDown(window, { key: '¢', code: 'Digit4', metaKey: true, altKey: true })
+    fireEvent.keyDown(window, { key: '£', code: 'Digit3', metaKey: true, altKey: true })
 
-    expect(showTab).toHaveBeenCalledWith({ digit: 4 })
+    expect(showTab).toHaveBeenCalledWith({ digit: 3 })
   })
 
   it('leaves the menu bar’s keys to the menu bar, which answers them itself', async () => {

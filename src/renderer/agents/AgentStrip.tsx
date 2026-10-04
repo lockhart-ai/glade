@@ -170,7 +170,7 @@ export const AgentStrip = memo(function AgentStrip({ taskId, rootPath }: AgentSt
   const row = useRef<HTMLDivElement>(null)
 
   const entries = (agentId: string) => {
-    const subagent = deriveSubagents(store.getState().toolEvents[taskId] ?? [], rootPath).find(
+    const subagent = deriveSubagents(store.getState().toolEvents[taskId] ?? []).find(
       ({ call }) => call.toolUseId === agentId,
     )
     if (subagent === undefined) return []

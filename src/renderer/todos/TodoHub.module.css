@@ -1,6 +1,5 @@
 /*
- * The Todos tab as the hub (P16, #491), from docs/design/html/46-todo-hub.html to 49-todo-hub-unfiled.html. Behind the
- * hidden todoHubEnabled setting. Every todo is a card on inner-2, closed or open, whatever its state and whether or not
+ * The Todos tab (P16, #491), from docs/design/html/46-todo-hub.html to 49-todo-hub-unfiled.html. Every todo is a card on inner-2, closed or open, whatever its state and whether or not
  * anything is under it; nothing inside a card is black. Nothing under a todo is live, so its counts and pills are grey.
  */
 .hub {

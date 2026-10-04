@@ -3,7 +3,6 @@ import { bridgeError, BridgeErrorCode, CommandName, EVENT_BATCH, EventType, type
 import { IDLE_LOGIN } from '../../shared/login'
 import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
 import {
-  ArtifactFilter,
   FileContentKind,
   FileThumbnailKind,
   UiStateKey,
@@ -83,11 +82,10 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
       openFiles: { taskId: 't', paths: [], activePath: null },
       todos: null,
       artifacts: [],
-      artifactGroups: [],
-      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
+      agentTab: null,
     }),
     [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
     [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
@@ -128,8 +126,6 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.FilesWatchFolders]: () => null,
     [CommandName.ArtifactsRemove]: () => null,
     [CommandName.ArtifactsAddLink]: () => null,
-    [CommandName.ArtifactsSetFilter]: () => null,
-    [CommandName.ArtifactsSetGroupOpen]: () => null,
     [CommandName.ArtifactsWatch]: () => null,
     [CommandName.ArtifactsUnwatch]: () => null,
     [CommandName.TodoHubGet]: () => {

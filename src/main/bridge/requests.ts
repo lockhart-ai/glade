@@ -7,8 +7,6 @@ import {
   RendererErrorKind,
   type ArtifactsAddLinkRequest,
   type ArtifactsRemoveRequest,
-  type ArtifactsSetFilterRequest,
-  type ArtifactsSetGroupOpenRequest,
   type ArtifactsWatchRequest,
   type ClipboardWriteTextRequest,
   type LinksOpenRequest,
@@ -83,8 +81,6 @@ import {
 import { AttachedFileKind, isAttachedFileName, isAttachedFileOf, type AttachedFile } from '../../shared/attachedFiles'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
 import {
-  ArtifactDateGroup,
-  ArtifactFilter,
   ArtifactKind,
   Effort,
   PermissionMode,
@@ -407,17 +403,6 @@ const artifactsAddLinkRequest = z.strictObject({
   text: z.string(),
 }) satisfies z.ZodType<ArtifactsAddLinkRequest>
 
-const artifactsSetFilterRequest = z.strictObject({
-  taskId: z.string(),
-  filter: z.enum(ArtifactFilter),
-}) satisfies z.ZodType<ArtifactsSetFilterRequest>
-
-const artifactsSetGroupOpenRequest = z.strictObject({
-  taskId: z.string(),
-  group: z.enum(ArtifactDateGroup),
-  open: z.boolean(),
-}) satisfies z.ZodType<ArtifactsSetGroupOpenRequest>
-
 const artifactsWatchRequest = z.strictObject({ taskId: z.string() }) satisfies z.ZodType<ArtifactsWatchRequest>
 
 const todoHubGetRequest = z.strictObject({ taskId: z.string() }) satisfies z.ZodType<TodoHubGetRequest>
@@ -651,8 +636,6 @@ export const REQUEST_SCHEMAS = {
   [CommandName.FilesWatchFolders]: filesWatchFoldersRequest,
   [CommandName.ArtifactsRemove]: artifactsRemoveRequest,
   [CommandName.ArtifactsAddLink]: artifactsAddLinkRequest,
-  [CommandName.ArtifactsSetFilter]: artifactsSetFilterRequest,
-  [CommandName.ArtifactsSetGroupOpen]: artifactsSetGroupOpenRequest,
   [CommandName.ArtifactsWatch]: artifactsWatchRequest,
   [CommandName.ArtifactsUnwatch]: artifactsWatchRequest,
   [CommandName.TodoHubGet]: todoHubGetRequest,

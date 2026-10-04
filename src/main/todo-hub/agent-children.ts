@@ -12,8 +12,6 @@
  *   todo to another, and from the placeholder ("Not under a todo") to a todo. Filing a subagent sets the todo it works
  *   on, which brings its commits, as the resolver does by itself, so no row of those is rewritten. A watcher can't be
  *   filed: an id one had before #535 refuses the call, saying watchers aren't filed.
- *
- * Built dark, as the rest of the hub: both refuse while `todoHubEnabled` is off, and write and send nothing.
  */
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode } from '../../shared/bridge'
@@ -46,7 +44,6 @@ import {
   childWithId,
   fileChildren,
   identifyChildren,
-  requireTodoHub,
   taskChildren,
   wasWatcherId,
   type FilingContext,
@@ -288,11 +285,9 @@ export function noSuchTodo(ids: readonly TodoId[], todos: readonly FilingTodo[])
  * todo's group alone (by its id), or the ones under no todo alone (`NO_TODO`). Every child listed has its short id
  * from here on. Never a watcher, nor a subagent that has its todo.
  *
- * Fails with `invalid_transition` while the hub is off, and `not_found` for a todo the task's list doesn't have, saying
- * which it does have.
+ * Fails with `not_found` for a todo the task's list doesn't have, saying which it does have.
  */
 export function listForAgent(db: Database, taskId: string, under?: string): ListedGroup[] {
-  requireTodoHub(db)
   const children = taskChildren(db, taskId)
   const todos = filingTodos(children.todos)
   const only = under === undefined ? undefined : todoIdOf(under)
@@ -351,7 +346,7 @@ interface Wanted {
  *   filed on its own (`groupChildren`): those are answered as `brought`, and nothing is written for them.
  * - The windows hear the filings made, once (`filings.changed`).
  *
- * Fails, with nothing filed, while the hub is off (`invalid_transition`), and with `invalid_request` saying which when
+ * Fails, with nothing filed, with `invalid_request` saying which when
  * a child's id names no child of the task (never given, or its child is gone: an artifact removed since), an id was a
  * watcher's (`WATCHERS_NOT_FILED`: watchers had ids before #535, and can't be filed), a todo isn't in the task's list
  * (never there, or deleted since), or a child is named twice for two todos.
@@ -363,7 +358,6 @@ export function fileForAgent(
   now: EpochMs = Date.now(),
 ): FilingOutcome {
   const { db } = context
-  requireTodoHub(db)
   const children = taskChildren(db, taskId)
   const todos = filingTodos(children.todos)
   const todoIds = new Set(todos.map(({ id }) => id))

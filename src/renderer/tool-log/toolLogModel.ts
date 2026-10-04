@@ -466,7 +466,3 @@ export function agentLogRows(
   return merged
 }
 
-/** How many tool calls the task's own agent has made, not its subagents: the Tool calls tab's count. */
-export function toolCallCount(events: readonly ToolEvent[]): number {
-  return events.filter((event) => event.kind === ToolEventKind.ToolCall && isParentEvent(event)).length
-}

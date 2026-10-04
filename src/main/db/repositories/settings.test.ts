@@ -33,16 +33,12 @@ describe('settings', () => {
     expect(getSettings(test.db)).toEqual(settings)
   })
 
-  it('keep the todo hub off until its hidden switch is set, and on from then, whatever else changes', () => {
-    expect(getSettings(test.db).todoHubEnabled).toBe(false)
+  it('have no switch for the todo hub (#501): one a database still has stored isn’t read', () => {
+    test.db.prepare("INSERT INTO settings (key, value) VALUES ('todoHubEnabled', 'false')").run()
 
-    expect(updateSettings(test.db, { todoHubEnabled: true })).toEqual({ ...DEFAULT_SETTINGS, todoHubEnabled: true })
-    expect(updateSettings(test.db, { statusSummary: false }).todoHubEnabled).toBe(true)
-    expect(test.db.prepare("SELECT value FROM settings WHERE key = 'todoHubEnabled'").pluck().get()).toBe('true')
-
-    // A stored value that isn't true or false reads as off.
-    test.db.prepare("UPDATE settings SET value = '\"on\"' WHERE key = 'todoHubEnabled'").run()
-    expect(getSettings(test.db).todoHubEnabled).toBe(false)
+    expect(getSettings(test.db)).toEqual(DEFAULT_SETTINGS)
+    expect(getSettings(test.db)).not.toHaveProperty('todoHubEnabled')
+    expect(updateSettings(test.db, { statusSummary: false })).toEqual({ ...DEFAULT_SETTINGS, statusSummary: false })
   })
 
   it('skips an empty patch and keys set to undefined', () => {

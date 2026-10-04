@@ -21,11 +21,10 @@ import { BroadcastDelivery, receivesBroadcast, type BroadcastOutcome } from '../
 import type { MenuState } from '../../shared/commands'
 import { checkArtifactUrl, defaultLinkTitle } from '../../shared/artifactLinks'
 import { artifactKey } from '../../shared/artifacts'
-import { groupChildren, subagentsOf, TODO_HUB_OFF, type Filing, type TodoPanel } from '../../shared/todoHub'
+import { groupChildren, subagentsOf, type Filing, type TodoPanel } from '../../shared/todoHub'
 import { AttachedFileKind, attachmentsFolderOf, type AttachedFile } from '../../shared/attachedFiles'
 import {
   AgentErrorKind,
-  ArtifactFilter,
   ArtifactKind,
   Effort,
   PermissionMode,
@@ -49,7 +48,6 @@ import {
   WatcherKind,
   WatcherState,
   type Artifact,
-  type ArtifactGroupFold,
   type CommitFiles,
   type TaskCommit,
   type TaskHandoff,
@@ -177,13 +175,9 @@ export interface FakeMain {
   readonly handoffs?: Readonly<Record<string, TaskHandoff>>
   /** What `files.thumbnail` answers with, by path, for any task; no thumbnail when left out. */
   readonly thumbnails?: Readonly<Record<string, FileThumbnail>>
-  /** Each task's artifact date groups opened or folded, by task id; `artifacts.setGroupOpen` changes the fake's own. */
-  readonly artifactGroups?: Record<string, ArtifactGroupFold[]>
-  /** Each task's Artifacts tab filter, by task id; All when left out. `artifacts.setFilter` changes the fake's own. */
-  readonly artifactFilters?: Record<string, ArtifactFilter>
   /**
    * The subagent whose tab each task's Agents tab was left on, by task id; Main when left out. `agents.setTab` changes
-   * the fake's own. A task's history carries it only while the hub is on (`todoHubEnabled`), as main's does.
+   * the fake's own.
    */
   readonly agentTabs?: Record<string, string>
   /** The tasks `artifacts.watch` and `artifacts.unwatch` were asked about, in order: `watch t1`, `unwatch t1`. */
@@ -534,12 +528,10 @@ export function fakeHandlers(
       openFiles: openFilesOf(id),
       todos: main.todos?.[id] ?? null,
       artifacts: artifacts.filter((artifact) => artifact.taskId === id),
-      artifactGroups: main.artifactGroups?.[id] ?? [],
-      artifactFilter: main.artifactFilters?.[id] ?? ArtifactFilter.All,
       handoff: main.handoffs?.[id] ?? null,
       watchers: (main.watchers ?? []).filter((watcher) => watcher.taskId === id),
       commits: (main.commits ?? []).filter((commit) => commit.taskId === id),
-      ...(settings.todoHubEnabled ? { agentTab: main.agentTabs?.[id] ?? null } : {}),
+      agentTab: main.agentTabs?.[id] ?? null,
     }),
     [CommandName.QueueAdd]: ({ taskId, text, images: added }) => {
       queued += 1
@@ -757,19 +749,6 @@ export function fakeHandlers(
       })
       return null
     },
-    [CommandName.ArtifactsSetFilter]: ({ taskId, filter }) => {
-      if (main.artifactFilters !== undefined) main.artifactFilters[taskId] = filter
-      return null
-    },
-    [CommandName.ArtifactsSetGroupOpen]: ({ taskId, group, open }) => {
-      if (main.artifactGroups !== undefined) {
-        main.artifactGroups[taskId] = [
-          ...(main.artifactGroups[taskId] ?? []).filter((fold) => fold.group !== group),
-          { group, open },
-        ]
-      }
-      return null
-    },
     [CommandName.ArtifactsWatch]: ({ taskId }) => {
       main.watchedArtifacts?.push(`watch ${taskId}`)
       return null
@@ -778,9 +757,7 @@ export function fakeHandlers(
       main.watchedArtifacts?.push(`unwatch ${taskId}`)
       return null
     },
-    // As main does, it refuses both while the hub is off (`todoHubEnabled`).
     [CommandName.TodoHubGet]: ({ taskId }) => {
-      if (!settings.todoHubEnabled) return refuse(bridgeError(BridgeErrorCode.InvalidTransition, TODO_HUB_OFF))
       main.todoHubReads?.push(taskId)
       const filings = (main.filings ?? []).filter((filing) => filing.taskId === taskId)
       const children = groupChildren({
@@ -793,7 +770,6 @@ export function fakeHandlers(
       return { children, filings, panels: (main.todoPanels ?? []).filter((panel) => panel.taskId === taskId) }
     },
     [CommandName.TodoHubSetPanel]: (panel) => {
-      if (!settings.todoHubEnabled) return refuse(bridgeError(BridgeErrorCode.InvalidTransition, TODO_HUB_OFF))
       const panels = main.todoPanels
       if (panels !== undefined) {
         const at = panels.findIndex(({ taskId, todoId }) => taskId === panel.taskId && todoId === panel.todoId)
@@ -802,7 +778,6 @@ export function fakeHandlers(
       return null
     },
     [CommandName.AgentsSetTab]: ({ taskId, agentId }) => {
-      if (!settings.todoHubEnabled) return refuse(bridgeError(BridgeErrorCode.InvalidTransition, TODO_HUB_OFF))
       const tabs = main.agentTabs
       if (tabs !== undefined) {
         if (agentId === null) Reflect.deleteProperty(tabs, taskId)

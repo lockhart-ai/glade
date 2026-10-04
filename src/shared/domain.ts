@@ -1079,38 +1079,6 @@ export type ArtifactRef =
   | { readonly kind: ArtifactKind.Link; readonly url: string }
 
 /**
- * Which of a task's artifacts its Artifacts tab shows (#407): all of them, only its files, or only its links. The
- * filter only shows while the task has both, and is remembered for the task.
- */
-export enum ArtifactFilter {
-  All = 'all',
-  Files = 'files',
-  Links = 'links',
-}
-
-/**
- * The Artifacts tab's date groups, newest first, by when each artifact's file last changed, in the local time zone:
- * today, yesterday, earlier this week (a week starts on Monday), last week, earlier this month, and before that.
- */
-export enum ArtifactDateGroup {
-  Today = 'today',
-  Yesterday = 'yesterday',
-  ThisWeek = 'this_week',
-  LastWeek = 'last_week',
-  ThisMonth = 'this_month',
-  Older = 'older',
-}
-
-/**
- * Whether one of a task's artifact date groups is open, as you last left it with its header. A group you haven't
- * folded or opened has none: Today and Yesterday start open, the others folded.
- */
-export interface ArtifactGroupFold {
-  readonly group: ArtifactDateGroup
-  readonly open: boolean
-}
-
-/**
  * What a watcher is: one of the SDK's own ways the agent leaves something running or scheduled that wakes it later
  * (`docs/sdk-notes.md` §13). Glade builds none of them; it only follows the ones the agent starts.
  */

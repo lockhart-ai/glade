@@ -12,9 +12,6 @@
  */
 import type {
   Artifact,
-  ArtifactDateGroup,
-  ArtifactFilter,
-  ArtifactGroupFold,
   ArtifactRef,
   CommitFiles,
   TaskCommit,
@@ -132,8 +129,6 @@ export enum CommandName {
   FilesWatchFolders = 'files.watchFolders',
   ArtifactsRemove = 'artifacts.remove',
   ArtifactsAddLink = 'artifacts.addLink',
-  ArtifactsSetFilter = 'artifacts.setFilter',
-  ArtifactsSetGroupOpen = 'artifacts.setGroupOpen',
   ArtifactsWatch = 'artifacts.watch',
   ArtifactsUnwatch = 'artifacts.unwatch',
   TodoHubGet = 'todoHub.get',
@@ -585,24 +580,19 @@ export interface TasksHistoryResponse {
   readonly openFiles: OpenFiles
   /** The agent's todo list (the Todos tab), as its tool log leaves it; null when it has kept none. */
   readonly todos: TodoList | null
-  /** The files and links declared as its artifacts (the Artifacts tab), in the order they were first declared. */
+  /** The files and links declared as its artifacts (the Todos tab's tiles), in the order they were first declared. */
   readonly artifacts: readonly Artifact[]
-  /** The Artifacts tab's date groups you opened or folded, as you left them. */
-  readonly artifactGroups: readonly ArtifactGroupFold[]
-  /** Which of its artifacts the Artifacts tab shows, as you last chose (#407): all of them until you choose. */
-  readonly artifactFilter: ArtifactFilter
   /** Its handoff note, from a backfill through the control API (the Backfilled card); null when it has none. */
   readonly handoff: TaskHandoff | null
-  /** What its agent left running or scheduled (the Watchers tab), live or ended, in the order they started. */
+  /** What its agents left running or scheduled (the Agents tab's watchers), live or ended, in the order they started. */
   readonly watchers: readonly Watcher[]
-  /** The commits its agent and subagents made (the Changes tab), newest first. */
+  /** The commits its agent and subagents made (the Todos tab's commit tiles), newest first. */
   readonly commits: readonly TaskCommit[]
   /**
    * Which agent's tab its Agents tab was left on (P16, #536): a subagent's `Agent` call's `tool_use` id, or null for
-   * Main. Only there while the todo hub is on (the hidden `todoHubEnabled` setting): with it off, a task's history is
-   * what it was before the hub.
+   * Main, which is also where a task that never picked one is.
    */
-  readonly agentTab?: string | null
+  readonly agentTab: string | null
 }
 
 /**
@@ -942,16 +932,7 @@ export interface ArtifactsAddLinkRequest {
 }
 
 /**
- * Shows all of a task's artifacts in its Artifacts tab, or only its files or its links (#407), and remembers it for the
- * task. Fails with `not_found` when there's no such task.
- */
-export interface ArtifactsSetFilterRequest {
-  readonly taskId: string
-  readonly filter: ArtifactFilter
-}
-
-/**
- * The Artifacts tab shows a task (`artifacts.watch`), or no longer does (`artifacts.unwatch`). While it does, main
+ * The Todos tab shows a task (`artifacts.watch`), or no longer does (`artifacts.unwatch`). While it does, main
  * watches the folders its artifacts' files are in, so an edit from outside the agent (the terminal, an editor) moves
  * the artifact; opening it looks at every file again. Each `watch` is ended by an `unwatch`. Changes broadcast
  * `artifacts.changed`.
@@ -961,22 +942,11 @@ export interface ArtifactsWatchRequest {
 }
 
 /**
- * Opens or folds one of a task's artifact date groups (its header in the Artifacts tab), and remembers it for the task.
- * Fails with `not_found` when there's no such task.
- */
-export interface ArtifactsSetGroupOpenRequest {
-  readonly taskId: string
-  readonly group: ArtifactDateGroup
-  readonly open: boolean
-}
-
-/**
  * Reads a task's todo hub (P16, #491; `./todoHub`): its children grouped by todo, as main works them out, with what
  * the window needs to keep them current itself. What changes after arrives as `filings.changed`, and as the events
  * the children already have (`artifacts.changed`, `watchers.changed`, `commits.changed`, the tool log's).
  *
- * Fails with `invalid_transition` while the hub is off (the hidden `todoHubEnabled` setting), reading nothing, and
- * `not_found` when there's no such task.
+ * Fails with `not_found` when there's no such task.
  */
 export interface TodoHubGetRequest {
   readonly taskId: string
@@ -994,16 +964,15 @@ export interface TodoHubGetResponse {
 /**
  * Remembers how you left a todo's panel in the hub, for the task: whether it's open, and which of its children it
  * shows. `UNFILED_TODO_ID` names the placeholder group's. The todo needn't be in the task's list. Nothing is
- * broadcast. Fails with `invalid_transition` while the hub is off, writing nothing, and `not_found` when there's no
- * such task.
+ * broadcast. Fails with `not_found` when there's no such task.
  */
 export type TodoHubSetPanelRequest = TodoPanel
 
 /**
  * Remembers which agent's tab a task's Agents tab is on (P16, #536), for the task: a subagent's, by the `tool_use` id
  * of the `Agent` call that started it, or null for Main, the task's own agent. The subagent needn't be in the task's
- * log: the window falls back to Main for one that isn't. Nothing is broadcast. Fails with `invalid_transition` while
- * the hub is off (the hidden `todoHubEnabled` setting), writing nothing, and `not_found` when there's no such task.
+ * log: the window falls back to Main for one that isn't. Nothing is broadcast. Fails with `not_found` when there's no
+ * such task.
  */
 export interface AgentsSetTabRequest {
   readonly taskId: string
@@ -1480,8 +1449,6 @@ export interface CommandMap {
   [CommandName.FilesWatchFolders]: CommandSpec<FilesWatchFoldersRequest, null>
   [CommandName.ArtifactsRemove]: CommandSpec<ArtifactsRemoveRequest, null>
   [CommandName.ArtifactsAddLink]: CommandSpec<ArtifactsAddLinkRequest, null>
-  [CommandName.ArtifactsSetFilter]: CommandSpec<ArtifactsSetFilterRequest, null>
-  [CommandName.ArtifactsSetGroupOpen]: CommandSpec<ArtifactsSetGroupOpenRequest, null>
   [CommandName.ArtifactsWatch]: CommandSpec<ArtifactsWatchRequest, null>
   [CommandName.ArtifactsUnwatch]: CommandSpec<ArtifactsWatchRequest, null>
   [CommandName.TodoHubGet]: CommandSpec<TodoHubGetRequest, TodoHubGetResponse>

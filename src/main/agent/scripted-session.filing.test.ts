@@ -19,7 +19,7 @@ import { subagentTodo } from '../../shared/todoHub'
 import { listMessages } from '../db/repositories/messages'
 import { listOwedFilings } from '../db/repositories/owed-filings'
 import { listOpenPermissionRequests } from '../db/repositories/permission-requests'
-import { getSettings, updateSettings } from '../db/repositories/settings'
+import { getSettings } from '../db/repositories/settings'
 import { updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
@@ -398,7 +398,7 @@ describe('the scripted session, asked for the todo hub’s hooks', () => {
   })
 })
 
-describe('a scripted agent, through the runner, with the todo hub on', () => {
+describe('a scripted agent, through the runner', () => {
   let database: TestDatabase
   let db: Database
   let task: Task
@@ -409,7 +409,6 @@ describe('a scripted agent, through the runner, with the todo hub on', () => {
     database = openTestDatabase()
     db = database.db
     task = sampleTask(db, sampleWorkspace(db).id)
-    updateSettings(db, { todoHubEnabled: true })
   })
 
   afterEach(() => {

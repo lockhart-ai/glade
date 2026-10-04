@@ -27,7 +27,6 @@ import { ChildTool, nameTodo } from '../agent/child-calls'
 import { addArtifact, addLinkArtifact } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
 import { listOwedFilings } from '../db/repositories/owed-filings'
-import { updateSettings } from '../db/repositories/settings'
 import { addTaskCommit, CommitSource, findTaskCommit, removeTaskCommit } from '../db/repositories/task-commits'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
@@ -66,7 +65,6 @@ beforeEach(() => {
   task = sampleTask(db, sampleWorkspace(db).id)
   events = []
   clock = 10_000
-  updateSettings(db, { todoHubEnabled: true })
   filer = createChildFiler({ ...context(), now: () => clock })
 })
 
@@ -712,48 +710,6 @@ describe('a subagent’s own calls', () => {
   })
 })
 
-describe('with the hub turned off under a session that has it', () => {
-  beforeEach(threeTodos)
-
-  it('still takes a marker off, and files, asks, holds and writes nothing', () => {
-    starting(ChildTool.Agent, 'toolu_owed', { description: 'Review src/users.js' })
-    logged('Agent', 'toolu_owed', { description: 'Review src/users.js' })
-    expect(filer.batchFinished(task.id, ['toolu_owed'])).toContain('- c1: subagent')
-    updateSettings(db, { todoHubEnabled: false })
-    events = []
-    const run: string[] = []
-    const prepare = db.prepare.bind(db)
-    db.prepare = (sql: string) => {
-      run.push(sql)
-      return prepare(sql)
-    }
-
-    // The session's prompt still asks for markers, so they still come off.
-    expect(named(ChildTool.Agent, 'toolu_agent', { description: 'Review src/dates.js' }, '1')).toEqual({
-      description: 'Review src/dates.js',
-    })
-    expect(nested(ChildTool.Agent, 'toolu_nested', { description: '[todo 2] Check the tests' })).toEqual({
-      description: 'Check the tests',
-    })
-    expect(starting(ChildTool.Agent, 'toolu_other', { description: 'Review src/orders.js' })).toBe(null)
-    logged('Agent', 'toolu_agent', { description: 'Review src/dates.js' })
-    logged('Agent', 'toolu_other', { description: 'Review src/orders.js' })
-    committed('9'.repeat(40), 'Fix', 'toolu_agent')
-    filer.commitsLinked(task.id, 'toolu_agent')
-
-    expect(filer.batchFinished(task.id, ['toolu_agent', 'toolu_other'])).toBeNull()
-    expect(filer.turnEnding(task.id, false)).toBeNull()
-
-    expect(events).toEqual([])
-    expect(run.filter((sql) => /child_ids|child_filings|todo_panels|owed_filings/.test(sql))).toEqual([])
-    // What was owed while it was on is still there, for when it's on again; what was made meanwhile isn't asked for.
-    db.prepare = prepare
-    updateSettings(db, { todoHubEnabled: true })
-    expect(filer.turnEnding(task.id, false)).toContain('- c1: subagent "Review src/users.js"')
-    expect(filer.turnEnding(task.id, true)).not.toContain('Review src/orders.js')
-  })
-})
-
 describe('what Glade tells the agent', () => {
   const todos = [
     { id: '1', text: 'Review src/dates.js for bugs', state: TodoState.Doing, note: null, completedAt: null },
@@ -843,14 +799,5 @@ describe('an artifact’s todo', () => {
     fileArtifact(context(), task.id, file, '2', 30_000)
     expect(filings()).toContain('file docs/plan.md #2 moved')
     expect(events).toHaveLength(1)
-  })
-
-  it('files nothing while the hub is off', () => {
-    updateSettings(db, { todoHubEnabled: false })
-
-    fileArtifact(context(), task.id, plan(), '1')
-
-    expect(listFilings(db, task.id)).toEqual([])
-    expect(events).toEqual([])
   })
 })

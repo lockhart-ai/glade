@@ -16,7 +16,6 @@ import {
   type ToolEvent,
   type Watcher,
 } from '../../shared/domain'
-import { DEFAULT_SETTINGS } from '../../shared/settings'
 import {
   ChildKind,
   commitChildKey,
@@ -125,10 +124,9 @@ export interface HubTask {
   readonly todoPanels?: readonly TodoPanel[]
 }
 
-/** The fake main's data for task `t1` with the hub on. */
+/** The fake main's data for task `t1`. */
 export function hubMain(task: HubTask): Partial<FakeMain> {
   return {
-    settings: { ...DEFAULT_SETTINGS, todoHubEnabled: true },
     uiState: [
       { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
       { key: UiStateKey.SelectedTaskId, value: 't1' },

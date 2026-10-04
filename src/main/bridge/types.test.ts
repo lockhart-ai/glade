@@ -16,7 +16,6 @@ import { EMPTY_MENU_BAR_SNAPSHOT, type MenuBarSnapshot } from '../../shared/menu
 import type { Grant, SettingsGrantTarget } from '../../shared/sandbox'
 import type { Command } from '../../shared/commands'
 import {
-  ArtifactFilter,
   Effort,
   FileContentKind,
   FileThumbnailKind,
@@ -24,7 +23,6 @@ import {
   TaskState,
   UiStateKey,
   type Artifact,
-  type ArtifactGroupFold,
   type Message,
   type OpenFiles,
   type PermissionMark,
@@ -106,11 +104,10 @@ const TASK_HANDLERS = {
     openFiles: { taskId: 't', paths: [], activePath: null },
     todos: null,
     artifacts: [],
-    artifactGroups: [],
-    artifactFilter: ArtifactFilter.All,
     handoff: null,
     watchers: [],
     commits: [],
+    agentTab: null,
   }),
   [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
@@ -153,8 +150,6 @@ const TASK_HANDLERS = {
   [CommandName.SettingsUpdate]: () => ({ settings: DEFAULT_SETTINGS }),
   [CommandName.ArtifactsRemove]: () => null,
   [CommandName.ArtifactsAddLink]: () => null,
-  [CommandName.ArtifactsSetFilter]: () => null,
-  [CommandName.ArtifactsSetGroupOpen]: () => null,
   [CommandName.ArtifactsWatch]: () => null,
   [CommandName.ArtifactsUnwatch]: () => null,
   [CommandName.TodoHubGet]: () => ({ children: NO_CHILDREN, filings: [], panels: [] }),
@@ -252,8 +247,6 @@ const TASK_SCHEMAS = {
   [CommandName.SettingsUpdate]: REQUEST_SCHEMAS[CommandName.SettingsUpdate],
   [CommandName.ArtifactsRemove]: REQUEST_SCHEMAS[CommandName.ArtifactsRemove],
   [CommandName.ArtifactsAddLink]: REQUEST_SCHEMAS[CommandName.ArtifactsAddLink],
-  [CommandName.ArtifactsSetFilter]: REQUEST_SCHEMAS[CommandName.ArtifactsSetFilter],
-  [CommandName.ArtifactsSetGroupOpen]: REQUEST_SCHEMAS[CommandName.ArtifactsSetGroupOpen],
   [CommandName.ArtifactsWatch]: REQUEST_SCHEMAS[CommandName.ArtifactsWatch],
   [CommandName.ArtifactsUnwatch]: REQUEST_SCHEMAS[CommandName.ArtifactsUnwatch],
   [CommandName.TodoHubGet]: REQUEST_SCHEMAS[CommandName.TodoHubGet],
@@ -322,12 +315,10 @@ describe('the command map', () => {
       readonly openFiles: OpenFiles
       readonly todos: TodoList | null
       readonly artifacts: readonly Artifact[]
-      readonly artifactGroups: readonly ArtifactGroupFold[]
-      readonly artifactFilter: ArtifactFilter
       readonly handoff: TaskHandoff | null
       readonly watchers: readonly Watcher[]
       readonly commits: readonly TaskCommit[]
-      readonly agentTab?: string | null
+      readonly agentTab: string | null
     }>()
     expectTypeOf(glade.invoke(CommandName.QueueAdd, { taskId: 't', text: 'Hi' })).resolves.toEqualTypeOf<{
       readonly queuedMessage: QueuedMessage

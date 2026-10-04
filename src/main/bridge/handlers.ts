@@ -4,8 +4,7 @@ import type { MenuState } from '../../shared/commands'
 import type { Workspace } from '../../shared/domain'
 import { SUBAGENT_TOOL_NAMES } from '../../shared/subagents'
 import type { AgentRunner } from '../agent/runner'
-import { getArtifactFilter, listArtifacts, setArtifactFilter } from '../db/repositories/artifacts'
-import { setArtifactGroupOpen, listArtifactGroups } from '../db/repositories/artifact-groups'
+import { listArtifacts } from '../db/repositories/artifacts'
 import { listLiveWatchers, listWatchers, publicWatcher } from '../db/repositories/watchers'
 import { listTaskCommits } from '../db/repositories/task-commits'
 import { commitFiles, openCommitFile, readCommitFile, workspaceInRepository } from '../changes/changes'
@@ -253,12 +252,10 @@ export function createHandlers(context: HandlerContext): Handlers {
         openFiles: getOpenFiles(db, id),
         todos: todoListFor(db, id),
         artifacts: listArtifacts(db, id),
-        artifactGroups: listArtifactGroups(db, id),
-        artifactFilter: getArtifactFilter(db, id),
         handoff: getHandoff(db, id) ?? null,
         watchers: listWatchers(db, id).map(publicWatcher),
         commits: listTaskCommits(db, id),
-        ...agentTabOf(db, id),
+        agentTab: agentTabOf(db, id),
       }
     },
     [CommandName.ChangesFiles]: async ({ taskId, id }) => ({ files: await commitFiles(changes, taskId, id) }),
@@ -359,16 +356,6 @@ export function createHandlers(context: HandlerContext): Handlers {
       addTaskLinkByHand(context, taskId, { url, text })
       return null
     },
-    [CommandName.ArtifactsSetFilter]: ({ taskId, filter }) => {
-      requireTask(db, taskId)
-      setArtifactFilter(db, taskId, filter)
-      return null
-    },
-    [CommandName.ArtifactsSetGroupOpen]: ({ taskId, group, open }) => {
-      requireTask(db, taskId)
-      setArtifactGroupOpen(db, { taskId, group, open })
-      return null
-    },
     [CommandName.ArtifactsWatch]: ({ taskId }) => {
       requireTask(db, taskId)
       context.artifactWatch?.watch(taskId)
@@ -379,7 +366,7 @@ export function createHandlers(context: HandlerContext): Handlers {
       context.artifactWatch?.unwatch(taskId)
       return null
     },
-    // The todo hub, behind its hidden switch: both are refused, touching nothing, while it's off.
+    // The todo hub.
     [CommandName.TodoHubGet]: ({ taskId }) => readTodoHub(db, taskId),
     [CommandName.TodoHubSetPanel]: (panel) => {
       rememberTodoPanel(db, panel)

@@ -2351,9 +2351,16 @@ const editsAShownFile: AgentScript = {
   ],
 }
 
+/** The todo `declares-artifacts` keeps, which its artifacts go under. */
+export const DECLARES_ARTIFACTS_TODO = {
+  subject: 'Draft the release notes',
+  activeForm: 'Drafting the release notes',
+} as const
+
 /**
- * A turn that writes release notes and an upgrade guide and declares both as artifacts with `add_artifact`. The files
- * must be in the workspace (a spec makes them: the scripted writes don't) for the Glade tool to declare them.
+ * A turn that writes release notes and an upgrade guide and declares both as artifacts with `add_artifact`, under the
+ * one todo it keeps. The files must be in the workspace (a spec makes them: the scripted writes don't) for the Glade
+ * tool to declare them.
  */
 const declaresArtifacts: AgentScript = {
   name: 'declares-artifacts',
@@ -2366,6 +2373,8 @@ const declaresArtifacts: AgentScript = {
         'Draft release notes for 2.4 from the PRs merged since the 2.3 tag, with a short upgrade guide.',
         'Drafting the release notes.',
       ),
+      ...createTodo(DECLARES_ARTIFACTS_TODO, 1),
+      ...updateTodo(1, 'in_progress'),
       ...tool(
         'write-notes',
         'Write',
@@ -2378,17 +2387,29 @@ const declaresArtifacts: AgentScript = {
         { file_path: 'docs/releases/2.4-upgrade.md', content: '# Upgrading to 2.4\n' },
         'File created successfully at: docs/releases/2.4-upgrade.md',
       ),
-      gladeTool('add-notes', 'add_artifact', { path: 'docs/releases/2.4.md', title: 'Release notes 2.4' }),
-      gladeTool('add-guide', 'add_artifact', { path: 'docs/releases/2.4-upgrade.md', title: 'Upgrade guide' }),
+      gladeTool('add-notes', 'add_artifact', { path: 'docs/releases/2.4.md', title: 'Release notes 2.4', todo: '1' }),
+      gladeTool('add-guide', 'add_artifact', {
+        path: 'docs/releases/2.4-upgrade.md',
+        title: 'Upgrade guide',
+        todo: '1',
+      }),
+      ...updateTodo(1, 'completed'),
       gladeTool('status-done', 'set_status', { status: 'Release notes and an upgrade guide are drafted.' }),
-      say('The release notes and an upgrade guide are ready in Artifacts.'),
+      say('The release notes and an upgrade guide are ready, under their todo.'),
       result(),
     ],
   ],
 }
 
+/** The todo `curates-artifacts` keeps, which its screenshots go under. */
+export const CURATES_ARTIFACTS_TODO = {
+  subject: 'Screenshot the docs site',
+  activeForm: 'Taking the screenshots',
+} as const
+
 /**
- * Two turns that keep a task's artifacts current (#385): the first declares three screenshots with `add_artifact`; the
+ * Two turns that keep a task's artifacts current (#385): the first declares three screenshots with `add_artifact`,
+ * under the one todo it keeps; the
  * second, after the landing page screenshot is retaken under a new name, points its artifact at the new file with a new
  * title (`update_artifact`) and takes the old navigation screenshot off the list (`remove_artifact`). The files must be
  * in the workspace (a spec makes them) for the Glade tools to take them.
@@ -2404,10 +2425,15 @@ const curatesArtifacts: AgentScript = {
         'Screenshot the docs site’s landing page, search and navigation for the redesign review.',
         'Taking the screenshots.',
       ),
-      gladeTool('add-landing', 'add_artifact', { path: 'screens/landing.png', title: 'Landing page' }),
-      gladeTool('add-search', 'add_artifact', { path: 'screens/search-mobile.png', title: 'Search results on mobile' }),
-      gladeTool('add-nav', 'add_artifact', { path: 'screens/nav-tree.png', title: 'Old navigation' }),
-      say('Three screenshots are in Artifacts.'),
+      ...createTodo(CURATES_ARTIFACTS_TODO, 1),
+      gladeTool('add-landing', 'add_artifact', { path: 'screens/landing.png', title: 'Landing page', todo: '1' }),
+      gladeTool('add-search', 'add_artifact', {
+        path: 'screens/search-mobile.png',
+        title: 'Search results on mobile',
+        todo: '1',
+      }),
+      gladeTool('add-nav', 'add_artifact', { path: 'screens/nav-tree.png', title: 'Old navigation', todo: '1' }),
+      say('Three screenshots are under their todo.'),
       result(),
     ],
     [
@@ -4152,8 +4178,7 @@ function childrenTurn(
  * `add_artifact` each one's todo. No call that starts a watcher names a todo, in either turn: watchers aren't filed.
  * The calls are as the model wrote them. In a session with the todo hub on, Glade takes each marker off, records the
  * subagent's todo and files the commit, and tells the agent what its second turn's calls made, which it files as
- * `filing` says (`FILES_CHILDREN.filed`). With the hub off, nothing reads a marker, `add_artifact` takes no todo, and
- * nothing is asked or filed.
+ * `filing` says (`FILES_CHILDREN.filed`).
  */
 const filesChildren: AgentScript = {
   name: 'files-children',
@@ -4248,9 +4273,10 @@ export const SORTS_CHILDREN = {
 } as const
 
 /**
- * A task that makes one of each kind of child with nothing filing them, as every task did before the todo hub: three
- * todos, a subagent that makes a real commit, and a file and a link declared as artifacts. It has two watchers too,
- * the tests its subagent leaves running and a `Monitor`, which are no child of a todo. `sorts-children` then sorts it.
+ * A task that makes one of each kind of child: three todos, a subagent that makes a real commit, and a file and a link
+ * declared as artifacts, each named for its todo as it's made. It has two watchers too, the tests its subagent leaves
+ * running and a `Monitor`, which are no child of a todo. A spec then takes its filings away, which leaves it as every
+ * task from before the todo hub is, with nothing saying which todo anything belongs to, and `sorts-children` sorts it.
  */
 const unsortedChildren: AgentScript = {
   name: 'unsorted-children',
@@ -4267,7 +4293,7 @@ const unsortedChildren: AgentScript = {
       ...SORTS_CHILDREN.todos.flatMap((item, index) => createTodo(item, index + 1)),
       ...updateTodo(1, 'in_progress'),
       toolUse('review', 'Agent', {
-        description: SORTS_CHILDREN.subagent,
+        description: `[todo 1] ${SORTS_CHILDREN.subagent}`,
         subagent_type: 'general-purpose',
         prompt: 'Review the date helpers in src/date.ts, fix what you find, commit it, and leave the tests running.',
       }),
@@ -4284,8 +4310,8 @@ const unsortedChildren: AgentScript = {
       ...updateTodo(1, 'completed'),
       ...updateTodo(2, 'in_progress'),
       shell('writeup', SORTS_CHILDREN.writeupCommand, 'Write up the review'),
-      gladeTool('add-writeup', 'add_artifact', SORTS_CHILDREN.writeup),
-      gladeTool('add-pr', 'add_artifact', SORTS_CHILDREN.pr),
+      gladeTool('add-writeup', 'add_artifact', { ...SORTS_CHILDREN.writeup, todo: '2' }),
+      gladeTool('add-pr', 'add_artifact', { ...SORTS_CHILDREN.pr, todo: '3' }),
       ...updateTodo(2, 'completed'),
       ...updateTodo(3, 'in_progress'),
       ...tool(
@@ -4302,8 +4328,8 @@ const unsortedChildren: AgentScript = {
 }
 
 /**
- * Sorts what `unsorted-children` made, with Glade's `list_children` and `file_children` (P16-05, #496), in a session
- * that has them (one started with the todo hub on): asked to file its things, it lists them (the file, the link, the
+ * Sorts what `unsorted-children` made, with Glade's `list_children` and `file_children` (P16-05, #496): asked to file
+ * its things, it lists them (the file, the link, the
  * commit, and the subagent, which has no todo yet; no watcher) and files each under a todo in one call; asked to move
  * the review, it gives the subagent another todo, which brings its commit; asked for a todo and a child that aren't
  * there, its call is refused and it says so. A spec plays it in the task
@@ -4397,9 +4423,12 @@ export const TRACKS_LINKS_REPLY =
 
 /**
  * A turn that opens a pull request and keeps the remote things the task is about as artifacts (#407): the release
- * notes it wrote (a file, which a spec makes), then the PR and the Jira ticket, each by `add_artifact`'s `url`. Its
- * reply links an issue and a page that aren't artifacts yet. Every address is made up.
+ * notes it wrote (a file, which a spec makes), then the PR and the Jira ticket, each by `add_artifact`'s `url`, all
+ * under the one todo it keeps. Its reply links an issue and a page that aren't artifacts yet. Every address is made up.
  */
+/** The todo `tracks-links` keeps, which its artifacts go under. */
+export const TRACKS_LINKS_TODO = { subject: 'Open the pull request', activeForm: 'Opening the pull request' } as const
+
 const tracksLinks: AgentScript = {
   name: 'tracks-links',
   turns: [
@@ -4411,20 +4440,23 @@ const tracksLinks: AgentScript = {
         'Open a pull request for the new docs navigation, for ticket API-123.',
         'Opening the pull request.',
       ),
+      ...createTodo(TRACKS_LINKS_TODO, 1),
       ...tool(
         'open-pr',
         'Bash',
         { command: 'gh pr create --fill', description: 'Open the pull request' },
         'https://github.com/acme/api/pull/412',
       ),
-      gladeTool('add-notes', 'add_artifact', { path: 'docs/releases/2.4.md', title: 'Release notes 2.4' }),
+      gladeTool('add-notes', 'add_artifact', { path: 'docs/releases/2.4.md', title: 'Release notes 2.4', todo: '1' }),
       gladeTool('add-ticket', 'add_artifact', {
         url: 'https://acme.atlassian.net/browse/API-123',
         title: 'Developer docs refresh',
+        todo: '1',
       }),
       gladeTool('add-pr', 'add_artifact', {
         url: 'https://github.com/acme/api/pull/412',
         title: 'Docs site navigation refresh',
+        todo: '1',
       }),
       gladeTool('status-done', 'set_status', { status: 'PR #412 is open for review.' }),
       say(TRACKS_LINKS_REPLY),

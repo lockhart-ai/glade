@@ -19,7 +19,6 @@ import { ArtifactKind, type Task, type Workspace } from '../../shared/domain'
 import { ChildKind, FilingSource } from '../../shared/todoHub'
 import { listArtifacts, listFileArtifacts } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
-import { updateSettings } from '../db/repositories/settings'
 import { fileChildren } from '../todo-hub/todo-hub'
 import { getTask } from '../db/repositories/tasks'
 import { createWorkspace } from '../db/repositories/workspaces'
@@ -101,10 +100,9 @@ function patch(changes: Readonly<Record<string, unknown>>): Promise<ToolReply> {
   return client.call(ControlToolName.UpdateTask, { id, patch: changes })
 }
 
-describe('update_task with the todo hub on (#495)', () => {
+describe('update_task and the todo hub (#495)', () => {
   it('keeps an artifact’s filing in step: repointed, it keeps its todo; taken off, it leaves none; added, it has none', async () => {
     const { db } = app.database
-    updateSettings(db, { todoHubEnabled: true })
     const filed = ['notes/plan.md', 'screens/landing.png', 'notes/draft.md'].map((key) => ({
       kind: ChildKind.File,
       key,

@@ -1,8 +1,9 @@
-// The right panel with the todo hub's hidden switch on (P16, #536): Agents · Files · Todos, the Agents tab in place of
-// Tool calls and Subagents, and what pointed at those tabs pointing at it.
+// The right panel's three tabs (P16, #536): Agents · Files · Todos, and what opens the panel at an agent or a todo: the
+// chat's tool-calls chip, a plugin's `openTask`, and the todo a subagent's tab names. (`TaskPanel.test.tsx` has the
+// panel itself, and the tool log Main's tab shows.)
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CommandName, EventType } from '../../shared/bridge'
+import { EventType } from '../../shared/bridge'
 import {
   DividerKind,
   TodoState,
@@ -13,7 +14,6 @@ import {
   type ToolEvent,
   type UiStateEntry,
 } from '../../shared/domain'
-import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { sampleTask } from '../store/test-bridge'
 import { storeWrapper, type StoreWrapper } from '../store/test-wrapper'
 import { hubAgent, hubFiling, hubMain, hubTodo, minutesAgo, refOf, type HubTask } from '../todos/test-hub'
@@ -73,7 +73,6 @@ const SHIP: HubTask = {
 interface Setup {
   readonly task?: HubTask
   readonly uiState?: readonly UiStateEntry[]
-  readonly hub?: boolean
   readonly agentTabs?: Record<string, string>
   readonly selected?: boolean
 }
@@ -81,7 +80,6 @@ interface Setup {
 async function renderPanel({
   task = SHIP,
   uiState = [],
-  hub = true,
   agentTabs = {},
   selected = true,
 }: Setup = {}): Promise<StoreWrapper> {
@@ -89,7 +87,6 @@ async function renderPanel({
   const wrapper = storeWrapper({
     ...main,
     tasks: [sampleTask('t1', 'w1'), sampleTask('t2', 'w1')],
-    settings: { ...DEFAULT_SETTINGS, todoHubEnabled: hub },
     uiState: [
       { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
       { key: UiStateKey.SelectedTaskId, value: selected ? 't1' : '' },
@@ -124,14 +121,14 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = scrollIntoView as unknown as Element['scrollIntoView']
 })
 
-describe('the right panel with the todo hub on', () => {
+describe('the right panel', () => {
   it('has three tabs, Agents · Files · Todos, and opens on Agents, counted with Main', async () => {
     await renderPanel()
 
     expect(tabNames()).toEqual(['Agents 3', 'Files', 'Todos 0/2'])
     expect(panelTab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
     expect(shownAgent()).toBe('Main')
-    // Main's list is the Tool calls tab's: its own calls, each turn's divider, and its subagents' calls as one row each.
+    // Main's list: its own calls, each turn's divider, and its subagents' calls as one row each.
     expect(within(log()).getAllByRole('button')).toHaveLength(4)
     expect(within(log()).getByRole('separator')).toHaveAccessibleName(/^turn 2/)
     expect(log()).not.toHaveTextContent('throttle.py')
@@ -146,30 +143,23 @@ describe('the right panel with the todo hub on', () => {
     expect(screen.queryByRole('tablist', { name: 'Agents' })).toBeNull()
   })
 
-  it('is exactly today’s seven tabs with the switch off, with no Agents tab and nothing of it read', async () => {
-    const { fake } = await renderPanel({ hub: false, agentTabs: { t1: 'fix-501' } })
+  it.each(['tool-calls', 'subagents', 'watchers', 'artifacts', 'changes'])(
+    'opens a workspace left on %s, a tab from before the panel had three, on Agents (#501)',
+    async (removed) => {
+      // As a database from before the update has it: for the workspace, and for every workspace before each had its own.
+      await renderPanel({ uiState: [{ key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: removed }) }] })
+      expect(panelTab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
+      expect(shownAgent()).toBe('Main')
+    },
+  )
 
-    expect(tabNames()).toEqual([
-      'Tool calls 4',
-      'Files',
-      'Todos 0/2',
-      'Artifacts',
-      'Subagents 2',
-      'Watchers',
-      'Changes',
-    ])
-    expect(panelTab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
-    expect(screen.queryByRole('tablist', { name: 'Agents' })).toBeNull()
-    // The Tool calls tab's Agent call is a call like any other: it opens its output.
-    fireEvent.click(within(log()).getByRole('button', { name: /fix-501/ }))
-    expect(within(log()).getByLabelText('Agent output')).toHaveTextContent('Opened PR #511.')
-    const commands = fake.invoke.mock.calls.map(([command]) => command)
-    expect(commands).not.toContain(CommandName.TodoHubGet)
-    expect(commands).not.toContain(CommandName.AgentsSetTab)
-  })
-
-  it('opens a workspace left on a tab the hub replaced on Agents, and remembers the tab you pick', async () => {
-    const { store } = await renderPanel({ uiState: [{ key: UiStateKey.RightPanelTabs, value: '{"w1":"watchers"}' }] })
+  it('opens on Agents when the one tab every workspace once shared is gone too, and remembers the tab you pick', async () => {
+    const { store } = await renderPanel({
+      uiState: [
+        { key: UiStateKey.RightPanelTab, value: 'artifacts' },
+        { key: UiStateKey.RightPanelTabs, value: '{"w1":"watchers"}' },
+      ],
+    })
     expect(panelTab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
 
     fireEvent.click(panelTab(/^Todos/))
@@ -177,28 +167,6 @@ describe('the right panel with the todo hub on', () => {
     fireEvent.click(panelTab(/^Agents/))
     expect(parsePanelTabSelection(store.getState().uiState[UiStateKey.RightPanelTabs])).toEqual({ w1: 'agents' })
     expect(shownAgent()).toBe('Main')
-  })
-
-  it('follows the switch as it’s turned on mid-task, and off again', async () => {
-    const { fake } = await renderPanel({ hub: false, uiState: [{ key: UiStateKey.RightPanelTab, value: 'subagents' }] })
-    expect(panelTab(/^Subagents/)).toHaveAttribute('aria-selected', 'true')
-
-    act(() => {
-      fake.emit({ type: EventType.SettingsChanged, settings: { ...DEFAULT_SETTINGS, todoHubEnabled: true } })
-    })
-    await act(() => Promise.resolve())
-    expect(tabNames()).toEqual(['Agents 3', 'Files', 'Todos 0/2'])
-    expect(panelTab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
-    fireEvent.click(agentTab('docs-503'))
-    expect(shownAgent()).toBe('docs-503')
-
-    // Off again: the tab the workspace was on, as it was.
-    act(() => {
-      fake.emit({ type: EventType.SettingsChanged, settings: DEFAULT_SETTINGS })
-    })
-    expect(tabNames()).toHaveLength(7)
-    expect(panelTab(/^Subagents/)).toHaveAttribute('aria-selected', 'true')
-    expect(screen.queryByRole('tablist', { name: 'Agents' })).toBeNull()
   })
 
   it('keeps each task on its own agent as you switch between tasks', async () => {
@@ -284,7 +252,6 @@ describe('the right panel with the todo hub on', () => {
 
     expect(panelTab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
     expect(shownAgent()).toBe('docs-503')
-    expect(store.getState().subagentFocus).toBeNull()
   })
 
   describe('the todo a subagent’s tab names', () => {
