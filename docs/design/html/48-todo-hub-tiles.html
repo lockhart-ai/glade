@@ -83,7 +83,7 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 .tile.sel{border-color:#5C6378}
 .th{display:flex;gap:8px}
 .ki{flex-shrink:0;width:14px;height:14px;margin-top:2px;display:flex;align-items:center;justify-content:center;color:#999DB0}
-/* An image file's tile has its thumbnail where the icon goes, the size the Artifacts tab's rows have, so it's a little
+/* An image file's tile has its thumbnail where the icon goes, 40×28, so it's a little
    taller than the rest. */
 .tile.img .th{align-items:center;gap:10px}
 .tile.img .ki{width:40px;height:28px;margin-top:0}
@@ -92,7 +92,7 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 .kt .h{font-family:'Geist Mono',ui-monospace,monospace;font-size:11.5px;color:#8FB2F5;margin-right:6px}
 .kt .tag{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;margin-left:6px}
 .ks{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;line-height:1.5;color:#999DB0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* The subagent that made a commit, after its branch: the Changes tab's tag. It goes to that subagent's tab in
+/* The subagent that made a commit, after its branch, as a tag. It goes to that subagent's tab in
    Agents. A commit the task's own agent made has no tag. */
 .meta{display:flex;align-items:center;gap:8px;min-width:0}
 .meta span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
@@ -100,8 +100,7 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 .kr{flex-shrink:0;display:flex;align-items:center;gap:6px;height:18px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;white-space:nowrap}
 .add{color:#7FD1C7}
 .del{color:#E58FA8}
-/* A file's actions, in place of its age while the tile is under the pointer or has the focus: icon buttons, as the
-   Artifacts tab's rows have. */
+/* A file's actions, in place of its age while the tile is under the pointer or has the focus: icon buttons. */
 .acts{flex-shrink:0;display:flex;gap:2px;height:18px;align-items:center;margin-right:-4px}
 .ib{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;color:#AEB3C3}
 /* Under a commit's first line, in line with its text, once it's opened in place: its branch and the subagent that

@@ -146,7 +146,7 @@ There are no follow-up tasks. One task can refer to another through its folder o
   web link). A link shows what it is from its address alone (a PR or issue's `#412 · owner/repo`, a Jira ticket's
   `API-123`, or the site's domain), opens in the browser, and is dated by when it was added; its live status isn't
   fetched. With both files and links, an All · Files · Links filter shows above the date groups, remembered per task.
-  ![Artifacts](design/screens/10-artifacts.png) Files is a plain-text editor:
+  ![Todo hub](design/screens/46-todo-hub.png) Files is a plain-text editor:
   a workspace file edits in place and saves with ⌘S, its tab showing a dot while it has unsaved edits, and closing it,
   switching task or quitting asks to Save, Discard or Cancel. When the agent changes a file you're editing, it reloads
   quietly, or, with unsaved edits, a bar offers Reload or Keep mine. Files from a commit, binary files and files too
