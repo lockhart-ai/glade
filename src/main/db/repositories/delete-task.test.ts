@@ -138,7 +138,7 @@ function fillTask(db: Database, task: Task): void {
   })
   setHandoff(db, taskId, '## Where it got to')
   setExternalId(db, taskId, `notes/${taskId}`)
-  setSessionContext(db, taskId, { instructions: true, instructionUpdates: 1, handoffAt: 1 })
+  setSessionContext(db, taskId, { instructions: true, instructionUpdates: 1, handoffAt: 1, sandbox: true })
   setInputDraft(db, { taskId, text: 'And the admin views', images: [PNG], files: [attachedFile(taskId, 'admin.pdf')] })
   recordNotification(db, { taskId, title: 'Add rate limiting', body: 'Which limit should /search use?' })
   addWatcher(db, {

@@ -125,6 +125,7 @@ Press ⌘, for Settings, including every shortcut, which you can rebind.
 | **Broadcast** | One message to every active task at once, in every workspace (⌘⇧B), for when you can't tell which agent is doing something: idle agents answer straight away, busy ones get it in their queue. |
 | **Menu bar** | Glade's icon in the macOS menu bar counts what needs you; click it for what needs you, what's working and the latest notifications, in every workspace. |
 | **Permissions** | Allow all, or ask before edits and commands, with per-task rules for what you've allowed. |
+| **Sandbox** | Agents held to their workspace folder and the folders and domains you allow, for a task, a workspace or everywhere, with a card when one reaches past them. Off to begin with for now: turn it on in Settings › Agent. See [the user guide](docs/user-guide.md#the-sandbox). |
 | **Right panel** | Tool calls, the files a task touched (with a read-only viewer), its todo list, the artifacts it delivered, and its subagents. |
 | **Terminal** | Tabs of your login shell in the bottom bar, kept with their scrollback across launches. Right-click a Bash call in the tool log to run it again there. |
 | **Plugins** | Small sandboxed web pages beside the terminal that get task and agent events, never your chat or files, and, only if you allow it, your Mac's CPU, GPU and Docker load. A plugin can declare settings of its own, which you set in Settings › Plugins. See [docs/plugin-api.md](docs/plugin-api.md). |

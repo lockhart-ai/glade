@@ -1,7 +1,7 @@
 /**
  * What a task's agent session has been given of what Glade tells it (`session_context`, and
- * `../../agent/session-context`): Glade's instructions, the ones added to them since, and which version of the task's
- * handoff note.
+ * `../../agent/session-context`): Glade's instructions, the ones added to them since, which version of the task's
+ * handoff note, and whether it knows it runs in the agent sandbox.
  */
 import type { Database } from 'better-sqlite3'
 import type { EpochMs } from '../../../shared/domain'
@@ -18,12 +18,17 @@ export interface SessionContext {
   readonly instructionUpdates: number
   /** The version (`TaskHandoff.addedAt`) of the handoff note it has; null for none. */
   readonly handoffAt: EpochMs | null
+  /**
+   * Whether it has been told it runs in the agent sandbox, and to ask with `request_access` (`SANDBOX_LINE`): it
+   * started sandboxed, with that in its prompt, or was sent it when it resumed in the sandbox.
+   */
+  readonly sandbox: boolean
 }
 
 /** What the task's session has been given, or undefined when nothing's recorded: Glade started it, with its prompt. */
 export function getSessionContext(db: Database, taskId: string): SessionContext | undefined {
   const raw: unknown = db
-    .prepare('SELECT instructions, instruction_updates, handoff_at FROM session_context WHERE task_id = ?')
+    .prepare('SELECT instructions, instruction_updates, handoff_at, sandbox FROM session_context WHERE task_id = ?')
     .get(taskId)
   if (raw === undefined) return undefined
   const row = new Row('session_context', raw)
@@ -31,20 +36,23 @@ export function getSessionContext(db: Database, taskId: string): SessionContext 
     instructions: row.flag('instructions'),
     instructionUpdates: row.integer('instruction_updates'),
     handoffAt: row.nullableInteger('handoff_at'),
+    sandbox: row.flag('sandbox'),
   }
 }
 
 /** Records what the task's session has now been given. */
 export function setSessionContext(db: Database, taskId: string, context: SessionContext): void {
   db.prepare(
-    `INSERT INTO session_context (task_id, instructions, instruction_updates, handoff_at)
-    VALUES (@taskId, @instructions, @instructionUpdates, @handoffAt)
+    `INSERT INTO session_context (task_id, instructions, instruction_updates, handoff_at, sandbox)
+    VALUES (@taskId, @instructions, @instructionUpdates, @handoffAt, @sandbox)
     ON CONFLICT (task_id) DO UPDATE SET instructions = excluded.instructions,
-      instruction_updates = excluded.instruction_updates, handoff_at = excluded.handoff_at`,
+      instruction_updates = excluded.instruction_updates, handoff_at = excluded.handoff_at,
+      sandbox = excluded.sandbox`,
   ).run({
     taskId,
     instructions: context.instructions ? 1 : 0,
     instructionUpdates: context.instructionUpdates,
     handoffAt: context.handoffAt,
+    sandbox: context.sandbox ? 1 : 0,
   })
 }

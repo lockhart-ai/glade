@@ -23,9 +23,14 @@ New here? The [README](../README.md) says what Glade is. The [docs index](README
   - [Changes](#changes)
 - [The terminal](#the-terminal)
 - [Permissions](#permissions)
+- [The sandbox](#the-sandbox)
+  - [The sandbox's cards](#the-sandboxs-cards)
+  - [If the sandbox can't start](#if-the-sandbox-cant-start)
+  - [What you'll run into, and what to allow](#what-youll-run-into-and-what-to-allow)
+  - [Your own Claude Code settings](#your-own-claude-code-settings)
 - [Settings](#settings)
   - [Your account](#your-account)
-  - [The sandbox](#the-sandbox)
+  - [Sandbox folders and domains](#sandbox-folders-and-domains)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Plugins](#plugins)
 - [Let agents control Glade](#let-agents-control-glade)
@@ -483,11 +488,36 @@ you decided is on the call's row in the **Tool calls** tab, on a line that start
 A call that was denied or withdrawn never ran, so its row has no result. A subagent's call shows its line on its row
 in the **Subagents** tab, in that subagent's log.
 
+The mode decides when an agent asks before it acts. What it can touch at all, in either mode, is
+[the sandbox](#the-sandbox)'s.
+
+## The sandbox
+
+The sandbox limits what a task's agent can touch on your Mac: with it on, an agent can use **only its workspace
+folder and what you allow**, in either permission mode. It's the sandbox built into Claude Code (macOS's own, with
+nothing to install). Turn it on in Settings › Agent › **Sandbox**; it's off to begin with for now, while its security
+review is finished. A task takes the switch the next time its agent's session starts (see
+[Sandbox folders and domains](#sandbox-folders-and-domains)).
+
+With the sandbox on and nothing allowed yet, an agent can:
+
+- **read and write its workspace folder**, and Claude Code's own temporary folders;
+- **read folders outside your home folder**, such as `/usr`, `/opt/homebrew` and `/Applications`, so system and
+  Homebrew tools work;
+- and nothing else: not the rest of your home folder, not other users' folders or other disks, and **no network
+  domain at all**.
+
+That holds for the commands it runs and for its file tools alike, and for its subagents. Every other folder it reads
+or writes, and every domain it reaches, is something you allow: for **this task**, for **this workspace**, or, in
+Settings only, **Glade-wide** for every workspace. Nothing is allowed to begin with.
+
+The terminal tabs, and Glade itself, aren't in the sandbox: a terminal is your own shell.
+
 ### The sandbox's cards
 
-With the agent sandbox on (it's off until the sandbox is finished: Settings › Agent › Sandbox), an agent can use only
-its workspace folder and what you allow, in either permission mode. When it reaches past that, a card asks, with the
-shield at its title:
+When an agent reaches past what it's allowed, a card asks, with the shield at its title:
+
+![Two sandbox cards: the agent wants to read a folder, and a subagent wants to write to one; the Tool calls list shows a read a workspace grant let through and the one waiting](images/guide/sandbox-folder-card.png)
 
 - **A folder:** "The agent wants to read `~/code/acme-web`", or "…write to…", with the file it was after under it.
   Reading asks for read-only access to the folder, and writing for read and write; a later write to a folder you
@@ -498,6 +528,8 @@ shield at its title:
 - **A domain:** "The agent wants to reach `registry.npmjs.org`", with the command that is waiting on the connection,
   or the page for a web fetch. One answer covers both the agent's commands and its web fetches. A card's domain is
   always one host by name; `*.acme.dev` is only ever added in Settings.
+
+![A card for one file: the agent wants to read ~/.gitconfig, with its reason; the failed git commit above it is marked Blocked by the sandbox](images/guide/sandbox-file-card.png)
 
 What a card names is exactly what allowing it grants. A folder is shown by where it really is (a link is followed to
 what it leads to), and only your own home folder is written `~`: another user's folder shows in full. If the folder is
@@ -514,14 +546,25 @@ A folder or domain is never allowed just once. The card offers:
   subagents, asks for the same folder or domain again before your next message, it's told no at once, with your note,
   and no card comes up. After your next message it may ask again.
 
-A command can't ask before it's blocked: it just fails with "Operation not permitted". The agent then asks for the
-folder itself, saying why in its own words ("`uv sync` needs to write its download cache."), on the same card, and
-runs the command again once you allow it. Subagents ask the same way; a card of a subagent's names it at the top
-right. Credential files (`~/.ssh`, `~/.aws` and the like) are never opened, even inside a folder you allowed.
+← and → move between the buttons and ↵ chooses, as on any permission card. While a card waits, the task needs you; a
+card left open when Glade quits is still there after the relaunch.
+
+**A command the sandbox blocks.** A command can't ask before it's blocked: it just fails with "Operation not
+permitted". The agent then asks for the folder itself, saying why in its own words ("`uv sync --frozen` needs to
+write its download cache."), on the same card, and runs the command again once you allow it. Subagents ask the same
+way; a card of a subagent's names it at the top right.
+
+![A domain card for a command's connection, and under it the card the agent raised after its command was blocked: it wants to write to ~/.cache/uv, with its reason; the Tool calls list shows the blocked command](images/guide/sandbox-domain-card.png)
+
+**Credential files** (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.netrc`, `~/.git-credentials`, your keychains, and the
+`gh`, `gcloud`, Azure, Kubernetes and Docker logins) are never opened, even inside a folder you allowed, and no card
+offers them.
 
 **Running a command outside the sandbox** has a card of its own: "The agent wants to run a command outside the
 sandbox", with the command. Outside the sandbox it can use any folder and reach any domain you can, so it's only ever
 **Allow once** or **Deny**, and it asks every time, in Allow all too.
+
+![The card for running a command outside the sandbox, with the command and Allow once or Deny; the Tool calls list shows what was decided about the calls before it](images/guide/sandbox-outside-card.png)
 
 Nothing you allow is written to your project or to `~/.claude`: Glade keeps it, and gives it to the agent's session.
 
@@ -540,6 +583,50 @@ ask you about, because a rule decided them:
 A call inside the workspace folder, with no rule involved, has no line. In the task list, a task waiting on a card
 shows the shield and what it waits on: "Waiting on you: read ~/code/acme-web".
 
+### If the sandbox can't start
+
+If the sandbox can't start for a task's session, **nothing runs outside it instead**. Every command the agent tries
+fails, the task stops on the error card with the reason ("The sandbox couldn't start: …"), and anything the agent
+asks to run outside the sandbox in that session is refused without asking you. Other tasks aren't affected.
+
+![A task stopped on the error card: the sandbox couldn't start, with the reason and Retry](images/guide/sandbox-failed.png)
+
+**Retry** starts a new session, which starts the sandbox again. If it fails the same way, **Show details** has
+Claude Code's own message. If the reason names a sandbox setting, check your own Claude Code settings (see
+[Your own Claude Code settings](#your-own-claude-code-settings)), fix it there and retry. To carry on without the
+sandbox meanwhile, turn it off in Settings › Agent and retry.
+
+### What you'll run into, and what to allow
+
+A sandboxed command only sees your home folder through what you've allowed, so some things fail until you allow
+them. Add what every workspace needs once, under **Glade-wide** in Settings › Agent:
+
+| What fails | Allow |
+|---|---|
+| A toolchain installed in your home folder: nvm, pyenv, rustup, cargo, go | Its folder, read-only (`~/.nvm`, `~/.pyenv`, `~/.rustup`, `~/.cargo`, `~/go`); read-write if the agent installs versions or packages into it. |
+| Package installs: npm, uv, pip | The package cache, read-write (`~/.npm`, `~/.cache/uv`), and the registry's domains (`registry.npmjs.org`; `pypi.org` and `files.pythonhosted.org`). |
+| `git commit` has no author, or ignores your aliases and settings | `~/.gitconfig` (the agent's card asks for that file alone), or `~/.config/git` if you keep it there. |
+| npm can't see your registry settings or token | `~/.npmrc`, read-only. |
+
+- **A file allowed by itself can be changed but not replaced.** The agent's edits work, and so does a command that
+  writes into it. A tool that saves by writing a new file beside it and renaming it over (`sed -i`, some formatters)
+  fails, since the folder isn't allowed: allow the folder if you need that.
+- **Some things can't work inside the sandbox at all:** `git` over `ssh`, Docker, a database on `localhost`, and some
+  tools that check TLS certificates. The agent asks to run those commands **outside the sandbox**, and you allow each
+  one, once.
+- **Commands run without your shell's aliases and functions.** They get Glade's `PATH`, but `~/.zshenv` and the
+  snapshot Claude Code takes of your shell are in your home folder, so a sandboxed command's shell can't read them.
+- **A domain a running task was already allowed to reach stays reachable until its session restarts,** even if you
+  remove it from a list meanwhile. Everything else you remove stops at the agent's next call.
+
+### Your own Claude Code settings
+
+A task's session still reads your own Claude Code settings (`~/.claude/settings.json`, and the project's), as
+`claude` in a terminal does. They merge with what Glade sets, and **can widen it**: an allow rule of yours lets a
+call through without a card, and `sandbox` settings of yours (allowed domains, extra writable folders, commands
+excluded from the sandbox) apply to Glade's tasks too. Glade doesn't override them. If an agent can reach more than
+Glade's lists show, look there.
+
 ## Settings
 
 ⌘, opens Settings. Every change saves as you make it.
@@ -547,13 +634,13 @@ shows the shield and what it waits on: "Waiting on you: read ~/code/acme-web".
 | Section | What's there |
 |---|---|
 | General | **Show Glade in the menu bar**: the icon with what needs you and what's working (see [Glade in the menu bar](#glade-in-the-menu-bar)). On to begin with. Then the **account** your tasks run on and bill to, as Claude Code reports it (below). |
-| Agent | Defaults for new tasks: **Model** and **Effort**, from the same list as the input bar's pickers (Effort shows only the levels the model supports, and hides for one with none), and **Permissions** (Ask first or Allow all; Allow edits isn't available yet). **Status summary**: have the agent rewrite the task's status after every turn. **Task titles**: have the agent name the task from your first message. **Sandbox**: whether agents run in the sandbox, and the folders and domains every workspace's agents may use (see [The sandbox](#the-sandbox)). |
+| Agent | Defaults for new tasks: **Model** and **Effort**, from the same list as the input bar's pickers (Effort shows only the levels the model supports, and hides for one with none), and **Permissions** (Ask first or Allow all; Allow edits isn't available yet). **Status summary**: have the agent rewrite the task's status after every turn. **Task titles**: have the agent name the task from your first message. **Sandbox**: whether agents run in the sandbox, and the folders and domains every workspace's agents may use (see [Sandbox folders and domains](#sandbox-folders-and-domains)). |
 | Notifications | **Notifications** on or off, and **Sound**. |
 | Appearance | Nothing yet: Glade has one theme, dark. |
 | Keyboard | Every shortcut, and a way to change it (below). |
 | Plugins | The installed plugins, a switch for each (and for what each asks to see, such as your Mac's load), each plugin's own settings, and **Open plugins folder** (see [Plugins](#plugins)). |
 | Control | **Let agents control Glade** (see [below](#let-agents-control-glade)). |
-| *(your workspace)* | Its **Name** and **Root folder**, then its **Sandbox**: the folders and domains this workspace's agents may use (see [The sandbox](#the-sandbox)). |
+| *(your workspace)* | Its **Name** and **Root folder**, then its **Sandbox**: the folders and domains this workspace's agents may use (see [Sandbox folders and domains](#sandbox-folders-and-domains)). |
 
 ### Your account
 
@@ -568,13 +655,16 @@ picks it up.
 
 ![Settings › General, showing the account (sample data)](images/guide/settings-general.png)
 
-### The sandbox
+### Sandbox folders and domains
 
 Settings › Agent › **Sandbox** has the switch, **Run agents in a sandbox**: with it on, an agent can use only its
-workspace and what you allow. The switch is for every workspace and task. A task reads it **as its agent's session
-starts**: a new task has it from its first message, while a session that's already running keeps what it started with
-and takes the change the next time it starts, such as after Glade relaunches. While the sandbox is being built it's off
-to begin with.
+workspace and what you allow (see [The sandbox](#the-sandbox)). The switch is for every workspace and task. A task
+reads it **as its agent's session starts**: a new task has it from its first message, while a session that's already
+running keeps what it started with and takes the change the next time it starts, such as after Glade relaunches. A
+task that began before the sandbox was on is told about it when its session next starts in it. For now it's off to
+begin with, while its security review is finished.
+
+![Settings › Agent: the Sandbox group, with the Run agents in a sandbox switch and the Glade-wide folders under it](images/guide/settings-sandbox.png)
 
 What you allow is kept in two pairs of lists, **Folders** and **Domains**:
 
@@ -587,6 +677,8 @@ What you allow is kept in two pairs of lists, **Folders** and **Domains**:
   A single file allowed on a card (`~/.gitconfig`) is listed with the folders, by its path; it's still that file alone.
 
 A grant for one task (Allow for this task, on a card) isn't listed anywhere: it ends with the task.
+
+![Settings › Workspace: the workspace root, read-write and fixed, then the folders and the domains allowed for this workspace](images/guide/settings-workspace-sandbox.png)
 
 - **Add…** a folder opens the folder picker, then a row with the folder and its access, **Read-only** to start or
   **Read-write**; **Add** grants it, **Cancel** doesn't.
@@ -826,6 +918,13 @@ launch Glade asks your login shell (`$SHELL -ilc`) for its environment, and give
 takes longer than 10 seconds or fails, Glade carries on with its own environment and logs why (the `env` scope in the
 log). Fix the profile, then quit and reopen Glade: it reads the environment once, at launch. The terminal's tabs always
 run your login shell.
+
+### A command fails with "Operation not permitted"
+
+With [the sandbox](#the-sandbox) on, that's the sandbox stopping a command from reading or writing outside what the
+agent is allowed. The agent normally asks for the folder on a card straight afterwards. For something every workspace
+needs (a toolchain, a package cache, your git config), allow it once under Glade-wide in Settings › Agent:
+[What you'll run into, and what to allow](#what-youll-run-into-and-what-to-allow) lists the usual ones.
 
 ### The first message fails
 
