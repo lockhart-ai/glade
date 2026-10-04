@@ -6,6 +6,7 @@
  * - **Turns** count a task's user turns from 1: the task's first message starts turn 1, and every message the agent is
  *   given after that starts the next one. Chat messages and tool events carry the turn they belong to.
  */
+import type { UsageLimit } from './account'
 import type { AttachedFile } from './attachedFiles'
 import type { ImageData, ImageRef } from './images'
 import type { CardGrantScope, SandboxAsk, SandboxFolderAsk, SandboxGrantAsk, SandboxGrantScope } from './sandbox'
@@ -138,6 +139,12 @@ export interface TaskPause {
   readonly checks: number
   /** The raw error that paused the turn, as the SDK gave it: what the banner's Details shows. */
   readonly details: string
+  /**
+   * Which of the account's limits turned the turn away, for a usage limit, when the SDK said (its `rate_limit_event`
+   * names the window): what a later reading of that limit is checked against, to resume before it resets (#519).
+   * Left out when the SDK didn't say, offline, and on a pause from before Glade kept it.
+   */
+  readonly limit?: UsageLimit
 }
 
 /** An automatic retry of a failed API request in progress: the working line says "Retrying (2 of 10)…". */

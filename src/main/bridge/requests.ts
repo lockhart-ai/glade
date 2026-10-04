@@ -607,6 +607,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.TasksStop]: taskIdRequest,
   [CommandName.TasksRetry]: tasksRetryRequest,
   [CommandName.TasksRetryLoggedOut]: emptyRequest,
+  [CommandName.TasksResumePaused]: emptyRequest,
   [CommandName.TasksCompact]: taskIdRequest,
   [CommandName.SubagentsStop]: subagentsStopRequest,
   [CommandName.SubagentsListRunning]: emptyRequest,

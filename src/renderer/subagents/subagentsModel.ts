@@ -5,7 +5,7 @@
  * There's no "queued" subagent: nothing in the stream says a subagent is waiting for a slot (`docs/sdk-notes.md`), so
  * every subagent is running, paused, done, interrupted or failed.
  */
-import { isSubagentTool } from '../../shared/subagents'
+import { isSubagentTool, subagentName, UNNAMED_SUBAGENT } from '../../shared/subagents'
 import { TaskIndicator } from '../../shared/taskIndicator'
 import { ToolCallState, ToolEventKind, type EpochMs, type ToolCallEvent, type ToolEvent } from '../../shared/domain'
 import type { PermissionLines } from '../permissions/permissionLineModel'
@@ -19,8 +19,8 @@ import {
   type ToolLogRow,
 } from '../tool-log/toolLogModel'
 
-/** What a subagent is called when its call names neither a description nor a type. */
-export const UNNAMED_SUBAGENT = 'Subagent'
+// What a subagent is called is shared with main (`shared/subagents`); the renderer's own code reads it from here.
+export { subagentName, UNNAMED_SUBAGENT }
 
 /** A subagent's status: its `Agent` call's state (see `ToolCallState`). */
 export enum SubagentStatus {
@@ -80,16 +80,6 @@ export interface Subagent {
   readonly latest: LatestLine | null
   /** What it did, in order: its log, as the tool log nests it. */
   readonly log: readonly SubagentRow[]
-}
-
-function stringInput(call: ToolCallEvent, field: string): string | undefined {
-  const value = call.input[field]
-  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
-}
-
-/** What a subagent is called: the description its call gives it, else its type. */
-export function subagentName(call: ToolCallEvent): string {
-  return stringInput(call, 'description') ?? stringInput(call, 'subagent_type') ?? UNNAMED_SUBAGENT
 }
 
 function subagentStatus(state: ToolCallState): SubagentStatus {

@@ -491,6 +491,8 @@ export function pauseBanner(page: Page) {
   const banner = page.getByRole('status', { name: 'Paused tasks' })
   return {
     banner,
+    /** Resumes every task a usage limit paused, at once, each on its own model. */
+    resumeNow: banner.getByRole('button', { name: 'Resume now', exact: true }),
     switchModel: banner.getByRole('button', { name: 'Switch model', exact: true }),
     details: banner.getByRole('button', { name: 'Details', exact: true }),
     /** Details' list of the paused tasks: each one's title, then why and until when. */

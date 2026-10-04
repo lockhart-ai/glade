@@ -16,6 +16,7 @@ import {
   FileContentKind,
   FileThumbnailKind,
   MessageRole,
+  PauseReason,
   QuestionReplyKind,
   QuestionSetState,
   TaskActivity,
@@ -1045,6 +1046,26 @@ describe("a task's logs", () => {
     await store.getState().retryTask('t1', 'claude-sonnet-5')
     expect(invoke).toHaveBeenLastCalledWith(CommandName.TasksRetry, { id: 't1', model: 'claude-sonnet-5' })
     expect(store.getState().tasks.t1?.model).toBe('claude-sonnet-5')
+  })
+
+  it('resumes every task a usage limit paused with one command to main, and the store follows', async () => {
+    const data = main()
+    const pause = { since: 1_000, resumesAt: 90_000, checks: 0, details: 'Limit.' }
+    const limited = { ...pause, reason: PauseReason.UsageLimit }
+    data.tasks[0] = { ...sampleTask('t1', 'w1'), activity: TaskActivity.Paused, pause: limited }
+    data.tasks.push(
+      { ...sampleTask('t8', 'w2'), activity: TaskActivity.Paused, pause: limited },
+      { ...sampleTask('t9', 'w1'), activity: TaskActivity.Paused, pause: { ...pause, reason: PauseReason.Offline } },
+    )
+    const { store, invoke } = await hydrated(data)
+    invoke.mockClear()
+
+    await store.getState().resumePausedTasks()
+
+    expect(invoke.mock.calls).toEqual([[CommandName.TasksResumePaused, {}]])
+    expect(store.getState().tasks.t1).toMatchObject({ activity: TaskActivity.Working, pause: null })
+    expect(store.getState().tasks.t8).toMatchObject({ activity: TaskActivity.Working, pause: null })
+    expect(store.getState().tasks.t9).toMatchObject({ activity: TaskActivity.Paused })
   })
 
   it('compacts a task through main, and the store follows its event', async () => {

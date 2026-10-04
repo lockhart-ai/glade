@@ -788,6 +788,10 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.TasksRetryLoggedOut, {})
       },
 
+      async resumePausedTasks() {
+        await bridge.invoke(CommandName.TasksResumePaused, {})
+      },
+
       async startLogin(taskId) {
         const { status } = await bridge.invoke(CommandName.LoginStart, { taskId })
         set({ login: status })

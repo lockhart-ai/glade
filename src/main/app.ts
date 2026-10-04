@@ -336,6 +336,7 @@ async function runCapture(spec: CaptureSpec, context: CaptureContext): Promise<v
   }
   context.bridge.runner.close()
   context.bridge.account.close()
+  context.bridge.usageResume.close()
   context.bridge.login.close()
   context.bridge.artifactWatch.close()
   context.bridge.machine?.close()
@@ -860,6 +861,11 @@ export function startApp({
         if (mainWindows().includes(window) && closeGuard.callsOff(CloseKind.Window)) event.preventDefault()
       })
     })
+    // You're back in Glade: while a task is paused on a usage limit, the account's usage is read again, in case it can
+    // run again (extra usage turned on in the browser, say) and the paused tasks with it (#519).
+    app.on('browser-window-focus', (_event, window) => {
+      if (mainWindows().includes(window)) bridge.usageResume.focused()
+    })
 
     if (testMode?.kind === TestModeKind.Capture && testAgent !== null) {
       void runCapture(testMode.spec, { database, bridge, agent: testAgent, log })
@@ -893,6 +899,7 @@ export function startApp({
       stopLoggingCrashes()
       runner.close()
       bridge.account.close()
+      bridge.usageResume.close()
       bridge.login.close()
       void bridge.endpoint.close()
       bridge.pluginViews.close()

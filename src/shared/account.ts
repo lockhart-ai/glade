@@ -177,6 +177,20 @@ export function sortUsageReadings(readings: readonly UsageReading[]): UsageReadi
   )
 }
 
+/**
+ * What one answer of Claude Code's usage call says (`docs/sdk-notes.md`, "Usage limits"): a reading of each limit it
+ * tells of, and whether extra usage can take the requests a plan limit turns away. Main puts each answer to the tasks a
+ * usage limit paused (`canRunAgain` in `src/main/agent/pauses.ts`, #519).
+ */
+export interface UsageSnapshot {
+  readonly readings: readonly UsageReading[]
+  /**
+   * Whether extra usage is on with room left: turned on, not disabled, its spend limit not reached, and under its
+   * monthly cap (or with none). False whenever the answer doesn't say all of that outright.
+   */
+  readonly extraUsageAvailable: boolean
+}
+
 /** The account and its usage, as the window shows them. */
 export interface AccountStatus {
   /** The account, as last read; null until a task's session has started. */

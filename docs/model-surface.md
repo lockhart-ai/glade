@@ -10,8 +10,9 @@ Jared only ever talks to a task's main agent, never its subagents, so both of Gl
 `glade` (below) and `glade-control` ("Glade's control tools", below) — refuse a subagent's call to any of their tools,
 whatever the tool, present or future: the model gets a tool error, "Only the main agent can use Glade's tools. Report
 what you have to the agent that started you instead." Nothing shows in the UI: no question card for a refused `ask`,
-no status, title or objective change, nothing opened in the Files tab or added to the Artifacts tab, and the control
-API changes, reads or messages no task.
+no status, title or objective change, nothing opened in the Files tab or added to the Artifacts tab, no child listed
+or filed under a todo (`list_children` and `file_children`, behind the todo hub's switch, below), and the control API
+changes, reads or messages no task.
 
 Decided by a `PreToolUse` hook (`src/main/agent/sdk-backend.ts`'s `subagentGladeToolGuard`, `docs/sdk-notes.md` §9)
 that denies the call before it ever dispatches, keyed on the SDK's `agent_id` (set only for a subagent's call, never
@@ -252,6 +253,8 @@ status (open, merged, closed) isn't fetched.
 | `remove_artifact` | `{ path: string }` or `{ url: string }` | Takes a file or a link off the task's artifacts; a file stays. |
 | `show_file` | `{ path: string, line?: number }` | Opens a file in the Files tab for the user. |
 | `request_access` | `{ path: string, access: "read" \| "write", reason: string }` | Asks the user for the folder a sandboxed command was blocked from, on a permission card, and blocks until answered. See below. |
+| `list_children` | `{ todo?: string }` | Behind `todoHubEnabled`. Lists what the task made (its children) by the todo each is under, each with its short id. See below. |
+| `file_children` | `{ filings: { child: string, todo: string }[] }` | Behind `todoHubEnabled`. Files children under todos, or moves them to another, all of them or none. See below. |
 
 `Question` (draft):
 
@@ -341,6 +344,75 @@ resumed from before the sandbox was on has neither in its prompt, so it's told o
 The handler is `requestAccess` in `src/main/agent/runner.ts`, reached through `GladeToolContext.requestAccess`; what
 it asks for and what it answers are in `src/main/permissions/sandbox-ask.ts`.
 
+## Implemented, behind the switch: `list_children` and `file_children` (P16-05, #496)
+
+**Only with the todo hub on.** The todo hub (P16, #491) is built behind the hidden setting `todoHubEnabled`, off until
+its last issue (#501). A session has these two tools only when it starts with the setting on; with it off neither
+exists, the prompt says nothing of them, and the app is what it was (`src/main/todo-hub/inert.test.ts`). Names and
+schemas are a draft, as the others are.
+
+In the hub, what a task made (its **children**: the files and links among its artifacts, its subagents, its watchers
+and its commits) sits under its todos, and a child with no todo shows in a placeholder group, "Not under a todo"
+([`decisions.md`](decisions.md), "Todos as the hub"). Only the agent moves a child from one todo to another, with
+these tools: there's no menu for it. It's also how a task from before the hub gets sorted: nothing recorded which todo
+its children belong to, so you ask it to ("file your things under your todos") and it lists them and files them.
+And when Glade asks the agent to file what it just made (#495, [`sdk-notes.md` §16](sdk-notes.md#16-filing-a-child-under-a-todo)),
+the agent answers with one `file_children` call.
+
+A child is named by a **short id** within its task, `c1`, `c2`, …: given the first time Glade names the child to the
+agent, kept in SQLite, and never given to another child. A todo is named by Claude Code's own id for it, the `N` of
+`Task #N`.
+
+- **`mcp__glade__list_children`** takes `{ todo?: string }` and lists the task's children, giving a short id to any
+  that had none. A group per todo, in the agent's order, then the ones under no todo; each group's children by short
+  id, lowest first:
+
+  ```
+  #1 Review the date helpers (completed), 3 children:
+  - c3: subagent "Review the date helpers"
+  - c4: watcher "Date helper tests" (follows c3)
+  - c6: commit "73ad18a Fix the UTC date test" (follows c3)
+  #2 Write up the review (in progress), no children
+  Not under a todo, 2 children:
+  - c1: file "Date helpers review"
+  - c2: link "Fix the UTC date test"
+  ```
+
+  A heading is the todo's id, text and state, in Claude Code's own words (`pending`, `in progress`, `completed`), and
+  how many children it holds. A line is the child's short id, its kind (`file`, `link`, `subagent`, `watcher`,
+  `commit`) and its title: an artifact's title, a subagent's name, a watcher's label (what it runs, when it has none),
+  a commit's short hash and subject. Titles and todos are on one line and cut to 80 characters, so a task with 200
+  children lists in about 200 short lines. **`(follows cN)`** marks a child the subagent `cN` made that has no filing of
+  its own: it goes wherever that subagent goes. With `todo`, the list is that todo's group alone (its id, with or
+  without a `#`), or the ones under no todo alone (`"none"`); a todo that isn't in the task's list is a tool error
+  that lists the todos there are (`There's no todo #9 in this task's list. Your todos: #1 … (completed) · #2 …`).
+  Listing files nothing and tells the windows nothing.
+- **`mcp__glade__file_children`** takes `{ filings: { child: string, todo: string }[] }`, at least one: each a
+  child's short id and the id of the todo to put it under. One tool files and moves: each child goes from wherever it
+  is, the placeholder included.
+  - **All or none.** A child id that names no child of the task (never given, or its child is gone: an artifact
+    removed since it was listed), a todo that isn't in the list (never there, or deleted since), or a child named for
+    two todos in one call is a tool error that says which, and nothing is filed: `Nothing was filed. Not a child of
+    this task: c12. List the task's children for their ids. There's no todo #9 in this task's list. Your todos: #1 …`
+    A task with no todos is told `You have no todos yet: create one with TaskCreate first.`
+  - **How it's recorded.** A child that had a filing of its own is `moved`; one that had none (it was under no todo,
+    or only followed its subagent) is `asked`: the agent filed it. A child already filed under that todo keeps its
+    filing as it was. A child named twice for the same todo counts once.
+  - **A subagent brings what it made** (its commits, its watchers, its own subagents), apart from anything filed on
+    its own: the resolver follows the subagent, so nothing is written for those.
+  - **The reply** says what it did: `Filed 4 children: c1 under #2; c2, c5 under #3; c3 under #1. Moved with their
+    subagent: c4, c6.`, with `Already there: c1.` for the ones it left, or `Nothing changed. Already there: c1.`
+  - **The windows hear it** as they hear any filing: one `filings.changed` with the filings made.
+  - It reads ids leniently: `C3` for `c3`, `#2` for `2`. A todo with no id (a `TodoWrite` item) can't hold anything.
+- **Main agent only**, as every Glade tool but `request_access` ("Main agent only", above): a subagent's call to
+  either is refused before it runs, and names, files and sends nothing.
+- **If the setting is turned off under a session that has them,** both answer with a tool error (`The todo hub is off
+  (the todoHubEnabled setting).`) and do nothing.
+
+The handlers are `listForAgent` and `fileForAgent` in `src/main/todo-hub/agent-children.ts`, over the filing store
+(`src/main/todo-hub/todo-hub.ts`) and the resolver (`groupChildren` in `src/shared/todoHub.ts`). The prompt says the
+tools exist in one line ("System prompt", below).
+
 ## Todos: Claude Code's own tools, not a Glade tool (P5-03)
 
 The draft had a `todos` tool. Instead, the Todos tab maps the todo tools Claude Code already gives the model, which it
@@ -429,8 +501,17 @@ The "after the user's first message" line asks only for what isn't set yet, so a
 the user has renamed; with both set, the line goes. With Status summary or Task titles off in Settings › Agent, the
 prompt leaves out asking for it.
 
-Three more parts are added after that, each after a blank line, when they apply:
+Four more parts are added after that, each after a blank line, when they apply:
 
+- **The todo hub's tools** (behind the hidden `todoHubEnabled` setting, P16-05, #496): in a session that starts with
+  the setting on, one line (`TODO_HUB_TOOLS_LINE`) saying the tools exist and what they're for. With the setting off,
+  the prompt says nothing of them:
+
+  ```
+  What this task has made (its artifacts, subagents, watchers and commits) shows to the user under its todos. list_children lists them, each with a short id and the todo it's under, and file_children files them under a todo or moves them to another, by those ids. When the user asks you to file or sort what you made, list them, then file them all in one call.
+  ```
+
+  The lines about filing a child as it's made are #495's.
 - **The sandbox:** in a session that runs sandboxed (Settings › Agent › Sandbox on as it starts), one paragraph
   (`SANDBOX_LINE`): that its commands can read and write the workspace folder and, beyond it, only the folders and
   domains the user has allowed, and that when a command fails with "Operation not permitted" on a path outside the
@@ -461,3 +542,8 @@ Glade sends it, after the block of new instructions and before a handoff note's.
 kept in SQLite too (`session_context.sandbox`): one that started sandboxed has it in its prompt and is never sent it,
 one that still runs outside the sandbox isn't told, and one told once isn't told again, whatever the switch does
 later. An imported session gets it in Glade's whole prompt when it runs sandboxed.
+
+The todo hub's line isn't in that list either, being only for sessions that have the hub's tools (#496). A session
+resumed from before the setting was on gets the two tools when it next starts, and their descriptions say what the
+line does, so a task from before the hub can be asked to sort its children without it. Sending resumed sessions the
+hub's lines is #495's.

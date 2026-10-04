@@ -21,6 +21,7 @@ import {
   type TaskPause,
   type TodoSummary,
 } from '../../../shared/domain'
+import { UsageLimitKind, type UsageLimit } from '../../../shared/account'
 import { fitContextWindow } from '../../../shared/contextWindow'
 import { sameModel } from '../../../shared/models'
 import { SUBAGENT_TOOL_NAMES } from '../../../shared/subagents'
@@ -129,12 +130,22 @@ const apiRetrySchema = z.strictObject({
   since: count,
 }) satisfies z.ZodType<ApiRetry>
 
+/** Which usage limit paused a turn (`TaskPause.limit`). */
+const usageLimitSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.enum([UsageLimitKind.Session, UsageLimitKind.Weekly, UsageLimitKind.ExtraUsage]),
+  }),
+  z.strictObject({ kind: z.literal(UsageLimitKind.WeeklyModel), model: z.string() }),
+]) satisfies z.ZodType<UsageLimit>
+
 const taskPauseSchema = z.strictObject({
   reason: z.enum(PauseReason),
   since: count,
   resumesAt: count,
   checks: count,
   details: z.string(),
+  // Left out of a pause from before #519, and of one whose limit the SDK didn't name.
+  limit: usageLimitSchema.optional(),
 }) satisfies z.ZodType<TaskPause>
 
 const autoCompactSchema = z.discriminatedUnion('kind', [

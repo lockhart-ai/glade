@@ -44,6 +44,18 @@
   there's still no mid-turn delivery. It's stored with each task as its own message, tagged `BROADCAST` in the chat;
   each agent answers in its own chat, and nothing collects the replies. Main decides the recipients as it sends, and
   the windows hear of it all as one batch of events.
+- **A usage limit's pause can end early (#519):** the banner's **Resume now** retries every task a usage limit
+  paused, in every workspace, each on its own model, with one command and one batch of events. And Glade resumes them
+  by itself when a reading of the account's usage says it can run again: the limit that turned the task away is no
+  longer spent, or extra usage is on with room left (on, nothing disabling it, its spend limit not reached, under its
+  monthly cap). While any task is paused on a usage limit it reads usage again when its window gets the focus and
+  every 5 minutes, on one timer for the app, through a session that's already live: it never starts one to ask, so
+  after a relaunch nothing is read until a task runs. A task still over the limit pauses again, with no error card. A
+  task is resumed once on what a reading says: once on extra usage being available, and once a window on its limit
+  having cleared, never on how much is used, which moves with every reading. It's tried again only when availability
+  itself changes (extra usage goes and comes back, or the limit's window rolls over), so a reading that's wrong costs
+  one refused request a task, not a loop. Which readings count is one pure rule
+  (`canRunAgain`, `src/main/agent/pauses.ts`). Offline pauses are untouched.
 - **Notifications:** native OS notifications for any agent message in a task you're not viewing, even while Glade is
   focused. Task name + start of the message. Sound off. Focus/DND handled by the OS.
 - **Needs you (#430, corrected by #461):** a task needs you when it's blocked on you or has a reply you haven't read:
@@ -502,6 +514,13 @@
     last wake (else its end, else its start), a commit's time.
   - **Each todo's panel remembers** whether it's open and its filter, per task in SQLite, for the placeholder group
     too.
+  - **Only the agent moves a child** (P16-05, #496), with two Glade tools a session has while the switch is on, for
+    the main agent only: `list_children`, which lists what the task made by the todo each is under, each with its
+    short id, and `file_children`, which takes several filings in one call (a child's short id and a todo's id each)
+    and makes all of them or none. There's no menu for it. It's one tool for filing and moving: it's what the agent
+    answers with when Glade asks it to file what it just made (#495), and how a task from before the hub gets sorted
+    ("file your things under your todos"). A subagent that moves brings what it made, by the resolver, so no row of
+    those is rewritten ([`model-surface.md`](model-surface.md)).
   - **Calls made without Jared, for the release notes (P16).** From the groundwork (P16-03, #494):
     1. A child whose own filing names a todo that's gone goes to the placeholder, even when the subagent that made
        it is under a todo that's still there: the agent filed it apart from its subagent, so it doesn't fall back to
@@ -512,6 +531,27 @@
     4. A todo's panel state isn't broadcast to other windows, as the Artifacts tab's filter isn't.
     5. A task from before the hub gets its children's short ids the first time Glade names them, oldest first within
        each kind: artifacts, then subagents, then watchers, then commits.
+
+    From the agent's tools (P16-05, #496):
+    6. A filing the agent makes is `moved` when the child had a filing of its own, and `asked` when it had none: one
+       under no todo, or one that only followed its subagent.
+    7. `file_children` is all or none: an unknown child id or a todo that isn't in the task's list is a tool error
+       that says which, and nothing moves. So is a child whose artifact was removed since it was listed, and a child
+       named for two different todos in one call; one named twice for the same todo counts once.
+    8. A child filed under the todo it's already filed under keeps its filing as it was (how it was filed, and when),
+       and the windows are told nothing. One that only shows there by following its subagent does get a filing of its
+       own, so it stays when the subagent moves: the agent asked for it there.
+    9. A child can't be moved back to "Not under a todo": no filing may name the placeholder.
+    10. `list_children` groups by todo, every todo listed even when empty, then the ones under no todo; it can be
+        narrowed to one todo or to the unfiled ones (`todo: "none"`). Each child is one line (short id, kind, title),
+        titles cut to 80 characters, and a child that follows its subagent says so (`follows c3`).
+    11. Both tools read ids leniently (`C3`, `#2`) and say a todo's state in Claude Code's own words (`pending`,
+        `in progress`, `completed`).
+    12. The prompt's one line about the tools is only in a session that starts with the switch on. A session resumed
+        from before the switch isn't sent it: it gets the tools, whose descriptions say the same. #495 decides how
+        resumed sessions get the hub's lines.
+    13. A session keeps the tools it started with: if the switch is turned off under it, both answer with a tool
+        error and do nothing.
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
     `manifest.json`: `id` (the folder's name), `name`, `version`, `entry` (an HTML file in the folder) and an optional
