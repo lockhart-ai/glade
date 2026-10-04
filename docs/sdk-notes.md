@@ -707,7 +707,52 @@ receives `compact_summary`. See §5.
     loosely at the boundary (a malformed window is left out; an answer of another shape, or with no window in it, is
     ignored), and anything that goes wrong (the method missing, a rejection, an unexpected answer) falls back to the
     rate limit events. Glade leaves out `seven_day_oauth_apps` and `seven_day_overage_included` (not shown by the
-    meter: unclear what they count), and shows extra usage only as a percentage, not in money. Not yet probed live.
+    meter: unclear what they count), and shows extra usage only as a percentage, not in money.
+  - **[verified] The usage call, probed once on Oct 4, 2026 (#519)**, on a subscription login with extra usage on,
+    through a session that had been sent no message: **the call answers on a session with no turn**, so a paused
+    task's session can be asked. Invented values; the answer has more than the SDK's types say:
+    - `rate_limits.extra_usage`: `{ "is_enabled": true, "monthly_limit": 5000, "used_credits": 0, "utilization": null,
+      "currency": "USD", "disabled_reason": null, "decimal_places": 2, "user_disabled": false,
+      "spend_limit_reached": false, "credits_ever_enabled": true, "daily": null, "weekly": null }`. `monthly_limit` and
+      `used_credits` are in the currency's minor units (cents). **`utilization` is null while nothing has been
+      spent**, though extra usage is on.
+    - `five_hour` and `seven_day` keep `utilization` (0–100) and `resets_at`, and add `limit_dollars`, `used_dollars`,
+      `remaining_dollars` and `locked_reason` (all null in the probe).
+    - New beside them: `rate_limits.limits`, an array of `{ kind: "session" | "weekly_all" | "weekly_scoped", group,
+      percent, resets_at, severity: "normal" | "critical", is_active, scope }`; `rate_limits.spend`
+      (`{ used: { amount_minor, currency, exponent }, limit: {…}, percent, severity, enabled, disabled_reason, cap,
+      balance, auto_reload, can_purchase_credits, can_toggle }`); and `subscription_type`. Several other windows came
+      back null, or under names that say nothing of what they count. **Glade reads none of these**: only the windows
+      above and `extra_usage`.
+  - **What Glade makes of `extra_usage` (#519):**
+    - **The meter's row.** While `is_enabled` is true there's an Extra usage reading, whether or not the call gives a
+      percentage. (Before #519 a null `utilization` dropped the reading, so extra usage that was on with nothing spent
+      had no row.) How much is used is `utilization` / 100 when the call gives it, else `used_credits` /
+      `monthly_limit`. With no cap to be a fraction of (`monthly_limit` null or 0), or with either amount missing or
+      malformed, the reading has no amount and the row reads "within limits": Glade doesn't call uncapped spending 0%.
+    - **Whether it's available**, for resuming the tasks a usage limit paused (`canRunAgain`,
+      `src/main/agent/pauses.ts`): `is_enabled` is true, `spend_limit_reached` is false, `disabled_reason` is null,
+      and it's under 100% as read above; with no percentage, only `monthly_limit: null` (no cap, said outright)
+      counts as room. Each field must say so itself: one that's missing or malformed is "not known", which is never
+      "available". So an answer in the older shape of the SDK's types (`is_enabled`, `monthly_limit`, `used_credits`,
+      `utilization` alone) shows its row but resumes nothing.
+    - **Assumed, not seen live:** what the call says once a limit has actually turned requests away with extra usage
+      on, or with extra usage on but unusable. Glade assumes `disabled_reason` is then a reason (the rate limit
+      event's `overageDisabledReason` names `out_of_credits`, `org_level_disabled` and others) or `spend_limit_reached`
+      is true, and that both clear once credits are bought or the cap is raised. Also unseen: the call's answer with
+      extra usage off (tests use the SDK's types for that), whether the rate limit event's `isUsingOverage`,
+      `overageStatus` and the `overage` window then say the same (Glade doesn't read the first two), and how fresh the
+      call's answer is (the SDK's types mention "an answer served from cached data"). If any of this is wrong, the
+      cost is bounded: a task is resumed once on extra usage being available, and once a window on its limit having
+      cleared (the limit and its `resets_at`, never a percentage, which moves with every reading), and a task still
+      over the limit pauses again; Resume now always retries. This takes a window's `resets_at` to be the same in
+      every answer until the window rolls over, which hasn't been checked across two live answers.
+  - **Reading usage while every task is paused (#519).** The call needs a live session. A task's session outlives its
+    turn, so a task paused since Glade started still has one, and one of them is asked: when Glade's window gets the
+    focus, and every 5 minutes, while anything is paused on a usage limit. After a relaunch no session is live until
+    a task runs. Glade starts none just to ask: nothing is read until then, and the pauses wait for their reset time
+    or Resume now. (Starting a paused task's session with no message would work, since the call answers with no
+    turn, at the cost of a Claude Code process. Not built.)
   - `resetsAt` is **Unix epoch seconds** (the `anthropic-ratelimit-unified-reset` header; the bundled binary's schema
     says so). `status: "rejected"` means the limit is refusing requests until then. Only subscription logins get the
     event; an API key gets none.
@@ -716,6 +761,8 @@ receives `compact_summary`. See §5.
   - P3-04: a turn that ends on a usage limit (the error prefixes above, `billing_error`, or a 429 after a rejected
     `rate_limit_event`) or on a connection error pauses its task instead of stopping it, and resumes it at `resetsAt`
     (15 minutes later without one), or once the network is back. See `src/main/agent/pauses.ts`. Not yet seen live.
+    The pause keeps which limit the rejected event named (`rateLimitType`), when it's one Glade reads, so a later
+    reading of that limit can end the pause early (#519, above); Resume now ends it whenever you say.
 - **[verified] Process failure:** if the binary can't start (e.g. a missing `cwd`), the iterator **throws** and no
   `result` arrives. Glade must catch it and mark the task errored.
 - **[docs] Startup failures with a reason (#280):** with `CLAUDE_CODE_STARTUP_FAILURE_RESULTS=1` in the session's
@@ -1894,9 +1941,13 @@ settings: { deniedMcpServers: [...], permissions: { ask: ['Bash(dangerouslyDisab
 // then, before the first message, and again on every grant change: the whole overlay each time
 await q.applyFlagSettings({
   sandbox: { ...the same base, filesystem: { ...base, allowRead: [root, ...grants], allowWrite: [root, ...rwGrants] } },
-  permissions: { allow: ['Read(//<ro grant>/**)', 'WebFetch(domain:<domain>)', …], additionalDirectories: [...rwGrants] },
+  permissions: { allow: ['WebFetch(domain:<domain>)', …] },
 })
 ```
+
+The probes above gave a granted folder to the file tools too, as a `Read(//<folder>/**)` rule or an additional
+directory, and so did Glade until the phase's security review: it no longer does ("The phase's security review",
+below). The overlay's `permissions` carry domains only.
 
 How Glade applies the grants (P15-04, `src/main/sandbox/grants.ts`):
 
@@ -1916,8 +1967,8 @@ How Glade applies the grants (P15-04, `src/main/sandbox/grants.ts`):
 - **A grant names one folder or host,** checked by the same rules the overlay's builder leaves a grant out by, so
   nothing saved is left out of a session. A folder is kept by where it really is, as far as the path exists (so `/tmp/x`
   and `/private/tmp/x` are one grant, before the folder is made and after), is never `/`, and never holds a glob
-  character, which would widen the `Read(//…/**)` rule and the sandbox's lists past the folder. A domain is a bare
-  host, or `*.` and a host of two labels or more.
+  character, which would widen the sandbox's lists past the folder. A domain is a bare host, or `*.` and a host of
+  two labels or more; never an address in another spelling than its four decimal parts (`2130706433`).
 
 ### When the sandbox can't start [verified]
 
@@ -1951,18 +2002,21 @@ old system prompt (§8), so Glade sends it what the prompt says of the sandbox o
   and `failIfUnavailable`; `filesystem.denyRead` the home folder (absolute, never `~`), `/Users` and `/Volumes`;
   `allowRead` and `allowWrite` the workspace root only; `network.allowedDomains` empty; the credential paths
   (`CREDENTIAL_PATHS`: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`, `~/.config/gcloud`, `~/.azure`, `~/.kube`,
-  `~/Library/Keychains`, `~/.netrc`, `~/.git-credentials`, `~/.docker/config.json`) in `credentials.files` and
-  `filesystem.denyWrite`, and as `Read(…)` and `Edit(…)` rules in `settings.permissions.deny` for the file tools; and
+  `~/Library/Keychains`, `~/.netrc`, `~/.git-credentials`, `~/.docker/config.json`, and the ones the security review
+  added, below) and Glade's own data folder in `credentials.files` and `filesystem.denyWrite`, and as `Read(…)` and
+  `Edit(…)` rules in `settings.permissions.deny` for the file tools; the switches that would loosen the sandbox, each
+  set off; the control endpoint's variables in `credentials.envVars`; and
   `settings.permissions.ask: ['Bash(dangerouslyDisableSandbox:true)']`. No grant, whatever is granted.
 - **Then the overlay** (`sandboxOverlay`), with `applyFlagSettings`, straight after start and before the first message
   (the backend queues it ahead of `send`), and again whenever the task's permission mode changes: the fixed parts
   again, `autoAllowBashIfSandboxed` for the mode, and the grants (`sandbox_grants`, above): every granted folder in
-  `allowRead`, the read-write ones in `allowWrite` and `permissions.additionalDirectories`, the read-only ones as
-  `Read(//<folder>/**)` rules and domains as `WebFetch(domain:…)` rules in `permissions.allow`. Domains never go in
-  `allowedTools`. A grant that would open more than it names never reaches the settings (`usableGrants`), and is
-  logged: a folder that isn't an absolute path, is `/` (or comes to it through `..`), or has a glob character (`*`,
-  `?`, `[`, `]`, `{`, `}`, `\`: sandbox paths and rule contents are patterns), and a domain that isn't a bare host
-  name with an optional leading `*.`.
+  `allowRead`, the read-write ones in `allowWrite`, with the files that run code in each denied again in `denyWrite`,
+  and domains as `WebFetch(domain:…)` rules in `permissions.allow`. Domains never go in `allowedTools`. **The file
+  tools are given no grant:** no `additionalDirectories`, and no `Read` or `Edit` rule (the security review, below).
+  A grant that would open more than it names never reaches the settings (`usableGrants`), and is logged: a folder
+  that isn't an absolute path, is `/` (or comes to it through `..`), or has a glob character (`*`, `?`, `[`, `]`, `{`,
+  `}`, `\`: sandbox paths and rule contents are patterns), and a domain that isn't a bare host name with an optional
+  leading `*.`.
 - **`autoAllowBashIfSandboxed` is in the overlay only, never the start. [verified]** Probed for #448 (one `query()` on
   `haiku`, `permissionMode: 'default'`, `settingSources: []`, started with `sandbox: { enabled: true, filesystem: {
   allowWrite: [cwd] } }` and no `autoAllowBashIfSandboxed`, three turns each running `touch <file>` in the workspace):
@@ -1986,9 +2040,11 @@ old system prompt (§8), so Glade sends it what the prompt says of the sandbox o
   `/System/Volumes` outside the root and the granted folders; a write (`Write`, `Edit`, `MultiEdit`, `NotebookEdit`)
   outside the root and the read-write folders; `WebFetch` to a domain that isn't granted; `SandboxNetworkAccess`; and
   every request to run outside the sandbox, whatever the `decisionReason`: `input.dangerouslyDisableSandbox` set to
-  anything but `false` or the string `"false"` (a model may send `"true"`). A read outside those folders goes ahead,
-  though `acceptEdits` asks about it. `WebSearch` never asks. In Allow all, everything else that isn't a write goes
-  ahead; in the ask mode, P11's rules decide it. A crossing opens one of the sandbox's cards ("The sandbox's cards",
+  anything but `false` or the string `"false"` (a model may send `"true"`), or a command the user's settings keep
+  out of the sandbox. A read outside those folders goes ahead, though `acceptEdits` asks about it. `WebSearch` never
+  asks. In Allow all, everything else that isn't a write goes ahead, and so does a write inside a granted folder
+  (Claude Code asks about each, not knowing of the grant); in the ask mode, P11's rules decide it. The same verdict is
+  taken in the session's `PreToolUse` hook, before Claude Code matches any rule (the security review, below). A crossing opens one of the sandbox's cards ("The sandbox's cards",
   below); no rule is ever offered on one (`suppressAlwaysAllowRule`), since the rule P11 would grant for a write is
   the whole tool.
 - **Paths are compared by where they really are** (`src/main/permissions/canonical-path.ts`), so another spelling of a
@@ -1997,8 +2053,9 @@ old system prompt (§8), so Glade sends it what the prompt says of the sandbox o
   exist yet, since a write would create it there), the data volume's alias is dropped (`/System/Volumes/Data/Users/…`
   is `/Users/…`; `realpath` doesn't do that), and what's left is compared lower-cased, in one Unicode form. So a
   link a sandboxed command made in the root (`ln -s ~/Documents link`) leads where it leads, and `/users/ME/…` is
-  `/Users/me/…`. A path that can't be resolved (a loop of links) asks. The root, the home folder and the granted
-  folders are resolved once per session (`sandboxBounds`); deciding a call resolves only the call's own path.
+  `/Users/me/…`. A path that can't be resolved (a loop of links, or one of macOS's magic folders: the security review,
+  below) is refused. The root, the home folder and the granted folders are resolved once per session
+  (`sandboxBounds`); deciding a call resolves only the call's own path.
   (Commands aren't denied `/System/Volumes` in the sandbox's lists: the system runs from there. Only the file tools
   are bounded in it by name. A command that reads a denied folder by the data volume's spelling,
   `/System/Volumes/Data/Users/…`, fails all the same, since Seatbelt matches where the file really is: [verified] for
@@ -2008,19 +2065,21 @@ old system prompt (§8), so Glade sends it what the prompt says of the sandbox o
   compared (`sandboxBounds`, `grantingGrant`) and handed to the session (the overlay) as kept. So a granted folder a
   command swaps for a link (`rm -rf granted && ln -s ~/Documents granted`: the sandbox lets a command do that inside
   a read-write grant) opens nothing to the file tools: a call through it resolves to `~/Documents`, which no grant
-  names, and asks. What Claude Code's Seatbelt profile does with a link in `allowRead` or `allowWrite` is its own
-  [not probed]; Glade only ever names the path that was granted.
+  names, and asks. That only holds because the file tools' calls reach Glade: Claude Code, given the folder as an
+  additional directory, followed the link itself (the security review, below). What Claude Code's Seatbelt profile
+  does with a link in `allowRead` or `allowWrite` is its own (from the bundled CLI's code, it keeps the path as
+  written when a link leads out of it; [not probed]); Glade only ever names the path that was granted.
 - **A credential path is refused** by Glade itself, read or write, without a card, however it's spelled and whatever
-  is granted (`CREDENTIAL_REFUSAL`). Glade is only asked about a call Claude Code doesn't decide by itself, so inside
-  a granted folder it's Claude Code's own deny rules and the sandbox's lists that hold: probed for #452 with a granted
-  parent, they held for a link, another case, the data volume's alias, a hard link and a rename ("Probed for P15-07",
-  below).
-- **A write inside the bounds that still reaches `canUseTool` asks.** In Allow all, `acceptEdits` lets edits inside
-  the root and the additional directories through by itself, so a write Glade is asked about was held back by Claude
-  Code's own check of the files that run code (`.mcp.json`, `.claude/`, `.git/`, `.vscode/`, `.idea/`, `.gitconfig`,
-  `.gitmodules`, `.ripgreprc`, shell startup files: its list in the bundled binary), or by a user's ask rule: writing
-  `.mcp.json`, `.claude/settings.local.json` or `.git/config` would each run code outside the sandbox later. Glade
-  shows the card for it, in either mode, and Allow for this task isn't offered. (Glade's own `git` doesn't rely on
+  is granted (`CREDENTIAL_REFUSAL`): in the session's `PreToolUse` hook, for every call, since the security review.
+  Claude Code's own deny rules and the sandbox's lists hold beside it: probed for #452 with a granted parent, they
+  held for a link, another case, the data volume's alias, a hard link and a rename ("Probed for P15-07", below).
+- **A write inside the workspace root that still reaches `canUseTool` asks.** In Allow all, `acceptEdits` lets edits
+  inside the root through by itself, so a write Glade is asked about there was held back by Claude Code's own check of
+  the files that run code (`.mcp.json`, `.claude/`, `.git/`, `.vscode/`, `.idea/`, `.gitconfig`, `.gitmodules`,
+  `.ripgreprc`, shell startup files: its list in the bundled binary), or by a user's ask rule: writing `.mcp.json`,
+  `.claude/settings.local.json` or `.git/config` would each run code outside the sandbox later. Glade shows the card
+  for it, in either mode, and Allow for this task isn't offered. A write to one of those files asks the same way
+  wherever it is, inside a granted folder or outside every one (`runsCode`), and is only ever allowed once. (Glade's own `git` doesn't rely on
   that: it runs nothing a repository's config names. See "Glade's own git", below.)
 - **Whole-tool rules never reach a sandboxed session** (`isUnboundedRule`). P11's Allow for this task on an `Edit` or
   `Write` grants the whole tool, which Claude Code takes for every folder, in `allowedTools` and as a session rule
@@ -2055,10 +2114,11 @@ What each request above becomes (`src/main/permissions/sandbox-ask.ts`, the runn
   `addDirectories`) that holds the file and can be granted, else the file's own folder; it's kept as a grant would
   keep it (links followed), and what kind of thing the path is is read where it really is, so a link to a file asks
   for the real file's folder. A call whose folder or host can't be granted (a glob character in the path, a path that
-  can't be resolved, a host that isn't one plain name, such as an IPv6 literal or `*.github.io`) asks nothing of the
-  sandbox: a file tool or `WebFetch` keeps the plain card, Allow once or Deny, and a command's connection
-  (`SandboxNetworkAccess`) is denied without a card (`CONNECTION_REFUSAL`), since allowing a connection once leaves
-  the host reachable for the session's life.
+  host that isn't one plain name, such as an IPv6 literal, `*.github.io`, or an address in another spelling than its
+  four decimal parts) asks nothing of the sandbox: a file tool or `WebFetch` keeps the plain card, Allow once or
+  Deny, and a command's connection (`SandboxNetworkAccess`) is denied without a card (`CONNECTION_REFUSAL`), since
+  allowing a connection once leaves the host reachable for the session's life. A path that can't be resolved gets no
+  card at all: it's refused. A write to a file that runs code never asks for a folder or the file: the plain card.
 - **A card never offers a folder that's too much** (`isBroadFolder`): the home folder, `/Users`, `/Volumes`,
   `/System/Volumes`, or a folder above one, the whole disk included. Claude Code's suggestion for a file directly in
   the home folder is the home folder itself (`Read(//Users/me/**)`), so Glade asks for **the file by itself**
@@ -2066,17 +2126,12 @@ What each request above becomes (`src/main/permissions/sandbox-ask.ts`, the runn
   `sandbox_grants.is_file`). Such a folder named outright is refused by `request_access` (no card; it says to add it
   in Settings) and gets the plain card from a file tool.
 - **A single-file grant in the overlay:** the file's own path in `sandbox.filesystem.allowRead` (and `allowWrite`,
-  read-write), as the credential files are already listed by path in `denyWrite`; for the file tools, a
-  `Read(//<file>)` rule with no `/**`, the form the credential deny rules use for a file, and, read-write, an
-  `Edit(//<file>)` rule beside it. It is never in `additionalDirectories`: how Claude Code treats a file there is
-  [not probed], and a directory is a folder and all in it. **[verified]** for #452 ("Probed for P15-07", below): the
-  `Read(//<file>)` rule lets `Read` through for exactly that file, the `Edit(//<file>)` rule lets `Edit` and `Write`
-  through for it in `acceptEdits` and `default` alike, a file beside it still asks, and Seatbelt takes a single file
-  in `allowRead` and `allowWrite` (`NotebookEdit` wasn't probed). Glade doesn't rely on the rules alone: its own
-  check allows a read of exactly that path (`readableFiles`), counts a write to it as inside the bounds
-  (`writableFiles`), and treats nothing beside it as granted. A write Claude Code asks about anyway (a file whose
-  name is on its list of files that run code, such as a shell startup file) gets the plain card in Allow all, as any
-  write inside the bounds that reaches Glade does.
+  read-write), as the credential files are already listed by path in `denyWrite`. Seatbelt takes a single file in
+  both: **[verified]** for #452 ("Probed for P15-07", below). For the file tools there is no rule any more (the
+  security review, below; the `Read(//<file>)` and `Edit(//<file>)` rules it used to add were probed and worked):
+  Claude Code asks about the call, and Glade's own check allows a read of exactly that path (`readableFiles`), lets a
+  write to it through (`writableFiles`), and treats nothing beside it as granted. A write to a file that runs code
+  (a shell startup file, say) gets the plain card, whatever is granted.
 - **What a card shows is what it grants.** The answer saves the request's own path, as shown, never resolved again.
   If that path isn't where it really is any more (`hasMoved`: it, or a folder above it, was swapped for a link while
   the card was open), Allow for this task or for this workspace closes the request denied, with Glade's note
@@ -2246,8 +2301,8 @@ file (both rules, and its path in `allowRead` and `allowWrite`):
 - **A command wrote it:** `echo … >> /Users/me/probe/home/.zshrc` succeeded, and `cat` read it. The command sandbox's
   own protection of shell startup files did not reach this one, a granted file outside the workspace. So a read-write
   grant that covers a shell startup file (the file itself, or a folder that holds it) lets a sandboxed command change
-  it, and a shell started later, outside the sandbox, would run what it wrote. Glade adds nothing against that yet;
-  it's listed for the phase's security review (#452). What does and doesn't get that protection inside the workspace
+  it, and a shell started later, outside the sandbox, would run what it wrote. Glade added nothing against that
+  then; it now denies those writes itself ("The phase's security review", below). What does and doesn't get that protection inside the workspace
   was not probed here.
 
 **Credential denies under a granted parent [verified].** The dummy home granted read-write (`allowRead`,
@@ -2299,6 +2354,155 @@ make that run a command, was to be probed here and **wasn't**: nothing was run, 
 
 Also seen: a sandboxed session leaves an empty `.claude/.cc-writes/` folder in its workspace.
 
+### The phase's security review (P15-10, #514)
+
+A review of the whole phase, with a sandboxed agent taken for an adversary that can run any command in its workspace,
+before the sandbox is on by default. **Nothing here was probed against a live session.** What Glade's own side does is
+tested with the review's attacks as input; what Claude Code's side does is read from the bundled CLI's code (2.1.283)
+or the SDK's types, and says so. What that leaves open is listed last.
+
+**Glade decides in its `PreToolUse` hook.** A sandboxed session gets a second `PreToolUse` hook
+(`sandboxToolGuard`, `SessionHooks.onToolStarting`), with a matcher for the tools the sandbox bounds (`Read`, `Write`,
+`Edit`, `MultiEdit`, `NotebookEdit`, `NotebookRead`, `LS`, `Grep`, `Glob`, `WebFetch`, `Bash`, `Monitor`) and the
+longest `timeout` a timer allows.
+
+- **Why:** the session reads the user's, the project's and the local Claude Code settings. `permissions.allow:
+  ["Write"]` there, or an `additionalDirectories` entry, and a file tool's call outside the bounds never reached
+  `canUseTool`: `Write ~/Library/LaunchAgents/x.plist` ran with no card. A `PreToolUse` hook runs in every permission
+  mode [docs, §9], and before any rule is matched (from the bundled CLI's code).
+- **What it does:** takes the call's standing against the bounds (`callStanding`: one path resolution for a file
+  tool, a string match for a command, nothing else), and returns nothing for a call inside them, which Claude Code
+  then decides as before. A crossing is decided there and then, as `canUseTool` decides one: refused (a credential
+  path, a path that can't be resolved, leaving a sandbox that couldn't start), or asked about on its card, the hook
+  held until the answer. The hook answers `permissionDecision: 'deny'` with Glade's message, or `'allow'`.
+- **It never answers `'ask'`.** From the bundled CLI's code, a hook's `ask` goes to `canUseTool` as a forced decision,
+  skipping the rule pipeline (`forceDecision`), which is what Glade wants; but that isn't probed, and a call that
+  slipped past would run unasked. Deciding in the hook depends on less: that a hook's `deny` stops the call (as the
+  guard on Glade's own tools has relied on since #366), and that the call waits on the hook.
+- **`allow` doesn't skip everything** (from the bundled CLI's code): a deny rule still denies, and an ask rule or
+  Claude Code's own check of a sensitive file still sends the call to `canUseTool`. Glade's own ask rule does that for
+  every request to run outside the sandbox. So the runner keeps what its hook let through, by `tool_use` id (a few
+  at a time), and answers `canUseTool` for that call the same way, with no second card.
+- **A hook that fails denies:** input of a shape Glade doesn't know, or a host that throws.
+- **With the sandbox off** the hook isn't registered: nothing extra runs.
+
+**No grant is handed to Claude Code for the file tools.** The overlay had read-write folders as
+`additionalDirectories`, read-only ones as `Read(//<folder>/**)` rules, and a single file as `Read(//<file>)` and
+`Edit(//<file>)` rules.
+
+- **Why:** Claude Code resolves an additional directory itself (from the bundled CLI's code: it compares every
+  spelling of a file's path with every spelling of each working directory, link target included). One card for
+  `~/newcache`, then `rmdir ~/newcache && ln -s ~/Library/LaunchAgents ~/newcache` in a sandboxed command (the
+  sandbox lets a command remake a path it may write), and `Write ~/newcache/x.plist` ran with no card.
+- **Now:** Claude Code knows only the workspace root, so it asks about every file-tool call outside it (`"Path is
+  outside allowed working directories"`), in `acceptEdits` and `default` alike [verified, P15-01]. Glade resolves the
+  call's own path and compares it with the grant as kept. A read inside a grant goes ahead; a write goes ahead in
+  Allow all, and asks as any write does in the ask mode. The command sandbox's `allowRead` and `allowWrite` are
+  unchanged: Seatbelt is not affected by the swap (it keeps the path as written).
+- **Cost:** one `canUseTool` round trip for each file-tool call in a granted folder, answered at once.
+
+**macOS's magic folders.** `/.nofollow/<path>`, `/.vol/<device>/<inode>/<rest>` and `/.resolve/<n>/<path>` each
+name any file by another path, and `realpath` doesn't turn one back: it returns `/.nofollow/…` unchanged, and fails
+for the other two (reproduced on macOS, `src/main/permissions/canonical-path.test.ts`; `fs.readFileSync` reads a
+file by each). The key Glade compared was under no bounded folder and matched no credential path, so `Read
+/.nofollow/Users/me/.ssh/id_rsa` was let through. Now a path that starts with one of them, in any case, or reaches
+one through a link, has no canonical path (`isAliasPath`): the file tools are refused it without a card
+(`UNRESOLVABLE_REFUSAL`), `request_access` can't ask for it, and Settings can't grant it. So is a loop of links,
+which used to get the plain card. Seatbelt denies these spellings to commands by itself (the review's finding,
+reproduced with `sandbox-exec`).
+
+**The user's settings.** Besides the hook:
+
+- **`sandbox.excludedCommands`** (merged from every source, the project's included) runs a matching command outside
+  the sandbox with no `dangerouslyDisableSandbox`, and nothing `canUseTool` is told says so. Glade reads the same
+  files itself (`src/main/agent/excluded-commands.ts`: the managed settings file, `~/.claude/settings.json` or
+  `$CLAUDE_CONFIG_DIR`'s, and the workspace's `.claude/settings.json` and `.claude/settings.local.json`; each read
+  again once it changes, looked at no more than once a second), and a command a pattern may cover asks with the
+  run-outside-the-sandbox card: once, every time, refused once the sandbox couldn't start. Matching errs on the side
+  of asking: Claude Code excludes a command when every part of it matches a pattern by rules of its own; Glade asks
+  when any word of the command is the command a pattern names.
+- **The switches Glade didn't set** fell through from the user's settings. Each is now set, off, at start and in every
+  overlay: `filesystem.disabled`, `allowAppleEvents`, `enableWeakerNestedSandbox`, `enableWeakerNetworkIsolation`,
+  `network.allowLocalBinding`, `network.allowAllUnixSockets`, and, empty, `network.allowUnixSockets` and
+  `ignoreViolations`. Glade's are flag settings, which outrank the user's, the project's and the local ones for a
+  single value [docs]. **A list merges across the sources** [docs, and verified for the sandbox's own lists in
+  P15-01], so the two empty ones take nothing away: a Unix socket or an allowed domain in the user's own settings
+  still reaches the sandbox.
+- **Not done, waiting on Jared (#445):** hooks and MCP servers from those settings, and from a repository's
+  `.mcp.json`, run on the host and may run files the agent can write; and other MCP servers' tools go ahead in Allow
+  all.
+
+**The files that run code, inside a grant.** Claude Code write-protects them for commands under the workspace root
+only: its list (from the bundled CLI's code) is `.gitconfig`, `.gitmodules`, `.bashrc`, `.bash_profile`, `.zshrc`,
+`.zprofile`, `.profile`, `.ripgreprc`, `.mcp.json`, the folders `.vscode`, `.idea`, `.claude/commands` and
+`.claude/agents`, and `.git/hooks` and `.git/config`, each as its path under the working folder and as a `**/<name>`
+pattern, which it resolves against the working folder. In a folder granted read-write outside the workspace a
+command wrote `.zshrc` [verified, "Probed for P15-07"].
+
+- **Now** the overlay's `denyWrite` names them under every folder granted read-write (`protectedWrites`), in the
+  same two forms: `<folder>/<name>`, and `<folder>/**/<name>` (`<folder>/**/<name>/**` for a folder). The names are
+  Glade's own list for the file tools (`PROTECTED_FILES`: Claude Code's, and `.bash_login`, `.zshenv`, `.zlogin`),
+  with `.git/config`, `.claude/settings.json` and `.claude/settings.local.json`, and the folders `.vscode`, `.idea`,
+  `.git/hooks` and `.claude/commands`, `agents`, `skills` and `hooks`. The rest of `.git` and `.claude` stays
+  writable, so a command can commit in a granted repository, or work in a worktree under its `.claude`. A granted
+  folder that is itself a `.git` or a `.claude` has what's directly in it denied too.
+- **Patterns on macOS:** the sandbox turns an entry with `*`, `?`, `[` or `]` into a Seatbelt regular expression,
+  and any other into a subpath (from the bundled CLI's code); it's the path Claude Code's own list takes. **[not
+  probed]** that the entries Glade adds take effect: if a pattern didn't, the top-level entries still would.
+- **For the file tools,** a write to a file that runs code asks wherever it is (`runsCode`), on the plain card:
+  Allow once or Deny. No folder or file grant is offered for it, and `request_access` is refused for a write to what
+  a command can't write in any grant (`isProtectedWrite`). Since the hook now decides by Glade's list, not Claude
+  Code's, the list leaves out what Claude Code's does: a worktree under `.claude/worktrees` is where an agent works,
+  and what's in it is judged by the rest of its path (from the bundled CLI's code).
+- **Not covered:** a bare repository (`<folder>/repo.git/hooks`); a grant made in Settings of a protected file or
+  folder itself, which is the user's own choice; and a protected name that isn't there yet, made in another case on a
+  volume that ignores case (`.VSCODE/tasks.json`), which the entries may not match [not probed; Claude Code's own
+  entries for the workspace root are written the same way].
+
+**The control endpoint's token.** With "Let agents control Glade" on, a session's environment has
+`GLADE_CONTROL_URL` and `GLADE_CONTROL_TOKEN`, and a sandboxed command could send them through the sandbox's own
+proxy once `127.0.0.1` was allowed. Both are now in `sandbox.credentials.envVars` with `mode: 'deny'`, which unsets
+a variable for sandboxed commands [docs]. A command allowed to run outside the sandbox still has them, as before.
+And a domain's card says what a host is when it isn't an ordinary name (`src/shared/hosts.ts`): this Mac
+(`localhost`, `127.0.0.1`), a bare address (`169.254.169.254`), or a name on the local network. An address in any
+other spelling (`2130706433`, `0x7f.1`, `127.1`) gets no card and no grant: a command's connection to it is refused,
+and Settings won't add it. `WebFetch`'s URL is read by the WHATWG parser, which turns such a host into its four
+decimal parts.
+
+**Also:**
+
+- **`EnterWorktree` and `ExitWorktree` are disallowed** in a sandboxed session (`disallowedTools`): from the bundled
+  CLI's code, `EnterWorktree` moves the session's working folder into another worktree of the repository, where
+  Claude Code's file tools would follow while Glade's bounds stayed with the root.
+- **More paths nothing opens:** `~/.claude.json`, `~/.npmrc`, `~/.pypirc`, `~/.cargo/credentials` and
+  `credentials.toml`, `~/.gem/credentials`, `~/.config/git/credentials`, `~/.config/op`, and more cloud tools' token
+  folders (`CREDENTIAL_PATHS`). And **Glade's own data folder** (Electron's `userData`: the database holds the
+  grants, the settings and the control token), denied to commands and file tools as a credential folder is, unless
+  the workspace root is inside it.
+- **Open in editor** opens a file with `open -t`, in the default text editor, so it's shown and never run: macOS
+  runs a Unix executable or a `.command` file in Terminal when it's opened the ordinary way. An image or a PDF, by
+  the real file's extension, still opens in the app that shows it; a folder is revealed in Finder, since a bundle is
+  a folder (`src/main/files/files.ts`).
+- **Attachments** never follow a link out of the workspace or the repository: the `.git/info/exclude` append
+  (`O_NOFOLLOW`, and `info` checked), the queued image read at delivery, the folders made, and the copies deleted.
+
+**Left open** (each needs a short real probe, or a decision):
+
+- That a `PreToolUse` hook's `deny` and `allow` are honoured for a call a settings allow rule covers, in
+  `acceptEdits` and `default`, and that the hook can be held as long as a `PostToolUseFailure` hook was (11 minutes,
+  P15-01). Read from the bundled CLI's code only.
+- That the `denyWrite` entries, the `credentials.envVars` denies and the switches set off take effect as their
+  documentation says.
+- A command that reaches `canUseTool` in Allow all though it runs sandboxed (a `Monitor` command with a shell
+  expansion did, "Probed for P15-07") goes ahead, as before. So does a command a user's own `permissions.ask` rule
+  held: Glade answers allow in Allow all.
+- Settings Glade doesn't read for excluded commands: a config folder moved with `CLAUDE_CONFIG_DIR` in the login
+  shell only, managed settings delivered by MDM or a server, and a plugin's.
+- A check of a path and the write that follows are two steps in any file tool that runs outside the sandbox: a link
+  flipped between them is Claude Code's own race, inside the workspace root too.
+- **On each SDK bump,** check the tools that take a path or run a command against the hook's list (`BOUNDED_TOOLS`):
+  a new one isn't bounded until it's added, and the user's settings could then allow it.
+
 ### Test backends
 
 The scripted and fake backends play these shapes (`src/main/agent/sandbox-requests.ts`): see the sandbox steps in
@@ -2307,7 +2511,10 @@ a session starts with and every `applyFlagSettings` call. The `sandbox-fails` sc
 couldn't start (`e2e/sandbox.spec.ts`). A scripted command can say what it needs of the sandbox (`needs`), so it's
 blocked or not by the session's sandbox as it stands, and the `request_access` step calls the real tool, telling the
 session's hook first as the SDK does: the `asks-sandbox` script crosses every boundary in turn
-(`e2e/sandbox-cards.spec.ts`).
+(`e2e/sandbox-cards.spec.ts`). Both put a call to a tool the sandbox bounds to the session's `PreToolUse` hook first
+(`FakeAgentSession.startTool`; the scripted session before each such step), and a scripted file-tool or `WebFetch`
+step can say a rule in the user's own settings allows it (`settingsAllow`), so that only the hook stands in its way:
+the `crosses-sandbox` script tries the review's ways past the sandbox in turn.
 
 ## 16. Filing a child under a todo
 

@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { OpenWith } from './files/open-path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createE2eAgent,
@@ -178,6 +179,18 @@ describe('createE2eEditor', () => {
 
     expect((Reflect.get(globalThis, E2E_EDITOR_GLOBAL) as E2eEditor).opened).toEqual(['/code/acme-api/README.md'])
   })
+
+  it('records which files were opened as text, in the text editor', async () => {
+    const openPath = createE2eEditor()
+
+    await openPath('/code/acme-api/shot.png', OpenWith.Default)
+    await openPath('/code/acme-api/deploy.command', OpenWith.TextEditor)
+
+    expect(Reflect.get(globalThis, E2E_EDITOR_GLOBAL)).toEqual({
+      opened: ['/code/acme-api/shot.png', '/code/acme-api/deploy.command'],
+      asText: ['/code/acme-api/deploy.command'],
+    })
+  })
 })
 
 describe('createE2eAgent', () => {
@@ -208,7 +221,17 @@ describe('createE2eAgent', () => {
       ],
       flagSettings: [{ permissions: { allow: ['WebFetch(domain:registry.npmjs.org)'] } }, { sandbox: null }],
       sandboxLog: ['… Sandbox: cat(4242) deny(1) file-read-data /code/acme-shared/notes.txt'],
+      extraUsage: false,
     })
+  })
+
+  it('says the account’s extra usage is off until a spec turns it on, on the global object', () => {
+    const { extraUsageOn } = createE2eAgent()
+    expect(extraUsageOn()).toBe(false)
+
+    ;(Reflect.get(globalThis, E2E_AGENT_GLOBAL) as E2eAgent).extraUsage = true
+
+    expect(extraUsageOn()).toBe(true)
   })
 })
 

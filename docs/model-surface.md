@@ -320,7 +320,11 @@ resumed from before the sandbox was on has neither in its prompt, so it's told o
     `/System/Volumes`, or a folder above one, the whole disk included): a tool error, `Refused: <path> is too much to
     grant from a request… Ask for the folder inside it that the command needs. If the task really needs all of it,
     tell the user: they can add it under Sandbox in Settings.`
-  - the path can't be granted (a path with a glob character, one that can't be resolved): a tool error saying why.
+  - the path can't be granted (a path with a glob character, one that can't be resolved, or one through macOS's
+    `/.nofollow`, `/.vol` or `/.resolve`): a tool error saying why.
+  - the agent asks to write a file that runs code, or into a folder of them (`.git/hooks`, `.git/config`, a shell
+    startup file, `.vscode`, `.idea`, `.mcp.json`, Claude Code's own commands, agents, skills, hooks and settings),
+    which no grant lets a command write: a tool error, `Refused: <path> is one of the files that run code later…`
 - **After a relaunch:** a card open when Glade quit is still there. Answering it saves the grant, resumes the session
   (which starts with the grant) and tells the agent what was decided, as for any permission request the app quit on.
 - **Subagents may call it,** the one Glade tool they may ("Main agent only", above).
@@ -361,7 +365,8 @@ on a permission card; the reads don't. A task can't stop, delete or message itse
 any of them either ("Main agent only", above): without that guard it would inherit the whole server, reads included,
 the same way the main agent does, since neither `glade-control` nor the SDK's built-in subagent types give it a
 restricted tool set of its own. While the HTTP endpoint listens, the session also gets `GLADE_CONTROL_URL` and
-`GLADE_CONTROL_TOKEN` in its environment, for scripts it runs.
+`GLADE_CONTROL_TOKEN` in its environment, for scripts it runs. In a sandboxed session they're kept from sandboxed
+commands (`sandbox.credentials.envVars`, #514): only a command allowed to run outside the sandbox has them.
 
 ## Not tools — from SDK events
 

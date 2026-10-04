@@ -93,6 +93,7 @@ export enum CommandName {
   TasksStop = 'tasks.stop',
   TasksRetry = 'tasks.retry',
   TasksRetryLoggedOut = 'tasks.retryLoggedOut',
+  TasksResumePaused = 'tasks.resumePaused',
   TasksCompact = 'tasks.compact',
   SubagentsStop = 'subagents.stop',
   SubagentsListRunning = 'subagents.listRunning',
@@ -452,6 +453,17 @@ export interface TasksRetryRequest {
  * retried (its agent is busy again) is left as it is.
  */
 export interface TasksRetryLoggedOutResponse {
+  readonly tasks: readonly Task[]
+}
+
+/**
+ * Resumes every task a usage limit paused, in every workspace, each on its own model (Resume now, on the usage limit
+ * banner, #519): each one's turn runs again, as `tasks.retry` runs it. A turn still over the limit pauses again, with
+ * the reset time it's given. Tasks paused offline are left alone. Answers with the tasks resumed, working (or, one that
+ * waited on permission requests the app quit on, waiting on you); none when there are none. Their changes reach the
+ * windows as one batch.
+ */
+export interface TasksResumePausedResponse {
   readonly tasks: readonly Task[]
 }
 
@@ -1393,6 +1405,7 @@ export interface CommandMap {
   [CommandName.TasksStop]: CommandSpec<TasksStopRequest, TaskResponse>
   [CommandName.TasksRetry]: CommandSpec<TasksRetryRequest, TaskResponse>
   [CommandName.TasksRetryLoggedOut]: CommandSpec<EmptyRequest, TasksRetryLoggedOutResponse>
+  [CommandName.TasksResumePaused]: CommandSpec<EmptyRequest, TasksResumePausedResponse>
   [CommandName.TasksCompact]: CommandSpec<TasksCompactRequest, TaskResponse>
   [CommandName.SubagentsStop]: CommandSpec<SubagentsStopRequest, null>
   [CommandName.SubagentsListRunning]: CommandSpec<EmptyRequest, SubagentsListRunningResponse>

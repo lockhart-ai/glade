@@ -11,6 +11,7 @@ import { createRateLimiter, type RateLimits } from '../control/rate-limit'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
 import { taskSandboxGrants } from '../sandbox/grants'
 import { createAccountTracker, type AccountTracker } from '../account/account'
+import { createUsageResume, type UsageResume } from '../account/usage-resume'
 import {
   createLoginService,
   retryIfLoggedOut,
@@ -112,6 +113,16 @@ export interface BridgeOptions {
    */
   readonly claudeProjectsDir?: string
   /**
+   * Glade's own data folder (Electron's `userData`), which no sandboxed agent may read or write, even inside a granted
+   * folder (`AgentRunnerOptions.dataDir`). None by default.
+   */
+  readonly dataDir?: string
+  /**
+   * The Claude Code settings files a session in a workspace root merges with Glade's own, read for the commands they
+   * keep out of the sandbox (`AgentRunnerOptions.claudeSettings`). None by default.
+   */
+  readonly claudeSettings?: (root: string) => readonly string[]
+  /**
    * Where the bridge logs its commands and events, and the runner and terminals what they do (`docs/logs.md`).
    * Nothing by default.
    */
@@ -160,6 +171,11 @@ export interface RegisteredBridge {
   readonly endpoint: ControlEndpoint
   /** The account the tasks run on and its usage warning, whose timer ends when the app quits. */
   readonly account: AccountTracker
+  /**
+   * What resumes the tasks a usage limit paused once the account can run again: told when Glade's window gets the
+   * focus, and its timer ends when the app quits.
+   */
+  readonly usageResume: UsageResume
   /** Logging in to Claude, whose running login, if any, stops when the app quits. */
   readonly login: LoginService
   /** What watches the artifacts' files, which stops when the app quits. */
@@ -207,6 +223,8 @@ export function registerBridge({
   runLogin = UNAVAILABLE_LOGIN,
   log = SILENT_LOGGER,
   claudeProjectsDir,
+  dataDir,
+  claudeSettings,
 }: BridgeOptions): RegisteredBridge {
   const windows = createBroadcast(EVENT_CHANNEL, targets)
   // Tasks that kept a todo list before Glade kept its summary get theirs before any window lists them.
@@ -247,6 +265,19 @@ export function registerBridge({
     },
     tasks,
   )
+  // The tasks a usage limit paused resume by themselves once a reading of the account's usage says it can run again
+  // (#519): it hears every event, to read usage again for as long as one is paused, and resumes them as one batch.
+  const usageResume = createUsageResume({
+    db,
+    runner: {
+      resumePaused: (taskId) => {
+        runner.resumePaused(taskId)
+      },
+      refreshUsage: () => runner.refreshUsage(),
+    },
+    batch: windows.batch,
+    log: log.scoped(LogScope.Runner),
+  })
   const emit: Emit = (event) => {
     logEvent(event)
     feed.observe(event)
@@ -254,13 +285,21 @@ export function registerBridge({
     windows.emit(event)
     observe?.(event)
     backgroundWork.observe(event)
+    usageResume.observe(event)
   }
   // One broker for the agent's questions: the Glade tools' `ask` waits on it, and the runner answers through it.
   const questions = createQuestionBroker({ db, emit }, notifyReply)
   // The permission requests the ask mode's tool calls wait on, notified as questions are.
   const permissions = createPermissionBroker({ db, emit }, notifyReply)
   // What the sessions say of the account and its usage limits, for Settings › General and the usage note.
-  const account = createAccountTracker({ db, emit, log: log.scoped(LogScope.Runner) })
+  const account = createAccountTracker({
+    db,
+    emit,
+    log: log.scoped(LogScope.Runner),
+    onUsageRead: (usage) => {
+      usageResume.usageRead(usage)
+    },
+  })
   const runner = createAgentRunner({
     db,
     emit,
@@ -276,6 +315,9 @@ export function registerBridge({
     log: log.scoped(LogScope.Runner),
     // A sandboxed session's grants: the Glade-wide ones, its workspace's and its task's, as saved.
     sandboxGrants: (task) => taskSandboxGrants(db, task),
+    // What a sandboxed session is kept out of whatever is granted, and the settings its commands may be excluded by.
+    ...(dataDir === undefined ? {} : { dataDir }),
+    ...(claudeSettings === undefined ? {} : { claudeSettings }),
     // Each session gets its own Glade tools, built for its task, with the upkeep Settings has on as it starts, and,
     // while agents may control Glade, the control tools, calling as its task.
     mcpServers: (task) => {
@@ -397,6 +439,7 @@ export function registerBridge({
     control,
     endpoint,
     account,
+    usageResume,
     login,
     artifactWatch,
     folderWatch,

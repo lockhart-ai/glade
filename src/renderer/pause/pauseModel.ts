@@ -82,6 +82,15 @@ export function bannerText(paused: readonly PausedTask[], now: EpochMs): BannerT
   return { title: 'Usage limit reached, and can’t reach the API.', text: `${lead}.` }
 }
 
+/**
+ * Whether the banner offers Resume now: only for a usage limit, which may have gone since (extra usage turned on, a
+ * bigger plan), though its reset time hasn't come. Offline, the tasks resume by themselves the moment the network is
+ * back, so there's nothing to press.
+ */
+export function offersResumeNow(paused: readonly PausedTask[]): boolean {
+  return paused.some((task) => task.pause.reason === PauseReason.UsageLimit)
+}
+
 /** Whether the banner offers Switch model: only for a usage limit, which another model may not have hit. */
 export function offersSwitchModel(paused: readonly PausedTask[]): boolean {
   return paused.some((task) => task.pause.reason === PauseReason.UsageLimit)

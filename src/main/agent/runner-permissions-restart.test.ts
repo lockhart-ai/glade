@@ -572,6 +572,29 @@ describe('a task that wasn’t just waiting when the app quit', () => {
     expect(current().activity).toBe(TaskActivity.Working)
   })
 
+  it('waits on you rather than retrying when its pause is ended early by Resume now (#519)', async () => {
+    await startAsking()
+    await callTool(MIGRATE)
+    const pause = {
+      reason: PauseReason.UsageLimit,
+      since: Date.now() - 60_000,
+      resumesAt: Date.now() + 3_600_000,
+      checks: 0,
+      details: 'You have hit your session limit.',
+    }
+    updateTask(database.db, task.id, { activity: TaskActivity.Paused, pause })
+    relaunch()
+
+    const { tasks } = await glade.invoke(CommandName.TasksResumePaused, {})
+
+    expect(tasks).toMatchObject([{ id: task.id, activity: TaskActivity.Waiting, pause: null }])
+    expect(current()).toMatchObject({ activity: TaskActivity.Waiting, pause: null, awaitingPermission: true })
+    expect(backend.sessions).toHaveLength(0)
+    await answer(MIGRATE.toolUseId, ALLOW_ONCE)
+    expect(sent()).toHaveLength(1)
+    expect(current().activity).toBe(TaskActivity.Working)
+  })
+
   it('still resumes a paused task as usual once its pause is due, when nothing waits on you', async () => {
     await startAsking()
     await callTool(MIGRATE)

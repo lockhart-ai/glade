@@ -304,11 +304,29 @@ export interface ScriptedUsageWindow {
   readonly resetInMs: number
 }
 
+/**
+ * What the usage call says of extra usage once it's turned on (`ScriptedUsage.extraUsage`), as probed on a real login
+ * (`docs/sdk-notes.md`, "Usage limits"): nothing disables it, and its spend limit isn't reached.
+ */
+export interface ScriptedExtraUsage {
+  /** The monthly cap, in cents; null for none. */
+  readonly monthlyLimit: number | null
+  /** What's been spent this month, in cents. */
+  readonly usedCredits: number
+  /** How much of the cap is spent, from 0 to 100; null while nothing has been, as the call gives it. */
+  readonly percent: number | null
+}
+
 /** What the session's usage call answers (`AgentSession.usage`): the plan's name and its windows. */
 export interface ScriptedUsage {
   /** As the call names it, e.g. `max`. */
   readonly subscriptionType: string
   readonly windows: readonly ScriptedUsageWindow[]
+  /**
+   * The account's extra usage, while it's turned on: it is from the start, unless the test mode says when
+   * (`ScriptedSessionOptions.extraUsageOn`, which an e2e spec flips). Without one, the call says extra usage is off.
+   */
+  readonly extraUsage?: ScriptedExtraUsage
 }
 
 export interface AskStep {
@@ -510,6 +528,11 @@ export interface WebFetchStep {
   readonly prompt?: string
   readonly output: string
   readonly parent?: string
+  /**
+   * Whether an allow rule in the user's own Claude Code settings covers the call (`permissions.allow: ["WebFetch"]`):
+   * Claude Code then never asks about it, and only the session's hook can stop it.
+   */
+  readonly settingsAllow?: boolean
 }
 
 export interface OutsideFileStep {
@@ -523,6 +546,12 @@ export interface OutsideFileStep {
   readonly access: FileAccess
   readonly output: string
   readonly parent?: string
+  /**
+   * Whether an allow rule or an additional directory in the user's own Claude Code settings covers the call
+   * (`permissions.allow: ["Write"]`, say): Claude Code then never asks about it, and only the session's hook can stop
+   * it.
+   */
+  readonly settingsAllow?: boolean
 }
 
 export interface SandboxOverrideStep {
@@ -1511,6 +1540,37 @@ const usageLimit: AgentScript = {
 const usageLimitHour: AgentScript = {
   name: 'usage-limit-hour',
   turns: [copyUntil(usageLimitReached(HOUR_RESET_MS)), copyCompletes()],
+}
+
+/**
+ * `usage-limit-hour` on an account still over its limit the first time the task is resumed: that turn is turned away
+ * at once, with the same reset time, so the task pauses again (#519). Resumed a second time, the copy completes.
+ */
+const usageLimitTwice: AgentScript = {
+  name: 'usage-limit-twice',
+  turns: [
+    copyUntil(usageLimitReached(HOUR_RESET_MS)),
+    [...turnStart(), delay(BEAT_MS), ...usageLimitReached(HOUR_RESET_MS)],
+    copyCompletes(),
+  ],
+}
+
+/**
+ * `usage-limit-hour` on a plan whose usage call answers (#519): the session is spent and the week 64% used, and extra
+ * usage, with a monthly cap none of which is spent, takes over once it's turned on. Nothing resumes the task until then
+ * unless you do.
+ */
+const usageLimitExtra: AgentScript = {
+  name: 'usage-limit-extra',
+  turns: [copyUntil(usageLimitReached(HOUR_RESET_MS)), copyCompletes()],
+  usage: {
+    subscriptionType: 'max',
+    windows: [
+      { window: 'five_hour', percent: 100, resetInMs: HOUR_RESET_MS },
+      { window: 'seven_day', percent: 64, resetInMs: 4 * 24 * HOUR_RESET_MS },
+    ],
+    extraUsage: { monthlyLimit: 5000, usedCredits: 0, percent: null },
+  },
 }
 
 /** How much of its session limit the account has used in the usage-warning scripts. */
@@ -2769,6 +2829,58 @@ const asksSandbox: AgentScript = {
         description: 'Push the branch',
       }),
       say(ASKS_SANDBOX.reply),
+      result(),
+    ],
+  ],
+}
+
+/**
+ * What the `crosses-sandbox` script's agent tries (#514): each a way past the sandbox the phase's security review
+ * found, which a rule in the user's own Claude Code settings would have let through unasked.
+ */
+export const CROSSES_SANDBOX = {
+  // Under `/Users`, which the sandbox bounds: these folders needn't exist.
+  plist: '/Users/Shared/acme-launch/dev.acme.sample.plist',
+  plistFolder: '/Users/Shared/acme-launch',
+  // The shared notes by macOS's other name for any file, which no check of where a path really is can follow.
+  alias: '/.nofollow/Users/Shared/acme-shared/notes.md',
+  // This Mac, as a command reaches it through the sandbox's own proxy.
+  local: '127.0.0.1',
+  curl: 'curl -x "$HTTP_PROXY" http://127.0.0.1:8787/v1/tools',
+  // A command the workspace's own Claude Code settings keep out of the sandbox (`sandbox.excludedCommands`).
+  excluded: 'docker *',
+  docker: 'docker run --rm -v "$HOME":/h alpine ls /h',
+  // A file that runs code, in a repository outside the workspace.
+  hook: '/Users/Shared/acme-docs/.git/hooks/pre-commit',
+  reply: 'Each of those was stopped at the sandbox until you said otherwise.',
+} as const
+
+/**
+ * A turn that tries the ways past the sandbox the phase's security review found (#514), each with a rule in the user's
+ * own settings that keeps Claude Code from asking about it: a write where a file runs at the next login, a read by
+ * one of macOS's other names for a file, a connection to this Mac, a command the settings keep out of the sandbox, and
+ * a write to a git hook in another repository. Sandboxed, Glade's own hook stops each: a card, or a refusal.
+ */
+const crossesSandbox: AgentScript = {
+  name: 'crosses-sandbox',
+  turns: [
+    [
+      ...turnStart(),
+      say("I'll set up the launch agent and check the shared notes."),
+      {
+        ...outsideWrite('plist', CROSSES_SANDBOX.plist, '<plist version="1.0"/>', 'Wrote the launch agent.'),
+        settingsAllow: true,
+      },
+      { ...outsideRead('alias', CROSSES_SANDBOX.alias, '1\t# Shared notes'), settingsAllow: true },
+      networkAccess('local', CROSSES_SANDBOX.curl, CROSSES_SANDBOX.local, '{ "tools": [] }', {
+        deniedOutput: commandFailure('curl: (56) CONNECT tunnel failed, response 403'),
+      }),
+      sandboxedBash('docker', CROSSES_SANDBOX.docker, 'bin\tetc\thome', { failed: false }),
+      {
+        ...outsideWrite('hook', CROSSES_SANDBOX.hook, '#!/bin/sh\necho sample\n', 'Wrote the hook.'),
+        settingsAllow: true,
+      },
+      say(CROSSES_SANDBOX.reply),
       result(),
     ],
   ],
@@ -4108,6 +4220,8 @@ export const AGENT_SCRIPT_NAMES = [
   'curates-artifacts',
   'usage-limit',
   'usage-limit-hour',
+  'usage-limit-twice',
+  'usage-limit-extra',
   'usage-warning',
   'usage-warning-resets',
   'usage-warning-then-limit',
@@ -4121,6 +4235,7 @@ export const AGENT_SCRIPT_NAMES = [
   'subagent-calls',
   'asks-permission',
   'asks-sandbox',
+  'crosses-sandbox',
   'sandbox-fails',
   'asks-permission-from-a-subagent',
   'allows-for-task',
@@ -4175,6 +4290,8 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'curates-artifacts': curatesArtifacts,
   'usage-limit': usageLimit,
   'usage-limit-hour': usageLimitHour,
+  'usage-limit-twice': usageLimitTwice,
+  'usage-limit-extra': usageLimitExtra,
   'usage-warning': usageWarning,
   'usage-warning-resets': usageWarningResets,
   'usage-warning-then-limit': usageWarningThenLimit,
@@ -4188,6 +4305,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'subagent-calls': subagentCalls,
   'asks-permission': asksPermission,
   'asks-sandbox': asksSandbox,
+  'crosses-sandbox': crossesSandbox,
   'sandbox-fails': sandboxFails,
   'asks-permission-from-a-subagent': asksPermissionFromASubagent,
   'allows-for-task': allowsForTask,

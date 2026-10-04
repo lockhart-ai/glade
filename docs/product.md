@@ -199,7 +199,34 @@ the plan's name and above how long ago it was read ("From Claude Code · updated
 Glade asks Claude Code as each task's session starts and after each turn (its experimental usage call), and also reads
 the rate limit events that come as each turn starts; when the call fails, the events alone keep the meter going. It
 keeps the latest reading of each limit, so a relaunch shows them again, and drops each when its window resets. An API
-key or a cloud provider has no plan limits, so the meter is hidden for them.
+key or a cloud provider has no plan limits, so the meter is hidden for them. Extra usage has a row from the moment it's
+turned on: with nothing spent yet it reads "Extra usage 0%" (of its monthly cap), and with no cap, "within limits".
+
+### Paused on a usage limit
+
+A turn that runs into a usage limit pauses its task rather than stopping it on an error
+(`design/screens/17-usage-limit.png`): one banner across the top for every paused task, in every workspace, saying
+when they resume, and each resumes by itself when its limit resets. Messages sent meanwhile wait in the queue. Three
+things end the pause sooner (#519):
+
+- **Resume now**, on the banner beside **Switch model**, tries every task a usage limit paused again at once, each on
+  its own model. A task still over the limit pauses again, with whatever reset time it's given: the banner comes back
+  for it, and there's no error card. (**Switch model** does the same on another model.)
+- **Glade resumes them by itself when the account can run again.** While any task is paused on a usage limit, it reads
+  the account's usage again when its window gets the focus and every 5 minutes, and the usage meter shows what it
+  read. When a reading says the account can run again, it resumes the paused tasks without a click: the limit that
+  turned a task away is no longer spent (a bigger plan, say), or extra usage is on with room left (turned on, nothing
+  disabling it, its spend limit not reached, under its monthly cap).
+- A reading can be wrong, so Glade acts on what it says **once**: on extra usage being available, however much of it
+  is spent, and on a limit having cleared, once for that limit's window. A task that's turned away again stays paused
+  through every later reading that says the same, whatever the percentages do meanwhile. It's tried again only when
+  that changes (extra usage stops being available and comes back, or the limit's window rolls over), when its limit
+  resets, or when you press **Resume now**.
+
+Glade reads usage through a session that's already running (a paused task's own stays alive), and never starts one
+just to ask. So after a relaunch with every task paused it has nothing to ask until a task runs: until then the
+tasks wait for their reset time or for **Resume now**. Nothing is read again while nothing is paused on a usage limit.
+A task paused because the network is down is left to the network: it resumes when that's back.
 
 ### Logged out
 
@@ -295,8 +322,11 @@ the switch the next time its agent's session starts. With it on:
   its reason, on the same card, and runs the command again once you allow it. Subagents ask the same way.
 - **Running a command outside the sandbox** always asks, in Allow all too, shows the command, and is only ever
   **Allow once** or **Deny**.
-- **Credential files** (`~/.ssh`, `~/.aws`, `~/.netrc` and the like) are never opened, even inside a folder you
-  granted.
+- **Credential files** (`~/.ssh`, `~/.aws`, `~/.netrc`, `~/.npmrc` and the like) and Glade's own data are never
+  opened, even inside a folder you granted.
+- **Files that run code** (git hooks and config, shell startup files, `.vscode`, `.mcp.json`, Claude Code's own
+  settings) stay closed to the agent's commands inside a folder granted read-write, and a file tool's write to one
+  is only ever **Allow once** or **Deny**.
 - **Changes apply at once.** A grant added, removed or made read-only reaches the running tasks it covers from their
   next call, without restarting them. One exception: a domain a running task was already allowed to reach on a card
   stays reachable until its session restarts.
@@ -308,7 +338,8 @@ the switch the next time its agent's session starts. With it on:
 
 The sandbox covers the agent's commands and file tools. The terminal tabs, Glade's own reading of your repository and
 Glade's own tools run as you, as before. Your own Claude Code settings (`~/.claude/settings.json`) still apply to a
-task's session, and an allow rule or sandbox setting there can widen what Glade grants. How it's built on the Claude
+task's session, but an allow rule there can't let a call past the sandbox unasked, and a command they exclude from
+the sandbox asks each time; a domain in their own sandbox lists, and their hooks and MCP servers, still apply. How it's built on the Claude
 Agent SDK's sandbox is in `decisions.md` and `sdk-notes.md` §15; how to use it is in the user guide.
 
 ## Settings

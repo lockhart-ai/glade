@@ -74,7 +74,9 @@ import {
   type SandboxSettings,
   type SettingsPermissions,
   type ToolPermissionAnswer,
+  type ToolStartDecision,
 } from './backend'
+import { BOUNDED_TOOLS } from '../permissions/sandbox-classify'
 import { CONTROL_SERVER } from '../control/names'
 import { GLADE_SERVER, GladeTool } from './glade-tools'
 import { ruleCovers } from '../../shared/permissions'
@@ -126,6 +128,7 @@ import {
   type WebFetchStep,
   type ProgressStep,
   type ScriptStep,
+  type ScriptedExtraUsage,
   type ShellStep,
   type ScriptTurn,
   type WakeStep,
@@ -201,6 +204,34 @@ export interface ScriptedSessionOptions {
    * `log stream` prints it (`seatbeltLog`, `docs/sdk-notes.md` §15), as the call runs. Nothing hears it by default.
    */
   readonly onSandboxLog?: (text: string) => void
+  /**
+   * Whether the account's extra usage is turned on when the usage call is asked (`ScriptedUsage.extraUsage`), so a test
+   * can turn it on while a task is paused on a usage limit (#519). On by default.
+   */
+  readonly extraUsageOn?: () => boolean
+}
+
+/**
+ * The usage call's `extra_usage` (`docs/sdk-notes.md`, "Usage limits"): turned on and usable as `extra` says, in the
+ * shape probed on a real login with it on; or, with none, turned off, in the shape of the SDK's types (what the call
+ * says of it turned off hasn't been seen). The values are made up.
+ */
+function extraUsageAnswer(extra: ScriptedExtraUsage | undefined): Record<string, unknown> {
+  if (extra === undefined) return { is_enabled: false, monthly_limit: null, used_credits: null, utilization: null }
+  return {
+    is_enabled: true,
+    monthly_limit: extra.monthlyLimit,
+    used_credits: extra.usedCredits,
+    utilization: extra.percent,
+    currency: 'USD',
+    disabled_reason: null,
+    decimal_places: 2,
+    user_disabled: false,
+    spend_limit_reached: false,
+    credits_ever_enabled: true,
+    daily: null,
+    weekly: null,
+  }
 }
 
 /** A script step that can't be played as written: the session dies with this, naming the step and what's wrong. */
@@ -634,8 +665,9 @@ export class ScriptedSession implements AgentSession {
   }
 
   /**
-   * What the SDK's experimental usage call answers: the script's `usage`, each window resetting that long from now.
-   * Without one, or before a script is picked, it rejects, as an SDK without the call would.
+   * What the SDK's experimental usage call answers: the script's `usage`, each window resetting that long from now,
+   * and its extra usage, once that's turned on (`ScriptedSessionOptions.extraUsageOn`). Without one, or before a script
+   * is picked, it rejects, as an SDK without the call would.
    */
   usage(): Promise<unknown> {
     const usage = this.script?.usage
@@ -645,10 +677,14 @@ export class ScriptedSession implements AgentSession {
       window,
       { utilization: percent, resets_at: new Date(now + resetInMs).toISOString() },
     ])
+    const extra = (this.options.extraUsageOn?.() ?? true) ? usage.extraUsage : undefined
     return Promise.resolve({
       subscription_type: usage.subscriptionType,
       rate_limits_available: true,
-      rate_limits: Object.fromEntries(windows) as unknown,
+      rate_limits: {
+        ...(Object.fromEntries(windows) as Record<string, unknown>),
+        extra_usage: extraUsageAnswer(extra),
+      },
       behaviors: null,
     })
   }
@@ -1194,6 +1230,9 @@ export class ScriptedSession implements AgentSession {
     call: PermissionCallStep,
     mcpServer: McpServerOrigin | null,
   ): Promise<ToolPermissionAnswer | null> {
+    // The session's hook decides first, in every mode and before any rule: its decision is final.
+    const started = await this.started(turn, call.parent, call.name, call.input, call.id, call.agentId)
+    if (started !== undefined) return started
     const covered = this.rules.some((rule) => scriptedRuleCovers(rule, call.name, call.input))
     if (this.permissionMode === PermissionMode.AllowAll || covered) {
       return { behavior: ToolPermissionBehavior.Allow, byUser: false }
@@ -1219,6 +1258,40 @@ export class ScriptedSession implements AgentSession {
       },
       call.agentId,
     )
+  }
+
+  /**
+   * Puts a call to one of the tools the sandbox bounds to the session's `PreToolUse` hook (`hooks.onToolStarting`), as
+   * Claude Code does before it matches a single rule, in every permission mode (`docs/sdk-notes.md` §15). The session
+   * goes idle if the hook doesn't answer at once (a card waits on the user). Answers its decision; undefined when
+   * there's no such hook, the tool isn't one it hears of, or it leaves the call to Claude Code; null when the turn was
+   * interrupted meanwhile: the interrupt cancels the hook's signal, as the SDK does.
+   */
+  private async started(
+    turn: TurnState,
+    parent: string | undefined,
+    toolName: string,
+    input: ToolInput,
+    id: string,
+    agentId?: string,
+  ): Promise<ToolStartDecision | null | undefined> {
+    const hook = this.options.session.hooks?.onToolStarting
+    if (hook === undefined || !BOUNDED_TOOLS.includes(toolName)) return undefined
+    const cancel = new AbortController()
+    void turn.interrupted.then(() => {
+      cancel.abort()
+    })
+    const pending = hook({
+      toolName,
+      input,
+      toolUseId: this.sdkToolId(turn, id),
+      agentId: parent === undefined ? null : (agentId ?? `a${this.idPrefix}${parent}`),
+      signal: cancel.signal,
+    })
+    if (!(await settlesAtOnce(pending))) this.idle(turn)
+    const decision = await pending
+    if (turn.isInterrupted) return null
+    return decision ?? undefined
   }
 
   /**
@@ -1299,10 +1372,27 @@ export class ScriptedSession implements AgentSession {
   private async shell(turn: TurnState, step: ShellStep, uuid: string | null): Promise<void> {
     const { command, description } = step
     this.toolUse(turn, step.id, 'Bash', { command, description }, step.parent ?? null, uuid)
+    if (await this.refused(turn, step, { command, description })) return
     const cwd = resolve(this.options.session.cwd, step.cwd ?? '.')
     await this.options.session.hooks?.onBashStarting?.({ toolUseId: this.sdkToolId(turn, step.id), cwd, command })
     const { output, failed } = await runShell(command, cwd)
     if (!turn.isInterrupted) this.toolResult(turn, step.id, output, failed)
+  }
+
+  /**
+   * Puts a `Bash` call to the session's hook (`started`) before it runs, and plays its refusal when the hook turns it
+   * away. Answers whether the call is over: refused, or interrupted while the hook decided.
+   */
+  private async refused(
+    turn: TurnState,
+    step: { readonly id: string; readonly parent?: string },
+    input: ToolInput,
+  ): Promise<boolean> {
+    const started = await this.started(turn, step.parent, 'Bash', input, step.id)
+    if (started === null) return true
+    if (started?.behavior !== ToolPermissionBehavior.Deny) return false
+    this.toolResult(turn, step.id, started.message, true)
+    return true
   }
 
   /** The sandbox the session runs in now: what `applyFlagSettings` set last, else its start's; null for none. */
@@ -1355,8 +1445,9 @@ export class ScriptedSession implements AgentSession {
   }
 
   /**
-   * Whether a file tool may use `path` without asking: it's in the session's folder or an additional directory, or,
-   * for a read, a folder a `Read` rule covers (in the settings permissions, or a task rule).
+   * Whether a file tool may use `path` without asking, by Claude Code's own rules: it's in the session's folder or an
+   * additional directory, or, for a read, a folder a `Read` rule covers (in the settings permissions, or a task rule).
+   * Glade's own settings name neither for a grant (#514), so a granted folder asks, and the runner lets it through.
    */
   private mayUseFile(path: string, access: FileAccess): boolean {
     const folders = [
@@ -1385,6 +1476,7 @@ export class ScriptedSession implements AgentSession {
     }
     if (command.trim() === '') throw new MalformedStepError(step.kind, id, 'it has no command')
     this.toolUse(turn, id, 'Bash', { command }, step.parent ?? null, uuid)
+    if (await this.refused(turn, step, { command })) return
     let allowed = true
     if (this.sandboxed() && !this.mayReach(host)) {
       const answer = await this.askRunner(turn, step.parent, networkAccessCall(host, randomUUID()))
@@ -1406,11 +1498,18 @@ export class ScriptedSession implements AgentSession {
     }
     const input = { url: step.url, prompt: step.prompt ?? DEFAULT_FETCH_PROMPT }
     this.toolUse(turn, step.id, 'WebFetch', input, step.parent ?? null, uuid)
-    const answer = !this.sandboxed()
-      ? await this.permitted(turn, { id: step.id, name: 'WebFetch', input, parent: step.parent }, null)
-      : this.mayFetch(url.hostname)
-        ? ALLOWED
-        : await this.askRunner(turn, step.parent, webFetchCall(this.sdkToolId(turn, step.id), input))
+    const call = { id: step.id, name: 'WebFetch', input, parent: step.parent }
+    if (!this.sandboxed()) {
+      this.answered(turn, step.id, step.output, await this.permitted(turn, call, null))
+      return
+    }
+    const started = await this.started(turn, step.parent, 'WebFetch', input, step.id)
+    const answer =
+      started !== undefined
+        ? started
+        : this.mayFetch(url.hostname) || step.settingsAllow === true
+          ? ALLOWED
+          : await this.askRunner(turn, step.parent, webFetchCall(this.sdkToolId(turn, step.id), input))
     this.answered(turn, step.id, step.output, answer)
   }
 
@@ -1427,11 +1526,22 @@ export class ScriptedSession implements AgentSession {
       throw new MalformedStepError(step.kind, id, `${tool} doesn't ${access} files`)
     }
     this.toolUse(turn, id, tool, input, step.parent ?? null, uuid)
-    const answer = !this.sandboxed()
-      ? await this.permitted(turn, { id, name: tool, input, parent: step.parent }, null)
-      : this.mayUseFile(path, access)
-        ? ALLOWED
-        : await this.askRunner(turn, step.parent, outsideFileCall(this.sdkToolId(turn, id), tool, input, path, access))
+    if (!this.sandboxed()) {
+      const call = { id, name: tool, input, parent: step.parent }
+      this.answered(turn, id, step.output, await this.permitted(turn, call, null))
+      return
+    }
+    const started = await this.started(turn, step.parent, tool, input, id)
+    const answer =
+      started !== undefined
+        ? started
+        : this.mayUseFile(path, access) || step.settingsAllow === true
+          ? ALLOWED
+          : await this.askRunner(
+              turn,
+              step.parent,
+              outsideFileCall(this.sdkToolId(turn, id), tool, input, path, access),
+            )
     this.answered(turn, id, step.output, answer)
   }
 
@@ -1447,11 +1557,20 @@ export class ScriptedSession implements AgentSession {
     this.toolUse(turn, id, 'Bash', input, step.parent ?? null, uuid)
     const askRule = this.permissionList((permissions) => permissions.ask).includes(SANDBOX_OVERRIDE_ASK_RULE)
     const covered = this.rules.some((rule) => scriptedRuleCovers(rule, 'Bash', input))
-    const answer = !this.sandboxed()
-      ? await this.permitted(turn, { id, name: 'Bash', input, parent: step.parent }, null)
-      : !askRule && covered
-        ? ALLOWED
-        : await this.askRunner(turn, step.parent, sandboxOverrideCall(this.sdkToolId(turn, id), input, askRule))
+    let answer: ToolPermissionAnswer | null
+    if (!this.sandboxed()) {
+      answer = await this.permitted(turn, { id, name: 'Bash', input, parent: step.parent }, null)
+    } else {
+      // The hook's refusal is final. Once it lets the call through, Glade's ask rule still has Claude Code ask about
+      // it, as an ask rule does whatever a hook allowed: the runner then answers as its hook decided.
+      const started = await this.started(turn, step.parent, 'Bash', input, id)
+      answer =
+        started === null || started?.behavior === ToolPermissionBehavior.Deny
+          ? started
+          : !askRule && covered
+            ? ALLOWED
+            : await this.askRunner(turn, step.parent, sandboxOverrideCall(this.sdkToolId(turn, id), input, askRule))
+    }
     if (answer === null) return
     switch (answer.behavior) {
       case ToolPermissionBehavior.Allow:
@@ -1479,6 +1598,7 @@ export class ScriptedSession implements AgentSession {
     }
     const input = { command, ...(step.description === undefined ? {} : { description: step.description }) }
     this.toolUse(turn, id, 'Bash', input, step.parent ?? null, uuid)
+    if (await this.refused(turn, step, input)) return
     const toolUseId = this.sdkToolId(turn, id)
     const { needs } = step
     // A command that says what it needs is blocked, or not, by the sandbox as it stands: the denials are only then.

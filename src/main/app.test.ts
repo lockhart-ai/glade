@@ -845,6 +845,39 @@ describe('startApp', () => {
     expect(backend.session.closed).toBe(true)
   })
 
+  it('reads the account’s usage again when its window gets the focus, while a task is paused on a usage limit (#519)', async () => {
+    const backend = new FakeAgentBackend()
+    startApp({ createAgentBackend: () => backend })
+    await Promise.resolve()
+    await Promise.resolve()
+    const db = new Database(join(electron.app.userData, 'glade.db'))
+    const task = sampleTask(db, sampleWorkspace(db).id)
+    db.close()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+    const focus = appHandler('browser-window-focus')
+    await handler?.(fromWindow(), CommandName.TasksSend, { id: task.id, text: 'Copy the uploads.' })
+    const { session } = backend
+
+    // Nothing is paused: the focus asks nothing.
+    focus({}, onlyWindow())
+    expect(session.usageCalls).toBe(1)
+
+    session.emit(sdk.init(), ...sdk.usageLimitTurnEnd(Math.ceil(Date.now() / 1000) + 3600))
+    await settle()
+    expect(session.usageCalls).toBe(2)
+
+    // Another window's focus, such as the menu bar popover's, is no return to Glade.
+    const other = new electron.FakeWindow({})
+    electron.windows.splice(electron.windows.indexOf(other), 1)
+    focus({}, other)
+    expect(session.usageCalls).toBe(2)
+
+    focus({}, onlyWindow())
+    expect(session.usageCalls).toBe(3)
+
+    appHandler('will-quit')()
+  })
+
   it('runs the terminal tabs’ shells as your login shell, from your home folder, and ends them when the app quits', async () => {
     vi.stubEnv('SHELL', '/bin/zsh')
     const spawner = createFakeSpawner()

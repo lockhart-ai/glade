@@ -71,6 +71,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.TasksStop]: () => ({ task: {} as Task }),
     [CommandName.TasksRetry]: () => ({ task: {} as Task }),
     [CommandName.TasksRetryLoggedOut]: () => ({ tasks: [] }),
+    [CommandName.TasksResumePaused]: () => ({ tasks: [] }),
     [CommandName.TasksCompact]: () => ({ task: {} as Task }),
     [CommandName.TasksHistory]: () => ({
       messages: [],

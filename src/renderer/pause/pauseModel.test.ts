@@ -4,6 +4,7 @@ import { sampleTask } from '../store/test-bridge'
 import {
   bannerText,
   isPaused,
+  offersResumeNow,
   offersSwitchModel,
   pausedChatLine,
   pausedStatusLine,
@@ -101,6 +102,18 @@ describe('bannerText', () => {
       title: 'Usage limit reached, and can’t reach the API.',
       text: '2 tasks are paused and will resume on their own.',
     })
+  })
+})
+
+describe('Resume now', () => {
+  it('is offered while a usage limit holds a task, and never for the network alone', () => {
+    const limited = paused('a', PauseReason.UsageLimit)
+    const offline = paused('b', PauseReason.Offline)
+
+    expect(offersResumeNow([limited])).toBe(true)
+    expect(offersResumeNow([offline, limited])).toBe(true)
+    expect(offersResumeNow([offline])).toBe(false)
+    expect(offersResumeNow([])).toBe(false)
   })
 })
 

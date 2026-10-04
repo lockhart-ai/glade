@@ -32,6 +32,7 @@ import {
   FileContentKind,
   FileThumbnailKind,
   MessageRole,
+  PauseReason,
   PermissionDecisionKind,
   PermissionDestination,
   PermissionRequestState,
@@ -506,6 +507,11 @@ export function fakeHandlers(
       tasks: main.tasks
         .filter((task) => task.activity === TaskActivity.Error && task.error?.kind === AgentErrorKind.LoggedOut)
         .map((task) => writeTask(task.id, { activity: TaskActivity.Working, error: null }).task),
+    }),
+    [CommandName.TasksResumePaused]: () => ({
+      tasks: main.tasks
+        .filter((task) => task.activity === TaskActivity.Paused && task.pause?.reason === PauseReason.UsageLimit)
+        .map((task) => writeTask(task.id, { activity: TaskActivity.Working, pause: null }).task),
     }),
     [CommandName.TasksHistory]: ({ id }) => ({
       messages: (main.messages ?? []).filter((message) => message.taskId === id),

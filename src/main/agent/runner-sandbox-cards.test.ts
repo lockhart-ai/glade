@@ -251,7 +251,10 @@ async function isSettled(promise: Promise<unknown>): Promise<boolean> {
   return (await Promise.race([promise, settle().then(() => pending)])) !== pending
 }
 
-/** The folders the session's commands may read and write, and what its file tools and `WebFetch` may use, now. */
+/**
+ * The folders the session's commands may read and write, and the rules Claude Code is given, now. A grant is never a
+ * rule or a directory for the file tools (#514): `allow` holds domains only, and there are no `additionalDirectories`.
+ */
 function overlay(session: FakeAgentSession) {
   const last = session.flagSettings.at(-1)
   return {
@@ -552,12 +555,12 @@ describe('answering a folder or domain card', () => {
     expect(taskGrants()).toEqual([{ kind: SandboxGrantKind.Folder, path: WEB, access: FolderAccess.Read }])
     expect(taskGrants(other.id)).toEqual([])
     expect(workspaceGrants()).toEqual([])
-    // Read-only: commands and file tools may read it, not write it.
+    // Read-only: commands may read it, not write it. Claude Code's file tools are told nothing of it.
     expect(overlay(session)).toEqual({
       allowRead: [ROOT, WEB],
       allowWrite: [ROOT],
-      allow: [`Read(/${WEB}/**)`],
-      additionalDirectories: [],
+      allow: [],
+      additionalDirectories: undefined,
     })
     expect(otherSession.flagSettings).toHaveLength(overlays)
     expect(listTaskPermissionRules(database.db, task.id)).toEqual([])
@@ -588,7 +591,8 @@ describe('answering a folder or domain card', () => {
     for (const live of [session, otherSession]) {
       expect(overlay(live)).toMatchObject({
         allowWrite: [ROOT, `${WEB}/src/api`],
-        additionalDirectories: [`${WEB}/src/api`],
+        allow: [],
+        additionalDirectories: undefined,
       })
     }
     expect(backend.sessions).toHaveLength(3)
@@ -652,7 +656,7 @@ describe('answering a folder or domain card', () => {
       allowRead: [ROOT, WEB],
       allowWrite: [ROOT, WEB],
       allow: [],
-      additionalDirectories: [WEB],
+      additionalDirectories: undefined,
     })
   })
 
@@ -849,7 +853,7 @@ describe('a card open when Glade quits', () => {
     expect(taskGrants()).toEqual([{ kind: SandboxGrantKind.Folder, path: WEB, access: FolderAccess.Read }])
     const resumed = backend.session
     // The resumed session's first overlay has the grant, ahead of the message that tells the agent.
-    expect(overlay(resumed)).toMatchObject({ allowRead: [ROOT, WEB], allow: [`Read(/${WEB}/**)`] })
+    expect(overlay(resumed)).toMatchObject({ allowRead: [ROOT, WEB], allow: [] })
     expect(resumed.sent).toHaveLength(1)
     expect(resumed.sent[0]?.text).toContain(
       `- Your request to read ${WEB} (Read call toolu_read): allowed for this task, and in force now.`,
@@ -1332,7 +1336,7 @@ describe('request_access', () => {
 
     expect(taskGrants()).toEqual([{ kind: SandboxGrantKind.Folder, path: CACHE, access: FolderAccess.ReadWrite }])
     const resumed = backend.session
-    expect(overlay(resumed)).toMatchObject({ allowWrite: [ROOT, CACHE], additionalDirectories: [CACHE] })
+    expect(overlay(resumed)).toMatchObject({ allowWrite: [ROOT, CACHE], additionalDirectories: undefined })
     expect(resumed.sent[0]?.text).toContain(
       `- Your request to write to ${CACHE} (${REQUEST_ACCESS_TOOL} call toolu_access): allowed for this task, and in ` +
         'force now. Run what needed it again.',
@@ -1803,7 +1807,8 @@ describe('a card grants exactly what it showed', () => {
     expect(overlay(session)).toMatchObject({
       allowRead: [ROOT, CACHE],
       allowWrite: [ROOT, CACHE],
-      additionalDirectories: [CACHE],
+      // Before #514, the path was an additional directory too, which Claude Code resolved, link and all, for itself.
+      additionalDirectories: undefined,
     })
     // And no call through the link is marked as let through by the grant.
     expect(listPermissionMarks(database.db, task.id).map(({ toolUseId }) => toolUseId)).toEqual(['toolu_inside'])
@@ -1848,12 +1853,12 @@ describe('a file whose folder is too much to offer', () => {
     expect(toolCall('toolu_access').output).toBe(
       `Allowed for this task: you can now read ${GITCONFIG}. Run the command that was blocked again.`,
     )
-    // Commands may read that file; the file tools get a rule for exactly it, with no `/**` and no directory.
+    // Commands may read that file; Claude Code's file tools are told nothing of it.
     expect(overlay(session)).toEqual({
       allowRead: [ROOT, GITCONFIG],
       allowWrite: [ROOT],
-      allow: [`Read(/${GITCONFIG})`],
-      additionalDirectories: [],
+      allow: [],
+      additionalDirectories: undefined,
     })
 
     // Glade's own check agrees: the file reads, and nothing beside it does.
@@ -1870,9 +1875,10 @@ describe('a file whose folder is too much to offer', () => {
       await callTool(session, reads(toolUseId, path))
       expect(only(toolUseId).state).toBe(PermissionRequestState.Open)
     }
-    // It was granted to read: a write to it asks, for the file again.
+    // It was granted to read. A write to it is a write to a file that runs code: the plain card, allowed once, and
+    // never a grant of the file (before #514, this card offered the file read-write for the task).
     await callTool(session, writeOf('toolu_write', GITCONFIG))
-    expect(only('toolu_write').sandbox).toEqual({ ...file, access: FolderAccess.ReadWrite })
+    expect(only('toolu_write')).toMatchObject({ sandbox: null, suppressAlwaysAllowRule: true })
     // Asked for again, there's nothing to decide.
     await asksAccess(session, 'toolu_again', GITCONFIG)
     expect(toolCall('toolu_again').output).toBe(
@@ -1893,13 +1899,13 @@ describe('a file whose folder is too much to offer', () => {
     expect(workspaceGrants()).toEqual([
       { kind: SandboxGrantKind.Folder, path: NOTES, access: FolderAccess.ReadWrite, file: true },
     ])
-    // Commands may read and write that file; the file tools get `Read` and `Edit` rules for exactly it. It's never an
-    // additional directory, which Claude Code takes for a folder and all in it.
+    // Commands may read and write that file. Claude Code's file tools are told nothing of it: no rule, and never an
+    // additional directory, which it takes for a folder and all in it.
     expect(overlay(session)).toEqual({
       allowRead: [ROOT, NOTES],
       allowWrite: [ROOT, NOTES],
-      allow: [`Read(/${NOTES})`, `Edit(/${NOTES})`],
-      additionalDirectories: [],
+      allow: [],
+      additionalDirectories: undefined,
     })
     // What's beside it still asks, each for itself.
     for (const [index, path] of [`${HOME}/notes-2.txt`, `${NOTES}.bak`, `${NOTES}/x`].entries()) {
@@ -1908,12 +1914,12 @@ describe('a file whose folder is too much to offer', () => {
       expect(only(toolUseId).state).toBe(PermissionRequestState.Open)
       expect(only(toolUseId).sandbox).not.toBeNull()
     }
-    // A read of it goes ahead. A write Claude Code still asks about gets the plain card, in Allow all, as any write
-    // inside the bounds that reaches Glade does: allowed once or denied, never more.
+    // A read of it goes ahead, and so does a write: Claude Code asks about each, not knowing of the grant, and Glade
+    // lets the granted file through.
     const read = await callTool(session, reads('toolu_read', NOTES))
     await expect(read.answer).resolves.toEqual(ALLOWED_AT_ONCE)
-    await callTool(session, writeOf('toolu_write_2', NOTES))
-    expect(only('toolu_write_2')).toMatchObject({ sandbox: null, state: PermissionRequestState.Open })
+    const again = await callTool(session, writeOf('toolu_write_2', NOTES))
+    await expect(again.answer).resolves.toEqual(ALLOWED_AT_ONCE)
   })
 
   it('request_access refuses a folder that’s too much, with no card, and says where to add it', async () => {
@@ -1962,7 +1968,7 @@ describe('a file whose folder is too much to offer', () => {
 
     // Before #510's review, each of these cards asked for the workspace root itself.
     void asksAccess(session, 'toolu_link', `${ROOT}/linked.json`)
-    void asksAccess(session, 'toolu_home_link', `${ROOT}/gitconfig`, 'write')
+    void asksAccess(session, 'toolu_home_link', `${ROOT}/gitconfig`)
     await callTool(session, reads('toolu_read', `${ROOT}/linked.json`))
 
     const web = { kind: SandboxAskKind.Folder, path: WEB, access: FolderAccess.Read }
@@ -1971,7 +1977,7 @@ describe('a file whose folder is too much to offer', () => {
     expect(only('toolu_home_link').sandbox).toEqual({
       kind: SandboxAskKind.Folder,
       path: GITCONFIG,
-      access: FolderAccess.ReadWrite,
+      access: FolderAccess.Read,
       file: true,
     })
     rmSync(`${ROOT}/linked.json`, { force: true })

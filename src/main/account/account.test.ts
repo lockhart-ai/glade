@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { UsageLevel, UsageLimitKind, UsageWindow, type UsageReading } from '../../shared/account'
+import { UsageLevel, UsageLimitKind, UsageWindow, type UsageReading, type UsageSnapshot } from '../../shared/account'
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import { AgentEventKind, RateLimitStatus, type RateLimitEvent } from '../agent/events'
 import { MAX_TIMER_MS } from '../agent/pauses'
@@ -66,6 +66,25 @@ function answer(rateLimits: Record<string, unknown> | null = {}, available = tru
           },
     behaviors: null,
   }
+}
+
+/**
+ * The call's `extra_usage` with extra usage on and nothing spent, in the shape probed on a real login on Oct 4
+ * (`docs/sdk-notes.md`, "Usage limits"): the amounts are in cents, and the values made up.
+ */
+const EXTRA_ON = {
+  is_enabled: true,
+  monthly_limit: 5000,
+  used_credits: 0,
+  utilization: null,
+  currency: 'USD',
+  disabled_reason: null,
+  decimal_places: 2,
+  user_disabled: false,
+  spend_limit_reached: false,
+  credits_ever_enabled: true,
+  daily: null,
+  weekly: null,
 }
 
 const SESSION: UsageReading = {
@@ -138,7 +157,11 @@ describe('parseAccountInfo', () => {
 
 describe('parseUsage', () => {
   it('reads every window with how much is used, as a fraction, and when it resets', () => {
-    expect(parseUsage(answer(), NOW)).toEqual({ kind: UsageAnswerKind.Readings, readings: [SESSION, WEEK, OPUS] })
+    expect(parseUsage(answer(), NOW)).toEqual({
+      kind: UsageAnswerKind.Readings,
+      readings: [SESSION, WEEK, OPUS],
+      extraUsageAvailable: false,
+    })
   })
 
   it('reads the per-model windows the server names, and extra usage while it’s on', () => {
@@ -172,7 +195,84 @@ describe('parseUsage', () => {
         },
         { ...SESSION, limit: { kind: UsageLimitKind.ExtraUsage }, utilization: 0.248, resetsAt: null },
       ],
+      // Nothing here says whether it's disabled or its spend limit reached: not known, so not available.
+      extraUsageAvailable: false,
     })
+  })
+
+  it('reads extra usage that’s on with nothing spent yet, when the call gives no percentage (#519)', () => {
+    // What the call answered on a login with extra usage on, Oct 4 (`docs/sdk-notes.md`): the values are made up.
+    const parsed = parseUsage(
+      answer({ five_hour: { utilization: 100, resets_at: iso(HOUR) }, extra_usage: EXTRA_ON }),
+      NOW,
+    )
+
+    expect(parsed).toMatchObject({ kind: UsageAnswerKind.Readings, extraUsageAvailable: true })
+    expect(parsed.kind === UsageAnswerKind.Readings && parsed.readings.at(-1)).toEqual({
+      limit: { kind: UsageLimitKind.ExtraUsage },
+      utilization: 0,
+      resetsAt: null,
+      level: UsageLevel.Within,
+      readAt: NOW,
+    })
+  })
+
+  it.each<[string, Record<string, unknown>, number | null, UsageLevel]>([
+    ['the call’s own percentage', { utilization: 24.8, used_credits: 9999 }, 0.248, UsageLevel.Within],
+    ['what’s spent of the cap, with no percentage', { used_credits: 1250 }, 0.25, UsageLevel.Within],
+    ['close to the cap', { used_credits: 4000 }, 0.8, UsageLevel.Warning],
+    ['the cap spent', { used_credits: 5000, spend_limit_reached: true }, 1, UsageLevel.Limited],
+    ['past the cap', { used_credits: 6000 }, 1.2, UsageLevel.Limited],
+    ['no cap: no amount, but still a row', { monthly_limit: null, used_credits: 310 }, null, UsageLevel.Within],
+    ['a cap of nothing: no amount', { monthly_limit: 0, used_credits: 0 }, null, UsageLevel.Within],
+    ['nothing said of what’s spent', { used_credits: null }, null, UsageLevel.Within],
+    ['a malformed cap', { monthly_limit: 'lots', used_credits: 10 }, null, UsageLevel.Within],
+    ['a malformed amount spent', { used_credits: -5 }, null, UsageLevel.Within],
+  ])('reads how much of extra usage is used from %s', (_, fields, utilization, level) => {
+    const parsed = parseUsage(answer({ extra_usage: { ...EXTRA_ON, ...fields } }), NOW)
+
+    expect(parsed.kind === UsageAnswerKind.Readings && parsed.readings.at(-1)).toEqual({
+      limit: { kind: UsageLimitKind.ExtraUsage },
+      utilization,
+      resetsAt: null,
+      level,
+      readAt: NOW,
+    })
+  })
+
+  it('reads no extra usage while it’s off, whatever else it says', () => {
+    const parsed = parseUsage(answer({ extra_usage: { ...EXTRA_ON, is_enabled: false } }), NOW)
+
+    expect(parsed).toEqual({
+      kind: UsageAnswerKind.Readings,
+      readings: [SESSION, WEEK, OPUS],
+      extraUsageAvailable: false,
+    })
+  })
+
+  it.each<[string, Record<string, unknown> | null, boolean]>([
+    ['on, nothing disabling it, under its cap', {}, true],
+    ['on with part of its cap spent', { used_credits: 4999 }, true],
+    ['on with no cap, the call says so', { monthly_limit: null, used_credits: 310 }, true],
+    ['off', { is_enabled: false }, false],
+    ['on, but not saying it is', { is_enabled: 'yes' }, false],
+    ['its cap spent', { used_credits: 5000 }, false],
+    ['its cap spent, by its own percentage', { utilization: 100 }, false],
+    ['its spend limit reached', { spend_limit_reached: true }, false],
+    ['disabled for a reason', { disabled_reason: 'out_of_credits' }, false],
+    ['not saying whether its spend limit is reached', { spend_limit_reached: undefined }, false],
+    ['a malformed spend limit', { spend_limit_reached: 'no' }, false],
+    ['not saying whether it’s disabled', { disabled_reason: undefined }, false],
+    ['a malformed reason', { disabled_reason: 0 }, false],
+    ['a cap of nothing', { monthly_limit: 0 }, false],
+    ['not saying its cap', { monthly_limit: undefined }, false],
+    ['a malformed cap', { monthly_limit: 'lots' }, false],
+    ['a cap, but not what’s spent of it', { used_credits: undefined }, false],
+    ['no word of extra usage at all', null, false],
+  ])('takes extra usage as available only when the call says all of it outright: %s', (_, fields, available) => {
+    const parsed = parseUsage(answer({ extra_usage: fields === null ? undefined : { ...EXTRA_ON, ...fields } }), NOW)
+
+    expect(parsed).toMatchObject({ kind: UsageAnswerKind.Readings, extraUsageAvailable: available })
   })
 
   it('leaves out a malformed window, one with no amount, and one already reset; a bad reset time is none', () => {
@@ -197,6 +297,7 @@ describe('parseUsage', () => {
           resetsAt: null,
         },
       ],
+      extraUsageAvailable: false,
     })
   })
 
@@ -329,6 +430,32 @@ describe('createAccountTracker', () => {
       status: { account: null, usage: [SESSION, WEEK, OPUS] },
     })
     expect(log.withMessage('usage read from the usage call')).toHaveLength(1)
+  })
+
+  it('hands each answer that gave readings on, once they’re saved and broadcast, and no other', () => {
+    const heard: UsageSnapshot[] = []
+    tracker = createAccountTracker({
+      db: database.db,
+      emit: (event) => events.push(event),
+      onUsageRead: (usage) => {
+        // By now the window has the readings too.
+        expect(events.at(-1)).toMatchObject({ type: EventType.AccountChanged })
+        expect(listUsageReadings(database.db)).toEqual(usage.readings)
+        heard.push(usage)
+      },
+    })
+
+    tracker.usageRead(answer({ extra_usage: EXTRA_ON }))
+    tracker.usageRead({ rate_limits: 'unexpected' })
+    tracker.usageRead(answer(null, false))
+    tracker.rateLimit(limit())
+
+    expect(heard).toEqual([
+      {
+        readings: [SESSION, WEEK, OPUS, expect.objectContaining({ limit: { kind: UsageLimitKind.ExtraUsage } })],
+        extraUsageAvailable: true,
+      },
+    ])
   })
 
   it('falls back to the rate limit events when the call makes no sense, and keeps what they said', () => {

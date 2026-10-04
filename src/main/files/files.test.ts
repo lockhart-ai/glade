@@ -34,6 +34,7 @@ import {
   MAX_IMAGE_FILE_BYTES,
   openTaskFile,
   openTaskFileInEditor,
+  OpenWith,
   readTaskFile,
   readWorkspaceFile,
   resolveWorkspaceFile,
@@ -298,16 +299,80 @@ describe('the task commands', () => {
     expect(() => openTaskFile(context, 'gone', 'README.md')).toThrow(CommandFailure)
   })
 
-  it('open a file in the editor by its real path, or fail when it is missing or macOS can’t', async () => {
+  it('open a file in the text editor by its real path, or fail when it is missing or macOS can’t', async () => {
     write('README.md', '# Acme API\n')
 
     await openTaskFileInEditor(context, taskId, 'README.md')
-    expect(context.openPath).toHaveBeenCalledExactlyOnceWith(realpathSync(join(root, 'README.md')))
+    expect(context.openPath).toHaveBeenCalledExactlyOnceWith(realpathSync(join(root, 'README.md')), OpenWith.TextEditor)
 
     expect((await failure(openTaskFileInEditor(context, taskId, 'gone.md'))).code).toBe(BridgeErrorCode.NotFound)
     vi.mocked(context.openPath).mockResolvedValueOnce('No application knows how to open it')
     await expect(openTaskFileInEditor(context, taskId, 'README.md')).rejects.toThrow(
       "Couldn't open README.md: No application knows how to open it",
+    )
+  })
+
+  // #514, finding 6: Open in editor handed the file to `shell.openPath`, and macOS opens a Unix executable or a
+  // `.command` file in Terminal, which runs it, outside any sandbox. The agent writes the workspace's files.
+  it.each([
+    ['an extensionless script with the execute bit, named like a harmless file', 'LICENSE', 0o755],
+    ['a .command file', 'notes.command', 0o644],
+    ['a .command file with the execute bit', 'setup.command', 0o755],
+    ['a .tool file', 'build.tool', 0o755],
+    ['a .terminal settings file', 'theme.terminal', 0o644],
+    ['a shell script', 'run.sh', 0o755],
+    ['a .jar', 'tool.jar', 0o644],
+    ['a .pkg', 'installer.pkg', 0o644],
+    ['a web location, which opens a URL', 'docs.webloc', 0o644],
+    ['a file with no extension and no execute bit', 'Makefile', 0o644],
+    ['a dotfile', '.env.example', 0o644],
+  ])('open %s as text, never in the app macOS would run it with', async (_what, name, mode) => {
+    write(name, '#!/bin/sh\necho sample\n')
+    chmodSync(join(root, name), mode)
+
+    await openTaskFileInEditor(context, taskId, name)
+
+    expect(context.openPath).toHaveBeenCalledExactlyOnceWith(realpathSync(join(root, name)), OpenWith.TextEditor)
+    expect(context.revealPath).not.toHaveBeenCalled()
+  })
+
+  it.each(['shot.png', 'photo.JPG', 'diagram.jpeg', 'anim.gif', 'pic.webp', 'scan.tiff', 'report.pdf'])(
+    'open %s, which only ever shows, in the app macOS shows it with',
+    async (name) => {
+      write(name, 'sample')
+
+      await openTaskFileInEditor(context, taskId, name)
+
+      expect(context.openPath).toHaveBeenCalledExactlyOnceWith(realpathSync(join(root, name)), OpenWith.Default)
+    },
+  )
+
+  it('take a link for the file it leads to: a script behind a picture’s name opens as text', async () => {
+    write('deploy.command', '#!/bin/sh\necho sample\n')
+    chmodSync(join(root, 'deploy.command'), 0o755)
+    symlinkSync(join(root, 'deploy.command'), join(root, 'shot.png'))
+
+    await openTaskFileInEditor(context, taskId, 'shot.png')
+
+    expect(context.openPath).toHaveBeenCalledExactlyOnceWith(
+      realpathSync(join(root, 'deploy.command')),
+      OpenWith.TextEditor,
+    )
+  })
+
+  it('show a folder in Finder and never open it: an app, or a workflow, is a folder too', async () => {
+    for (const bundle of ['Sample.app/Contents/MacOS', 'Resize.workflow/Contents', 'docs']) {
+      mkdirSync(join(root, bundle), { recursive: true })
+    }
+    write('Sample.app/Contents/MacOS/Sample', '#!/bin/sh\necho sample\n')
+
+    for (const folder of ['Sample.app', 'Resize.workflow', 'docs']) {
+      await openTaskFileInEditor(context, taskId, folder)
+    }
+
+    expect(context.openPath).not.toHaveBeenCalled()
+    expect(vi.mocked(context.revealPath).mock.calls).toEqual(
+      ['Sample.app', 'Resize.workflow', 'docs'].map((folder) => [realpathSync(join(root, folder))]),
     )
   })
 })

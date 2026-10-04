@@ -10,6 +10,7 @@ import type { ChildRef, Filing, NewFiling } from '../shared/todoHub'
 import type { SandboxFlagSettings } from './agent/backend'
 import { AGENT_SCRIPT_NAMES, type AgentScriptName } from './agent/scripts'
 import type { UserContent } from './agent/user-content'
+import { OpenWith, type OpenPath } from './files/open-path'
 import { isInTempFolder, isolateApp, type IsolatedApp } from './isolation'
 import type { Environment } from './login-env'
 
@@ -45,17 +46,21 @@ export const E2E_EDITOR_GLOBAL = '__gladeE2eEditor'
 /** The files Open in editor opened in e2e mode (`E2E_EDITOR_GLOBAL`), oldest first, by their real paths. */
 export interface E2eEditor {
   readonly opened: string[]
+  /** Those of them opened as text, in the text editor, rather than in the app macOS opens their kind of file with. */
+  readonly asText: string[]
 }
 
 /**
  * Puts an empty `E2eEditor` on the global object for a spec to read (`E2E_EDITOR_GLOBAL`), and answers with what opens
- * a file in e2e mode in place of Electron's `shell.openPath`: it records the path, and succeeds.
+ * a file in e2e mode in place of Electron's `shell.openPath` and `open -t`: it records the path, and whether it was
+ * opened as text, and succeeds.
  */
-export function createE2eEditor(): (path: string) => Promise<string> {
-  const editor: E2eEditor = { opened: [] }
+export function createE2eEditor(): OpenPath {
+  const editor: E2eEditor = { opened: [], asText: [] }
   Reflect.set(globalThis, E2E_EDITOR_GLOBAL, editor)
-  return (path) => {
+  return (path, how) => {
     editor.opened.push(path)
+    if (how === OpenWith.TextEditor) editor.asText.push(path)
     return Promise.resolve('')
   }
 }
@@ -133,6 +138,11 @@ export interface E2eAgent {
   readonly flagSettings: SandboxFlagSettings[]
   /** What Seatbelt logged of the sessions' sandboxed commands, one denial each, as `log stream` prints it. */
   readonly sandboxLog: string[]
+  /**
+   * Whether the account's extra usage is turned on, as the sessions' usage call says when asked: off until a spec turns
+   * it on, as you would in the browser while a task is paused on a usage limit (#519).
+   */
+  extraUsage: boolean
 }
 
 /** What records the scripted agent's sessions and messages for a spec (`createE2eAgent`). */
@@ -143,17 +153,20 @@ export interface E2eAgentRecorder {
   ) => void
   readonly onFlagSettings: (settings: SandboxFlagSettings) => void
   readonly onSandboxLog: (text: string) => void
+  /** Whether the spec has turned the account's extra usage on (`E2eAgent.extraUsage`). */
+  readonly extraUsageOn: () => boolean
 }
 
 /**
  * Puts an empty `E2eAgent` on the global object for a spec to read (`E2E_AGENT_GLOBAL`), and answers with what hears
  * each session the scripted agent starts and each message it's sent: it records the session's options and the
- * message's content.
+ * message's content. It also says whether the spec has turned extra usage on.
  */
 export function createE2eAgent(): E2eAgentRecorder {
-  const agent: E2eAgent = { received: [], sessions: [], flagSettings: [], sandboxLog: [] }
+  const agent: E2eAgent = { received: [], sessions: [], flagSettings: [], sandboxLog: [], extraUsage: false }
   Reflect.set(globalThis, E2E_AGENT_GLOBAL, agent)
   return {
+    extraUsageOn: () => agent.extraUsage,
     onSent: (content) => {
       agent.received.push(content)
     },
