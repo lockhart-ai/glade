@@ -429,6 +429,28 @@
       where its own card or task rule already says what was decided; that a call waiting on another call's card is
       withdrawn with it when the turn is stopped; and that a server whose name leaves nothing a tool's name can carry
       gets the plain card (Allow once · Deny).
+  - **The escape battery is the sandbox's acceptance test (P15-12, #516):** with nothing granted and every card
+    denied, an agent reaches nothing beyond its floor. What the floor is, what the battery tries and how to add an
+    entry are in `escape-battery.md`.
+    - **The real Claude Code, a stand-in for the model.** A scripted agent would test Glade's model of the sandbox,
+      not the sandbox. So the battery's app runs the real backend, with the bundled Claude Code and Seatbelt, against
+      a server on the same Mac that replays a fixed list of tool calls. An e2e run takes a stand-in only at
+      `http://127.0.0.1:<port>`, with no other endpoint or login in the session's environment, every other host a
+      dead end, and a throwaway home folder; every other e2e run and every capture still plays scripts.
+    - **Everything it names is a dummy:** a home folder and workspace in the system temp folder, canary files
+      holding random tokens, listeners on the loopback address, names under `.invalid`.
+    - **It runs on every PR,** as one of the e2e specs on the macOS runners, and a new finding from a review is
+      added as an entry in the PR that fixes it.
+    - **The live red-team run with a real model is deferred** (decided with Jared: one thing at a time, and the aim
+      for now is a reasonable guard against an agent clobbering the system by accident, not a locked box). When
+      it's picked up it runs only in a disposable macOS VM, never on a developer's Mac; so do the attacks that would
+      act on the real Mac if they got out (`launchctl`, `open`, Apple events).
+    - Calls made without Jared: **the dummy home's own Claude Code settings allow everything the sandbox holds
+      whatever they say** (every file tool, `WebFetch`, `Bash`, each MCP server's tools, `SendMessage` and
+      `RemoteTrigger` allowed whole, the sandbox's switches at their loosest, commands kept out of the sandbox), since that is the harder case and a second pass with no settings
+      would double the run for little; **a second test allows every card** in the same dummy world, to check that
+      the battery sees an escape when there is one; and **`request_access` is tried only on the dummy home's
+      folders**, never on `/`, `/Users` or `/Volumes`, which the unit tests cover.
   - **A session resumed into the sandbox is told of it once (P15-07, #452).** Claude Code keeps a session's system
     prompt when it resumes it, so a session that started before the sandbox was on knows nothing of it, nor that a
     blocked command is answered with `request_access`. When such a session runs sandboxed, Glade sends it what the

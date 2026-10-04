@@ -41,6 +41,7 @@ claude mcp add --transport http glade-control http://127.0.0.1:45233/mcp --heade
 - [Decisions](https://github.com/lockhart-ai/glade/blob/main/docs/decisions.md): everything already decided.
 - [Plan](https://github.com/lockhart-ai/glade/blob/main/docs/plan.md): the phases, in order.
 - [Kitten SOP](https://github.com/lockhart-ai/glade/blob/main/docs/kitten-sop.md): how a worker agent takes an issue to a PR.
+- [Escape battery](https://github.com/lockhart-ai/glade/blob/main/docs/escape-battery.md): the agent sandbox's acceptance test: what an agent with nothing granted can still do, the attacks it's put through, and how to add one.
 
 ## Optional
 
