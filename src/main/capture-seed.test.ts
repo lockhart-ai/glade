@@ -419,16 +419,23 @@ describe('readSeed', () => {
       /is invalid: /,
     )
     const reading = { kind: 'session', utilization: 0.4, resetsInMinutes: 5, readMinutesAgo: 1 }
+    const CAD = { spent: 1234, cap: null, currency: 'CAD', decimalPlaces: 2 }
     for (const bad of [
       { ...reading, utilization: -1 },
       { ...reading, kind: 'fortnightly' },
       // A model is named for a per-model weekly limit, and only for one.
       { ...reading, kind: 'weekly_model' },
       { ...reading, model: 'Opus' },
+      // Only extra usage's reading says what the usage call said of extra usage, and its money is whole.
+      { ...reading, extraUsage: { available: true, spend: null } },
+      { ...reading, kind: 'extra_usage', extraUsage: { available: true, spend: { spent: 1234, cap: null } } },
+      { ...reading, kind: 'extra_usage', extraUsage: { available: true, spend: { ...CAD, currency: 'dollars' } } },
     ]) {
       expect(() => readSeed(write(JSON.stringify({ ...SEED, usage: [bad] })))).toThrow(/is invalid: /)
     }
     expect(readSeed(write(JSON.stringify({ ...SEED, usage: [reading] }))).usage).toEqual([reading])
+    const extra = { ...reading, kind: 'extra_usage', extraUsage: { available: true, spend: CAD } }
+    expect(readSeed(write(JSON.stringify({ ...SEED, usage: [extra] }))).usage).toEqual([extra])
   })
 
   it('refuses a fixture that is missing or not JSON', () => {
@@ -1180,6 +1187,13 @@ describe('applySeed', () => {
             resetsInMinutes: null,
             readMinutesAgo: 0,
           },
+          {
+            kind: UsageLimitKind.ExtraUsage,
+            utilization: null,
+            resetsInMinutes: null,
+            readMinutesAgo: 0,
+            extraUsage: { available: true, spend: { spent: 1234, cap: null, currency: 'CAD', decimalPlaces: 2 } },
+          },
         ],
       },
       NOW,
@@ -1209,6 +1223,15 @@ describe('applySeed', () => {
         resetsAt: null,
         level: UsageLevel.Warning,
         readAt: NOW,
+      },
+      // Extra usage, with what the usage call said of it: the money spent.
+      {
+        limit: { kind: UsageLimitKind.ExtraUsage },
+        utilization: null,
+        resetsAt: null,
+        level: UsageLevel.Within,
+        readAt: NOW,
+        extraUsage: { available: true, spend: { spent: 1234, cap: null, currency: 'CAD', decimalPlaces: 2 } },
       },
     ])
   })
