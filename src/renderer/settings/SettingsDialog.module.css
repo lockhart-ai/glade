@@ -524,3 +524,170 @@
   color: var(--color-pink);
   text-align: right;
 }
+
+/*
+ * The sandbox (docs/design/html/39-settings-sandbox.html, 40-settings-sandbox-states.html and
+ * 41-settings-workspace-sandbox.html): its heading with the shield, then the Folders and Domains lists.
+ */
+.sandboxHeading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 0;
+}
+
+.workspaceSandbox .sandboxHeading {
+  margin-top: 14px;
+}
+
+/* The line under a workspace's Sandbox heading. */
+.sandboxIntro {
+  margin: 6px 0;
+  font-size: var(--font-size-secondary);
+  color: var(--color-faint);
+}
+
+/* A list's name and what it's for, with Add… on the right: a setting's row with no rule under it. */
+.grantListHeader {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 24px;
+  padding: 16px 0 10px;
+}
+
+/* The bordered box of a list's rows. */
+.grantList {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-inner-border);
+  border-radius: var(--radius-button);
+}
+
+.grantRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 4px 5px 4px 12px;
+}
+
+.grantRow + .grantRow {
+  border-top: 1px solid var(--color-inner-border);
+}
+
+/* The folder or domain being added, highlighted under the list's rows. */
+.grantPending {
+  padding: 6px 6px 6px 12px;
+  background: var(--color-inner-2);
+}
+
+.grantIcon {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--color-faint);
+}
+
+.grantIcon svg {
+  font-size: 15px;
+}
+
+.grantPending .grantIcon {
+  color: var(--color-text);
+}
+
+/* A folder's path or a domain: one line, cut short with an ellipsis, however long. */
+.grantValue {
+  flex-grow: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grantEmpty {
+  font-size: var(--font-size-secondary);
+  color: var(--color-faint);
+}
+
+/* The workspace root's row: its tag, its fixed access where the others have a select, and room where they have ×. */
+.rootTag {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--color-inner-border);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+.rootAccess {
+  flex-shrink: 0;
+  padding: 0 30px 0 11px;
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-muted);
+}
+
+.rootSpacer {
+  flex-shrink: 0;
+  width: 30px;
+}
+
+/* The new domain's field, in mono as the list's domains are. */
+.domainField {
+  flex-grow: 1;
+  height: 30px;
+  padding: 0 8px;
+  border-color: var(--color-strong);
+}
+
+.domainField input {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-secondary-sm);
+}
+
+/* Why a list's last change didn't happen, under the list. */
+.grantError {
+  flex-shrink: 0;
+  margin: 8px 0 0;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.45;
+  color: var(--color-pink);
+}
+
+/* The line under the lists: where the other lists are, or what the sandbox being off means. */
+.sandboxNote {
+  flex-shrink: 0;
+  margin: 14px 0 0;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.45;
+  color: var(--color-faint);
+}
+
+/*
+ * A list and its header while the sandbox is off: dimmed as one, so the disabled controls inside don't dim a second
+ * time, and a disabled select doesn't light up under the pointer.
+ */
+.dimmed {
+  opacity: 0.45;
+}
+
+.dimmed button:disabled {
+  opacity: 1;
+}
+
+.select:disabled {
+  cursor: default;
+}
+
+.select:disabled:hover {
+  background: var(--color-raised);
+}

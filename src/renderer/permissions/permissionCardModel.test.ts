@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   PermissionDestination,
-  PermissionRequestState,
   PermissionRuleBehavior,
   PermissionUpdateType,
   ToolCallState,
@@ -9,14 +8,12 @@ import {
   type PermissionRequest,
   type ToolCallEvent,
 } from '../../shared/domain'
-import { samplePermissionRequest } from '../store/test-bridge'
 import {
-  callSummary,
-  closedOutcome,
   InputLineKind,
   permissionBody,
   PermissionBodyKind,
   permissionTitle,
+  ruleGrant,
   showAllLabel,
   shownLines,
   subagentLabel,
@@ -238,38 +235,24 @@ describe('what the card says', () => {
     expect(showAllLabel([plain('a')])).toBe('Show all 1 line')
     expect(showAllLabel([plain('a'), plain('b')])).toBe('Show all 2 lines')
   })
+})
 
-  it('puts the call in a line: the command, the file, or just the tool', () => {
-    const request = samplePermissionRequest('p1', 't1')
-    expect(callSummary({ ...request, input: { command: 'npm run build\nnpm test' } })).toBe(
-      'Bash: npm run build npm test',
-    )
-    expect(callSummary({ toolName: 'Write', input: { file_path: `${ROOT}/a.md`, content: '' } }, ROOT)).toBe(
-      'Write: a.md',
-    )
-    expect(
-      callSummary({ toolName: 'Edit', input: { file_path: `${ROOT}/a.md`, old_string: 'a', new_string: 'b' } }, ROOT),
-    ).toBe('Edit: a.md')
-    expect(callSummary({ toolName: 'mcp__browser__open', input: { url: 'x' } })).toBe('mcp__browser__open')
-  })
-
-  it('says what happened to a closed request, with the note it was denied with', () => {
-    const request = samplePermissionRequest('p1', 't1')
-    expect(closedOutcome(request)).toBeNull()
-    expect(closedOutcome({ state: PermissionRequestState.Allowed, denyNote: null, grantedRule: null })).toBe(
-      'allowed once',
-    )
-    expect(closedOutcome({ state: PermissionRequestState.Denied, denyNote: null, grantedRule: null })).toBe('denied')
-    expect(closedOutcome({ state: PermissionRequestState.Denied, denyNote: '  ', grantedRule: null })).toBe('denied')
-    expect(closedOutcome({ state: PermissionRequestState.Denied, denyNote: ' Not on main ', grantedRule: null })).toBe(
-      'denied: “Not on main”',
-    )
-    expect(closedOutcome({ state: PermissionRequestState.Withdrawn, denyNote: null, grantedRule: null })).toBe(
-      'withdrawn',
-    )
-    expect(
-      closedOutcome({ state: PermissionRequestState.Allowed, denyNote: null, grantedRule: { toolName: 'Edit' } }),
-    ).toBe('allowed for this task')
+describe('ruleGrant', () => {
+  it('names what a rule covers: a prefix (either form), one command, or the whole tool by its display name', () => {
+    expect(ruleGrant({ toolName: 'Bash', ruleContent: 'npm test *' })).toEqual({
+      kind: TaskGrantKind.Prefix,
+      subject: 'npm test',
+    })
+    expect(ruleGrant({ toolName: 'Bash', ruleContent: 'npm run lint:*' })).toEqual({
+      kind: TaskGrantKind.Prefix,
+      subject: 'npm run lint',
+    })
+    expect(ruleGrant({ toolName: 'Bash', ruleContent: 'touch a.txt' })).toEqual({
+      kind: TaskGrantKind.Command,
+      subject: 'touch a.txt',
+    })
+    expect(ruleGrant({ toolName: 'mcp__glade__ask' })).toEqual({ kind: TaskGrantKind.Tool, subject: 'ask' })
+    expect(ruleGrant({ toolName: 'Edit', ruleContent: '' })).toEqual({ kind: TaskGrantKind.Tool, subject: 'Edit' })
   })
 })
 

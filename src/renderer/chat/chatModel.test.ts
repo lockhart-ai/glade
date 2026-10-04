@@ -3,6 +3,7 @@ import {
   CompactionTrigger,
   DividerKind,
   MessageRole,
+  PermissionRequestState,
   QuestionKind,
   QuestionSetState,
   TaskActivity,
@@ -339,6 +340,27 @@ describe('permission cards', () => {
 
   it('shows with no messages yet, as for a turn the agent started on its own', () => {
     expect(kinds(chatEntries(task, [], [], [], [requested('p1', 1, 2_000)]))).toEqual(['p1'])
+  })
+
+  it('show only while they wait: an allowed, denied or withdrawn one is no part of the chat (#459)', () => {
+    const closed = (id: string, createdAt: number, state: PermissionRequestState): PermissionRequest => ({
+      ...requested(id, 1, createdAt),
+      state,
+      closedAt: createdAt + 100,
+    })
+    const messages = [message('ask', MessageRole.User, 1), at(message('reply-1', MessageRole.Agent, 1), 4_000)]
+    const requests = [
+      closed('allowed', 2_000, PermissionRequestState.Allowed),
+      requested('open-1', 1, 2_100),
+      closed('denied', 2_200, PermissionRequestState.Denied),
+      closed('withdrawn', 2_300, PermissionRequestState.Withdrawn),
+      requested('open-2', 1, 2_400),
+    ]
+
+    expect(kinds(chatEntries(task, messages, [], [], requests))).toEqual(['ask', 'open-1', 'open-2', 'reply-1'])
+    // With every one of them closed, the chat is your message and the agent's reply alone.
+    const allClosed = requests.map((request) => ({ ...request, state: PermissionRequestState.Allowed }))
+    expect(kinds(chatEntries(task, messages, [], [], allClosed))).toEqual(['ask', 'reply-1'])
   })
 })
 

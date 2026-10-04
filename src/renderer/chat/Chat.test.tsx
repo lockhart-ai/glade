@@ -7,7 +7,6 @@ import {
   DividerKind,
   MessageRole,
   PauseReason,
-  PermissionRequestState,
   QuestionSetState,
   RefusalScope,
   TaskErrorSource,
@@ -1356,12 +1355,7 @@ describe('every agent reply is on the purple card', () => {
 
   it('replies split around a question card and a permission card, and an empty reply', async () => {
     const set = { ...sampleQuestionSet('q1', 't1'), createdAt: at(10), state: QuestionSetState.Answered }
-    const request = {
-      ...samplePermissionRequest('p1', 't1'),
-      turn: 2,
-      createdAt: at(12),
-      state: PermissionRequestState.Allowed,
-    }
+    const request = { ...samplePermissionRequest('p1', 't1'), turn: 2, createdAt: at(12) }
     await renderChat({
       task: { state: TaskState.Done },
       messages: [user('u1', 1, at(9)), agent('a1', 1, at(11)), user('u2', 2, at(11, 30)), agent('a2', 2, at(13), '')],

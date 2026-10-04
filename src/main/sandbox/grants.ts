@@ -23,11 +23,15 @@
  *   nothing saved is later left out of a session's settings: a folder is absolute, never the whole disk, and has no
  *   glob character; a domain is a bare host, or `*.` and a host of two labels or more (never a whole top-level domain).
  * - Grants live only in Glade's database and the session's flag settings: nothing is written to the user's files.
+ * - **Settings hears each change** (#451). A change to the Glade-wide grants or a workspace's is broadcast as it's
+ *   saved (`sandbox.grantsChanged`, with the scope's grants as they now are), whoever made it: Settings, or Allow for
+ *   this workspace on a card. So the lists in Settings stay current while it's open, without waiting on the sessions.
  */
 import type { Database } from 'better-sqlite3'
-import { BridgeErrorCode } from '../../shared/bridge'
+import { BridgeErrorCode, EventType } from '../../shared/bridge'
 import {
   FolderAccess,
+  isSettingsGrantTarget,
   SandboxGrantKind,
   SandboxGrantScope,
   type Grant,
@@ -44,6 +48,7 @@ import {
   type SandboxGrants,
 } from '../agent/sandbox'
 import { CommandFailure } from '../bridge/errors'
+import type { Emit } from '../bridge/events'
 import {
   addSandboxGrant,
   listGrantsCovering,
@@ -58,10 +63,12 @@ import { getTask } from '../db/repositories/tasks'
 import { getWorkspace } from '../db/repositories/workspaces'
 import { canonicalKey, canonicalPath, pathKey } from '../permissions/canonical-path'
 
-/** What changing grants needs: the database, and the runner whose sessions get the change. */
+/** What changing grants needs: the database, the runner whose sessions get the change, and the windows to tell. */
 export interface SandboxGrantsContext {
   readonly db: Database
   readonly runner: Pick<AgentRunner, 'applySandboxGrants'>
+  /** Tells every window a scope Settings lists changed (`sandbox.grantsChanged`). */
+  readonly emit: Emit
 }
 
 /** What granting, or changing a folder's access, did: to the scope's grants, and to the running sessions. */
@@ -102,6 +109,20 @@ export function sandboxGrantsOf(grants: readonly Grant[]): SandboxGrants {
  */
 export function taskSandboxGrants(db: Database, task: GrantedTask): SandboxGrants {
   return sandboxGrantsOf(listGrantsCovering(db, task))
+}
+
+/** A scope's grants as Settings lists them: what each allows, in the order they were first granted. */
+export function scopeGrants(db: Database, target: SandboxGrantTarget): Grant[] {
+  return listSandboxGrants(db, target).map(({ grant }) => grant)
+}
+
+/**
+ * Tells every window a scope's grants changed, with them as they now are, if it's one Settings lists (Glade-wide, or a
+ * workspace's): a task's grants show nowhere.
+ */
+function broadcastGrants({ db, emit }: SandboxGrantsContext, target: SandboxGrantTarget): void {
+  if (!isSettingsGrantTarget(target)) return
+  emit({ type: EventType.SandboxGrantsChanged, target, grants: scopeGrants(db, target) })
 }
 
 /** Checks the task or workspace a grant is for exists. @throws CommandFailure `not_found` when it doesn't. */
@@ -235,12 +256,14 @@ function grantToSave(db: Database, target: SandboxGrantTarget, grant: Grant): Gr
  * sandbox can't take.
  */
 export async function grantSandboxAccess(
-  { db, runner }: SandboxGrantsContext,
+  context: SandboxGrantsContext,
   { target, grant }: NewSandboxGrant,
   options?: SandboxApplyOptions,
 ): Promise<SandboxGrantOutcome> {
+  const { db, runner } = context
   requireTarget(db, target)
   const change = addSandboxGrant(db, { target, grant: grantToSave(db, target, grant) })
+  if (change !== SandboxGrantChange.Unchanged) broadcastGrants(context, target)
   return { change, sessions: await runner.applySandboxGrants(target, options) }
 }
 
@@ -253,17 +276,19 @@ export async function grantSandboxAccess(
  * take.
  */
 export async function changeSandboxFolderAccess(
-  { db, runner }: SandboxGrantsContext,
+  context: SandboxGrantsContext,
   target: SandboxGrantTarget,
   path: string,
   access: FolderAccess,
   options?: SandboxApplyOptions,
 ): Promise<SandboxGrantOutcome> {
+  const { db, runner } = context
   requireTarget(db, target)
   const changes = keptFolders(db, target, grantedFolder(path)).map((kept) =>
     setSandboxFolderAccess(db, target, kept, access),
   )
   const changed = changes.includes(SandboxGrantChange.Changed)
+  if (changed) broadcastGrants(context, target)
   return {
     change: changed ? SandboxGrantChange.Changed : SandboxGrantChange.Unchanged,
     sessions: await runner.applySandboxGrants(target, options),
@@ -278,12 +303,16 @@ export async function changeSandboxFolderAccess(
  * sandbox can't take.
  */
 export async function revokeSandboxGrant(
-  { db, runner }: SandboxGrantsContext,
+  context: SandboxGrantsContext,
   target: SandboxGrantTarget,
   key: SandboxGrantKey,
   options?: SandboxApplyOptions,
 ): Promise<SandboxRevokeOutcome> {
+  const { db, runner } = context
   requireTarget(db, target)
-  const removed = keptKeys(db, target, key).map((kept) => removeSandboxGrant(db, target, kept))
-  return { removed: removed.includes(true), sessions: await runner.applySandboxGrants(target, options) }
+  const removed = keptKeys(db, target, key)
+    .map((kept) => removeSandboxGrant(db, target, kept))
+    .includes(true)
+  if (removed) broadcastGrants(context, target)
+  return { removed, sessions: await runner.applySandboxGrants(target, options) }
 }

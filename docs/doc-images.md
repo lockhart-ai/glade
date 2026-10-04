@@ -51,7 +51,7 @@ above 0 clears it (`APPEAR_WINDOW_MS` in `src/renderer/questions/QuestionCard.ts
 | `hero.png` | The app with a workspace open: the task list, a task's chat, its tool calls. | `--seed task-workspace.json --size 1600x1000` |
 | `subagents.png` | A task working with three subagents running and one done. | `--seed subagents.json --size 1600x1000` |
 | `question.png` | A question card: the agent's reply, four questions, Anything else. | `--seed question.json --size 1600x1100` |
-| `permission.png` | A permission card for a Bash command, and another for a file edit's diff. | `--seed permission-card.json --size 1600x1000` |
+| `permission.png` | A permission card for a Bash command, and another for a file edit's diff; in the Tool calls list, what was decided about the calls answered before them. | `--seed permission-card.json --size 1600x1000` |
 | `nekomata.png` | The Nekomata plugin beside the terminal: a cat per task, a question bubble over the one waiting on you. | `nekomata.mjs` (needs the built plugin) |
 | `control.png` | Settings › Control, turned on, with the endpoint and the connect command. | `--seed settings-control.json --size 1600x1000`, clicked to Control |
 | `guide/window.png` | The whole window: task list, chat and header, right panel, terminal. | `--seed task-workspace.json --size 1440x960` |
@@ -61,7 +61,7 @@ above 0 clears it (`APPEAR_WINDOW_MS` in `src/renderer/questions/QuestionCard.ts
 | `guide/menu-bar.png` | The menu bar popover: needs you, working, recent. | `menu-bar.mjs` (the popover's own 360px-wide box) |
 | `guide/files-browse.png` | The Files tab's Browse tree, folders open, a file selected. | `files-browse.mjs` (builds a sample workspace under `/tmp`) |
 | `guide/artifacts.png` | The Artifacts tab: files and links under Today and Yesterday, the All · Files · Links filter. | `--seed artifacts.json --size 1280x880` |
-| `guide/permission-card.png` | A single open permission card, for a Bash command. | `--seed permission-card-bash.json --size 1280x800` |
+| `guide/permission-card.png` | A single open permission card, for a Bash command; in the Tool calls list, an allowed call, a denied one and the one waiting. | `--seed permission-card-bash.json --size 1280x800` |
 | `guide/settings-general.png` | Settings › General, with the account. | `--seed settings-general.json --size 1280x800`, clicked to General |
 | `guide/settings-control.png` | Settings › Control, turned on. | `--seed settings-control.json --size 1280x800`, clicked to Control |
 | `guide/backfilled.png` | A backfilled task: its handoff note, its notes files as artifacts. | `--seed backfilled.json --size 1280x880` |

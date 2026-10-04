@@ -13,6 +13,7 @@ import {
   type GladeEvent,
 } from '../../shared/bridge'
 import { EMPTY_MENU_BAR_SNAPSHOT, type MenuBarSnapshot } from '../../shared/menuBar'
+import type { Grant, SettingsGrantTarget } from '../../shared/sandbox'
 import type { Command } from '../../shared/commands'
 import {
   ArtifactFilter,
@@ -174,6 +175,10 @@ const TASK_HANDLERS = {
   [CommandName.PluginsOpenFolder]: () => null,
   [CommandName.PluginsPlaceView]: () => ({ status: '' }),
   [CommandName.PluginsReload]: () => null,
+  [CommandName.SandboxListGrants]: () => ({ grants: [] }),
+  [CommandName.SandboxAddGrant]: () => ({ grants: [] }),
+  [CommandName.SandboxSetFolderAccess]: () => ({ grants: [] }),
+  [CommandName.SandboxRemoveGrant]: () => ({ grants: [] }),
   [CommandName.ControlStatus]: () => ({ status: CONTROL_STATUS }),
   [CommandName.AccountStatus]: () => ({ status: { account: null, usage: [] } }),
   [CommandName.LoginStatus]: () => ({ status: IDLE_LOGIN }),
@@ -560,6 +565,11 @@ describe('events', () => {
           break
         case EventType.MenuBarChanged:
           expectTypeOf(event.snapshot).toEqualTypeOf<MenuBarSnapshot>()
+          break
+        case EventType.SandboxGrantsChanged:
+          // A scope Settings lists, never a task's.
+          expectTypeOf(event.target).toEqualTypeOf<SettingsGrantTarget>()
+          expectTypeOf(event.grants).toEqualTypeOf<readonly Grant[]>()
           break
       }
     })

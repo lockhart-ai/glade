@@ -45,9 +45,9 @@ export interface Settings {
    * its file tools held to the same folders, with nothing granted beyond the workspace root. A session reads it as it
    * starts. Off, sessions run as they did before the sandbox.
    *
-   * Off by default while P15 is being built: main is released from, and without the sandbox's permission cards and
-   * settings (P15-05, P15-06) the sandbox would stop tasks with nothing to grant them access with. The default flips to
-   * on in P15's last PR (#452).
+   * Off by default while P15 is being built: main is released from, and without the sandbox's permission cards
+   * (P15-05) a sandboxed task could be granted access only from Settings (P15-06), never as it asks. The default flips
+   * to on in P15's last PR (#452).
    */
   readonly sandboxEnabled: boolean
 }

@@ -19,7 +19,7 @@ import type { ImageData } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import { describeFailure, lastOpenedWorkspace, loadSnapshot } from './hydrate'
 import { isLoaded, withDoneCounts, withDonePage, withLoadedTasks } from './doneLists'
-import { applyEvent, withGroupFold, withHistory, withOpenedWorkspace } from './reducer'
+import { applyEvent, withGroupFold, withHistory, withOpenedWorkspace, withSandboxGrants } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState, type TerminalEvent } from './state'
 import {
   UnsavedChoice,
@@ -458,6 +458,28 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
 
       async reloadPlugin(id) {
         await bridge.invoke(CommandName.PluginsReload, { id })
+      },
+
+      async loadSandboxGrants(target) {
+        const { grants } = await bridge.invoke(CommandName.SandboxListGrants, { target })
+        set((state) => ({ sandboxGrants: withSandboxGrants(state.sandboxGrants, target, grants) }))
+      },
+
+      // Each change shows as main broadcasts it, once it's saved, and again as main answers, once the running tasks
+      // have it: the lists never show what isn't saved.
+      async addSandboxGrant(target, grant) {
+        const { grants } = await bridge.invoke(CommandName.SandboxAddGrant, { target, grant })
+        set((state) => ({ sandboxGrants: withSandboxGrants(state.sandboxGrants, target, grants) }))
+      },
+
+      async setSandboxFolderAccess(target, path, access) {
+        const { grants } = await bridge.invoke(CommandName.SandboxSetFolderAccess, { target, path, access })
+        set((state) => ({ sandboxGrants: withSandboxGrants(state.sandboxGrants, target, grants) }))
+      },
+
+      async removeSandboxGrant(target, grant) {
+        const { grants } = await bridge.invoke(CommandName.SandboxRemoveGrant, { target, grant })
+        set((state) => ({ sandboxGrants: withSandboxGrants(state.sandboxGrants, target, grants) }))
       },
 
       async loadControlStatus() {

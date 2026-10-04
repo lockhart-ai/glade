@@ -16,6 +16,7 @@ import type { BroadcastOutcome } from '../../shared/broadcast'
 import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../shared/settings'
 import type { InstalledPlugin, PluginCapability } from '../../shared/plugins'
+import type { FolderAccess, Grant, GrantKey, SettingsGrantTarget } from '../../shared/sandbox'
 import type { ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
 import type { FileSearchResult, FolderEntry } from '../../shared/browse'
@@ -276,6 +277,13 @@ export interface GladeData {
    */
   readonly plugins: readonly InstalledPlugin[] | null
   /**
+   * The sandbox grants Settings lists, by scope (`settingsGrantScopeKey`: the Glade-wide ones, and each workspace's),
+   * as main last answered with them (`sandbox.listGrants`, which a list asks for as it opens) or broadcast them
+   * (`sandbox.grantsChanged`: a change in Settings, or Allow for this workspace on a card). A scope not read yet has
+   * no entry.
+   */
+  readonly sandboxGrants: Readonly<Record<string, readonly Grant[]>>
+  /**
    * The status each plugin last set for its panel header, by id (`status`, cut to 40 characters), as main broadcast it
    * or answered when its view was placed; none until it sets one. Not saved: a plugin sets it again after `ready`.
    */
@@ -396,6 +404,17 @@ export interface GladeActions {
    * otherwise. Doesn't rescan the plugins folder.
    */
   reloadPlugin: (id: string) => Promise<void>
+  /** Reads a scope's sandbox grants (`sandbox.listGrants`), for its lists in Settings. */
+  loadSandboxGrants: (target: SettingsGrantTarget) => Promise<void>
+  /**
+   * Adds a folder or domain to a scope's list (`sandbox.addGrant`). Rejects with the `BridgeError` whose message says
+   * why it can't be added: not a folder or domain the sandbox can take, already in the list, or inside the workspace.
+   */
+  addSandboxGrant: (target: SettingsGrantTarget, grant: Grant) => Promise<void>
+  /** Sets a listed folder's access (`sandbox.setFolderAccess`); running tasks have it from their next call. */
+  setSandboxFolderAccess: (target: SettingsGrantTarget, path: string, access: FolderAccess) => Promise<void>
+  /** Removes a folder or domain from a scope's list (`sandbox.removeGrant`). */
+  removeSandboxGrant: (target: SettingsGrantTarget, grant: GrantKey) => Promise<void>
   /** Reads the control endpoint's status (`control.status`). */
   loadControlStatus: () => Promise<void>
   /** Replaces the control endpoint's token (Regenerate token, `control.regenerateToken`); the old one stops working. */
@@ -781,6 +800,7 @@ export const INITIAL_DATA: GladeData = {
   settingsSection: null,
   broadcastOpen: false,
   plugins: null,
+  sandboxGrants: {},
   pluginStatuses: {},
   controlStatus: null,
   accountStatus: { account: null, usage: [] },

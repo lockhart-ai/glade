@@ -39,7 +39,7 @@ One JSON object per line:
 
 | Scope           | What it logs                                                                                               |
 | --------------- | ---------------------------------------------------------------------------------------------------------- |
-| `app`           | Start (version, platform, packaged or not, which agent backend, where the log is) and quit; windows opening, a page failing to load, the window's process dying; workspaces and settings changing; uncaught exceptions and unhandled rejections in main. |
+| `app`           | Start (version, platform, packaged or not, which agent backend, where the log is) and quit; windows opening, a page failing to load, the window's process dying; workspaces and settings changing, and the sandbox lists in Settings (`sandbox grant list changed`: which scope, and how many grants it has now, never which); uncaught exceptions and unhandled rejections in main. |
 | `env`           | The environment the agents run in: from the login shell or Glade's own (and why), its `PATH`, and at debug every variable, with secrets redacted. |
 | `db`            | The database opening: its file, and the schema version before and after migrating.                        |
 | `ipc`           | Every command from the window: its name, task, how long it took, and whether it failed (with the error). Never its request. A link main refused to open (`refused to open a link`), with its scheme, never the link. |

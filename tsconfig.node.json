@@ -29,6 +29,15 @@
     // The Settings modal's sections, which the store keeps the open one of.
     "src/renderer/settings/sections.ts",
     // The Files tab's unsaved edits, which the store keeps; the editor itself is behind an interface there.
-    "src/renderer/files/unsaved.ts"
+    "src/renderer/files/unsaved.ts",
+    // What the chat, the Tool calls list and the Subagents tab work out from a task's logs and permission requests,
+    // which the store's integration tests read to check what they'd show; plain functions too.
+    "src/renderer/chat/chatModel.ts",
+    "src/renderer/context-meter/format.ts",
+    "src/renderer/tool-log/toolLogModel.ts",
+    "src/renderer/subagents/subagentsModel.ts",
+    "src/renderer/permissions/permissionCardModel.ts",
+    "src/renderer/permissions/permissionLineModel.ts",
+    "src/renderer/permissions/permissionLines.ts"
   ]
 }

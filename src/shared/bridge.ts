@@ -56,6 +56,7 @@ import type { AccountStatus } from './account'
 import type { LoginStatus } from './login'
 import type { MenuBarSnapshot } from './menuBar'
 import type { FileSearchResult, FolderEntry } from './browse'
+import type { FolderAccess, Grant, GrantKey, SettingsGrantTarget } from './sandbox'
 
 /** The name the bridge is exposed under on `window`. */
 export const BRIDGE_KEY = 'glade'
@@ -145,6 +146,10 @@ export enum CommandName {
   PluginsOpenFolder = 'plugins.openFolder',
   PluginsPlaceView = 'plugins.placeView',
   PluginsReload = 'plugins.reload',
+  SandboxListGrants = 'sandbox.listGrants',
+  SandboxAddGrant = 'sandbox.addGrant',
+  SandboxSetFolderAccess = 'sandbox.setFolderAccess',
+  SandboxRemoveGrant = 'sandbox.removeGrant',
   ControlStatus = 'control.status',
   ControlRegenerateToken = 'control.regenerateToken',
   AccountStatus = 'account.status',
@@ -1125,6 +1130,57 @@ export interface PluginsReloadRequest {
   readonly id: string
 }
 
+/**
+ * Asks for the sandbox grants Settings lists for one scope (#451): the Glade-wide ones (Settings › Agent) or a
+ * workspace's (Settings › Workspace). A task's aren't listed: `invalid_request`. Fails with `not_found` for no such
+ * workspace.
+ */
+export interface SandboxListGrantsRequest {
+  readonly target: SettingsGrantTarget
+}
+
+/**
+ * A scope's sandbox grants as they now are, folders and domains, in the order they were first granted. What every
+ * `sandbox.*` command answers with.
+ */
+export interface SandboxGrantsResponse {
+  readonly grants: readonly Grant[]
+}
+
+/**
+ * Grants a folder (read-only or read-write) or a domain to a scope, from Settings' Add…. Saved, broadcast as
+ * `sandbox.grantsChanged`, and applied to the running tasks it covers without restarting them; answers once they have
+ * it. Fails with `invalid_request`, its message the reason Settings shows under the list, for:
+ * - a folder or domain the sandbox can't take: a folder that isn't absolute, is the whole disk or has a glob
+ *   character; a domain that isn't a bare host, or `*.` and a host of two labels or more;
+ * - one the scope already has (a folder with that access or wider; one it has read-only is upgraded instead);
+ * - for a workspace, its root or a folder inside it, which its agents can already use.
+ */
+export interface SandboxAddGrantRequest {
+  readonly target: SettingsGrantTarget
+  readonly grant: Grant
+}
+
+/**
+ * Sets a granted folder's access, wider or narrower (the select on its row). Saved, broadcast and applied as
+ * `sandbox.addGrant` is: a folder narrowed to read-only is so from each running task's next call. Nothing changes for
+ * a folder the scope doesn't have.
+ */
+export interface SandboxSetFolderAccessRequest {
+  readonly target: SettingsGrantTarget
+  readonly path: string
+  readonly access: FolderAccess
+}
+
+/**
+ * Takes a folder or domain back from a scope (the × on its row). Saved, broadcast and applied as `sandbox.addGrant`
+ * is: the running tasks it covered lose it from their next call. Nothing changes for one the scope doesn't have.
+ */
+export interface SandboxRemoveGrantRequest {
+  readonly target: SettingsGrantTarget
+  readonly grant: GrantKey
+}
+
 export interface TerminalListResponse {
   /** Every terminal tab, in the tab row's order. */
   readonly tabs: readonly TerminalTab[]
@@ -1363,6 +1419,10 @@ export interface CommandMap {
   [CommandName.PluginsOpenFolder]: CommandSpec<PluginsOpenFolderRequest, null>
   [CommandName.PluginsPlaceView]: CommandSpec<PluginsPlaceViewRequest, PluginsPlaceViewResponse>
   [CommandName.PluginsReload]: CommandSpec<PluginsReloadRequest, null>
+  [CommandName.SandboxListGrants]: CommandSpec<SandboxListGrantsRequest, SandboxGrantsResponse>
+  [CommandName.SandboxAddGrant]: CommandSpec<SandboxAddGrantRequest, SandboxGrantsResponse>
+  [CommandName.SandboxSetFolderAccess]: CommandSpec<SandboxSetFolderAccessRequest, SandboxGrantsResponse>
+  [CommandName.SandboxRemoveGrant]: CommandSpec<SandboxRemoveGrantRequest, SandboxGrantsResponse>
   [CommandName.TerminalList]: CommandSpec<EmptyRequest, TerminalListResponse>
   [CommandName.TerminalCreate]: CommandSpec<TerminalCreateRequest, TerminalTabResponse>
   /** Adds a tab after a terminal tab, with its name and folder, and a new shell. Broadcasts `terminal.tabsChanged`. */
@@ -1440,6 +1500,7 @@ export enum EventType {
   AccountChanged = 'account.changed',
   LoginChanged = 'login.changed',
   MenuBarChanged = 'menuBar.changed',
+  SandboxGrantsChanged = 'sandbox.grantsChanged',
 }
 
 export interface UiStateChangedEvent {
@@ -1745,6 +1806,17 @@ export interface MenuBarChangedEvent {
   readonly snapshot: MenuBarSnapshot
 }
 
+/**
+ * The sandbox grants of a scope Settings lists changed (#451): one was added, removed or had its access changed, in
+ * Settings or by Allow for this workspace on a permission card. Carries the scope's grants as they now are, so its
+ * lists stay current while Settings is open. A task's grants aren't listed, so their changes aren't broadcast.
+ */
+export interface SandboxGrantsChangedEvent {
+  readonly type: EventType.SandboxGrantsChanged
+  readonly target: SettingsGrantTarget
+  readonly grants: readonly Grant[]
+}
+
 /** Everything main broadcasts to the windows. */
 export type GladeEvent =
   | UiStateChangedEvent
@@ -1784,6 +1856,7 @@ export type GladeEvent =
   | AccountChangedEvent
   | LoginChangedEvent
   | MenuBarChangedEvent
+  | SandboxGrantsChangedEvent
   | CloseBlockedEvent
 
 /**
