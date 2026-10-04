@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { UsageLevel, UsageLimitKind, UsageWindow, type UsageReading, type UsageSnapshot } from '../../shared/account'
+import {
+  UsageLevel,
+  UsageLimitKind,
+  UsageWindow,
+  type ExtraUsageSpend,
+  type UsageReading,
+  type UsageSnapshot,
+} from '../../shared/account'
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import { AgentEventKind, RateLimitStatus, type RateLimitEvent } from '../agent/events'
 import { MAX_TIMER_MS } from '../agent/pauses'
@@ -193,7 +200,14 @@ describe('parseUsage', () => {
           utilization: 0.71,
           level: UsageLevel.Warning,
         },
-        { ...SESSION, limit: { kind: UsageLimitKind.ExtraUsage }, utilization: 0.248, resetsAt: null },
+        {
+          ...SESSION,
+          limit: { kind: UsageLimitKind.ExtraUsage },
+          utilization: 0.248,
+          resetsAt: null,
+          // The SDK's older shape names no currency: a percentage, and no money.
+          extraUsage: { available: false, spend: null },
+        },
       ],
       // Nothing here says whether it's disabled or its spend limit reached: not known, so not available.
       extraUsageAvailable: false,
@@ -214,6 +228,7 @@ describe('parseUsage', () => {
       resetsAt: null,
       level: UsageLevel.Within,
       readAt: NOW,
+      extraUsage: { available: true, spend: { spent: 0, cap: 5000, currency: 'USD', decimalPlaces: 2 } },
     })
   })
 
@@ -231,13 +246,69 @@ describe('parseUsage', () => {
   ])('reads how much of extra usage is used from %s', (_, fields, utilization, level) => {
     const parsed = parseUsage(answer({ extra_usage: { ...EXTRA_ON, ...fields } }), NOW)
 
-    expect(parsed.kind === UsageAnswerKind.Readings && parsed.readings.at(-1)).toEqual({
+    expect(parsed.kind === UsageAnswerKind.Readings && parsed.readings.at(-1)).toMatchObject({
       limit: { kind: UsageLimitKind.ExtraUsage },
       utilization,
       resetsAt: null,
       level,
       readAt: NOW,
     })
+  })
+
+  const USD: ExtraUsageSpend = { spent: 0, cap: 5000, currency: 'USD', decimalPlaces: 2 }
+  it.each<[string, Record<string, unknown>, ExtraUsageSpend | null]>([
+    ['nothing spent yet of a cap', {}, USD],
+    ['part of a cap, in cents', { used_credits: 1234, currency: 'CAD' }, { ...USD, spent: 1234, currency: 'CAD' }],
+    [
+      'no cap, as the call says it: no limit and no percentage',
+      { monthly_limit: null, utilization: null, used_credits: 1234, currency: 'CAD' },
+      { spent: 1234, cap: null, currency: 'CAD', decimalPlaces: 2 },
+    ],
+    [
+      'a currency with no decimal places',
+      { monthly_limit: 500000, used_credits: 1234, currency: 'JPY', decimal_places: 0 },
+      { spent: 1234, cap: 500000, currency: 'JPY', decimalPlaces: 0 },
+    ],
+    ['a currency with three', { currency: 'KWD', decimal_places: 3 }, { ...USD, currency: 'KWD', decimalPlaces: 3 }],
+    ['a code in small letters', { currency: 'cad' }, { ...USD, currency: 'CAD' }],
+    ['more than its cap', { used_credits: 6000 }, { ...USD, spent: 6000 }],
+    ['a cap of nothing', { monthly_limit: 0 }, { ...USD, cap: 0 }],
+    ['a fraction of a cent, as it’s said', { used_credits: 1234.5 }, { ...USD, spent: 1234.5 }],
+    ['nothing said of what’s spent', { used_credits: undefined }, null],
+    ['no amount spent', { used_credits: null }, null],
+    ['an amount that isn’t a number', { used_credits: '1234' }, null],
+    ['a negative amount', { used_credits: -5 }, null],
+    ['nothing said of a cap', { monthly_limit: undefined }, null],
+    ['a malformed cap', { monthly_limit: 'lots' }, null],
+    ['a negative cap', { monthly_limit: -1 }, null],
+    ['no currency', { currency: undefined }, null],
+    ['a null currency', { currency: null }, null],
+    ['a currency that isn’t a code', { currency: 'dollars' }, null],
+    ['a currency that isn’t text', { currency: 124 }, null],
+    ['nothing said of its decimal places', { decimal_places: undefined }, null],
+    ['decimal places that aren’t whole', { decimal_places: 2.5 }, null],
+    ['negative decimal places', { decimal_places: -1 }, null],
+    ['more decimal places than a currency has', { decimal_places: 9 }, null],
+    ['decimal places that aren’t a number', { decimal_places: '2' }, null],
+  ])('reads the money spent on extra usage only when the call says all of it (#530): %s', (_, fields, spend) => {
+    const parsed = parseUsage(answer({ extra_usage: { ...EXTRA_ON, ...fields } }), NOW)
+
+    // Whatever it makes of the money, extra usage is on: it has its row.
+    expect(parsed.kind === UsageAnswerKind.Readings && parsed.readings.at(-1)).toMatchObject({
+      limit: { kind: UsageLimitKind.ExtraUsage },
+      extraUsage: { spend },
+    })
+  })
+
+  it('says with the reading whether extra usage is available, as it says of the answer', () => {
+    for (const fields of [{}, { spend_limit_reached: true }, { disabled_reason: 'out_of_credits' }]) {
+      const parsed = parseUsage(answer({ extra_usage: { ...EXTRA_ON, ...fields } }), NOW)
+      if (parsed.kind !== UsageAnswerKind.Readings) throw new Error('No readings')
+      expect(parsed.readings.at(-1)?.extraUsage?.available).toBe(parsed.extraUsageAvailable)
+    }
+    // No other limit's reading says anything of extra usage.
+    const parsed = parseUsage(answer({ extra_usage: EXTRA_ON }), NOW)
+    expect(parsed.kind === UsageAnswerKind.Readings && parsed.readings.slice(0, -1)).toEqual([SESSION, WEEK, OPUS])
   })
 
   it('reads no extra usage while it’s off, whatever else it says', () => {
@@ -369,6 +440,24 @@ describe('eventReading', () => {
   it('reads nothing of a window that has already reset', () => {
     expect(eventReading(limit({ resetsAt: NOW }), undefined, NOW)).toBeNull()
   })
+
+  it('keeps the money the last usage call said was spent on extra usage, and has none without one (#530)', () => {
+    const overage = limit({ window: UsageWindow.Overage, status: RateLimitStatus.Allowed, utilization: null })
+    const extraUsage = { available: true, spend: { spent: 1234, cap: null, currency: 'CAD', decimalPlaces: 2 } }
+    const previous: UsageReading = {
+      limit: { kind: UsageLimitKind.ExtraUsage },
+      utilization: null,
+      resetsAt: null,
+      level: UsageLevel.Within,
+      readAt: 1,
+      extraUsage,
+    }
+
+    expect(eventReading(overage, previous, NOW)).toEqual({ ...previous, resetsAt: NOW + HOUR, readAt: NOW })
+    // An event tells of no money: with no call before it, the reading says nothing of extra usage's.
+    expect(eventReading(overage, undefined, NOW)).not.toHaveProperty('extraUsage')
+    expect(eventReading(overage, { ...previous, extraUsage: undefined }, NOW)).not.toHaveProperty('extraUsage')
+  })
 })
 
 describe('createAccountTracker', () => {
@@ -498,6 +587,66 @@ describe('createAccountTracker', () => {
       readAt: NOW + MINUTE,
     })
     expect(events).toHaveLength(3)
+  })
+
+  it('keeps the money spent on extra usage with its reading, across events and a relaunch, and never logs it (#530)', () => {
+    const account = track()
+    const spend: ExtraUsageSpend = { spent: 98765, cap: null, currency: 'CAD', decimalPlaces: 2 }
+    account.usageRead(
+      answer({
+        five_hour: { utilization: 100, resets_at: iso(HOUR) },
+        extra_usage: { ...EXTRA_ON, monthly_limit: null, used_credits: 98765, currency: 'CAD' },
+      }),
+    )
+    const extra: UsageReading = {
+      limit: { kind: UsageLimitKind.ExtraUsage },
+      utilization: null,
+      resetsAt: null,
+      level: UsageLevel.Within,
+      readAt: NOW,
+      extraUsage: { available: true, spend },
+    }
+    expect(account.status().usage.at(-1)).toEqual(extra)
+    expect(events.at(-1)).toMatchObject({ status: { usage: expect.arrayContaining([extra]) as unknown } })
+
+    // A rate limit event for extra usage says nothing of money: the reading keeps what the call said.
+    vi.advanceTimersByTime(MINUTE)
+    account.rateLimit(
+      limit({ window: UsageWindow.Overage, status: RateLimitStatus.Allowed, utilization: null, resetsAt: null }),
+    )
+    expect(account.status().usage.at(-1)).toEqual({ ...extra, readAt: NOW + MINUTE })
+
+    // It's in SQLite: a relaunch shows it again.
+    account.close()
+    const relaunched = track()
+    expect(relaunched.status().usage.at(-1)).toEqual({ ...extra, readAt: NOW + MINUTE })
+
+    // The next call replaces it: here, one that no longer names the currency.
+    relaunched.usageRead(answer({ extra_usage: { ...EXTRA_ON, currency: undefined } }))
+    expect(relaunched.status().usage.at(-1)?.extraUsage).toEqual({ available: true, spend: null })
+
+    // The log has the limits and how much of each is used, as before, and nothing of the money.
+    expect(log.withMessage('usage read from the usage call')).toHaveLength(2)
+    expect(log.withMessage('usage read from a rate limit event')).toHaveLength(1)
+    const logged = JSON.stringify(log.records.map(({ message, fields }) => [message, fields]))
+    expect(logged).toContain('"limit":"extra_usage"')
+    expect(logged).not.toMatch(/98765|CAD|spen[dt]|currency|decimal/i)
+  })
+
+  it('has no money for extra usage when only a rate limit event has told of it', () => {
+    const account = track()
+    account.rateLimit(limit({ window: UsageWindow.Overage, status: RateLimitStatus.Allowed, utilization: null }))
+
+    expect(account.status().usage).toEqual([
+      {
+        limit: { kind: UsageLimitKind.ExtraUsage },
+        utilization: null,
+        resetsAt: NOW + HOUR,
+        level: UsageLevel.Within,
+        readAt: NOW,
+      },
+    ])
+    expect(account.status().usage[0]).not.toHaveProperty('extraUsage')
   })
 
   it('reads nothing from an event for a window it doesn’t know', () => {

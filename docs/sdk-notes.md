@@ -707,7 +707,8 @@ receives `compact_summary`. See §5.
     loosely at the boundary (a malformed window is left out; an answer of another shape, or with no window in it, is
     ignored), and anything that goes wrong (the method missing, a rejection, an unexpected answer) falls back to the
     rate limit events. Glade leaves out `seven_day_oauth_apps` and `seven_day_overage_included` (not shown by the
-    meter: unclear what they count), and shows extra usage only as a percentage, not in money.
+    meter: unclear what they count). It first showed extra usage only as a percentage, not in money; since #530 it
+    shows the money spent (below).
   - **[verified] The usage call, probed once on Oct 4, 2026 (#519)**, on a subscription login with extra usage on,
     through a session that had been sent no message: **the call answers on a session with no turn**, so a paused
     task's session can be asked. Invented values; the answer has more than the SDK's types say:
@@ -724,12 +725,31 @@ receives `compact_summary`. See §5.
       balance, auto_reload, can_purchase_credits, can_toggle }`); and `subscription_type`. Several other windows came
       back null, or under names that say nothing of what they count. **Glade reads none of these**: only the windows
       above and `extra_usage`.
+  - **[verified] `extra_usage` with no monthly cap, seen on Oct 4, 2026 (#530)**, on a subscription login spending
+    on extra usage. Invented values: `{ "is_enabled": true, "monthly_limit": null, "used_credits": 1234,
+    "utilization": null, "currency": "CAD", "decimal_places": 2, "disabled_reason": null, "user_disabled": false,
+    "spend_limit_reached": false, … }`. **With no cap, `monthly_limit` and `utilization` are both null while
+    `used_credits` grows**, so a percentage says nothing: the money is the only number. `currency` is the account's
+    own (not always USD), and `decimal_places` says what a minor unit of it is. `rate_limits.spend` says the same
+    again (`used.amount_minor`, `limit`, `percent`); Glade reads `extra_usage` and doesn't depend on `spend`.
+  - **The money spent on extra usage (#530):** the Extra usage reading carries `{ spent, cap, currency,
+    decimalPlaces }` (`ExtraUsageSpend`, `src/shared/account.ts`): `used_credits` and `monthly_limit` as they come, in
+    minor units, `cap` null for `monthly_limit: null`. It's there only when the call says all four outright:
+    `used_credits` a number that isn't negative, `monthly_limit` such a number or null, `currency` three letters, and
+    `decimal_places` a whole number from 0 to 4. Anything missing or malformed means no amount (the row then reads as
+    before), never a guessed one: cents read in the wrong currency or to the wrong number of places would be a wrong
+    sum of money. The reading also carries whether extra usage is available (the rule below), so the sidebar's line
+    can say the account is running on it. The meter formats the amount with `Intl.NumberFormat` (`en-US`, `style:
+    'currency'`, the call's `decimal_places` as both fraction-digit bounds), and shows no amount for a code `Intl`
+    rejects. The rate limit event has no money in it, so a reading from one keeps what the last call said. The amount
+    is stored with the reading (migration 61) and never logged.
   - **What Glade makes of `extra_usage` (#519):**
     - **The meter's row.** While `is_enabled` is true there's an Extra usage reading, whether or not the call gives a
       percentage. (Before #519 a null `utilization` dropped the reading, so extra usage that was on with nothing spent
       had no row.) How much is used is `utilization` / 100 when the call gives it, else `used_credits` /
       `monthly_limit`. With no cap to be a fraction of (`monthly_limit` null or 0), or with either amount missing or
-      malformed, the reading has no amount and the row reads "within limits": Glade doesn't call uncapped spending 0%.
+      malformed, the reading has no percentage: Glade doesn't call uncapped spending 0%. The row then says the money
+      spent (#530, above), or "within limits" when the call gave no amount it can show.
     - **Whether it's available**, for resuming the tasks a usage limit paused (`canRunAgain`,
       `src/main/agent/pauses.ts`): `is_enabled` is true, `spend_limit_reached` is false, `disabled_reason` is null,
       and it's under 100% as read above; with no percentage, only `monthly_limit: null` (no cap, said outright)

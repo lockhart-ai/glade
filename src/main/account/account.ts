@@ -18,6 +18,9 @@
  *     doesn't say. `rejected` is at the limit; a warning is close to it only from `USAGE_WARNING_THRESHOLD`, as Claude
  *     Code's own warning is (or when it doesn't say how much).
  *
+ *   The usage call also says what's been spent on extra usage, in money (`ExtraUsageSpend`, #530): kept with extra
+ *   usage's reading for the meter to show, and never logged.
+ *
  *   A reading goes when its window resets, by a timer that a relaunch arms again (one that reset while the app was
  *   closed goes at once).
  */
@@ -33,6 +36,7 @@ import {
   UsageWindow,
   type Account,
   type AccountStatus,
+  type ExtraUsageSpend,
   type UsageLimit,
   type UsageReading,
   type UsageSnapshot,
@@ -141,9 +145,28 @@ const extraUsageSchema = z.looseObject({
   /** Why extra usage can't be used though it's on (out of credits, turned off for the seat, …); null when it can. */
   disabled_reason: z.string().nullable().optional().catch(undefined),
   spend_limit_reached: z.boolean().optional().catch(undefined),
+  /** The ISO 4217 code of the currency the credits are in (`CAD`): three letters. */
+  currency: z
+    .string()
+    .regex(/^[A-Za-z]{3}$/)
+    .optional()
+    .catch(undefined),
+  /** How many decimal places the currency has, which says what a minor unit is: from 0 (yen) to 4, as ISO 4217's are. */
+  decimal_places: z.number().int().min(0).max(4).optional().catch(undefined),
 })
 
 type ExtraUsage = z.infer<typeof extraUsageSchema>
+
+/**
+ * What's been spent on extra usage and its cap (#530), or null unless the call says all of it: the amount spent, the
+ * cap (or outright that there's none), the currency and its decimal places. Anything left out or malformed means no
+ * amount, never a guessed one: the cents of one currency read as another's would be a wrong sum of money.
+ */
+function extraUsageSpend(extra: ExtraUsage): ExtraUsageSpend | null {
+  const { used_credits: spent, monthly_limit: cap, currency, decimal_places: decimalPlaces } = extra
+  if (spent == null || cap === undefined || currency === undefined || decimalPlaces === undefined) return null
+  return { spent, cap, currency: currency.toUpperCase(), decimalPlaces }
+}
 
 /** The SDK's `SDKControlGetUsageResponse`, the parts the meter reads, as loosely as makes sense. */
 const usageResponse = z.looseObject({
@@ -186,7 +209,10 @@ function extraUsageUtilization(extra: ExtraUsage): number | null {
   return used / cap
 }
 
-/** The reading of extra usage while it's on, or null while it isn't: with no cap, a reading that gives no amount. */
+/**
+ * The reading of extra usage while it's on, or null while it isn't: with no cap, a reading that gives no percentage. It
+ * carries whether extra usage is available and what's been spent (`ExtraUsageStatus`).
+ */
 function extraUsageReading(extra: ExtraUsage | null | undefined, readAt: EpochMs): UsageReading | null {
   if (extra?.is_enabled !== true) return null
   const utilization = extraUsageUtilization(extra)
@@ -196,6 +222,7 @@ function extraUsageReading(extra: ExtraUsage | null | undefined, readAt: EpochMs
     resetsAt: null,
     level: usageLevel(utilization),
     readAt,
+    extraUsage: { available: extraUsageAvailable(extra), spend: extraUsageSpend(extra) },
   }
 }
 
@@ -301,7 +328,9 @@ function eventLevel(status: RateLimitStatus, utilization: number | null): UsageL
 
 /**
  * The reading a rate limit event makes of its limit at `now`, given the limit's last reading: how much is used is kept
- * from that when the event doesn't say. Null when the event's window is one Glade doesn't know, or has already reset.
+ * from that when the event doesn't say, and so is what the last usage call said of extra usage (`ExtraUsageStatus`:
+ * an event tells of no money, so with no call before it the reading has no amount). Null when the event's window is
+ * one Glade doesn't know, or has already reset.
  */
 export function eventReading(
   event: RateLimitEvent,
@@ -317,6 +346,7 @@ export function eventReading(
     resetsAt: event.resetsAt ?? previous?.resetsAt ?? null,
     level: eventLevel(event.status, utilization),
     readAt: now,
+    ...(previous?.extraUsage === undefined ? {} : { extraUsage: previous.extraUsage }),
   }
 }
 
@@ -406,6 +436,7 @@ export function createAccountTracker({
           log.info('usage call: no plan limits apply')
           return
         case UsageAnswerKind.Readings:
+          // Each limit, how much is used and its level: never the money spent on extra usage (#530).
           log.info('usage read from the usage call', {
             readings: answer.readings.map(({ limit, utilization, level }) => ({
               limit: usageLimitKey(limit),

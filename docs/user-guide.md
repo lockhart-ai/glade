@@ -223,6 +223,10 @@ scroll: the chat passes under them.
   purple from 70%. Click it for every limit (the session, this week, each model's week and extra usage), the plan, and
   how long ago Claude Code said. It's hidden when you run on an API key or a cloud provider, which have no plan
   limits.
+- With **extra usage** turned on, its row in that list shows the **money spent** this month, in your account's
+  currency: "CA$12.34 spent", or "CA$12.34 of CA$50.00" if you've set a monthly cap, with a bar for how much of the
+  cap that is. Once a plan limit runs out and extra usage is paying for your requests, the meter's own line shows it
+  too: "Extra usage CA$12.34 · spent". It stays blue, since nothing is wrong, and turns purple from 70% of a cap.
 - Hitting your **usage limit**, or losing the network, pauses the affected tasks behind one banner across the top; the
   meter says which limit ran out and when it resets. They resume by themselves when the limit resets or the network is
   back. Messages you send meanwhile wait in the queue. For a usage limit you needn't wait for the reset:
@@ -231,7 +235,7 @@ scroll: the chat passes under them.
   - **Switch model** resumes them now on another model.
   - If you turn on **extra usage** (or move to a bigger plan) while tasks are paused, Glade notices by itself and
     resumes them: it checks your usage again whenever you come back to its window, and every 5 minutes, and the usage
-    meter gets an "Extra usage" row. It tries once on what it reads; if the tasks are turned away again, they stay
+    meter gets an "Extra usage" row and shows what you've spent on it. It tries once on what it reads; if the tasks are turned away again, they stay
     paused until extra usage stops being available and comes back, the limit resets, or you press **Resume now**.
     Just after a relaunch,
     before any task has run, there's nothing running for it to ask: press **Resume now**.

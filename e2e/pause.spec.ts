@@ -199,8 +199,12 @@ test('tasks paused on a usage limit resume by themselves once extra usage is tur
   await expect(banner).toHaveCount(0)
   await expect(chat(window).agentReplies).toContainText([FINISHED])
   await expect(chat(window).errorCard).toHaveCount(0)
+  // The account now runs on extra usage: the meter's line says so, with the money spent of its cap (#530), in place of
+  // the limit that ran out, and its row in the list says the same.
+  await expect(meter.row).toHaveText(/^Extra usage\s*\$0\.00\s*of \$50\.00$/)
+  await expect(meter.row).toHaveAttribute('data-state', 'extra_usage')
   await meter.row.click()
-  await expect(meter.limits).toHaveText([/^Session\s*100%/, /^This week\s*64%/, /^Extra usage\s*0%$/])
+  await expect(meter.limits).toHaveText([/^Session\s*100%/, /^This week\s*64%/, /^Extra usage\s*\$0\.00 of \$50\.00$/])
 })
 
 test('losing the network pauses the task, and it resumes on its own once the network is back', async ({
