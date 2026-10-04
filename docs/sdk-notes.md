@@ -2450,6 +2450,8 @@ decimal parts.
   shell only, managed settings delivered by MDM or a server, and a plugin's.
 - A check of a path and the write that follows are two steps in any file tool that runs outside the sandbox: a link
   flipped between them is Claude Code's own race, inside the workspace root too.
+- **On each SDK bump,** check the tools that take a path or run a command against the hook's list (`BOUNDED_TOOLS`):
+  a new one isn't bounded until it's added, and the user's settings could then allow it.
 
 ### Test backends
 

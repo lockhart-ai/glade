@@ -190,6 +190,15 @@
  * then on, without asking, and the turn ends on the error, with its card; Retry restarts the session, so its sandbox
  * gets another go. With the sandbox off, sessions start and decide their calls as they always have.
  *
+ * **Glade decides at the sandbox's bounds before Claude Code's rules do** (#514). Claude Code only asks Glade about a
+ * call its own rules leave at "ask", and the user's own settings can allow anything. So a sandboxed session's
+ * `PreToolUse` hook, which runs in every mode and before any rule, puts each file-tool, `WebFetch`, `Bash` and
+ * `Monitor` call to the runner first (`toolStarting`): one inside the bounds is left to Claude Code, and one that
+ * crosses them is decided there and then, exactly as it would be if Claude Code had asked (`decideToolCall`), the hook
+ * held while its card waits. What the hook lets through is remembered for as long as it takes Claude Code to ask about
+ * the same call after all (its own ask rules still apply), so nothing is asked twice. Claude Code is told of no grant
+ * for its file tools, so every such call outside the workspace root reaches Glade one way or the other.
+ *
  * **The sandbox's cards** (#450, `../permissions/sandbox-ask`). A call that crosses the bounds opens a request that
  * says what it asks for (`PermissionRequest.sandbox`): a folder, for a file tool outside the grants; a domain, for
  * `WebFetch` or a command's connection, whose request is put on the command running at the time, since the SDK doesn't
