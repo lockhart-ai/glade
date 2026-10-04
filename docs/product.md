@@ -192,15 +192,25 @@ context meter's colours, the usage limit closest to running out with how much of
 it resets. Nothing read yet, or nothing said of how much is used, it's an empty ring and "Usage · within limits"; from
 70% of a limit the ring and percentage turn purple, as Claude Code's own warning starts there; at a limit the row
 takes the question card's highlight ("Session limit · Resets at 15:40"), while the paused tasks' banner shows across
-the top as before. Clicking the row opens a popover over it that lists every limit Claude Code has told of (Session,
+the top as before. While the account is running on extra usage (a plan limit is spent, and extra usage is on with room
+left, as the last usage call said), the row shows that instead, with the money spent: "Extra usage CA$12.34 · spent",
+or "Extra usage CA$12.34 · of CA$50.00" with a monthly cap. That isn't a failure, so the row stays blue, the ring at
+how much of the cap is spent (purple from 70% of it, and an empty ring with no cap). Clicking the row opens a popover over it that lists every limit Claude Code has told of (Session,
 This week, each model's week, extra usage while it's on), each with a bar, how much is used and when it resets, under
 the plan's name and above how long ago it was read ("From Claude Code · updated 2 min ago").
 
 Glade asks Claude Code as each task's session starts and after each turn (its experimental usage call), and also reads
 the rate limit events that come as each turn starts; when the call fails, the events alone keep the meter going. It
 keeps the latest reading of each limit, so a relaunch shows them again, and drops each when its window resets. An API
-key or a cloud provider has no plan limits, so the meter is hidden for them. Extra usage has a row from the moment it's
-turned on: with nothing spent yet it reads "Extra usage 0%" (of its monthly cap), and with no cap, "within limits".
+key or a cloud provider has no plan limits, so the meter is hidden for them.
+
+Extra usage has a row from the moment it's turned on, and the row says the money spent this month, in the account's
+currency (#530): with no monthly cap, "CA$12.34 spent" and no bar, since there's nothing for it to be a fraction of;
+with a cap, "CA$12.34 of CA$50.00" and the bar at how much of the cap that is. The amount comes from the usage call,
+in the currency's own units (two decimal places for dollars, none for yen), and is kept with the reading; it's never
+written to the log. The rate limit events tell of no money, so a reading from one keeps the amount the last call gave.
+When the call gives no amount Glade can show (no currency, say, or one it can't format), the row reads as it did
+before: a percentage of the cap, or "within limits".
 
 ### Paused on a usage limit
 

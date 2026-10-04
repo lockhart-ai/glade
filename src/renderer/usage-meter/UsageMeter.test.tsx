@@ -1,6 +1,13 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { UsageLevel, UsageLimitKind, type Account, type AccountStatus, type UsageReading } from '../../shared/account'
+import {
+  UsageLevel,
+  UsageLimitKind,
+  type Account,
+  type AccountStatus,
+  type ExtraUsageSpend,
+  type UsageReading,
+} from '../../shared/account'
 import { EventType } from '../../shared/bridge'
 import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
@@ -196,5 +203,154 @@ describe('UsageDetails', () => {
     const extra = screen.getByRole('group', { name: 'Extra usage' })
     expect(extra).toHaveTextContent(/^Extra usage12%$/)
     expect(extra.className).not.toMatch(/near/)
+  })
+})
+
+/** Extra usage's reading as the usage call gives it: CA$12.34 spent with no cap, and available, unless said. */
+function extraUsage(spend: Partial<ExtraUsageSpend> | null = {}, fields: Partial<UsageReading> = {}): UsageReading {
+  return {
+    limit: { kind: UsageLimitKind.ExtraUsage },
+    utilization: null,
+    resetsAt: null,
+    level: UsageLevel.Within,
+    readAt: NOW - 2 * MINUTE,
+    extraUsage: {
+      available: true,
+      spend: spend === null ? null : { spent: 1234, cap: null, currency: 'CAD', decimalPlaces: 2, ...spend },
+    },
+    ...fields,
+  }
+}
+const SPENT_SESSION: UsageReading = { ...SESSION, utilization: 1, level: UsageLevel.Limited }
+
+describe('UsageMeter, on extra usage (#530)', () => {
+  it('shows extra usage and the money spent while the account runs on it, with no arc and no highlight', async () => {
+    await renderMeter({ account: LOGIN, usage: [SPENT_SESSION, WEEK, extraUsage()] })
+
+    expect(row()).toHaveTextContent(/^Extra usageCA\$12\.34spent$/)
+    expect(row()).toHaveAttribute('data-state', 'extra_usage')
+    // Not a failure: neither the limit's highlight nor the warning's purple, and no cap for the ring to fill.
+    expect(row().className).not.toMatch(/limited|warning/)
+    expect(arc()).toBeNull()
+  })
+
+  it('sets the money against the monthly cap, the ring at how much of it is spent', async () => {
+    const capped = extraUsage({ spent: 1250, cap: 5000 }, { utilization: 0.25 })
+    await renderMeter({ account: LOGIN, usage: [SPENT_SESSION, WEEK, capped] })
+
+    expect(row()).toHaveTextContent(/^Extra usageCA\$12\.50of CA\$50\.00$/)
+    expect(row()).toHaveAttribute('data-state', 'extra_usage')
+    expect(row().className).not.toMatch(/limited|warning/)
+    // A quarter of the 37.7-long circle, in blue.
+    expect(arc()).toBe('9.4 37.7')
+    expect(row().querySelectorAll('circle')[1]?.getAttribute('class')).not.toMatch(/near/)
+  })
+
+  it('turns purple from 70% of the cap, and never takes the limit’s highlight', async () => {
+    const close = extraUsage({ spent: 4000, cap: 5000 }, { utilization: 0.8, level: UsageLevel.Warning })
+    await renderMeter({ account: LOGIN, usage: [SPENT_SESSION, close] })
+
+    expect(row()).toHaveTextContent(/^Extra usageCA\$40\.00of CA\$50\.00$/)
+    expect(row().className).toMatch(/warning/)
+    expect(row().className).not.toMatch(/limited/)
+    expect(row().querySelectorAll('circle')[1]?.getAttribute('class')).toMatch(/near/)
+  })
+
+  it('says where extra usage stands, as before, when it has no amount to show', async () => {
+    await renderMeter({ account: LOGIN, usage: [SPENT_SESSION, extraUsage(null)] })
+    expect(row()).toHaveTextContent(/^Extra usagewithin limits$/)
+    expect(row()).toHaveAttribute('data-state', 'extra_usage')
+  })
+
+  it('keeps the limit’s highlight when extra usage can’t take the requests, and follows main as that changes', async () => {
+    const unavailable = { ...extraUsage(), extraUsage: { available: false, spend: null } }
+    const fake = await renderMeter({ account: LOGIN, usage: [SPENT_SESSION, WEEK, unavailable] })
+    expect(row()).toHaveTextContent(/^Session limitResets at 15:40$/)
+    expect(row()).toHaveAttribute('data-state', 'limited')
+
+    // Extra usage is turned on: the next reading says it's available.
+    act(() => {
+      fake.emit({ type: EventType.AccountChanged, status: { account: LOGIN, usage: [SPENT_SESSION, extraUsage()] } })
+    })
+    expect(row()).toHaveTextContent(/^Extra usageCA\$12\.34spent$/)
+
+    // The session's window rolls over: back to the limit closest to running out.
+    act(() => {
+      fake.emit({ type: EventType.AccountChanged, status: { account: LOGIN, usage: [SESSION, WEEK, extraUsage()] } })
+    })
+    expect(row()).toHaveTextContent(/^Session38%resets 15:40$/)
+    expect(row()).toHaveAttribute('data-state', 'normal')
+  })
+})
+
+describe('UsageDetails, extra usage’s row (#530)', () => {
+  /** The row's bar, or null when it has none. */
+  const bar = (group: HTMLElement): Element | null => group.querySelector('[aria-hidden]')
+
+  it('shows the money spent and no bar with no cap', () => {
+    render(<UsageDetails plan="Claude Max" readings={[SPENT_SESSION, WEEK, extraUsage()]} now={NOW} />)
+
+    const extra = screen.getByRole('group', { name: 'Extra usage' })
+    expect(extra).toHaveTextContent(/^Extra usageCA\$12\.34 spent$/)
+    expect(bar(extra)).toBeNull()
+    expect(extra.className).not.toMatch(/near/)
+    // Every other limit keeps its bar.
+    expect(bar(screen.getByRole('group', { name: 'This week' }))).not.toBeNull()
+  })
+
+  it('shows spent of the cap, with the bar at its percentage', () => {
+    const capped = extraUsage({ spent: 1250, cap: 5000 }, { utilization: 0.25 })
+    render(<UsageDetails plan="Claude Max" readings={[SESSION, capped]} now={NOW} />)
+
+    const extra = screen.getByRole('group', { name: 'Extra usage' })
+    expect(extra).toHaveTextContent(/^Extra usageCA\$12\.50 of CA\$50\.00$/)
+    expect(bar(extra)?.firstElementChild).toHaveStyle({ width: '25%' })
+    expect(extra.className).not.toMatch(/near/)
+  })
+
+  it('turns purple close to the cap and at it, the bar full once it’s spent', () => {
+    const { rerender } = render(
+      <UsageDetails
+        plan={null}
+        readings={[extraUsage({ spent: 4000, cap: 5000 }, { utilization: 0.8, level: UsageLevel.Warning })]}
+        now={NOW}
+      />,
+    )
+    expect(screen.getByRole('group', { name: 'Extra usage' }).className).toMatch(/near/)
+
+    rerender(
+      <UsageDetails
+        plan={null}
+        readings={[extraUsage({ spent: 5200, cap: 5000 }, { utilization: 1.04, level: UsageLevel.Limited })]}
+        now={NOW}
+      />,
+    )
+    const extra = screen.getByRole('group', { name: 'Extra usage' })
+    expect(extra).toHaveTextContent(/^Extra usageCA\$52\.00 of CA\$50\.00$/)
+    expect(bar(extra)?.firstElementChild).toHaveStyle({ width: '100%' })
+  })
+
+  it('formats a currency with no decimal places', () => {
+    const yen = extraUsage({ spent: 1234, cap: 500000, currency: 'JPY', decimalPlaces: 0 }, { utilization: 0.002468 })
+    render(<UsageDetails plan={null} readings={[yen]} now={NOW} />)
+
+    expect(screen.getByRole('group', { name: 'Extra usage' })).toHaveTextContent(/^Extra usage¥1,234 of ¥500,000$/)
+  })
+
+  it('shows the row without an amount, as before, for a currency it can’t format or none at all', () => {
+    const { rerender } = render(<UsageDetails plan={null} readings={[extraUsage({ currency: 'dollars' })]} now={NOW} />)
+    const unknown = screen.getByRole('group', { name: 'Extra usage' })
+    expect(unknown).toHaveTextContent(/^Extra usagewithin limits$/)
+    expect(bar(unknown)?.firstElementChild).toHaveStyle({ width: '0%' })
+
+    rerender(<UsageDetails plan={null} readings={[extraUsage(null, { utilization: 0.12 })]} now={NOW} />)
+    expect(screen.getByRole('group', { name: 'Extra usage' })).toHaveTextContent(/^Extra usage12%$/)
+  })
+
+  it('has no row for extra usage while it’s off', () => {
+    render(<UsageDetails plan="Claude Max" readings={[SPENT_SESSION, WEEK]} now={NOW} />)
+
+    expect(screen.queryByRole('group', { name: 'Extra usage' })).toBeNull()
+    expect(screen.getAllByRole('group')).toHaveLength(2)
   })
 })
