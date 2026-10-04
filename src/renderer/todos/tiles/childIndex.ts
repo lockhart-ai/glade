@@ -7,7 +7,7 @@
  * list is the store's (a changed list is a new array, and the old index goes with the old one).
  */
 import type { Artifact, TaskCommit, ToolEvent, Watcher } from '../../../shared/domain'
-import { childOfArtifact, childRefKey, commitChildKey, subagentsOf, type SubagentChild } from '../../../shared/todoHub'
+import { childOfArtifact, refKey, commitChildKey, subagentsOf, type SubagentChild } from '../../../shared/todoHub'
 
 type Index<T> = ReadonlyMap<string, T>
 
@@ -52,9 +52,9 @@ export function subagentsIn(events: readonly ToolEvent[]): readonly SubagentChil
   return known
 }
 
-/** The file or link artifact that is a child, by the child as one string (`childRefKey`), among a task's artifacts. */
+/** The file or link artifact that is a child, by the child as one string (`refKey`), among a task's artifacts. */
 export const findArtifact = indexedBy((artifacts: readonly Artifact[]) =>
-  byKey(artifacts, (artifact) => childRefKey(childOfArtifact(artifact))),
+  byKey(artifacts, (artifact) => refKey(childOfArtifact(artifact))),
 )
 
 /** The subagent a task's tool log has for an `Agent` call's `tool_use` id, with when it last did anything. */

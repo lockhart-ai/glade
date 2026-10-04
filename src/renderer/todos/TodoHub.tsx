@@ -15,7 +15,7 @@ import {
 import {
   ChildFilter,
   ChildKind,
-  childRefKey,
+  refKey,
   groupChildren,
   UNFILED_TODO_ID,
   type Child,
@@ -180,7 +180,7 @@ function Tiles({ taskId, under, shown }: TilesProps): React.JSX.Element {
   return (
     <ul className={styles.tiles} aria-label={`Under ${under}`}>
       {shown.map(({ kind, key }) => (
-        <li key={childRefKey({ kind, key })}>
+        <li key={refKey({ kind, key })}>
           <ChildTile taskId={taskId} kind={kind} childKey={key} />
         </li>
       ))}

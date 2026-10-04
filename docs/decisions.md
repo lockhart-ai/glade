@@ -469,6 +469,13 @@
     last wake (else its end, else its start), a commit's time.
   - **Each todo's panel remembers** whether it's open and its filter, per task in SQLite, for the placeholder group
     too.
+  - **Only the agent moves a child** (P16-05, #496), with two Glade tools a session has while the switch is on, for
+    the main agent only: `list_children`, which lists what the task made by the todo each is under, each with its
+    short id, and `file_children`, which takes several filings in one call (a child's short id and a todo's id each)
+    and makes all of them or none. There's no menu for it. It's one tool for filing and moving: it's what the agent
+    answers with when Glade asks it to file what it just made (#495), and how a task from before the hub gets sorted
+    ("file your things under your todos"). A subagent that moves brings what it made, by the resolver, so no row of
+    those is rewritten ([`model-surface.md`](model-surface.md)).
   - **The Todos tab as the hub** (P16-06, #497; `design/screens/46-todo-hub.png` to `49-todo-hub-unfiled.png`). With
     the switch on, the Todos tab shows `TodoHub` in place of the list; no other tab changes until #501.
     - **The window groups for itself.** It loads a task's filings and its todos' panels when the tab shows the task
@@ -486,30 +493,7 @@
     - **Each todo's panel is as you left it:** the window changes it at once and has main remember it
       (`todoHub.setPanel`). A filter whose kind has no children shows All, and is remembered, for when it has some
       again.
-  - **Calls made without Jared, for the release notes (P16).** From the hub's tab (P16-06, #497):
-    1. A todo with nothing under it doesn't open: it has no chevron, and →, ↵ and a click do nothing. It has nothing
-       to show.
-    2. A closed todo's counts aren't Tab stops (they're still buttons, for the pointer): → opens the todo, and its
-       pills are. Otherwise a task with 100 todos has 500 more stops between its todos.
-    3. Clicking a todo's head (its state icon, title and status line) opens and closes it; the space around its tiles
-       doesn't.
-    4. The hub drops the line under the heading ("The agent writes this list and checks items off as it works."), as
-       the screens do.
-    5. A task with no todos and nothing made says "No todos for this task." at the top, where the screens put it, and
-       not today's centred "No todos yet.".
-    6. A todo waiting on you keeps its purple icon and status line, as everywhere in the app. Nothing sets that
-       state yet.
-    7. A link's tile says `#511`, a ticket's key or a page's domain after its title, as the screens draw it, and not
-       the Artifacts tab's `#511 · acme/api`. #498 owns the link tile and may change it.
-    8. Until #499, a watcher's tile shows one line under its label (its last report while it's live, how it ended
-       after), from the Watchers tab's own model, and a running subagent's shows its summary.
-    9. While the hub shows a task, main watches its file artifacts for outside edits, as it does for the Artifacts
-       tab, so a file's place in its todo's list is current.
-    10. Until its filings have loaded, the hub shows the todos with nothing under them, and no placeholder group,
-        rather than everything under no todo for a moment.
-    11. A todo's context menu (Copy, Ask agent about this) opens from its head. The placeholder group has none.
-
-    From the groundwork (P16-03, #494):
+  - **Calls made without Jared, for the release notes (P16).** From the groundwork (P16-03, #494):
     1. A child whose own filing names a todo that's gone goes to the placeholder, even when the subagent that made
        it is under a todo that's still there: the agent filed it apart from its subagent, so it doesn't fall back to
        following it.
@@ -519,6 +503,51 @@
     4. A todo's panel state isn't broadcast to other windows, as the Artifacts tab's filter isn't.
     5. A task from before the hub gets its children's short ids the first time Glade names them, oldest first within
        each kind: artifacts, then subagents, then watchers, then commits.
+
+    From the agent's tools (P16-05, #496):
+    6. A filing the agent makes is `moved` when the child had a filing of its own, and `asked` when it had none: one
+       under no todo, or one that only followed its subagent.
+    7. `file_children` is all or none: an unknown child id or a todo that isn't in the task's list is a tool error
+       that says which, and nothing moves. So is a child whose artifact was removed since it was listed, and a child
+       named for two different todos in one call; one named twice for the same todo counts once.
+    8. A child filed under the todo it's already filed under keeps its filing as it was (how it was filed, and when),
+       and the windows are told nothing. One that only shows there by following its subagent does get a filing of its
+       own, so it stays when the subagent moves: the agent asked for it there.
+    9. A child can't be moved back to "Not under a todo": no filing may name the placeholder.
+    10. `list_children` groups by todo, every todo listed even when empty, then the ones under no todo; it can be
+        narrowed to one todo or to the unfiled ones (`todo: "none"`). Each child is one line (short id, kind, title),
+        titles cut to 80 characters, and a child that follows its subagent says so (`follows c3`).
+    11. Both tools read ids leniently (`C3`, `#2`) and say a todo's state in Claude Code's own words (`pending`,
+        `in progress`, `completed`).
+    12. The prompt's one line about the tools is only in a session that starts with the switch on. A session resumed
+        from before the switch isn't sent it: it gets the tools, whose descriptions say the same. #495 decides how
+        resumed sessions get the hub's lines.
+    13. A session keeps the tools it started with: if the switch is turned off under it, both answer with a tool
+        error and do nothing.
+
+    From the hub's tab (P16-06, #497):
+
+    14. A todo with nothing under it doesn't open: it has no chevron, and →, ↵ and a click do nothing. It has nothing
+        to show.
+    15. A closed todo's counts aren't Tab stops (they're still buttons, for the pointer): → opens the todo, and its
+        pills are. Otherwise a task with 100 todos has 500 more stops between its todos.
+    16. Clicking a todo's head (its state icon, title and status line) opens and closes it; the space around its tiles
+        doesn't.
+    17. The hub drops the line under the heading ("The agent writes this list and checks items off as it works."), as
+        the screens do.
+    18. A task with no todos and nothing made says "No todos for this task." at the top, where the screens put it, and
+        not today's centred "No todos yet.".
+    19. A todo waiting on you keeps its purple icon and status line, as everywhere in the app. Nothing sets that
+        state yet.
+    20. A link's tile says `#511`, a ticket's key or a page's domain after its title, as the screens draw it, and not
+        the Artifacts tab's `#511 · acme/api`. #498 owns the link tile and may change it.
+    21. Until #499, a watcher's tile shows one line under its label (its last report while it's live, how it ended
+        after), from the Watchers tab's own model, and a running subagent's shows its summary.
+    22. While the hub shows a task, main watches its file artifacts for outside edits, as it does for the Artifacts
+        tab, so a file's place in its todo's list is current.
+    23. Until its filings have loaded, the hub shows the todos with nothing under them, and no placeholder group,
+        rather than everything under no todo for a moment.
+    24. A todo's context menu (Copy, Ask agent about this) opens from its head. The placeholder group has none.
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
     `manifest.json`: `id` (the folder's name), `name`, `version`, `entry` (an HTML file in the folder) and an optional

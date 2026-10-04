@@ -1,6 +1,6 @@
 import { useShallow } from 'zustand/react/shallow'
 import { ArtifactKind } from '../../../shared/domain'
-import { ChildKind, childRefKey } from '../../../shared/todoHub'
+import { ChildKind, refKey } from '../../../shared/todoHub'
 import { tileIcon } from '../../artifacts/artifactIcons'
 import { artifactTime, fileTypeName } from '../../artifacts/artifactsModel'
 import { useGladeStore } from '../../store/react'
@@ -12,7 +12,7 @@ import { Tile, type KindTileProps } from './Tile'
  * Artifacts tab's row does besides (opening it, its thumbnail, Open, Reveal in folder and More) is #498.
  */
 export function FileTile({ taskId, childKey }: KindTileProps): React.JSX.Element | null {
-  const ref = childRefKey({ kind: ChildKind.File, key: childKey })
+  const ref = refKey({ kind: ChildKind.File, key: childKey })
   const artifact = useGladeStore(useShallow((state) => findArtifact(state.artifacts[taskId], ref)))
   if (artifact?.kind !== ArtifactKind.File) return null
   return (

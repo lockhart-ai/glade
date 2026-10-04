@@ -20,7 +20,7 @@ import {
 } from '../../shared/domain'
 import { settingsGrantScopeKey, type Grant, type SettingsGrantTarget } from '../../shared/sandbox'
 import { isSubagentTool } from '../../shared/subagents'
-import { childRefKey } from '../../shared/todoHub'
+import { refKey } from '../../shared/todoHub'
 import { withCountedChange, withoutDoneLists } from './doneLists'
 import type { GladeData } from './state'
 
@@ -228,8 +228,8 @@ function withFilingsChange(state: GladeData, { taskId, filed, removed }: Filings
   const filingsVersion = { ...state.filingsVersion, [taskId]: (state.filingsVersion[taskId] ?? 0) + 1 }
   const loaded = state.filings[taskId]
   if (loaded === undefined) return { ...state, filingsVersion }
-  const changed = new Set([...filed, ...removed].map(childRefKey))
-  const kept = loaded.filter((filing) => !changed.has(childRefKey(filing)))
+  const changed = new Set([...filed, ...removed].map(refKey))
+  const kept = loaded.filter((filing) => !changed.has(refKey(filing)))
   return { ...state, filingsVersion, filings: { ...state.filings, [taskId]: [...kept, ...filed] } }
 }
 

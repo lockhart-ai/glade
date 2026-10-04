@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ArtifactKind, ToolCallState, ToolEventKind, type Artifact, type ToolCallEvent } from '../../../shared/domain'
-import { ChildKind, childRefKey, commitChildKey } from '../../../shared/todoHub'
+import { ChildKind, refKey, commitChildKey } from '../../../shared/todoHub'
 import { sampleCommit, sampleWatcher } from '../../store/test-bridge'
 import { findArtifact, findCommit, findSubagent, findWatcher, subagentsIn } from './childIndex'
 
@@ -40,8 +40,8 @@ function call(toolUseId: string, fields: Partial<ToolCallEvent> = {}): ToolCallE
   }
 }
 
-const fileRef = (path: string): string => childRefKey({ kind: ChildKind.File, key: path })
-const linkRef = (url: string): string => childRefKey({ kind: ChildKind.Link, key: url })
+const fileRef = (path: string): string => refKey({ kind: ChildKind.File, key: path })
+const linkRef = (url: string): string => refKey({ kind: ChildKind.Link, key: url })
 
 describe('finding a child among the store’s lists', () => {
   it('finds an artifact by its kind and its path or URL, and nothing for one the task hasn’t got', () => {

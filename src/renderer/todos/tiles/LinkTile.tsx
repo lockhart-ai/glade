@@ -1,7 +1,7 @@
 import { useShallow } from 'zustand/react/shallow'
 import { linkLabel, recogniseLink } from '../../../shared/artifactLinks'
 import { ArtifactKind } from '../../../shared/domain'
-import { ChildKind, childRefKey } from '../../../shared/todoHub'
+import { ChildKind, refKey } from '../../../shared/todoHub'
 import { linkIcon } from '../../artifacts/artifactIcons'
 import { artifactTime } from '../../artifacts/artifactsModel'
 import { useGladeStore } from '../../store/react'
@@ -14,7 +14,7 @@ import { Tile, type KindTileProps } from './Tile'
  * Open link, Copy link and More, are #498.
  */
 export function LinkTile({ taskId, childKey }: KindTileProps): React.JSX.Element | null {
-  const ref = childRefKey({ kind: ChildKind.Link, key: childKey })
+  const ref = refKey({ kind: ChildKind.Link, key: childKey })
   const artifact = useGladeStore(useShallow((state) => findArtifact(state.artifacts[taskId], ref)))
   if (artifact?.kind !== ArtifactKind.Link) return null
   return (

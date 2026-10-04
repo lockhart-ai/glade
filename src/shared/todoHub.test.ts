@@ -25,7 +25,7 @@ import {
   CHILD_KINDS,
   ChildFilter,
   ChildKind,
-  childRefKey,
+  refKey,
   commitChildKey,
   FilingSource,
   groupChildren,
@@ -810,9 +810,9 @@ describe('groupChildren', () => {
 
 describe('a child as one string', () => {
   it('is its kind and its key, so a file and a link never share one', () => {
-    expect(childRefKey(FILE('docs/plan.md'))).toBe('file:docs/plan.md')
-    expect(childRefKey(LINK('docs/plan.md'))).toBe('link:docs/plan.md')
-    expect(childRefKey(SUBAGENT('toolu_1'))).not.toBe(childRefKey(WATCHER('toolu_1')))
+    expect(refKey(FILE('docs/plan.md'))).toBe('file:docs/plan.md')
+    expect(refKey(LINK('docs/plan.md'))).toBe('link:docs/plan.md')
+    expect(refKey(SUBAGENT('toolu_1'))).not.toBe(refKey(WATCHER('toolu_1')))
   })
 })
 
