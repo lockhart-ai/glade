@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -40,7 +41,10 @@ import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from
 import { listToolEvents } from '../db/repositories/tool-events'
 import type { NotifyReply } from '../notifications/notifications'
 import { createQuestionBroker } from '../questions/questions'
+import { createdTaskId } from '../todos/schema'
 import { todoListFor } from '../todos/todos'
+import { listWatchers } from '../db/repositories/watchers'
+import { ChildTool, namedTodo, TODO_FIELDS } from './child-calls'
 import { createAgentRunner, SANDBOX_FAILED_REFUSAL, STOPPED_NOTE, type AgentRunner } from './runner'
 import { sandboxInitFailure } from './sandbox-requests'
 import { createGladeMcpServer, GLADE_SERVER } from './glade-tools'
@@ -51,6 +55,7 @@ import {
   ALLOWS_FOR_TASK,
   ASKS_PERMISSION,
   DELETE_LOCAL_COPIES_QUESTION,
+  FILES_CHILDREN,
   FOLLOW_UPS,
   LOGIN_EXPIRED_ERROR,
   MANY_CHOICES_QUESTIONS,
@@ -64,6 +69,7 @@ import {
   ASKS_SANDBOX,
   SANDBOX_FAILS,
   type AgentScriptName,
+  type FiledChild,
 } from './scripts'
 import { OFFLINE_FIRST_CHECK_MS, USAGE_LIMIT_FALLBACK_MS } from './pauses'
 import { createAccountTracker, type AccountSink, type AccountTracker } from '../account/account'
@@ -244,6 +250,105 @@ describe('AGENT_SCRIPTS', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  describe('files-children', () => {
+    const CHILDREN: readonly FiledChild[] = ['subagent', 'commit', 'monitor', 'command', 'wakeup', 'cron']
+    /** The tool that makes each child. */
+    const TOOLS: Readonly<Record<FiledChild, ChildTool>> = {
+      subagent: ChildTool.Agent,
+      commit: ChildTool.Bash,
+      monitor: ChildTool.Monitor,
+      command: ChildTool.Bash,
+      wakeup: ChildTool.ScheduleWakeup,
+      cron: ChildTool.CronCreate,
+    }
+    let root: string
+
+    beforeEach(() => {
+      root = mkdtempSync(join(tmpdir(), 'glade-files-children-'))
+      task = sampleTask(database.db, sampleWorkspace(database.db, root).id)
+      // Real timers: its commits are real commands, which fake timers would race with.
+      vi.useRealTimers()
+    })
+
+    afterEach(() => {
+      rmSync(root, { recursive: true, force: true })
+    })
+
+    /** The subjects of the commits in the workspace, newest first. */
+    function commitSubjects(): string[] {
+      return execFileSync('git', ['log', '--format=%s'], { cwd: root, encoding: 'utf8' }).trim().split('\n')
+    }
+
+    /** The agent's own call whose text (the tool's free text, as the model wrote it) is `text`. */
+    function callWith(tool: ChildTool, text: string): ToolCallEvent {
+      const name: string = tool
+      const [found, ...others] = calls().filter(
+        (call) => call.parentToolUseId === null && call.name === name && call.input[TODO_FIELDS[tool]] === text,
+      )
+      if (found === undefined || others.length > 0) throw new Error(`Expected one ${tool} call with "${text}"`)
+      return found
+    }
+
+    it('names a todo it keeps in every call that makes a child, the first turn', async () => {
+      const agent = start('files-children')
+      agent.send(task.id, FILES_CHILDREN.prompt)
+      await backend.whenIdle()
+
+      // The ids Claude Code gave its todos, in the results of the calls that made them.
+      const ids = calls()
+        .filter((call) => call.name === 'TaskCreate')
+        .map((call) => createdTaskId(call.output ?? ''))
+      expect(ids).toEqual(['1', '2', '3'])
+      expect(todoListFor(database.db, task.id)?.items.map(({ text, state }) => [text, state])).toEqual([
+        ['Review the date helpers', TodoState.Done],
+        ['Fix the UTC date test', TodoState.Done],
+        ['Watch CI on PR #42', TodoState.Doing],
+      ])
+
+      for (const child of CHILDREN) {
+        const { text, todo } = FILES_CHILDREN.named[child]
+        const call = callWith(TOOLS[child], `[todo ${todo}] ${text}`)
+        // It names a todo the list has, and its own text is what's left.
+        expect(ids).toContain(todo)
+        expect(namedTodo(call.name, call.input)).toMatchObject({
+          todoId: todo,
+          input: { [TODO_FIELDS[TOOLS[child]]]: text },
+        })
+      }
+      // Each child is really made: the commit, the subagent that ran, and what's left running or scheduled.
+      expect(commitSubjects()).toEqual([FILES_CHILDREN.named.commitSubject])
+      const subagent = callWith(ChildTool.Agent, `[todo 1] ${FILES_CHILDREN.named.subagent.text}`)
+      expect(subagent.state).toBe(ToolCallState.Done)
+      expect(
+        calls()
+          .filter((call) => call.parentToolUseId === subagent.toolUseId)
+          .map((call) => call.name),
+      ).toEqual(['Read'])
+      expect(listWatchers(database.db, task.id)).toHaveLength(4)
+      expect(reply()).toBe(FILES_CHILDREN.named.reply)
+    })
+
+    it('makes the same kinds and names no todo, the second turn', async () => {
+      const agent = start('files-children')
+      agent.send(task.id, FILES_CHILDREN.prompt)
+      await backend.whenIdle()
+      agent.send(task.id, 'And the order totals.')
+      await backend.whenIdle()
+
+      for (const child of CHILDREN) {
+        const call = callWith(TOOLS[child], FILES_CHILDREN.unnamed[child])
+        expect(namedTodo(call.name, call.input)).toBeNull()
+      }
+      // Six calls name a todo, the first turn's, and no more.
+      expect(calls().filter((call) => namedTodo(call.name, call.input) !== null)).toHaveLength(CHILDREN.length)
+      expect(commitSubjects()).toEqual([FILES_CHILDREN.unnamed.commitSubject, FILES_CHILDREN.named.commitSubject])
+      expect(listWatchers(database.db, task.id)).toHaveLength(8)
+      // The todo list is the first turn's: the second made nothing a todo.
+      expect(todoListFor(database.db, task.id)?.items).toHaveLength(3)
+      expect(listMessages(database.db, task.id).at(-1)?.body).toBe(FILES_CHILDREN.unnamed.reply)
+    })
   })
 
   it('declares-artifacts: writes release notes and an upgrade guide, and declares both as artifacts', async () => {

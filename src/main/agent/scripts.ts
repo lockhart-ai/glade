@@ -15,6 +15,7 @@ import {
   type Question,
   type ToolInput,
 } from '../../shared/domain'
+import { ChildTool, nameTodo } from './child-calls'
 import {
   FileAccess,
   SandboxOperation,
@@ -3773,6 +3774,186 @@ const makesAnotherCommit: AgentScript = {
   ],
 }
 
+/**
+ * What the `files-children` script's agent keeps as todos and makes under them, for the todo hub's specs (P16,
+ * `docs/sdk-notes.md` §16). Each child has the text its call gives it and the todo it belongs to, by the id
+ * Claude Code gives the todo (`Task #N`: its place in `todos`, from 1).
+ */
+export const FILES_CHILDREN = {
+  prompt: 'Review the date helpers, fix the UTC test, and watch CI on the PR.',
+  title: 'Fix the UTC date test',
+  todos: [
+    { subject: 'Review the date helpers', activeForm: 'Reviewing the date helpers' },
+    { subject: 'Fix the UTC date test', activeForm: 'Fixing the UTC date test' },
+    { subject: 'Watch CI on PR #42', activeForm: 'Watching CI on PR #42' },
+  ],
+  /** Makes the workspace a repository, with no commit of its own, when it isn't one yet. */
+  setup: 'test -d .git || git init -q -b main',
+  /** The first turn's children: each call names its todo. */
+  named: {
+    subagent: { text: 'Review the date helpers', todo: '1' },
+    subagentSummary: 'The header builds its date in local time; nothing else in the date helpers does.',
+    commit: { text: 'Fix the date test and commit it', todo: '2' },
+    commitSubject: 'Fix the UTC date test',
+    commitCommand:
+      "mkdir -p src && printf 'export const header = (d: Date) => d.toISOString().slice(0, 10)\\n' > src/date.ts" +
+      ' && git add src/date.ts && git commit -m "Fix the UTC date test"',
+    monitor: { text: 'CI checks on PR #42', todo: '3' },
+    monitorCommand: 'gh pr checks 42 --watch --interval 30 | grep --line-buffered -E "pass|fail"',
+    command: { text: 'Integration tests', todo: '2' },
+    commandCommand: 'npm run test:integration -- --reporter=dot',
+    wakeup: { text: 'Check CI again once the checks have had time to finish', todo: '3' },
+    wakeupPrompt: 'Check whether the CI checks on PR #42 finished, and report.',
+    cron: { text: 'Check the PR for review comments, and report any.', todo: '3' },
+    cronSchedule: '0 9 * * *',
+    cronHumanSchedule: 'Every day at 9:00 AM',
+    cronJob: 'c4f1d02a',
+    reply:
+      'The date helpers are reviewed and the UTC test is fixed and committed. CI on PR #42 is being watched, and ' +
+      "I'll check it again in five minutes.",
+  },
+  /** The second turn's: the same kinds, and no call names a todo. */
+  unnamed: {
+    subagent: 'Review the order totals',
+    subagentSummary: 'The order totals round each line before adding them up.',
+    commit: 'Note the review and commit it',
+    commitSubject: 'Note the date review',
+    commitCommand:
+      'printf \'Reviewed the date helpers.\\n\' > NOTES.md && git add NOTES.md && git commit -m "Note the date review"',
+    monitor: 'Deploy to staging',
+    monitorCommand: './scripts/deploy-status.sh staging --follow',
+    command: 'Build the docs site',
+    commandCommand: 'npm run build:docs',
+    wakeup: 'Check the staging deploy once it has had time to finish',
+    wakeupPrompt: 'Check whether the staging deploy finished, and report.',
+    cron: 'Check the staging queue depth, and report if it is over 1,000.',
+    cronSchedule: '30 9 * * *',
+    cronHumanSchedule: 'Every day at 9:30 AM',
+    cronJob: 'c9b7e31d',
+    reply: 'The order totals are reviewed, the review is noted and committed, and the staging deploy is being watched.',
+  },
+} as const
+
+/** The children each turn of `files-children` makes, by their key in `FILES_CHILDREN.named` and `.unnamed`. */
+export type FiledChild = 'subagent' | 'commit' | 'monitor' | 'command' | 'wakeup' | 'cron'
+
+/**
+ * One turn of `files-children`: a subagent in the background, a commit, a `Monitor`, a command in the background, a
+ * `ScheduleWakeup` and a `CronCreate` job, each call as `call` makes its input from the tool, the input without a todo
+ * and the todo it belongs to (to name it, or not). The commit is real (`ScriptStepKind.Shell`).
+ */
+function childrenTurn(
+  made: typeof FILES_CHILDREN.named | typeof FILES_CHILDREN.unnamed,
+  call: (tool: ChildTool, input: ToolInput, child: FiledChild) => ToolInput,
+): ScriptStep[] {
+  const text = (child: FiledChild): string => {
+    const value = made[child]
+    return typeof value === 'string' ? value : value.text
+  }
+  const commit = call(ChildTool.Bash, { command: made.commitCommand, description: text('commit') }, 'commit')
+  return [
+    background(
+      'review',
+      call(
+        ChildTool.Agent,
+        { description: text('subagent'), subagent_type: 'general-purpose', prompt: `${text('subagent')}, and report.` },
+        'subagent',
+      ),
+      [
+        say('Reading the code.', 'review'),
+        ...tool('read', 'Read', { file_path: 'src/date.ts' }, 'export const header = …', 'review'),
+        delay(BEAT_MS),
+      ],
+      { summary: made.subagentSummary },
+    ),
+    shell('commit', made.commitCommand, typeof commit.description === 'string' ? commit.description : ''),
+    ...tool(
+      'monitor',
+      'Monitor',
+      call(
+        ChildTool.Monitor,
+        { description: text('monitor'), timeout_ms: 1_800_000, command: made.monitorCommand },
+        'monitor',
+      ),
+      'Monitor started (task bm7c2x1, expires in 30m unless the source ends first; you get one notice at expiry — ' +
+        're-arm if you still need the watch). You will be notified on each event.',
+    ),
+    ...tool(
+      'command',
+      'Bash',
+      call(
+        ChildTool.Bash,
+        { command: made.commandCommand, description: text('command'), run_in_background: true },
+        'command',
+      ),
+      'Command running in background with ID: b4k2p9x. Output is being written to: tasks/b4k2p9x.output.',
+    ),
+    ...tool(
+      'wakeup',
+      'ScheduleWakeup',
+      call(
+        ChildTool.ScheduleWakeup,
+        { delaySeconds: 300, reason: text('wakeup'), prompt: made.wakeupPrompt, noop: false },
+        'wakeup',
+      ),
+      'Next wakeup scheduled (in 300s). Nothing more to do this turn — the harness re-invokes you when the wakeup ' +
+        'fires or a task-notification arrives.',
+    ),
+    toolUse(
+      'cron',
+      'CronCreate',
+      call(ChildTool.CronCreate, { cron: made.cronSchedule, prompt: text('cron'), recurring: true }, 'cron'),
+    ),
+    toolResult(
+      'cron',
+      `Scheduled recurring job ${made.cronJob} (${made.cronHumanSchedule}). Session-only (not written to disk, dies ` +
+        'when Claude exits). Auto-expires after 7 days. Use CronDelete to cancel sooner.',
+      false,
+      { id: made.cronJob, humanSchedule: made.cronHumanSchedule },
+    ),
+  ]
+}
+
+/**
+ * Makes one of each kind of child a todo can hold, twice (`docs/sdk-notes.md` §16), for P16-04 (#495) to file: the
+ * first turn keeps three todos with Claude Code's own todo tools and names one in each call that makes a child (a
+ * marker at the start of the call's own text, `[todo 2] …`); the second turn makes the same kinds and names none, as
+ * an agent that forgot would. The calls are as the model wrote them: nothing here takes a marker off or files
+ * anything.
+ */
+const filesChildren: AgentScript = {
+  name: 'files-children',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        FILES_CHILDREN.title,
+        'Review the date helpers, fix the UTC date test and watch CI on the PR.',
+        'Reviewing the date helpers.',
+      ),
+      shell('setup', FILES_CHILDREN.setup, 'Make the workspace a repository if it isn’t one'),
+      ...FILES_CHILDREN.todos.flatMap((item, index) => createTodo(item, index + 1)),
+      ...updateTodo(1, 'in_progress'),
+      ...childrenTurn(FILES_CHILDREN.named, (tool, input, child) =>
+        nameTodo(tool, input, FILES_CHILDREN.named[child].todo),
+      ),
+      ...updateTodo(1, 'completed'),
+      ...updateTodo(2, 'completed'),
+      ...updateTodo(3, 'in_progress'),
+      say(FILES_CHILDREN.named.reply),
+      result(),
+    ],
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...childrenTurn(FILES_CHILDREN.unnamed, (_tool, input) => input),
+      say(FILES_CHILDREN.unnamed.reply),
+      result(),
+    ],
+  ],
+}
+
 /** The reply `shares-links` ends on: a Markdown link, a bare URL, and a URL in code, which stays plain. */
 export const SHARES_LINKS_REPLY =
   'The limits are in [the API docs](https://example.com/docs/limits), and the status page is ' +
@@ -3901,6 +4082,7 @@ const sharesCode: AgentScript = {
 export const AGENT_SCRIPT_NAMES = [
   'makes-commits',
   'makes-another-commit',
+  'files-children',
   'simple-reply',
   'multi-tool-turn',
   'long-running',
@@ -3967,6 +4149,7 @@ export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
 export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'makes-commits': makesCommits,
   'makes-another-commit': makesAnotherCommit,
+  'files-children': filesChildren,
   'simple-reply': simpleReply,
   'multi-tool-turn': multiToolTurn,
   'long-running': longRunning,
