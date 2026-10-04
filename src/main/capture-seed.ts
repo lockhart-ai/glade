@@ -70,7 +70,9 @@ import {
   updateToolCall,
 } from './db/repositories/tool-events'
 import { setUiState } from './db/repositories/ui-state'
-import { addWatcher } from './db/repositories/watchers'
+import { addWatcher, updateWatcher } from './db/repositories/watchers'
+import { addTaskCommit, CommitSource } from './db/repositories/task-commits'
+import { setTodoPanel } from './db/repositories/todo-panels'
 import { createWorkspace, getWorkspaceByRoot } from './db/repositories/workspaces'
 import { recordNotification } from './db/repositories/notifications'
 import { setSessionContext } from './db/repositories/session-context'
@@ -89,6 +91,16 @@ import {
   type SandboxGrantTarget,
 } from '../shared/sandbox'
 import { refreshTodos } from './todos/todos'
+import { fileChildren } from './todo-hub/todo-hub'
+import {
+  ChildFilter,
+  ChildKind,
+  childOfArtifact,
+  childOfCommit,
+  FilingSource,
+  type ChildRef,
+  type NewFiling,
+} from '../shared/todoHub'
 
 const MINUTE = 60_000
 
@@ -134,7 +146,16 @@ export interface SeedToolCall {
   readonly finishedMinutesAgo?: number | undefined
   /** What a running `Agent` call's subagent says it's doing now (its progress summary); none unless given. */
   readonly progressSummary?: string | undefined
+  /** For an `Agent` call: the todo its subagent is filed under in the hub (`SeedTodoId`); none unless given. */
+  readonly todo?: SeedTodoId | undefined
 }
+
+/**
+ * The todo a sample child is filed under in the todo hub (P16; `../shared/todoHub`), by the id Claude Code gave it:
+ * the `N` of the `Task #N` its sample `TaskCreate` call answers with. Filed as main files any child (`fileChildren`),
+ * so it needs the hub on (`settings.todoHubEnabled`); with it off, nothing is filed.
+ */
+export type SeedTodoId = string
 
 /** A sample divider in the tool log. */
 export interface SeedDivider {
@@ -262,6 +283,10 @@ export interface SeedTask {
   readonly questionSet?: SeedQuestionSet | undefined
   /** What its agent left running or scheduled (the Watchers tab), in the order it started them. */
   readonly watchers?: readonly SeedWatcher[] | undefined
+  /** The commits it made (the Changes tab); none unless given. */
+  readonly commits?: readonly SeedCommit[] | undefined
+  /** How its todos' panels were left in the todo hub; each closed, showing all, unless given. */
+  readonly todoPanels?: readonly SeedTodoPanel[] | undefined
   /**
    * Another workspace to put it in, made (once, by its root) beside the fixture's own, which stays the one open: for a
    * capture of what's in flight across workspaces (the menu bar popover). The fixture's workspace unless given.
@@ -304,6 +329,42 @@ export interface SeedWatcher {
   readonly detail: string
   readonly state?: WatcherState | undefined
   readonly minutesAgo: number
+  /** The `toolUseId` of the `Agent` call whose subagent started it; the task's own unless given. */
+  readonly parentToolUseId?: string | undefined
+  /** The last thing it reported; nothing unless given. */
+  readonly lastOutput?: string | undefined
+  /** How it ended, for one in an ended state; nothing unless given. */
+  readonly outcome?: string | undefined
+  /** How long before the capture it ended, for one in an ended state; not recorded unless given. */
+  readonly endedMinutesAgo?: number | undefined
+  /** The todo it's filed under in the hub; none unless given. */
+  readonly todo?: SeedTodoId | undefined
+}
+
+/** A sample commit the task made (`TaskCommit`), in the workspace's own working tree, `minutesAgo`. */
+export interface SeedCommit {
+  /** Its full hash. */
+  readonly hash: string
+  readonly subject: string
+  /** The branch it was made on; `main` unless given. */
+  readonly branch?: string | undefined
+  readonly additions: number
+  readonly deletions: number
+  /** How many files it changed; one unless given. */
+  readonly filesChanged?: number | undefined
+  /** The `toolUseId` of the sample `Bash` call that made it, which says which subagent did; not known unless given. */
+  readonly toolUseId?: string | undefined
+  readonly minutesAgo: number
+  /** The todo it's filed under in the hub; none unless given. */
+  readonly todo?: SeedTodoId | undefined
+}
+
+/** How a todo's panel was left in the hub (`TodoPanel`): the todo by its id, or `unfiled` for the placeholder group. */
+export interface SeedTodoPanel {
+  readonly todo: SeedTodoId
+  readonly open: boolean
+  /** Which of its children it shows; all of them unless given. */
+  readonly filter?: ChildFilter | undefined
 }
 
 /**
@@ -312,7 +373,13 @@ export interface SeedWatcher {
  * it's meant for whatever the time the capture runs; a file, when the workspace has one there, is marked as last
  * changed then too.
  */
-export type SeedArtifact = SeedArtifactTarget & (SeedArtifactMinutesAgo | SeedArtifactDaysAgo)
+export type SeedArtifact = SeedArtifactTarget & (SeedArtifactMinutesAgo | SeedArtifactDaysAgo) & SeedFiled
+
+/** Where a sample child is filed in the todo hub. */
+export interface SeedFiled {
+  /** The todo it's filed under; none unless given. */
+  readonly todo?: SeedTodoId | undefined
+}
 
 /** Which artifact a sample is: a file of the workspace, or a link. */
 export type SeedArtifactTarget = { readonly path: string } | { readonly url: string }
@@ -448,6 +515,9 @@ const count = z.int().nonnegative()
 /** A time of day, `HH:MM`, 24-hour. */
 const timeOfDay = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
 
+/** A todo's id as Claude Code gives it (`SeedTodoId`). */
+const seedTodoId = z.string().min(1)
+
 const seedSummarySchema = z.strictObject({
   durationMs: count.nullable(),
   filesChanged: count,
@@ -475,6 +545,7 @@ const seedToolEventSchema: z.ZodType<SeedToolEvent> = z.discriminatedUnion('kind
     minutesAgo,
     finishedMinutesAgo: minutesAgo.optional(),
     progressSummary: z.string().optional(),
+    todo: seedTodoId.optional(),
   }),
   z.strictObject({ kind: z.literal(ToolEventKind.Divider), dividerKind: z.enum(DividerKind), turn, minutesAgo }),
   z.strictObject({
@@ -620,10 +691,22 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       artifacts: z
         .array(
           z.union([
-            z.strictObject({ path: z.string(), title: z.string(), minutesAgo }),
-            z.strictObject({ url: z.url(), title: z.string(), minutesAgo }),
-            z.strictObject({ path: z.string(), title: z.string(), daysAgo: count, time: timeOfDay }),
-            z.strictObject({ url: z.url(), title: z.string(), daysAgo: count, time: timeOfDay }),
+            z.strictObject({ path: z.string(), title: z.string(), minutesAgo, todo: seedTodoId.optional() }),
+            z.strictObject({ url: z.url(), title: z.string(), minutesAgo, todo: seedTodoId.optional() }),
+            z.strictObject({
+              path: z.string(),
+              title: z.string(),
+              daysAgo: count,
+              time: timeOfDay,
+              todo: seedTodoId.optional(),
+            }),
+            z.strictObject({
+              url: z.url(),
+              title: z.string(),
+              daysAgo: count,
+              time: timeOfDay,
+              todo: seedTodoId.optional(),
+            }),
           ]),
         )
         .optional(),
@@ -673,23 +756,46 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
             detail: z.string(),
             state: z.enum(WatcherState).optional(),
             minutesAgo,
+            parentToolUseId: z.string().optional(),
+            lastOutput: z.string().optional(),
+            outcome: z.string().optional(),
+            endedMinutesAgo: minutesAgo.optional(),
+            todo: seedTodoId.optional(),
           }),
         )
+        .optional(),
+      commits: z
+        .array(
+          z.strictObject({
+            hash: z.string().regex(/^[0-9a-f]{40}$/, 'must be a full hash: 40 hex digits'),
+            subject: z.string(),
+            branch: z.string().optional(),
+            additions: count,
+            deletions: count,
+            filesChanged: count.optional(),
+            toolUseId: z.string().optional(),
+            minutesAgo,
+            todo: seedTodoId.optional(),
+          }),
+        )
+        .optional(),
+      todoPanels: z
+        .array(z.strictObject({ todo: seedTodoId, open: z.boolean(), filter: z.enum(ChildFilter).optional() }))
         .optional(),
     }),
   ),
 })
 
-/** Adds a sample watcher to a task, started `at`. */
-function seedWatcher(db: Database, taskId: string, watcher: SeedWatcher, at: EpochMs): void {
-  const { kind, toolUseId, label, detail } = watcher
-  addWatcher(
+/** Adds a sample watcher to a task, started `at`, as it stands at `now`. */
+function seedWatcher(db: Database, taskId: string, watcher: SeedWatcher, at: EpochMs, now: EpochMs): void {
+  const { kind, toolUseId, label, detail, lastOutput, outcome, endedMinutesAgo } = watcher
+  const added = addWatcher(
     db,
     {
       taskId,
       kind,
       toolUseId,
-      parentToolUseId: null,
+      parentToolUseId: watcher.parentToolUseId ?? null,
       sdkId: null,
       label,
       detail,
@@ -702,6 +808,36 @@ function seedWatcher(db: Database, taskId: string, watcher: SeedWatcher, at: Epo
     },
     at,
   )
+  updateWatcher(db, added.id, {
+    ...(lastOutput === undefined ? {} : { lastOutput }),
+    ...(outcome === undefined ? {} : { outcome }),
+    ...(endedMinutesAgo === undefined ? {} : { endedAt: now - endedMinutesAgo * MINUTE }),
+  })
+}
+
+/** Links a sample commit to a task, as if made in the workspace's own working tree. Answers which child it is. */
+function seedCommit(db: Database, taskId: string, rootPath: string, commit: SeedCommit, now: EpochMs): ChildRef {
+  const committedAt = now - commit.minutesAgo * MINUTE
+  const added = addTaskCommit(
+    db,
+    {
+      taskId,
+      gitDir: join(rootPath, '.git'),
+      repoPath: rootPath,
+      hash: commit.hash,
+      subject: commit.subject,
+      branch: commit.branch ?? 'main',
+      committedAt,
+      additions: commit.additions,
+      deletions: commit.deletions,
+      filesChanged: commit.filesChanged ?? 1,
+      parents: 1,
+      toolUseId: commit.toolUseId ?? null,
+      source: CommitSource.Printed,
+    },
+    committedAt,
+  )
+  return childOfCommit(added)
 }
 
 /** Reads and checks a seed fixture. Throws when it can't be read or isn't a valid fixture. */
@@ -952,8 +1088,17 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       for (const { role, body, turn, summary, broadcast, minutesAgo } of sample.messages ?? []) {
         appendMessage(db, { taskId: task.id, role, body, turn, summary, broadcast }, ago(minutesAgo))
       }
+      // The sample children filed under a todo in the hub, in the order the fixture has them.
+      const filings: NewFiling[] = []
+      const fileUnder = (todo: SeedTodoId | undefined, child: ChildRef): void => {
+        if (todo !== undefined) filings.push({ ...child, todoId: todo, source: FilingSource.Named })
+      }
       for (const [index, event] of (sample.toolEvents ?? []).entries()) {
-        seedToolEvent(db, task.id, event, now, `seed-${String(index)}`)
+        const seedId = `seed-${String(index)}`
+        seedToolEvent(db, task.id, event, now, seedId)
+        if (event.kind === ToolEventKind.ToolCall) {
+          fileUnder(event.todo, { kind: ChildKind.Subagent, key: event.toolUseId ?? seedId })
+        }
       }
       refreshTodos(db, task.id)
       for (const body of sample.queuedMessages ?? []) appendQueuedMessage(db, { taskId: task.id, body }, now)
@@ -971,11 +1116,12 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       for (const artifact of sample.artifacts ?? []) {
         const declaredAt = seedArtifactAt(artifact, now)
         if ('url' in artifact) {
-          addLinkArtifact(db, { taskId: task.id, url: artifact.url, title: artifact.title }, declaredAt)
+          const added = addLinkArtifact(db, { taskId: task.id, url: artifact.url, title: artifact.title }, declaredAt)
+          fileUnder(artifact.todo, childOfArtifact(added))
           continue
         }
         const { path, title } = artifact
-        addArtifact(db, { taskId: task.id, path, title }, declaredAt)
+        fileUnder(artifact.todo, childOfArtifact(addArtifact(db, { taskId: task.id, path, title }, declaredAt)))
         const file = join(workspaceFilesRoot(seed.workspace.rootPath), path)
         const there = existsSync(file)
         if (there) utimesSync(file, new Date(declaredAt), new Date(declaredAt))
@@ -998,7 +1144,18 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         const { preamble, questions, turn, minutesAgo } = sample.questionSet
         appendQuestionSet(db, { taskId: task.id, turn, preamble, questions }, ago(minutesAgo))
       }
-      for (const watcher of sample.watchers ?? []) seedWatcher(db, task.id, watcher, ago(watcher.minutesAgo))
+      for (const watcher of sample.watchers ?? []) {
+        seedWatcher(db, task.id, watcher, ago(watcher.minutesAgo), now)
+        fileUnder(watcher.todo, { kind: ChildKind.Watcher, key: watcher.toolUseId })
+      }
+      for (const commit of sample.commits ?? []) {
+        fileUnder(commit.todo, seedCommit(db, task.id, seed.workspace.rootPath, commit, now))
+      }
+      // Filed as main files any child, with no window to tell yet. Nothing is filed while the hub is off.
+      fileChildren({ db, emit: () => undefined }, task.id, filings, now)
+      for (const { todo, open, filter } of sample.todoPanels ?? []) {
+        setTodoPanel(db, { taskId: task.id, todoId: todo, open, filter: filter ?? ChildFilter.All })
+      }
       for (const { body, minutesAgo } of sample.notifications ?? []) {
         recordNotification(db, { taskId: task.id, title: sample.title, body }, ago(minutesAgo))
       }

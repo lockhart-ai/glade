@@ -1,0 +1,164 @@
+/*
+ * A child's tile under an open todo, from docs/design/html/46-todo-hub.html (.tile). Nothing inside a todo's card is
+ * black: a tile is on inner with an inner-border outline. Blue is live, pink is what itself failed, and grey is
+ * everything else.
+ */
+.tile {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-inner);
+  border: 1px solid var(--color-inner-border);
+  border-radius: 7px;
+}
+
+.tile:hover {
+  background: var(--color-inner-hover);
+}
+
+/* A running subagent, a watcher whose process runs: the live tint, under the pointer too. */
+.tile.live,
+.tile.live:hover {
+  background: var(--color-live);
+  border-color: var(--color-live-border);
+}
+
+.tile:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+}
+
+/* E.g. the file showing in the Files tab (#307). */
+.tile.selected {
+  border-color: var(--color-slate);
+}
+
+.openable {
+  cursor: pointer;
+}
+
+.head {
+  display: flex;
+  gap: var(--space-md);
+}
+
+.icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-faint);
+}
+
+/* An image file's thumbnail where the icon goes, the size the Artifacts tab's rows have: the tile is a little taller. */
+.withMedia {
+  align-items: center;
+  gap: 10px;
+}
+
+.media {
+  width: 40px;
+  height: 28px;
+  margin-top: 0;
+}
+
+.title {
+  flex-grow: 1;
+  min-width: 0;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.4;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A commit's short hash, before its subject. */
+.lead {
+  margin-right: var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-blue-text);
+}
+
+.tag {
+  margin-left: var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+/* Its state and its age, at the end of the first line. */
+.right {
+  flex-shrink: 0;
+  height: 18px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  line-height: 18px;
+  color: var(--color-faint);
+  white-space: pre;
+}
+
+.liveText {
+  color: var(--color-blue-text);
+}
+
+.failed {
+  color: var(--color-pink);
+}
+
+/*
+ * A file's or a link's actions take its age's place while the tile is under the pointer or has the focus (#498): icon
+ * buttons, as the Artifacts tab's rows have.
+ */
+.actions {
+  flex-shrink: 0;
+  display: none;
+  gap: var(--space-2xs);
+  height: 18px;
+  align-items: center;
+  margin-right: calc(-1 * var(--space-xs));
+}
+
+.acting:hover .actions,
+.acting:focus-within .actions {
+  display: flex;
+}
+
+.acting:hover .right,
+.acting:focus-within .right {
+  display: none;
+}
+
+/* Under the first line, in line with its text: the tile's own lines, then what it opens to in place. */
+.body {
+  margin-left: 22px;
+}
+
+.line {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  line-height: 1.5;
+  color: var(--color-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lineLabel {
+  margin-right: var(--space-sm);
+  font-weight: 500;
+  color: var(--color-muted);
+}
+
+/* A commit's lines added and removed: teal, and pink for what it took away. */
+.added {
+  color: var(--color-teal);
+}
+
+.removed {
+  color: var(--color-pink);
+}

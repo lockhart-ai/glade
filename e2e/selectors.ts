@@ -203,6 +203,45 @@ export function taskPanel(page: Page) {
   }
 }
 
+/**
+ * The Todos tab as the todo hub (P16), which it is while the hidden `todoHubEnabled` setting is on: a card per todo,
+ * each with its children under it, then the placeholder group for the children no todo has.
+ */
+export function todoHub(page: Page) {
+  const panel = regions(page).taskPanel.getByRole('tabpanel')
+  const cards = panel.getByRole('list', { name: 'Todos' }).locator(':scope > li')
+  /** A card's head: what takes the focus, and opens a todo that has children (`aria-expanded`). */
+  const heads = panel.locator('[data-todo-head]')
+  return {
+    /** `2 of 3 done`. */
+    heading: panel.getByText(/^\d+ of \d+ done$/),
+    /** What a task with no todos says in the summary's place. */
+    noTodos: panel.getByText('No todos for this task.'),
+    /** Every card, top to bottom: the todos, then the placeholder group. `data-open` while it shows its children. */
+    cards,
+    /** The card whose head says `text`: a todo's title, or `Not under a todo`. */
+    card: (text: string | RegExp) => cards.filter({ has: page.locator('[data-todo-head]', { hasText: text }) }),
+    heads,
+    head: (text: string | RegExp) => heads.filter({ hasText: text }),
+    /**
+     * A card's row of icons, in order: a count per kind while it's closed, the same as filter pills (`aria-pressed`)
+     * while it's open. Each is named by what it counts (`2 subagents, 1 running`), and has `data-live` while one of
+     * its kind is running.
+     */
+    kinds: (card: Locator) => card.locator('button[data-kind]'),
+    kind: (card: Locator, name: string) => card.getByRole('button', { name, exact: true }),
+    /** An open card's All pill, named `All 7`. */
+    all: (card: Locator) => card.getByRole('button', { name: /^All \d+$/ }),
+    /**
+     * An open card's tiles, most recently updated first, each named by its kind and title (`Subagent: fix-501-ci`);
+     * `data-kind` is its kind, and `data-live` is there while it runs.
+     */
+    tiles: (card: Locator) => card.locator('[role="group"][data-kind]'),
+    /** The tiles of an open card that are running now. */
+    liveTiles: (card: Locator) => card.locator('[role="group"][data-kind][data-live]'),
+  }
+}
+
 /** The right panel's Subagents tab: the tally by status and a row per subagent, which opens its log. */
 export function subagentsTab(page: Page) {
   const panel = regions(page).taskPanel.getByRole('tabpanel')

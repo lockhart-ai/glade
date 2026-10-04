@@ -26,7 +26,7 @@ import {
 } from '../../shared/domain'
 import { noOpenFiles } from '../../shared/files'
 import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
-import { ChildKind, FilingSource } from '../../shared/todoHub'
+import { ChildFilter, ChildKind, FilingSource, UNFILED_TODO_ID, type Filing } from '../../shared/todoHub'
 import {
   FolderAccess,
   SandboxAskKind,
@@ -42,6 +42,7 @@ import {
   withLiveWatchers,
   withOpenedWorkspace,
   withRunningSubagents,
+  withTodoHub,
 } from './reducer'
 import { INITIAL_DATA, type GladeData } from './state'
 import {
@@ -69,19 +70,6 @@ describe('applyEvent', () => {
 
   it('leaves the state alone for a menu bar command, which the window runs', () => {
     expect(applyEvent(state, { type: EventType.MenuCommand, command: appCommand(AppCommandId.NewTask) })).toBe(state)
-  })
-
-  it('leaves the state alone for a filing in the todo hub, which the window keeps nothing of yet (P16)', () => {
-    const filed = {
-      taskId: 't1',
-      kind: ChildKind.File,
-      key: 'docs/plan.md',
-      todoId: '1',
-      source: FilingSource.Named,
-      filedAt: 1,
-    }
-    const removed = [{ kind: ChildKind.Link, key: 'https://example.com/acme/api/pull/511' }]
-    expect(applyEvent(state, { type: EventType.FilingsChanged, taskId: 't1', filed: [filed], removed })).toBe(state)
   })
 
   it("leaves the state alone for what's in flight, which only the menu bar popover is sent", () => {
@@ -982,5 +970,92 @@ describe('idFromUiState', () => {
   it('reads the empty string as no selection', () => {
     expect(idFromUiState('')).toBeNull()
     expect(idFromUiState('t1')).toBe('t1')
+  })
+})
+
+describe('the todo hub’s filings (P16)', () => {
+  const filing = (kind: ChildKind, key: string, todoId: string, filedAt = 1): Filing => ({
+    taskId: 't1',
+    kind,
+    key,
+    todoId,
+    source: FilingSource.Named,
+    filedAt,
+  })
+  const PLAN = filing(ChildKind.File, 'docs/plan.md', '1')
+  const PR = filing(ChildKind.Link, 'https://example.com/acme/api/pull/511', '1')
+  const GROUPS = { todos: [], unfiled: { todoId: UNFILED_TODO_ID, children: [], tallies: {} } } as never
+  const loaded = withTodoHub(state, 't1', { children: GROUPS, filings: [PLAN, PR], panels: [] })
+
+  it('keeps a task’s filings and its todos’ panels as loaded, by todo', () => {
+    const panel = { taskId: 't1', todoId: '1', open: true, filter: ChildFilter.Links }
+    const unfiled = { taskId: 't1', todoId: UNFILED_TODO_ID, open: true, filter: ChildFilter.All }
+    const hub = withTodoHub(state, 't1', { children: GROUPS, filings: [PLAN], panels: [panel, unfiled] })
+
+    expect(hub.filings).toEqual({ t1: [PLAN] })
+    expect(hub.todoPanels).toEqual({ t1: { '1': panel, [UNFILED_TODO_ID]: unfiled } })
+  })
+
+  it('keeps the panels the window already has when the hub is loaded again: only this window changes them', () => {
+    const mine = { taskId: 't1', todoId: '1', open: true, filter: ChildFilter.Watchers }
+    const earlier = { ...loaded, todoPanels: { t1: { '1': mine } } }
+    const stale = { taskId: 't1', todoId: '1', open: false, filter: ChildFilter.Links }
+
+    const again = withTodoHub(earlier, 't1', { children: GROUPS, filings: [PR], panels: [stale] })
+
+    expect(again.todoPanels.t1).toEqual({ '1': mine })
+    expect(again.filings.t1).toEqual([PR])
+  })
+
+  it('keeps nothing for a task deleted while its hub loaded', () => {
+    expect(withTodoHub(state, 'gone', { children: GROUPS, filings: [PLAN], panels: [] })).toBe(state)
+  })
+
+  it('adds a filing made, and moves a child whose filing was replaced, leaving the rest as they were', () => {
+    const watcher = filing(ChildKind.Watcher, 'toolu_9', '2', 5)
+    const moved = { ...PLAN, todoId: '2', source: FilingSource.Moved, filedAt: 6 }
+
+    const next = applyEvent(loaded, {
+      type: EventType.FilingsChanged,
+      taskId: 't1',
+      filed: [watcher, moved],
+      removed: [],
+    })
+
+    expect(next.filings.t1).toEqual([PR, watcher, moved])
+    expect(next.filingsVersion.t1).toBe(1)
+  })
+
+  it('drops the filing of a child that lost it, and only that child’s', () => {
+    const removed = [{ kind: ChildKind.Link, key: PR.key }]
+    const next = applyEvent(loaded, { type: EventType.FilingsChanged, taskId: 't1', filed: [], removed })
+    expect(next.filings.t1).toEqual([PLAN])
+    // A file with a link's key is another child.
+    const other = [{ kind: ChildKind.File, key: PR.key }]
+    expect(
+      applyEvent(loaded, { type: EventType.FilingsChanged, taskId: 't1', filed: [], removed: other }).filings.t1,
+    ).toEqual([PLAN, PR])
+  })
+
+  it('keeps no filings for a task whose hub hasn’t been loaded, but counts the change, so a load on its way reads again', () => {
+    const next = applyEvent(state, { type: EventType.FilingsChanged, taskId: 't1', filed: [PLAN], removed: [] })
+    expect(next.filings).toEqual({})
+    expect(next.filingsVersion).toEqual({ t1: 1 })
+    const again = applyEvent(next, { type: EventType.FilingsChanged, taskId: 't1', filed: [PR], removed: [] })
+    expect(again.filingsVersion).toEqual({ t1: 2 })
+  })
+
+  it('forgets a deleted task’s filings, their count and its panels', () => {
+    const panel = { taskId: 't1', todoId: '1', open: true, filter: ChildFilter.All }
+    const counted = applyEvent(
+      { ...loaded, todoPanels: { t1: { '1': panel } } },
+      { type: EventType.FilingsChanged, taskId: 't1', filed: [], removed: [] },
+    )
+
+    const next = applyEvent(counted, { type: EventType.TaskDeleted, taskId: 't1' })
+
+    expect(next.filings).toEqual({})
+    expect(next.filingsVersion).toEqual({})
+    expect(next.todoPanels).toEqual({})
   })
 })

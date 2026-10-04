@@ -31,6 +31,7 @@ import { AppCommandId, CommandScope } from '../../shared/commands'
 import { noOpenFiles } from '../../shared/files'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { GIF, JPEG, PNG } from '../../shared/test-images'
+import { ChildFilter, ChildKind, FilingSource, TODO_HUB_OFF, UNFILED_TODO_ID, type Filing } from '../../shared/todoHub'
 import { activePanelTab, PanelTab, panelTabEntry, parsePanelTabSelection } from '../right-panel/panelModel'
 import { SettingsSection } from '../settings/sections'
 import { HydrationStatus, selectSelectedTask, selectSelectedWorkspace } from './state'
@@ -1671,5 +1672,96 @@ describe('a batch of events from main (#489)', () => {
 
     expect(changes).toHaveBeenCalledTimes(2)
     expect(store.getState().tasks.t1?.status).toBe('On its own.')
+  })
+})
+
+describe('the todo hub (P16)', () => {
+  const ON = { ...DEFAULT_SETTINGS, todoHubEnabled: true }
+  const filing = (key: string, todoId: string, filedAt = 1): Filing => ({
+    taskId: 't1',
+    kind: ChildKind.File,
+    key,
+    todoId,
+    source: FilingSource.Named,
+    filedAt,
+  })
+
+  it('loads a task’s filings and its todos’ panels', async () => {
+    const panel = { taskId: 't1', todoId: '2', open: true, filter: ChildFilter.Files }
+    const other = { taskId: 't2', todoId: '2', open: true, filter: ChildFilter.All }
+    const data: FakeMain = {
+      ...main(),
+      settings: ON,
+      filings: [filing('docs/plan.md', '2'), { ...filing('docs/other.md', '1'), taskId: 't2' }],
+      todoPanels: [panel, other],
+      todoHubReads: [],
+    }
+    const { store } = await hydrated(data)
+
+    await store.getState().loadTodoHub('t1')
+
+    expect(store.getState().filings).toEqual({ t1: [filing('docs/plan.md', '2')] })
+    expect(store.getState().todoPanels).toEqual({ t1: { '2': panel } })
+    expect(data.todoHubReads).toEqual(['t1'])
+  })
+
+  it('fails to load while the hub is off, keeping nothing', async () => {
+    const { store } = await hydrated()
+    await expect(store.getState().loadTodoHub('t1')).rejects.toMatchObject({ message: TODO_HUB_OFF })
+    expect(store.getState().filings).toEqual({})
+  })
+
+  it('reads again when a filing lands while it loads, so the change is never lost to an answer made before it', async () => {
+    const data: FakeMain = { ...main(), settings: ON, filings: [filing('docs/plan.md', '1')], todoHubReads: [] }
+    const { store, emit } = await hydrated(data)
+    const late = filing('docs/late.md', '2', 9)
+
+    const loading = store.getState().loadTodoHub('t1')
+    // Main filed another child after it read the task's filings, and its event overtook the answer.
+    emit({ type: EventType.FilingsChanged, taskId: 't1', filed: [late], removed: [] })
+    data.filings = [...(data.filings ?? []), late]
+    await loading
+
+    expect(data.todoHubReads).toEqual(['t1', 't1'])
+    expect(store.getState().filings.t1).toEqual([filing('docs/plan.md', '1'), late])
+  })
+
+  it('keeps a loaded task’s filings current from the events alone', async () => {
+    const { store, emit } = await hydrated({ ...main(), settings: ON, filings: [filing('docs/plan.md', '1')] })
+    await store.getState().loadTodoHub('t1')
+
+    emit({ type: EventType.FilingsChanged, taskId: 't1', filed: [filing('docs/plan.md', '3', 4)], removed: [] })
+
+    expect(store.getState().filings.t1).toEqual([filing('docs/plan.md', '3', 4)])
+  })
+
+  it('opens, closes and filters a todo’s panel at once, and has main remember it', async () => {
+    const data: FakeMain = { ...main(), settings: ON, todoPanels: [] }
+    const { store, invoke } = await hydrated(data)
+    await store.getState().loadTodoHub('t1')
+    const opened = { taskId: 't1', todoId: '4', open: true, filter: ChildFilter.Watchers }
+    const group = { taskId: 't1', todoId: UNFILED_TODO_ID, open: true, filter: ChildFilter.All }
+
+    const opening = store.getState().setTodoPanel(opened)
+    // Before main answers.
+    expect(store.getState().todoPanels.t1).toEqual({ '4': opened })
+    await opening
+    await store.getState().setTodoPanel(group)
+    await store.getState().setTodoPanel({ ...opened, open: false })
+
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.TodoHubSetPanel, { ...opened, open: false })
+    expect(store.getState().todoPanels.t1).toEqual({ '4': { ...opened, open: false }, [UNFILED_TODO_ID]: group })
+    expect(data.todoPanels).toEqual([{ ...opened, open: false }, group])
+    // Another task's panels are its own.
+    await store.getState().setTodoPanel({ ...opened, taskId: 't2' })
+    expect(store.getState().todoPanels.t2).toEqual({ '4': { ...opened, taskId: 't2' } })
+    expect(Object.keys(store.getState().todoPanels.t1 ?? {})).toHaveLength(2)
+  })
+
+  it('shows a todo’s panel as you set it even when main can’t remember it', async () => {
+    const { store } = await hydrated()
+    const opened = { taskId: 't1', todoId: '4', open: true, filter: ChildFilter.All }
+    await expect(store.getState().setTodoPanel(opened)).rejects.toMatchObject({ message: TODO_HUB_OFF })
+    expect(store.getState().todoPanels.t1).toEqual({ '4': opened })
   })
 })

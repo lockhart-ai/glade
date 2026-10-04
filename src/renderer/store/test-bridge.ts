@@ -21,7 +21,7 @@ import { BroadcastDelivery, receivesBroadcast, type BroadcastOutcome } from '../
 import type { MenuState } from '../../shared/commands'
 import { checkArtifactUrl, defaultLinkTitle } from '../../shared/artifactLinks'
 import { artifactKey } from '../../shared/artifacts'
-import { TODO_HUB_OFF } from '../../shared/todoHub'
+import { groupChildren, subagentsOf, TODO_HUB_OFF, type Filing, type TodoPanel } from '../../shared/todoHub'
 import { AttachedFileKind, attachmentsFolderOf, type AttachedFile } from '../../shared/attachedFiles'
 import {
   AgentErrorKind,
@@ -166,6 +166,12 @@ export interface FakeMain {
   readonly todos?: Readonly<Record<string, TodoList>>
   /** Every task's artifacts; none when left out. `artifacts.remove` removes one, from the fake's own copy. */
   readonly artifacts?: readonly Artifact[]
+  /** Every task's filings in the todo hub, which `todoHub.get` answers with while the hub is on; none when left out. */
+  filings?: readonly Filing[]
+  /** Every task's todo panels as you left them, which `todoHub.get` answers with; `todoHub.setPanel` changes them. */
+  readonly todoPanels?: TodoPanel[]
+  /** The tasks `todoHub.get` was asked for while the hub was on, in order. */
+  readonly todoHubReads?: string[]
   /** Each task's handoff note, by task id; none when left out. */
   readonly handoffs?: Readonly<Record<string, TaskHandoff>>
   /** What `files.thumbnail` answers with, by path, for any task; no thumbnail when left out. */
@@ -760,9 +766,30 @@ export function fakeHandlers(
       main.watchedArtifacts?.push(`unwatch ${taskId}`)
       return null
     },
-    // The todo hub is off until its tab is built (#497), and main refuses both while it is.
-    [CommandName.TodoHubGet]: () => refuse(bridgeError(BridgeErrorCode.InvalidTransition, TODO_HUB_OFF)),
-    [CommandName.TodoHubSetPanel]: () => refuse(bridgeError(BridgeErrorCode.InvalidTransition, TODO_HUB_OFF)),
+    // As main does, it refuses both while the hub is off (`todoHubEnabled`).
+    [CommandName.TodoHubGet]: ({ taskId }) => {
+      if (!settings.todoHubEnabled) return refuse(bridgeError(BridgeErrorCode.InvalidTransition, TODO_HUB_OFF))
+      main.todoHubReads?.push(taskId)
+      const filings = (main.filings ?? []).filter((filing) => filing.taskId === taskId)
+      const children = groupChildren({
+        todos: main.todos?.[taskId]?.items ?? [],
+        artifacts: artifacts.filter((artifact) => artifact.taskId === taskId),
+        subagents: subagentsOf((main.toolEvents ?? []).filter((event) => event.taskId === taskId)),
+        watchers: (main.watchers ?? []).filter((watcher) => watcher.taskId === taskId),
+        commits: (main.commits ?? []).filter((commit) => commit.taskId === taskId),
+        filings,
+      })
+      return { children, filings, panels: (main.todoPanels ?? []).filter((panel) => panel.taskId === taskId) }
+    },
+    [CommandName.TodoHubSetPanel]: (panel) => {
+      if (!settings.todoHubEnabled) return refuse(bridgeError(BridgeErrorCode.InvalidTransition, TODO_HUB_OFF))
+      const panels = main.todoPanels
+      if (panels !== undefined) {
+        const at = panels.findIndex(({ taskId, todoId }) => taskId === panel.taskId && todoId === panel.todoId)
+        panels.splice(at === -1 ? panels.length : at, at === -1 ? 0 : 1, panel)
+      }
+      return null
+    },
     [CommandName.ClipboardWriteText]: ({ text }) => {
       main.copied?.push(text)
       return null

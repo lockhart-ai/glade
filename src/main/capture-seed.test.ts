@@ -49,6 +49,9 @@ import { listTasks } from './db/repositories/tasks'
 import { getSdkModels } from './db/repositories/sdk-models'
 import { getUiState } from './db/repositories/ui-state'
 import { listWatchers } from './db/repositories/watchers'
+import { listTaskCommits } from './db/repositories/task-commits'
+import { readTodoHub } from './todo-hub/todo-hub'
+import { ChildFilter, ChildKind, commitChildKey, FilingSource, UNFILED_TODO_ID } from '../shared/todoHub'
 import { listWorkspaces } from './db/repositories/workspaces'
 import { readTaskFile, workspaceFilesRoot } from './files/files'
 import { openTestDatabase, type TestDatabase } from './db/repositories/test-database'
@@ -175,6 +178,35 @@ describe('readSeed', () => {
     const seed = readSeed(join(FIXTURES, 'todos.json'))
     expect(seed.panelTab).toBe('todos')
     expect(seed.tasks.find((task) => task.selected)?.title).toBe('Move image uploads to S3')
+  })
+
+  it('reads the todo hub fixture: the switch on, and children filed under the selected task’s todos (P16)', () => {
+    const seed = readSeed(join(FIXTURES, 'todo-hub.json'))
+    expect(seed.settings).toEqual({ todoHubEnabled: true })
+    expect(seed.panelTab).toBe('todos')
+    const ship = seed.tasks.find((task) => task.selected)
+    expect(ship?.title).toBe('Ship the rate-limit fixes for 2.5')
+    expect(ship?.todoPanels).toEqual([{ todo: '1', open: true }])
+    expect(ship?.commits?.map(({ todo }) => todo)).toEqual(['1', '1', '2', '2', '4'])
+    // A task from before the hub, with nothing filed, and one that never wrote todos.
+    const before = seed.tasks.find((task) => task.title === 'Fix the UTC date test')
+    expect(before?.todoPanels).toEqual([{ todo: 'unfiled', open: true }])
+    expect(
+      [...(before?.artifacts ?? []), ...(before?.watchers ?? []), ...(before?.commits ?? [])].map(({ todo }) => todo),
+    ).toEqual([undefined, undefined, undefined, undefined])
+    expect(seed.tasks.find((task) => task.title === 'Tidy the API reference')?.toolEvents).toBeUndefined()
+  })
+
+  it('refuses a sample commit whose hash isn’t a full one, a todo with no id, or a panel filter it doesn’t know', () => {
+    const task = { title: 'Ship it', minutesAgo: 1 }
+    const commit = { hash: 'a1b2c3d', subject: 'Fix it', additions: 1, deletions: 0, minutesAgo: 1 }
+    const bad = (extra: object): string => write(JSON.stringify({ ...SEED, tasks: [{ ...task, ...extra }] }))
+    expect(() => readSeed(bad({ commits: [commit] }))).toThrow(/must be a full hash/)
+    expect(() => readSeed(bad({ commits: [{ ...commit, hash: 'a'.repeat(40), todo: '' }] }))).toThrow(/is invalid/)
+    expect(() => readSeed(bad({ todoPanels: [{ todo: '1', open: true, filter: 'images' }] }))).toThrow(/is invalid/)
+    expect(readSeed(bad({ commits: [{ ...commit, hash: 'a'.repeat(40), todo: '2' }] })).tasks[0]?.commits).toHaveLength(
+      1,
+    )
   })
 
   it('reads the compaction fixture', () => {
@@ -575,6 +607,242 @@ describe('applySeed', () => {
       },
     ])
     expect(listWatchers(db, byTitle.get('Plain') ?? '')).toEqual([])
+  })
+
+  describe('the todo hub (P16)', () => {
+    const HASH = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678'
+    const OTHER_HASH = '0c4d2e1f60718293a4b5c6d7e8f9012345678abc'
+    const PR = 'https://github.com/acme/api/pull/511'
+    const now = 100 * 60_000
+
+    function created(id: string, subject: string) {
+      return {
+        kind: ToolEventKind.ToolCall,
+        name: 'TaskCreate',
+        input: { subject, description: subject },
+        output: `Task #${id} created successfully: ${subject}`,
+        turn: 1,
+        minutesAgo: 30,
+      } as const
+    }
+
+    /** A task with two todos, and one child of each kind filed under them, the rest under none. */
+    const HUB: CaptureSeed = {
+      ...SEED,
+      tasks: [
+        {
+          title: 'Ship the fixes',
+          minutesAgo: 1,
+          toolEvents: [
+            created('1', 'Return Retry-After on 429s'),
+            created('2', 'Draft the release notes'),
+            {
+              kind: ToolEventKind.ToolCall,
+              name: 'Agent',
+              input: { description: 'fix-501' },
+              toolUseId: 'use-fix-501',
+              turn: 1,
+              minutesAgo: 20,
+              todo: '1',
+            },
+            {
+              kind: ToolEventKind.ToolCall,
+              name: 'Bash',
+              input: { command: 'git commit -am "Fix it"' },
+              output: '[main a1b2c3d] Fix it',
+              toolUseId: 'use-commit',
+              parentToolUseId: 'use-fix-501',
+              turn: 1,
+              minutesAgo: 11,
+            },
+            // No id of its own: it's filed by the one the seed gives it.
+            {
+              kind: ToolEventKind.ToolCall,
+              name: 'Agent',
+              input: { description: 'notes' },
+              turn: 1,
+              minutesAgo: 5,
+              todo: '2',
+            },
+          ],
+          artifacts: [
+            { url: PR, title: 'Return Retry-After on 429s', minutesAgo: 7, todo: '1' },
+            { path: 'docs/limits.md', title: 'Rate limits reference', minutesAgo: 6, todo: '2' },
+            { path: 'docs/loose.md', title: 'Loose notes', minutesAgo: 3 },
+            { path: 'docs/dated.md', title: 'Dated notes', daysAgo: 2, time: '09:30', todo: '2' },
+            { url: 'https://handbook.example.com/limits', title: 'Limits', daysAgo: 3, time: '10:00', todo: '1' },
+          ],
+          watchers: [
+            {
+              kind: WatcherKind.Monitor,
+              toolUseId: 'use-watch',
+              label: 'CI checks on PR #511',
+              detail: 'gh pr checks 511 --watch',
+              state: WatcherState.Finished,
+              minutesAgo: 9,
+              endedMinutesAgo: 2,
+              outcome: 'unit-tests fail',
+              lastOutput: 'lint pass',
+              parentToolUseId: 'use-fix-501',
+              todo: '2',
+            },
+            { kind: WatcherKind.Command, toolUseId: 'use-plain', label: 'Tests', detail: 'npm test', minutesAgo: 4 },
+          ],
+          commits: [
+            {
+              hash: HASH,
+              subject: 'Return Retry-After on 429 responses',
+              branch: 'fix/retry-after',
+              additions: 38,
+              deletions: 6,
+              filesChanged: 3,
+              toolUseId: 'use-commit',
+              minutesAgo: 11,
+              todo: '1',
+            },
+            { hash: OTHER_HASH, subject: 'Tidy up', additions: 2, deletions: 1, minutesAgo: 8 },
+          ],
+          todoPanels: [
+            { todo: '1', open: true, filter: ChildFilter.Commits },
+            { todo: 'unfiled', open: true },
+          ],
+        },
+      ],
+    }
+
+    function onlyTaskId(): string {
+      return listTasks(database.db, listWorkspaces(database.db)[0]?.id ?? '')[0]?.id ?? ''
+    }
+
+    it('links a task’s commits, made in the workspace’s own working tree, when they say', () => {
+      const { db } = database
+      applySeed(db, HUB, now)
+
+      expect(listTaskCommits(db, onlyTaskId())).toEqual([
+        expect.objectContaining({
+          hash: OTHER_HASH,
+          subject: 'Tidy up',
+          branch: 'main',
+          committedAt: now - 8 * MINUTE,
+          additions: 2,
+          deletions: 1,
+          filesChanged: 1,
+          merge: false,
+          repoPath: '/Users/sample/code/api',
+          subagentToolUseId: null,
+        }),
+        expect.objectContaining({
+          hash: HASH,
+          branch: 'fix/retry-after',
+          committedAt: now - 11 * MINUTE,
+          filesChanged: 3,
+          // The call that made it was a subagent's.
+          subagentToolUseId: 'use-fix-501',
+        }),
+      ])
+    })
+
+    it('gives a watcher its subagent, its last report, how it ended and when', () => {
+      const { db } = database
+      applySeed(db, HUB, now)
+
+      const [finished, plain] = listWatchers(db, onlyTaskId())
+      expect(finished).toMatchObject({
+        toolUseId: 'use-watch',
+        parentToolUseId: 'use-fix-501',
+        state: WatcherState.Finished,
+        lastOutput: 'lint pass',
+        outcome: 'unit-tests fail',
+        startedAt: now - 9 * MINUTE,
+        endedAt: now - 2 * MINUTE,
+      })
+      expect(plain).toMatchObject({ parentToolUseId: null, lastOutput: null, outcome: null, endedAt: null })
+    })
+
+    it('files the children that name a todo under it, as main files any child, and leaves the rest under none', () => {
+      const { db } = database
+      applySeed(db, { ...HUB, settings: { todoHubEnabled: true } }, now)
+      const taskId = onlyTaskId()
+
+      const hub = readTodoHub(db, taskId)
+      const under = (todoId: string): string[] =>
+        hub.filings.filter((filing) => filing.todoId === todoId).map(({ kind, key }) => `${kind} ${key}`)
+      expect(under('1').sort()).toEqual(
+        [
+          `${ChildKind.Commit} ${commitChildKey({ hash: HASH, repoPath: '/Users/sample/code/api' })}`,
+          `${ChildKind.Link} ${PR}`,
+          `${ChildKind.Link} https://handbook.example.com/limits`,
+          `${ChildKind.Subagent} use-fix-501`,
+        ].sort(),
+      )
+      expect(under('2').sort()).toEqual(
+        [
+          `${ChildKind.File} docs/dated.md`,
+          `${ChildKind.File} docs/limits.md`,
+          `${ChildKind.Subagent} seed-4`,
+          `${ChildKind.Watcher} use-watch`,
+        ].sort(),
+      )
+      expect(hub.filings).toHaveLength(8)
+      expect(hub.filings.every(({ source, filedAt }) => source === FilingSource.Named && filedAt === now)).toBe(true)
+      // What named no todo is under none: a file, a watcher and a commit.
+      expect(hub.children.unfiled.children.map(({ kind }) => kind).sort()).toEqual(
+        [ChildKind.Commit, ChildKind.File, ChildKind.Watcher].sort(),
+      )
+      // The watcher its subagent started is filed on its own, apart from its subagent's todo.
+      const second = hub.children.todos.find(({ todoId }) => todoId === '2')
+      expect(second?.children.map(({ kind }) => kind)).toContain(ChildKind.Watcher)
+    })
+
+    it('leaves each todo’s panel as it says: open or closed, on its filter or all', () => {
+      const { db } = database
+      applySeed(db, { ...HUB, settings: { todoHubEnabled: true } }, now)
+      const taskId = onlyTaskId()
+
+      expect(readTodoHub(db, taskId).panels).toEqual([
+        { taskId, todoId: '1', open: true, filter: ChildFilter.Commits },
+        { taskId, todoId: UNFILED_TODO_ID, open: true, filter: ChildFilter.All },
+      ])
+    })
+
+    it('files nothing while the hub is off, though the children are all there', () => {
+      const { db } = database
+      applySeed(db, HUB, now)
+      const taskId = onlyTaskId()
+
+      expect(db.prepare('SELECT COUNT(*) AS filed FROM child_filings').get()).toEqual({ filed: 0 })
+      expect(listArtifacts(db, taskId)).toHaveLength(5)
+      expect(listWatchers(db, taskId)).toHaveLength(2)
+    })
+
+    it('applies the todo hub fixture: every todo of the selected task has what the screens show under it', () => {
+      const { db } = database
+      applySeed(db, readSeed(join(FIXTURES, 'todo-hub.json')), now)
+      const tasks = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+      const idOf = (title: string): string => tasks.find((task) => task.title === title)?.id ?? ''
+
+      const ship = readTodoHub(db, idOf('Ship the rate-limit fixes for 2.5'))
+      const counts = (todoId: string): number[] => {
+        const group = [...ship.children.todos, ship.children.unfiled].find((each) => each.todoId === todoId)
+        return Object.values(group?.tallies ?? {}).map(({ count }) => count)
+      }
+      // Files, links, subagents, watchers, changes: as 46-todo-hub.html has them.
+      expect(counts('1')).toEqual([0, 2, 2, 1, 2])
+      expect(counts('2')).toEqual([0, 3, 1, 1, 2])
+      expect(counts('3')).toEqual([0, 0, 0, 0, 0])
+      expect(counts('4')).toEqual([2, 2, 1, 1, 1])
+      expect(counts(UNFILED_TODO_ID)).toEqual([0, 0, 0, 0, 0])
+      expect(ship.children.todos[0]?.tallies[ChildKind.Subagent].live).toBe(true)
+      expect(ship.children.todos[1]?.tallies[ChildKind.Watcher].live).toBe(true)
+
+      // The task from before the hub has it all under no todo, and the one with no todos has no groups at all.
+      const before = readTodoHub(db, idOf('Fix the UTC date test'))
+      expect(before.children.todos.map(({ children }) => children.length)).toEqual([0, 0, 0, 0])
+      expect(before.children.unfiled.children).toHaveLength(4)
+      const tidy = readTodoHub(db, idOf('Tidy the API reference'))
+      expect(tidy.children.todos).toEqual([])
+      expect(tidy.children.unfiled.children).toHaveLength(4)
+    })
   })
 
   it('shows a made-up root that reads its files from the fixture’s folder of sample files', async () => {

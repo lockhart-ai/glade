@@ -4,8 +4,14 @@
 // rendered the whole chat and tool log again and laid them out twice over, so keys waited a second or more.
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
-import { LONG_HISTORY, LONG_TASK_TITLE, SelectedHistory, writeLongHistorySeed } from './long-history'
-import { chat, inputBar, taskHeader, taskPanel } from './selectors'
+import {
+  HUB_CHILDREN_UNDER_FIRST,
+  LONG_HISTORY,
+  LONG_TASK_TITLE,
+  SelectedHistory,
+  writeLongHistorySeed,
+} from './long-history'
+import { chat, inputBar, taskHeader, taskPanel, todoHub } from './selectors'
 
 /** A key every 60 ms: fast typing, about 200 words a minute. */
 const PACE_MS = 60
@@ -92,6 +98,11 @@ test('typing stays prompt in a task with a very long history, idle and while the
   await expect(chat(window).agentReplies).toHaveCount(LONG_HISTORY.messages / 2)
   await expect(taskPanel(window).tab(/^Subagents/)).toHaveText(`Subagents ${String(LONG_HISTORY.subagents)}`)
 
+  await typesPromptly(window)
+})
+
+/** Types a message while nothing else happens, then another while the agent works a turn: each key shows promptly. */
+async function typesPromptly(window: Page): Promise<void> {
   const bar = inputBar(window)
   await bar.field.click()
   await recordKeys(window)
@@ -108,4 +119,25 @@ test('typing stays prompt in a task with a very long history, idle and while the
   expect(median(working)).toBeLessThan(MEDIAN_LIMIT_MS)
   await expect(bar.field).toHaveValue(TEXT)
   await expect(chat(window).agentReplies).toHaveCount(LONG_HISTORY.messages / 2 + 1)
+}
+
+// The same task with the todo hub open on it (P16, #497): 40 todos, each a card, three of them open, the first over 50
+// tiles, two of them subagents still running. Every event of the turn reaches the hub, which works out each todo's
+// children again; a card or a tile renders only when its own data changed, so the keys don't wait on it.
+test('typing stays prompt with the todo hub open on a task with a very long history', async ({
+  launch,
+  tempFolder,
+}) => {
+  test.setTimeout(120_000)
+  const seed = writeLongHistorySeed(tempFolder(), SelectedHistory.Long, 'todos', true)
+  const { window } = await launch({ seed, agentScript: 'multi-tool-turn' })
+  await expect(taskHeader(window).title).toHaveText(LONG_TASK_TITLE)
+  await expect(chat(window).agentReplies).toHaveCount(LONG_HISTORY.messages / 2)
+  const hub = todoHub(window)
+  await expect(hub.cards).toHaveCount(LONG_HISTORY.todos)
+  await expect(hub.tiles(hub.cards.first())).toHaveCount(HUB_CHILDREN_UNDER_FIRST)
+  await expect(hub.liveTiles(hub.cards.first())).toHaveCount(2)
+  await expect(hub.cards.locator('[data-todo-head][aria-expanded="true"]')).toHaveCount(3)
+
+  await typesPromptly(window)
 })

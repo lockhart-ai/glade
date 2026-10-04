@@ -19,7 +19,7 @@ import type { ImageData } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import { describeFailure, lastOpenedWorkspace, loadSnapshot } from './hydrate'
 import { isLoaded, withDoneCounts, withDonePage, withLoadedTasks } from './doneLists'
-import { applyEvent, withGroupFold, withHistory, withOpenedWorkspace, withSandboxGrants } from './reducer'
+import { applyEvent, withGroupFold, withHistory, withOpenedWorkspace, withSandboxGrants, withTodoHub } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState, type TerminalEvent } from './state'
 import {
   UnsavedChoice,
@@ -981,6 +981,25 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
 
       async unwatchArtifacts(taskId) {
         await bridge.invoke(CommandName.ArtifactsUnwatch, { taskId })
+      },
+
+      async loadTodoHub(taskId) {
+        for (;;) {
+          // A `filings.changed` that lands before this answers may or may not be in the answer: read again.
+          const versionAtLoad = get().filingsVersion[taskId] ?? 0
+          const hub = await bridge.invoke(CommandName.TodoHubGet, { taskId })
+          if ((get().filingsVersion[taskId] ?? 0) !== versionAtLoad) continue
+          set((state) => withTodoHub(state, taskId, hub))
+          return
+        }
+      },
+
+      // The todo opens, closes or filters at once; main remembers it for the task.
+      async setTodoPanel(panel) {
+        set(({ todoPanels }) => ({
+          todoPanels: { ...todoPanels, [panel.taskId]: { ...todoPanels[panel.taskId], [panel.todoId]: panel } },
+        }))
+        await bridge.invoke(CommandName.TodoHubSetPanel, panel)
       },
 
       async stopSubagent(taskId, toolUseId) {

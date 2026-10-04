@@ -1,24 +1,7 @@
-import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
-import {
-  faCircleDot,
-  faCopy,
-  faFileCode,
-  faFileImage,
-  faFileLines,
-  faFolder,
-} from '@fortawesome/free-regular-svg-icons'
-import {
-  faArrowUpRightFromSquare,
-  faChevronDown,
-  faChevronRight,
-  faCodePullRequest,
-  faEllipsis,
-  faLink,
-  faTicket,
-} from '@fortawesome/free-solid-svg-icons'
+import { faCopy, faFolder } from '@fortawesome/free-regular-svg-icons'
+import { faArrowUpRightFromSquare, faChevronDown, faChevronRight, faEllipsis } from '@fortawesome/free-solid-svg-icons'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
-import { LinkKind, recogniseLink } from '../../shared/artifactLinks'
 import { artifactKey, artifactRef } from '../../shared/artifacts'
 import {
   ArtifactFilter,
@@ -47,12 +30,11 @@ import { ImageViewer, type ImageViewerHeader } from '../images/ImageViewer'
 import { ImageSourceKind, workspaceImageSource, type ImageViewerSource } from '../images/imageSources'
 import { useGladeStore } from '../store/react'
 import { formatFullDate } from '../task-header/headerModel'
+import { linkIcon, tileIcon } from './artifactIcons'
 import {
   artifactTime,
   artifactTypeName,
   countArtifacts,
-  fileTileKind,
-  FileTileKind,
   filterArtifacts,
   formatArtifactAge,
   groupArtifacts,
@@ -87,32 +69,6 @@ function layoutTop(element: HTMLElement): number {
   let top = 0
   for (let at: Element | null = element; at instanceof HTMLElement; at = at.offsetParent) top += at.offsetTop
   return top
-}
-
-function tileIcon(path: string): IconDefinition {
-  switch (fileTileKind(path)) {
-    case FileTileKind.Image:
-      return faFileImage
-    case FileTileKind.Code:
-      return faFileCode
-    case FileTileKind.Text:
-      return faFileLines
-  }
-}
-
-/** The icon on a link's tile, by what it is: a pull request, an issue, a ticket, or any other page. */
-function linkIcon(url: string): IconDefinition {
-  const link = recogniseLink(url)
-  switch (link.kind) {
-    case LinkKind.PullRequest:
-      return faCodePullRequest
-    case LinkKind.Issue:
-      return faCircleDot
-    case LinkKind.Ticket:
-      return faTicket
-    case LinkKind.Web:
-      return faLink
-  }
 }
 
 interface ArtifactRowProps {

@@ -1,0 +1,574 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "settings": {
+    "todoHubEnabled": true
+  },
+  "panelTab": "todos",
+  "tasks": [
+    {
+      "title": "Draft release notes for 2.4",
+      "status": "Waiting on you: two questions",
+      "pinned": true,
+      "minutesAgo": 25
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "status": "Waiting on you: pick a limit for /search",
+      "minutesAgo": 4
+    },
+    {
+      "title": "Ship the rate-limit fixes for 2.5",
+      "objective": "Work #501, #502 and #503 for 2.5: a subagent each, open PRs, watch CI, then draft the release notes.",
+      "status": "The docs PR is merged. CI failed on PR #511, the burst test, and a second subagent is fixing it. PR #513 is waiting on CI.",
+      "activity": "working",
+      "minutesAgo": 0,
+      "startedMinutesAgo": 41,
+      "selected": true,
+      "contextUsedTokens": 88000,
+      "contextWindowTokens": 200000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Work #501, #502 and #503 for 2.5: a subagent each, open PRs, watch CI, then draft the release notes.",
+          "turn": 1,
+          "minutesAgo": 40
+        },
+        {
+          "role": "agent",
+          "body": "CI failed on PR #511: `test_retry_after_burst` expects the header on every 429 in a burst, and the second one comes back without it.\n\nI've started a second subagent on it under the same todo. PR #513 is still waiting on CI, and the docs PR is merged.",
+          "turn": 1,
+          "minutesAgo": 1
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "#501 Return Retry-After on 429s",
+            "description": "#501 Return Retry-After on 429s"
+          },
+          "output": "Task #1 created successfully: #501 Return Retry-After on 429s",
+          "turn": 1,
+          "minutesAgo": 39
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "#502 Per-key limits for /search",
+            "description": "#502 Per-key limits for /search"
+          },
+          "output": "Task #2 created successfully: #502 Per-key limits for /search",
+          "turn": 1,
+          "minutesAgo": 39
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "Draft the 2.5 release notes",
+            "description": "Draft the 2.5 release notes"
+          },
+          "output": "Task #3 created successfully: Draft the 2.5 release notes",
+          "turn": 1,
+          "minutesAgo": 39
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "#503 Document the rate limits",
+            "description": "#503 Document the rate limits"
+          },
+          "output": "Task #4 created successfully: #503 Document the rate limits",
+          "turn": 1,
+          "minutesAgo": 39
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "1",
+            "status": "in_progress",
+            "activeForm": "CI failed on PR #511 · fixing"
+          },
+          "output": "Updated task #1 status",
+          "turn": 1,
+          "minutesAgo": 38
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "2",
+            "status": "in_progress",
+            "activeForm": "Waiting on CI · PR #513"
+          },
+          "output": "Updated task #2 status",
+          "turn": 1,
+          "minutesAgo": 38
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "4",
+            "status": "in_progress",
+            "activeForm": "Writing the reference"
+          },
+          "output": "Updated task #4 status",
+          "turn": 1,
+          "minutesAgo": 38
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "fix-501",
+            "prompt": "Work on fix-501.",
+            "subagent_type": "general-purpose"
+          },
+          "toolUseId": "use-fix-501",
+          "turn": 1,
+          "minutesAgo": 37,
+          "output": "Opened PR #511.",
+          "finishedMinutesAgo": 7,
+          "todo": "1"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "pytest tests/test_throttle.py"
+          },
+          "output": "14 passed",
+          "parentToolUseId": "use-fix-501",
+          "turn": 1,
+          "minutesAgo": 12
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "limits-502",
+            "prompt": "Work on limits-502.",
+            "subagent_type": "general-purpose"
+          },
+          "toolUseId": "use-limits-502",
+          "turn": 1,
+          "minutesAgo": 36,
+          "output": "Opened PR #513.",
+          "finishedMinutesAgo": 4,
+          "todo": "2"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "pytest tests/test_search_limits.py"
+          },
+          "output": "9 passed",
+          "parentToolUseId": "use-limits-502",
+          "turn": 1,
+          "minutesAgo": 6
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "docs-503",
+            "prompt": "Work on docs-503.",
+            "subagent_type": "general-purpose"
+          },
+          "toolUseId": "use-docs-503",
+          "turn": 1,
+          "minutesAgo": 35,
+          "output": "The reference is merged.",
+          "finishedMinutesAgo": 9,
+          "todo": "4"
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "4",
+            "status": "completed"
+          },
+          "output": "Updated task #4 status",
+          "turn": 1,
+          "minutesAgo": 2
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "fix-501-ci",
+            "prompt": "Work on fix-501-ci.",
+            "subagent_type": "general-purpose"
+          },
+          "toolUseId": "use-fix-501-ci",
+          "turn": 1,
+          "minutesAgo": 2,
+          "progressSummary": "Rerunning tests/test_throttle.py",
+          "todo": "1"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "pytest tests/test_throttle.py -k burst"
+          },
+          "output": "1 failed",
+          "parentToolUseId": "use-fix-501-ci",
+          "turn": 1,
+          "minutesAgo": 0
+        }
+      ],
+      "artifacts": [
+        {
+          "url": "https://github.com/acme/api/issues/501",
+          "title": "429s don’t say when to retry",
+          "minutesAgo": 22,
+          "todo": "1"
+        },
+        {
+          "url": "https://github.com/acme/api/pull/511",
+          "title": "Return Retry-After on 429s",
+          "minutesAgo": 7,
+          "todo": "1"
+        },
+        {
+          "url": "https://github.com/acme/api/issues/502",
+          "title": "/search needs its own limit",
+          "minutesAgo": 24,
+          "todo": "2"
+        },
+        {
+          "url": "https://handbook.example.com/token-buckets",
+          "title": "Token buckets, explained",
+          "minutesAgo": 19,
+          "todo": "2"
+        },
+        {
+          "url": "https://github.com/acme/api/pull/513",
+          "title": "Per-key limits for /search",
+          "minutesAgo": 2,
+          "todo": "2"
+        },
+        {
+          "url": "https://github.com/acme/api/issues/503",
+          "title": "Document the rate limits",
+          "minutesAgo": 30,
+          "todo": "4"
+        },
+        {
+          "url": "https://github.com/acme/api/pull/509",
+          "title": "Document the rate limits",
+          "minutesAgo": 12,
+          "todo": "4"
+        },
+        {
+          "path": "docs/rate-limits.md",
+          "title": "Rate limits reference",
+          "minutesAgo": 6,
+          "todo": "4"
+        },
+        {
+          "path": "docs/img/rate-limit-headers.png",
+          "title": "Rate limit headers, before and after",
+          "minutesAgo": 9,
+          "todo": "4"
+        }
+      ],
+      "watchers": [
+        {
+          "kind": "monitor",
+          "toolUseId": "use-watch-511",
+          "label": "CI checks on PR #511",
+          "detail": "gh pr checks 511 --watch --interval 30",
+          "state": "finished",
+          "minutesAgo": 6,
+          "endedMinutesAgo": 1,
+          "outcome": "unit-tests fail test_retry_after_burst",
+          "todo": "1"
+        },
+        {
+          "kind": "monitor",
+          "toolUseId": "use-watch-513",
+          "label": "CI checks on PR #513",
+          "detail": "gh pr checks 513 --watch --interval 30",
+          "minutesAgo": 2,
+          "lastOutput": "lint pass 38s · unit-tests running",
+          "todo": "2"
+        },
+        {
+          "kind": "monitor",
+          "toolUseId": "use-watch-509",
+          "label": "CI checks on PR #509",
+          "detail": "gh pr checks 509 --watch --interval 30",
+          "state": "finished",
+          "minutesAgo": 11,
+          "endedMinutesAgo": 5,
+          "outcome": "all checks passed",
+          "todo": "4"
+        }
+      ],
+      "commits": [
+        {
+          "hash": "a1b2c3d0123456789abcdef0123456789abcdef0",
+          "subject": "Return Retry-After on 429 responses",
+          "additions": 38,
+          "deletions": 6,
+          "minutesAgo": 11,
+          "todo": "1"
+        },
+        {
+          "hash": "0c4d2e10123456789abcdef0123456789abcdef0",
+          "subject": "Test the header under burst traffic",
+          "additions": 54,
+          "deletions": 0,
+          "minutesAgo": 8,
+          "todo": "1"
+        },
+        {
+          "hash": "5e6f7a80123456789abcdef0123456789abcdef0",
+          "subject": "Limit /search per API key",
+          "additions": 72,
+          "deletions": 9,
+          "minutesAgo": 9,
+          "todo": "2"
+        },
+        {
+          "hash": "9b8c7d60123456789abcdef0123456789abcdef0",
+          "subject": "Cover the per-key limit",
+          "additions": 41,
+          "deletions": 0,
+          "minutesAgo": 5,
+          "todo": "2"
+        },
+        {
+          "hash": "3d2c1b00123456789abcdef0123456789abcdef0",
+          "subject": "Document the rate limits",
+          "additions": 96,
+          "deletions": 4,
+          "minutesAgo": 10,
+          "todo": "4"
+        }
+      ],
+      "todoPanels": [
+        {
+          "todo": "1",
+          "open": true
+        }
+      ]
+    },
+    {
+      "title": "Fix flaky login test",
+      "status": "Found the race; fix passes 200 local runs",
+      "minutesAgo": 9
+    },
+    {
+      "title": "Upgrade Django to 5.2",
+      "status": "Upgraded; two deprecations fixed",
+      "state": "done",
+      "minutesAgo": 2880
+    },
+    {
+      "title": "Fix the UTC date test",
+      "objective": "The date test fails on CI, which runs in UTC. Find out why, fix it, open a PR and watch it go green.",
+      "status": "The test built its date in local time; it formats in UTC now. PR #42 merged once CI was green, and the version is 2.4.1.",
+      "state": "done",
+      "minutesAgo": 4320,
+      "startedMinutesAgo": 4350,
+      "messages": [
+        {
+          "role": "user",
+          "body": "The date test fails on CI, which runs in UTC. Find out why, fix it, open a PR and watch it go green.",
+          "turn": 1,
+          "minutesAgo": 4350
+        },
+        {
+          "role": "agent",
+          "body": "CI is green on PR #42 and it’s merged. I bumped the version to 2.4.1.",
+          "turn": 1,
+          "minutesAgo": 4320
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "Reproduce the failure in a non-UTC timezone",
+            "description": "Reproduce the failure in a non-UTC timezone"
+          },
+          "output": "Task #1 created successfully: Reproduce the failure in a non-UTC timezone",
+          "turn": 1,
+          "minutesAgo": 4349
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "Fix the date formatting",
+            "description": "Fix the date formatting"
+          },
+          "output": "Task #2 created successfully: Fix the date formatting",
+          "turn": 1,
+          "minutesAgo": 4349
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "Open a PR",
+            "description": "Open a PR"
+          },
+          "output": "Task #3 created successfully: Open a PR",
+          "turn": 1,
+          "minutesAgo": 4349
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "Watch CI on PR #42 until it’s green",
+            "description": "Watch CI on PR #42 until it’s green"
+          },
+          "output": "Task #4 created successfully: Watch CI on PR #42 until it’s green",
+          "turn": 1,
+          "minutesAgo": 4349
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "1",
+            "status": "completed"
+          },
+          "output": "Updated task #1 status",
+          "turn": 1,
+          "minutesAgo": 4340
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "2",
+            "status": "completed"
+          },
+          "output": "Updated task #2 status",
+          "turn": 1,
+          "minutesAgo": 4335
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "3",
+            "status": "completed"
+          },
+          "output": "Updated task #3 status",
+          "turn": 1,
+          "minutesAgo": 4330
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "4",
+            "status": "completed"
+          },
+          "output": "Updated task #4 status",
+          "turn": 1,
+          "minutesAgo": 4325
+        }
+      ],
+      "artifacts": [
+        {
+          "url": "https://github.com/acme/api/pull/42",
+          "title": "Fix the UTC date test",
+          "minutesAgo": 4330
+        }
+      ],
+      "watchers": [
+        {
+          "kind": "monitor",
+          "toolUseId": "use-watch-42",
+          "label": "CI checks on PR #42",
+          "detail": "gh pr checks 42 --watch --interval 30",
+          "state": "finished",
+          "minutesAgo": 4332,
+          "endedMinutesAgo": 4325,
+          "outcome": "all checks passed"
+        }
+      ],
+      "commits": [
+        {
+          "hash": "e4f5a6b0123456789abcdef0123456789abcdef0",
+          "subject": "Fix the UTC date test",
+          "additions": 3,
+          "deletions": 2,
+          "minutesAgo": 4335
+        },
+        {
+          "hash": "b2c3d4e0123456789abcdef0123456789abcdef0",
+          "subject": "Bump the version to 2.4.1",
+          "additions": 1,
+          "deletions": 1,
+          "minutesAgo": 4321
+        }
+      ],
+      "todoPanels": [
+        {
+          "todo": "unfiled",
+          "open": true
+        }
+      ]
+    },
+    {
+      "title": "Tidy the API reference",
+      "status": "Endpoints sorted by resource; two broken anchors fixed",
+      "state": "done",
+      "minutesAgo": 7200,
+      "artifacts": [
+        {
+          "url": "https://handbook.example.com/docs-style",
+          "title": "Docs style guide",
+          "minutesAgo": 7260
+        },
+        {
+          "path": "docs/api-reference.md",
+          "title": "API reference, tidied",
+          "minutesAgo": 7230
+        }
+      ],
+      "commits": [
+        {
+          "hash": "3a4b5c60123456789abcdef0123456789abcdef0",
+          "subject": "Fix the broken anchors",
+          "additions": 12,
+          "deletions": 12,
+          "minutesAgo": 7240
+        },
+        {
+          "hash": "7c8d9e00123456789abcdef0123456789abcdef0",
+          "subject": "Sort the endpoints by resource",
+          "additions": 61,
+          "deletions": 58,
+          "minutesAgo": 7210
+        }
+      ]
+    },
+    {
+      "title": "Set up nightly backups",
+      "status": "Nightly dump, 14-day retention",
+      "state": "done",
+      "minutesAgo": 10080
+    }
+  ]
+}

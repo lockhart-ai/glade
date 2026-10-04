@@ -6,6 +6,7 @@
  */
 import { isAbsolute } from 'node:path'
 import { z } from 'zod'
+import type { ChildRef, Filing, NewFiling } from '../shared/todoHub'
 import type { SandboxFlagSettings } from './agent/backend'
 import { AGENT_SCRIPT_NAMES, type AgentScriptName } from './agent/scripts'
 import type { UserContent } from './agent/user-content'
@@ -202,6 +203,26 @@ export function createE2eAgentEnvs(): (env: Environment) => void {
   return (env) => {
     envs.sessions.push(env)
   }
+}
+
+/**
+ * Where e2e mode puts main's filing of children under todos on the main process's global object: an `E2eTodoHub`
+ * (the todo hub, P16; `./todo-hub/todo-hub`). A spec files and moves children through it with `inMain`
+ * (`e2e/in-main.ts`), as the agent's own tools will (#495, #496): the same service, telling the window the same way.
+ */
+export const E2E_TODO_HUB_GLOBAL = '__gladeE2eTodoHub'
+
+/** Main's filing service in e2e mode (`E2E_TODO_HUB_GLOBAL`). Each does nothing while the hub is off. */
+export interface E2eTodoHub {
+  /** Files children of a task under todos, replacing any filing they had (`fileChildren`). Answers with the filings. */
+  file(taskId: string, filings: readonly NewFiling[]): Filing[]
+  /** Takes away the filings of some of a task's children (`unfileChildren`). Answers with those that had one. */
+  unfile(taskId: string, children: readonly ChildRef[]): ChildRef[]
+}
+
+/** Puts main's filing service on the global object for a spec to call (`E2E_TODO_HUB_GLOBAL`). */
+export function createE2eTodoHub(hub: E2eTodoHub): void {
+  Reflect.set(globalThis, E2E_TODO_HUB_GLOBAL, hub)
 }
 
 /** The network's state in e2e mode (`E2E_NETWORK_GLOBAL`). */

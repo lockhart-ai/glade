@@ -23,6 +23,8 @@ import {
   type UiStateEntry,
   type Watcher,
 } from '../../shared/domain'
+import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
+import { ChildKind, FilingSource, type Filing } from '../../shared/todoHub'
 import { requestClose } from '../commands/closeRequest'
 import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
@@ -86,6 +88,10 @@ interface Setup {
   readonly todos?: Readonly<Record<string, TodoList>>
   readonly artifacts?: readonly Artifact[]
   readonly watchers?: Watcher[]
+  /** The settings, e.g. with the todo hub's hidden switch on; the defaults unless given. */
+  readonly settings?: Settings
+  /** The todo hub's filings. */
+  readonly filings?: readonly Filing[]
   /** How some commands answer instead of the fake main's own handlers. */
   readonly handlers?: Partial<FakeHandlers>
 }
@@ -98,6 +104,8 @@ async function renderPanel({
   todos,
   artifacts = [],
   watchers = [],
+  settings,
+  filings = [],
   handlers = {},
 }: Setup = {}): Promise<FakeBridge & { store: GladeStore }> {
   const fake = fakeBridge(
@@ -113,6 +121,8 @@ async function renderPanel({
       openFiles,
       artifacts,
       watchers,
+      filings,
+      ...(settings === undefined ? {} : { settings }),
       ...(todos === undefined ? {} : { todos }),
     },
     handlers,
@@ -324,6 +334,95 @@ describe('TaskPanel', () => {
     it('shows nothing without a task', async () => {
       await renderPanel({ selected: false, uiState: [{ key: UiStateKey.RightPanelTab, value: 'todos' }] })
       expect(screen.getByRole('tabpanel')).toBeEmptyDOMElement()
+    })
+
+    describe('as the todo hub (P16), behind its hidden switch', () => {
+      const HUB_ON: Settings = { ...DEFAULT_SETTINGS, todoHubEnabled: true }
+      const ON_TODOS = [{ key: UiStateKey.RightPanelTab, value: 'todos' }]
+      const watcher = sampleWatcher('w1', 't1', { toolUseId: 'watch-a', label: 'CI checks on PR #511' })
+      const filed: Filing = {
+        taskId: 't1',
+        kind: ChildKind.Watcher,
+        key: 'watch-a',
+        todoId: '2',
+        source: FilingSource.Named,
+        filedAt: 1,
+      }
+      const TAB_NAMES = ['Tool calls', 'Files', 'Todos', 'Artifacts', 'Subagents', 'Watchers', 'Changes']
+      const tabNames = (): (string | undefined)[] =>
+        screen.getAllByRole('tab').map((each) => each.textContent.replace(/\s*[\d/]+$/, ''))
+
+      it('is exactly today’s tab with the switch off: the plain list, and nothing of the hub read or shown', async () => {
+        const { invoke } = await renderPanel({
+          todos: { t1: list(1, 4) },
+          watchers: [watcher],
+          filings: [filed],
+          uiState: ON_TODOS,
+        })
+
+        expect(screen.getByRole('tabpanel')).toHaveTextContent(
+          'The agent writes this list and checks items off as it works.',
+        )
+        expect(within(screen.getByRole('list', { name: 'Todos' })).getAllByRole('listitem')).toHaveLength(4)
+        expect(within(screen.getByRole('tabpanel')).queryAllByRole('button')).toEqual([])
+        expect(document.querySelector('[data-todo-head]')).toBeNull()
+        expect(invoke.mock.calls.map(([command]) => command)).not.toContain(CommandName.TodoHubGet)
+        expect(invoke.mock.calls.map(([command]) => command)).not.toContain(CommandName.ArtifactsWatch)
+        expect(tabNames()).toEqual(TAB_NAMES)
+      })
+
+      it('is the hub with the switch on: each todo a card with what’s under it, and the other six tabs as they were', async () => {
+        await renderPanel({
+          todos: { t1: list(1, 4) },
+          watchers: [watcher],
+          filings: [filed],
+          settings: HUB_ON,
+          uiState: ON_TODOS,
+        })
+
+        const count = await screen.findByRole('button', { name: '1 watcher, 1 running' })
+        expect(screen.getByRole('tabpanel')).toHaveTextContent('1 of 4 done')
+        expect(screen.getByRole('tabpanel')).not.toHaveTextContent('The agent writes this list')
+        expect(document.querySelectorAll('[data-todo-head]')).toHaveLength(4)
+        fireEvent.click(count)
+        expect(screen.getByRole('group', { name: 'Watcher: CI checks on PR #511' })).toBeInTheDocument()
+        expect(tab(/^Todos/)).toHaveTextContent('Todos 1/4')
+        expect(tab(/^Watchers/)).toHaveTextContent('Watchers 1')
+        expect(tabNames()).toEqual(TAB_NAMES)
+
+        // The Watchers tab is the one it was.
+        fireEvent.click(tab(/^Watchers/))
+        expect(screen.getByRole('tabpanel')).toHaveTextContent('CI checks on PR #511')
+        expect(document.querySelector('[data-todo-head]')).toBeNull()
+      })
+
+      it('follows the switch as it’s turned on and off, and shows the task you pick', async () => {
+        const { emit, store } = await renderPanel({
+          todos: { t1: list(1, 4) },
+          watchers: [watcher],
+          filings: [filed],
+          uiState: ON_TODOS,
+        })
+        expect(document.querySelector('[data-todo-head]')).toBeNull()
+
+        act(() => {
+          emit({ type: EventType.SettingsChanged, settings: HUB_ON })
+        })
+        expect(document.querySelectorAll('[data-todo-head]')).toHaveLength(4)
+
+        await act(() => store.getState().selectTask('t2'))
+        expect(screen.getByRole('tabpanel')).toHaveTextContent('No todos for this task.')
+
+        act(() => {
+          emit({ type: EventType.SettingsChanged, settings: DEFAULT_SETTINGS })
+        })
+        expect(screen.getByRole('tabpanel')).toHaveTextContent('No todos yet.')
+      })
+
+      it('shows nothing without a task, as before', async () => {
+        await renderPanel({ selected: false, settings: HUB_ON, uiState: ON_TODOS })
+        expect(screen.getByRole('tabpanel')).toBeEmptyDOMElement()
+      })
     })
   })
 

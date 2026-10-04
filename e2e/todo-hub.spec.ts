@@ -1,7 +1,7 @@
 // The todo hub's groundwork (P16, #494), end to end with the scripted agent. The hub is built behind a hidden setting,
 // `todoHubEnabled`, off by default and with nothing in Settings: a spec turns it on over the bridge, as these do. With
-// it off or on, the Todos tab is what it was (the hub's own tab is #497); with it on, main answers with a task's
-// children grouped by todo, and remembers each todo's panel across a relaunch.
+// it off, the Todos tab is what it was; with it on, the tab is the hub (#497, `./todo-hub-tab.spec.ts`), main answers
+// with a task's children grouped by todo, and remembers each todo's panel across a relaunch.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
@@ -9,7 +9,7 @@ import { SUBAGENT_BACKGROUND_WORK as WORK } from '../src/main/agent/scripts'
 import { BridgeErrorCode, CommandName } from '../src/shared/bridge'
 import { ChildFilter, ChildKind, UNFILED_TODO_ID } from '../src/shared/todoHub'
 import { expect, test } from './fixtures'
-import { chat, firstRun, inputBar, taskList, taskPanel } from './selectors'
+import { chat, firstRun, inputBar, taskList, taskPanel, todoHub } from './selectors'
 import { invoke, refusal } from './task-view'
 
 function workspaceRoot(tempFolder: () => string): string {
@@ -71,12 +71,14 @@ test('the todo hub’s switch: off by default, set by hand, kept across a relaun
     code: BridgeErrorCode.InvalidTransition,
   })
 
-  // The agent plans with TaskCreate, and stops partway on a question.
+  // The agent plans with TaskCreate, and stops partway on a question. With the hub off, the tab is the plain list.
   await inputBar(window).field.fill('Move the image uploads to S3.')
   await inputBar(window).field.press('Enter')
   await panel.tab(/^Todos/).click()
   await expect(panel.tab(/^Todos/)).toHaveText('Todos 3/7')
   await expect(panel.todos).toHaveText(TODOS)
+  await expect(panel.tabPanel).toContainText('The agent writes this list')
+  await expect(todoHub(window).heads).toHaveCount(0)
 
   // Each todo reached the window with the id Claude Code gave it.
   const history = await invoke(window, CommandName.TasksHistory, { id: taskId })
@@ -88,9 +90,12 @@ test('the todo hub’s switch: off by default, set by hand, kept across a relaun
   await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
   expect(await hubEnabled(window)).toBe(true)
 
-  // The Todos tab is still what it was: the hub's own tab isn't built yet.
+  // The Todos tab is the hub now (#497, `./todo-hub-tab.spec.ts`): the same todos, each a card, in the same order,
+  // without the line that explains the list. No other tab changes.
   await expect(panel.tab(/^Todos/)).toHaveText('Todos 3/7')
-  await expect(panel.todos).toHaveText(TODOS)
+  await expect(todoHub(window).heads).toHaveText(TODOS)
+  await expect(panel.tabPanel).not.toContainText('The agent writes this list')
+  await expect(panel.panel.getByRole('tab')).toHaveCount(7)
 
   // Main answers with a group per todo, in the agent's order, and nothing under any: this task made nothing else.
   const hub = await invoke(window, CommandName.TodoHubGet, { taskId })
@@ -119,7 +124,7 @@ test('the todo hub’s switch: off by default, set by hand, kept across a relaun
   expect(await hubEnabled(relaunched.window)).toBe(true)
   await again.tab(/^Todos/).click()
   await expect(again.tab(/^Todos/)).toHaveText('Todos 3/7')
-  await expect(again.todos).toHaveText(TODOS)
+  await expect(todoHub(relaunched.window).heads).toHaveText(TODOS)
   const kept = await invoke(relaunched.window, CommandName.TodoHubGet, { taskId })
   expect(kept.panels).toEqual([opened, placeholder])
   expect(kept.children.todos.map(({ todoId }) => todoId)).toEqual(PLAN.map((_, index) => String(index + 1)))

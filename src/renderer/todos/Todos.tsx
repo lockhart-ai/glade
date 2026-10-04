@@ -14,7 +14,7 @@ export const NO_TODOS = 'No todos yet.'
 export const TODOS_EXPLAINER = 'The agent writes this list and checks items off as it works.'
 
 /** How each state reads to a screen reader, ahead of the item's text. */
-const STATE_LABELS: Readonly<Record<TodoState, string>> = {
+export const STATE_LABELS: Readonly<Record<TodoState, string>> = {
   [TodoState.Todo]: 'To do',
   [TodoState.Doing]: 'Doing',
   [TodoState.Done]: 'Done',
@@ -32,7 +32,7 @@ const STATE_CLASSES: Readonly<Record<TodoState, string | undefined>> = {
  * An item's icon (#308): a filled teal check once it's done, and a hollow ring before it's started (or while it waits
  * on you), so done and not done tell apart at a glance; while it's being worked on, a ring with a dot in it.
  */
-function StateIcon({ state }: { readonly state: TodoState }): React.JSX.Element {
+export function StateIcon({ state }: { readonly state: TodoState }): React.JSX.Element {
   switch (state) {
     case TodoState.Doing:
       return (
