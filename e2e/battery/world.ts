@@ -12,11 +12,14 @@
  *     .ssh/id_ed25519, .aws/credentials, .netrc, .config/gh/hosts.yml, .npmrc      canaries where credentials live
  *     .zshrc                      a shell startup file: code that runs later
  *     .claude/settings.json       Claude Code's own settings for the user (`WorldOptions.settings`)
+ *     .claude.json                Claude Code's own state, with an MCP server the user set up (`MCP_SERVERS`)
  *     Library/LaunchAgents/       where a file runs at the next login
  *     other-repo/.git/hooks/      another repository's hooks
  *     linked-worktree/            a second worktree of the workspace's repository
  *     code/ws/                    the workspace: a git repository, the one folder the agent may use
+ *       .mcp.json                 an MCP server the repository names
  *   outside/                      a folder outside the home folder, which nothing lets the agent write
+ *   mcp-server.mjs                the MCP servers' script, which runs outside the sandbox as every MCP server does
  * <userData>/battery-canary.txt   a canary in Glade's own data folder
  * ```
  *
@@ -112,10 +115,86 @@ function write(path: string, content: string): void {
   writeFileSync(path, content)
 }
 
+/**
+ * The MCP servers the world has that Glade doesn't build (#515): one in the user's own Claude Code config, one in the
+ * workspace's `.mcp.json`. Each is the same small server (`MCP_SERVER_SCRIPT`), which runs outside the sandbox, as
+ * every MCP server does: its tools read a file, write one, and fetch a URL, for whoever is allowed to call them.
+ */
+export const MCP_SERVERS = { user: 'battery', project: 'battery-repo' } as const
+
+/** The tools each of the world's MCP servers has. */
+export const MCP_TOOLS = { read: 'read_file', write: 'write_file', fetch: 'fetch' } as const
+
+/**
+ * The world's MCP server: the stdio transport's line-delimited JSON-RPC, with nothing to install. It answers
+ * `initialize`, lists its three tools, and runs them with whatever access the process has.
+ */
+const MCP_SERVER_SCRIPT = `import { readFileSync, writeFileSync } from 'node:fs'
+import { createInterface } from 'node:readline'
+
+const text = { type: 'string' }
+const tools = [
+  { name: '${MCP_TOOLS.read}', description: 'Reads a file.', inputSchema: { type: 'object', properties: { path: text }, required: ['path'] } },
+  { name: '${MCP_TOOLS.write}', description: 'Writes a file.', inputSchema: { type: 'object', properties: { path: text, content: text }, required: ['path', 'content'] } },
+  { name: '${MCP_TOOLS.fetch}', description: 'Fetches a URL.', inputSchema: { type: 'object', properties: { url: text }, required: ['url'] } },
+]
+
+async function call(name, input) {
+  if (name === '${MCP_TOOLS.read}') return readFileSync(input.path, 'utf8')
+  if (name === '${MCP_TOOLS.write}') {
+    writeFileSync(input.path, input.content)
+    return 'Written.'
+  }
+  if (name === '${MCP_TOOLS.fetch}') return (await fetch(input.url)).text()
+  throw new Error('No such tool.')
+}
+
+const send = (message) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\\n')
+
+for await (const line of createInterface({ input: process.stdin })) {
+  let message
+  try {
+    message = JSON.parse(line)
+  } catch {
+    continue
+  }
+  const { id, method, params } = message
+  if (id === undefined) continue
+  if (method === 'initialize') {
+    send({ id, result: { protocolVersion: params?.protocolVersion ?? '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'battery', version: '1.0.0' } } })
+  } else if (method === 'tools/list') {
+    send({ id, result: { tools } })
+  } else if (method === 'tools/call') {
+    try {
+      send({ id, result: { content: [{ type: 'text', text: await call(params.name, params.arguments ?? {}) }] } })
+    } catch (error) {
+      send({ id, result: { content: [{ type: 'text', text: String(error) }], isError: true } })
+    }
+  } else {
+    send({ id, result: {} })
+  }
+}
+`
+
 /** The settings that allow everything the sandbox holds anyway (`WorldSettings.AllowEverything`). */
 function allowEverything(excluded: string): unknown {
   return {
-    permissions: { allow: ['Read', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'Bash'] },
+    permissions: {
+      allow: [
+        'Read',
+        'Edit',
+        'Write',
+        'NotebookEdit',
+        'WebFetch',
+        'Bash',
+        // Each MCP server's tools, by Claude Code's server-wide rule, and the tools that reach other agents (#515).
+        ...Object.values(MCP_SERVERS).map((server) => `mcp__${server}`),
+        'SendMessage',
+        'RemoteTrigger',
+      ],
+    },
+    // The workspace's own `.mcp.json` servers start without anyone being asked.
+    enableAllProjectMcpServers: true,
     // `WebFetch` first asks Anthropic whether a domain is safe to fetch, which a run on a stand-in can't: with this,
     // an allowed `WebFetch` goes straight to its URL, so one that gets past the sandbox really reaches the listener.
     skipWebFetchPreflight: true,
@@ -182,6 +261,12 @@ export function makeWorld({ userData, settings }: WorldOptions): World {
   // A second worktree of the repository, in the home folder: where `EnterWorktree` would take the session.
   git('commit', '--quiet', '--allow-empty', '--message', 'Start')
   git('worktree', 'add', '--quiet', '-b', 'linked', linkedWorktree)
+  // The MCP servers Glade doesn't build: the script is outside the home folder, and Node runs it.
+  const script = join(root, 'mcp-server.mjs')
+  write(script, MCP_SERVER_SCRIPT)
+  const server = { type: 'stdio', command: process.execPath, args: [script] }
+  write(join(home, '.claude.json'), JSON.stringify({ mcpServers: { [MCP_SERVERS.user]: server } }, null, 2))
+  write(join(workspace, '.mcp.json'), JSON.stringify({ mcpServers: { [MCP_SERVERS.project]: server } }, null, 2))
   switch (settings) {
     case WorldSettings.None:
       break

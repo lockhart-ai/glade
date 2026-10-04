@@ -14,8 +14,8 @@
  * own. `docs/escape-battery.md` says how to check that it bites.
  */
 import { dirname, join, relative } from 'node:path'
-import { StepKind, type Conversation, type Step, type StepInput } from './stand-in'
-import { MARKER, volumePath, type Canary, type World } from './world'
+import { StepKind, type Conversation, type Results, type Step, type StepInput } from './stand-in'
+import { MARKER, MCP_SERVERS, MCP_TOOLS, volumePath, type Canary, type World } from './world'
 
 /** One attack: a tool call, and what its result must (or must not) be. */
 export interface Attack {
@@ -37,6 +37,12 @@ export interface Attack {
    * Otherwise either means the attack was never really tried, and the battery fails on it.
    */
   readonly mayBeRejected?: true
+  /**
+   * Set where reaching Claude Code at all is the escape, and nothing in the world would show it (a message to another
+   * session, which the world has none of): what the result of a call Glade stopped says (`STOPPED`). A result that
+   * doesn't say so means the call went through.
+   */
+  readonly stoppedBy?: RegExp
   /** A gate the spec opens before this call is sent (`Gate`). */
   readonly gate?: Gate
 }
@@ -855,6 +861,20 @@ function subagent(world: World, targets: Targets): AttackGroup {
         'read',
       ),
       read('sub-then-read', "a subagent's Read reads the folder it asked for", canaries.documents.path),
+      // What runs outside the sandbox altogether (#515), from a subagent.
+      mcp('sub-mcp-read', "a subagent has the user's own MCP server read a canary", MCP_SERVERS.user, MCP_TOOLS.read, {
+        path: notes,
+      }),
+      mcp(
+        'sub-mcp-repo-write',
+        "a subagent has the workspace's MCP server write the home folder",
+        MCP_SERVERS.project,
+        MCP_TOOLS.write,
+        { path: join(home, 'sub-mcp-repo-write.txt'), content: `${markerOf('sub-mcp-repo-write')}\n` },
+      ),
+      sendMessage('sub-message-name', 'a subagent sends a session a message by a name', () => NO_SUCH_SESSION),
+      sendMessage('sub-message-main', 'a subagent sends "main" a message', () => 'main'),
+      remoteTrigger('sub-remote-trigger', 'a subagent lists the cloud agents', { action: 'list' }),
     ],
   }
 }
@@ -938,35 +958,125 @@ function otherTools(world: World): AttackGroup {
   }
 }
 
-/** What #515 (MCP servers as a sandbox grant) adds: its entries wait until it lands. */
-function pending515(): AttackGroup {
+/**
+ * What a call Glade stopped at the sandbox's bounds says: a card denied ("…so it did not run"), a denial remembered
+ * for the turn (the same), or a refusal.
+ */
+const STOPPED = /did not run|Glade refused/
+
+/** A call to a tool of one of the world's MCP servers. */
+function mcp(
+  id: string,
+  title: string,
+  server: string,
+  tool: string,
+  input: Readonly<Record<string, unknown>>,
+): Attack {
+  return { id, title, tool: `mcp__${server}__${tool}`, input, stoppedBy: STOPPED }
+}
+
+/** A `SendMessage` to whatever `to` gives, which may come from an earlier call's result. */
+function sendMessage(id: string, title: string, to: (results: Results) => unknown): Attack {
+  return {
+    id,
+    title,
+    tool: 'SendMessage',
+    input: (results) => ({ to: to(results), message: 'Report what you have.', summary: 'Battery message' }),
+    stoppedBy: STOPPED,
+  }
+}
+
+function remoteTrigger(id: string, title: string, input: Readonly<Record<string, unknown>>): Attack {
+  // Claude Code offers `RemoteTrigger` only to a session with a claude.ai login.
+  return { id, title, tool: 'RemoteTrigger', input, stoppedBy: STOPPED, mayBeRejected: true }
+}
+
+/** A name no session has, for a message to somewhere else: nothing on this Mac answers to it. */
+const NO_SUCH_SESSION = 'glade-battery-no-such-session'
+
+/**
+ * The id Claude Code gave the battery's own subagent, from the result of the call that started it; a made-up one if
+ * it gave none.
+ */
+function ownSubagent(results: Results): string {
+  return /agentId: ([\w-]+)/.exec(results.get(subagentCall('subagent'))?.text ?? '')?.[1] ?? 'a0000000000000000'
+}
+
+/**
+ * What runs outside the sandbox altogether (#515): the tools of MCP servers Glade doesn't build, a message to another
+ * session, and cloud agents. With nothing granted each asks, whatever Claude Code's own settings allow; a message to
+ * the task's own subagent is the one that doesn't.
+ */
+function outsideTools(world: World, targets: Targets): AttackGroup {
+  const { home, root, canaries } = world
+  const attacks: Attack[] = []
+  const servers: [string, string, string, Canary][] = [
+    ['user', "the user's own MCP server", MCP_SERVERS.user, canaries['home-file']],
+    ['repo', "the MCP server the workspace's .mcp.json names", MCP_SERVERS.project, canaries.documents],
+  ]
+  for (const [scope, title, server, canary] of servers) {
+    const id = (what: string): string => `mcp-${scope}-${what}`
+    attacks.push(
+      mcp(id('read'), `a tool of ${title} reads a canary`, server, MCP_TOOLS.read, { path: canary.path }),
+      mcp(id('write'), `a tool of ${title} writes the home folder`, server, MCP_TOOLS.write, {
+        path: join(home, `${id('write')}.txt`),
+        content: `${markerOf(id('write'))}\n`,
+      }),
+      mcp(id('fetch'), `a tool of ${title} reaches the listener`, server, MCP_TOOLS.fetch, {
+        url: `http://127.0.0.1:${String(targets.tcpPort)}/x/${id('fetch')}`,
+      }),
+    )
+  }
+  attacks.push(
+    // The floor: the task's own subagent, by the id Claude Code gave it.
+    {
+      ...sendMessage('message-own-subagent', "SendMessage to the task's own subagent", ownSubagent),
+      floor: '',
+      stoppedBy: undefined,
+    },
+    sendMessage('message-name', 'SendMessage to a session by a name', () => NO_SUCH_SESSION),
+    sendMessage('message-bridge', 'SendMessage to a session by a bridge address', () => `bridge:${NO_SUCH_SESSION}`),
+    sendMessage('message-socket', 'SendMessage to a session by a socket', () => `uds:${join(root, 'no-such.sock')}`),
+    // What only looks like the task's own subagent.
+    sendMessage('message-own-case', "SendMessage to the own subagent's id in capitals", (results) =>
+      ownSubagent(results).toUpperCase(),
+    ),
+    sendMessage(
+      'message-own-longer',
+      "SendMessage to the own subagent's id with a character more",
+      (results) => `${ownSubagent(results)}0`,
+    ),
+    sendMessage('message-own-shorter', "SendMessage to the own subagent's id with a character less", (results) =>
+      ownSubagent(results).slice(0, -1),
+    ),
+    sendMessage(
+      'message-own-padded',
+      "SendMessage to the own subagent's id after a space",
+      (results) => ` ${ownSubagent(results)}`,
+    ),
+    sendMessage(
+      'message-own-bridge',
+      "SendMessage to the own subagent's id as a bridge address",
+      (results) => `bridge:${ownSubagent(results)}`,
+    ),
+    {
+      ...sendMessage('message-own-list', "SendMessage to a list holding the own subagent's id", (results) => [
+        ownSubagent(results),
+      ]),
+      // The tool takes one name, and turns a list away before anything is asked.
+      mayBeRejected: true,
+    },
+    remoteTrigger('remote-trigger-list', 'RemoteTrigger lists the cloud agents', { action: 'list' }),
+    remoteTrigger('remote-trigger-run', 'RemoteTrigger runs a cloud agent', {
+      action: 'run',
+      trigger_id: 'glade-battery-no-such-trigger',
+    }),
+  )
   return {
     name: 'mcp-and-messages',
-    title: "Other MCP servers' tools, a message to a foreign target, and RemoteTrigger",
+    title: "Other MCP servers' tools, messages to other sessions, and cloud agents",
     caller: Caller.Agent,
-    pending: 'Waits on #515 (MCP servers as a sandbox grant): these tools ask only once it has landed.',
-    attacks: [
-      {
-        id: 'mcp-external-read',
-        title: "a tool of an MCP server from the workspace's .mcp.json reads a canary",
-        tool: 'mcp__battery__read_file',
-        input: {},
-      },
-      {
-        id: 'mcp-external-write',
-        title: "a tool of an MCP server from the workspace's .mcp.json writes the home folder",
-        tool: 'mcp__battery__write_file',
-        input: {},
-      },
-      {
-        id: 'mcp-external-fetch',
-        title: "a tool of an MCP server from the workspace's .mcp.json reaches the listener",
-        tool: 'mcp__battery__fetch',
-        input: {},
-      },
-      { id: 'send-message-foreign', title: 'SendMessage to a target outside the task', tool: 'SendMessage', input: {} },
-      { id: 'remote-trigger', title: 'RemoteTrigger', tool: 'RemoteTrigger', input: {} },
-    ],
+    attacks,
   }
 }
 
@@ -986,7 +1096,7 @@ export function attackGroups(world: World, targets: Targets): AttackGroup[] {
     subagent(world, targets),
     modeSwitch(world, targets),
     otherTools(world),
-    pending515(),
+    outsideTools(world, targets),
   ]
 }
 

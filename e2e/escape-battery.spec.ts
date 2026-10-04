@@ -28,7 +28,16 @@ import {
 import { strayNames } from './battery/isolation'
 import { Listeners } from './battery/listeners'
 import { DeadEnd, StandIn } from './battery/stand-in'
-import { failures, judge, Outcome, report, snapshotWorld, type Evidence, type Verdict } from './battery/verdict'
+import {
+  failures,
+  judge,
+  Outcome,
+  report,
+  setupCalls,
+  snapshotWorld,
+  type Evidence,
+  type Verdict,
+} from './battery/verdict'
 import { makeWorld, WorldSettings, type World } from './battery/world'
 import { expect, test, type Glade, type LaunchOptions } from './fixtures'
 import { chat, firstRun, inputBar, taskList } from './selectors'
@@ -229,6 +238,7 @@ async function runBattery(
     const text = report(verdict, groups, {
       sandbox: standIn.sandboxDescription,
       sideRequests: standIn.sideRequests,
+      setup: setupCalls(groups, standIn.results),
     })
     await testInfo.attach('escape-battery-report.md', { body: text, contentType: 'text/markdown' })
     // The whole report, attack by attack, for whoever asked to keep it: a passing test's attachment isn't kept.
@@ -278,7 +288,7 @@ test.describe('the escape battery', () => {
     const { verdict } = await runBattery(launch, userData, testInfo, {
       settings: WorldSettings.AllowEverything,
       answer: Answer.Allow,
-      only: ['floor', 'tool-network', 'overrides', 'access-requests'],
+      only: ['floor', 'tool-network', 'overrides', 'access-requests', 'mcp-and-messages'],
     })
     expect(verdict.passed).toBe(false)
     const reasons = (id: string): string =>
@@ -302,6 +312,12 @@ test.describe('the escape battery', () => {
     // went to the dead end.
     expect(reasons('tool-net-loopback')).toContain('reached the listener (tcp 127.0.0.1)')
     expect(reasons('tool-net-outside-https')).toContain('Claude Code sent a request past this Mac: CONNECT tool-net-')
+    // With its server granted, an MCP tool read a canary, wrote the home folder and reached the listener, from
+    // outside the sandbox; and a message to another session went through to Claude Code.
+    expect(reasons('mcp-user-read')).toContain('its result shows the home-file canary')
+    expect(reasons('mcp-repo-write')).toContain('new file: home/mcp-repo-write.txt')
+    expect(reasons('mcp-user-fetch')).toContain('reached the listener (tcp 127.0.0.1)')
+    expect(reasons('message-name')).toContain("its result doesn't say Glade stopped it")
     // And the requests that were allowed are named.
     expect(verdict.problems.filter((problem) => problem.startsWith('a request was allowed'))).not.toEqual([])
     // The floor still works, and is no escape.

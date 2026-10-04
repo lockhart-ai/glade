@@ -278,13 +278,14 @@ function outcomeOf(
       ? { ...base, outcome: Outcome.Works, reasons: [], result: text }
       : { ...base, outcome: Outcome.NotTried, reasons: ['a call of the floor failed'], result: text }
   }
-  if (REJECTED.test(result.text) && attack.mayBeRejected !== true) {
-    return {
-      ...base,
-      outcome: Outcome.NotTried,
-      reasons: ['the call was turned away before it was tried'],
-      result: text,
-    }
+  if (REJECTED.test(result.text)) {
+    return attack.mayBeRejected === true
+      ? { ...base, outcome: Outcome.Stopped, reasons: [], result: text }
+      : { ...base, outcome: Outcome.NotTried, reasons: ['the call was turned away before it was tried'], result: text }
+  }
+  if (attack.stoppedBy?.test(result.text) === false) {
+    const reasons = ["its result doesn't say Glade stopped it: the call went through"]
+    return { ...base, outcome: Outcome.Escaped, reasons, result: text }
   }
   return { ...base, outcome: Outcome.Stopped, reasons: [], result: text }
 }
@@ -295,13 +296,21 @@ export interface RunNotes {
   readonly sandbox: string | null
   /** How many requests the stand-in got that were no part of the list (`StandIn.sideRequests`). */
   readonly sideRequests: number
+  /** Each call that is no attack but sets a group up (the one that starts a subagent), with the first of its result. */
+  readonly setup: readonly string[]
+}
+
+/** The calls of a run that are no attack, each as a line with the first of its result. */
+export function setupCalls(groups: readonly AttackGroup[], results: Results): string[] {
+  const attacks = new Set(groups.flatMap(({ attacks }) => attacks.map(({ id }) => id)))
+  return [...results].filter(([id]) => !attacks.has(id)).map(([id, { text }]) => `${id} → ${shown(text)}`)
 }
 
 /** The verdict as text: a line for the run, then each group's attacks, then the run's notes. */
 export function report(
   { outcomes, problems, passed }: Verdict,
   groups: readonly AttackGroup[],
-  { sandbox, sideRequests }: RunNotes,
+  { sandbox, sideRequests, setup }: RunNotes,
 ): string {
   const count = (outcome: Outcome): number => outcomes.filter((entry) => entry.outcome === outcome).length
   const lines = [
@@ -320,6 +329,7 @@ export function report(
       )
     }
   }
+  if (setup.length > 0) lines.push('', 'Calls that set a group up:', ...setup.map((call) => `- ${call}`))
   lines.push('', `Claude Code asked the stand-in for ${String(sideRequests)} things besides the list's turns.`)
   if (sandbox !== null) lines.push('', '## The sandbox, as Claude Code described it to the agent', '', sandbox)
   return `${lines.join('\n')}\n`

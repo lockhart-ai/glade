@@ -2678,10 +2678,29 @@ their loosest and keeping a command out of the sandbox:
 | The control endpoint's variables denied (`credentials.envVars`) | `printenv GLADE_CONTROL_TOKEN` printed the token. |
 | macOS's magic folders refused (`isAliasPath`) | **Nothing.** Claude Code refuses them itself: `Read` of `/.nofollow/<path>`, `/.resolve/1/<path>` and `/.vol/<device>/<inode>` each failed with `Refusing to read …: where it leads on disk could not be determined (a link on the way could not be examined, or the links do not resolve).` So the read the review inferred doesn't happen on 2.1.283, and Glade's refusal is a second check. |
 
+| The hook hearing of MCP tools, `SendMessage` and `RemoteTrigger` (P15-11's `OUTSIDE_TOOLS`) | With the settings allowing each server's tools and `SendMessage` whole: both MCP servers' tools ran, from the agent and from a subagent (a canary read, the home folder written, the listener reached), and every `SendMessage` went through to Claude Code. |
+
 So, of what the review left open: a `PreToolUse` hook's `deny` does stop a call that a settings allow rule covers, in
 `acceptEdits` and in `default` (the battery switches mode mid-turn); and the `credentials.envVars` denies and the
 switches set off take effect. The `denyWrite` entries inside a granted folder, and how long a hook can be held, are
 still unprobed: the battery grants nothing, and answers every card at once.
+
+**And of what P15-11 left open** ("MCP servers and other agents", above), from the same runs:
+
+- **The hook does fire for an MCP tool, with the matcher `mcp__.*`,** for a server in the user's own config
+  (`~/.claude.json`) and one in a repository's `.mcp.json`, from the agent and from a subagent, and its `deny` stops
+  the call though the settings allow the server's tools (`mcp__<server>`). It fires for `SendMessage` too. A claude.ai
+  connector wasn't tried: it needs a login.
+- **`RemoteTrigger` isn't offered** to a session on the stand-in (`No such tool available: RemoteTrigger.
+  RemoteTrigger is disabled for this session`), so nothing of it was seen.
+- **How `SendMessage` resolves its `to`,** with the hook out of the way: the id Claude Code gave a subagent resumes it
+  (`{"success":true,"message":"Resuming agent …","resumedAgentId":"…"}`), and **so does that id in capitals, or after
+  a space**: Claude Code matches it loosely. A character more or less is `No agent named '…' is reachable.`, and so is
+  a name no session has. `main`, from a subagent, is `Message queued for the main conversation's next turn.` A
+  `bridge:` address is refused on a stand-in (`Cross-machine messaging is unavailable: it sends the message through
+  Anthropic servers`), and a `uds:` address with no socket there fails with `ENOENT`. `to` must be a string: a list is
+  refused as input. So Glade asks about two targets that are in fact the task's own subagent (the id in another
+  case, or padded): a card too many, never one too few.
 
 ### Test backends
 
