@@ -1,11 +1,6 @@
-import { faCheck, faMinus, faShieldHalved, faXmark } from '@fortawesome/free-solid-svg-icons'
+import { faCheck, faXmark } from '@fortawesome/free-solid-svg-icons'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import {
-  PermissionDecisionKind,
-  PermissionRequestState,
-  type PermissionDecision,
-  type PermissionRequest,
-} from '../../shared/domain'
+import { PermissionDecisionKind, type PermissionDecision, type PermissionRequest } from '../../shared/domain'
 import { Button, ButtonVariant, CopyBlockButton, Icon, IconSize, Input, useToast } from '../components'
 import { classNames } from '../components/classNames'
 import { LinkedText } from '../links'
@@ -13,8 +8,6 @@ import { APPEAR_WINDOW_MS } from '../questions/QuestionCard'
 import { describeFailure } from '../store/hydrate'
 import { useGladeStore } from '../store/react'
 import {
-  callSummary,
-  closedOutcome,
   InputLineKind,
   permissionBody,
   PermissionBodyKind,
@@ -30,9 +23,10 @@ import {
   type SubagentOrigin,
   type TaskGrant,
 } from './permissionCardModel'
+import { PERMISSION_SHIELD } from './PermissionLine'
 import styles from './PermissionCard.module.css'
 
-/** The accessible name of the card, open or closed. */
+/** The accessible name of the card. */
 export const PERMISSION_CARD_NAME = 'Permission request'
 /** What the note field asks for. */
 export const NOTE_PLACEHOLDER = 'Tell the agent why (optional)'
@@ -261,7 +255,7 @@ function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps)
       }}
     >
       <div className={styles.title}>
-        <Icon icon={faShieldHalved} size={IconSize.Large} />
+        <Icon icon={PERMISSION_SHIELD} size={IconSize.Large} />
         <span className={styles.titleText}>{permissionTitle(request)}</span>
         {subagent !== null && <span className={styles.subagent}>{subagentLabel(subagent)}</span>}
       </div>
@@ -360,70 +354,26 @@ function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps)
   )
 }
 
-const CLOSED_ICON = {
-  [PermissionRequestState.Allowed]: faCheck,
-  [PermissionRequestState.Denied]: faXmark,
-  [PermissionRequestState.Withdrawn]: faMinus,
-} as const
-
-const CLOSED_CLASS = {
-  [PermissionRequestState.Allowed]: styles.allowed,
-  [PermissionRequestState.Denied]: styles.denied,
-  [PermissionRequestState.Withdrawn]: styles.withdrawn,
-} as const
-
-interface ClosedCardProps {
-  readonly request: PermissionRequest
-  readonly state: keyof typeof CLOSED_ICON
-  readonly outcome: string
-  readonly rootPath: string | undefined
-  /** Whether it has just closed, in view: it then fades in over the open card it replaces. */
-  readonly fadeIn: boolean
-}
-
-/** A closed card, in one line: the call, and that it was allowed once, denied (with your note) or withdrawn. */
-function ClosedCard({ request, state, outcome, rootPath, fadeIn }: ClosedCardProps): React.JSX.Element {
-  const summary = callSummary(request, rootPath)
-  return (
-    <section
-      aria-label={PERMISSION_CARD_NAME}
-      title={`${summary} · ${outcome}`}
-      className={classNames(styles.closed, CLOSED_CLASS[state], fadeIn && styles.justClosed)}
-    >
-      <Icon icon={CLOSED_ICON[state]} size={IconSize.Medium} className={styles.closedIcon} />
-      <span className={styles.summary}>{summary}</span>
-      <span aria-hidden className={styles.dot}>
-        ·
-      </span>
-      <span className={styles.outcome}>{outcome}</span>
-    </section>
-  )
-}
-
 export interface PermissionCardProps {
+  /** An open request: the card shows only while it waits on you. */
   readonly request: PermissionRequest
   /** The task's workspace root, which the card shows file paths relative to. */
   readonly rootPath?: string | undefined
   /** Which subagent made the call; null for the agent's own. */
   readonly subagent: SubagentOrigin | null
-  /** Whether an open card takes the focus (the first open one in the chat does). */
+  /** Whether the card takes the focus (the first one in the chat does). */
   readonly autoFocus?: boolean
 }
 
 /**
- * A tool call waiting on your OK, in the chat (`docs/design/html/23-permission-card.html`): open, the card you answer
- * it on; answered or withdrawn, one line saying what happened. Like the question card, one that has just asked rises and
- * fades in, and one that closes while it's showing fades to its line.
+ * A tool call waiting on your OK, in the chat (`docs/design/html/23-permission-card.html`): the card you answer it on.
+ * Like the question card, one that has just asked rises and fades in. The chat shows it only while its request is open
+ * (#459): once it's answered or withdrawn it leaves the chat, and what was decided shows on its call's row in the Tool
+ * calls list (`PermissionLine`).
  */
 export function PermissionCard({ request, rootPath, subagent, autoFocus = false }: PermissionCardProps) {
-  const { state } = request
-  // Whether it was open when it showed, so its closing happens in view, and whether it had just asked.
-  const [shownOpen] = useState(state === PermissionRequestState.Open)
+  // Whether it had just asked when it showed.
   const [appear] = useState(() => Date.now() - request.createdAt < APPEAR_WINDOW_MS)
-  if (state === PermissionRequestState.Open) {
-    const body = permissionBody(request, rootPath)
-    return <OpenCard request={request} body={body} subagent={subagent} autoFocus={autoFocus} appear={appear} />
-  }
-  const outcome = closedOutcome(request) ?? ''
-  return <ClosedCard request={request} state={state} outcome={outcome} rootPath={rootPath} fadeIn={shownOpen} />
+  const body = permissionBody(request, rootPath)
+  return <OpenCard request={request} body={body} subagent={subagent} autoFocus={autoFocus} appear={appear} />
 }

@@ -17,6 +17,7 @@ import {
 } from '../../shared/domain'
 import { Chat } from '../chat/Chat'
 import { ToastProvider } from '../components'
+import { TaskPanel } from '../right-panel'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore } from '../store/store'
 import {
@@ -32,7 +33,9 @@ import { TRIMMED_LINES } from './permissionCardModel'
 import { moduleClass } from '../components/moduleClass'
 import { APPEAR_WINDOW_MS } from '../questions/QuestionCard'
 import { NOTE_PLACEHOLDER } from './PermissionCard'
+import { PERMISSION_LINE_STATE } from './PermissionLine'
 import styles from './PermissionCard.module.css'
+import toolLogStyles from '../tool-log/ToolLog.module.css'
 
 /** The sample workspace's root, which paths show relative to. */
 const ROOT = '/code/w1'
@@ -90,14 +93,20 @@ function subagentCall(toolUseId: string, parentToolUseId: string): ToolCallEvent
   return { ...agentCall(toolUseId, {}), id: `e-${toolUseId}`, name: 'Write', parentToolUseId }
 }
 
+/** The tool call a request is about, as the tool log has it while the request waits: running. */
+function callOf(request: PermissionRequest): ToolCallEvent {
+  return { ...agentCall(request.toolUseId, request.input), name: request.toolName }
+}
+
 interface Rendered {
   readonly fake: ReturnType<typeof fakeBridge>
   readonly requests: PermissionRequest[]
 }
 
+/** The chat, with the task panel's Tool calls beside it: each request's call is in the tool log, unless given. */
 async function renderChat(
   requests: PermissionRequest[],
-  toolEvents: ToolEvent[] = [],
+  toolEvents: ToolEvent[] = requests.map(callOf),
   overrides: Partial<FakeHandlers> = {},
   copied?: string[],
 ): Promise<Rendered> {
@@ -122,6 +131,7 @@ async function renderChat(
       <ToastProvider>
         <button type="button">Elsewhere</button>
         <Chat />
+        <TaskPanel />
       </ToastProvider>
     </GladeStoreProvider>,
   )
@@ -139,8 +149,17 @@ function card(index = 0): HTMLElement {
   return found
 }
 
-function closedCards(): HTMLElement[] {
-  return screen.queryAllByRole('region', { name: 'Permission request' })
+/** Everything the chat names a permission request: only open cards, since a closed one leaves the chat (#459). */
+function inTheChat(): HTMLElement[] {
+  return within(screen.getByRole('log', { name: 'Conversation' })).queryAllByLabelText('Permission request')
+}
+
+/** The Tool calls list's permission lines, top to bottom: each one's state and what it says. */
+function decisions(): string[] {
+  const log = screen.getByRole('log', { name: 'Tool log' })
+  return [...log.querySelectorAll(`[${PERMISSION_LINE_STATE}]`)].map(
+    (line) => `${line.getAttribute(PERMISSION_LINE_STATE) ?? ''}: ${line.textContent}`,
+  )
 }
 
 function button(name: string, index = 0): HTMLElement {
@@ -277,17 +296,16 @@ describe('the permission card', () => {
     expect(within(card()).getByText('subagent')).toBeInTheDocument()
   })
 
-  it('allows the call once, and collapses to a line saying so', async () => {
+  it("allows the call once: the card leaves the chat, and its call's row says so", async () => {
     const { fake } = await renderChat([request('p1')])
+    expect(decisions()).toEqual(['waiting: Waiting on you'])
 
     fireEvent.click(button('Allow once'))
     await settle()
 
     expect(answers(fake)).toEqual([{ id: 'p1', decision: { kind: PermissionDecisionKind.AllowOnce } }])
-    expect(openCards()).toHaveLength(0)
-    const [line] = closedCards()
-    expect(line).toHaveTextContent('Bash: npm test·allowed once')
-    expect(line).toHaveAttribute('title', 'Bash: npm test · allowed once')
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['allowed: Allowed once'])
   })
 
   it('denies without a note when the note is left empty', async () => {
@@ -302,7 +320,8 @@ describe('the permission card', () => {
     await settle()
 
     expect(answers(fake)).toEqual([{ id: 'p1', decision: { kind: PermissionDecisionKind.Deny } }])
-    expect(closedCards()[0]).toHaveTextContent('Bash: npm test·denied')
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['denied: Denied'])
   })
 
   it('denies with the note, trimmed, on ↵ in the note field', async () => {
@@ -321,7 +340,8 @@ describe('the permission card', () => {
     expect(answers(fake)).toEqual([
       { id: 'p1', decision: { kind: PermissionDecisionKind.Deny, note: 'Run only the date tests' } },
     ])
-    expect(closedCards()[0]).toHaveTextContent('denied: “Run only the date tests”')
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['denied: Denied: “Run only the date tests”'])
   })
 
   it('closes the note field with Esc or Cancel, back on Deny, keeping what you wrote', async () => {
@@ -341,7 +361,7 @@ describe('the permission card', () => {
     expect(answers(fake)).toEqual([])
   })
 
-  it('says it was withdrawn when the turn ends under it', async () => {
+  it('leaves the chat when the turn ends under it, and its row says it was withdrawn', async () => {
     const { fake } = await renderChat([request('p1')])
 
     act(() => {
@@ -351,8 +371,8 @@ describe('the permission card', () => {
       })
     })
 
-    expect(openCards()).toHaveLength(0)
-    expect(closedCards()[0]).toHaveTextContent('Bash: npm test·withdrawn')
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['withdrawn: Withdrawn'])
   })
 
   it("toasts when the answer doesn't reach main, and can be answered again", async () => {
@@ -469,15 +489,15 @@ describe('Allow for this task', () => {
     expect(grant).toHaveAttribute('tabindex', '-1')
   })
 
-  it('grants the call for the task, and collapses to a line saying so', async () => {
+  it('grants the call for the task: the card leaves the chat, and its row names the rule it granted', async () => {
     const { fake } = await renderChat([request('p1')])
 
     fireEvent.click(button('Allow npm test commands for this task'))
     await settle()
 
     expect(answers(fake)).toEqual([{ id: 'p1', decision: { kind: PermissionDecisionKind.AllowForTask } }])
-    expect(openCards()).toHaveLength(0)
-    expect(closedCards().map((line) => line.textContent)).toEqual(['Bash: npm test·allowed for this task'])
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['allowed: Allowed for this task: npm test commands'])
   })
 
   it('names the whole tool for an Edit, and the command itself for a rule without a prefix', async () => {
@@ -614,7 +634,8 @@ describe('stress', () => {
     fireEvent.click(button('Deny', 1))
     await settle()
     expect(openCards()).toHaveLength(1)
-    expect(closedCards()[0]).toHaveTextContent('Edit: docs/upgrade.md·denied: “Keep the old wording”')
+    expect(inTheChat()).toHaveLength(1)
+    expect(decisions()).toEqual(['waiting: Waiting on you', 'denied: Denied: “Keep the old wording”'])
 
     // Answering the one left, from the keyboard's focus.
     fireEvent.click(button('Allow once'))
@@ -624,10 +645,8 @@ describe('stress', () => {
       { id: 'edit', decision: { kind: PermissionDecisionKind.Deny, note: 'Keep the old wording' } },
       { id: 'p1', decision: { kind: PermissionDecisionKind.AllowOnce } },
     ])
-    expect(closedCards().map((line) => line.textContent)).toEqual([
-      'Bash: npm test·allowed once',
-      'Edit: docs/upgrade.md·denied: “Keep the old wording”',
-    ])
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['allowed: Allowed once', 'denied: Denied: “Keep the old wording”'])
   })
 
   it('moves the focus to the next open card once the first is answered', async () => {
@@ -641,7 +660,7 @@ describe('stress', () => {
     expect(button('Allow once')).toHaveFocus()
   })
 
-  it('collapses to withdrawn while you type a note, sending nothing', async () => {
+  it('leaves the chat, withdrawn, while you type a note, sending nothing', async () => {
     const { fake } = await renderChat([request('p1')])
 
     fireEvent.click(button('Deny'))
@@ -654,13 +673,13 @@ describe('stress', () => {
       })
     })
 
-    expect(openCards()).toHaveLength(0)
+    expect(inTheChat()).toHaveLength(0)
     expect(note).not.toBeInTheDocument()
-    expect(closedCards()[0]).toHaveTextContent('withdrawn')
+    expect(decisions()).toEqual(['withdrawn: Withdrawn'])
     expect(answers(fake)).toEqual([])
   })
 
-  it('refuses an answer to a card already closed elsewhere, and shows it closed once main says so', async () => {
+  it('refuses an answer to a card already closed elsewhere, and takes it out of the chat once main says so', async () => {
     const { fake, requests } = await renderChat([request('p1')])
     const closed = { ...request('p1'), state: PermissionRequestState.Allowed, closedAt: 4_000 }
     requests[0] = closed
@@ -673,7 +692,8 @@ describe('stress', () => {
     act(() => {
       fake.emit({ type: EventType.PermissionAnswered, permissionRequest: closed })
     })
-    expect(closedCards()[0]).toHaveTextContent('allowed once')
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['allowed: Allowed once'])
   })
 })
 
@@ -689,18 +709,210 @@ describe('motion', () => {
     expect(card(0)).not.toHaveClass(cls('appearing'))
     expect(card(1)).toHaveClass(cls('appearing'))
   })
+})
 
-  it('fades to its line when it closes while showing, but not when it was already closed', async () => {
-    const { fake } = await renderChat([request('p1'), request('p2', { state: PermissionRequestState.Allowed })])
+describe("the decision on its call's row (#459)", () => {
+  const toolLog = (): HTMLElement => screen.getByRole('log', { name: 'Tool log' })
+  const rows = (): HTMLElement[] => within(toolLog()).getAllByRole('button')
+  const closed = (id: string, state: PermissionRequestState, patch: Partial<PermissionRequest> = {}) =>
+    request(id, { state, closedAt: 4_000, ...patch })
+
+  it('shows a waiting call with the purple dot and no result yet, then the answer above its result', async () => {
+    const waiting = request('p1')
+    const { fake } = await renderChat([waiting])
+    const [row] = rows()
+
+    // Waiting on you, not running: the purple dot, no "Running…", and none of a running row's highlight.
+    expect(row).toHaveAccessibleName(/^Waiting\s*Bash\s*npm test.*Permission\s*Waiting on you$/)
+    expect(row?.querySelector('[data-state]')).toHaveAttribute('data-state', 'waiting')
+    expect(row).not.toHaveTextContent('Running…')
+    expect(row?.parentElement).not.toHaveClass(moduleClass(toolLogStyles, 'running'))
+
+    fireEvent.click(button('Allow once'))
+    await settle()
+    // Allowed, the call runs: it's a running row again, saying it was allowed.
+    expect(rows()[0]).toHaveAccessibleName(/^Running\s*Bash\s*npm test.*Permission\s*Allowed once\s*Running…$/)
+    expect(rows()[0]?.parentElement).toHaveClass(moduleClass(toolLogStyles, 'running'))
+
     act(() => {
       fake.emit({
-        type: EventType.PermissionWithdrawn,
-        permissionRequest: { ...request('p1'), state: PermissionRequestState.Withdrawn, closedAt: 4_000 },
+        type: EventType.ToolEventUpdated,
+        toolEvent: {
+          ...callOf(waiting),
+          state: ToolCallState.Done,
+          output: 'Tests  148 passed (148)',
+          finishedAt: 5_000,
+        },
+      })
+    })
+    expect(rows()[0]).toHaveAccessibleName(
+      /^Done\s*Bash\s*npm test.*Permission\s*Allowed once\s*Tests\s+148 passed \(148\)$/,
+    )
+    expect(decisions()).toEqual(['allowed: Allowed once'])
+  })
+
+  it('says a denied call was denied in place of its result, which is only the refusal the agent was told', async () => {
+    const waiting = request('p1')
+    const { fake } = await renderChat([waiting])
+
+    fireEvent.click(button('Deny'))
+    fireEvent.change(within(card()).getByRole('textbox', { name: 'Note for the agent' }), {
+      target: { value: 'Keep dist.' },
+    })
+    fireEvent.click(button('Deny'))
+    await settle()
+    act(() => {
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: {
+          ...callOf(waiting),
+          state: ToolCallState.Error,
+          output: 'The user denied permission for this tool call, so it did not run. They said: Keep dist.',
+          finishedAt: 5_000,
+        },
       })
     })
 
-    const [withdrawn, allowed] = closedCards()
-    expect(withdrawn).toHaveClass(cls('justClosed'), cls('withdrawn'))
-    expect(allowed).not.toHaveClass(cls('justClosed'))
+    const [row] = rows()
+    if (row === undefined) throw new Error('No row')
+    expect(row).toHaveAccessibleName(/^Failed\s*Bash\s*npm test.*Permission\s*Denied: “Keep dist.”$/)
+    expect(row).not.toHaveTextContent('The user denied permission')
+    // The refusal is still there to read, in the call's output.
+    fireEvent.click(row)
+    expect(within(toolLog()).getByLabelText('Bash output')).toHaveTextContent('The user denied permission')
+  })
+
+  it('shows no closed card after a relaunch: each decision is on its row, and only granted calls keep a result', async () => {
+    const requests = [
+      closed('once', PermissionRequestState.Allowed),
+      closed('task', PermissionRequestState.Allowed, {
+        createdAt: 3_100,
+        grantedRule: { toolName: 'Bash', ruleContent: 'npm test *' },
+      }),
+      closed('denied', PermissionRequestState.Denied, { createdAt: 3_200, denyNote: 'Not on main' }),
+      closed('bare', PermissionRequestState.Denied, { createdAt: 3_300 }),
+      closed('gone', PermissionRequestState.Withdrawn, { createdAt: 3_400 }),
+      request('open', { createdAt: 3_500 }),
+    ]
+    const done = (each: PermissionRequest): ToolCallEvent => ({
+      ...callOf(each),
+      state: each.state === PermissionRequestState.Open ? ToolCallState.Running : ToolCallState.Done,
+      output: each.state === PermissionRequestState.Open ? null : 'ok',
+    })
+    const untouched: ToolCallEvent = { ...callOf(request('untouched')), state: ToolCallState.Done, output: 'ok' }
+    await renderChat(requests, [...requests.map(done), untouched])
+
+    // Only the open one is a card.
+    expect(inTheChat()).toHaveLength(1)
+    expect(openCards()).toHaveLength(1)
+    expect(decisions()).toEqual([
+      'allowed: Allowed once',
+      'allowed: Allowed for this task: npm test commands',
+      'denied: Denied: “Not on main”',
+      'denied: Denied',
+      'withdrawn: Withdrawn',
+      'waiting: Waiting on you',
+    ])
+    // A call no permission was involved in has no shield.
+    expect(rows()).toHaveLength(7)
+    expect(rows()[6]?.querySelector(`[${PERMISSION_LINE_STATE}]`)).toBeNull()
+    // Granted calls keep their results, and so does the untouched one; denied, withdrawn and waiting ones show none.
+    expect(rows().map((row) => row.textContent.endsWith('ok'))).toEqual([true, true, false, false, false, false, true])
+  })
+
+  it('keeps the dot of a call the app quit on, while its card still waits, and answers it', async () => {
+    const waiting = request('p1')
+    const interrupted: ToolCallEvent = {
+      ...callOf(waiting),
+      state: ToolCallState.Interrupted,
+      output: 'Glade quit while this tool call waited on permission, so it did not run.',
+    }
+    await renderChat([waiting], [interrupted])
+
+    expect(openCards()).toHaveLength(1)
+    expect(rows()[0]).toHaveAccessibleName(/^Interrupted\s*Bash\s*npm test.*Permission\s*Waiting on you$/)
+
+    fireEvent.click(button('Allow once'))
+    await settle()
+
+    expect(inTheChat()).toHaveLength(0)
+    expect(rows()[0]).toHaveAccessibleName(/^Interrupted\s*Bash\s*npm test.*Permission\s*Allowed once\s*Interrupted$/)
+  })
+
+  it("shows a subagent's decision on its call's row in the subagent's log, as its card names the subagent", async () => {
+    const write = request('guide', {
+      ...WRITE,
+      id: 'guide',
+      toolUseId: 'guide-write',
+      agentId: 'a1b2c3',
+    })
+    const events = [
+      agentCall('guide-agent', { description: 'Upgrade guide' }),
+      subagentCall('guide-write', 'guide-agent'),
+    ]
+    await renderChat([write], events)
+    expect(within(card()).getByText('subagent · Upgrade guide')).toBeInTheDocument()
+    // The Tool calls list has the Agent call alone, which no permission was asked about.
+    expect(decisions()).toEqual([])
+
+    fireEvent.click(screen.getByRole('tab', { name: /^Subagents/ }))
+    await settle()
+    fireEvent.click(
+      within(screen.getByRole('group', { name: 'Upgrade guide' })).getByRole('button', { expanded: false }),
+    )
+    const subagentLog = (): HTMLElement => screen.getByRole('log', { name: 'Upgrade guide log' })
+    const line = (): Element | null => subagentLog().querySelector(`[${PERMISSION_LINE_STATE}]`)
+    expect(line()).toHaveTextContent(/^Waiting on you$/)
+    expect(within(subagentLog()).getByRole('img', { name: 'Waiting' })).toHaveAttribute('data-state', 'waiting')
+
+    fireEvent.click(button('Deny'))
+    fireEvent.change(within(card()).getByRole('textbox', { name: 'Note for the agent' }), {
+      target: { value: 'Not in out/' },
+    })
+    fireEvent.click(button('Deny'))
+    await settle()
+
+    expect(inTheChat()).toHaveLength(0)
+    expect(line()).toHaveTextContent(/^Denied: “Not in out\/”$/)
+    expect(line()).toHaveAttribute(PERMISSION_LINE_STATE, 'denied')
+  })
+
+  it('shows a call that never ran, its request withdrawn by Stop, in slate rather than as a failed call', async () => {
+    const waiting = request('p1')
+    const { fake } = await renderChat([waiting])
+
+    act(() => {
+      fake.emit({
+        type: EventType.PermissionWithdrawn,
+        permissionRequest: { ...waiting, state: PermissionRequestState.Withdrawn, closedAt: 4_000 },
+      })
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: {
+          ...callOf(waiting),
+          state: ToolCallState.Error,
+          output: 'You stopped the agent.',
+          finishedAt: 4_000,
+        },
+      })
+    })
+
+    const [row] = rows()
+    expect(inTheChat()).toHaveLength(0)
+    expect(row).toHaveAccessibleName(/^Withdrawn\s*Bash\s*npm test.*Permission\s*Withdrawn$/)
+    expect(row?.querySelector('[data-state]')).toHaveAttribute('data-state', 'done')
+    expect(row?.parentElement).not.toHaveClass(moduleClass(toolLogStyles, 'error'))
+    expect(row).not.toHaveTextContent('You stopped the agent.')
+  })
+
+  it('answers a card whose call never reached the tool log: it just leaves the chat', async () => {
+    const { fake } = await renderChat([request('p1')], [])
+
+    fireEvent.click(button('Allow once'))
+    await settle()
+
+    expect(answers(fake)).toHaveLength(1)
+    expect(inTheChat()).toHaveLength(0)
+    expect(screen.getByText('No tool calls yet.')).toBeInTheDocument()
   })
 })

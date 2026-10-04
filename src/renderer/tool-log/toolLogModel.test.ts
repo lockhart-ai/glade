@@ -12,8 +12,10 @@ import {
   type ToolCallEvent,
 } from '../../shared/domain'
 import { TaskIndicator } from '../../shared/taskIndicator'
+import { PermissionLineScope, PermissionLineState, type PermissionLine } from '../permissions/permissionLineModel'
 import {
   argumentSummary,
+  awaitsPermission,
   callIndicator,
   callStateLabel,
   compactionArgument,
@@ -25,8 +27,17 @@ import {
   parentLogRows,
   relativePath,
   resultSummary,
+  rowIndicator,
+  rowStateLabel,
+  sameSubagentRow,
+  sameSubagentRows,
+  showsCallState,
+  showsResult,
+  withdrawnUnrun,
   toolCallCount,
   toolLogRows,
+  type CallRow,
+  type ToolLogRow,
 } from './toolLogModel'
 
 const AT = new Date(2026, 8, 23, 11, 20).getTime()
@@ -369,5 +380,139 @@ describe('the parent’s tool log', () => {
         }
       }),
     ).toEqual(['outer (0)', 'other (0)', 'n1', 'turn 2 · 11:20', 'own (0)'])
+  })
+})
+
+describe('permission lines', () => {
+  const WAITING: PermissionLine = { state: PermissionLineState.Waiting, subject: null }
+  const ONCE: PermissionLine = { state: PermissionLineState.Allowed, scope: PermissionLineScope.Once, subject: null }
+  const DENIED: PermissionLine = { state: PermissionLineState.Denied, subject: null, note: 'Not yet' }
+  const WITHDRAWN: PermissionLine = { state: PermissionLineState.Withdrawn, subject: null }
+  const BLOCKED: PermissionLine = { state: PermissionLineState.Blocked, subject: 'write to ~/.cache/uv' }
+
+  function onlyCall(rows: readonly ToolLogRow[], index = 0): CallRow {
+    const row = rows[index]
+    if (row?.kind !== ToolEventKind.ToolCall) throw new Error(`Row ${String(index)} is no call`)
+    return row
+  }
+
+  it('go on the row of the call they name by its tool_use id, a subagent’s nested call included', () => {
+    const events = [
+      call({ id: 'bash', name: 'Bash', toolUseId: 'use-bash' }),
+      call({ id: 'agent', name: 'Agent', toolUseId: 'use-agent' }),
+      call({ id: 'write', name: 'Write', toolUseId: 'use-write', parentToolUseId: 'use-agent' }),
+      call({ id: 'read', name: 'Read', toolUseId: 'use-read' }),
+    ]
+    const lines = new Map<string, PermissionLine>([
+      ['use-bash', ONCE],
+      ['use-write', DENIED],
+      ['use-nothing', WAITING],
+    ])
+
+    const rows = toolLogRows(events, lines)
+
+    expect(onlyCall(rows, 0).permission).toBe(ONCE)
+    expect(onlyCall(rows, 1).permission).toBeNull()
+    expect(onlyCall(rows, 1).children).toMatchObject([{ name: 'Write', permission: DENIED }])
+    expect(onlyCall(rows, 2).permission).toBeNull()
+    // The parent's log has the same lines, and none of the subagent's rows.
+    expect(parentLogRows(events, lines)).toMatchObject([
+      { name: 'Bash', permission: ONCE },
+      { name: 'Agent', permission: null, children: [] },
+      { name: 'Read', permission: null },
+    ])
+  })
+
+  it('leave every row without one when there are none', () => {
+    const events = [call({ id: 'bash', name: 'Bash', toolUseId: 'use-bash' })]
+
+    expect(onlyCall(toolLogRows(events)).permission).toBeNull()
+    expect(onlyCall(parentLogRows(events)).permission).toBeNull()
+  })
+
+  it('make a row differ from itself only when its own line changes, however the lines were made', () => {
+    const events = [
+      call({ id: 'agent', name: 'Agent', toolUseId: 'use-agent' }),
+      call({ id: 'write', name: 'Write', toolUseId: 'use-write', parentToolUseId: 'use-agent' }),
+      call({ id: 'bash', name: 'Bash', toolUseId: 'use-bash' }),
+    ]
+    const rowsWith = (...entries: [string, PermissionLine][]): CallRow[] =>
+      toolLogRows(events, new Map(entries)).flatMap((row) => (row.kind === ToolEventKind.ToolCall ? [row] : []))
+    const [agent, bash] = rowsWith(['use-bash', WAITING])
+    if (agent === undefined || bash === undefined) throw new Error('Rows missing')
+
+    // The same lines, made anew: every row is the same.
+    const [sameAgent, sameBash] = rowsWith(['use-bash', { ...WAITING }])
+    expect(sameSubagentRow(agent, sameAgent ?? bash)).toBe(true)
+    expect(sameSubagentRow(bash, sameBash ?? agent)).toBe(true)
+
+    // Bash's request answered: its row differs, the Agent row doesn't.
+    const [agentAfter, bashAfter] = rowsWith(['use-bash', ONCE])
+    expect(sameSubagentRow(agent, agentAfter ?? bash)).toBe(true)
+    expect(sameSubagentRow(bash, bashAfter ?? bash)).toBe(false)
+
+    // A line for the subagent's nested call: the Agent row holding it differs, Bash's doesn't.
+    const [agentNested, bashNested] = rowsWith(['use-bash', WAITING], ['use-write', WAITING])
+    expect(sameSubagentRow(agent, agentNested ?? agent)).toBe(false)
+    expect(sameSubagentRow(bash, bashNested ?? agent)).toBe(true)
+    expect(sameSubagentRows(agent.children, agentNested?.children ?? [])).toBe(false)
+  })
+
+  it('show a running call that waits on its card as waiting on you; a call that ended keeps its own dot', () => {
+    const running = call({ state: ToolCallState.Running })
+    const waiting = { call: running, permission: WAITING }
+    expect(awaitsPermission(waiting)).toBe(true)
+    expect(rowIndicator(waiting)).toBe(TaskIndicator.Waiting)
+    expect(rowStateLabel(waiting)).toBe('Waiting')
+    expect(showsCallState(waiting)).toBe(false)
+
+    // With no card open, a running call is a running call.
+    for (const permission of [null, ONCE]) {
+      const row = { call: running, permission }
+      expect(awaitsPermission(row)).toBe(false)
+      expect(rowIndicator(row)).toBe(TaskIndicator.Working)
+      expect(rowStateLabel(row)).toBe('Running')
+      expect(showsCallState(row)).toBe(true)
+    }
+
+    // The app quit on it: interrupted, though its card is still open.
+    const quit = { call: call({ state: ToolCallState.Interrupted }), permission: WAITING }
+    expect(awaitsPermission(quit)).toBe(false)
+    expect(rowIndicator(quit)).toBe(TaskIndicator.Done)
+    expect(rowStateLabel(quit)).toBe('Interrupted')
+    expect(showsCallState(quit)).toBe(true)
+  })
+
+  it('show a call that never ran, its request withdrawn, in slate rather than as failed; a denied one did fail', () => {
+    const stopped = call({ state: ToolCallState.Error, output: 'You stopped the agent.' })
+    const withdrawn = { call: stopped, permission: WITHDRAWN }
+    expect(withdrawnUnrun(withdrawn)).toBe(true)
+    expect(rowIndicator(withdrawn)).toBe(TaskIndicator.Done)
+    expect(rowStateLabel(withdrawn)).toBe('Withdrawn')
+    expect(showsCallState(withdrawn)).toBe(false)
+
+    const denied = { call: stopped, permission: DENIED }
+    expect(withdrawnUnrun(denied)).toBe(false)
+    expect(rowIndicator(denied)).toBe(TaskIndicator.Error)
+    expect(rowStateLabel(denied)).toBe('Failed')
+    expect(showsCallState(denied)).toBe(true)
+
+    // A failed call no permission was involved in is a failed call, and a withdrawn request's call that the app quit
+    // on, or that still runs, keeps its own state.
+    expect(withdrawnUnrun({ call: stopped, permission: null })).toBe(false)
+    const interrupted = { call: call({ state: ToolCallState.Interrupted }), permission: WITHDRAWN }
+    expect(withdrawnUnrun(interrupted)).toBe(false)
+    expect(rowStateLabel(interrupted)).toBe('Interrupted')
+    const stillRunning = { call: call({ state: ToolCallState.Running }), permission: WITHDRAWN }
+    expect(rowIndicator(stillRunning)).toBe(TaskIndicator.Working)
+  })
+
+  it('show a result only for a call that ran: not while it waits, nor once denied or withdrawn', () => {
+    expect(showsResult({ permission: null })).toBe(true)
+    expect(showsResult({ permission: ONCE })).toBe(true)
+    expect(showsResult({ permission: BLOCKED })).toBe(true)
+    expect(showsResult({ permission: WAITING })).toBe(false)
+    expect(showsResult({ permission: DENIED })).toBe(false)
+    expect(showsResult({ permission: WITHDRAWN })).toBe(false)
   })
 })

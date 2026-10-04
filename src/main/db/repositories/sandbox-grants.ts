@@ -6,9 +6,8 @@ import {
   mergeGrants,
   SandboxGrantKind,
   SandboxGrantScope,
-  type DomainGrant,
-  type FolderGrant,
   type Grant,
+  type GrantKey,
   type GrantedTask,
   type SandboxGrant,
   type SandboxGrantTarget,
@@ -22,7 +21,7 @@ export interface NewSandboxGrant {
 }
 
 /** Which grant of a scope: a folder by its path (whatever its access), or a domain. */
-export type SandboxGrantKey = Pick<FolderGrant, 'kind' | 'path'> | DomainGrant
+export type SandboxGrantKey = GrantKey
 
 /** What adding or changing a grant did to the scope's grants. */
 export enum SandboxGrantChange {

@@ -68,6 +68,10 @@ import {
   type PluginsSetSettingRequest,
   type PluginsPlaceViewRequest,
   type PluginsReloadRequest,
+  type SandboxAddGrantRequest,
+  type SandboxListGrantsRequest,
+  type SandboxRemoveGrantRequest,
+  type SandboxSetFolderAccessRequest,
   type WorkspacesUpdateRequest,
   type WorkspacesRevealRequest,
 } from '../../shared/bridge'
@@ -88,6 +92,7 @@ import { MAX_MENU_BAR_HEIGHT } from '../../shared/menuBar'
 import { hasImageSignature, ImageMediaType, MAX_IMAGE_BASE64_LENGTH, type ImageData } from '../../shared/images'
 import { MAX_PASTED_BLOCK_LENGTH, PASTE_ID_PATTERN } from '../../shared/pastedContent'
 import { PluginCapability } from '../../shared/plugins'
+import { FolderAccess, SandboxGrantKind, SandboxGrantScope } from '../../shared/sandbox'
 import { MAX_TERMINAL_NAME, MAX_TERMINAL_SIZE, MAX_TERMINAL_WRITE } from '../../shared/terminal'
 import { SETTING_SCHEMAS } from '../db/repositories/settings'
 import { permissionDecisionSchema } from '../permissions/schema'
@@ -446,6 +451,38 @@ const pluginsPlaceViewRequest = z.strictObject({
 
 const pluginsReloadRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<PluginsReloadRequest>
 
+/** A scope Settings lists: Glade-wide, or a workspace's. A task's grants aren't Settings', so its scope doesn't parse. */
+const settingsGrantTarget = z.discriminatedUnion('scope', [
+  z.strictObject({ scope: z.literal(SandboxGrantScope.Glade) }),
+  z.strictObject({ scope: z.literal(SandboxGrantScope.Workspace), workspaceId: z.string() }),
+])
+
+const sandboxListGrantsRequest = z.strictObject({
+  target: settingsGrantTarget,
+}) satisfies z.ZodType<SandboxListGrantsRequest>
+
+const sandboxAddGrantRequest = z.strictObject({
+  target: settingsGrantTarget,
+  grant: z.discriminatedUnion('kind', [
+    z.strictObject({ kind: z.literal(SandboxGrantKind.Folder), path: z.string(), access: z.enum(FolderAccess) }),
+    z.strictObject({ kind: z.literal(SandboxGrantKind.Domain), domain: z.string() }),
+  ]),
+}) satisfies z.ZodType<SandboxAddGrantRequest>
+
+const sandboxSetFolderAccessRequest = z.strictObject({
+  target: settingsGrantTarget,
+  path: z.string(),
+  access: z.enum(FolderAccess),
+}) satisfies z.ZodType<SandboxSetFolderAccessRequest>
+
+const sandboxRemoveGrantRequest = z.strictObject({
+  target: settingsGrantTarget,
+  grant: z.discriminatedUnion('kind', [
+    z.strictObject({ kind: z.literal(SandboxGrantKind.Folder), path: z.string() }),
+    z.strictObject({ kind: z.literal(SandboxGrantKind.Domain), domain: z.string() }),
+  ]),
+}) satisfies z.ZodType<SandboxRemoveGrantRequest>
+
 const clipboardWriteTextRequest = z.strictObject({ text: z.string() }) satisfies z.ZodType<ClipboardWriteTextRequest>
 
 // Which schemes open is main's to check, when it opens the link (`../links/links`), so a refused one is logged.
@@ -606,6 +643,10 @@ export const REQUEST_SCHEMAS = {
   [CommandName.PluginsOpenFolder]: emptyRequest,
   [CommandName.PluginsPlaceView]: pluginsPlaceViewRequest,
   [CommandName.PluginsReload]: pluginsReloadRequest,
+  [CommandName.SandboxListGrants]: sandboxListGrantsRequest,
+  [CommandName.SandboxAddGrant]: sandboxAddGrantRequest,
+  [CommandName.SandboxSetFolderAccess]: sandboxSetFolderAccessRequest,
+  [CommandName.SandboxRemoveGrant]: sandboxRemoveGrantRequest,
   [CommandName.TerminalList]: emptyRequest,
   [CommandName.TerminalCreate]: terminalCreateRequest,
   [CommandName.TerminalDuplicate]: terminalIdRequest,
