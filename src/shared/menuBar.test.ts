@@ -52,6 +52,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     retrying: null,
     asking: false,
     awaitingPermission: false,
+    permissionAsk: null,
     backgroundWork: false,
     pause: null,
     importedAt: null,

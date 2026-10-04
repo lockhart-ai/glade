@@ -15,6 +15,7 @@ import { getImage } from '../db/repositories/images'
 import { getInputDraft, setInputDraft } from '../db/repositories/input-drafts'
 import { listMessages } from '../db/repositories/messages'
 import { getOpenFiles } from '../db/repositories/open-files'
+import { listPermissionMarks } from '../db/repositories/permission-marks'
 import { listPermissionRequests } from '../db/repositories/permission-requests'
 import { listQuestionSets } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
@@ -241,6 +242,7 @@ export function createHandlers(context: HandlerContext): Handlers {
         queuedMessages: listQueuedMessages(db, id),
         questionSets: listQuestionSets(db, id),
         permissionRequests: listPermissionRequests(db, id),
+        permissionMarks: listPermissionMarks(db, id),
         openFiles: getOpenFiles(db, id),
         todos: todoListFor(db, id),
         artifacts: listArtifacts(db, id),

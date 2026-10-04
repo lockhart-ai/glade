@@ -27,6 +27,7 @@ import type {
   OpenFiles,
   PastedBlock,
   PermissionDecision,
+  PermissionMark,
   PermissionMode,
   PermissionRequest,
   QuestionAnswers,
@@ -560,6 +561,8 @@ export interface TasksHistoryResponse {
   readonly questionSets: readonly QuestionSet[]
   /** Every permission request its agent's tool calls made, open or closed, in the order they were made. */
   readonly permissionRequests: readonly PermissionRequest[]
+  /** The tool calls a rule decided, not you: a grant or task rule that let one through, or the sandbox blocking one. */
+  readonly permissionMarks: readonly PermissionMark[]
   /** The files open in its Files tab. */
   readonly openFiles: OpenFiles
   /** The agent's todo list (the Todos tab), as its tool log leaves it; null when it has kept none. */
@@ -1479,6 +1482,7 @@ export enum EventType {
   PermissionOpened = 'permission.opened',
   PermissionAnswered = 'permission.answered',
   PermissionWithdrawn = 'permission.withdrawn',
+  PermissionMarked = 'permission.marked',
   OpenFilesChanged = 'openFiles.changed',
   FileShown = 'file.shown',
   FolderChanged = 'files.folderChanged',
@@ -1601,6 +1605,15 @@ export interface QuestionAnsweredEvent {
 export interface QuestionWithdrawnEvent {
   readonly type: EventType.QuestionWithdrawn
   readonly questionSet: QuestionSet
+}
+
+/**
+ * A rule decided a tool call, not you (a grant or task rule let it through, or the sandbox blocked it), or what it's
+ * known to have decided changed: the call's row says so. Carries that one call's mark.
+ */
+export interface PermissionMarkedEvent {
+  readonly type: EventType.PermissionMarked
+  readonly mark: PermissionMark
 }
 
 /** A tool call of the agent's waits on your OK: the chat shows the request's permission card. */
@@ -1836,6 +1849,7 @@ export type GladeEvent =
   | PermissionOpenedEvent
   | PermissionAnsweredEvent
   | PermissionWithdrawnEvent
+  | PermissionMarkedEvent
   | OpenFilesChangedEvent
   | FileShownEvent
   | FolderChangedEvent
@@ -1947,4 +1961,9 @@ export interface GladeBridge {
    * with `attachments.add`; `''` for one that isn't a file on disk, such as an image copied from an app.
    */
   pathForFile(file: File): string
+  /**
+   * The user's home folder, as main told the window when it made it (`src/shared/homeFolder`): what paths are shown
+   * from as `~`. Null when it wasn't told, and nothing is shortened.
+   */
+  readonly homeFolder: string | null
 }

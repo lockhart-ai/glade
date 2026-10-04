@@ -30,6 +30,7 @@ describe('the status', () => {
       [PermissionLineScope.Task, 'Allowed for this task'],
       [PermissionLineScope.Workspace, 'Allowed for this workspace'],
       [PermissionLineScope.TaskRule, 'Allowed by task rule'],
+      [PermissionLineScope.TaskGrant, 'Allowed by task grant'],
       [PermissionLineScope.WorkspaceGrant, 'Allowed by workspace grant'],
       [PermissionLineScope.GladeGrant, 'Allowed by Glade-wide grant'],
     ])

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import type { PermissionRequest, TaskCommit, ToolEvent, Watcher } from '../../shared/domain'
+import type { PermissionMark, PermissionRequest, TaskCommit, ToolEvent, Watcher } from '../../shared/domain'
 import { ArtifactsTab } from '../artifacts'
 import { ChangesTab } from '../changes'
 import { TabPanel, Tabs, type TabItem } from '../components'
@@ -26,6 +26,7 @@ const NO_TOOL_EVENTS: readonly ToolEvent[] = []
 const NO_WATCHERS: readonly Watcher[] = []
 const NO_COMMITS: readonly TaskCommit[] = []
 const NO_PERMISSION_REQUESTS: readonly PermissionRequest[] = []
+const NO_PERMISSION_MARKS: readonly PermissionMark[] = []
 
 /**
  * The right panel of the task card: the tab bar (Tool calls, Files, Todos, Artifacts, Subagents, Watchers, Changes,
@@ -48,9 +49,14 @@ export function TaskPanel(): React.JSX.Element | null {
   const permissionRequests =
     useGladeStore((state) => (task === undefined ? undefined : state.permissionRequests[task.id])) ??
     NO_PERMISSION_REQUESTS
-  // Each call's permission line, by its tool_use id: made again only when a request opens or closes, and the rows tell
-  // their own by value, so only the row it changed for renders.
-  const permissions = useMemo(() => permissionLinesByToolUse(permissionRequests), [permissionRequests])
+  const permissionMarks =
+    useGladeStore((state) => (task === undefined ? undefined : state.permissionMarks[task.id])) ?? NO_PERMISSION_MARKS
+  // Each call's permission line, by its tool_use id: made again only when a request opens or closes or a call is
+  // marked, and the rows tell their own by value, so only the row it changed for renders.
+  const permissions = useMemo(
+    () => permissionLinesByToolUse(permissionRequests, permissionMarks),
+    [permissionRequests, permissionMarks],
+  )
   const counts = useGladeStore(
     useShallow((state) =>
       PANEL_TAB_DEFINITIONS.map(({ count }) => (task === undefined ? undefined : formatCount(count(state, task.id)))),

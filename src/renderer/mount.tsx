@@ -1,6 +1,7 @@
 import { StrictMode, type ReactNode } from 'react'
 import { createRoot, type RootOptions } from 'react-dom/client'
 import { CommandName, type GladeBridge } from '../shared/bridge'
+import { setHomeFolder } from '../shared/homeFolder'
 import { App } from './App'
 import { MenuBarPage } from './menu-bar/MenuBarPage'
 import { ReadySignal } from './ready'
@@ -36,8 +37,12 @@ export function menuBarPage(bridge: GladeBridge): React.JSX.Element {
   )
 }
 
-/** The page a window shows, by its location's hash: the menu bar popover's, or the app. */
+/**
+ * The page a window shows, by its location's hash: the menu bar popover's, or the app. Either shows paths from the
+ * home folder the window was told (`src/shared/homeFolder`).
+ */
 export function pageFor(hash: string, bridge: GladeBridge): React.JSX.Element {
+  setHomeFolder(bridge.homeFolder)
   return hash === MENU_BAR_HASH ? menuBarPage(bridge) : appPage(bridge)
 }
 

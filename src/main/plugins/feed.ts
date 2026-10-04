@@ -343,6 +343,8 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       // Changes tabs, the handoff note, the terminal, the window's own state, settings, the models the pickers offer,
       // plugins and the control endpoint (whose token no plugin may see). A removed workspace's tasks are deleted one by one.
       // A refusal-fallback eviction is rare and best-effort here: a plugin keeps whatever it already showed for it.
+      // Nor which rule decided a call: its mark names a folder or a command.
+      case EventType.PermissionMarked:
       case EventType.ToolEventRemoved:
       case EventType.WorkspaceRemoved:
       case EventType.MessageAppended:

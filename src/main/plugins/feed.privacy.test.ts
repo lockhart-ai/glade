@@ -15,6 +15,7 @@ import {
   MessageRole,
   PauseReason,
   PermissionDestination,
+  PermissionMarkKind,
   PermissionRequestState,
   PermissionRuleBehavior,
   PermissionUpdateType,
@@ -266,6 +267,8 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
     state: PermissionRequestState.Open,
     denyNote: null,
     grantedRule: null,
+    sandbox: null,
+    grantedScope: null,
     createdAt: 4_000,
     closedAt: null,
   }
@@ -431,6 +434,18 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
       {
         type: EventType.PermissionWithdrawn,
         permissionRequest: { ...request, id: 'request-2', state: PermissionRequestState.Withdrawn },
+      },
+    ],
+    // Which rule decided a call says a folder's path or a command: not a plugin's business.
+    [EventType.PermissionMarked]: [
+      {
+        type: EventType.PermissionMarked,
+        mark: {
+          taskId: task.id,
+          toolUseId: 'toolu_secret',
+          outcome: { kind: PermissionMarkKind.TaskRule, rule: { toolName: 'Bash', ruleContent: secret('mark_rule') } },
+          createdAt: 3,
+        },
       },
     ],
     [EventType.OpenFilesChanged]: [

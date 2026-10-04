@@ -4,6 +4,7 @@ import {
   ArtifactDateGroup,
   ArtifactFilter,
   DividerKind,
+  PermissionMarkKind,
   MessageRole,
   QuestionKind,
   WatcherKind,
@@ -23,6 +24,7 @@ import { setInputDraft } from './input-drafts'
 import { appendMessage } from './messages'
 import { recordNotification } from './notifications'
 import { setOpenFiles } from './open-files'
+import { setPermissionMark } from './permission-marks'
 import { appendPermissionRequest } from './permission-requests'
 import { addTaskPermissionRule } from './task-permission-rules'
 import { addSandboxGrant } from './sandbox-grants'
@@ -110,6 +112,11 @@ function fillTask(db: Database, task: Task): void {
     turn: 1,
     questions: [{ kind: QuestionKind.Pills, prompt: 'Which limit?', options: ['120', '60'] }],
   })
+  setPermissionMark(db, {
+    taskId,
+    toolUseId: `bash-${taskId}`,
+    outcome: { kind: PermissionMarkKind.Blocked, ask: null },
+  })
   appendPermissionRequest(db, {
     taskId,
     turn: 1,
@@ -187,6 +194,8 @@ const FILLED_TABLES = [
   'open_files',
   // The text pasted into its messages, sent and queued, and into its input draft.
   'pasted_blocks',
+  // The calls of its that a rule decided (#450).
+  'permission_marks',
   'permission_requests',
   'question_sets',
   'queued_messages',

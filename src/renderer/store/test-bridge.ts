@@ -56,6 +56,7 @@ import {
   type InputDraft,
   type Message,
   type OpenFiles,
+  type PermissionMark,
   type PermissionRequest,
   type QuestionSet,
   type QueuedMessage,
@@ -79,6 +80,7 @@ import { IDLE_LOGIN, LoginState, type LoginStatus } from '../../shared/login'
 import { offersSetting, PluginStatus, withGrant, withSetting, type InstalledPlugin } from '../../shared/plugins'
 import {
   coversAccess,
+  SandboxAskKind,
   SandboxGrantKind,
   SandboxGrantScope,
   SETTINGS_GRANT_REFUSALS,
@@ -119,6 +121,7 @@ export interface FakeMain {
    * one that isn't open, as main does.
    */
   readonly permissionRequests?: PermissionRequest[]
+  readonly permissionMarks?: PermissionMark[]
   /** Every task's open files; none when left out. `files.open` and `files.close` change them. */
   readonly openFiles?: OpenFiles[]
   /**
@@ -503,6 +506,7 @@ export function fakeHandlers(
       queuedMessages: queueOf(id),
       questionSets: (main.questionSets ?? []).filter((set) => set.taskId === id),
       permissionRequests: (main.permissionRequests ?? []).filter((request) => request.taskId === id),
+      permissionMarks: (main.permissionMarks ?? []).filter((mark) => mark.taskId === id),
       openFiles: openFilesOf(id),
       todos: main.todos?.[id] ?? null,
       artifacts: artifacts.filter((artifact) => artifact.taskId === id),
@@ -568,17 +572,30 @@ export function fakeHandlers(
         return refuse(bridgeError(BridgeErrorCode.InvalidTransition, `Permission request ${id} isn't open`))
       }
       const denied = decision.kind === PermissionDecisionKind.Deny
-      const grantedRule = decision.kind === PermissionDecisionKind.AllowForTask ? taskPermissionRule(current) : null
-      if (decision.kind === PermissionDecisionKind.AllowForTask && grantedRule === null) {
+      // A folder or domain is granted to the task or the workspace, as main's broker has it; anything else, a rule.
+      const grants = current.sandbox !== null && current.sandbox.kind !== SandboxAskKind.Outside
+      const forTask = decision.kind === PermissionDecisionKind.AllowForTask
+      const forWorkspace = decision.kind === PermissionDecisionKind.AllowForWorkspace
+      const grantedRule = forTask && current.sandbox === null ? taskPermissionRule(current) : null
+      const refused = grants
+        ? decision.kind === PermissionDecisionKind.AllowOnce
+        : forWorkspace || (forTask && grantedRule === null)
+      if (refused) {
         return refuse(
           bridgeError(BridgeErrorCode.InvalidRequest, `Permission request ${id} can't be allowed for the task`),
         )
       }
+      const grantedScope = forWorkspace
+        ? SandboxGrantScope.Workspace
+        : forTask && grants
+          ? SandboxGrantScope.Task
+          : null
       const permissionRequest: PermissionRequest = {
         ...current,
         state: denied ? PermissionRequestState.Denied : PermissionRequestState.Allowed,
         denyNote: denied ? (decision.note ?? null) : null,
         grantedRule,
+        grantedScope,
         closedAt: 3_000,
       }
       requests[index] = permissionRequest
@@ -1061,6 +1078,7 @@ export function fakeBridge(main: FakeMain, overrides: Partial<FakeHandlers> = {}
         }
       },
       pathForFile: (file) => FILE_PATHS.get(file) ?? '',
+      homeFolder: null,
     },
     invoke,
     emit,
@@ -1117,6 +1135,7 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
     retrying: null,
     asking: false,
     awaitingPermission: false,
+    permissionAsk: null,
     backgroundWork: false,
     pause: null,
     importedAt: null,
@@ -1219,6 +1238,8 @@ export function samplePermissionRequest(id: string, taskId: string): PermissionR
     state: PermissionRequestState.Open,
     denyNote: null,
     grantedRule: null,
+    sandbox: null,
+    grantedScope: null,
     createdAt: 3_000,
     closedAt: null,
   }

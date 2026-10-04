@@ -1,7 +1,14 @@
 import { expect, it, vi } from 'vitest'
 import { BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import { BroadcastDelivery } from '../../shared/broadcast'
-import { PermissionDecisionKind, TaskActivity, TaskState, UiStateKey } from '../../shared/domain'
+import {
+  PermissionDecisionKind,
+  PermissionMarkKind,
+  TaskActivity,
+  TaskState,
+  UiStateKey,
+  type PermissionMark,
+} from '../../shared/domain'
 import { fakeBridge, samplePermissionRequest, sampleTask } from './test-bridge'
 
 it('answers uiState.get from its data, and stops delivering events once unsubscribed', async () => {
@@ -125,4 +132,23 @@ it("answers tasks.list with every one of the workspace's tasks, done ones too", 
   const { tasks } = await fake.bridge.invoke(CommandName.TasksList, { workspaceId: 'w1' })
 
   expect(tasks.map(({ id }) => id)).toEqual(['a', 'd'])
+})
+
+it("gives a task's history its own marks of the calls a rule decided", async () => {
+  const mark = (taskId: string, toolUseId: string): PermissionMark => ({
+    taskId,
+    toolUseId,
+    outcome: { kind: PermissionMarkKind.Blocked, ask: null },
+    createdAt: 1,
+  })
+  const fake = fakeBridge({
+    workspaces: [],
+    tasks: [],
+    uiState: [],
+    permissionMarks: [mark('t1', 'a'), mark('t2', 'b'), mark('t1', 'c')],
+  })
+
+  const history = await fake.bridge.invoke(CommandName.TasksHistory, { id: 't1' })
+
+  expect(history.permissionMarks.map(({ toolUseId }) => toolUseId)).toEqual(['a', 'c'])
 })

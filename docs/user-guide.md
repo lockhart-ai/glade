@@ -483,6 +483,63 @@ you decided is on the call's row in the **Tool calls** tab, on a line that start
 A call that was denied or withdrawn never ran, so its row has no result. A subagent's call shows its line on its row
 in the **Subagents** tab, in that subagent's log.
 
+### The sandbox's cards
+
+With the agent sandbox on (it's off until the sandbox is finished: Settings › Agent › Sandbox), an agent can use only
+its workspace folder and what you allow, in either permission mode. When it reaches past that, a card asks, with the
+shield at its title:
+
+- **A folder:** "The agent wants to read `~/code/acme-web`", or "…write to…", with the file it was after under it.
+  Reading asks for read-only access to the folder, and writing for read and write; a later write to a folder you
+  allowed for reading asks again.
+- **A file, by itself:** a card never offers your home folder, `/Users`, `/Volumes` or a folder above them. A file
+  that sits directly in one is asked for alone, "The agent wants to read `~/.gitconfig`", and allowing it opens that
+  file and nothing beside it. To give an agent a whole such folder, add it in Settings yourself.
+- **A domain:** "The agent wants to reach `registry.npmjs.org`", with the command that is waiting on the connection,
+  or the page for a web fetch. One answer covers both the agent's commands and its web fetches. A card's domain is
+  always one host by name; `*.acme.dev` is only ever added in Settings.
+
+What a card names is exactly what allowing it grants. A folder is shown by where it really is (a link is followed to
+what it leads to), and only your own home folder is written `~`: another user's folder shows in full. If the folder is
+swapped for something else while the card is open, allowing it grants nothing, and the agent is told to ask again. A
+folder you allowed stays that folder: if it's later replaced by a link to somewhere else, the agent has to ask for
+that somewhere else.
+
+A folder or domain is never allowed just once. The card offers:
+
+- **Allow for this task:** this task only, until it's done.
+- **Allow for this workspace:** every task in the workspace, the ones already running included, without restarting
+  them. It's listed in Settings › Workspace, where you can take it back.
+- **Deny**, with an optional note that the agent reads. A denial lasts the turn: if the agent, or one of its
+  subagents, asks for the same folder or domain again before your next message, it's told no at once, with your note,
+  and no card comes up. After your next message it may ask again.
+
+A command can't ask before it's blocked: it just fails with "Operation not permitted". The agent then asks for the
+folder itself, saying why in its own words ("`uv sync` needs to write its download cache."), on the same card, and
+runs the command again once you allow it. Subagents ask the same way; a card of a subagent's names it at the top
+right. Credential files (`~/.ssh`, `~/.aws` and the like) are never opened, even inside a folder you allowed.
+
+**Running a command outside the sandbox** has a card of its own: "The agent wants to run a command outside the
+sandbox", with the command. Outside the sandbox it can use any folder and reach any domain you can, so it's only ever
+**Allow once** or **Deny**, and it asks every time, in Allow all too.
+
+Nothing you allow is written to your project or to `~/.claude`: Glade keeps it, and gives it to the agent's session.
+
+Once answered, a sandbox card leaves the chat like any other, and its call's row in the **Tool calls** tab says what
+you decided and what it was about: "Allowed for this task: read ~/code/acme-web", "Allowed for this workspace: write
+to ~/code/acme-web/src/api", "Allowed once: run outside the sandbox", "Denied: reach registry.npmjs.org · “your
+note”". A connection's line is on the row of the command that made it. The same shield marks the calls nobody had to
+ask you about, because a rule decided them:
+
+| The line | What happened |
+|---|---|
+| Teal: **Allowed by task grant**, **by workspace grant** or **by Glade-wide grant: read ~/code/acme-shared** | A folder or domain you allowed earlier, on a card or in Settings, let the call through. |
+| Teal: **Allowed by task rule: npm run lint commands** | A rule from an earlier Allow for this task let it through. |
+| Pink: **Blocked by the sandbox** | The sandbox stopped a command from reading or writing something (it failed with "Operation not permitted"), or a credential file was refused. When the agent's next call asks for the folder, the line says which: "Blocked by the sandbox: write to ~/.cache/uv". |
+
+A call inside the workspace folder, with no rule involved, has no line. In the task list, a task waiting on a card
+shows the shield and what it waits on: "Waiting on you: read ~/code/acme-web".
+
 ## Settings
 
 ⌘, opens Settings. Every change saves as you make it.
@@ -527,6 +584,7 @@ What you allow is kept in two pairs of lists, **Folders** and **Domains**:
 - **The workspace's**, in Settings › *(your workspace)* under its root folder: for that workspace's agents alone. Its
   Folders start with the **workspace root**, which is always read-write and can't be removed. **Allow for this
   workspace** on a permission card adds here too, and shows in the list straight away, even while Settings is open.
+  A single file allowed on a card (`~/.gitconfig`) is listed with the folders, by its path; it's still that file alone.
 
 A grant for one task (Allow for this task, on a card) isn't listed anywhere: it ends with the task.
 

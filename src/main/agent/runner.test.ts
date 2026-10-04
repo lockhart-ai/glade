@@ -243,6 +243,8 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.PermissionAnswered:
       case EventType.PermissionWithdrawn:
         return [event.type, event.permissionRequest.state]
+      case EventType.PermissionMarked:
+        return [event.type, event.mark.outcome.kind]
       case EventType.TaskDeleted:
         return [event.type, event.taskId]
       case EventType.UiStateChanged:
@@ -431,6 +433,7 @@ describe('a turn', () => {
       queuedMessages: [],
       questionSets: [],
       permissionRequests: [],
+      permissionMarks: [],
       openFiles: { taskId: task.id, paths: [], activePath: null },
       todos: null,
       artifacts: [],
@@ -3659,6 +3662,8 @@ describe('several tasks at once', () => {
       case EventType.PermissionAnswered:
       case EventType.PermissionWithdrawn:
         return event.permissionRequest.taskId
+      case EventType.PermissionMarked:
+        return event.mark.taskId
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
       case EventType.TerminalTabsChanged:
@@ -3702,6 +3707,8 @@ describe('several tasks at once', () => {
       case EventType.PermissionAnswered:
       case EventType.PermissionWithdrawn:
         return [event.type, event.permissionRequest.state]
+      case EventType.PermissionMarked:
+        return [event.type, event.mark.outcome.kind]
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
       case EventType.WorkspaceRemoved:

@@ -695,7 +695,7 @@ describe('Allow for this task', () => {
   }
 
   it.each([PermissionMode.AllowAll, PermissionMode.AskBeforeEdits])(
-    'isn’t offered on a boundary crossing in %s: the write’s rule would be the whole tool, for every folder',
+    'never grants a rule on a boundary crossing in %s: the write’s rule would be the whole tool, for every folder',
     async (mode) => {
       await setMode(mode)
       const session = await startTurn()
@@ -709,15 +709,15 @@ describe('Allow for this task', () => {
         expect(only(toolUseId).suppressAlwaysAllowRule).toBe(true)
         expect(taskPermissionRule(only(toolUseId))).toBeNull()
       }
-      await expect(answer('toolu_write', { kind: PermissionDecisionKind.AllowForTask })).rejects.toThrow()
-      expect(only('toolu_write').state).toBe(PermissionRequestState.Open)
-      expect(rules()).toEqual([])
+      // Running outside the sandbox is never remembered at all.
+      await expect(answer('toolu_out', { kind: PermissionDecisionKind.AllowForTask })).rejects.toThrow()
+      expect(only('toolu_out').state).toBe(PermissionRequestState.Open)
 
-      await answer('toolu_write', { kind: PermissionDecisionKind.AllowOnce })
+      // Allow for this task on the write grants its folder (the sandbox's own card, #450), never a rule for the tool.
+      await answer('toolu_write', { kind: PermissionDecisionKind.AllowForTask })
       await expect(asked.answer).resolves.toEqual(ALLOWED_BY_YOU)
-      // Once only: the same write asks again.
-      await callTool(session, { ...write, toolUseId: 'toolu_again' })
-      expect(only('toolu_again').state).toBe(PermissionRequestState.Open)
+      expect(only('toolu_write').grantedRule).toBeNull()
+      expect(rules()).toEqual([])
     },
   )
 

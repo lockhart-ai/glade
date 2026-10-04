@@ -528,9 +528,10 @@ describe('removing', () => {
     expect(listPermissionRequests(database.db, task.id).map(({ state }) => state)).toEqual([
       PermissionRequestState.Open,
     ])
+    // The card is the folder's (#450): allowed for the task, it grants the task alone, and the workspace's list stays.
     await glade.invoke(CommandName.PermissionsAnswer, {
       id: open?.id ?? '',
-      decision: { kind: PermissionDecisionKind.AllowOnce },
+      decision: { kind: PermissionDecisionKind.AllowForTask },
     })
     await expect(asked.answer).resolves.toMatchObject({ behavior: ToolPermissionBehavior.Allow })
     await expect(list(workspaceTarget())).resolves.toEqual([])

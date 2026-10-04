@@ -1361,6 +1361,7 @@ describe("a task's artifacts", () => {
       queuedMessages: [],
       questionSets: [],
       permissionRequests: [],
+      permissionMarks: [],
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [declared],

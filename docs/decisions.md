@@ -195,11 +195,71 @@
     closed rather than left running, with the same error, before any message reaches the agent. See `sdk-notes.md`
     §15.
   - With the sandbox on, folders are compared by where they really are (symbolic links followed, `~` and the data
-    volume's alias resolved, case ignored), so another spelling of a denied folder asks too. Credential files are
+    volume's alias resolved, case ignored), so another spelling of a denied folder asks too. Only a call's own path
+    is resolved: a grant is kept by where its folder really was when it was granted, and compared as kept from then
+    on, so a granted folder later swapped for a link opens nothing new (#510's review). Credential files are
     refused outright. A write that Claude Code's own safety check holds back (`.mcp.json`, `.claude/`, `.git/`, shell
-    startup files) asks even in Allow all. Until the sandbox's own cards (P15-05), a boundary crossing can only be
-    allowed once: **Allow for this task** isn't offered on it, and a whole-tool `Edit` or `Write` rule a task was
-    granted in the ask mode applies only inside the workspace root and the read-write grants.
+    startup files) asks even in Allow all, on the plain card, allowed once or denied. A whole-tool `Edit` or `Write`
+    rule a task was granted in the ask mode applies only inside the workspace root and the read-write grants.
+  - The sandbox's cards (P15-05, #450). A boundary crossing asks for what a grant can give, never for a rule: a file
+    tool for its folder (the one Claude Code's suggestion names, else the file's own; a read read-only, a write
+    read-write), `WebFetch` and a command's connection for the host's domain. The card offers **Allow for this
+    task** · **Allow for this workspace** · **Deny** (with the note), and no Allow once. The answer saves the grant
+    with it, and the call that waited goes on only once its own session has the grant in force; the workspace's other
+    running sessions get it in the background. Running a command outside the sandbox has its own card, with the
+    command, **Allow once** · **Deny** only, every time, in either mode, whatever task rules exist. Nothing goes back
+    to the SDK with an answer but that the call may run: Claude Code's suggestion (a rule for the project's local
+    settings, for a domain) is never returned, so nothing is written to the user's repo or `~/.claude`.
+  - What a card shows is exactly what it grants (#510's security review). The grant saved is the card's own path,
+    never resolved again; if the folder moved while the card was open (it, or a folder above it, swapped for a link),
+    allowing it closes the request denied, with Glade's note for the agent, and grants nothing. A card's domain is one
+    host by name, never a pattern (`*.github.io` in a URL gets the plain card; a command's connection to such a host
+    is refused, since a connection can't be allowed just once). A path's kind and folder are taken where it really is,
+    so a link to a file asks for the real file's folder. Only the real home folder is shown as `~`: main tells each
+    window the home folder when it makes it (`src/shared/homeFolder.ts`), and captures and e2e runs show their sample
+    data from a made-up one (`/Users/sample`).
+  - A denial lasts the turn: a folder or domain you denied is answered denied at once, with your note and no card, if
+    it's asked for again before your next message, by the agent, a subagent, a file tool, `WebFetch` or a command's
+    connection alike. Cards open at the same time each stay. Running outside the sandbox asks every time regardless.
+  - A command the sandbox blocked is asked about by the agent itself, with the `glade` server's `request_access`
+    (the absolute path, read or write, a short reason): Glade's prompt and the tool's description tell it to, instead
+    of retrying outside the sandbox. It opens the folder card with the reason, and returns the decision once the grant
+    is live, or at once when there's nothing to decide (the sandbox is off, the path is in the workspace or already
+    usable as asked, or it's a credential path, which is refused). It's the one Glade tool a subagent may call; the
+    card names the subagent. See `model-surface.md`.
+  - The sandbox's decisions on the tool rows (#459's permission line). A sandbox request's line names what it was
+    about in every state ("Allowed for this workspace: write to ~/code/acme-web/src/api", "Withdrawn: write to
+    ~/.cache/uv"). Where Glade can tell a rule decided a call, it marks the call (`permission_marks`, one per call,
+    kept across relaunches, sent to the windows one at a time): a file tool or `WebFetch` a grant covers, by the
+    narrowest scope that grants it; in the ask mode, a call a task rule covers; a sandboxed `Bash` or `Monitor` call
+    that failed saying "Operation not permitted", named when the same agent's very next call is a `request_access`
+    that says what it was blocked from; a credential path refused; and a `request_access` answered without a card. A
+    call that crosses the sandbox's bounds is never marked allowed: it's asked about or refused whatever rule covers
+    it. Your own answer on a call shows
+    over a rule's. A call in the workspace root with no rule involved has no line. In the task list, a task waiting on
+    a permission card shows the filled purple shield and "Waiting on you", with what a sandbox card asks for.
+  - Calls made without Jared in P15-05: a call the task's own grant covers reads "Allowed by task grant", beside the
+    designs' "by workspace grant" and "by Glade-wide grant"; a blocked command is told by "Operation not permitted"
+    (in any case) in the error of a command that failed, so one that failed for another reason with those words in its
+    output is marked too; a connection's card is put on the command running when it asked (the latest
+    started, when several are), since the SDK doesn't say which command made it; a `request_access` path that doesn't
+    exist yet is asked for as it is, not by its parent folder; `request_access` takes `~` and `~/…` as the home
+    folder; a call whose folder or host can't be granted (a path with a glob character or that can't be resolved, a
+    host that isn't a name) keeps the plain card, allowed once or denied; and a session resumed from before the
+    sandbox was on keeps its old prompt and learns of `request_access` from the tool's description.
+  - Calls made without Jared in #510's security review (the supervisor's): **a card never offers the home folder,
+    `/`, `/Users`, `/Volumes`, `/System/Volumes` or a folder above one of them.** A file whose folder is one of those
+    is asked for by itself ("The agent wants to read `~/.gitconfig`") and granted alone, read-only or read-write: a
+    single-file grant (`FolderGrant.file`, `sandbox_grants.is_file`) that Settings lists with the folders, by its
+    path. Such a folder named outright is refused by `request_access` without a card, telling the agent to ask the
+    user to add it in Settings, and gets the plain Allow once · Deny card from a file tool. Credential files are still
+    refused outright. A single file reaches the session as its own path in the sandbox's lists and as `Read(//<file>)`
+    and, read-write, `Edit(//<file>)` rules, never as an additional directory; that Claude Code lets an edit through
+    on the `Edit` rule alone is from its documented rule syntax, not probed, and if it asks anyway the write gets the
+    plain card. Also in that review: a denied read denies a write to the same folder for the turn, while a denied
+    write still lets a read ask; a background subagent's requests belong to the turn its `Agent` call was made in; a
+    card's grant that matches one the scope already keeps in another case is kept as a grant of its own; and an
+    answer refused because its folder moved shows as "Denied" with Glade's note where yours would be.
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
     `manifest.json`: `id` (the folder's name), `name`, `version`, `entry` (an HTML file in the folder) and an optional

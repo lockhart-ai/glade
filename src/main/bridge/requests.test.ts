@@ -460,7 +460,7 @@ describe('REQUEST_SCHEMAS', () => {
       'a permission decision it doesn’t know',
       CommandName.PermissionsAnswer,
       { id: 'p', decision: { kind: 'allow_forever' } },
-      "decision.kind: Invalid discriminator value. Expected 'allow_once' | 'allow_for_task' | 'deny'",
+      "decision.kind: Invalid discriminator value. Expected 'allow_once' | 'allow_for_task' | 'allow_for_workspace' | 'deny'",
     ],
     [
       'a note on Allow once',

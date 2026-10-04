@@ -4,6 +4,7 @@ import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shar
 import {
   PermissionDecisionKind,
   PermissionDestination,
+  PermissionMarkKind,
   PermissionRequestState,
   PermissionRuleBehavior,
   PermissionUpdateType,
@@ -11,6 +12,8 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  type PermissionMark,
+  type PermissionMarkOutcome,
   type PermissionRequest,
   type ToolCallEvent,
   type ToolEvent,
@@ -29,13 +32,19 @@ import {
   sampleWorkspace,
   type FakeHandlers,
 } from '../store/test-bridge'
-import { TRIMMED_LINES } from './permissionCardModel'
+import { FolderAccess, SandboxAskKind, SandboxGrantScope } from '../../shared/sandbox'
+import { REQUEST_ACCESS_TOOL } from '../../shared/toolName'
+import { OUTSIDE_SANDBOX_NOTE, TRIMMED_LINES } from './permissionCardModel'
 import { moduleClass } from '../components/moduleClass'
 import { APPEAR_WINDOW_MS } from '../questions/QuestionCard'
 import { NOTE_PLACEHOLDER } from './PermissionCard'
 import { PERMISSION_LINE_STATE } from './PermissionLine'
 import styles from './PermissionCard.module.css'
 import toolLogStyles from '../tool-log/ToolLog.module.css'
+import { setHomeFolder } from '../../shared/homeFolder'
+
+// The sample data's home folder, which paths under it are shown from as `~`.
+setHomeFolder('/Users/me')
 
 /** The sample workspace's root, which paths show relative to. */
 const ROOT = '/code/w1'
@@ -914,5 +923,339 @@ describe("the decision on its call's row (#459)", () => {
     expect(answers(fake)).toHaveLength(1)
     expect(inTheChat()).toHaveLength(0)
     expect(screen.getByText('No tool calls yet.')).toBeInTheDocument()
+  })
+})
+
+describe('the sandbox’s cards', () => {
+  const WEB = '/Users/me/code/acme-web'
+  const FOLDER_READ = request('read', {
+    toolName: 'Read',
+    toolUseId: 'read-call',
+    input: { file_path: `${WEB}/package.json` },
+    description: '~/code/acme-web/package.json',
+    suggestions: [],
+    suppressAlwaysAllowRule: true,
+    sandbox: { kind: SandboxAskKind.Folder, path: WEB, access: FolderAccess.Read },
+  })
+  const FOLDER_WRITE = request('write-out', {
+    toolName: 'Write',
+    toolUseId: 'client-write',
+    agentId: 'a1b2c3',
+    input: { file_path: `${WEB}/src/api/client.ts`, content: 'export const client = {}' },
+    suggestions: [],
+    suppressAlwaysAllowRule: true,
+    sandbox: { kind: SandboxAskKind.Folder, path: `${WEB}/src/api`, access: FolderAccess.ReadWrite },
+  })
+  const DOMAIN = request('reach', {
+    toolName: 'SandboxNetworkAccess',
+    toolUseId: 'npx-call',
+    input: { host: 'registry.npmjs.org' },
+    description: 'Allow network connection to registry.npmjs.org?',
+    suppressAlwaysAllowRule: true,
+    sandbox: {
+      kind: SandboxAskKind.Domain,
+      domain: 'registry.npmjs.org',
+      command: 'npx openapi-typescript openapi/schema.yaml -o build/client.ts',
+      commandDescription: 'Generate the typed client from the schema',
+    },
+  })
+  const FETCH = request('fetch', {
+    toolName: 'WebFetch',
+    input: { url: 'https://docs.acme.dev/api/retries', prompt: 'Summarize the page.' },
+    suppressAlwaysAllowRule: true,
+    sandbox: { kind: SandboxAskKind.Domain, domain: 'docs.acme.dev', command: null, commandDescription: null },
+  })
+  const ACCESS = request('access', {
+    toolName: REQUEST_ACCESS_TOOL,
+    input: {
+      path: '/Users/me/.cache/uv',
+      access: 'write',
+      reason: '`uv sync --frozen` needs to write its download cache.',
+    },
+    description: '`uv sync --frozen` needs to write its download cache.',
+    suggestions: [],
+    suppressAlwaysAllowRule: true,
+    sandbox: { kind: SandboxAskKind.Folder, path: '/Users/me/.cache/uv', access: FolderAccess.ReadWrite },
+  })
+  const OUTSIDE = request('outside', {
+    input: {
+      command: 'docker compose up -d db',
+      description: 'Start the local Postgres for the integration tests',
+      dangerouslyDisableSandbox: true,
+    },
+    description: null,
+    suggestions: [],
+    suppressAlwaysAllowRule: true,
+    sandbox: { kind: SandboxAskKind.Outside },
+  })
+
+  /** The names of the card's answers, in order. */
+  function answerNames(index = 0): (string | null)[] {
+    const group = within(card(index)).getByRole('group', { name: 'Answer' })
+    return within(group)
+      .getAllByRole('button')
+      .map((answer) => answer.textContent)
+  }
+
+  it('asks to read a folder: the folder as code, the file the tool touched, and task · workspace · deny', async () => {
+    await renderChat([FOLDER_READ])
+
+    const title = card().firstElementChild
+    expect(title).toHaveTextContent('The agent wants to read~/code/acme-web')
+    expect(within(card()).getByText('~/code/acme-web').tagName).toBe('CODE')
+    expect(within(card()).getByText('Read')).toHaveClass(moduleClass(styles, 'targetTool'))
+    expect(within(card()).getByText('~/code/acme-web/package.json')).toBeInTheDocument()
+    // Just the file: no input block to read through.
+    expect(within(card()).queryByLabelText('Content')).not.toBeInTheDocument()
+    expect(answerNames()).toEqual(['Allow for this task', 'Allow for this workspace', 'Deny'])
+    expect(within(card()).queryByRole('button', { name: 'Allow once' })).not.toBeInTheDocument()
+    expect(button('Allow for this task')).toHaveFocus()
+  })
+
+  it('asks to write to a folder, naming the subagent that asked', async () => {
+    const events = [
+      agentCall('generator', { description: 'Client generator' }),
+      subagentCall('client-write', 'generator'),
+    ]
+    await renderChat([FOLDER_WRITE], events)
+
+    expect(card().firstElementChild).toHaveTextContent('The agent wants to write to~/code/acme-web/src/api')
+    expect(within(card()).getByText('subagent · Client generator')).toBeInTheDocument()
+    expect(within(card()).getByText('~/code/acme-web/src/api/client.ts')).toBeInTheDocument()
+    expect(within(card()).queryByText(/export const client/)).not.toBeInTheDocument()
+  })
+
+  it('asks to reach a domain, with the command waiting on the connection and what it’s for', async () => {
+    await renderChat([DOMAIN, FETCH])
+
+    expect(card().firstElementChild).toHaveTextContent('The agent wants to reachregistry.npmjs.org')
+    expect(lines(within(card()).getByLabelText('Command'))).toEqual([
+      'npx openapi-typescript openapi/schema.yaml -o build/client.ts',
+    ])
+    expect(within(card()).getByText('Generate the typed client from the schema')).toBeInTheDocument()
+    expect(answerNames()).toEqual(['Allow for this task', 'Allow for this workspace', 'Deny'])
+    // WebFetch has no command: the tool and its URL instead.
+    expect(card(1).firstElementChild).toHaveTextContent('The agent wants to reachdocs.acme.dev')
+    expect(within(card(1)).getByText('https://docs.acme.dev/api/retries')).toBeInTheDocument()
+    expect(within(card(1)).queryByLabelText('Command')).not.toBeInTheDocument()
+  })
+
+  it('shows the agent’s own reason for a request_access call, its backticks as code', async () => {
+    await renderChat([ACCESS])
+
+    expect(card().firstElementChild).toHaveTextContent('The agent wants to write to~/.cache/uv')
+    expect(within(card()).getByText('uv sync --frozen').tagName).toBe('CODE')
+    expect(card()).toHaveTextContent('uv sync --frozen needs to write its download cache.')
+    expect(answerNames()).toEqual(['Allow for this task', 'Allow for this workspace', 'Deny'])
+  })
+
+  it('asks for a single file by its own name, with the same answers, and its row says the file', async () => {
+    const gitconfig = request('gitconfig', {
+      toolName: REQUEST_ACCESS_TOOL,
+      toolUseId: 'gitconfig-call',
+      input: { path: '~/.gitconfig', access: 'read', reason: '`git log` needs your git settings.' },
+      description: '`git log` needs your git settings.',
+      suggestions: [],
+      suppressAlwaysAllowRule: true,
+      // A file in the home folder: the card asks for it alone, never for the home folder.
+      sandbox: { kind: SandboxAskKind.Folder, path: '/Users/me/.gitconfig', access: FolderAccess.Read, file: true },
+    })
+    const { fake } = await renderChat([gitconfig])
+
+    expect(card().firstElementChild).toHaveTextContent('The agent wants to read~/.gitconfig')
+    expect(within(card()).getByText('~/.gitconfig').tagName).toBe('CODE')
+    expect(card()).toHaveTextContent('git log needs your git settings.')
+    expect(answerNames()).toEqual(['Allow for this task', 'Allow for this workspace', 'Deny'])
+
+    fireEvent.click(button('Allow for this workspace'))
+    await settle()
+
+    expect(answers(fake)).toEqual([{ id: 'gitconfig', decision: { kind: PermissionDecisionKind.AllowForWorkspace } }])
+  })
+
+  it('names another user’s folder in full: only your own home folder is ~', async () => {
+    const theirs = request('theirs', {
+      ...FOLDER_READ,
+      input: { file_path: '/Users/someone/Documents/taxes.txt' },
+      sandbox: { kind: SandboxAskKind.Folder, path: '/Users/someone/Documents', access: FolderAccess.Read },
+    })
+    await renderChat([theirs])
+
+    // Before #510's review, this card read "The agent wants to read ~/Documents".
+    expect(card().firstElementChild).toHaveTextContent('The agent wants to read/Users/someone/Documents')
+    expect(card()).toHaveTextContent('/Users/someone/Documents/taxes.txt')
+    expect(card()).not.toHaveTextContent('~')
+  })
+
+  it('asks to run a command outside the sandbox: what that means, the command, and only Allow once · Deny', async () => {
+    await renderChat([OUTSIDE])
+
+    expect(card().firstElementChild).toHaveTextContent('The agent wants to run a command outside the sandbox')
+    expect(within(card()).getByText(OUTSIDE_SANDBOX_NOTE)).toBeInTheDocument()
+    expect(lines(within(card()).getByLabelText('Command'))).toEqual(['docker compose up -d db'])
+    expect(within(card()).getByText('Start the local Postgres for the integration tests')).toBeInTheDocument()
+    expect(answerNames()).toEqual(['Allow once', 'Deny'])
+    expect(button('Allow once')).toHaveFocus()
+  })
+
+  it('grants the folder to the task: the card leaves the chat, and its call’s row says so', async () => {
+    const { fake } = await renderChat([FOLDER_READ])
+    expect(decisions()).toEqual(['waiting: Waiting on you: read ~/code/acme-web'])
+
+    fireEvent.click(button('Allow for this task'))
+    await settle()
+
+    expect(answers(fake)).toEqual([{ id: 'read', decision: { kind: PermissionDecisionKind.AllowForTask } }])
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['allowed: Allowed for this task: read ~/code/acme-web'])
+  })
+
+  it('grants the domain to the workspace, and its command’s row says so', async () => {
+    const { fake } = await renderChat([DOMAIN])
+
+    fireEvent.click(button('Allow for this workspace'))
+    await settle()
+
+    expect(answers(fake)).toEqual([{ id: 'reach', decision: { kind: PermissionDecisionKind.AllowForWorkspace } }])
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['allowed: Allowed for this workspace: reach registry.npmjs.org'])
+  })
+
+  it('denies with a note, and allows running outside the sandbox once, each on its own call’s row', async () => {
+    const { fake } = await renderChat([ACCESS, OUTSIDE])
+
+    fireEvent.click(button('Deny'))
+    const note = within(card()).getByRole('textbox', { name: 'Note for the agent' })
+    fireEvent.change(note, { target: { value: 'Skip uv for now.' } })
+    fireEvent.keyDown(note, { key: 'Enter' })
+    await settle()
+    fireEvent.click(button('Allow once'))
+    await settle()
+
+    expect(answers(fake)).toEqual([
+      { id: 'access', decision: { kind: PermissionDecisionKind.Deny, note: 'Skip uv for now.' } },
+      { id: 'outside', decision: { kind: PermissionDecisionKind.AllowOnce } },
+    ])
+    expect(decisions()).toEqual([
+      'denied: Denied: write to ~/.cache/uv · “Skip uv for now.”',
+      'allowed: Allowed once: run outside the sandbox',
+    ])
+  })
+
+  it('moves ← → through its three answers, wrapping round, and ↵ on one gives it', async () => {
+    const { fake } = await renderChat([FOLDER_READ])
+
+    fireEvent.keyDown(button('Allow for this task'), { key: 'ArrowRight' })
+    expect(button('Allow for this workspace')).toHaveFocus()
+    fireEvent.keyDown(button('Allow for this workspace'), { key: 'ArrowRight' })
+    expect(button('Deny')).toHaveFocus()
+    fireEvent.keyDown(button('Deny'), { key: 'ArrowRight' })
+    expect(button('Allow for this task')).toHaveFocus()
+    fireEvent.keyDown(button('Allow for this task'), { key: 'ArrowLeft' })
+    fireEvent.keyDown(button('Deny'), { key: 'ArrowLeft' })
+    expect(button('Allow for this workspace')).toHaveFocus()
+    fireEvent.keyDown(button('Allow for this workspace'), { key: 'Enter' })
+    await settle()
+
+    expect(answers(fake)).toEqual([{ id: 'read', decision: { kind: PermissionDecisionKind.AllowForWorkspace } }])
+  })
+
+  it('leaves the chat, withdrawn, while you type a note on a folder card, sending nothing', async () => {
+    const { fake } = await renderChat([FOLDER_WRITE])
+
+    fireEvent.click(button('Deny'))
+    const note = within(card()).getByRole('textbox', { name: 'Note for the agent' })
+    fireEvent.change(note, { target: { value: 'Write it to bui' } })
+    act(() => {
+      fake.emit({
+        type: EventType.PermissionWithdrawn,
+        permissionRequest: { ...FOLDER_WRITE, state: PermissionRequestState.Withdrawn, closedAt: 4_000 },
+      })
+    })
+
+    expect(openCards()).toHaveLength(0)
+    expect(note).not.toBeInTheDocument()
+    expect(decisions()).toEqual(['withdrawn: Withdrawn: write to ~/code/acme-web/src/api'])
+    expect(answers(fake)).toEqual([])
+  })
+
+  it('two cards for one folder: granting it from one leaves the other open, and it can still be answered', async () => {
+    const second = { ...FOLDER_READ, id: 'read-2', toolUseId: 'read-call-2' }
+    const { fake } = await renderChat([FOLDER_READ, second])
+
+    fireEvent.click(button('Allow for this task'))
+    await settle()
+
+    expect(openCards()).toHaveLength(1)
+    expect(button('Allow for this task')).toHaveFocus()
+    fireEvent.click(button('Deny'))
+    fireEvent.submit(card())
+    await settle()
+    expect(answers(fake)).toEqual([
+      { id: 'read', decision: { kind: PermissionDecisionKind.AllowForTask } },
+      { id: 'read-2', decision: { kind: PermissionDecisionKind.Deny } },
+    ])
+    expect(decisions()).toEqual([
+      'allowed: Allowed for this task: read ~/code/acme-web',
+      'denied: Denied: read ~/code/acme-web',
+    ])
+  })
+
+  it('shows the title alone when there’s nothing more to show', async () => {
+    const bare = [
+      { ...OUTSIDE, id: 'o', input: {} },
+      { ...ACCESS, id: 'a', input: {}, description: null },
+      { ...FETCH, id: 'f', input: {} },
+      { ...FOLDER_READ, id: 'r', toolName: 'LS', input: { path: WEB } },
+    ]
+    await renderChat(bare)
+
+    for (const [index] of bare.entries()) expect(card(index).children).toHaveLength(2)
+  })
+})
+
+describe('a call a rule decided', () => {
+  const SHARED = { kind: SandboxAskKind.Folder, path: '/Users/me/code/acme-shared', access: FolderAccess.Read } as const
+  const UV = { kind: SandboxAskKind.Folder, path: '/Users/me/.cache/uv', access: FolderAccess.ReadWrite } as const
+  const mark = (toolUseId: string, outcome: PermissionMarkOutcome): PermissionMark => ({
+    taskId: 't1',
+    toolUseId,
+    outcome,
+    createdAt: 2_000,
+  })
+
+  it('says so on its row as main marks it, and what the sandbox blocked once that’s known, with no card', async () => {
+    const read = { ...agentCall('read-shared', { file_path: `${SHARED.path}/common.yaml` }), name: 'Read' }
+    const sync = { ...agentCall('uv-sync', { command: 'uv sync --frozen' }), name: 'Bash' }
+    const { fake } = await renderChat([], [read, sync])
+    expect(decisions()).toEqual([])
+
+    act(() => {
+      fake.emit({
+        type: EventType.PermissionMarked,
+        mark: mark('read-shared', { kind: PermissionMarkKind.Grant, scope: SandboxGrantScope.Workspace, ask: SHARED }),
+      })
+      fake.emit({
+        type: EventType.PermissionMarked,
+        mark: mark('uv-sync', { kind: PermissionMarkKind.Blocked, ask: null }),
+      })
+    })
+    expect(decisions()).toEqual([
+      'allowed: Allowed by workspace grant: read ~/code/acme-shared',
+      'blocked: Blocked by the sandbox',
+    ])
+
+    // The agent's request_access names what the command was blocked from: that row's line alone changes.
+    act(() => {
+      fake.emit({
+        type: EventType.PermissionMarked,
+        mark: mark('uv-sync', { kind: PermissionMarkKind.Blocked, ask: UV }),
+      })
+    })
+    expect(decisions()).toEqual([
+      'allowed: Allowed by workspace grant: read ~/code/acme-shared',
+      'blocked: Blocked by the sandbox: write to ~/.cache/uv',
+    ])
+    expect(inTheChat()).toHaveLength(0)
   })
 })

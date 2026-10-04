@@ -1,0 +1,234 @@
+{
+  "collapsed": {
+    "bottomBar": true
+  },
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "tasks": [
+    {
+      "title": "Publish the API client to acme-web",
+      "objective": "Generate a typed API client from the OpenAPI schema and publish it into acme-web, so the frontend stops hand-writing fetch calls.",
+      "status": "acme-web is readable. Waiting on you to let npx reach the npm registry, and uv write its cache.",
+      "pinned": true,
+      "minutesAgo": 1,
+      "startedMinutesAgo": 31,
+      "selected": true,
+      "contextUsedTokens": 88000,
+      "contextWindowTokens": 200000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Generate a typed client from our OpenAPI schema and publish it into acme-web, so the frontend stops hand-writing fetch calls.",
+          "turn": 1,
+          "minutesAgo": 31
+        },
+        {
+          "role": "agent",
+          "body": "npx needs the npm registry, so it’s waiting on you. uv sync can’t write its download cache, so I’ve asked for ~/.cache/uv.",
+          "turn": 1,
+          "minutesAgo": 2
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "narration",
+          "text": "Exporting the schema from the API.",
+          "turn": 1,
+          "minutesAgo": 30
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "python manage.py spectacular --file openapi/schema.yaml"
+          },
+          "output": "Schema written, 84 paths",
+          "turn": 1,
+          "minutesAgo": 30
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": {
+            "file_path": "/Users/sample/code/api/openapi/schema.yaml"
+          },
+          "output": "1,912 lines",
+          "turn": 1,
+          "minutesAgo": 29
+        },
+        {
+          "kind": "narration",
+          "text": "The schema is current. Checking how acme-web calls the API today.",
+          "turn": 1,
+          "minutesAgo": 28
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": {
+            "file_path": "/Users/sample/code/acme-shared/openapi/common.yaml"
+          },
+          "output": "210 lines",
+          "toolUseId": "read-shared",
+          "turn": 1,
+          "minutesAgo": 27
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": {
+            "file_path": "/Users/sample/code/acme-web/package.json"
+          },
+          "output": "48 lines",
+          "toolUseId": "read-web",
+          "turn": 1,
+          "minutesAgo": 8
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "uv sync --frozen"
+          },
+          "output": "Exit code 1\nerror: failed to create directory `/Users/sample/.cache/uv`: Operation not permitted (os error 1)",
+          "state": "error",
+          "toolUseId": "uv-sync",
+          "turn": 1,
+          "minutesAgo": 5
+        },
+        {
+          "kind": "tool_call",
+          "name": "mcp__glade__request_access",
+          "input": {
+            "path": "/Users/sample/.cache/uv",
+            "access": "write",
+            "reason": "`uv sync --frozen` needs to write its download cache."
+          },
+          "toolUseId": "access-uv",
+          "turn": 1,
+          "minutesAgo": 4
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "npx openapi-typescript openapi/schema.yaml -o build/client.ts",
+            "description": "Generate the typed client from the schema"
+          },
+          "toolUseId": "npx",
+          "turn": 1,
+          "minutesAgo": 3
+        }
+      ],
+      "permissionRequests": [
+        {
+          "toolName": "Read",
+          "input": {
+            "file_path": "/Users/sample/code/acme-web/package.json"
+          },
+          "toolUseId": "read-web",
+          "description": "~/code/acme-web/package.json",
+          "sandbox": {
+            "kind": "folder",
+            "path": "/Users/sample/code/acme-web",
+            "access": "read"
+          },
+          "turn": 1,
+          "minutesAgo": 8,
+          "state": "allowed",
+          "grantedScope": "task"
+        },
+        {
+          "toolName": "SandboxNetworkAccess",
+          "input": {
+            "host": "registry.npmjs.org"
+          },
+          "toolUseId": "npx",
+          "description": "Allow network connection to registry.npmjs.org?",
+          "sandbox": {
+            "kind": "domain",
+            "domain": "registry.npmjs.org",
+            "command": "npx openapi-typescript openapi/schema.yaml -o build/client.ts",
+            "commandDescription": "Generate the typed client from the schema"
+          },
+          "turn": 1,
+          "minutesAgo": 3
+        },
+        {
+          "toolName": "mcp__glade__request_access",
+          "input": {
+            "path": "/Users/sample/.cache/uv",
+            "access": "write",
+            "reason": "`uv sync --frozen` needs to write its download cache."
+          },
+          "toolUseId": "access-uv",
+          "description": "`uv sync --frozen` needs to write its download cache.",
+          "sandbox": {
+            "kind": "folder",
+            "path": "/Users/sample/.cache/uv",
+            "access": "read_write"
+          },
+          "turn": 1,
+          "minutesAgo": 2
+        }
+      ],
+      "permissionMarks": [
+        {
+          "toolUseId": "read-shared",
+          "outcome": {
+            "kind": "grant",
+            "scope": "workspace",
+            "ask": {
+              "kind": "folder",
+              "path": "/Users/sample/code/acme-shared",
+              "access": "read"
+            }
+          }
+        },
+        {
+          "toolUseId": "uv-sync",
+          "outcome": {
+            "kind": "blocked",
+            "ask": {
+              "kind": "folder",
+              "path": "/Users/sample/.cache/uv",
+              "access": "read_write"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Investigate slow dashboard query",
+      "status": "Added an index; 2.1s down to 90ms",
+      "state": "done",
+      "pinned": true,
+      "minutesAgo": 7200
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "status": "Waiting on you: pick a limit for /search",
+      "unread": true,
+      "minutesAgo": 4
+    },
+    {
+      "title": "Move image uploads to S3",
+      "status": "Copying existing files, 1,240 of 3,900",
+      "activity": "working",
+      "minutesAgo": 0
+    },
+    {
+      "title": "Fix flaky login test",
+      "status": "Found the race; fix passes 200 local runs",
+      "minutesAgo": 9
+    },
+    {
+      "title": "Upgrade Django to 5.2",
+      "status": "Upgraded; two deprecations fixed",
+      "state": "done",
+      "minutesAgo": 2880
+    }
+  ]
+}

@@ -72,6 +72,26 @@ export function taskPermissionRule(
   return { toolName, ruleContent: content }
 }
 
+/** What makes a command more than one command, which a rule for one never covers. */
+const COMPOUND = /&&|\|\||[;|&\n`]|\$\(/
+
+/**
+ * Whether a permission rule lets a call through, as Claude Code decides it, closely enough to say so on the call's row
+ * and for the scripted agents: a rule without content covers every call to its tool; a `Bash` rule's content covers the
+ * command itself, or, ending in ` *` or `:*`, every command that is its prefix alone or followed by a space and more. A
+ * compound command is never covered, since Claude Code asks about its parts.
+ */
+export function ruleCovers(rule: PermissionRule, toolName: string, input: ToolInput): boolean {
+  if (rule.toolName !== toolName) return false
+  const content = rule.ruleContent ?? ''
+  if (content === '') return true
+  const command = input.command
+  if (toolName !== BASH || typeof command !== 'string' || COMPOUND.test(command)) return false
+  const prefix = /^(.*?)(?: \*|:\*)$/.exec(content)?.[1]
+  if (prefix === undefined) return command === content
+  return command === prefix || command.startsWith(`${prefix} `)
+}
+
 /**
  * A rule as Claude Code writes it in `allowedTools` and settings files: `Edit` for the whole tool, or `Bash(npm test *)`
  * with its content, whose backslashes and parentheses are escaped with a backslash.

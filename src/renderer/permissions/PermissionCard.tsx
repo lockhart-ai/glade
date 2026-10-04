@@ -1,6 +1,7 @@
 import { faCheck, faXmark } from '@fortawesome/free-solid-svg-icons'
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { PermissionDecisionKind, type PermissionDecision, type PermissionRequest } from '../../shared/domain'
+import { SandboxAskKind, type SandboxAsk } from '../../shared/sandbox'
 import { Button, ButtonVariant, CopyBlockButton, Icon, IconSize, Input, useToast } from '../components'
 import { classNames } from '../components/classNames'
 import { LinkedText } from '../links'
@@ -12,6 +13,10 @@ import {
   permissionBody,
   PermissionBodyKind,
   permissionTitle,
+  reasonParts,
+  sandboxDetail,
+  SandboxDetailKind,
+  sandboxTitle,
   showAllLabel,
   shownLines,
   subagentLabel,
@@ -20,6 +25,7 @@ import {
   taskGrantWords,
   type InputLine,
   type PermissionBody,
+  type SandboxDetail,
   type SubagentOrigin,
   type TaskGrant,
 } from './permissionCardModel'
@@ -35,7 +41,17 @@ export const NOTE_PLACEHOLDER = 'Tell the agent why (optional)'
 enum Action {
   Allow = 'allow',
   AllowForTask = 'allow_for_task',
+  AllowForWorkspace = 'allow_for_workspace',
   Deny = 'deny',
+}
+
+/** The answers a card offers, in order; the first is the one ↵ gives, unless the card opens on Deny. */
+function actionsFor(sandbox: SandboxAsk | null, grant: TaskGrant | null): readonly Action[] {
+  // A folder or domain is granted to the task or the workspace, never once.
+  if (sandbox !== null && sandbox.kind !== SandboxAskKind.Outside) {
+    return [Action.AllowForTask, Action.AllowForWorkspace, Action.Deny]
+  }
+  return grant === null ? [Action.Allow, Action.Deny] : [Action.Allow, Action.AllowForTask, Action.Deny]
 }
 
 /** What each kind of line starts with in the input block: an edit's removed and added lines are marked. */
@@ -141,8 +157,56 @@ function TaskGrantText({ grant }: { readonly grant: TaskGrant }): React.JSX.Elem
   )
 }
 
+/** What a sandbox card shows under its title (`sandboxDetail`). */
+function SandboxDetails({ detail }: { readonly detail: SandboxDetail }): React.JSX.Element | null {
+  switch (detail.kind) {
+    case SandboxDetailKind.None:
+      return null
+    case SandboxDetailKind.Target:
+      return (
+        <div className={styles.target}>
+          <span className={styles.targetTool}>{detail.tool}</span>
+          <span className={styles.path}>{detail.target}</span>
+        </div>
+      )
+    case SandboxDetailKind.Reason:
+      return (
+        <p className={styles.description}>
+          {reasonParts(detail.reason).map((part, index) =>
+            part.code ? (
+              <code key={index} className={styles.reasonCode}>
+                {part.text}
+              </code>
+            ) : (
+              <LinkedText key={index} text={part.text} />
+            ),
+          )}
+        </p>
+      )
+    case SandboxDetailKind.Command:
+      return (
+        <>
+          {detail.note !== null && <p className={styles.description}>{detail.note}</p>}
+          <CallInput body={detail.body} />
+        </>
+      )
+  }
+}
+
+/** A sandbox card's title: what the agent wants, the folder or domain set as code. */
+function SandboxTitleText({ ask }: { readonly ask: SandboxAsk }): React.JSX.Element {
+  const { text, subject } = sandboxTitle(ask)
+  return (
+    <span className={classNames(styles.titleText, styles.sandboxTitle)}>
+      {text}
+      {subject !== null && <code className={styles.titleSubject}>{subject}</code>}
+    </span>
+  )
+}
+
 interface OpenCardProps {
   readonly request: PermissionRequest
+  /** The call's input, as a card that isn't the sandbox's shows it. */
   readonly body: PermissionBody
   readonly subagent: SubagentOrigin | null
   readonly autoFocus: boolean
@@ -151,26 +215,29 @@ interface OpenCardProps {
 }
 
 /**
- * The open card: what's asked, the call's input, and Allow once, Allow for this task (when it's offered: `taskGrant`)
- * and Deny. Deny opens a note field for the agent; ↵ in it denies with the note (or without one, left empty), and Esc or
- * Cancel closes it again. The answers are one tab stop, ← → between them: it's Allow once, so ↵ approves, unless the SDK
- * says a stray key mustn't (`defaultToNo`), when it's Deny. Given `autoFocus`, the card takes the focus as it opens,
- * unless you're somewhere else in the window.
+ * The open card: what's asked, the call's input, and its answers. A call in the ask mode offers Allow once, Allow for
+ * this task (when it's offered: `taskGrant`) and Deny. A sandbox request for a folder or domain
+ * (`docs/design/html/42-sandbox-folder-card.html`, `43-sandbox-domain-card.html`) offers Allow for this task, Allow
+ * for this workspace and Deny, and one to run a command outside the sandbox (`44-sandbox-outside-card.html`) only
+ * Allow once and Deny. Deny opens a note field for the agent; ↵ in it denies with the note (or without one, left
+ * empty), and Esc or Cancel closes it again. The answers are one tab stop, ← → between them: it's the first, so ↵
+ * approves, unless the SDK says a stray key mustn't (`defaultToNo`), when it's Deny. Given `autoFocus`, the card takes
+ * the focus as it opens, unless you're somewhere else in the window.
  */
 function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps): React.JSX.Element {
   const answerPermission = useGladeStore((state) => state.answerPermission)
   const toast = useToast()
-  const grant = taskGrant(request)
-  const actions = grant === null ? [Action.Allow, Action.Deny] : [Action.Allow, Action.AllowForTask, Action.Deny]
-  const initial = request.defaultToNo ? Action.Deny : Action.Allow
+  const { sandbox } = request
+  const grant = sandbox === null ? taskGrant(request) : null
+  const actions = actionsFor(sandbox, grant)
+  const first = actions[0] ?? Action.Deny
+  const initial = request.defaultToNo ? Action.Deny : first
   const [stop, setStop] = useState(initial)
   const [noting, setNoting] = useState(false)
   const [note, setNote] = useState('')
   const [sending, setSending] = useState(false)
   const card = useRef<HTMLFormElement>(null)
-  const allow = useRef<HTMLButtonElement>(null)
-  const allowForTask = useRef<HTMLButtonElement>(null)
-  const deny = useRef<HTMLButtonElement>(null)
+  const buttons = useRef(new Map<Action, HTMLButtonElement>())
   const noteField = useRef<HTMLInputElement>(null)
   // Whether the note field was opened or closed from the card, which then moves the focus: to it, or back to Deny.
   const moved = useRef(false)
@@ -181,13 +248,14 @@ function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps)
     const log = card.current?.closest('[role="log"]')
     // Only from nowhere, or from the chat itself: never away from a field you're typing in, or another panel.
     if (active !== null && active !== document.body && log?.contains(active) !== true) return
-    ;(initial === Action.Deny ? deny : allow).current?.focus()
+    buttons.current.get(initial)?.focus()
   }, [autoFocus, initial])
 
   useEffect(() => {
     if (!moved.current) return
     moved.current = false
-    ;(noting ? noteField : deny).current?.focus()
+    if (noting) noteField.current?.focus()
+    else buttons.current.get(Action.Deny)?.focus()
   }, [noting])
 
   const answer = (decision: PermissionDecision): void => {
@@ -223,8 +291,25 @@ function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps)
       case Action.AllowForTask:
         answer({ kind: PermissionDecisionKind.AllowForTask })
         return
+      case Action.AllowForWorkspace:
+        answer({ kind: PermissionDecisionKind.AllowForWorkspace })
+        return
       case Action.Deny:
         openNote()
+    }
+  }
+
+  /** What an answer's button says: Allow for this task names what it grants, but for a folder or domain's. */
+  const label = (action: Action): ReactNode => {
+    switch (action) {
+      case Action.Allow:
+        return 'Allow once'
+      case Action.AllowForTask:
+        return grant === null ? 'Allow for this task' : <TaskGrantText grant={grant} />
+      case Action.AllowForWorkspace:
+        return 'Allow for this workspace'
+      case Action.Deny:
+        return 'Deny'
     }
   }
 
@@ -241,7 +326,7 @@ function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps)
     const step = event.key === 'ArrowRight' ? 1 : actions.length - 1
     const next = actions[(actions.indexOf(action) + step) % actions.length] ?? action
     setStop(next)
-    ;(next === Action.Allow ? allow : next === Action.Deny ? deny : allowForTask).current?.focus()
+    buttons.current.get(next)?.focus()
   }
 
   return (
@@ -256,10 +341,14 @@ function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps)
     >
       <div className={styles.title}>
         <Icon icon={PERMISSION_SHIELD} size={IconSize.Large} />
-        <span className={styles.titleText}>{permissionTitle(request)}</span>
+        {sandbox === null ? (
+          <span className={styles.titleText}>{permissionTitle(request)}</span>
+        ) : (
+          <SandboxTitleText ask={sandbox} />
+        )}
         {subagent !== null && <span className={styles.subagent}>{subagentLabel(subagent)}</span>}
       </div>
-      <CallInput body={body} />
+      {sandbox === null ? <CallInput body={body} /> : <SandboxDetails detail={sandboxDetail(request, sandbox)} />}
       {noting ? (
         // Keyed apart from the answers, so Deny's button isn't reused as the note's Deny, a submit button, while the
         // click that opened the note is still being handled: its default action would then send the denial at once.
@@ -293,61 +382,31 @@ function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps)
         </div>
       ) : (
         <div key="answer" role="group" aria-label="Answer" className={styles.actions}>
-          <Button
-            ref={allow}
-            variant={ButtonVariant.Primary}
-            icon={faCheck}
-            aria-disabled={sending}
-            tabIndex={stop === Action.Allow ? 0 : -1}
-            onFocus={() => {
-              setStop(Action.Allow)
-            }}
-            onKeyDown={(event) => {
-              onActionKeyDown(event, Action.Allow)
-            }}
-            onClick={() => {
-              act(Action.Allow)
-            }}
-          >
-            Allow once
-          </Button>
-          {grant !== null && (
+          {actions.map((action) => (
             <Button
-              ref={allowForTask}
-              variant={ButtonVariant.Ghost}
-              className={styles.grant}
+              key={action}
+              ref={(button) => {
+                if (button === null) buttons.current.delete(action)
+                else buttons.current.set(action, button)
+              }}
+              variant={action === first ? ButtonVariant.Primary : ButtonVariant.Ghost}
+              {...(action === first ? { icon: faCheck } : {})}
+              {...(action === Action.AllowForTask && grant !== null ? { className: styles.grant } : {})}
               aria-disabled={sending}
-              tabIndex={stop === Action.AllowForTask ? 0 : -1}
+              tabIndex={stop === action ? 0 : -1}
               onFocus={() => {
-                setStop(Action.AllowForTask)
+                setStop(action)
               }}
               onKeyDown={(event) => {
-                onActionKeyDown(event, Action.AllowForTask)
+                onActionKeyDown(event, action)
               }}
               onClick={() => {
-                act(Action.AllowForTask)
+                act(action)
               }}
             >
-              <TaskGrantText grant={grant} />
+              {label(action)}
             </Button>
-          )}
-          <Button
-            ref={deny}
-            variant={ButtonVariant.Ghost}
-            aria-disabled={sending}
-            tabIndex={stop === Action.Deny ? 0 : -1}
-            onFocus={() => {
-              setStop(Action.Deny)
-            }}
-            onKeyDown={(event) => {
-              onActionKeyDown(event, Action.Deny)
-            }}
-            onClick={() => {
-              act(Action.Deny)
-            }}
-          >
-            Deny
-          </Button>
+          ))}
         </div>
       )}
     </form>

@@ -126,7 +126,7 @@ describe('createTestModeAgentBackend and the sandbox', () => {
     session.send('Set things up.', 'user-1')
     await backend.whenIdle()
     await vi.waitFor(() => {
-      expect(asked).toHaveLength(5)
+      expect(asked).toHaveLength(6)
     })
 
     expect(asked.map(({ toolName, input }) => `${toolName} ${JSON.stringify(input)}`)).toEqual([
@@ -135,6 +135,7 @@ describe('createTestModeAgentBackend and the sandbox', () => {
       `Read {"file_path":"${ASKS_SANDBOX.notes}"}`,
       `Write {"file_path":"${ASKS_SANDBOX.changelog}","content":"## Unreleased\\n\\n- Retries back off."}`,
       `Bash {"command":"${ASKS_SANDBOX.compose}","description":"Start the database","dangerouslyDisableSandbox":true}`,
+      `Bash {"command":"${ASKS_SANDBOX.push}","description":"Push the branch","dangerouslyDisableSandbox":true}`,
     ])
     session.close()
   })

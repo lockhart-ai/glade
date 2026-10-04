@@ -30,6 +30,7 @@
     "src/shared/bridge.ts",
     "src/shared/broadcast.ts",
     "src/shared/doneList.ts",
+    "src/shared/homeFolder.ts",
     "src/shared/commands.ts",
     "src/shared/account.ts",
     "src/shared/control.ts",

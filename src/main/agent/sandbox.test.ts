@@ -189,6 +189,50 @@ describe('sandboxOverlay', () => {
     expect(permissions?.allow).not.toContain('Read(//Users/me/src/shared-lib/**)')
   })
 
+  it('names a single file by itself everywhere: its own path, a rule for exactly it, and never a directory', () => {
+    const files: SandboxGrants = {
+      folders: [
+        { path: '/Users/me/.gitconfig', access: FolderAccess.Read, file: true },
+        { path: '/Users/me/.zshrc', access: FolderAccess.ReadWrite, file: true },
+        { path: '/Users/me/notes', access: FolderAccess.Read },
+        { path: '/Users/me/src/shared-lib', access: FolderAccess.ReadWrite },
+        // Granted twice: once.
+        { path: '/Users/me/.zshrc', access: FolderAccess.ReadWrite, file: true },
+      ],
+      domains: ['registry.npmjs.org'],
+    }
+
+    const { sandbox, permissions } = sandboxOverlay(ROOT, PermissionMode.AllowAll, files, HOME)
+
+    // Commands may read both files, and write the read-write one.
+    expect(sandbox?.filesystem?.allowRead).toEqual([
+      ROOT,
+      '/Users/me/.gitconfig',
+      '/Users/me/.zshrc',
+      '/Users/me/notes',
+      '/Users/me/src/shared-lib',
+    ])
+    expect(sandbox?.filesystem?.allowWrite).toEqual([ROOT, '/Users/me/.zshrc', '/Users/me/src/shared-lib'])
+    // The file tools: a `Read` rule for each file, an `Edit` rule too for the read-write one, none with `/**`.
+    expect(permissions?.allow).toEqual([
+      'Read(//Users/me/notes/**)',
+      'Read(//Users/me/.gitconfig)',
+      'Read(//Users/me/.zshrc)',
+      'Edit(//Users/me/.zshrc)',
+      'WebFetch(domain:registry.npmjs.org)',
+    ])
+    // A directory is a folder and all in it: a file is never one, read-write or not.
+    expect(permissions?.additionalDirectories).toEqual(['/Users/me/src/shared-lib'])
+    const everything = JSON.stringify({ sandbox, permissions })
+    expect(everything).not.toContain('/Users/me/.gitconfig/**')
+    expect(everything).not.toContain('/Users/me/.zshrc/**')
+    // And their folder, the home folder, is opened nowhere.
+    for (const opened of [sandbox?.filesystem?.allowRead, sandbox?.filesystem?.allowWrite]) {
+      expect(opened).not.toContain(HOME)
+    }
+    expect(permissions?.allow).not.toContain('Read(//Users/me/**)')
+  })
+
   it('grants domains as WebFetch rules in permissions only, never in the sandbox’s own list', () => {
     const overlay = sandboxOverlay(ROOT, PermissionMode.AllowAll, grants, HOME)
     expect(overlay.sandbox?.network?.allowedDomains).toEqual([])

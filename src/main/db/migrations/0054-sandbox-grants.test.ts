@@ -32,7 +32,10 @@ it('runs on an existing database without touching its other tables, and starts w
   ).run(t1.id)
   const before = everyRow(db)
 
-  migrate(db, MIGRATIONS)
+  migrate(
+    db,
+    MIGRATIONS.filter((migration) => migration.version <= 54),
+  )
 
   expect(everyRow(db)).toEqual(before)
   expect(db.prepare('SELECT COUNT(*) FROM sandbox_grants').pluck().get()).toBe(0)

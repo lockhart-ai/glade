@@ -6,6 +6,10 @@ import { parseTerminalSelection, type TerminalTab } from '../../shared/terminal'
 import { refuse, sampleTerminalTab, sampleWorkspace, type FakeHandlers, type FakeMain } from '../store/test-bridge'
 import { storeWrapper, type StoreWrapper } from '../store/test-wrapper'
 import { TerminalTabs } from './TerminalTabs'
+import { setHomeFolder } from '../../shared/homeFolder'
+
+// The sample data's home folder, which paths under it are shown from as `~`.
+setHomeFolder('/Users/sample')
 
 /** A tab of the workspace the window shows, `w1`. */
 function tab(id: string, overrides: Partial<TerminalTab> = {}): TerminalTab {

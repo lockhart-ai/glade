@@ -3,14 +3,23 @@ import {
   coversAccess,
   FOLDER_ACCESS_LABELS,
   FolderAccess,
+  folderVerb,
   grantCovers,
+  grantFor,
   isSettingsGrantTarget,
   mergeGrants,
+  SandboxAskKind,
+  sandboxAskPhrase,
   SandboxGrantKind,
   SandboxGrantScope,
   settingsGrantScopeKey,
   type Grant,
+  type SandboxAsk,
 } from './sandbox'
+import { setHomeFolder } from './homeFolder'
+
+// The sample data's home folder, which paths under it are shown from as `~`.
+setHomeFolder('/Users/me')
 
 const read = (path: string): Grant => ({ kind: SandboxGrantKind.Folder, path, access: FolderAccess.Read })
 const readWrite = (path: string): Grant => ({ kind: SandboxGrantKind.Folder, path, access: FolderAccess.ReadWrite })
@@ -55,6 +64,22 @@ describe('mergeGrants', () => {
     ).toEqual([readWrite('/opt/a'), domain('registry.npmjs.org'), read('/opt/b'), domain('acme.dev')])
   })
 
+  it('keeps a single file a single file, unless a grant of the same path is a folder’s', () => {
+    const file = (access: FolderAccess): Grant => ({
+      kind: SandboxGrantKind.Folder,
+      path: '/Users/sam/.zshrc',
+      access,
+      file: true,
+    })
+    expect(mergeGrants([file(FolderAccess.Read)])).toEqual([file(FolderAccess.Read)])
+    expect(mergeGrants([file(FolderAccess.Read), file(FolderAccess.ReadWrite)])).toEqual([file(FolderAccess.ReadWrite)])
+    // The same path granted as a folder is the wider grant: the folder's, with the widest access of the two.
+    expect(mergeGrants([file(FolderAccess.ReadWrite), read('/Users/sam/.zshrc')])).toEqual([
+      readWrite('/Users/sam/.zshrc'),
+    ])
+    expect(mergeGrants([read('/Users/sam/.zshrc'), file(FolderAccess.Read)])).toEqual([read('/Users/sam/.zshrc')])
+  })
+
   it('keeps nested folders apart: each is its own grant', () => {
     expect(mergeGrants([read('/Users/sam/code'), readWrite('/Users/sam/code/acme')])).toEqual([
       read('/Users/sam/code'),
@@ -77,6 +102,42 @@ describe('grantCovers', () => {
   it('never takes a task id for a workspace id', () => {
     expect(grantCovers({ scope: SandboxGrantScope.Task, taskId: 'w1' }, task)).toBe(false)
     expect(grantCovers({ scope: SandboxGrantScope.Workspace, workspaceId: 't1' }, task)).toBe(false)
+  })
+})
+
+describe('what a sandbox request is about', () => {
+  const folder = (path: string, access: FolderAccess): SandboxAsk => ({ kind: SandboxAskKind.Folder, path, access })
+  const reach: SandboxAsk = {
+    kind: SandboxAskKind.Domain,
+    domain: 'registry.npmjs.org',
+    command: 'npm install',
+    commandDescription: null,
+  }
+
+  it('says it in the verbs every permission line uses, the home folder as ~', () => {
+    expect(sandboxAskPhrase(folder('/Users/me/code/acme-web', FolderAccess.Read))).toBe('read ~/code/acme-web')
+    expect(sandboxAskPhrase(folder('/Users/me/.cache/uv', FolderAccess.ReadWrite))).toBe('write to ~/.cache/uv')
+    expect(sandboxAskPhrase(folder('/opt/tools', FolderAccess.Read))).toBe('read /opt/tools')
+    expect(sandboxAskPhrase(reach)).toBe('reach registry.npmjs.org')
+    expect(sandboxAskPhrase({ kind: SandboxAskKind.Outside })).toBe('run outside the sandbox')
+    expect(folderVerb(FolderAccess.Read)).toBe('read')
+    expect(folderVerb(FolderAccess.ReadWrite)).toBe('write to')
+  })
+
+  it('grants the folder with the access asked for, or the domain', () => {
+    const ask = {
+      kind: SandboxAskKind.Folder,
+      path: '/Users/me/code/acme-web',
+      access: FolderAccess.ReadWrite,
+    } as const
+    const host = {
+      kind: SandboxAskKind.Domain,
+      domain: 'registry.npmjs.org',
+      command: null,
+      commandDescription: null,
+    } as const
+    expect(grantFor(ask)).toEqual(readWrite('/Users/me/code/acme-web'))
+    expect(grantFor(host)).toEqual(domain('registry.npmjs.org'))
   })
 })
 

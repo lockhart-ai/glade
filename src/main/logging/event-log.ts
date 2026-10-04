@@ -259,6 +259,13 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
       case EventType.PermissionWithdrawn:
         permissionRequest(event.permissionRequest)
         return
+      case EventType.PermissionMarked:
+        permissions.info('permission marked', {
+          taskId: event.mark.taskId,
+          toolUseId: event.mark.toolUseId,
+          outcome: event.mark.outcome.kind,
+        })
+        return
       case EventType.TodosChanged:
         tools.info('todos changed', { taskId: event.taskId, todos: event.todos?.items.length ?? 0 })
         return

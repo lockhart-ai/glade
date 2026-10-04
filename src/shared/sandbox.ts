@@ -3,6 +3,7 @@
  * root, granted for one task, for every task in a workspace, or Glade-wide. Nothing is granted by default.
  */
 import type { EpochMs } from './domain'
+import { shortenHomePath } from './homeFolder'
 
 /** Which tasks a grant covers. */
 export enum SandboxGrantScope {
@@ -32,12 +33,17 @@ export type SandboxGrantTarget =
   | { readonly scope: SandboxGrantScope.Workspace; readonly workspaceId: string }
   | { readonly scope: SandboxGrantScope.Task; readonly taskId: string }
 
-/** A folder the agent may read, or read and write: its commands and its file tools alike. */
+/**
+ * A folder the agent may read, or read and write: its commands and its file tools alike. Or one file, and nothing
+ * beside it (`file`): what a permission card grants when the file's folder is too much to offer (the home folder, say).
+ */
 export interface FolderGrant {
   readonly kind: SandboxGrantKind.Folder
-  /** The folder's absolute path, with no trailing slash. */
+  /** The folder's absolute path, with no trailing slash; the file's own path, for a single file. */
   readonly path: string
   readonly access: FolderAccess
+  /** Set when the grant is for that one file: nothing else in its folder is granted. Left out for a folder. */
+  readonly file?: true
 }
 
 /** A network domain the agent's commands and `WebFetch` may reach. */
@@ -105,8 +111,8 @@ export function coversAccess(access: FolderAccess, than: FolderAccess): boolean 
 
 /**
  * The grants a task has, from all the grants that cover it (Glade-wide, its workspace's and its own), each once: a
- * folder granted more than once has the widest access any grant gives it, and a domain is listed once. In the order
- * each folder or domain was first granted.
+ * folder granted more than once has the widest access any grant gives it (and is a single file only if every grant of
+ * it is), and a domain is listed once. In the order each folder or domain was first granted.
  */
 export function mergeGrants(grants: readonly Grant[]): Grant[] {
   const merged = new Map<string, Grant>()
@@ -115,9 +121,14 @@ export function mergeGrants(grants: readonly Grant[]): Grant[] {
       case SandboxGrantKind.Folder: {
         const key = `folder:${grant.path}`
         const earlier = merged.get(key)
-        const widest =
-          earlier?.kind === SandboxGrantKind.Folder && coversAccess(earlier.access, grant.access) ? earlier : grant
-        merged.set(key, widest)
+        if (earlier?.kind !== SandboxGrantKind.Folder) {
+          merged.set(key, grant)
+          break
+        }
+        const { path, access } = coversAccess(earlier.access, grant.access) ? earlier : grant
+        // One path granted as a file and as a folder is a folder: the wider of the two.
+        const file = earlier.file === true && grant.file === true
+        merged.set(key, { kind: grant.kind, path, access, ...(file ? { file } : {}) })
         break
       }
       case SandboxGrantKind.Domain:
@@ -161,4 +172,85 @@ export interface SandboxApplyResult {
   readonly closed: readonly string[]
   /** The tasks whose session was still applying it when the caller was answered, having waited on one task only. */
   readonly pending: readonly string[]
+}
+
+/** What a sandbox permission card asks for (#450): a folder, a domain, or to run one command outside the sandbox. */
+export enum SandboxAskKind {
+  Folder = 'folder',
+  Domain = 'domain',
+  Outside = 'outside',
+}
+
+/**
+ * The agent wants to read, or to write to, a folder outside its grants; or one file (`file`), when the file's folder
+ * is too much for a card to offer: the home folder, or a folder above it.
+ */
+export interface SandboxFolderAsk {
+  readonly kind: SandboxAskKind.Folder
+  /** The folder, or the file, a grant would name, as grants keep it: absolute, where it really is. */
+  readonly path: string
+  /** What a grant would give: a read asks for read-only, a write for read-write. */
+  readonly access: FolderAccess
+  /** Set when it asks for that one file, and nothing beside it. Left out for a folder. */
+  readonly file?: true
+}
+
+/** The agent wants to reach a domain that isn't granted: a command's connection, or `WebFetch`. */
+export interface SandboxDomainAsk {
+  readonly kind: SandboxAskKind.Domain
+  /** The host, lower case. */
+  readonly domain: string
+  /** The command whose connection waits on the answer; null for `WebFetch`, and when Glade can't tell which it is. */
+  readonly command: string | null
+  /** What the agent said that command is for; null when it didn't, or there's no command. */
+  readonly commandDescription: string | null
+}
+
+/** The agent wants to run one command outside the sandbox: it can only be allowed once. */
+export interface SandboxOutsideAsk {
+  readonly kind: SandboxAskKind.Outside
+}
+
+/** What a sandbox permission request asks for. */
+export type SandboxAsk = SandboxFolderAsk | SandboxDomainAsk | SandboxOutsideAsk
+
+/** A request for something a grant can give: a folder or a domain. */
+export type SandboxGrantAsk = SandboxFolderAsk | SandboxDomainAsk
+
+/** The scopes a permission card can grant a folder or domain to: Glade-wide grants are made in Settings only. */
+export type CardGrantScope = SandboxGrantScope.Task | SandboxGrantScope.Workspace
+
+/** What a folder request does with its folder, as every permission line says it: "read" or "write to". */
+export function folderVerb(access: FolderAccess): string {
+  return access === FolderAccess.Read ? 'read' : 'write to'
+}
+
+/**
+ * What a sandbox request is about, in the words every permission line uses (`docs/design/README.md`, the shield):
+ * "read ~/code/acme-web", "write to ~/.cache/uv", "reach registry.npmjs.org" or "run outside the sandbox".
+ */
+export function sandboxAskPhrase(ask: SandboxAsk): string {
+  switch (ask.kind) {
+    case SandboxAskKind.Folder:
+      return `${folderVerb(ask.access)} ${shortenHomePath(ask.path)}`
+    case SandboxAskKind.Domain:
+      return `reach ${ask.domain}`
+    case SandboxAskKind.Outside:
+      return 'run outside the sandbox'
+  }
+}
+
+/** The grant Allow for this task or Allow for this workspace makes for a folder or domain request. */
+export function grantFor(ask: SandboxGrantAsk): Grant {
+  switch (ask.kind) {
+    case SandboxAskKind.Folder:
+      return {
+        kind: SandboxGrantKind.Folder,
+        path: ask.path,
+        access: ask.access,
+        ...(ask.file === true ? { file: ask.file } : {}),
+      }
+    case SandboxAskKind.Domain:
+      return { kind: SandboxGrantKind.Domain, domain: ask.domain }
+  }
 }

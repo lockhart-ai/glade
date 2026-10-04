@@ -34,6 +34,8 @@ export enum PermissionLineScope {
   Workspace = 'workspace',
   /** A rule an earlier Allow for this task made: "Allowed by task rule". */
   TaskRule = 'task_rule',
+  /** The task's own grant, from an earlier Allow for this task on a folder or domain: "Allowed by task grant". */
+  TaskGrant = 'task_grant',
   /** A workspace's grant, from a card or Settings › Workspace: "Allowed by workspace grant". */
   WorkspaceGrant = 'workspace_grant',
   /** A Glade-wide grant, from Settings › Agent: "Allowed by Glade-wide grant". */
@@ -91,6 +93,8 @@ function allowedStatus(scope: PermissionLineScope): string {
       return 'Allowed for this workspace'
     case PermissionLineScope.TaskRule:
       return 'Allowed by task rule'
+    case PermissionLineScope.TaskGrant:
+      return 'Allowed by task grant'
     case PermissionLineScope.WorkspaceGrant:
       return 'Allowed by workspace grant'
     case PermissionLineScope.GladeGrant:

@@ -8,11 +8,18 @@ import {
   type PermissionRequest,
   type ToolCallEvent,
 } from '../../shared/domain'
+import { FolderAccess, SandboxAskKind, type SandboxAsk } from '../../shared/sandbox'
+import { REQUEST_ACCESS_TOOL } from '../../shared/toolName'
 import {
   InputLineKind,
+  OUTSIDE_SANDBOX_NOTE,
   permissionBody,
   PermissionBodyKind,
   permissionTitle,
+  reasonParts,
+  sandboxDetail,
+  SandboxDetailKind,
+  sandboxTitle,
   ruleGrant,
   showAllLabel,
   shownLines,
@@ -25,6 +32,10 @@ import {
   TRIMMED_LINES,
   type InputLine,
 } from './permissionCardModel'
+import { setHomeFolder } from '../../shared/homeFolder'
+
+// The sample data's home folder, which paths under it are shown from as `~`.
+setHomeFolder('/Users/me')
 
 const ROOT = '/Users/sample/code/api'
 
@@ -334,5 +345,124 @@ describe('subagentOrigin', () => {
     expect(subagentOrigin({ agentId: 'a1', toolUseId: 'orphan' }, events)).toEqual({ name: null })
     expect(subagentOrigin({ agentId: 'a1', toolUseId: 'guide' }, events)).toEqual({ name: null })
     expect(subagentLabel({ name: null })).toBe('subagent')
+  })
+})
+
+describe('a sandbox request', () => {
+  const WEB = '/Users/me/code/acme-web'
+  const folder = (access: FolderAccess): SandboxAsk => ({ kind: SandboxAskKind.Folder, path: WEB, access })
+  const domain = (command: string | null, commandDescription: string | null = null): SandboxAsk => ({
+    kind: SandboxAskKind.Domain,
+    domain: 'registry.npmjs.org',
+    command,
+    commandDescription,
+  })
+  const outside: SandboxAsk = { kind: SandboxAskKind.Outside }
+  const detail = (
+    toolName: string,
+    input: Record<string, unknown>,
+    ask: SandboxAsk,
+    description: string | null = null,
+  ) => sandboxDetail({ toolName, input, description }, ask)
+
+  it('titles the card with what the agent wants, and the folder or domain to set as code', () => {
+    expect(sandboxTitle(folder(FolderAccess.Read))).toEqual({
+      text: 'The agent wants to read',
+      subject: '~/code/acme-web',
+    })
+    expect(sandboxTitle(folder(FolderAccess.ReadWrite))).toEqual({
+      text: 'The agent wants to write to',
+      subject: '~/code/acme-web',
+    })
+    expect(sandboxTitle(domain(null))).toEqual({ text: 'The agent wants to reach', subject: 'registry.npmjs.org' })
+    expect(sandboxTitle(outside)).toEqual({
+      text: 'The agent wants to run a command outside the sandbox',
+      subject: null,
+    })
+  })
+
+  it('shows a file tool’s file, WebFetch’s URL, and nothing for a tool that names neither', () => {
+    expect(detail('Read', { file_path: `${WEB}/package.json` }, folder(FolderAccess.Read))).toEqual({
+      kind: SandboxDetailKind.Target,
+      tool: 'Read',
+      target: '~/code/acme-web/package.json',
+    })
+    expect(detail('NotebookEdit', { notebook_path: '/opt/nb/a.ipynb' }, folder(FolderAccess.ReadWrite))).toEqual({
+      kind: SandboxDetailKind.Target,
+      tool: 'NotebookEdit',
+      target: '/opt/nb/a.ipynb',
+    })
+    expect(detail('WebFetch', { url: ' https://docs.acme.dev/x ' }, domain(null))).toEqual({
+      kind: SandboxDetailKind.Target,
+      tool: 'WebFetch',
+      target: 'https://docs.acme.dev/x',
+    })
+    expect(detail('LS', { path: WEB }, folder(FolderAccess.Read))).toEqual({ kind: SandboxDetailKind.None })
+    expect(detail('WebFetch', {}, domain(null))).toEqual({ kind: SandboxDetailKind.None })
+  })
+
+  it('shows the command a connection waits on, and what it’s for', () => {
+    expect(
+      detail('SandboxNetworkAccess', { host: 'registry.npmjs.org' }, domain('npm ci\nnpm test', ' Install ')),
+    ).toEqual({
+      kind: SandboxDetailKind.Command,
+      body: {
+        kind: PermissionBodyKind.Command,
+        lines: [
+          { kind: InputLineKind.Plain, text: 'npm ci' },
+          { kind: InputLineKind.Plain, text: 'npm test' },
+        ],
+        description: 'Install',
+      },
+      note: null,
+    })
+    expect(detail('SandboxNetworkAccess', {}, domain('  '))).toEqual({ kind: SandboxDetailKind.None })
+  })
+
+  it('shows the reason of a request_access call, falling back to its description', () => {
+    const ask = folder(FolderAccess.ReadWrite)
+    expect(detail(REQUEST_ACCESS_TOOL, { reason: ' uv needs its cache. ' }, ask)).toEqual({
+      kind: SandboxDetailKind.Reason,
+      reason: 'uv needs its cache.',
+    })
+    expect(detail(REQUEST_ACCESS_TOOL, {}, ask, 'From the description.')).toEqual({
+      kind: SandboxDetailKind.Reason,
+      reason: 'From the description.',
+    })
+    expect(detail(REQUEST_ACCESS_TOOL, {}, ask)).toEqual({ kind: SandboxDetailKind.None })
+  })
+
+  it('shows what leaving the sandbox means, the command and what it’s for', () => {
+    const shown = detail(
+      'Bash',
+      { command: 'docker compose up -d db', dangerouslyDisableSandbox: true },
+      outside,
+      'Start it',
+    )
+    expect(shown).toEqual({
+      kind: SandboxDetailKind.Command,
+      body: {
+        kind: PermissionBodyKind.Command,
+        lines: [{ kind: InputLineKind.Plain, text: 'docker compose up -d db' }],
+        description: 'Start it',
+      },
+      note: OUTSIDE_SANDBOX_NOTE,
+    })
+    expect(
+      detail('Bash', { command: 'git push', description: 'Push the branch' }, outside, 'Claude Code’s own words'),
+    ).toMatchObject({ body: { description: 'Push the branch' } })
+    expect(detail('Bash', {}, outside)).toEqual({ kind: SandboxDetailKind.None })
+  })
+
+  it('splits a reason at its backticks into words and code', () => {
+    expect(reasonParts('`uv sync --frozen` needs to write its `cache`.')).toEqual([
+      { text: 'uv sync --frozen', code: true },
+      { text: ' needs to write its ', code: false },
+      { text: 'cache', code: true },
+      { text: '.', code: false },
+    ])
+    expect(reasonParts('No code here.')).toEqual([{ text: 'No code here.', code: false }])
+    // An unclosed backtick is left as written.
+    expect(reasonParts('Half a `thought')).toEqual([{ text: 'Half a `thought', code: false }])
   })
 })
