@@ -30,9 +30,11 @@ export interface NewQueuedMessage {
   readonly pastedBlocks?: readonly PastedBlock[] | undefined
   /** The files attached to it, already copied into the workspace, in order; none unless given. */
   readonly files?: readonly AttachedFile[] | undefined
+  /** Whether you sent it with Broadcast (#489); not unless given. */
+  readonly broadcast?: boolean | undefined
 }
 
-const COLUMNS = 'id, task_id, body, created_at'
+const COLUMNS = 'id, task_id, body, created_at, broadcast'
 
 /** How a queued message's images, pasted blocks and attached files are looked up, by its id. */
 interface QueuedContent {
@@ -52,19 +54,20 @@ function parseQueuedMessage(raw: unknown, content: QueuedContent): QueuedMessage
     images: content.images(id),
     pastedBlocks: content.pastedBlocks(id),
     files: content.files(id),
+    broadcast: row.flag('broadcast'),
   }
 }
 
 /** Adds a message to the end of its task's queue, with its images, pasted blocks and attached files. */
 export function appendQueuedMessage(db: Database, input: NewQueuedMessage, now: EpochMs = Date.now()): QueuedMessage {
-  const { images = [], pastedBlocks = [], files = [], ...fields } = input
+  const { images = [], pastedBlocks = [], files = [], broadcast = false, ...fields } = input
   const id = randomUUID()
   return db.transaction(() => {
     db.prepare(
-      `INSERT INTO queued_messages (id, task_id, seq, body, created_at)
+      `INSERT INTO queued_messages (id, task_id, seq, body, created_at, broadcast)
       VALUES (@id, @taskId, (SELECT COALESCE(MAX(seq), 0) + 1 FROM queued_messages WHERE task_id = @taskId), @body,
-        @createdAt)`,
-    ).run({ id, ...fields, createdAt: now })
+        @createdAt, @broadcast)`,
+    ).run({ id, ...fields, createdAt: now, broadcast: broadcast ? 1 : 0 })
     const refs = addImages(
       db,
       { taskId: fields.taskId, owner: { kind: ImageOwnerKind.QueuedMessage, id }, images },
@@ -80,7 +83,7 @@ export function appendQueuedMessage(db: Database, input: NewQueuedMessage, now: 
       { taskId: fields.taskId, owner: { kind: AttachedFileOwnerKind.QueuedMessage, id }, files },
       now,
     )
-    return { id, ...fields, createdAt: now, images: refs, pastedBlocks: blocks, files: attached }
+    return { id, ...fields, createdAt: now, images: refs, pastedBlocks: blocks, files: attached, broadcast }
   })()
 }
 
@@ -133,12 +136,14 @@ export function deleteQueuedMessage(db: Database, id: string): boolean {
 
 /**
  * Delivers a task's queue: each queued message, in order, becomes a user message of `turn` in the chat log, with its
- * images, pasted blocks and attached files, and the queue is emptied. Answers with the messages delivered.
+ * images, pasted blocks and attached files, a broadcast still a broadcast, and the queue is emptied. Answers with the
+ * messages delivered.
  */
 export function takeQueuedMessages(db: Database, taskId: string, turn: number, now: EpochMs = Date.now()): Message[] {
   return db.transaction(() => {
     const messages = listQueuedMessages(db, taskId).map((queued) => {
-      const message = appendMessage(db, { taskId, role: MessageRole.User, body: queued.body, turn }, now)
+      const { body, broadcast } = queued
+      const message = appendMessage(db, { taskId, role: MessageRole.User, body, turn, broadcast }, now)
       moveQueuedImages(db, queued.id, message.id)
       moveQueuedPastedBlocks(db, queued.id, message.id)
       moveQueuedAttachedFiles(db, queued.id, message.id)

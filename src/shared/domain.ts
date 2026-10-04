@@ -320,6 +320,11 @@ export interface Message {
   readonly pastedBlocks: readonly PastedBlock[]
   /** The files attached to your message, copied into the workspace, in order (#396); none for the agent's replies. */
   readonly files: readonly AttachedFile[]
+  /**
+   * Whether you sent it to every active task at once, with Broadcast (#489), rather than to this task alone: the chat
+   * tags it. False for the agent's replies.
+   */
+  readonly broadcast: boolean
 }
 
 /**
@@ -339,6 +344,8 @@ export interface QueuedMessage {
   readonly pastedBlocks: readonly PastedBlock[]
   /** The files attached to it, which go with it. */
   readonly files: readonly AttachedFile[]
+  /** Whether it's a broadcast (#489), which it still is once delivered (`Message.broadcast`). */
+  readonly broadcast: boolean
 }
 
 /**

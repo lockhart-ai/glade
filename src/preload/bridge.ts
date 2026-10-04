@@ -1,10 +1,12 @@
 import {
   COMMAND_CHANNEL,
+  EVENT_BATCH,
   EVENT_CHANNEL,
+  type BatchListener,
   type BridgeResult,
   type EventListener,
   type GladeBridge,
-  type GladeEvent,
+  type WindowEvent,
 } from '../shared/bridge'
 
 /** The part of Electron's `ipcRenderer` the bridge uses, so tests can stand in a fake. */
@@ -41,10 +43,13 @@ export function createBridge(ipc: RendererIpc, pathForFile: PathForFile = NO_FIL
       throw result.error
     },
 
-    subscribe(listener: EventListener) {
+    subscribe(listener: EventListener, batchListener?: BatchListener) {
       const onEvent: IpcListener = (_event, payload) => {
-        // Main only sends `GladeEvent`s on this channel.
-        listener(payload as GladeEvent)
+        // Main only sends `GladeEvent`s, and batches of them, on this channel.
+        const event = payload as WindowEvent
+        if (event.type !== EVENT_BATCH) listener(event)
+        else if (batchListener !== undefined) batchListener(event.events)
+        else for (const batched of event.events) listener(batched)
       }
       ipc.on(EVENT_CHANNEL, onEvent)
       return () => {

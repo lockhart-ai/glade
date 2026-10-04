@@ -98,6 +98,8 @@ export interface SeedMessage {
   readonly minutesAgo: number
   /** An agent reply's turn summary; none unless given. */
   readonly summary?: TurnSummary | undefined
+  /** Whether you sent it with Broadcast (#489), so the chat tags it; not unless given. */
+  readonly broadcast?: boolean | undefined
 }
 
 /** A sample note from the agent in the tool log. */
@@ -585,6 +587,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
             turn,
             minutesAgo,
             summary: seedSummarySchema.optional(),
+            broadcast: z.boolean().optional(),
           }),
         )
         .optional(),
@@ -917,12 +920,8 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       }
       if (sample.selected === true) setUiState(db, { key: UiStateKey.SelectedTaskId, value: task.id })
       const ago = (minutes: number): EpochMs => now - minutes * MINUTE
-      for (const message of sample.messages ?? []) {
-        appendMessage(
-          db,
-          { taskId: task.id, role: message.role, body: message.body, turn: message.turn, summary: message.summary },
-          ago(message.minutesAgo),
-        )
+      for (const { role, body, turn, summary, broadcast, minutesAgo } of sample.messages ?? []) {
+        appendMessage(db, { taskId: task.id, role, body, turn, summary, broadcast }, ago(minutesAgo))
       }
       for (const [index, event] of (sample.toolEvents ?? []).entries()) {
         seedToolEvent(db, task.id, event, now, `seed-${String(index)}`)

@@ -208,7 +208,7 @@ export function registerBridge({
   log = SILENT_LOGGER,
   claudeProjectsDir,
 }: BridgeOptions): RegisteredBridge {
-  const broadcast = createBroadcast(EVENT_CHANNEL, targets)
+  const windows = createBroadcast(EVENT_CHANNEL, targets)
   // Tasks that kept a todo list before Glade kept its summary get theirs before any window lists them.
   const refreshed = refreshStaleTodos(db)
   if (refreshed > 0) log.info('worked out todo summaries', { tasks: refreshed })
@@ -251,7 +251,7 @@ export function registerBridge({
     logEvent(event)
     feed.observe(event)
     artifactWatch.observe(event)
-    broadcast(event)
+    windows.emit(event)
     observe?.(event)
     backgroundWork.observe(event)
   }
@@ -343,6 +343,7 @@ export function registerBridge({
     createHandlers({
       db,
       emit,
+      batch: windows.batch,
       chooseFolder,
       openPath,
       revealPath,

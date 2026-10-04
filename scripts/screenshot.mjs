@@ -3,9 +3,12 @@
 //
 //   npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <file base name>]
 //                         [--seed <fixture.json>] [--agent-script <name> [--message <first message>]]
-//                         [--press <key> ...] [--click <selector> ...] [--plugins <folder> ...]
-//                         [--classic-scrollbars]
+//                         [--command <id> ...] [--press <key> ...] [--click <selector> ...]
+//                         [--plugins <folder> ...] [--classic-scrollbars]
 //
+// With --command (e.g. `--command app.broadcast` for the Broadcast modal), the app runs each app command
+// (`AppCommandId` in src/shared/commands.ts) in the window, in order, once it's ready, as choosing its menu bar item
+// would: the menu bar answers those commands' keys, so --press can't reach them.
 // With --press (e.g. `--press Meta+,` for the Settings modal), the app presses each key in the page, in order, once it's
 // ready and before capturing: a key name as KeyboardEvent.key has it, after any of Meta+, Shift+, Alt+ and Control+.
 // With --click, it then clicks each element, by CSS selector, in order, once it shows up, waiting each time until
@@ -45,7 +48,8 @@ function fail(message) {
   console.error(`screenshot: ${message}`)
   console.error(
     'usage: npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <name>] ' +
-      '[--seed <fixture>] [--agent-script <name> [--message <text>]] [--press <key> ...] [--click <selector> ...] ' +
+      '[--seed <fixture>] [--agent-script <name> [--message <text>]] [--command <id> ...] [--press <key> ...] ' +
+      '[--click <selector> ...] ' +
       '[--plugins <folder> ...] [--classic-scrollbars]',
   )
   process.exit(2)
@@ -86,6 +90,7 @@ try {
       'agent-script': { type: 'string' },
       message: { type: 'string', default: DEFAULT_MESSAGE },
       seed: { type: 'string' },
+      command: { type: 'string', multiple: true },
       press: { type: 'string', multiple: true },
       click: { type: 'string', multiple: true },
       plugins: { type: 'string', multiple: true },
@@ -111,6 +116,7 @@ const spec = {
   timeoutMs: TIMEOUT_MS,
   ...(agentScript === undefined ? {} : { conversation: { agentScript, message: values.message } }),
   ...(values.seed === undefined ? {} : { seed: resolve(values.seed) }),
+  ...(values.command === undefined ? {} : { commands: values.command }),
   ...(values.press === undefined ? {} : { presses: values.press.map(parsePress) }),
   ...(values.click === undefined ? {} : { clicks: values.click }),
   ...(values.plugins === undefined ? {} : { plugins: values.plugins.map((folder) => resolve(folder)) }),

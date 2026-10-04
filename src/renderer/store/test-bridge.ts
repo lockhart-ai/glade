@@ -11,11 +11,13 @@ import {
   EventType,
   type CommandRequest,
   type CommandResponse,
+  type BatchListener,
   type BridgeError,
   type EventListener,
   type GladeBridge,
   type GladeEvent,
 } from '../../shared/bridge'
+import { BroadcastDelivery, receivesBroadcast, type BroadcastOutcome } from '../../shared/broadcast'
 import type { MenuState } from '../../shared/commands'
 import { checkArtifactUrl, defaultLinkTitle } from '../../shared/artifactLinks'
 import { artifactKey } from '../../shared/artifacts'
@@ -265,6 +267,8 @@ export interface FakeBridge {
   readonly invoke: ReturnType<typeof vi.fn<GladeBridge['invoke']>>
   /** Sends an event to every subscriber, as main would. */
   readonly emit: (event: GladeEvent) => void
+  /** Sends a burst of events to every subscriber as one batch (`EventBatch`), as main would. */
+  readonly emitBatch: (events: readonly GladeEvent[]) => void
   readonly listenerCount: () => number
 }
 
@@ -274,14 +278,20 @@ export interface FakeBridge {
  * `tasks.stop` only sets the task back to waiting, `tasks.compact` only sets it working, and `tasks.delete` only
  * removes the task and broadcasts it, without deselecting it; main's own tests cover the rest. `workspaces.create` adds a
  * workspace, `workspaces.open` answers with it opened at 5,000 and `workspaces.update` changes it, none broadcasting.
- * `settings.update` changes the settings and broadcasts them.
+ * `settings.update` changes the settings and broadcasts them. `tasks.broadcast` saves the message to every task a
+ * broadcast reaches (to the chat of one waiting on you with nothing open, to the queue of any other) and broadcasts it
+ * all as one batch, through `emitBatch`.
  * workspace and `workspaces.open` answers with it opened at 5,000 and its selection from `workspaceSelections`, neither
  * broadcasting.
  */
 /** A domain the fake main grants, as main's rule goes: a bare host, or `*.` and a host of two labels or more. */
 const FAKE_DOMAIN = /^(\*\.[a-z0-9-]+\.)?[a-z0-9-]+(\.[a-z0-9-]+)*$/
 
-export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void): FakeHandlers {
+export function fakeHandlers(
+  main: FakeMain,
+  emit: (event: GladeEvent) => void,
+  emitBatch: (events: readonly GladeEvent[]) => void,
+): FakeHandlers {
   let sent = 0
   let settings = main.settings ?? DEFAULT_SETTINGS
   let tokens = 0
@@ -451,6 +461,27 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       main.messages?.push(message)
       emit({ type: EventType.MessageAppended, message })
       return { message }
+    },
+    // Every task a broadcast reaches gets it, as one batch: saved to the chat of a task waiting on you with nothing
+    // open, and queued for any other.
+    [CommandName.TasksBroadcast]: ({ text }) => {
+      const events: GladeEvent[] = []
+      const recipients = main.tasks.filter(receivesBroadcast).map((task): BroadcastOutcome => {
+        const idle = task.activity === TaskActivity.Waiting && !task.asking && !task.awaitingPermission
+        if (idle) {
+          sent += 1
+          const message = { ...sampleMessage(`sent-${String(sent)}`, task.id, text), broadcast: true }
+          main.messages?.push(message)
+          events.push({ type: EventType.MessageAppended, message })
+          return { taskId: task.id, delivery: BroadcastDelivery.Sent }
+        }
+        queued += 1
+        queue.push({ ...sampleQueuedMessage(`queued-${String(queued)}`, task.id, text), broadcast: true })
+        events.push({ type: EventType.QueueChanged, taskId: task.id, queuedMessages: queueOf(task.id) })
+        return { taskId: task.id, delivery: BroadcastDelivery.Queued }
+      })
+      emitBatch(events)
+      return { recipients }
     },
     [CommandName.TasksStop]: ({ id }) => writeTask(id, { activity: TaskActivity.Waiting }),
     [CommandName.TasksRetry]: ({ id, model }) =>
@@ -1007,17 +1038,24 @@ export function sampleAttachedFile(taskId: string, path: string, size = 48 * 102
 
 /** A bridge over `main`'s data. Pass `overrides` to change how single commands answer. */
 export function fakeBridge(main: FakeMain, overrides: Partial<FakeHandlers> = {}): FakeBridge {
-  const listeners = new Set<EventListener>()
+  const listeners = new Map<EventListener, BatchListener | undefined>()
   const emit = (event: GladeEvent): void => {
-    for (const listener of listeners) listener(event)
+    for (const listener of listeners.keys()) listener(event)
   }
-  const handlers: FakeHandlers = { ...fakeHandlers(main, emit), ...overrides }
+  // As the preload does: a subscriber with a batch listener hears the batch whole, any other each of its events.
+  const emitBatch = (events: readonly GladeEvent[]): void => {
+    for (const [listener, batchListener] of listeners) {
+      if (batchListener !== undefined) batchListener(events)
+      else for (const event of events) listener(event)
+    }
+  }
+  const handlers: FakeHandlers = { ...fakeHandlers(main, emit, emitBatch), ...overrides }
   const invoke = vi.fn<GladeBridge['invoke']>(async (command, request) => handlers[command](request))
   return {
     bridge: {
       invoke,
-      subscribe(listener) {
-        listeners.add(listener)
+      subscribe(listener, batchListener) {
+        listeners.set(listener, batchListener)
         return () => {
           listeners.delete(listener)
         }
@@ -1026,6 +1064,7 @@ export function fakeBridge(main: FakeMain, overrides: Partial<FakeHandlers> = {}
     },
     invoke,
     emit,
+    emitBatch,
     listenerCount: () => listeners.size,
   }
 }
@@ -1145,11 +1184,12 @@ export function sampleMessage(id: string, taskId: string, body = 'Add rate limit
     images: [],
     pastedBlocks: [],
     files: [],
+    broadcast: false,
   }
 }
 
 export function sampleQueuedMessage(id: string, taskId: string, body = 'Keep the original filenames.'): QueuedMessage {
-  return { id, taskId, body, createdAt: 4_000, images: [], pastedBlocks: [], files: [] }
+  return { id, taskId, body, createdAt: 4_000, images: [], pastedBlocks: [], files: [], broadcast: false }
 }
 
 /** An open question set: a choice and a text question. */

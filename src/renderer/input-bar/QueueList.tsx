@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { QueuedMessage } from '../../shared/domain'
 import { Button, ButtonVariant, Textarea } from '../components'
 import { ContextMenu, queuedMessageMenu, useContextMenu, type ContextMenuTargetProps } from '../context-menus'
+import { BroadcastTag } from '../chat/BroadcastTag'
 import { ImageThumbnails } from '../images/ImageThumbnails'
 import { QueuedFileChip } from '../attached-files/FileChip'
 import { LinkedText } from '../links'
@@ -30,7 +31,7 @@ export interface QueueListProps {
 
 /**
  * The messages waiting for the agent, above the input (`docs/design/html/02-agent-working.html`): numbered in the order
- * they'll be delivered, each with the images pasted into it as small thumbnails that open the image viewer, and the
+ * they'll be delivered, a broadcast (#489) tagged as one, each with the images pasted into it as small thumbnails that open the image viewer, and the
  * files attached to it, each small with its icon and name (`docs/design/html/36-attached-files.html`), Edit,
  * which edits its text in place, and Remove, which its context menu has too.
  * Nothing when the queue is empty.
@@ -82,6 +83,7 @@ function QueueRow({ message, position, menuTarget, editingId, onEdit, onSave, on
   return (
     <li className={styles.row} {...(editing ? {} : menuTarget)}>
       <span className={styles.position}>{position}</span>
+      {message.broadcast && <BroadcastTag />}
       <ImageThumbnails images={message.images} className={styles.thumbnail} />
       {message.files.map((file) => (
         <QueuedFileChip key={file.path} file={file} />

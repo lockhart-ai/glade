@@ -35,6 +35,7 @@ import {
   openWorkspace,
   removeWorkspace,
 } from '../workspaces/workspaces'
+import { broadcastMessage } from '../tasks/broadcast'
 import { editQueuedMessage, removeQueuedMessage } from '../tasks/queue'
 import { noteUiStateSet } from '../tasks/attention'
 import { changeTask, createTask, deleteTask, markTaskDone, reopenTask, requireTask } from '../tasks/service'
@@ -65,6 +66,7 @@ import { parseCommitFileKey } from '../../shared/files'
 import { openLink, type OpenExternal } from '../links/links'
 import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import { CommandFailure } from './errors'
+import type { Batch } from './dispatcher'
 import type { Emit } from './events'
 import type { ControlEndpoint } from '../control/endpoint'
 import type { AccountTracker } from '../account/account'
@@ -89,6 +91,11 @@ export type Handlers = {
 export interface HandlerContext {
   readonly db: Database
   readonly emit: Emit
+  /**
+   * Sends the windows the events a command emits as one batch (`tasks.broadcast`). By default each goes as it's
+   * emitted.
+   */
+  readonly batch?: Batch
   /** Shows the native open-folder dialog; resolves with the chosen path, or null when cancelled. */
   readonly chooseFolder: () => Promise<string | null>
   readonly runner: AgentRunner
@@ -152,7 +159,8 @@ export function createHandlers(context: HandlerContext): Handlers {
   const renderer = (context.log ?? SILENT_LOGGER).scoped(LogScope.Renderer)
   const ipcLog = (context.log ?? SILENT_LOGGER).scoped(LogScope.Ipc)
   const changes = { db, emit, git: context.git ?? createGit() }
-  const attachmentsLog = (context.log ?? SILENT_LOGGER).scoped(LogScope.Chat)
+  const chatLog = (context.log ?? SILENT_LOGGER).scoped(LogScope.Chat)
+  const batch: Batch = context.batch ?? ((run) => run())
   const workspaceGit = context.workspaceGit ?? createWorkspaceGit()
   // Settings' sandbox lists: each change is saved, broadcast and applied to the running sessions it covers.
   const sandboxGrants = { db, runner, emit }
@@ -207,6 +215,10 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.TasksSend]: ({ id, text, images, pastedBlocks, files }) => ({
       message: runner.send(id, text, images, pastedBlocks, files),
     }),
+    // Every task's messages, queue and activity reach the windows as one batch, however many tasks there are.
+    [CommandName.TasksBroadcast]: ({ text }) => ({
+      recipients: batch(() => broadcastMessage({ db, runner, log: chatLog }, text)),
+    }),
     [CommandName.TasksStop]: async ({ id }) => ({ task: await runner.stop(id) }),
     [CommandName.TasksRetry]: ({ id, model }) => ({ task: runner.retry(id, model) }),
     [CommandName.TasksRetryLoggedOut]: () => ({ tasks: retryLoggedOutTasks({ db, runner, log: ipcLog }) }),
@@ -260,7 +272,7 @@ export function createHandlers(context: HandlerContext): Handlers {
       return { image }
     },
     [CommandName.AttachmentsAdd]: async ({ taskId, path }) => ({
-      file: await attachFile({ db, emit, git: changes.git, log: attachmentsLog }, taskId, path),
+      file: await attachFile({ db, emit, git: changes.git, log: chatLog }, taskId, path),
     }),
     [CommandName.AttachmentsDiscard]: async ({ taskId, path }) => {
       await discardAttachedFile(context, taskId, path)

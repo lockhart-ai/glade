@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
+import { bridgeError, BridgeErrorCode, CommandName, EVENT_BATCH, EventType, type GladeEvent } from '../../shared/bridge'
 import { IDLE_LOGIN } from '../../shared/login'
 import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
 import {
@@ -67,6 +67,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.TasksUpdate]: () => ({ task: {} as Task }),
     [CommandName.TasksDelete]: () => null,
     [CommandName.TasksSend]: () => ({ message: {} as Message }),
+    [CommandName.TasksBroadcast]: () => ({ recipients: [] }),
     [CommandName.TasksStop]: () => ({ task: {} as Task }),
     [CommandName.TasksRetry]: () => ({ task: {} as Task }),
     [CommandName.TasksRetryLoggedOut]: () => ({ tasks: [] }),
@@ -285,13 +286,93 @@ describe('createBroadcast', () => {
     const broadcast = createBroadcast('channel', () => targets)
     const event = { type: EventType.UiStateChanged, entry: { key: UiStateKey.ActiveWorkspaceId, value: 'w' } } as const
 
-    broadcast(event)
+    broadcast.emit(event)
     targets.push(second)
-    broadcast(event)
+    broadcast.emit(event)
 
     expect(first.send).toHaveBeenCalledTimes(2)
     expect(first.send).toHaveBeenCalledWith('channel', event)
     expect(second.send).toHaveBeenCalledOnce()
+  })
+
+  describe('batch', () => {
+    const entry = (value: string): GladeEvent => ({
+      type: EventType.UiStateChanged,
+      entry: { key: UiStateKey.ActiveWorkspaceId, value },
+    })
+
+    it('sends the events emitted while it runs as one batch, in order, once it has run', () => {
+      const window = { send: vi.fn() }
+      const broadcast = createBroadcast('channel', () => [window])
+
+      const answer = broadcast.batch(() => {
+        broadcast.emit(entry('a'))
+        broadcast.emit(entry('b'))
+        broadcast.emit(entry('c'))
+        // Nothing reaches the window until the burst is over.
+        expect(window.send).not.toHaveBeenCalled()
+        return 'done'
+      })
+
+      expect(answer).toBe('done')
+      expect(window.send).toHaveBeenCalledOnce()
+      expect(window.send).toHaveBeenCalledWith('channel', {
+        type: EVENT_BATCH,
+        events: [entry('a'), entry('b'), entry('c')],
+      })
+    })
+
+    it('sends a lone event as itself, and nothing for none', () => {
+      const window = { send: vi.fn() }
+      const broadcast = createBroadcast('channel', () => [window])
+
+      broadcast.batch(() => undefined)
+      expect(window.send).not.toHaveBeenCalled()
+
+      broadcast.batch(() => {
+        broadcast.emit(entry('a'))
+      })
+      expect(window.send).toHaveBeenCalledOnce()
+      expect(window.send).toHaveBeenCalledWith('channel', entry('a'))
+    })
+
+    it('joins a batch started inside another', () => {
+      const window = { send: vi.fn() }
+      const broadcast = createBroadcast('channel', () => [window])
+
+      broadcast.batch(() => {
+        broadcast.emit(entry('a'))
+        broadcast.batch(() => {
+          broadcast.emit(entry('b'))
+        })
+        expect(window.send).not.toHaveBeenCalled()
+        broadcast.emit(entry('c'))
+      })
+
+      expect(window.send).toHaveBeenCalledOnce()
+      expect(window.send).toHaveBeenCalledWith('channel', {
+        type: EVENT_BATCH,
+        events: [entry('a'), entry('b'), entry('c')],
+      })
+    })
+
+    it('still sends what was emitted before the run threw, and goes back to sending each event as it comes', () => {
+      const window = { send: vi.fn() }
+      const broadcast = createBroadcast('channel', () => [window])
+
+      expect(() =>
+        broadcast.batch(() => {
+          broadcast.emit(entry('a'))
+          broadcast.emit(entry('b'))
+          throw new Error('half way')
+        }),
+      ).toThrow('half way')
+      expect(window.send).toHaveBeenCalledOnce()
+      expect(window.send).toHaveBeenCalledWith('channel', { type: EVENT_BATCH, events: [entry('a'), entry('b')] })
+
+      broadcast.emit(entry('c'))
+      expect(window.send).toHaveBeenLastCalledWith('channel', entry('c'))
+    })
   })
 })
 

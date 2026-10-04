@@ -38,6 +38,7 @@ import {
   sendFailureMessage,
   withInsertion,
 } from './InputBar'
+import { BROADCAST_TAG } from '../chat/BroadcastTag'
 import { PAUSED_HINT } from './QueueList'
 import { PAUSED_PLACEHOLDER } from '../pause/pauseModel'
 
@@ -48,6 +49,8 @@ interface Setup {
   readonly contextMeter?: React.ReactNode
   /** The selected task's queue. */
   readonly queued?: readonly string[]
+  /** Which of the queued messages, by their place from 0, were broadcast; none when left out. */
+  readonly broadcast?: readonly number[]
   /** The models the pickers offer; the built-in ones when left out. */
   readonly models?: readonly ModelChoice[]
 }
@@ -60,6 +63,7 @@ async function renderBar({
   overrides = {},
   contextMeter,
   queued = [],
+  broadcast = [],
   models,
 }: Setup = {}): Promise<Rendered> {
   const fake = fakeBridge(
@@ -74,7 +78,10 @@ async function renderBar({
         { key: UiStateKey.SelectedTaskId, value: selected ? 't1' : '' },
       ],
       messages: [],
-      queuedMessages: queued.map((body, index) => sampleQueuedMessage(`q${String(index + 1)}`, 't1', body)),
+      queuedMessages: queued.map((body, index) => ({
+        ...sampleQueuedMessage(`q${String(index + 1)}`, 't1', body),
+        broadcast: broadcast.includes(index),
+      })),
       ...(models === undefined ? {} : { models }),
     },
     overrides,
@@ -289,6 +296,7 @@ describe('InputBar', () => {
                     images: [],
                     pastedBlocks: [],
                     files: [],
+                    broadcast: false,
                   },
                 })
               }
@@ -964,6 +972,12 @@ describe('the queue', () => {
     await renderBar({ queued: QUEUE })
     expect(queueRows()).toEqual(['1Keep the filenames.', '2Use the Glacier storage class.'])
     expect(queueRegion()).toHaveTextContent('Queued · 2')
+  })
+
+  it('tags a queued broadcast as one, after its number, and no other message', async () => {
+    await renderBar({ queued: ['Keep the filenames.', 'Is anyone restarting Docker?'], broadcast: [1] })
+
+    expect(queueRows()).toEqual(['1Keep the filenames.', `2${BROADCAST_TAG}Is anyone restarting Docker?`])
   })
 
   it('makes the URLs in a queued message links, with the whole message on hover', async () => {

@@ -119,6 +119,19 @@ describe('readSeed', () => {
     expect(readSeed(FIXTURE).workspace.name).toBe('Acme API')
   })
 
+  it('reads the Broadcast fixtures: tasks across three workspaces, a message that was broadcast, and none active', () => {
+    const seed = readSeed(join(FIXTURES, 'broadcast.json'))
+    const active = seed.tasks.filter((task) => task.state !== TaskState.Done)
+    expect(active).toHaveLength(9)
+    expect(new Set(active.map((task) => task.workspace?.name ?? seed.workspace.name))).toEqual(
+      new Set(['Acme API', 'Storefront', 'Docs site']),
+    )
+    expect(seed.tasks.flatMap((task) => task.messages ?? []).filter((message) => message.broadcast)).toHaveLength(1)
+
+    const none = readSeed(join(FIXTURES, 'broadcast-none.json'))
+    expect(none.tasks.every((task) => task.state === TaskState.Done)).toBe(true)
+  })
+
   it('reads the mark done fixture', () => {
     expect(readSeed(join(FIXTURES, 'mark-done.json')).tasks.find((task) => task.selected)?.state).toBe(TaskState.Done)
   })
@@ -966,6 +979,7 @@ describe('applySeed', () => {
                 minutesAgo: 2,
                 summary: { durationMs: 60_000, filesChanged: 1, linesAdded: 2, linesRemoved: 0 },
               },
+              { role: MessageRole.User, body: 'Is anyone restarting Docker?', turn: 2, minutesAgo: 1, broadcast: true },
             ],
             toolEvents: [
               { kind: ToolEventKind.Narration, text: 'Looking around.', turn: 1, minutesAgo: 29 },
@@ -989,7 +1003,14 @@ describe('applySeed', () => {
     const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
     const taskId = task?.id ?? ''
     expect(listMessages(db, taskId)).toMatchObject([
-      { role: MessageRole.User, body: 'Add rate limiting.', turn: 1, createdAt: NOW - 30 * MINUTE, summary: null },
+      {
+        role: MessageRole.User,
+        body: 'Add rate limiting.',
+        turn: 1,
+        createdAt: NOW - 30 * MINUTE,
+        summary: null,
+        broadcast: false,
+      },
       {
         role: MessageRole.Agent,
         body: 'Done.',
@@ -997,6 +1018,8 @@ describe('applySeed', () => {
         createdAt: NOW - 2 * MINUTE,
         summary: { durationMs: 60_000, filesChanged: 1, linesAdded: 2, linesRemoved: 0 },
       },
+      // One sent with Broadcast, which the chat tags (#489).
+      { role: MessageRole.User, body: 'Is anyone restarting Docker?', turn: 2, broadcast: true },
     ])
     expect(listToolEvents(db, taskId)).toMatchObject([
       { kind: ToolEventKind.Narration, text: 'Looking around.', createdAt: NOW - 29 * MINUTE, parentToolUseId: null },

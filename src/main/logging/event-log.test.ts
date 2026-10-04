@@ -239,6 +239,7 @@ describe('the chat', () => {
         images: [{ id: 'image-1', mediaType: ImageMediaType.Png }],
         pastedBlocks: [],
         files: [],
+        broadcast: false,
       },
     })
 
@@ -284,6 +285,7 @@ describe('the chat', () => {
           images: [],
           pastedBlocks: [],
           files: [],
+          broadcast: false,
         },
       ],
     })

@@ -145,7 +145,9 @@ question.
   or `{}` for a card skipped outright. The tool's description tells the model that any question may come back
   unanswered, and to read `anythingElse` first, since it may hold the real answer.
 - **Answering in words:** a message sent (`tasks.send`) while a question is open answers it. It's saved to the chat as
-  your reply, in the turn that asked; it isn't queued and starts no turn. The tool returns `{"freeText":"…"}`.
+  your reply, in the turn that asked; it isn't queued and starts no turn. The tool returns `{"freeText":"…"}`. A
+  broadcast (`tasks.broadcast`, #489) is the one message that doesn't: it went to every task, so it waits in the queue
+  until the question is answered.
 - **Stopped or failed:** a turn that ends while its question is open withdraws it; Stop withdraws it first. The tool
   returns an error saying the questions were withdrawn.
 - **Relaunch:** a question the app quit on stays open, and its task waits on you; its `ask` call ends as an error. When

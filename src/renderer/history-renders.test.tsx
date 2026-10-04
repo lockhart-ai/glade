@@ -1,22 +1,29 @@
 // The regression guard for #413 (typing lag in a task with a very long history): the chat, the tool log and the
 // Subagents tab render again with every change to the task, its logs or the clock, so each of their rows must render
-// only when its own data changed. Rows are counted by a function each calls exactly once per render.
-import { act, render, screen } from '@testing-library/react'
+// only when its own data changed. Rows are counted by a function each calls exactly once per render. The Broadcast
+// modal's recipients (#489) are held to the same: one row per active task, in every workspace.
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType } from '../shared/bridge'
 import {
   MessageRole,
   PermissionRequestState,
+  TaskActivity,
+  TaskState,
   ToolCallState,
   ToolEventKind,
   UiStateKey,
   type Message,
   type NarrationEvent,
   type PermissionRequest,
+  type Task,
   type ToolCallEvent,
   type ToolEvent,
 } from '../shared/domain'
+import { BroadcastDialog } from './broadcast'
+import { attentionLabel, reachText } from './broadcast/broadcastModel'
 import { Chat } from './chat'
+import { settleFloating } from './components/settleFloating'
 import { clockTime } from './chat/chatModel'
 import { permissionLinesByToolUse } from './permissions/permissionLines'
 import { samplePermissionRequest, sampleTask, sampleWatcher, sampleWorkspace } from './store/test-bridge'
@@ -29,6 +36,12 @@ import { ToolLog } from './tool-log'
 vi.mock('./chat/chatModel', async (importOriginal) => {
   const original = await importOriginal<typeof import('./chat/chatModel')>()
   return { ...original, clockTime: vi.fn(original.clockTime) }
+})
+// Every recipient row of the Broadcast modal says where its task stands: one `attentionLabel` call per render of one.
+// The line above them says how many there are: one `reachText` call per render of the modal's content.
+vi.mock('./broadcast/broadcastModel', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./broadcast/broadcastModel')>()
+  return { ...original, attentionLabel: vi.fn(original.attentionLabel), reachText: vi.fn(original.reachText) }
 })
 // Every subagent row shows its status: one `statusLabel` call per render of one.
 vi.mock('./subagents/subagentsModel', async (importOriginal) => {
@@ -52,6 +65,7 @@ function message(turn: number, role: MessageRole): Message {
     images: [],
     pastedBlocks: [],
     files: [],
+    broadcast: false,
   }
 }
 
@@ -357,5 +371,111 @@ describe('the Subagents tab, with many subagents', () => {
     expect(renders(statusLabel)).toBe(1)
     rerender(<SubagentsTab taskId="t1" events={EVENTS} watchers={[]} />)
     expect(renders(statusLabel)).toBe(2)
+  })
+})
+
+describe('the Broadcast modal, with 60 active tasks in 8 workspaces', () => {
+  const WORKSPACES = Array.from({ length: 8 }, (_, index) =>
+    sampleWorkspace(`w${String(index + 1)}`, `Workspace ${String(index + 1)}`),
+  )
+  const TASKS = Array.from({ length: 60 }, (_, index) => ({
+    ...sampleTask(`b${String(index + 1)}`, `w${String((index % 8) + 1)}`, `Task ${String(index + 1)}`),
+    updatedAt: 10_000 - index,
+    // Each has run: a broadcast doesn't reach a task that has never been given anything.
+    sessionId: `session-${String(index + 1)}`,
+  }))
+
+  async function renderModal(): Promise<StoreWrapper> {
+    const wrapper = storeWrapper({ workspaces: WORKSPACES, tasks: TASKS.map((task) => ({ ...task })), messages: [] })
+    render(<BroadcastDialog />, { wrapper: wrapper.wrapper })
+    await act(() => wrapper.store.getState().hydrate())
+    act(() => {
+      wrapper.store.getState().openBroadcast()
+    })
+    await settleFloating()
+    // Every recipient's row rendered once to open it, and the line that counts them once.
+    expect(renders(attentionLabel)).toBe(60)
+    expect(screen.getByText(/Goes to/)).toHaveTextContent('Goes to 60 active tasks in 8 workspaces.')
+    vi.mocked(attentionLabel).mockClear()
+    vi.mocked(reachText).mockClear()
+    return wrapper
+  }
+
+  beforeEach(() => {
+    vi.mocked(attentionLabel).mockClear()
+    vi.mocked(reachText).mockClear()
+  })
+
+  it('renders nothing as you type: not a row, not the line that counts them', async () => {
+    await renderModal()
+    const field = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Broadcast message' })
+
+    for (const text of ['I', 'Is', 'Is anyone restarting Docker?']) {
+      act(() => {
+        fireEvent.change(field, { target: { value: text } })
+        fireEvent.input(field, { target: { value: text } })
+      })
+    }
+
+    expect(field).toHaveValue('Is anyone restarting Docker?')
+    expect(renders(attentionLabel)).toBe(0)
+    expect(renders(reachText)).toBe(0)
+  })
+
+  it('renders only the row of the task that changed', async () => {
+    const { fake } = await renderModal()
+    const [first] = TASKS
+
+    act(() => {
+      fake.emit({ type: EventType.TaskUpdated, task: { ...first, activity: TaskActivity.Working } as Task })
+    })
+
+    expect(renders(attentionLabel)).toBe(1)
+    expect(renders(reachText)).toBe(0)
+    expect(screen.getAllByText('working')).toHaveLength(1)
+  })
+
+  it('renders no row when a task changes in a way its row doesn’t show, or its logs grow', async () => {
+    const { fake } = await renderModal()
+    const [first] = TASKS
+
+    act(() => {
+      fake.emit({ type: EventType.TaskUpdated, task: { ...first, status: 'Running the tests.' } as Task })
+      fake.emit({ type: EventType.MessageAppended, message: message(1, MessageRole.User) })
+      fake.emit({ type: EventType.ToolEventAppended, toolEvent: note('late-note', 1) })
+    })
+
+    expect(renders(attentionLabel)).toBe(0)
+    expect(renders(reachText)).toBe(0)
+  })
+
+  it('renders only the rows a batch from main changed, once each', async () => {
+    const { fake } = await renderModal()
+
+    // A broadcast started a turn in ten of them: one batch, with each one's message and its change to working.
+    act(() => {
+      fake.emitBatch(
+        TASKS.slice(0, 10).flatMap((task) => [
+          { type: EventType.MessageAppended, message: { ...message(1, MessageRole.User), taskId: task.id } },
+          { type: EventType.TaskUpdated, task: { ...task, activity: TaskActivity.Working } },
+        ]),
+      )
+    })
+
+    expect(renders(attentionLabel)).toBe(10)
+    expect(renders(reachText)).toBe(0)
+  })
+
+  it('renders the line that counts them, and no other row, when a task is marked done', async () => {
+    const { fake } = await renderModal()
+    const last = TASKS.at(-1)
+
+    act(() => {
+      fake.emit({ type: EventType.TaskUpdated, task: { ...last, state: TaskState.Done, doneAt: 20_000 } as Task })
+    })
+
+    expect(screen.getByText(/Goes to/)).toHaveTextContent('Goes to 59 active tasks in 8 workspaces.')
+    expect(renders(reachText)).toBe(1)
+    expect(renders(attentionLabel)).toBe(0)
   })
 })
