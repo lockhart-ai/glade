@@ -770,7 +770,8 @@
         came to is on the call's line (its first line) and in the call's menu (Copy output).
     48. The Agents tab has no Stop for a subagent and no Copy log: the Subagents tab's row menu had both, and the
         screens draw neither. Until that's decided, a subagent is stopped by turning the switch off, or by Stop on
-        the task.
+        the task. Nor does it show the SDK's one-line summary of what a running subagent is doing now, or the
+        Subagents tab's tally and call counts: the screens draw none of them.
     49. With the switch on, a workspace left on a tab the panel no longer shows opens on Agents; what's stored is
         left alone, so turning the switch off shows the tab it was on. One left on Agents shows Tool calls with it off.
     50. ⌘⌥4 – ⌘⌥7 pick nothing with the switch on. The binding, its name in Settings ▸ Keyboard and the menu bar are
