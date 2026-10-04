@@ -50,8 +50,8 @@ type SeedToolEvent =
       readonly todo?: string
     }
 
-interface SeedArtifact {
-  readonly path: string
+/** A file artifact by its `path`, or a link artifact by its `url`. */
+type SeedArtifact = ({ readonly path: string } | { readonly url: string }) & {
   readonly title: string
   readonly minutesAgo: number
   /** The todo it's filed under in the todo hub. */
@@ -95,6 +95,11 @@ function hubTodo(scale: HistoryScale, kind: 'subagent' | 'artifact', index: numb
       ? running || index <= HUB_SUBAGENTS_UNDER_FIRST - RUNNING_SUBAGENTS
       : index <= HUB_CHILDREN_UNDER_FIRST - HUB_SUBAGENTS_UNDER_FIRST
   return first || scale.todos < 2 ? '1' : String(2 + (index % (scale.todos - 1)))
+}
+
+/** The PR a todo's title names, by the todo's number from 1. */
+function todoPr(todo: number): number {
+  return 300 + todo
 }
 
 const AREAS = ['billing', 'search', 'uploads', 'auth', 'dashboard', 'webhooks', 'exports', 'notifications'] as const
@@ -142,7 +147,8 @@ function share(count: number, turns: number, turn: number): number {
 
 /**
  * A task's sample history at `scale`, with its turns ending `minutesAgo` minutes before the capture. With `hub`, its
- * subagents and artifacts are filed under its todos, and its first three todos are open.
+ * subagents and artifacts are filed under its todos, and its first three todos are open; and it has the PR each
+ * todo's title names as a link artifact (#500), filed under a todo other than the first, so each title links to it.
  */
 function historyTask(title: string, scale: HistoryScale, selected: boolean, hub = false): SeedTask {
   const turns = Math.max(1, Math.floor(scale.messages / 2))
@@ -164,7 +170,7 @@ function historyTask(title: string, scale: HistoryScale, selected: boolean, hub 
     toolEvents.push({ kind: 'narration', text: `Checking \`${area(turn)}\` before the next PR.`, turn, minutesAgo })
     for (let index = 0; index < share(scale.todos, turns, turn); index += 1) {
       todo += 1
-      const subject = `Ship the ${area(todo)} fix (${String(todo)})`
+      const subject = `Ship the ${area(todo)} fix (${String(todo)}), PR #${String(todoPr(todo))}`
       toolEvents.push({
         kind: 'tool_call',
         name: 'TaskCreate',
@@ -236,12 +242,23 @@ function historyTask(title: string, scale: HistoryScale, selected: boolean, hub 
     }
     messages.push({ role: 'agent', body: agentBody(turn), turn, minutesAgo })
   }
-  const artifacts = Array.from({ length: scale.artifacts }, (_, index) => ({
+  const artifacts: SeedArtifact[] = Array.from({ length: scale.artifacts }, (_, index) => ({
     path: `docs/reports/${area(index)}-${String(index + 1)}.md`,
     title: `The ${area(index)} report, part ${String(index + 1)}`,
     minutesAgo: scale.artifacts - index,
     ...(hub ? { todo: hubTodo(scale, 'artifact', index + 1) } : {}),
   }))
+  if (hub) {
+    for (let named = 1; named <= scale.todos; named += 1) {
+      artifacts.push({
+        url: `https://github.com/acme/api/pull/${String(todoPr(named))}`,
+        title: `Ship the ${area(named)} fix`,
+        minutesAgo: scale.todos - named + 1,
+        // The first todo keeps its `HUB_CHILDREN_UNDER_FIRST`.
+        todo: String(Math.min(scale.todos, Math.max(2, named))),
+      })
+    }
+  }
   return {
     title,
     objective: `${title}.`,
@@ -267,7 +284,7 @@ export enum SelectedHistory {
  * Writes the fixture into `folder` and returns its path: the long task and the small one in one workspace, with
  * `selected` showing and the right panel on `panelTab`. With `hub`, the todo hub is on (the hidden `todoHubEnabled`
  * setting) and the tasks' subagents and artifacts are filed under their todos, `HUB_CHILDREN_UNDER_FIRST` of the long
- * task's under its first.
+ * task's under its first; each task also has a link artifact for the PR each of its todos names.
  */
 export function writeLongHistorySeed(
   folder: string,
