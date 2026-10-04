@@ -16,7 +16,7 @@ import {
   type GladeBridge,
   type GladeEvent,
 } from '../../shared/bridge'
-import { BroadcastDelivery, type BroadcastOutcome } from '../../shared/broadcast'
+import { BroadcastDelivery, receivesBroadcast, type BroadcastOutcome } from '../../shared/broadcast'
 import type { MenuState } from '../../shared/commands'
 import { checkArtifactUrl, defaultLinkTitle } from '../../shared/artifactLinks'
 import { artifactKey } from '../../shared/artifacts'
@@ -262,9 +262,9 @@ export interface FakeBridge {
  * `tasks.stop` only sets the task back to waiting, `tasks.compact` only sets it working, and `tasks.delete` only
  * removes the task and broadcasts it, without deselecting it; main's own tests cover the rest. `workspaces.create` adds a
  * workspace, `workspaces.open` answers with it opened at 5,000 and `workspaces.update` changes it, none broadcasting.
- * `settings.update` changes the settings and broadcasts them. `tasks.broadcast` saves the message to every active task
- * (to the chat of one waiting on you with nothing open, to the queue of any other) and broadcasts it all as one batch,
- * through `emitBatch`.
+ * `settings.update` changes the settings and broadcasts them. `tasks.broadcast` saves the message to every task a
+ * broadcast reaches (to the chat of one waiting on you with nothing open, to the queue of any other) and broadcasts it
+ * all as one batch, through `emitBatch`.
  * workspace and `workspaces.open` answers with it opened at 5,000 and its selection from `workspaceSelections`, neither
  * broadcasting.
  */
@@ -432,26 +432,24 @@ export function fakeHandlers(
       emit({ type: EventType.MessageAppended, message })
       return { message }
     },
-    // Every active task gets it, as one batch: saved to the chat of a task waiting on you with nothing open, and
-    // queued for any other.
+    // Every task a broadcast reaches gets it, as one batch: saved to the chat of a task waiting on you with nothing
+    // open, and queued for any other.
     [CommandName.TasksBroadcast]: ({ text }) => {
       const events: GladeEvent[] = []
-      const recipients = main.tasks
-        .filter((task) => task.state === TaskState.Active)
-        .map((task): BroadcastOutcome => {
-          const idle = task.activity === TaskActivity.Waiting && !task.asking && !task.awaitingPermission
-          if (idle) {
-            sent += 1
-            const message = { ...sampleMessage(`sent-${String(sent)}`, task.id, text), broadcast: true }
-            main.messages?.push(message)
-            events.push({ type: EventType.MessageAppended, message })
-            return { taskId: task.id, delivery: BroadcastDelivery.Sent }
-          }
-          queued += 1
-          queue.push({ ...sampleQueuedMessage(`queued-${String(queued)}`, task.id, text), broadcast: true })
-          events.push({ type: EventType.QueueChanged, taskId: task.id, queuedMessages: queueOf(task.id) })
-          return { taskId: task.id, delivery: BroadcastDelivery.Queued }
-        })
+      const recipients = main.tasks.filter(receivesBroadcast).map((task): BroadcastOutcome => {
+        const idle = task.activity === TaskActivity.Waiting && !task.asking && !task.awaitingPermission
+        if (idle) {
+          sent += 1
+          const message = { ...sampleMessage(`sent-${String(sent)}`, task.id, text), broadcast: true }
+          main.messages?.push(message)
+          events.push({ type: EventType.MessageAppended, message })
+          return { taskId: task.id, delivery: BroadcastDelivery.Sent }
+        }
+        queued += 1
+        queue.push({ ...sampleQueuedMessage(`queued-${String(queued)}`, task.id, text), broadcast: true })
+        events.push({ type: EventType.QueueChanged, taskId: task.id, queuedMessages: queueOf(task.id) })
+        return { taskId: task.id, delivery: BroadcastDelivery.Queued }
+      })
       emitBatch(events)
       return { recipients }
     },

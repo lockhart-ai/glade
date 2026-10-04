@@ -29,13 +29,17 @@ const WORKSPACES: Workspace[] = [
   sampleWorkspace('w3', 'Docs site'),
 ]
 
-/** Five active tasks in two workspaces, one of each standing, and two done ones, one of them pinned. */
+/**
+ * Five active tasks with an agent in two workspaces, one of each standing; two done ones, one of them pinned; and one
+ * that has never been given anything, which a broadcast doesn't reach.
+ */
 const TASKS: Task[] = [
   { ...sampleTask('t1', 'w1', 'Draft release notes for 2.4'), updatedAt: 5_000, sessionId: 's1', unread: true },
   { ...sampleTask('t2', 'w1', 'Move image uploads to S3'), updatedAt: 4_000, activity: TaskActivity.Working },
-  { ...sampleTask('t3', 'w1', 'Fix cart total rounding'), updatedAt: 3_000 },
+  { ...sampleTask('t3', 'w1', 'Fix cart total rounding'), updatedAt: 3_000, sessionId: 's3' },
   { ...sampleTask('t4', 'w2', 'Rebuild the checkout page'), updatedAt: 5_000, sessionId: 's4', asking: true },
-  { ...sampleTask('t5', 'w2', ''), updatedAt: 4_000 },
+  { ...sampleTask('t5', 'w2', ''), updatedAt: 4_000, sessionId: 's5' },
+  { ...sampleTask('t0', 'w3', ''), updatedAt: 9_000 },
   { ...sampleTask('t6', 'w2', 'Upgrade the payment SDK'), state: TaskState.Done, doneAt: 3_000 },
   { ...sampleTask('t7', 'w3', 'Check for broken links'), state: TaskState.Done, doneAt: 3_000, pinned: true },
 ]
@@ -147,7 +151,7 @@ describe('BroadcastDialog', () => {
       // A task its agent hasn't named yet is called what the task list calls it.
       SStorefront2: ['Rebuild the checkout pageneeds you', 'New taskidle'],
     })
-    // Done tasks, pinned or not, and a workspace with no active task aren't there.
+    // Done tasks, pinned or not, a task that has never been given anything, and so its workspace, aren't there.
     const dialog = within(screen.getByRole('dialog'))
     expect(dialog.queryByText('Upgrade the payment SDK')).not.toBeInTheDocument()
     expect(dialog.queryByText('Docs site')).not.toBeInTheDocument()
@@ -324,11 +328,33 @@ describe('BroadcastDialog', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
 
-    it('can send once a task is active', async () => {
+    it('says so too when the only active tasks have never been given anything', async () => {
+      const { invoke } = await renderOpen({ tasks: [sampleTask('t0', 'w1', ''), sampleTask('t9', 'w2', '')] })
+
+      expect(screen.getByText('No active tasks to send to.')).toBeInTheDocument()
+      expect(field()).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+      expect(screen.queryByRole('list', { name: 'Recipients' })).not.toBeInTheDocument()
+
+      press('Enter')
+      await settle()
+      expect(broadcasts(invoke)).toEqual([])
+    })
+
+    it('can send once a task has an agent: its first turn has started', async () => {
       const { emit, invoke } = await renderOpen({ tasks: NONE })
 
       act(() => {
+        // Made, and not yet sent anything: still no one to send to.
         emit({ type: EventType.TaskUpdated, task: sampleTask('t9', 'w3', 'Rewrite the quickstart') })
+      })
+      expect(field()).toBeDisabled()
+
+      act(() => {
+        emit({
+          type: EventType.TaskUpdated,
+          task: { ...sampleTask('t9', 'w3', 'Rewrite the quickstart'), sessionId: 's9' },
+        })
       })
 
       expect(field()).toBeEnabled()
@@ -354,7 +380,7 @@ describe('BroadcastDialog', () => {
       })
       emit({
         type: EventType.TaskUpdated,
-        task: { ...sampleTask('t8', 'w3', 'Rewrite the quickstart'), updatedAt: 7_000 },
+        task: { ...sampleTask('t8', 'w3', 'Rewrite the quickstart'), updatedAt: 7_000, sessionId: 's8' },
       })
     })
 

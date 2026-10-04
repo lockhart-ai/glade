@@ -233,7 +233,8 @@ Press **⌘⇧B**, or choose **File › Broadcast…**, from anywhere in the win
 
 Before you send, the modal says who gets it, such as "Goes to 9 active tasks in 3 workspaces", and lists them by
 workspace, each with where it stands: **needs you**, **working** or **idle**. Every Active task gets it, in every
-workspace; Done tasks don't. The list is there to read, not to pick from.
+workspace; Done tasks don't, and neither does a new task you haven't sent anything yet, since it has no agent to ask.
+The list is there to read, not to pick from.
 
 - An **idle** task starts a turn with your message straight away.
 - A **busy** one (working, paused, or waiting on a question or permission card) gets it in its queue, after anything
@@ -243,8 +244,8 @@ workspace; Done tasks don't. The list is there to read, not to pick from.
 - Each agent answers in its own chat, and a task with a new reply needs you as usual: step through them with
   **⌘⌥↓**.
 
-Idle tasks all start working at once, which uses your plan's allowance for each of them. With no Active task anywhere,
-the modal says so and Send is off.
+Idle tasks all start working at once, which uses your plan's allowance for each of them. With no task to send to, the
+modal says so and Send is off.
 
 ## The task header, done and reopening
 

@@ -187,8 +187,14 @@ describe('the menu bar’s commands', () => {
     })
   })
 
+  /** Two tasks whose agents have run, in two workspaces: who a broadcast reaches. */
+  const RAN: Task[] = [
+    { ...sampleTask('t1', 'w1', 'Add rate limiting'), sessionId: 's1' },
+    { ...sampleTask('t2', 'w2', 'Draft release notes'), sessionId: 's2' },
+  ]
+
   it('open the Broadcast modal over whatever the window shows, listing every workspace’s active tasks', async () => {
-    const rendered = await renderApp()
+    const rendered = await renderApp({ tasks: RAN })
 
     choose(rendered, appCommand(AppCommandId.Broadcast))
     await settleFloating()
@@ -202,7 +208,7 @@ describe('the menu bar’s commands', () => {
   })
 
   it('open the Broadcast modal with no workspace shown, too', async () => {
-    const rendered = await renderApp({ uiState: [{ key: UiStateKey.ActiveWorkspaceId, value: '' }] })
+    const rendered = await renderApp({ tasks: RAN, uiState: [{ key: UiStateKey.ActiveWorkspaceId, value: '' }] })
     expect(rendered.store.getState().selectedWorkspaceId).toBeNull()
 
     choose(rendered, appCommand(AppCommandId.Broadcast))

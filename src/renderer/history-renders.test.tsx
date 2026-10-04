@@ -296,6 +296,8 @@ describe('the Broadcast modal, with 60 active tasks in 8 workspaces', () => {
   const TASKS = Array.from({ length: 60 }, (_, index) => ({
     ...sampleTask(`b${String(index + 1)}`, `w${String((index % 8) + 1)}`, `Task ${String(index + 1)}`),
     updatedAt: 10_000 - index,
+    // Each has run: a broadcast doesn't reach a task that has never been given anything.
+    sessionId: `session-${String(index + 1)}`,
   }))
 
   async function renderModal(): Promise<StoreWrapper> {

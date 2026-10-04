@@ -1,13 +1,19 @@
-// Broadcast (#489): one message to every active task, in every workspace. Main decides who gets it, as it runs, and
-// each task takes it the way it takes a message from its own input bar, through the agent runner (`../agent/runner`):
-// an idle agent starts a turn with it, a busy one gets it at the end of its queue. One task failing stops no other.
+// Broadcast (#489): one message to every active task that has an agent (`receivesBroadcast`), in every workspace. Main
+// decides who gets it, as it runs, and each task takes it the way it takes a message from its own input bar, through
+// the agent runner (`../agent/runner`): an idle agent starts a turn with it, a busy one gets it at the end of its
+// queue. One task failing stops no other.
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode } from '../../shared/bridge'
-import { BroadcastDelivery, type BroadcastOutcome, type BroadcastReached } from '../../shared/broadcast'
+import {
+  BroadcastDelivery,
+  receivesBroadcast,
+  type BroadcastOutcome,
+  type BroadcastReached,
+} from '../../shared/broadcast'
 import { TaskState } from '../../shared/domain'
 import type { AgentRunner } from '../agent/runner'
 import { CommandFailure } from '../bridge/errors'
-import { listTaskIds } from '../db/repositories/tasks'
+import { getTask, listTaskIds } from '../db/repositories/tasks'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
 
 export interface BroadcastContext {
@@ -42,17 +48,26 @@ function deliver(runner: BroadcastContext['runner'], taskId: string, text: strin
   return BroadcastDelivery.Queued
 }
 
+/** The tasks a broadcast reaches now, in every workspace: the pinned ones first, then the most recently updated. */
+function recipients(db: Database): string[] {
+  return listTaskIds(db, null, TaskState.Active).filter((taskId) => {
+    const task = getTask(db, taskId)
+    return task !== undefined && receivesBroadcast(task)
+  })
+}
+
 /**
- * Sends `text` to every task that's active now, in every workspace: the pinned ones first, then the most recently
- * updated. Done tasks get nothing. Answers with how it went for each task, in that order; a task that couldn't take it
- * is logged and reported, and the rest still get it.
+ * Sends `text` to every task a broadcast reaches now (`receivesBroadcast`): the active ones, in every workspace, but
+ * for a task that has never been given anything. Done tasks get nothing. Answers with how it went for each task, pinned
+ * ones first, then the most recently updated; a task that couldn't take it is logged and reported, and the rest still
+ * get it.
  */
 export function broadcastMessage(
   { db, runner, log = SILENT_LOGGER }: BroadcastContext,
   text: string,
 ): BroadcastOutcome[] {
   const message = text.trim()
-  const outcomes = listTaskIds(db, null, TaskState.Active).map((taskId): BroadcastOutcome => {
+  const outcomes = recipients(db).map((taskId): BroadcastOutcome => {
     try {
       return { taskId, delivery: deliver(runner, taskId, message) }
     } catch (error) {

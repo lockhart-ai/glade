@@ -29,6 +29,7 @@
 }
 
 .title {
+  flex-shrink: 0;
   margin: 0;
   font-size: 18px;
   font-weight: 700;
@@ -44,6 +45,7 @@
 }
 
 .reach {
+  flex-shrink: 0;
   margin: 0;
   font-size: var(--font-size-secondary-sm);
   line-height: 1.5;
@@ -56,15 +58,17 @@
 }
 
 /*
- * Who gets it: the modal grows with the list up to about twelve rows, then the list scrolls. The scroll bar's room is
- * kept whether or not it shows, so the rows never shift as tasks come and go.
+ * Who gets it: the modal grows with the list, which scrolls past twelve tasks in three workspaces (twelve 26px rows,
+ * three 30px headers, the gaps between the groups and its own padding and border). In a window too short for that the
+ * list is what gives: the title, the field, the line above it and the buttons keep their size. The scroll bar's room
+ * is kept whether or not it shows, so the rows never shift as tasks come and go.
  */
 .recipients {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-height: 0;
-  max-height: 270px;
+  max-height: 420px;
   box-sizing: border-box;
   margin: 0;
   padding: 4px 2px 4px 4px;
@@ -149,6 +153,7 @@
 
 .actions {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
   gap: 8px;

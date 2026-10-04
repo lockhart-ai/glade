@@ -122,10 +122,19 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-/** A new active task, waiting on you, later in the list than every task made before it. */
-function task(workspace: Workspace = acme): Task {
+/** A task that has never been given anything: no session, nothing running. */
+function untouched(workspace: Workspace = acme): Task {
   clock += 1
   return sampleTask(database.db, workspace.id, clock)
+}
+
+/**
+ * An active task whose agent has run before (it has a session) and is idle now, later in the list than every task made
+ * before it.
+ */
+function task(workspace: Workspace = acme): Task {
+  const made = untouched(workspace)
+  return updateTask(database.db, made.id, { sessionId: `session-${made.id}` }, clock)
 }
 
 function current(id: string): Task {
@@ -283,11 +292,12 @@ describe('an idle task', () => {
   })
 
   it('clears the error that had stopped it, as any message you send does', async () => {
-    const stopped = task()
+    // Its first turn's session died before it had an id: it has run all the same, and its error needs you.
+    const stopped = untouched()
     const session = await start(stopped.id)
     session.fail(new Error('Claude Code process exited with code 1'))
     await settle()
-    expect(current(stopped.id).activity).toBe(TaskActivity.Error)
+    expect(current(stopped.id)).toMatchObject({ activity: TaskActivity.Error, sessionId: null })
 
     const recipients = await broadcast()
 
@@ -466,18 +476,73 @@ describe('who gets it', () => {
     expect(backend.sessions).toHaveLength(0)
   })
 
-  it('is decided as it is sent: a task marked done a moment before gets nothing, and a new one gets it', async () => {
-    const first = task()
-    const second = task(storefront)
-    // The window lists both, then one is marked done and another made before Send reaches main.
-    await glade.invoke(CommandName.TasksMarkDone, { id: first.id })
+  it('sends nothing to a task that has never been given anything: it has no agent to ask', async () => {
+    const fresh = untouched()
     const { task: created } = await glade.invoke(CommandName.TasksCreate, { workspaceId: storefront.id })
+    const idle = task(storefront)
+    listen()
 
     const recipients = await broadcast()
 
-    expect(recipients.map(({ taskId }) => taskId).sort()).toEqual([created.id, second.id].sort())
+    expect(recipients).toEqual([{ taskId: idle.id, delivery: BroadcastDelivery.Sent }])
+    // Neither is started, queued for or changed: no session is spent on an empty task.
+    for (const { id } of [fresh, created]) {
+      expect(chat(id)).toEqual([])
+      expect(queued(id)).toEqual([])
+      expect(current(id)).toMatchObject({ activity: TaskActivity.Waiting, sessionId: null })
+    }
+    expect(backend.sessions).toHaveLength(1)
+    const heard = [...events, ...batches.flat()].flatMap((event) =>
+      event.type === EventType.TaskUpdated ? [event.task.id] : [],
+    )
+    expect(heard).not.toContain(fresh.id)
+    expect(heard).not.toContain(created.id)
+  })
+
+  it('sends nothing at all when the only active tasks have never been given anything', async () => {
+    untouched()
+    untouched(storefront)
+    listen()
+
+    expect(await broadcast()).toEqual([])
+
+    expect(windowMessages).toEqual([])
+    expect(backend.sessions).toHaveLength(0)
+  })
+
+  it('reaches a task whose first turn is under way, before its session is known', async () => {
+    const starting = untouched()
+    const session = await start(starting.id)
+    // Its agent's process has started, but hasn't said which session it is yet.
+    expect(current(starting.id)).toMatchObject({ activity: TaskActivity.Working, sessionId: null })
+
+    const recipients = await broadcast()
+
+    expect(recipients).toEqual([{ taskId: starting.id, delivery: BroadcastDelivery.Queued }])
+    expect(queued(starting.id)).toEqual([{ body: TEXT, broadcast: true }])
+    // It gets it when that turn ends, as the next one.
+    session.emit(sdk.init(`session-${starting.id}`), sdk.result('Copied.'))
+    await settle()
+    expect(queued(starting.id)).toEqual([])
+    expect(chat(starting.id).at(-1)).toEqual({ role: MessageRole.User, body: TEXT, turn: 2, broadcast: true })
+  })
+
+  it('is decided as it is sent: a task marked done a moment before gets nothing, and one first sent to since gets it', async () => {
+    const first = task()
+    const second = task(storefront)
+    const third = untouched(storefront)
+    // The window lists the first two, then one is marked done and the third is sent its first message, before Send
+    // reaches main.
+    await glade.invoke(CommandName.TasksMarkDone, { id: first.id })
+    await start(third.id)
+
+    const recipients = await broadcast()
+
+    expect(Object.fromEntries(recipients.map((outcome) => [outcome.taskId, outcome.delivery]))).toEqual({
+      [second.id]: BroadcastDelivery.Sent,
+      [third.id]: BroadcastDelivery.Queued,
+    })
     expect(chat(first.id)).toEqual([])
-    expect(chat(created.id)).toEqual([{ role: MessageRole.User, body: TEXT, turn: 1, broadcast: true }])
   })
 
   it('reaches every active task in every workspace once, each in its own way, pinned ones first', async () => {
@@ -644,7 +709,8 @@ describe('what the window hears', () => {
     )
     const tasks = Array.from({ length: 60 }, (_, index) => {
       const workspace = workspaces[index % workspaces.length] ?? acme
-      return sampleTask(database.db, workspace.id, 3_000 + index)
+      const made = sampleTask(database.db, workspace.id, 3_000 + index)
+      return updateTask(database.db, made.id, { sessionId: `session-${made.id}` }, 3_000 + index)
     })
     listen()
 

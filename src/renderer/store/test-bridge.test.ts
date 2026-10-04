@@ -38,12 +38,15 @@ it('sends a batch whole to a subscriber with a batch listener, and event by even
 })
 
 it('broadcasts to every active task as one batch: to an idle one’s chat, to a busy one’s queue', async () => {
-  const idle = sampleTask('t1', 'w1')
+  const idle = { ...sampleTask('t1', 'w1'), sessionId: 's1' }
   const working = { ...sampleTask('t2', 'w1'), activity: TaskActivity.Working }
-  const asking = { ...sampleTask('t3', 'w2'), asking: true }
-  const awaiting = { ...sampleTask('t4', 'w2'), awaitingPermission: true }
-  const done = { ...sampleTask('t5', 'w2'), state: TaskState.Done }
-  const fake = fakeBridge({ workspaces: [], tasks: [idle, working, asking, awaiting, done], uiState: [], messages: [] })
+  const asking = { ...sampleTask('t3', 'w2'), sessionId: 's3', asking: true }
+  const awaiting = { ...sampleTask('t4', 'w2'), sessionId: 's4', awaitingPermission: true }
+  const done = { ...sampleTask('t5', 'w2'), sessionId: 's5', state: TaskState.Done }
+  // Never given anything: it has no agent, so it gets nothing.
+  const untouched = sampleTask('t6', 'w2')
+  const tasks = [idle, working, asking, awaiting, done, untouched]
+  const fake = fakeBridge({ workspaces: [], tasks, uiState: [], messages: [] })
   const listener = vi.fn()
   const batchListener = vi.fn()
   fake.bridge.subscribe(listener, batchListener)

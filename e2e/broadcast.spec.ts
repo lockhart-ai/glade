@@ -1,6 +1,7 @@
-// Broadcast (#489): one message to every active task, in every workspace, from the modal File › Broadcast… opens
-// (⌘⇧B). Scripted agents only: an idle task starts a turn with it, a busy one and one asking a question get it in
-// their queue, a done one gets nothing, and one whose session can't start fails as any send does, alone.
+// Broadcast (#489): one message to every active task that has an agent, in every workspace, from the modal
+// File › Broadcast… opens (⌘⇧B). Scripted agents only: an idle task starts a turn with it, a busy one and one asking a
+// question get it in their queue, a done one and one never given anything get nothing, and one whose session can't
+// start fails as any send does, alone.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { CommandName } from '../src/shared/bridge'
@@ -18,12 +19,14 @@ const COPY = 'Move image uploads to S3.'
 const NOTES = 'Draft the release notes.'
 /** Plays `simple-reply`: one reply, and the same again for the next message. */
 const RETRIES = 'How does it retry?'
+/** Plays `fails-to-start`: its session can't start, for this message or any after it. */
+const DEPLOY = 'Check the deploy.'
 
 const COPY_TITLE = 'Move image uploads to S3'
 const NOTES_TITLE = 'Draft release notes for 2.4'
 const RETRIES_TITLE = 'Explain the retry policy'
 
-test('a broadcast reaches every active task in every workspace once: started, queued, or failed alone', async ({
+test('a broadcast reaches every active task with an agent, in every workspace, once: started, queued, or failed alone', async ({
   launch,
   tempFolder,
 }) => {
@@ -36,8 +39,7 @@ test('a broadcast reaches every active task in every workspace once: started, qu
     [COPY]: 'copy-in-batches',
     [NOTES]: 'asks-a-question',
     [RETRIES]: 'simple-reply',
-    // A task that has never run gets the broadcast as its first message: its session can't start.
-    [BROADCAST]: 'fails-to-start',
+    [DEPLOY]: 'fails-to-start',
   } as const
   const glade = await launch({ agentScriptsByFirstMessage: scripts, chosenFolder: rootA })
   const { window } = glade
@@ -60,7 +62,8 @@ test('a broadcast reaches every active task in every workspace once: started, qu
   await bar.field.press('Enter')
   await expect(conversation.questionCard).toBeVisible()
 
-  // Storefront: one done, one idle with a reply already read, and one that has never been sent anything.
+  // Storefront: one done, one idle with a reply already read, one that has never been sent anything, and one whose
+  // session can't start, stopped on its error.
   await chooseFolder(glade, rootB)
   await chooseMenuItem(glade, 'Workspace', 'New workspace…')
   await expect(workspace).toContainText('storefront')
@@ -77,6 +80,11 @@ test('a broadcast reaches every active task in every workspace once: started, qu
   await expect(header.stateDot).toHaveAccessibleName('Active · idle')
   await list.newTask.click()
   await expect(conversation.newTaskPrompt).toBeVisible()
+  await list.newTask.click()
+  await bar.field.fill(DEPLOY)
+  await bar.field.press('Enter')
+  await expect(conversation.errorCard).toBeVisible()
+  await expect(conversation.userMessages).toHaveCount(1)
 
   // File › Broadcast… (⌘⇧B) opens the modal over whatever the window shows.
   expect((await menuItem(glade, 'File', 'Broadcast…')).accelerator).toBe('CmdOrCtrl+Shift+B')
@@ -87,14 +95,15 @@ test('a broadcast reaches every active task in every workspace once: started, qu
   await expect(modal.reach).toHaveText(
     'Goes to 4 active tasks in 2 workspaces. Busy agents get it when their turn ends.',
   )
-  // The four it lists, by workspace, each with where it stands; the done one isn't among them.
+  // The four it lists, by workspace, each with where it stands. The done one isn't among them, and neither is the
+  // task that has never been sent anything: it has no agent to ask.
   await expect(modal.tasks).toHaveCount(4)
   await expect(modal.tasksIn('acme-api')).toHaveCount(2)
   await expect(modal.tasksIn('acme-api').filter({ hasText: NOTES_TITLE })).toHaveText(`${NOTES_TITLE}needs you`)
   await expect(modal.tasksIn('acme-api').filter({ hasText: COPY_TITLE })).toHaveText(`${COPY_TITLE}working`)
   await expect(modal.tasksIn('storefront')).toHaveCount(2)
   await expect(modal.tasksIn('storefront').filter({ hasText: RETRIES_TITLE })).toHaveText(`${RETRIES_TITLE}idle`)
-  await expect(modal.tasksIn('storefront').filter({ hasText: 'New task' })).toHaveText('New taskidle')
+  await expect(modal.tasksIn('storefront').filter({ hasText: 'New task' })).toHaveText('New taskneeds you')
 
   // ⇧↵ adds a line, ↵ sends: one command, and the modal closes.
   await modal.field.fill('Is anyone restarting Docker?')
@@ -104,9 +113,10 @@ test('a broadcast reaches every active task in every workspace once: started, qu
   await modal.field.press('Enter')
   await expect(modal.dialog).toHaveCount(0)
 
-  // The task that had never run got it as its first message, tagged, and its session couldn't start: its error shows
-  // in its own chat, as any failed send does, and stops no other task.
-  await expect(conversation.userMessages).toHaveText([/Is anyone restarting Docker\?/])
+  // The task whose session can't start got it, tagged, and failed again: its error shows in its own chat, as any
+  // failed send does, and stops no other task.
+  await expect(conversation.userMessages).toHaveCount(2)
+  await expect(conversation.userMessages.nth(1)).toContainText(BROADCAST)
   await expect(conversation.broadcasts).toHaveCount(1)
   await expect(conversation.errorCard).toBeVisible()
 
@@ -143,31 +153,49 @@ test('a broadcast reaches every active task in every workspace once: started, qu
   await expect(bar.queued).toHaveCount(0)
   await expect(conversation.agentReplies).toHaveCount(1)
 
-  // Each of the four got it exactly once, and no one else: as the modal's count said.
+  // Each of the four got it exactly once, and no one else, as the modal's count said: the done task and the one
+  // never sent anything have nothing, and that one is as it was, with no session started for it.
   const { workspaces } = await invoke(window, CommandName.WorkspacesList, {})
   const tasks = (
     await Promise.all(workspaces.map(({ id }) => invoke(window, CommandName.TasksList, { workspaceId: id })))
   ).flatMap((answer) => answer.tasks)
-  expect(tasks).toHaveLength(5)
+  expect(tasks).toHaveLength(6)
   const received = await Promise.all(
     tasks.map(async (task) => {
       const { messages, queuedMessages } = await invoke(window, CommandName.TasksHistory, { id: task.id })
       const count = [...messages, ...queuedMessages].filter((message) => message.broadcast).length
-      return { state: task.state, count }
+      return { state: task.state, untouched: messages.length + queuedMessages.length === 0, count }
     }),
   )
-  expect(received.filter(({ state }) => state === TaskState.Active).map(({ count }) => count)).toEqual([1, 1, 1, 1])
-  expect(received.filter(({ state }) => state === TaskState.Done).map(({ count }) => count)).toEqual([0])
+  const counts = (which: (task: (typeof received)[number]) => boolean): number[] =>
+    received.filter(which).map(({ count }) => count)
+  expect(counts(({ state, untouched }) => state === TaskState.Active && !untouched)).toEqual([1, 1, 1, 1])
+  expect(counts(({ state }) => state === TaskState.Done)).toEqual([0])
+  expect(received.filter(({ untouched }) => untouched)).toEqual([
+    { state: TaskState.Active, untouched: true, count: 0 },
+  ])
 
-  // It's stored with each task: after a relaunch it's still tagged in the chat, and in the queue it still waits in.
+  // It's stored with each task: after a relaunch it's still tagged in the chat, and in the queue it still waits in,
+  // behind the question the app quit on.
   await glade.close()
   const relaunched = await launch({ agentScriptsByFirstMessage: scripts })
   const reopened = chat(relaunched.window)
+  const reopenedBar = inputBar(relaunched.window)
   await expect(regions(relaunched.window).workspace).toContainText('acme-api')
   await expect(reopened.userMessages).toHaveCount(2)
   await expect(reopened.broadcasts).toHaveCount(1)
   await taskList(relaunched.window).taskRow(NOTES_TITLE).click()
-  await expect(inputBar(relaunched.window).queuedRows).toHaveText([`1Broadcast${BROADCAST}`])
+  await expect(reopened.questionCard).toBeVisible()
+  await expect(reopenedBar.queuedRows).toHaveText([`1Broadcast${BROADCAST}`])
+  await expect(reopened.userMessages).toHaveCount(1)
+
+  // Answering the question carries on the turn that asked; when it ends, the queued broadcast is delivered: it isn't
+  // left waiting for another message.
+  await reopened.questionCard.getByRole('button', { name: 'Skip questions' }).click()
+  await expect(reopened.userMessages).toHaveCount(2)
+  await expect(reopened.userMessages.nth(1)).toContainText(BROADCAST)
+  await expect(reopened.broadcasts).toHaveCount(1)
+  await expect(reopenedBar.queued).toHaveCount(0)
 })
 
 test('with no active task, the Broadcast modal says so and can’t send; its key follows Settings › Keyboard', async ({

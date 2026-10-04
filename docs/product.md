@@ -68,21 +68,26 @@ There are no follow-up tasks. One task can refer to another through its folder o
   and the keys still step back from an end a click on one reached — under a "2 of 3"; Esc, a click on the backdrop or
   × closes it, and the focus goes to the task's input (#415).
   ![Image viewer](design/screens/30-image-viewer.png)
-- **Broadcast** (#489) — one message to every Active task at once, in every workspace, for when something is happening
-  on the machine and you don't know which agent is doing it ("Is anyone restarting Docker?"). **Broadcast…** in the
+- **Broadcast** (#489) — one message to every Active task that has an agent, at once, in every workspace, for when
+  something is happening on the machine and you don't know which agent is doing it ("Is anyone restarting Docker?").
+  **Broadcast…** in the
   File menu, or ⌘⇧B, opens a modal over the window, whatever it shows: a message field, a line saying who it goes to
   ("Goes to 9 active tasks in 3 workspaces. Busy agents get it when their turn ends."), and under it the recipients,
   grouped by workspace, each task with its dot and where it stands with you (needs you, working or idle, by the one
-  rule under Attention). The list is only there to read: there's nothing to pick. ↵ or **Send** sends it and ⇧↵ adds a
-  line, as in the input bar; Esc or a click outside closes the modal, and what was typed goes with it. With no Active
-  task anywhere it says "No active tasks to send to." and can't send.
+  rule under Attention). The list is only there to read: there's nothing to pick. The modal grows with it, and past
+  twelve tasks in three workspaces the list scrolls. ↵ or **Send** sends it and ⇧↵ adds a line, as in the input bar;
+  Esc or a click outside closes the modal, and what was typed goes with it. With no task to send to it says "No
+  active tasks to send to." and can't send.
   ![Broadcast](design/screens/45-broadcast.png)
   Each task takes the broadcast as it takes a message from its own input bar. An idle one starts a turn with it, after
   anything it already had queued; one whose agent is busy (mid-turn, paused, or waiting on a question or permission
   card) gets it at the end of its queue, where it goes when any queued message does. Unlike a message typed into the
   task's own input bar, it never answers a question card: it went to everyone, so it waits behind the question. Done
-  tasks get nothing, and aren't reopened. Glade decides who gets it as it sends, so the modal's count is the number of
-  tasks that receive it. A task that can't take it (its session won't start) doesn't hold up the rest: it shows its
+  tasks get nothing, and aren't reopened. Neither does a task that has never been sent anything: it has no agent, so
+  it can't be the one doing something on the machine, and a broadcast would only start a session for nothing; it isn't
+  listed or counted. (A task whose first turn is under way has an agent, and gets it; so does one an error stopped.)
+  One rule decides this for the list and for the sending (`receivesBroadcast` in `src/shared/broadcast.ts`), and Glade
+  decides who gets it as it sends, so the modal's count is the number of tasks that receive it. A task that can't take it (its session won't start) doesn't hold up the rest: it shows its
   error as it does when any send fails, and a toast names it.
   In each task's chat it's your own message, with a small `BROADCAST` tag beside "you" and its time, and on its row
   while it waits in a queue; the tag is kept with the message, so it's there after a relaunch. Each agent answers in

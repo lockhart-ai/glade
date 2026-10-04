@@ -1537,9 +1537,19 @@ describe('broadcast (#489)', () => {
   })
 
   it('sends the message through main, which decides who gets it, and answers how it went for each task', async () => {
+    const idle = [
+      { ...sampleTask('t1', 'w1'), sessionId: 's1' },
+      { ...sampleTask('t2', 'w2'), sessionId: 's2' },
+    ]
     const working = { ...sampleTask('t3', 'w2'), activity: TaskActivity.Working }
-    const done = { ...sampleTask('t4', 'w1'), state: TaskState.Done, pinned: true }
-    const { store, invoke } = await hydrated({ ...main(), tasks: [...main().tasks, working, done], messages: [] })
+    const done = { ...sampleTask('t4', 'w1'), state: TaskState.Done, pinned: true, sessionId: 's4' }
+    // One that has never been given anything gets nothing.
+    const untouched = sampleTask('t5', 'w1')
+    const { store, invoke } = await hydrated({
+      ...main(),
+      tasks: [...idle, working, done, untouched],
+      messages: [],
+    })
 
     const recipients = await store.getState().broadcast('Is anyone restarting Docker?')
 
@@ -1554,6 +1564,7 @@ describe('broadcast (#489)', () => {
     expect(state.messages.t2).toMatchObject([{ body: 'Is anyone restarting Docker?', broadcast: true }])
     expect(state.queuedMessages.t3).toMatchObject([{ body: 'Is anyone restarting Docker?', broadcast: true }])
     expect(state.messages.t4).toBeUndefined()
+    expect(state.messages.t5).toBeUndefined()
   })
 
   it("rejects with main's error", async () => {

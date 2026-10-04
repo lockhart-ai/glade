@@ -39,7 +39,8 @@
   edited or removed. No "send now", no reordering. Stop with messages queued stops the turn and then sends the queue
   as the next turn, as when a turn ends on its own (#441); a task found stuck with a queue sends it at launch.
 - **Broadcast (#489):** one message to every Active task, in every workspace, idle ones included, from a modal
-  (⌘⇧B, File › Broadcast…) that lists who gets it, read-only. A busy agent gets it in its queue, like any message:
+  (⌘⇧B, File › Broadcast…) that lists who gets it, read-only. A task that has never been sent anything has no agent,
+  so it gets nothing and isn't listed. A busy agent gets it in its queue, like any message:
   there's still no mid-turn delivery. It's stored with each task as its own message, tagged `BROADCAST` in the chat;
   each agent answers in its own chat, and nothing collects the replies. Main decides the recipients as it sends, and
   the windows hear of it all as one batch of events.

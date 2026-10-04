@@ -1,31 +1,33 @@
 /**
- * Who a broadcast reaches (#489, `docs/design/html/45-broadcast.html`): every active task, in every workspace, as the
- * Broadcast modal lists them before it's sent. Main decides who really gets it, as it sends (`tasks.broadcast`); the
- * store holds every workspace's active tasks and hears each change, so the list is main's unless one is on its way.
+ * Who a broadcast reaches (#489, `docs/design/html/45-broadcast.html`): every active task that has an agent
+ * (`receivesBroadcast`, the rule main sends by), in every workspace, as the Broadcast modal lists them before it's
+ * sent. Main decides who really gets it, as it sends (`tasks.broadcast`); the store holds every workspace's active
+ * tasks and hears each change, so the list is main's unless one is on its way.
  */
 import { TaskAttention } from '../../shared/attention'
-import { TaskState, type Task } from '../../shared/domain'
+import { receivesBroadcast } from '../../shared/broadcast'
+import type { Task } from '../../shared/domain'
 import { compareRecency } from '../../shared/doneList'
 import type { GladeData } from '../store/state'
 
 type Recipients = Pick<GladeData, 'tasks' | 'workspaces'>
 
-/** Whether a broadcast reaches a task: it's active, and its workspace is one the app has. */
+/** Whether the modal lists a task: a broadcast reaches it, and its workspace is one the app has. */
 function isRecipient(task: Task, workspaceIds: ReadonlySet<string>): boolean {
-  return task.state === TaskState.Active && workspaceIds.has(task.workspaceId)
+  return receivesBroadcast(task) && workspaceIds.has(task.workspaceId)
 }
 
 /** The workspaces with tasks a broadcast reaches, in the switcher's order: oldest first. */
 export function recipientWorkspaceIds({ tasks, workspaces }: Recipients): string[] {
   const reached = new Set<string>()
-  for (const task of Object.values(tasks)) if (task.state === TaskState.Active) reached.add(task.workspaceId)
+  for (const task of Object.values(tasks)) if (receivesBroadcast(task)) reached.add(task.workspaceId)
   return workspaces.filter(({ id }) => reached.has(id)).map(({ id }) => id)
 }
 
 /** A workspace's tasks a broadcast reaches, as its task list orders them: pinned first, then most recently updated. */
 export function recipientTaskIds({ tasks }: Pick<GladeData, 'tasks'>, workspaceId: string): string[] {
   return Object.values(tasks)
-    .filter((task) => task.workspaceId === workspaceId && task.state === TaskState.Active)
+    .filter((task) => task.workspaceId === workspaceId && receivesBroadcast(task))
     .sort((a, b) => Number(b.pinned) - Number(a.pinned) || compareRecency(a, b))
     .map(({ id }) => id)
 }

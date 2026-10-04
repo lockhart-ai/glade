@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { TaskAttention } from '../../shared/attention'
-import { TaskState, type Task } from '../../shared/domain'
+import { TaskActivity, TaskState, type Task } from '../../shared/domain'
 import { sampleTask, sampleWorkspace } from '../store/test-bridge'
 import {
   attentionLabel,
@@ -24,42 +24,63 @@ function tasks(...list: Task[]): Record<string, Task> {
 
 const done = (task: Task): Task => ({ ...task, state: TaskState.Done, doneAt: 5_000 })
 
+/** A task whose agent has run: it has a session. (`sampleTask` alone has never been given anything.) */
+const ran = (task: Task): Task => ({ ...task, sessionId: `session-${task.id}` })
+
 describe('who a broadcast reaches', () => {
   const state = {
     workspaces: WORKSPACES,
     tasks: tasks(
-      { ...sampleTask('a-old', 'w1'), updatedAt: 1_000 },
-      { ...sampleTask('a-new', 'w1'), updatedAt: 3_000 },
-      { ...sampleTask('a-pinned', 'w1'), updatedAt: 500, pinned: true },
-      done(sampleTask('a-done', 'w1')),
-      { ...done(sampleTask('a-done-pinned', 'w1')), pinned: true },
-      { ...sampleTask('s-only', 'w2'), updatedAt: 2_000 },
-      done(sampleTask('d-done', 'w3')),
+      { ...ran(sampleTask('a-old', 'w1')), updatedAt: 1_000 },
+      { ...ran(sampleTask('a-new', 'w1')), updatedAt: 3_000 },
+      { ...ran(sampleTask('a-pinned', 'w1')), updatedAt: 500, pinned: true },
+      // Its first turn is under way: it has an agent, though its session isn't known yet.
+      { ...sampleTask('a-starting', 'w1'), updatedAt: 200, activity: TaskActivity.Working },
+      // Never given anything: no agent to ask. The newest in its workspace, and still not listed.
+      { ...sampleTask('a-untouched', 'w1'), updatedAt: 9_000 },
+      done(ran(sampleTask('a-done', 'w1'))),
+      { ...done(ran(sampleTask('a-done-pinned', 'w1'))), pinned: true },
+      { ...ran(sampleTask('s-only', 'w2')), updatedAt: 2_000 },
+      done(ran(sampleTask('d-done', 'w3'))),
+      // A workspace whose only active task has never been given anything isn't listed either.
+      sampleTask('d-untouched', 'w3'),
       // A task whose workspace the window doesn't have isn't listed anywhere, so it isn't counted either.
-      sampleTask('gone', 'w9'),
+      ran(sampleTask('gone', 'w9')),
     ),
   }
 
-  it('is every active task, in the workspaces that have one, oldest workspace first', () => {
+  it('is every active task that has an agent, in the workspaces that have one, oldest workspace first', () => {
     expect(recipientWorkspaceIds(state)).toEqual(['w1', 'w2'])
   })
 
-  it('lists a workspace’s active tasks as its task list does: pinned first, then most recently updated', () => {
-    expect(recipientTaskIds(state, 'w1')).toEqual(['a-pinned', 'a-new', 'a-old'])
+  it('lists a workspace’s recipients as its task list does: pinned first, then most recently updated', () => {
+    expect(recipientTaskIds(state, 'w1')).toEqual(['a-pinned', 'a-new', 'a-old', 'a-starting'])
     expect(recipientTaskIds(state, 'w2')).toEqual(['s-only'])
     expect(recipientTaskIds(state, 'w3')).toEqual([])
+  })
+
+  it('leaves out a task that has never been given anything, and counts one whose first turn is under way', () => {
+    const listed = recipientWorkspaceIds(state).flatMap((workspaceId) => recipientTaskIds(state, workspaceId))
+    expect(listed).not.toContain('a-untouched')
+    expect(listed).not.toContain('d-untouched')
+    expect(listed).toContain('a-starting')
   })
 
   it('counts exactly the tasks it lists', () => {
     const listed = recipientWorkspaceIds(state).flatMap((workspaceId) => recipientTaskIds(state, workspaceId))
     expect(recipientCount(state)).toBe(listed.length)
-    expect(recipientCount(state)).toBe(4)
+    expect(recipientCount(state)).toBe(5)
   })
 
-  it('reaches no one with no active task', () => {
-    const none = { workspaces: WORKSPACES, tasks: tasks(done(sampleTask('a-done', 'w1'))) }
+  it('reaches no one with no active task, or with only ones that have never been given anything', () => {
+    const none = { workspaces: WORKSPACES, tasks: tasks(done(ran(sampleTask('a-done', 'w1')))) }
     expect(recipientWorkspaceIds(none)).toEqual([])
     expect(recipientCount(none)).toBe(0)
+
+    const untouched = { workspaces: WORKSPACES, tasks: tasks(sampleTask('a-new', 'w1'), sampleTask('s-new', 'w2')) }
+    expect(recipientWorkspaceIds(untouched)).toEqual([])
+    expect(recipientTaskIds(untouched, 'w1')).toEqual([])
+    expect(recipientCount(untouched)).toBe(0)
   })
 })
 
