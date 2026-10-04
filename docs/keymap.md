@@ -67,6 +67,9 @@ previous task (⌥↓ / ⌥↑) work from a todo too. Tab reaches every todo, th
 in order: ↵ or Space on a pill shows that kind alone, or all of them (All), and what ↵ does on a tile is each kind's
 own (#498, #499). A closed todo's counts are skipped, since → opens the todo and its pills say the same.
 
+On a **commit's tile**, ↵ or Space opens it in place to its branch and its files, and again closes it (#499). Tab then
+goes on into its files, and ↵ on one opens it in the Files tab.
+
 ## Rebinding
 
 The keymap lives in `src/shared/keymap.ts` (the commands themselves are in `src/shared/commands.ts`): one command per
