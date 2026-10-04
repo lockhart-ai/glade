@@ -59,18 +59,13 @@ task search; in the editor, its own ⌘F finds in the file, and anywhere else �
 no keys of its own beyond Tab and Context menu, as now.
 
 With it on, the tab's todos answer their own keys while one has the focus (`design/screens/46-todo-hub.png`), as the
-Browse tree does; they're fixed. Tab reaches every todo, then an open todo's filter pills and its tiles, in order; a
-closed todo's counts are skipped, since → opens it and its pills say the same.
-
-| On | Key | What it does |
-|---|---|---|
-| A todo (or **Not under a todo**) | ↑ / ↓ | Moves to the todo before or after it, stopping at the first and last |
-| | → | Opens it, on the filter it was last on; nothing if it's open, or has nothing under it |
-| | ← | Closes it |
-| | ↵ or Space | Opens or closes it, as a click does |
-| | ⇧F10 | Its context menu (Copy · Ask agent about this), for a todo |
-| A filter pill | ↵ or Space | Shows that kind alone, or all of them (All) |
-| A tile | Tab / ⇧Tab | The next or previous tile; what ↵ opens is each kind's own (#498, #499) |
+Browse tree does; they're fixed. On a todo, or on **Not under a todo**, ↑↓ move to the todo before or after it,
+stopping at the first and last; → opens it, on the filter it was last on (nothing if it's open already, or has nothing
+under it); ← closes it; ↵ or Space opens or closes it, as a click does; and Context menu (⇧F10) opens a todo's menu
+(Copy · Ask agent about this). Held with ⌘, ⌃, ⌥ or ⇧, those keys are left to whatever command has them, so Next /
+previous task (⌥↓ / ⌥↑) work from a todo too. Tab reaches every todo, then an open todo's filter pills and its tiles,
+in order: ↵ or Space on a pill shows that kind alone, or all of them (All), and what ↵ does on a tile is each kind's
+own (#498, #499). A closed todo's counts are skipped, since → opens the todo and its pills say the same.
 
 ## Rebinding
 
