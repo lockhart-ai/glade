@@ -418,7 +418,7 @@ function OpenCard({ questionSet, appear, highlight }: OpenCardProps) {
     <form
       ref={card}
       aria-label={QUESTION_CARD_NAME}
-      className={classNames(styles.card, styles.open, appear && styles.appearing)}
+      className={classNames(styles.card, appear && styles.appearing)}
       onSubmit={(event) => {
         event.preventDefault()
         send()

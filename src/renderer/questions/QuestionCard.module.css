@@ -1,23 +1,25 @@
 /*
- * The question card, from docs/design/html/03-rich-question.html. The picked option's fill (#231f3d) and outline
- * (#8c7bd9), and the empty radio's ring (#4e5468), aren't tokens: they're the design's own tints of --color-purple.
+ * The question card, from docs/design/html/03-rich-question.html: on the fill and border of every agent reply
+ * (Chat.module.css .question), open or closed (#538). The picked option's outline (#8c7bd9) isn't a token: it's the
+ * design's own tint of --color-purple.
  */
 .card {
+  /*
+   * Scaffolding for #538's captures, removed once one is picked: what the tiles, pills and fields inside the card sit
+   * on. `grey` is the scheme's cool greys, `purple` a tint of the card's own purple.
+   */
+  --question-surface: grey;
+
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding: 16px;
-  background: var(--color-inner);
-  border: 1px solid var(--color-border);
+  background: var(--color-question-bg);
+  border: 1px solid var(--color-question-border);
   border-radius: var(--radius-nested);
   box-shadow: var(--shadow-nested);
   /* A word too long for its line (a path, a URL, an identifier) breaks inside the card rather than running out of it. */
   overflow-wrap: anywhere;
-}
-
-/* Open, it has the question highlight. */
-.open {
-  border-color: var(--color-question-border);
 }
 
 .withdrawn {
@@ -54,7 +56,7 @@
  */
 .preamble {
   padding-bottom: 14px;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-question-border);
   font-size: var(--font-size-chat);
   line-height: var(--line-height-chat);
   color: var(--color-text);
@@ -74,10 +76,39 @@
   color: var(--color-muted);
 }
 
+/*
+ * A question, and what its tiles, pills and fields sit on: nothing inside the card is on the window's black (#538).
+ * Cool grey: a nested card's fill and hairline, a picked option on the purple of a filled surface, a sketch one step
+ * lighter than its tile.
+ */
 .question {
+  --surface-fill: var(--color-inner);
+  --surface-border: var(--color-inner-border);
+  --surface-border-hover: var(--color-strong);
+  --surface-border-focus: var(--color-slate);
+  --picked-fill: var(--color-purple-bg);
+  --sketch-fill: var(--color-inner-2);
+  --sketch-border: var(--color-strong);
+
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/*
+ * Purple tint: a step lighter than the card's own purple, with the card's border; a picked option a step lighter
+ * again, and a sketch set back into the card's fill.
+ */
+@container style(--question-surface: purple) {
+  .question {
+    --surface-fill: var(--color-purple-bg);
+    --surface-border: var(--color-question-border);
+    --surface-border-hover: color-mix(in srgb, var(--color-question-border), var(--color-purple) 25%);
+    --surface-border-focus: #8c7bd9;
+    --picked-fill: var(--color-question-border);
+    --sketch-fill: var(--color-question-bg);
+    --sketch-border: var(--color-question-border);
+  }
 }
 
 .prompt {
@@ -116,8 +147,8 @@
   flex-direction: column;
   gap: 8px;
   padding: 10px;
-  background: var(--color-bg);
-  border: 1px solid var(--color-inner-border);
+  background: var(--surface-fill);
+  border: 1px solid var(--surface-border);
   border-radius: 10px;
   text-align: left;
   font: inherit;
@@ -126,12 +157,15 @@
 }
 
 .option:hover {
-  border-color: var(--color-strong);
+  border-color: var(--surface-border-hover);
 }
 
+/* Picked, it keeps its outline under the pointer too. */
 .option.checked,
-.pill.checked {
-  background: #231f3d;
+.pill.checked,
+.option.checked:hover,
+.pill.checked:hover {
+  background: var(--picked-fill);
   border-color: #8c7bd9;
   color: var(--color-text);
 }
@@ -151,8 +185,8 @@
   max-height: 120px;
   padding: 8px 12px;
   overflow: hidden;
-  background: var(--color-inner);
-  border: 1px solid var(--color-inner-border);
+  background: var(--sketch-fill);
+  border: 1px solid var(--sketch-border);
   border-radius: 6px;
   font-family: var(--font-mono);
   font-size: 11px;
@@ -186,7 +220,7 @@
   width: 16px;
   height: 16px;
   margin-top: 2px;
-  border: 2px solid #4e5468;
+  border: 2px solid var(--color-slate);
 }
 
 .radio {
@@ -254,8 +288,8 @@
   max-width: 100%;
   min-height: 32px;
   padding: 5px 14px;
-  background: var(--color-bg);
-  border: 1px solid var(--color-inner-border);
+  background: var(--surface-fill);
+  border: 1px solid var(--surface-border);
   border-radius: 16px;
   font: inherit;
   font-size: var(--font-size-secondary);
@@ -265,7 +299,7 @@
 }
 
 .pill:hover {
-  border-color: var(--color-strong);
+  border-color: var(--surface-border-hover);
   color: var(--color-text);
 }
 
@@ -277,6 +311,23 @@
 .anythingElse {
   min-height: 64px;
   font-size: var(--font-size-body);
+}
+
+/* The fields sit on what the tiles do, not on the inset colour they have elsewhere. */
+.card .text,
+.card .anythingElse {
+  background: var(--surface-fill);
+  border-color: var(--surface-border);
+}
+
+.card .text:hover,
+.card .anythingElse:hover {
+  border-color: var(--surface-border-hover);
+}
+
+.card .text:focus-within,
+.card .anythingElse:focus {
+  border-color: var(--surface-border-focus);
 }
 
 .footer {
