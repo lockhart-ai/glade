@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ChildKind, type ChildRef } from '../../../shared/todoHub'
-import { assignChildIds, findChildById } from './child-ids'
+import { assignChildIds, findChildById, isWatcherId, WATCHER_KIND } from './child-ids'
 import { RowError } from './rows'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 
@@ -22,7 +22,6 @@ afterEach(() => {
 const PLAN: ChildRef = { kind: ChildKind.File, key: 'docs/plan.md' }
 const PR: ChildRef = { kind: ChildKind.Link, key: 'https://example.com/acme/api/pull/511' }
 const REVIEWER: ChildRef = { kind: ChildKind.Subagent, key: 'toolu_1' }
-const CI: ChildRef = { kind: ChildKind.Watcher, key: 'toolu_1' }
 const FIX: ChildRef = { kind: ChildKind.Commit, key: 'abc123 /code/acme-api' }
 
 describe('a child’s short id', () => {
@@ -46,22 +45,60 @@ describe('a child’s short id', () => {
     const { db } = database
     assignChildIds(db, taskId, [PLAN, PR])
 
-    expect(assignChildIds(db, taskId, [PR, CI, PLAN, CI, PR])).toEqual([
+    expect(assignChildIds(db, taskId, [PR, FIX, PLAN, FIX, PR])).toEqual([
       { ...PR, id: 'c2' },
-      { ...CI, id: 'c3' },
+      { ...FIX, id: 'c3' },
       { ...PLAN, id: 'c1' },
-      { ...CI, id: 'c3' },
+      { ...FIX, id: 'c3' },
       { ...PR, id: 'c2' },
     ])
     expect(assignChildIds(db, taskId, [])).toEqual([])
     expect(db.prepare('SELECT COUNT(*) FROM child_ids WHERE task_id = ?').pluck().get(taskId)).toBe(3)
   })
 
-  it('tells a subagent from a watcher started by a call with the same id', () => {
-    expect(assignChildIds(database.db, taskId, [REVIEWER, CI])).toEqual([
+  it('tells a subagent from a commit with the same key', () => {
+    const same = { kind: ChildKind.Commit, key: REVIEWER.key }
+    expect(assignChildIds(database.db, taskId, [REVIEWER, same])).toEqual([
       { ...REVIEWER, id: 'c1' },
-      { ...CI, id: 'c2' },
+      { ...same, id: 'c2' },
     ])
+  })
+
+  describe('that a watcher had, from when watchers were children (before #535)', () => {
+    /** A watcher's row, as the hub wrote one then: the table's check still allows the kind. */
+    function watcherHad(task: string, number: number, key = 'toolu_1'): void {
+      database.db
+        .prepare('INSERT INTO child_ids (task_id, number, kind, key) VALUES (?, ?, ?, ?)')
+        .run(task, number, WATCHER_KIND, key)
+    }
+
+    it('names no child, and is told apart from an id that was never given', () => {
+      const { db } = database
+      assignChildIds(db, taskId, [PLAN])
+      watcherHad(taskId, 2)
+
+      expect(findChildById(db, taskId, 'c2')).toBeUndefined()
+      expect(isWatcherId(db, taskId, 'c2')).toBe(true)
+      // A child's id, one never given, another task's, and text that isn't an id: none was a watcher's.
+      for (const id of ['c1', 'c3', 'c0', 'watcher', '', 'C2']) expect(isWatcherId(db, taskId, id), id).toBe(false)
+      expect(isWatcherId(db, otherId, 'c2')).toBe(false)
+      expect(findChildById(db, taskId, 'c1')).toEqual(PLAN)
+    })
+
+    it('is never given to another child: the task’s numbers go on from it', () => {
+      const { db } = database
+      assignChildIds(db, taskId, [PLAN])
+      watcherHad(taskId, 2)
+      watcherHad(taskId, 3, 'toolu_2')
+
+      expect(assignChildIds(db, taskId, [PR, PLAN])).toEqual([
+        { ...PR, id: 'c4' },
+        { ...PLAN, id: 'c1' },
+      ])
+      // A subagent started by the call that started the watcher is its own child, with its own id.
+      expect(assignChildIds(db, taskId, [REVIEWER])).toEqual([{ ...REVIEWER, id: 'c5' }])
+      expect(db.prepare('SELECT COUNT(*) FROM child_ids WHERE kind = ?').pluck().get(WATCHER_KIND)).toBe(2)
+    })
   })
 
   it('is never given to another child, whatever is named after it, 300 children on', () => {

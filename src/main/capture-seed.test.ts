@@ -51,8 +51,17 @@ import { getSdkModels } from './db/repositories/sdk-models'
 import { getUiState } from './db/repositories/ui-state'
 import { listWatchers } from './db/repositories/watchers'
 import { listTaskCommits } from './db/repositories/task-commits'
-import { readTodoHub } from './todo-hub/todo-hub'
-import { ChildFilter, ChildKind, commitChildKey, FilingSource, UNFILED_TODO_ID } from '../shared/todoHub'
+import { readTodoHub, taskChildren } from './todo-hub/todo-hub'
+import {
+  ChildFilter,
+  ChildKind,
+  commitChildKey,
+  FilingSource,
+  PRODUCED_KINDS,
+  subagentTodo,
+  subagentTodos,
+  UNFILED_TODO_ID,
+} from '../shared/todoHub'
 import { listWorkspaces } from './db/repositories/workspaces'
 import { readTaskFile, workspaceFilesRoot } from './files/files'
 import { openTestDatabase, type TestDatabase } from './db/repositories/test-database'
@@ -193,9 +202,14 @@ describe('readSeed', () => {
     // A task from before the hub, with nothing filed, and one that never wrote todos.
     const before = seed.tasks.find((task) => task.title === 'Fix the UTC date test')
     expect(before?.todoPanels).toEqual([{ todo: 'unfiled', open: true }])
-    expect(
-      [...(before?.artifacts ?? []), ...(before?.watchers ?? []), ...(before?.commits ?? [])].map(({ todo }) => todo),
-    ).toEqual([undefined, undefined, undefined, undefined])
+    expect([...(before?.artifacts ?? []), ...(before?.commits ?? [])].map(({ todo }) => todo)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ])
+    // No watcher is filed anywhere: a sample watcher takes no todo.
+    expect(seed.tasks.flatMap((task) => task.watchers ?? []).filter((watcher) => 'todo' in watcher)).toEqual([])
+    expect(seed.tasks.flatMap((task) => task.watchers ?? [])).toHaveLength(4)
     expect(seed.tasks.find((task) => task.title === 'Tidy the API reference')?.toolEvents).toBeUndefined()
   })
 
@@ -209,6 +223,10 @@ describe('readSeed', () => {
     expect(readSeed(bad({ commits: [{ ...commit, hash: 'a'.repeat(40), todo: '2' }] })).tasks[0]?.commits).toHaveLength(
       1,
     )
+    // A sample watcher takes no todo: watchers aren't filed.
+    const watcher = { kind: 'monitor', toolUseId: 'use-watch', label: 'CI', detail: 'gh pr checks 42', minutesAgo: 1 }
+    expect(() => readSeed(bad({ watchers: [{ ...watcher, todo: '2' }] }))).toThrow(/todo/)
+    expect(readSeed(bad({ watchers: [watcher] })).tasks[0]?.watchers).toHaveLength(1)
   })
 
   it('reads the compaction fixture', () => {
@@ -750,7 +768,6 @@ describe('applySeed', () => {
               outcome: 'unit-tests fail',
               lastOutput: 'lint pass',
               parentToolUseId: 'use-fix-501',
-              todo: '2',
             },
             { kind: WatcherKind.Command, toolUseId: 'use-plain', label: 'Tests', detail: 'npm test', minutesAgo: 4 },
           ],
@@ -842,22 +859,28 @@ describe('applySeed', () => {
         ].sort(),
       )
       expect(under('2').sort()).toEqual(
+        [`${ChildKind.File} docs/dated.md`, `${ChildKind.File} docs/limits.md`, `${ChildKind.Subagent} seed-4`].sort(),
+      )
+      expect(hub.filings).toHaveLength(7)
+      expect(hub.filings.every(({ source, filedAt }) => source === FilingSource.Named && filedAt === now)).toBe(true)
+      // What named no todo is under none: a file and a commit. Neither watcher is under anything.
+      expect(hub.children.unfiled.children.map(({ kind }) => kind).sort()).toEqual(
+        [ChildKind.Commit, ChildKind.File].sort(),
+      )
+      // A subagent's todo is recorded, as what it works on, and no todo shows the subagent.
+      const children = taskChildren(db, taskId)
+      expect(subagentTodo(children, 'use-fix-501')).toBe('1')
+      expect(subagentTodo(children, 'seed-4')).toBe('2')
+      const shown = [...hub.children.todos, hub.children.unfiled].flatMap((group) => group.children)
+      expect(shown.map(({ kind }) => kind).sort()).toEqual(
         [
-          `${ChildKind.File} docs/dated.md`,
-          `${ChildKind.File} docs/limits.md`,
-          `${ChildKind.Subagent} seed-4`,
-          `${ChildKind.Watcher} use-watch`,
+          ChildKind.Commit,
+          ChildKind.Commit,
+          ...Array<ChildKind>(3).fill(ChildKind.File),
+          ChildKind.Link,
+          ChildKind.Link,
         ].sort(),
       )
-      expect(hub.filings).toHaveLength(8)
-      expect(hub.filings.every(({ source, filedAt }) => source === FilingSource.Named && filedAt === now)).toBe(true)
-      // What named no todo is under none: a file, a watcher and a commit.
-      expect(hub.children.unfiled.children.map(({ kind }) => kind).sort()).toEqual(
-        [ChildKind.Commit, ChildKind.File, ChildKind.Watcher].sort(),
-      )
-      // The watcher its subagent started is filed on its own, apart from its subagent's todo.
-      const second = hub.children.todos.find(({ todoId }) => todoId === '2')
-      expect(second?.children.map(({ kind }) => kind)).toContain(ChildKind.Watcher)
     })
 
     it('leaves each todo’s panel as it says: open or closed, on its filter or all', () => {
@@ -890,21 +913,24 @@ describe('applySeed', () => {
       const ship = readTodoHub(db, idOf('Ship the rate-limit fixes for 2.5'))
       const counts = (todoId: string): number[] => {
         const group = [...ship.children.todos, ship.children.unfiled].find((each) => each.todoId === todoId)
-        return Object.values(group?.tallies ?? {}).map(({ count }) => count)
+        return PRODUCED_KINDS.map((kind) => group?.tallies[kind] ?? -1)
       }
-      // Files, links, subagents, watchers, changes: as 46-todo-hub.html has them.
-      expect(counts('1')).toEqual([0, 2, 2, 1, 2])
-      expect(counts('2')).toEqual([0, 3, 1, 1, 2])
-      expect(counts('3')).toEqual([0, 0, 0, 0, 0])
-      expect(counts('4')).toEqual([2, 2, 1, 1, 1])
-      expect(counts(UNFILED_TODO_ID)).toEqual([0, 0, 0, 0, 0])
-      expect(ship.children.todos[0]?.tallies[ChildKind.Subagent].live).toBe(true)
-      expect(ship.children.todos[1]?.tallies[ChildKind.Watcher].live).toBe(true)
+      // Files, links, changes: as 46-todo-hub.html has them.
+      expect(counts('1')).toEqual([0, 2, 2])
+      expect(counts('2')).toEqual([0, 3, 2])
+      expect(counts('3')).toEqual([0, 0, 0])
+      expect(counts('4')).toEqual([2, 2, 1])
+      expect(counts(UNFILED_TODO_ID)).toEqual([0, 0, 0])
+      // Its four subagents each work on one of the todos, as the Agents tab says of each; its watchers on none.
+      const shipChildren = taskChildren(db, idOf('Ship the rate-limit fixes for 2.5'))
+      expect([...subagentTodos(shipChildren).values()].sort()).toEqual(['1', '1', '2', '4'])
+      expect(ship.filings.map(({ kind }) => kind)).not.toContain('watcher')
 
       // The task from before the hub has it all under no todo, and the one with no todos has no groups at all.
       const before = readTodoHub(db, idOf('Fix the UTC date test'))
       expect(before.children.todos.map(({ children }) => children.length)).toEqual([0, 0, 0, 0])
-      expect(before.children.unfiled.children).toHaveLength(4)
+      // Its link and its two commits: the watcher it had is no part of the group (49-todo-hub-unfiled.html).
+      expect(before.children.unfiled.children).toHaveLength(3)
       const tidy = readTodoHub(db, idOf('Tidy the API reference'))
       expect(tidy.children.todos).toEqual([])
       expect(tidy.children.unfiled.children).toHaveLength(4)

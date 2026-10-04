@@ -390,7 +390,7 @@ describe('agentTodo', () => {
   })
 
   it('is none for something else filed under the same key', () => {
-    expect(agentTodo([filing('fix-501', '1', ChildKind.Watcher)], todos, agents, 'fix-501')).toBeNull()
+    expect(agentTodo([filing('fix-501', '1', ChildKind.Commit)], todos, agents, 'fix-501')).toBeNull()
   })
 
   describe('read from the store', () => {

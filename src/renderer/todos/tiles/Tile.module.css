@@ -1,7 +1,7 @@
 /*
  * A child's tile under an open todo, from docs/design/html/46-todo-hub.html (.tile). Nothing inside a todo's card is
- * black: a tile is on inner with an inner-border outline. Blue is live, pink is what itself failed, and grey is
- * everything else.
+ * black: a tile is on inner with an inner-border outline. Nothing under a todo is live, so a tile is grey throughout,
+ * with pink only for a commit's removed lines.
  */
 .tile {
   display: flex;
@@ -14,13 +14,6 @@
 
 .tile:hover {
   background: var(--color-inner-hover);
-}
-
-/* A running subagent, a watcher whose process runs: the live tint, under the pointer too. */
-.tile.live,
-.tile.live:hover {
-  background: var(--color-live);
-  border-color: var(--color-live-border);
 }
 
 .tile:focus-visible {
@@ -111,14 +104,6 @@
   white-space: pre;
 }
 
-.liveText {
-  color: var(--color-blue-text);
-}
-
-.failed {
-  color: var(--color-pink);
-}
-
 /*
  * A file's or a link's actions take its age's place while the tile is under the pointer or has the focus (#498): icon
  * buttons, as the Artifacts tab's rows have.
@@ -165,11 +150,12 @@
   color: var(--color-text);
 }
 
-/* Under the first line, in line with its text: the tile's own lines, then what it opens to in place. */
+/* Under the first line, in line with its text: what the tile opens to in place. */
 .body {
   margin-left: 22px;
 }
 
+/* A line of what it opens to: a commit's branch. One line, cut short. */
 .line {
   font-family: var(--font-mono);
   font-size: var(--font-size-label);
@@ -178,12 +164,6 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.lineLabel {
-  margin-right: var(--space-sm);
-  font-weight: 500;
-  color: var(--color-muted);
 }
 
 /* A commit's lines added and removed: teal, and pink for what it took away. */

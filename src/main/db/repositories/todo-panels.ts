@@ -6,13 +6,20 @@ import { Row } from './rows'
 
 const FILTERS = Object.values(ChildFilter)
 
+/**
+ * The filters a panel could be left on until #535 took subagents and watchers out of the hub. The table's `filter`
+ * check still allows them, and a row left on one stays as it is until its panel is next opened, closed or filtered:
+ * it's read as All (`parseTodoPanel`), and nothing writes one.
+ */
+const RETIRED_FILTERS: readonly string[] = ['subagent', 'watcher']
+
 function parseTodoPanel(raw: unknown): TodoPanel {
   const row = new Row('todo_panels', raw)
   return {
     taskId: row.text('task_id'),
     todoId: row.text('todo_id'),
     open: row.flag('open'),
-    filter: row.oneOf('filter', FILTERS),
+    filter: RETIRED_FILTERS.includes(row.text('filter')) ? ChildFilter.All : row.oneOf('filter', FILTERS),
   }
 }
 

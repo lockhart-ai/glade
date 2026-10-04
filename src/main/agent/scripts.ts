@@ -16,7 +16,7 @@ import {
   type ToolInput,
 } from '../../shared/domain'
 import type { McpServerOrigin } from './backend'
-import { ChildTool, nameTodo } from './child-calls'
+import { nameTodo } from './child-calls'
 import {
   FileAccess,
   SandboxOperation,
@@ -4080,30 +4080,28 @@ export const FILES_CHILDREN = {
 /** What each turn of `files-children` makes, by its key in `FILES_CHILDREN.named` and `.unnamed`. */
 export type FiledChild = 'subagent' | 'commit' | 'monitor' | 'command' | 'wakeup' | 'cron'
 
-/** Whether a call that makes one names its todo: a subagent's and a commit's do, a watcher's never does. */
-function namesTodo(child: FiledChild): child is 'subagent' | 'commit' {
-  return child === 'subagent' || child === 'commit'
-}
+/** The two whose call may name a todo: a subagent's and a commit's. A watcher's never does. */
+type TodoChild = 'subagent' | 'commit'
 
 /**
  * One turn of `files-children`: a subagent in the background, a commit, a `Monitor`, a command in the background, a
- * `ScheduleWakeup` and a `CronCreate` job, each call as `call` makes its input from the tool, the input without a todo
- * and what it makes (to name its todo, or not). The commit is real (`ScriptStepKind.Shell`).
+ * `ScheduleWakeup` and a `CronCreate` job. The `Agent` call and the `Bash` call that commits are as `call` makes each
+ * from its input without a todo (to name its todo, or not); a watcher's call is written with its own text alone. The
+ * commit is real (`ScriptStepKind.Shell`).
  */
 function childrenTurn(
   made: typeof FILES_CHILDREN.named | typeof FILES_CHILDREN.unnamed,
-  call: (tool: ChildTool, input: ToolInput, child: FiledChild) => ToolInput,
+  call: (input: ToolInput, child: TodoChild) => ToolInput,
 ): ScriptStep[] {
-  const text = (child: FiledChild): string => {
+  const text = (child: TodoChild): string => {
     const value = made[child]
     return typeof value === 'string' ? value : value.text
   }
-  const commit = call(ChildTool.Bash, { command: made.commitCommand, description: text('commit') }, 'commit')
+  const commit = call({ command: made.commitCommand, description: text('commit') }, 'commit')
   return [
     background(
       'review',
       call(
-        ChildTool.Agent,
         { description: text('subagent'), subagent_type: 'general-purpose', prompt: `${text('subagent')}, and report.` },
         'subagent',
       ),
@@ -4118,40 +4116,24 @@ function childrenTurn(
     ...tool(
       'monitor',
       'Monitor',
-      call(
-        ChildTool.Monitor,
-        { description: text('monitor'), timeout_ms: 1_800_000, command: made.monitorCommand },
-        'monitor',
-      ),
+      { description: made.monitor, timeout_ms: 1_800_000, command: made.monitorCommand },
       'Monitor started (task bm7c2x1, expires in 30m unless the source ends first; you get one notice at expiry — ' +
         're-arm if you still need the watch). You will be notified on each event.',
     ),
     ...tool(
       'command',
       'Bash',
-      call(
-        ChildTool.Bash,
-        { command: made.commandCommand, description: text('command'), run_in_background: true },
-        'command',
-      ),
+      { command: made.commandCommand, description: made.command, run_in_background: true },
       'Command running in background with ID: b4k2p9x. Output is being written to: tasks/b4k2p9x.output.',
     ),
     ...tool(
       'wakeup',
       'ScheduleWakeup',
-      call(
-        ChildTool.ScheduleWakeup,
-        { delaySeconds: 300, reason: text('wakeup'), prompt: made.wakeupPrompt, noop: false },
-        'wakeup',
-      ),
+      { delaySeconds: 300, reason: made.wakeup, prompt: made.wakeupPrompt, noop: false },
       'Next wakeup scheduled (in 300s). Nothing more to do this turn — the harness re-invokes you when the wakeup ' +
         'fires or a task-notification arrives.',
     ),
-    toolUse(
-      'cron',
-      'CronCreate',
-      call(ChildTool.CronCreate, { cron: made.cronSchedule, prompt: text('cron'), recurring: true }, 'cron'),
-    ),
+    toolUse('cron', 'CronCreate', { cron: made.cronSchedule, prompt: made.cron, recurring: true }),
     toolResult(
       'cron',
       `Scheduled recurring job ${made.cronJob} (${made.cronHumanSchedule}). Session-only (not written to disk, dies ` +
@@ -4193,9 +4175,7 @@ const filesChildren: AgentScript = {
       shell('setup', FILES_CHILDREN.setup, 'Make the workspace a repository if it isn’t one'),
       ...FILES_CHILDREN.todos.flatMap((item, index) => createTodo(item, index + 1)),
       ...updateTodo(1, 'in_progress'),
-      ...childrenTurn(FILES_CHILDREN.named, (tool, input, child) =>
-        namesTodo(child) ? nameTodo(tool, input, FILES_CHILDREN.named[child].todo) : input,
-      ),
+      ...childrenTurn(FILES_CHILDREN.named, (input, child) => nameTodo(input, FILES_CHILDREN.named[child].todo)),
       ...updateTodo(1, 'completed'),
       ...updateTodo(2, 'completed'),
       ...updateTodo(3, 'in_progress'),
@@ -4205,7 +4185,7 @@ const filesChildren: AgentScript = {
     [
       ...turnStart(),
       delay(BEAT_MS),
-      ...childrenTurn(FILES_CHILDREN.unnamed, (_tool, input) => input),
+      ...childrenTurn(FILES_CHILDREN.unnamed, (input) => input),
       gladeTool('add-file', 'add_artifact', FILES_CHILDREN.artifacts.file),
       gladeTool('add-link', 'add_artifact', FILES_CHILDREN.artifacts.link),
       say(FILES_CHILDREN.unnamed.reply),
@@ -4251,14 +4231,13 @@ export const SORTS_CHILDREN = {
     { child: 'c1', todo: '2' },
     { child: 'c2', todo: '3' },
     { child: 'c3', todo: '1' },
-    { child: 'c5', todo: '3' },
   ],
   sorted:
-    'Everything is filed: the review and what it made under "Review the date helpers", the write-up under "Write up ' +
-    'the review", and the PR and its CI watch under "Watch CI on PR #42".',
+    'Everything is filed: what the review committed under "Review the date helpers", the write-up under "Write up ' +
+    'the review", and the PR under "Watch CI on PR #42".',
   movePrompt: 'Put the review under the write-up instead.',
   move: [{ child: 'c3', todo: '2' }],
-  moved: 'Moved the review under "Write up the review", with its commit and the tests it left running.',
+  moved: 'The review is for "Write up the review" now, and its commit is under it.',
   /** A todo and a child that aren't there. */
   badPrompt: 'Now put the write-up and the changelog under the release todo.',
   bad: [
@@ -4270,8 +4249,8 @@ export const SORTS_CHILDREN = {
 
 /**
  * A task that makes one of each kind of child with nothing filing them, as every task did before the todo hub: three
- * todos, a subagent that makes a real commit and leaves its tests running, a file and a link declared as artifacts,
- * and a `Monitor`. `sorts-children` then sorts it.
+ * todos, a subagent that makes a real commit, and a file and a link declared as artifacts. It has two watchers too,
+ * the tests its subagent leaves running and a `Monitor`, which are no child of a todo. `sorts-children` then sorts it.
  */
 const unsortedChildren: AgentScript = {
   name: 'unsorted-children',
@@ -4324,9 +4303,10 @@ const unsortedChildren: AgentScript = {
 
 /**
  * Sorts what `unsorted-children` made, with Glade's `list_children` and `file_children` (P16-05, #496), in a session
- * that has them (one started with the todo hub on): asked to file its things, it lists them and files each under a
- * todo in one call; asked to move the review, it moves the subagent, which brings its commit and its tests; asked for
- * a todo and a child that aren't there, its call is refused and it says so. A spec plays it in the task
+ * that has them (one started with the todo hub on): asked to file its things, it lists them (the file, the link, the
+ * commit, and the subagent, which has no todo yet; no watcher) and files each under a todo in one call; asked to move
+ * the review, it gives the subagent another todo, which brings its commit; asked for a todo and a child that aren't
+ * there, its call is refused and it says so. A spec plays it in the task
  * `unsorted-children` made, after a relaunch, so its first turn is the sorting.
  */
 const sortsChildren: AgentScript = {

@@ -294,8 +294,7 @@
           "state": "finished",
           "minutesAgo": 6,
           "endedMinutesAgo": 1,
-          "outcome": "unit-tests fail test_retry_after_burst",
-          "todo": "1"
+          "outcome": "unit-tests fail test_retry_after_burst"
         },
         {
           "kind": "monitor",
@@ -303,8 +302,7 @@
           "label": "CI checks on PR #513",
           "detail": "gh pr checks 513 --watch --interval 30",
           "minutesAgo": 2,
-          "lastOutput": "lint pass 38s · unit-tests running",
-          "todo": "2"
+          "lastOutput": "lint pass 38s · unit-tests running"
         },
         {
           "kind": "monitor",
@@ -314,8 +312,7 @@
           "state": "finished",
           "minutesAgo": 11,
           "endedMinutesAgo": 5,
-          "outcome": "all checks passed",
-          "todo": "4"
+          "outcome": "all checks passed"
         }
       ],
       "commits": [

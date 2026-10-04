@@ -66,7 +66,7 @@ export const SANDBOX_LINE =
  * made before the hub when asked to ("file your things under your todos").
  */
 export const TODO_HUB_TOOLS_LINE =
-  'What this task has made (its artifacts, subagents, watchers and commits) shows to the user under its todos. ' +
+  'What this task has produced (its artifacts and commits) shows to the user under its todos. ' +
   `${GladeTool.ListChildren} lists them, each with a short id and the todo it's under, and ${GladeTool.FileChildren} ` +
   'files them under a todo or moves them to another, by those ids. When the user asks you to file or sort what you ' +
   'made, list them, then file them all in one call.'

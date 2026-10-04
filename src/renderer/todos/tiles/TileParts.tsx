@@ -23,7 +23,7 @@ export const FILES_CLASS = styles.files
 export function makerName(events: readonly ToolEvent[] | undefined, toolUseId: string | null): string | null {
   if (toolUseId === null) return null
   const maker = findSubagent(events, toolUseId)
-  return maker === undefined ? UNKNOWN_SUBAGENT : subagentName(maker.call)
+  return maker === undefined ? UNKNOWN_SUBAGENT : subagentName(maker)
 }
 
 export interface TileMetaProps {

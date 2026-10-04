@@ -1,6 +1,7 @@
 import type { Database } from 'better-sqlite3'
 import type { EpochMs } from '../../../shared/domain'
 import { CHILD_KINDS, type ChildRef } from '../../../shared/todoHub'
+import { WATCHER_KIND } from './child-ids'
 import { Row } from './rows'
 
 // The filings a task's agent owes (P16-04, `../../todo-hub/filing`): the children it made itself, with the todo hub on,
@@ -22,11 +23,14 @@ export function oweFilings(
   })()
 }
 
-/** The children of a task its agent still owes a filing for, in the order they were recorded. */
+/**
+ * The children of a task its agent still owes a filing for, in the order they were recorded. A watcher, from when
+ * watchers were filed (`WATCHER_KIND`), is owed nothing and left out.
+ */
 export function listOwedFilings(db: Database, taskId: string): ChildRef[] {
   return db
-    .prepare('SELECT kind, key FROM owed_filings WHERE task_id = ? ORDER BY made_at, rowid')
-    .all(taskId)
+    .prepare('SELECT kind, key FROM owed_filings WHERE task_id = ? AND kind <> ? ORDER BY made_at, rowid')
+    .all(taskId, WATCHER_KIND)
     .map((raw) => {
       const row = new Row('owed_filings', raw)
       return { kind: row.oneOf('kind', CHILD_KINDS), key: row.text('key') }

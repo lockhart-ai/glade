@@ -6,79 +6,65 @@ import {
   namedTodo,
   nameTodo,
   readsTodo,
-  TODO_FIELDS,
+  TODO_FIELD,
   TODO_TOOLS,
   todoMarker,
 } from './child-calls'
 
+/** A watcher's call, by the tool that starts one, with a marker where a todo's would go if watchers were filed. */
+const WATCHER_CALLS: [string, Record<string, unknown>][] = [
+  ['Monitor', { description: '[todo 3] CI checks', command: 'gh pr checks 42' }],
+  ['Bash', { description: '[todo 2] Run the tests', command: 'npm test', run_in_background: true }],
+  ['ScheduleWakeup', { delaySeconds: 300, reason: '[todo 3] Check CI again', prompt: '[todo 3] Check.' }],
+  ['CronCreate', { cron: '0 9 * * *', prompt: '[todo 3] Check the PR.', description: '[todo 3] Check' }],
+]
+
 describe('isChildTool', () => {
-  it('knows the five tools that make a child, and no other', () => {
-    for (const tool of Object.values(ChildTool)) expect(isChildTool(tool)).toBe(true)
-    for (const tool of ['Read', 'TaskCreate', 'mcp__glade__add_artifact', 'agent', '']) {
-      expect(isChildTool(tool)).toBe(false)
+  it('knows the two tools a todo is read off, and no other: no tool that starts a watcher but Bash', () => {
+    expect(Object.values(ChildTool)).toEqual(['Agent', 'Bash'])
+    expect(TODO_TOOLS).toEqual([ChildTool.Agent, ChildTool.Bash])
+    for (const tool of TODO_TOOLS) expect(isChildTool(tool)).toBe(true)
+    for (const tool of ['Monitor', 'ScheduleWakeup', 'CronCreate', 'Read', 'TaskCreate', 'agent', 'bash', '']) {
+      expect(isChildTool(tool), tool).toBe(false)
     }
+    expect(isChildTool('mcp__glade__add_artifact')).toBe(false)
   })
 })
 
 describe('nameTodo', () => {
-  it("puts the marker at the start of each tool's own free text, and leaves the rest of the input alone", () => {
-    expect(
-      nameTodo(ChildTool.Agent, { description: 'Review the date helpers', prompt: 'Read src/dates.ts.' }, '2'),
-    ).toEqual({
+  it('puts the marker at the start of the call’s description, and leaves the rest of the input alone', () => {
+    expect(TODO_FIELD).toBe('description')
+    expect(nameTodo({ description: 'Review the date helpers', prompt: 'Read src/dates.ts.' }, '2')).toEqual({
       description: '[todo 2] Review the date helpers',
       prompt: 'Read src/dates.ts.',
     })
-    expect(
-      nameTodo(ChildTool.Monitor, { description: 'CI checks', timeout_ms: 60_000, command: 'gh pr checks' }, '3'),
-    ).toEqual({
-      description: '[todo 3] CI checks',
-      timeout_ms: 60_000,
-      command: 'gh pr checks',
-    })
-    expect(
-      nameTodo(ChildTool.Bash, { command: 'npm test', description: 'Run the tests', run_in_background: true }, '1'),
-    ).toEqual({
-      command: 'npm test',
-      description: '[todo 1] Run the tests',
-      run_in_background: true,
-    })
-    expect(
-      nameTodo(ChildTool.ScheduleWakeup, { delaySeconds: 300, reason: 'Check the rollout', prompt: 'Check it.' }, '4'),
-    ).toEqual({
-      delaySeconds: 300,
-      reason: '[todo 4] Check the rollout',
-      prompt: 'Check it.',
-    })
-    expect(nameTodo(ChildTool.CronCreate, { cron: '0 9 * * *', prompt: 'Check the queue.' }, '12')).toEqual({
-      cron: '0 9 * * *',
-      prompt: '[todo 12] Check the queue.',
+    expect(nameTodo({ command: 'git commit -m Fix', description: 'Commit the fix' }, '12')).toEqual({
+      command: 'git commit -m Fix',
+      description: '[todo 12] Commit the fix',
     })
   })
 
-  it('names the todo in a call that has no text of its own, or an empty one', () => {
-    expect(nameTodo(ChildTool.Bash, { command: 'git commit -m Fix' }, '2')).toEqual({
+  it('names the todo in a call that has no description, an empty one, or one that isn’t text', () => {
+    expect(nameTodo({ command: 'git commit -m Fix' }, '2')).toEqual({
       command: 'git commit -m Fix',
       description: '[todo 2]',
     })
-    expect(nameTodo(ChildTool.Agent, { description: '', prompt: 'Go.' }, '2')).toEqual({
-      description: '[todo 2]',
-      prompt: 'Go.',
-    })
-    expect(nameTodo(ChildTool.Monitor, { description: 7 }, '2')).toEqual({ description: '[todo 2]' })
+    expect(nameTodo({ description: '', prompt: 'Go.' }, '2')).toEqual({ description: '[todo 2]', prompt: 'Go.' })
+    expect(nameTodo({ description: 7 }, '2')).toEqual({ description: '[todo 2]' })
   })
 
   it("doesn't change the input it's given", () => {
-    const input = { description: 'CI checks' }
-    nameTodo(ChildTool.Monitor, input, '2')
-    expect(input).toEqual({ description: 'CI checks' })
+    const input = { description: 'Commit the fix' }
+    nameTodo(input, '2')
+    expect(input).toEqual({ description: 'Commit the fix' })
   })
 })
 
 describe('namedTodo', () => {
-  it('reads back what nameTodo wrote, for every tool: the id, and the input as it was', () => {
-    for (const tool of Object.values(ChildTool)) {
-      const input = { [TODO_FIELDS[tool]]: 'Watch the queue', command: 'sleep 1' }
-      expect(namedTodo(tool, nameTodo(tool, input, '7'))).toEqual({ todoId: '7', input })
+  it('reads back what nameTodo wrote, for either tool: the id, and the input as it was', () => {
+    for (const tool of TODO_TOOLS) {
+      const input = { description: 'Fix the UTC date test', command: 'git commit -am Fix' }
+      expect(namedTodo(tool, nameTodo(input, '7'))).toEqual({ todoId: '7', input })
     }
   })
 
@@ -87,9 +73,9 @@ describe('namedTodo', () => {
       todoId: '3',
       input: { description: 'Review the orders code' },
     })
-    expect(namedTodo('Monitor', { description: '  [Todo 10]CI checks' })).toEqual({
+    expect(namedTodo('Agent', { description: '  [Todo 10]Review the orders code' })).toEqual({
       todoId: '10',
-      input: { description: 'CI checks' },
+      input: { description: 'Review the orders code' },
     })
     expect(namedTodo('Bash', { description: '[todo 2]', command: 'git commit -m Fix' })).toEqual({
       todoId: '2',
@@ -104,17 +90,20 @@ describe('namedTodo', () => {
     // Only an id Claude Code could have given: digits.
     expect(namedTodo('Agent', { description: '[todo two] Review the date helpers' })).toBeNull()
     expect(namedTodo('Agent', { description: '[todo] Review the date helpers' })).toBeNull()
-    // Only in the tool's own field: an `Agent` call's prompt, or a `CronCreate` call's description, isn't it.
+    // Only in the description: an `Agent` call's prompt, or a `Bash` call's command, isn't it.
     expect(namedTodo('Agent', { description: 'Review', prompt: '[todo 2] Review the date helpers' })).toBeNull()
-    expect(namedTodo('CronCreate', { description: '[todo 2] Check', prompt: 'Check the queue.' })).toBeNull()
-    expect(namedTodo('ScheduleWakeup', { prompt: '[todo 2] Check the rollout.' })).toBeNull()
+    expect(namedTodo('Bash', { description: 'Commit', command: '[todo 2] git commit' })).toBeNull()
   })
 
-  it('finds none in a call with no text there, or to a tool that makes no child', () => {
+  it('finds none in a call with no text there, or to a tool no todo is read off, a watcher’s among them', () => {
     expect(namedTodo('Bash', { command: 'git commit -m Fix' })).toBeNull()
-    expect(namedTodo('Monitor', { description: 2 })).toBeNull()
+    expect(namedTodo('Agent', { description: 2 })).toBeNull()
     expect(namedTodo('Read', { description: '[todo 2] Read it' })).toBeNull()
     expect(namedTodo('mcp__glade__add_artifact', { description: '[todo 2] Add it' })).toBeNull()
+    // Whatever field its marker is in: nothing knows a watcher's tools any more.
+    for (const [tool, input] of WATCHER_CALLS.filter(([name]) => name !== 'Bash')) {
+      expect(namedTodo(tool, input), tool).toBeNull()
+    }
   })
 })
 
@@ -128,19 +117,12 @@ describe('readsTodo', () => {
     const commit = { command: 'git commit -am "Fix"', description: '[todo 2] Commit the fix' }
     expect(readsTodo({ toolName: 'Bash', input: commit, subagent: false })).toBe(true)
     expect(readsTodo({ toolName: 'Bash', input: { ...commit, run_in_background: false }, subagent: false })).toBe(true)
-    expect(TODO_TOOLS).toEqual([ChildTool.Agent, ChildTool.Bash])
   })
 
   it('reads nothing off a watcher’s call, a subagent’s command, or any other tool', () => {
-    const watchers: [string, Record<string, unknown>][] = [
-      ['Monitor', { description: '[todo 3] CI checks', command: 'gh pr checks 42' }],
-      ['Bash', { description: '[todo 2] Run the tests', command: 'npm test', run_in_background: true }],
-      ['ScheduleWakeup', { delaySeconds: 300, reason: '[todo 3] Check CI again', prompt: 'Check.' }],
-      ['CronCreate', { cron: '0 9 * * *', prompt: '[todo 3] Check the PR.' }],
-    ]
-    for (const [toolName, input] of watchers) {
-      expect(readsTodo({ toolName, input, subagent: false })).toBe(false)
-      expect(readsTodo({ toolName, input, subagent: true })).toBe(false)
+    for (const [toolName, input] of WATCHER_CALLS) {
+      expect(readsTodo({ toolName, input, subagent: false }), toolName).toBe(false)
+      expect(readsTodo({ toolName, input, subagent: true }), toolName).toBe(false)
     }
     // What a subagent commits follows its todo: its command is its own.
     const commit = { command: 'git commit -am "Fix"', description: '[todo 2] Commit the fix' }

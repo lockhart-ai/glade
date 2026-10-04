@@ -15,6 +15,7 @@ import {
   type ToolInput,
 } from '../../shared/domain'
 import { FILE_CHILDREN_TOOL } from '../../shared/toolName'
+import { subagentTodo } from '../../shared/todoHub'
 import { listMessages } from '../db/repositories/messages'
 import { listOwedFilings } from '../db/repositories/owed-filings'
 import { listOpenPermissionRequests } from '../db/repositories/permission-requests'
@@ -24,7 +25,7 @@ import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from
 import { listToolEvents } from '../db/repositories/tool-events'
 import { listWatchers } from '../db/repositories/watchers'
 import { createQuestionBroker } from '../questions/questions'
-import { readTodoHub } from '../todo-hub/todo-hub'
+import { readTodoHub, taskChildren } from '../todo-hub/todo-hub'
 import {
   PromptVerdict,
   type AgentSessionOptions,
@@ -469,6 +470,12 @@ describe('a scripted agent, through the runner, with the todo hub on', () => {
     )
   }
 
+  /** The todos the task's subagents work on, in the order they started: plumbing, which no todo shows. */
+  function working(): (string | null)[] {
+    const children = taskChildren(db, task.id)
+    return children.subagents.map(({ toolUseId }) => subagentTodo(children, toolUseId))
+  }
+
   it('files at the end of its turn when it ignored Glade right after the call: held once, its reply written again', async () => {
     const agent = start({
       name: 'files-when-held',
@@ -478,7 +485,8 @@ describe('a scripted agent, through the runner, with the todo hub on', () => {
 
     await send(agent, 'Review the staging deploy.')
 
-    expect(placed()).toEqual([['subagent asked'], []])
+    expect(placed()).toEqual([[], []])
+    expect(working()).toEqual(['1'])
     expect(toolCalls().map(({ name }) => name)).toEqual(['TaskCreate', 'Agent', FILE_CHILDREN_TOOL])
     // The reply it wrote before the hold is in the tool log; the user reads the one it ended on.
     expect(narrated()).toEqual(['The deploy is reviewed.'])
@@ -502,14 +510,15 @@ describe('a scripted agent, through the runner, with the todo hub on', () => {
     expect(narrated()).toEqual(['The deploy is reviewed.', 'The deploy is reviewed.'])
     expect(replies()).toEqual(['The deploy is reviewed.'])
     // Its subagent has no todo, and one is still owed.
-    expect(placed()).toEqual([[], ['subagent unfiled']])
+    expect(placed()).toEqual([[], []])
+    expect(working()).toEqual([null])
     expect(listOwedFilings(db, task.id)).toHaveLength(1)
 
     await send(agent, 'Anything new?')
 
     expect(narrated().slice(2)).toEqual(['Nothing new.', 'Nothing new.'])
     expect(replies()).toEqual(['The deploy is reviewed.', 'Nothing new.'])
-    expect(placed()).toEqual([[], ['subagent unfiled']])
+    expect(working()).toEqual([null])
   })
 
   it('is never told of a watcher, or held for one: its turn ends once, on its reply', async () => {
@@ -526,7 +535,10 @@ describe('a scripted agent, through the runner, with the todo hub on', () => {
     expect(narrated()).toEqual([])
     expect(replies()).toEqual(['The deploy is being watched.'])
     expect(listWatchers(db, task.id)).toHaveLength(1)
-    expect(placed()).toEqual([[], ['watcher unfiled']])
+    // Nor is it under no todo: a watcher is no child, and has no id.
+    expect(placed()).toEqual([[], []])
+    expect(listWatchers(db, task.id)).toHaveLength(1)
+    expect(db.prepare('SELECT COUNT(*) FROM child_ids').pluck().get()).toBe(0)
     expect(listOwedFilings(db, task.id)).toEqual([])
   })
 

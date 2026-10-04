@@ -106,7 +106,6 @@ export const refOf = {
   file: (path: string): ChildRef => ({ kind: ChildKind.File, key: path }),
   link: (url: string): ChildRef => ({ kind: ChildKind.Link, key: url }),
   subagent: (toolUseId: string): ChildRef => ({ kind: ChildKind.Subagent, key: toolUseId }),
-  watcher: (toolUseId: string): ChildRef => ({ kind: ChildKind.Watcher, key: toolUseId }),
   commit: (commit: TaskCommit): ChildRef => ({ kind: ChildKind.Commit, key: commitChildKey(commit) }),
 }
 

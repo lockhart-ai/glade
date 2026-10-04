@@ -53,7 +53,7 @@ import { createdTaskId } from '../todos/schema'
 import { readTodoHub, taskChildren } from '../todo-hub/todo-hub'
 import { todoListFor } from '../todos/todos'
 import { listWatchers } from '../db/repositories/watchers'
-import { ChildTool, namedTodo, TODO_FIELDS } from './child-calls'
+import { namedTodo } from './child-calls'
 import {
   createAgentRunner,
   SANDBOX_FAILED_REFUSAL,
@@ -286,14 +286,14 @@ describe('AGENT_SCRIPTS', () => {
     const CHILDREN: readonly FiledChild[] = ['subagent', 'commit', 'monitor', 'command', 'wakeup', 'cron']
     /** The two whose call names a todo, and so how many filing calls a turn that names none ends up making. */
     const FILED = 2
-    /** The tool that makes each child. */
-    const TOOLS: Readonly<Record<FiledChild, ChildTool>> = {
-      subagent: ChildTool.Agent,
-      commit: ChildTool.Bash,
-      monitor: ChildTool.Monitor,
-      command: ChildTool.Bash,
-      wakeup: ChildTool.ScheduleWakeup,
-      cron: ChildTool.CronCreate,
+    /** The tool that makes each child, and the free text of its input that says what the call is for. */
+    const TOOLS: Readonly<Record<FiledChild, readonly [tool: string, field: string]>> = {
+      subagent: ['Agent', 'description'],
+      commit: ['Bash', 'description'],
+      monitor: ['Monitor', 'description'],
+      command: ['Bash', 'description'],
+      wakeup: ['ScheduleWakeup', 'reason'],
+      cron: ['CronCreate', 'prompt'],
     }
     let root: string
 
@@ -313,11 +313,11 @@ describe('AGENT_SCRIPTS', () => {
       return execFileSync('git', ['log', '--format=%s'], { cwd: root, encoding: 'utf8' }).trim().split('\n')
     }
 
-    /** The agent's own call whose text (the tool's free text, as the model wrote it) is `text`. */
-    function callWith(tool: ChildTool, text: string): ToolCallEvent {
-      const name: string = tool
+    /** The agent's own call that makes `child` whose text (the tool's free text, as the model wrote it) is `text`. */
+    function callWith(child: FiledChild, text: string): ToolCallEvent {
+      const [tool, field] = TOOLS[child]
       const [found, ...others] = calls().filter(
-        (call) => call.parentToolUseId === null && call.name === name && call.input[TODO_FIELDS[tool]] === text,
+        (call) => call.parentToolUseId === null && call.name === tool && call.input[field] === text,
       )
       if (found === undefined || others.length > 0) throw new Error(`Expected one ${tool} call with "${text}"`)
       return found
@@ -343,22 +343,19 @@ describe('AGENT_SCRIPTS', () => {
         const made = FILES_CHILDREN.named[child]
         if (typeof made === 'string') {
           // A watcher isn't filed: its call is written with its own text alone.
-          const call = callWith(TOOLS[child], made)
+          const call = callWith(child, made)
           expect(namedTodo(call.name, call.input)).toBeNull()
           continue
         }
         const { text, todo } = made
-        const call = callWith(TOOLS[child], `[todo ${todo}] ${text}`)
+        const call = callWith(child, `[todo ${todo}] ${text}`)
         // It names a todo the list has, and its own text is what's left.
         expect(ids).toContain(todo)
-        expect(namedTodo(call.name, call.input)).toMatchObject({
-          todoId: todo,
-          input: { [TODO_FIELDS[TOOLS[child]]]: text },
-        })
+        expect(namedTodo(call.name, call.input)).toMatchObject({ todoId: todo, input: { description: text } })
       }
       // Each child is really made: the commit, the subagent that ran, and what's left running or scheduled.
       expect(commitSubjects()).toEqual([FILES_CHILDREN.named.commitSubject])
-      const subagent = callWith(ChildTool.Agent, `[todo 1] ${FILES_CHILDREN.named.subagent.text}`)
+      const subagent = callWith('subagent', `[todo 1] ${FILES_CHILDREN.named.subagent.text}`)
       expect(subagent.state).toBe(ToolCallState.Done)
       expect(
         calls()
@@ -377,7 +374,7 @@ describe('AGENT_SCRIPTS', () => {
       await backend.whenIdle()
 
       for (const child of CHILDREN) {
-        const call = callWith(TOOLS[child], FILES_CHILDREN.unnamed[child])
+        const call = callWith(child, FILES_CHILDREN.unnamed[child])
         expect(namedTodo(call.name, call.input)).toBeNull()
       }
       // Two calls name a todo, the first turn's `Agent` call and its commit, and no more.
@@ -419,6 +416,12 @@ describe('AGENT_SCRIPTS', () => {
         )
       }
 
+      /** The todos the task's subagents work on, in the order they started: plumbing, which no todo shows. */
+      function working(): (string | null)[] {
+        const children = taskChildren(database.db, task.id)
+        return children.subagents.map(({ toolUseId }) => subagentTodo(children, toolUseId))
+      }
+
       /** The agent's `file_children` calls: how each went. */
       function filingCalls(): ToolCallState[] {
         return calls()
@@ -432,21 +435,18 @@ describe('AGENT_SCRIPTS', () => {
         agent.send(task.id, FILES_CHILDREN.prompt)
         await backend.whenIdle()
 
-        // The subagent and the commit, each under the todo its call named; the four watchers aren't filed.
-        expect(placed()).toEqual([
-          ['subagent named'],
-          ['commit named'],
-          [],
-          ['watcher unfiled', 'watcher unfiled', 'watcher unfiled', 'watcher unfiled'],
-        ])
+        // The commit is under the todo its call named. The subagent works on the one its call named, and isn't under
+        // it; the four watchers aren't filed, and are under nothing.
+        expect(placed()).toEqual([[], ['commit named'], [], []])
         const { named } = FILES_CHILDREN
-        const subagent = callWith(ChildTool.Agent, named.subagent.text)
+        const subagent = callWith('subagent', named.subagent.text)
         expect(subagentTodo(taskChildren(database.db, task.id), subagent.toolUseId)).toBe(named.subagent.todo)
+        expect(working()).toEqual([named.subagent.todo])
         // The calls ran, and were logged, with their own text alone.
         for (const child of CHILDREN) {
           const made = named[child]
           const text = typeof made === 'string' ? made : made.text
-          expect(callWith(TOOLS[child], text).input[TODO_FIELDS[TOOLS[child]]]).toBe(text)
+          expect(callWith(child, text).input[TOOLS[child][1]]).toBe(text)
         }
         expect(listWatchers(database.db, task.id).map(({ label, detail }) => [label, detail])).toEqual([
           [named.monitor, named.monitorCommand],
@@ -474,12 +474,12 @@ describe('AGENT_SCRIPTS', () => {
         // turn, and nothing was said of the four watchers. The file and the link it then declared are under the todo
         // each `add_artifact` call gave.
         expect(filingCalls()).toEqual(Array(FILED).fill(ToolCallState.Done))
-        expect(placed()).toEqual([
-          ['subagent asked', 'subagent named'],
-          ['commit asked', 'commit named', 'file named'],
-          ['link named'],
-          Array(8).fill('watcher unfiled'),
-        ])
+        expect(placed()).toEqual([[], ['commit asked', 'commit named', 'file named'], ['link named'], []])
+        // Both subagents work on the first todo: the one whose call named it, and the one the agent filed there.
+        expect(working()).toEqual(['1', '1'])
+        // No watcher was named to the agent, filed or owed.
+        expect(database.db.prepare("SELECT COUNT(*) FROM child_ids WHERE kind = 'watcher'").pluck().get()).toBe(0)
+        expect(listWatchers(database.db, task.id)).toHaveLength(8)
         expect(database.db.prepare('SELECT COUNT(*) FROM owed_filings').pluck().get()).toBe(0)
         expect(commitSubjects()).toEqual([FILES_CHILDREN.unnamed.commitSubject, FILES_CHILDREN.named.commitSubject])
         // The turn ended once, unheld, on its reply.
@@ -500,16 +500,16 @@ describe('AGENT_SCRIPTS', () => {
         expect(placed()).toEqual(before)
         resumed.send(task.id, 'Do that again.')
         await backend.whenIdle()
-        expect(placed()[0]).toEqual(['subagent named', 'subagent named'])
-        // Only its watchers are under no todo.
-        expect(new Set(placed()[3])).toEqual(new Set(['watcher unfiled']))
+        expect(working()).toEqual(['1', '1'])
+        // Nothing it produced is under no todo.
+        expect(placed()[3]).toEqual([])
         expect(filingCalls()).toEqual([])
 
         resumed.send(task.id, 'And the order totals.')
         await backend.whenIdle()
 
-        expect(placed()[0]).toEqual(['subagent asked', 'subagent named', 'subagent named'])
-        expect(new Set(placed()[3])).toEqual(new Set(['watcher unfiled']))
+        expect(working()).toEqual(['1', '1', '1'])
+        expect(placed()[3]).toEqual([])
         expect(filingCalls()).toEqual(Array(FILED).fill(ToolCallState.Done))
         // It started with the hub's lines in its prompt, so none was sent to it again when it resumed.
         expect(getSessionContext(database.db, task.id)?.todoHub).toBe(true)
@@ -571,7 +571,7 @@ describe('AGENT_SCRIPTS', () => {
       )
     }
 
-    it('makes one of each kind of child, a subagent’s commit and tests among them, with nothing filed', async () => {
+    it('makes one of each kind of child, a subagent’s commit among them, and two watchers, with nothing filed', async () => {
       await make()
 
       expect(todoListFor(database.db, task.id)?.items.map(({ id, text }) => [id, text])).toEqual(
@@ -597,12 +597,8 @@ describe('AGENT_SCRIPTS', () => {
 
     it('lists what the task made and files each under a todo in one call, once the hub is on', async () => {
       const agent = await makeThenRelaunch(true)
-      expect(placed()).toEqual([
-        [],
-        [],
-        [],
-        ['commit unfiled', 'file unfiled', 'link unfiled', 'subagent unfiled', 'watcher unfiled', 'watcher unfiled'],
-      ])
+      // What it produced is under no todo. Its subagent and its two watchers are under nothing.
+      expect(placed()).toEqual([[], [], [], ['commit unfiled', 'file unfiled', 'link unfiled']])
 
       await say(agent, SORTS_CHILDREN.sortPrompt)
 
@@ -615,33 +611,26 @@ describe('AGENT_SCRIPTS', () => {
             '#1 Review the date helpers (completed), no children',
             '#2 Write up the review (completed), no children',
             '#3 Watch CI on PR #42 (in progress), no children',
-            'Not under a todo, 6 children:',
+            // The subagent has no todo yet, so it's listed, to be given one. Neither watcher is.
+            'Not under a todo, 4 children:',
             '- c1: file "Date helpers review"',
             '- c2: link "Fix the UTC date test"',
             '- c3: subagent "Review the date helpers"',
-            '- c4: watcher "Date helper tests" (follows c3)',
-            '- c5: watcher "CI checks on PR #42"',
-            `- c6: commit "${hash.slice(0, 7)} Fix the UTC date test" (follows c3)`,
+            `- c4: commit "${hash.slice(0, 7)} Fix the UTC date test" (follows c3)`,
           ].join('\n'),
         ],
       ])
       expect(gladeCalls('file_children')).toEqual([
-        [
-          ToolCallState.Done,
-          'Filed 4 children: c1 under #2; c2, c5 under #3; c3 under #1. Moved with their subagent: c4, c6.',
-        ],
+        [ToolCallState.Done, 'Filed 3 children: c1 under #2; c2 under #3; c3 under #1. Moved with their subagent: c4.'],
       ])
-      // The subagent brought its commit and its tests; the placeholder is empty.
-      expect(placed()).toEqual([
-        ['commit inherited', 'subagent asked', 'watcher inherited'],
-        ['file asked'],
-        ['link asked', 'watcher asked'],
-        [],
-      ])
+      // The subagent's commit went under the todo it now works on; nothing is left under no todo.
+      expect(placed()).toEqual([['commit inherited'], ['file asked'], ['link asked'], []])
+      const children = taskChildren(database.db, task.id)
+      expect(children.subagents.map(({ toolUseId }) => subagentTodo(children, toolUseId))).toEqual(['1'])
       expect(listMessages(database.db, task.id).at(-1)?.body).toBe(SORTS_CHILDREN.sorted)
     })
 
-    it('moves the subagent with what it made, then is refused a todo and a child that aren’t there', async () => {
+    it('gives the subagent another todo, which brings its commit, then is refused a todo and a child that aren’t there', async () => {
       const agent = await makeThenRelaunch(true)
       await say(agent, SORTS_CHILDREN.sortPrompt)
 
@@ -649,14 +638,9 @@ describe('AGENT_SCRIPTS', () => {
 
       expect(gladeCalls('file_children').at(-1)).toEqual([
         ToolCallState.Done,
-        'Filed 1 child: c3 under #2. Moved with their subagent: c4, c6.',
+        'Filed 1 child: c3 under #2. Moved with their subagent: c4.',
       ])
-      const moved = [
-        [],
-        ['commit inherited', 'file asked', 'subagent moved', 'watcher inherited'],
-        ['link asked', 'watcher asked'],
-        [],
-      ]
+      const moved = [[], ['commit inherited', 'file asked'], ['link asked'], []]
       expect(placed()).toEqual(moved)
 
       await say(agent, SORTS_CHILDREN.badPrompt)

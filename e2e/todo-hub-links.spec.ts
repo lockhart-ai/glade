@@ -74,7 +74,7 @@ test('the todo hub: a PR or an issue a todo names is a link to the task’s own,
   await expect.poll(async () => (await desktop(glade)).opened).toEqual([PR_511, ISSUE_501, PR_513])
   await expect(first).toHaveAttribute('aria-expanded', 'true')
   await expect(second).toHaveAttribute('aria-expanded', 'false')
-  await expect(hub.tiles(hub.card('Return Retry-After'))).toHaveCount(7)
+  await expect(hub.tiles(hub.card('Return Retry-After'))).toHaveCount(4)
   expect(window.url()).toBe(page)
   expect(glade.app.windows()).toHaveLength(1)
 

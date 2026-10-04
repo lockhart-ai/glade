@@ -64,8 +64,8 @@ it('leaves every session recorded before it as not told of the todo hub, and not
   expect(() => db.prepare("UPDATE session_context SET todo_hub = 2 WHERE task_id = 'glade'").run()).toThrow(/CHECK/)
 
   // And what a task's agent owes goes with the task.
-  oweFilings(db, 'glade', [{ kind: ChildKind.Watcher, key: 'toolu_monitor' }], 5)
-  expect(listOwedFilings(db, 'glade')).toEqual([{ kind: ChildKind.Watcher, key: 'toolu_monitor' }])
+  oweFilings(db, 'glade', [{ kind: ChildKind.Subagent, key: 'toolu_agent' }], 5)
+  expect(listOwedFilings(db, 'glade')).toEqual([{ kind: ChildKind.Subagent, key: 'toolu_agent' }])
   db.prepare("DELETE FROM tasks WHERE id = 'glade'").run()
   expect(db.prepare('SELECT COUNT(*) FROM owed_filings').pluck().get()).toBe(0)
   db.close()

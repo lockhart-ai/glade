@@ -97,9 +97,9 @@ import { refreshTodos } from './todos/todos'
 import { fileChildren } from './todo-hub/todo-hub'
 import {
   ChildFilter,
-  ChildKind,
   childOfArtifact,
   childOfCommit,
+  childOfSubagent,
   FilingSource,
   type ChildRef,
   type NewFiling,
@@ -149,14 +149,18 @@ export interface SeedToolCall {
   readonly finishedMinutesAgo?: number | undefined
   /** What a running `Agent` call's subagent says it's doing now (its progress summary); none unless given. */
   readonly progressSummary?: string | undefined
-  /** For an `Agent` call: the todo its subagent is filed under in the hub (`SeedTodoId`); none unless given. */
+  /**
+   * For an `Agent` call: the todo its subagent works on (`SeedTodoId`), which its commits go under in the hub; none
+   * unless given. The subagent itself isn't shown under the todo.
+   */
   readonly todo?: SeedTodoId | undefined
 }
 
 /**
  * The todo a sample child is filed under in the todo hub (P16; `../shared/todoHub`), by the id Claude Code gave it:
  * the `N` of the `Task #N` its sample `TaskCreate` call answers with. Filed as main files any child (`fileChildren`),
- * so it needs the hub on (`settings.todoHubEnabled`); with it off, nothing is filed.
+ * so it needs the hub on (`settings.todoHubEnabled`); with it off, nothing is filed. A file, a link, a commit and a
+ * subagent take one; a watcher doesn't, since watchers aren't filed.
  */
 export type SeedTodoId = string
 
@@ -346,8 +350,6 @@ export interface SeedWatcher {
   readonly outcome?: string | undefined
   /** How long before the capture it ended, for one in an ended state; not recorded unless given. */
   readonly endedMinutesAgo?: number | undefined
-  /** The todo it's filed under in the hub; none unless given. */
-  readonly todo?: SeedTodoId | undefined
 }
 
 /** A sample commit the task made (`TaskCommit`), in the workspace's own working tree, `minutesAgo`. */
@@ -805,7 +807,6 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
             lastOutput: z.string().optional(),
             outcome: z.string().optional(),
             endedMinutesAgo: minutesAgo.optional(),
-            todo: seedTodoId.optional(),
           }),
         )
         .optional(),
@@ -1149,7 +1150,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         const seedId = `seed-${String(index)}`
         seedToolEvent(db, task.id, event, now, seedId)
         if (event.kind === ToolEventKind.ToolCall) {
-          fileUnder(event.todo, { kind: ChildKind.Subagent, key: event.toolUseId ?? seedId })
+          fileUnder(event.todo, childOfSubagent({ toolUseId: event.toolUseId ?? seedId }))
         }
       }
       refreshTodos(db, task.id)
@@ -1196,10 +1197,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         const { preamble, questions, turn, minutesAgo } = sample.questionSet
         appendQuestionSet(db, { taskId: task.id, turn, preamble, questions }, ago(minutesAgo))
       }
-      for (const watcher of sample.watchers ?? []) {
-        seedWatcher(db, task.id, watcher, ago(watcher.minutesAgo), now)
-        fileUnder(watcher.todo, { kind: ChildKind.Watcher, key: watcher.toolUseId })
-      }
+      for (const watcher of sample.watchers ?? []) seedWatcher(db, task.id, watcher, ago(watcher.minutesAgo), now)
       for (const commit of sample.commits ?? []) {
         fileUnder(commit.todo, seedCommit(db, task.id, seed.workspace.rootPath, commit, now))
       }
