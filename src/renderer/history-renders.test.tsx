@@ -1,7 +1,8 @@
 // The regression guard for #413 (typing lag in a task with a very long history): the chat, the tool log and the
 // Subagents tab render again with every change to the task, its logs or the clock, so each of their rows must render
 // only when its own data changed. Rows are counted by a function each calls exactly once per render. The Broadcast
-// modal's recipients (#489) are held to the same: one row per active task, in every workspace.
+// modal's recipients (#489) are held to the same: one row per active task, in every workspace. So is the todo hub
+// (P16, #497): a card per todo, and a tile per child of an open one.
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType } from '../shared/bridge'
@@ -13,6 +14,7 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  WatcherState,
   type Message,
   type NarrationEvent,
   type PermissionRequest,
@@ -32,6 +34,21 @@ import { storeWrapper, type StoreWrapper } from './store/test-wrapper'
 import { ELAPSED_REFRESH_MS, SubagentsTab } from './subagents/SubagentsTab'
 import { statusLabel } from './subagents/subagentsModel'
 import { TaskList } from './task-list'
+import {
+  HUB_NOW,
+  HubForTask,
+  hubAgent,
+  hubCommit,
+  hubFile,
+  hubFiling,
+  hubStore,
+  hubTodo,
+  hubWatcher,
+  refOf,
+  type HubStore,
+} from './todos/test-hub'
+import { kindCounts, tileLabel } from './todos/todoHubModel'
+import { ChildFilter } from '../shared/todoHub'
 import { rowStatus } from './task-list/rowStatus'
 import { NOW_REFRESH_MS } from './task-list/useNow'
 import { ToolLog } from './tool-log'
@@ -60,6 +77,13 @@ vi.mock('./broadcast/broadcastModel', async (importOriginal) => {
 vi.mock('./subagents/subagentsModel', async (importOriginal) => {
   const original = await importOriginal<typeof import('./subagents/subagentsModel')>()
   return { ...original, statusLabel: vi.fn(original.statusLabel) }
+})
+
+// Every card of the todo hub counts its children by kind (one `kindCounts` call per render of one), and every tile
+// names itself (one `tileLabel` call per render of one).
+vi.mock('./todos/todoHubModel', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./todos/todoHubModel')>()
+  return { ...original, kindCounts: vi.fn(original.kindCounts), tileLabel: vi.fn(original.tileLabel) }
 })
 
 const AT = new Date(2026, 8, 23, 13, 8).getTime()
@@ -547,5 +571,222 @@ describe('the Broadcast modal, with 60 active tasks in 8 workspaces', () => {
     expect(screen.getByText(/Goes to/)).toHaveTextContent('Goes to 59 active tasks in 8 workspaces.')
     expect(renders(reachText)).toBe(1)
     expect(renders(attentionLabel)).toBe(0)
+  })
+})
+
+describe('the todo hub, with 100 todos and 50 children under one (P16, #497)', () => {
+  const TODOS = Array.from({ length: 100 }, (_, index) => hubTodo(String(index + 1), `Step ${String(index + 1)}`))
+  /** Under the first todo: 20 subagents (the first of them running), 10 watchers, 10 files and 10 commits. */
+  const AGENTS = Array.from({ length: 20 }, (_, index) =>
+    hubAgent(
+      `agent-${String(index)}`,
+      `kitten-${String(index)}`,
+      index,
+      index === 0 ? {} : { state: ToolCallState.Done, output: 'Done.', finishedAt: HUB_NOW - index * 60_000 },
+    ),
+  )
+  const WATCHERS = Array.from({ length: 10 }, (_, index) => hubWatcher(`watch-${String(index)}`, 30 + index))
+  const FILES = Array.from({ length: 10 }, (_, index) =>
+    hubFile(`docs/part-${String(index)}.md`, `Part ${String(index)}`, 50 + index),
+  )
+  const COMMITS = Array.from({ length: 10 }, (_, index) =>
+    hubCommit(
+      `${String(index).padStart(2, '0')}${'c0ffee'.repeat(7)}`.slice(0, 40),
+      `Commit ${String(index)}`,
+      70 + index,
+    ),
+  )
+  /** A child of the second todo, which stays closed. */
+  const ELSEWHERE = hubWatcher('watch-elsewhere', 5)
+  /** The tool log around them: the main agent's own notes and calls, which are no child of any todo. */
+  const LOG: ToolEvent[] = [...TOOL_EVENTS, ...AGENTS]
+
+  async function renderHub(): Promise<HubStore> {
+    const wrapper = await hubStore({
+      todos: TODOS,
+      toolEvents: LOG,
+      watchers: [...WATCHERS, ELSEWHERE],
+      artifacts: FILES,
+      commits: COMMITS,
+      filings: [
+        ...AGENTS.map(({ toolUseId }) => hubFiling(refOf.subagent(toolUseId), '1')),
+        ...WATCHERS.map(({ toolUseId }) => hubFiling(refOf.watcher(toolUseId), '1')),
+        ...FILES.map(({ path }) => hubFiling(refOf.file(path), '1')),
+        ...COMMITS.map((commit) => hubFiling(refOf.commit(commit), '1')),
+        hubFiling(refOf.watcher('watch-elsewhere'), '2'),
+      ],
+      todoPanels: [{ taskId: 't1', todoId: '1', open: true, filter: ChildFilter.All }],
+    })
+    render(<HubForTask />, { wrapper: wrapper.wrapper })
+    await act(() => wrapper.store.getState().loadTodoHub('t1'))
+    // Every todo is a card, and the open one's 50 children are tiles; the closed ones built no list.
+    expect(document.querySelectorAll('[data-todo-head]')).toHaveLength(100)
+    expect(document.querySelectorAll('[role="group"][data-kind]')).toHaveLength(50)
+    vi.mocked(kindCounts).mockClear()
+    vi.mocked(tileLabel).mockClear()
+    return wrapper
+  }
+
+  /** How many cards and tiles rendered since the last look, which starts the count again. */
+  function rendered(): { cards: number; tiles: number } {
+    const counts = { cards: renders(kindCounts), tiles: renders(tileLabel) }
+    vi.mocked(kindCounts).mockClear()
+    vi.mocked(tileLabel).mockClear()
+    return counts
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(HUB_NOW)
+    vi.mocked(kindCounts).mockClear()
+    vi.mocked(tileLabel).mockClear()
+  })
+
+  it('renders only the tile of the child that was updated: no other tile, and no card', async () => {
+    const { fake } = await renderHub()
+    const [running] = AGENTS
+    if (running === undefined) throw new Error('No subagent')
+
+    // The running subagent says what it's doing now.
+    act(() => {
+      fake.emit({ type: EventType.ToolEventUpdated, toolEvent: { ...running, progressSummary: 'Reading the diff' } })
+    })
+    expect(rendered()).toEqual({ cards: 0, tiles: 1 })
+    expect(screen.getByText('Reading the diff')).toBeInTheDocument()
+
+    // It makes a call of its own, a moment later: its tile is dated by it.
+    const later = HUB_NOW + 5_000
+    act(() => {
+      fake.emit({
+        type: EventType.ToolEventAppended,
+        toolEvent: call('did-more', 1, { parentToolUseId: running.toolUseId, createdAt: later, finishedAt: later }),
+      })
+    })
+    expect(rendered()).toEqual({ cards: 0, tiles: 1 })
+
+    // One watcher reports a line. Main sends every watcher again, each made anew.
+    const [first, ...others] = WATCHERS
+    act(() => {
+      fake.emit({
+        type: EventType.WatchersChanged,
+        taskId: 't1',
+        watchers: [
+          { ...first, lastOutput: 'lint pass 38s' } as never,
+          ...others.map((each) => ({ ...each })),
+          { ...ELSEWHERE },
+        ],
+      })
+    })
+    expect(rendered()).toEqual({ cards: 0, tiles: 1 })
+    expect(screen.getByText('lint pass 38s')).toBeInTheDocument()
+
+    // One file is renamed. Main sends every artifact again.
+    const [file, ...files] = FILES
+    act(() => {
+      fake.emit({
+        type: EventType.ArtifactsChanged,
+        taskId: 't1',
+        artifacts: [{ ...file, title: 'Part one' } as never, ...files.map((each) => ({ ...each }))],
+      })
+    })
+    expect(rendered()).toEqual({ cards: 0, tiles: 1 })
+  })
+
+  it('renders nothing when the task changes in a way no child shows: its log grows, its lists arrive anew, the clock ticks', async () => {
+    const { fake } = await renderHub()
+
+    act(() => {
+      fake.emit({ type: EventType.ToolEventAppended, toolEvent: note('late-note', TURNS) })
+      fake.emit({ type: EventType.ToolEventAppended, toolEvent: call('late-call', TURNS) })
+      fake.emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), status: 'Running the tests.' } })
+    })
+    expect(rendered()).toEqual({ cards: 0, tiles: 0 })
+
+    // The same watchers, artifacts and commits, each list and each of them made anew, as every event from main is.
+    act(() => {
+      fake.emitBatch([
+        {
+          type: EventType.WatchersChanged,
+          taskId: 't1',
+          watchers: [...WATCHERS, ELSEWHERE].map((each) => ({ ...each })),
+        },
+        { type: EventType.ArtifactsChanged, taskId: 't1', artifacts: FILES.map((each) => ({ ...each })) },
+        { type: EventType.CommitsChanged, taskId: 't1', commits: COMMITS.map((each) => ({ ...each })) },
+        {
+          type: EventType.TodosChanged,
+          taskId: 't1',
+          todos: { items: TODOS.map((each) => ({ ...each })), updatedAt: HUB_NOW },
+        },
+      ])
+    })
+    expect(rendered()).toEqual({ cards: 0, tiles: 0 })
+
+    // A minute passes: every age that moved on moved by itself.
+    act(() => {
+      vi.setSystemTime(HUB_NOW + 60_000)
+      vi.advanceTimersByTime(NOW_REFRESH_MS)
+    })
+    expect(rendered()).toEqual({ cards: 0, tiles: 0 })
+    expect(screen.getAllByText('1m').length).toBeGreaterThan(0)
+  })
+
+  it('renders only the card of the todo that changed, and none of its tiles', async () => {
+    const { fake } = await renderHub()
+
+    // The open todo's status line changes.
+    const [first, ...rest] = TODOS
+    act(() => {
+      fake.emit({
+        type: EventType.TodosChanged,
+        taskId: 't1',
+        todos: { items: [{ ...first, note: 'Reviewing' } as never, ...rest], updatedAt: HUB_NOW },
+      })
+    })
+    expect(rendered()).toEqual({ cards: 1, tiles: 0 })
+
+    // A closed todo's watcher ends: its eye goes grey, and its card alone renders.
+    act(() => {
+      fake.emit({
+        type: EventType.WatchersChanged,
+        taskId: 't1',
+        watchers: [...WATCHERS, { ...ELSEWHERE, state: WatcherState.Finished, endedAt: HUB_NOW }],
+      })
+    })
+    expect(rendered()).toEqual({ cards: 1, tiles: 0 })
+
+    // A child is filed under a closed todo, which builds no list for it.
+    act(() => {
+      fake.emit({
+        type: EventType.FilingsChanged,
+        taskId: 't1',
+        filed: [hubFiling(refOf.watcher('watch-elsewhere'), '3')],
+        removed: [],
+      })
+    })
+    expect(rendered()).toEqual({ cards: 2, tiles: 0 })
+  })
+
+  it('renders one card when a todo is opened or filtered, with the tiles it then shows, and when a child moves in', async () => {
+    const { fake } = await renderHub()
+
+    // Another todo is opened: its card, and its one tile.
+    fireEvent.click(document.querySelectorAll('[data-todo-head]')[1] as HTMLElement)
+    expect(rendered()).toEqual({ cards: 1, tiles: 1 })
+
+    // The big one is filtered to its files: its card, and no tile again (the ten it keeps are the tiles they were).
+    fireEvent.click(screen.getByRole('button', { name: '10 files' }))
+    expect(rendered()).toEqual({ cards: 1, tiles: 0 })
+    expect(document.querySelectorAll('[role="group"][data-kind="file"]')).toHaveLength(10)
+
+    // A file moves from the big todo to the second: two cards, and its tile where it now is.
+    act(() => {
+      fake.emit({
+        type: EventType.FilingsChanged,
+        taskId: 't1',
+        filed: [hubFiling(refOf.file('docs/part-0.md'), '2', HUB_NOW + 1)],
+        removed: [],
+      })
+    })
+    expect(rendered()).toEqual({ cards: 2, tiles: 1 })
   })
 })

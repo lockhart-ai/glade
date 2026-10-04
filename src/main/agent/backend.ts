@@ -162,12 +162,15 @@ export interface BashCallFinished {
 
 /**
  * A call to one of the tools the agent sandbox bounds about to run, as the session's `PreToolUse` hook tells it (#514):
- * a file tool, `WebFetch`, `Bash` or `Monitor`, the agent's own or a subagent's.
+ * a file tool, `WebFetch`, `Bash` or `Monitor`, the agent's own or a subagent's. Or to one that reaches outside the
+ * sandbox altogether (#515): any MCP tool, `SendMessage` or `RemoteTrigger`.
  */
 export interface ToolCallStarting {
   readonly toolName: string
   /** The call's input, as the model sent it. */
   readonly input: ToolInput
+  /** The server serving an `mcp__*` tool, as the hook says it; null for any other tool, and when it doesn't say. */
+  readonly mcpServer: McpServerOrigin | null
   /** The call's `tool_use` id. */
   readonly toolUseId: string
   /** The SDK's id for the subagent making the call; null for the agent's own. */
@@ -253,8 +256,8 @@ export interface SessionHooks {
    */
   readonly onBashStarting?: (call: BashCallStarting) => Promise<void>
   /**
-   * A call to a tool the agent sandbox bounds is about to run (`PreToolUse`, #514), in whatever permission mode and
-   * before any of Claude Code's rules are matched: the call waits until this resolves, however long that takes (a card
+   * A call to a tool the agent sandbox bounds, or one that reaches outside it (#515), is about to run (`PreToolUse`,
+   * #514), in whatever permission mode and before any of Claude Code's rules are matched: the call waits until this resolves, however long that takes (a card
    * may wait on the user). Null leaves the call to Claude Code, which may still ask about it (`onToolPermission`); a
    * decision is final, whatever rule would have let the call through. Given only to a sandboxed session.
    */

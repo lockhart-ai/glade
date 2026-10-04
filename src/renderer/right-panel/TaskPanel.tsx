@@ -12,7 +12,7 @@ import { permissionLinesByToolUse } from '../permissions/permissionLines'
 import { selectSelectedTask, selectSelectedWorkspace } from '../store/state'
 import { useGladeStore } from '../store/react'
 import { SubagentsTab, type SubagentShown } from '../subagents'
-import { Todos } from '../todos'
+import { TodoHub, Todos } from '../todos'
 import { ToolLog, type TurnFocus } from '../tool-log'
 import { WatchersTab } from '../watchers'
 import { NOW_REFRESH_MS, useNow } from '../task-list/useNow'
@@ -64,8 +64,12 @@ export function TaskPanel(): React.JSX.Element | null {
   )
   const uiState = useGladeStore((state) => state.uiState)
   const tab = workspace === undefined ? PanelTab.ToolCalls : activePanelTab(uiState, workspace.id)
-  // Only the Todos and Artifacts tabs show relative times ("updated 4m ago", "12m ago").
-  const now = useNow(tab === PanelTab.Todos || tab === PanelTab.Artifacts ? NOW_REFRESH_MS : null)
+  // The Todos tab as the hub (P16), behind its hidden switch until #501; no other tab changes with it.
+  const todoHub = useGladeStore((state) => state.settings.todoHubEnabled)
+  // Only the Todos and Artifacts tabs show relative times ("updated 4m ago", "12m ago"). The hub's keep their own
+  // clocks, so the panel doesn't tick for it.
+  const ticking = (tab === PanelTab.Todos && !todoHub) || tab === PanelTab.Artifacts
+  const now = useNow(ticking ? NOW_REFRESH_MS : null)
   const { size: width, setSize: keepWidth } = usePanelSize(Panel.RightPanel)
   const { collapsed } = usePanel(Panel.RightPanel)
   const presence = usePresence(!collapsed)
@@ -150,7 +154,12 @@ export function TaskPanel(): React.JSX.Element | null {
           )
         )
       case PanelTab.Todos:
-        return task !== undefined && <Todos taskId={task.id} list={todos} now={now} />
+        if (task === undefined) return false
+        return todoHub ? (
+          <TodoHub key={task.id} taskId={task.id} list={todos} />
+        ) : (
+          <Todos taskId={task.id} list={todos} now={now} />
+        )
       case PanelTab.Subagents:
         return (
           task !== undefined && (

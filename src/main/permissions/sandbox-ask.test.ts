@@ -11,7 +11,7 @@ import {
   PermissionUpdateType,
   type PermissionSuggestion,
 } from '../../shared/domain'
-import { FolderAccess, SandboxAskKind, SandboxGrantScope } from '../../shared/sandbox'
+import { FolderAccess, OtherAgents, SandboxAskKind, SandboxGrantKind, SandboxGrantScope } from '../../shared/sandbox'
 import { FileAccess, folderSuggestions, SANDBOX_NETWORK_TOOL } from '../agent/sandbox-requests'
 import { pathKey } from './canonical-path'
 import {
@@ -24,6 +24,7 @@ import {
   deniedCovers,
   isAccessPath,
   isBroadFolder,
+  outsideAsk,
   sandboxAskFor,
   type RunningCommand,
 } from './sandbox-ask'
@@ -39,6 +40,7 @@ writeFileSync(`${WEB}/package.json`, '{}')
 // Files directly in the home folder, whose folder is too much for a card to offer.
 writeFileSync(`${HOME}/.gitconfig`, '[user]\n')
 writeFileSync(`${HOME}/.zshrc`, '')
+writeFileSync(`${HOME}/.npmrc`, 'registry=https://registry.acme.dev/\n')
 writeFileSync(`${HOME}/todo.md`, '')
 // A link in the workspace to a file outside it, and a link in the home folder to a folder.
 symlinkSync(`${WEB}/package.json`, `${ROOT}/linked.json`)
@@ -331,6 +333,94 @@ describe('isBroadFolder', () => {
   })
 })
 
+// #515: an MCP server Glade doesn't build, and the tools that reach other agents.
+describe('what a call asks for outside the sandbox', () => {
+  const tracker = { name: 'acme-tracker', source: 'project' }
+
+  it('asks for the server, by its key and its name, whichever tool is called and whatever its input', () => {
+    const asked = { kind: SandboxAskKind.McpServer, server: 'acme-tracker', name: 'acme-tracker' }
+    expect(
+      sandboxAskFor(
+        { toolName: 'mcp__acme-tracker__create_issue', input: {}, suggestions: [], mcpServer: tracker },
+        SandboxCrossing.Boundary,
+        bounds,
+        null,
+      ),
+    ).toEqual(asked)
+    expect(
+      sandboxAskFor(
+        {
+          toolName: 'mcp__acme-tracker__list',
+          input: { file_path: `${HOME}/todo.md`, url: 'https://x.dev' },
+          suggestions: [],
+          mcpServer: tracker,
+        },
+        SandboxCrossing.Boundary,
+        bounds,
+        COMMAND,
+      ),
+    ).toEqual(asked)
+    expect(
+      sandboxAskFor(
+        {
+          toolName: 'mcp__claude_ai_Acme_Docs__search',
+          input: {},
+          suggestions: [],
+          mcpServer: { name: 'claude.ai Acme Docs', source: 'claudeai' },
+        },
+        SandboxCrossing.Boundary,
+        bounds,
+        null,
+      ),
+    ).toEqual({ kind: SandboxAskKind.McpServer, server: 'claude_ai_Acme_Docs', name: 'claude.ai Acme Docs' })
+  })
+
+  it('asks for the other agents a tool reaches', () => {
+    expect(ask('SendMessage', { to: 'release-notes', message: 'Hi' })).toEqual({
+      kind: SandboxAskKind.Agents,
+      agents: OtherAgents.Sessions,
+    })
+    expect(ask('RemoteTrigger', { action: 'list' })).toEqual({ kind: SandboxAskKind.Agents, agents: OtherAgents.Cloud })
+  })
+
+  it('asks nothing of the sandbox for a server whose name no grant can keep: it gets the plain card', () => {
+    expect(ask('mcp__', {})).toBeNull()
+    expect(outsideAsk({ kind: SandboxGrantKind.McpServer, server: '', name: '' })).toBeNull()
+    expect(outsideAsk({ kind: SandboxGrantKind.McpServer, server: 'a b', name: 'a b' })).toBeNull()
+    expect(outsideAsk({ kind: SandboxGrantKind.McpServer, server: 'gmail', name: 'Gmail' })).toEqual({
+      kind: SandboxAskKind.McpServer,
+      server: 'gmail',
+      name: 'Gmail',
+    })
+  })
+
+  it('asks nothing for one that stays in bounds', () => {
+    expect(ask('mcp__acme-tracker__create_issue', {}, [], SandboxCrossing.None)).toBeNull()
+    expect(ask('SendMessage', { to: 'release-notes' }, [], SandboxCrossing.None)).toBeNull()
+  })
+})
+
+// #515: `~/.npmrc` and `~/.pypirc` aren't credential paths any more.
+describe('a registry’s settings file in the home folder', () => {
+  it('is asked for by itself, as any file there is', () => {
+    expect(ask('Read', { file_path: '~/.npmrc' }, folderSuggestions(HOME, FileAccess.Read))).toEqual({
+      kind: SandboxAskKind.Folder,
+      path: `${HOME}/.npmrc`,
+      access: FolderAccess.Read,
+      file: true,
+    })
+    expect(accessPlan({ path: '~/.npmrc', access: FileAccess.Read }, bounds)).toEqual({
+      kind: AccessPlanKind.Ask,
+      ask: { kind: SandboxAskKind.Folder, path: `${HOME}/.npmrc`, access: FolderAccess.Read, file: true },
+    })
+    // And never refused as a credential path, read or write.
+    expect(accessPlan({ path: '~/.npmrc', access: FileAccess.Write }, bounds)).toEqual({
+      kind: AccessPlanKind.Ask,
+      ask: { kind: SandboxAskKind.Folder, path: `${HOME}/.npmrc`, access: FolderAccess.ReadWrite, file: true },
+    })
+  })
+})
+
 describe('deniedCovers', () => {
   const folder = (path: string, access: FolderAccess) => ({ kind: SandboxAskKind.Folder, path, access }) as const
   const domain = (name: string) =>
@@ -347,6 +437,23 @@ describe('deniedCovers', () => {
     expect(deniedCovers(write, read)).toBe(false)
     expect(deniedCovers(read, folder(`${WEB}/src`, FolderAccess.Read))).toBe(false)
     expect(deniedCovers(read, folder(SHARED, FolderAccess.Read))).toBe(false)
+  })
+
+  it('covers the same MCP server, by its key, and the same other agents', () => {
+    const server = (key: string, name = key) => ({ kind: SandboxAskKind.McpServer, server: key, name }) as const
+    const agents = (which: OtherAgents) => ({ kind: SandboxAskKind.Agents, agents: which }) as const
+
+    expect(deniedCovers(server('gmail', 'Gmail'), server('gmail', 'gmail'))).toBe(true)
+    expect(deniedCovers(server('gmail'), server('gmail2'))).toBe(false)
+    expect(deniedCovers(domain('gmail'), server('gmail'))).toBe(false)
+    expect(deniedCovers(null, server('gmail'))).toBe(false)
+    expect(deniedCovers(agents(OtherAgents.Sessions), agents(OtherAgents.Sessions))).toBe(true)
+    expect(deniedCovers(agents(OtherAgents.Sessions), agents(OtherAgents.Cloud))).toBe(false)
+    expect(deniedCovers(server('sessions'), agents(OtherAgents.Sessions))).toBe(false)
+    expect(deniedCovers({ kind: SandboxAskKind.Outside }, agents(OtherAgents.Cloud))).toBe(false)
+    // And neither covers a folder or a domain.
+    expect(deniedCovers(server('gmail'), domain('gmail'))).toBe(false)
+    expect(deniedCovers(agents(OtherAgents.Cloud), folder(WEB, FolderAccess.Read))).toBe(false)
   })
 
   it('covers the same domain, whatever command asked', () => {

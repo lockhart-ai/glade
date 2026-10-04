@@ -6,11 +6,13 @@ import {
   PermissionMarkKind,
   TaskActivity,
   TaskState,
+  TodoState,
   UiStateKey,
   type PermissionMark,
 } from '../../shared/domain'
-import { ChildFilter, TODO_HUB_OFF } from '../../shared/todoHub'
-import { fakeBridge, samplePermissionRequest, sampleTask } from './test-bridge'
+import { DEFAULT_SETTINGS } from '../../shared/settings'
+import { ChildFilter, ChildKind, FilingSource, TODO_HUB_OFF, UNFILED_TODO_ID } from '../../shared/todoHub'
+import { fakeBridge, sampleCommit, samplePermissionRequest, sampleTask, sampleWatcher } from './test-bridge'
 
 it('answers uiState.get from its data, and stops delivering events once unsubscribed', async () => {
   const entry = { key: UiStateKey.ActiveWorkspaceId, value: 'w1' }
@@ -164,4 +166,70 @@ it('refuses the todo hub’s commands, as main does while the hub is off', async
   await expect(
     fake.bridge.invoke(CommandName.TodoHubSetPanel, { taskId: 't1', todoId: '1', open: true, filter: ChildFilter.All }),
   ).rejects.toMatchObject({ code: BridgeErrorCode.InvalidTransition, message: TODO_HUB_OFF })
+})
+
+it('answers the todo hub’s commands while the hub is on: a task’s children grouped by todo, its filings and its panels', async () => {
+  const watcher = sampleWatcher('w1', 't1', { toolUseId: 'watch-a' })
+  const filing = {
+    taskId: 't1',
+    kind: ChildKind.Watcher,
+    key: 'watch-a',
+    todoId: '1',
+    source: FilingSource.Named,
+    filedAt: 1,
+  }
+  const todoPanels = [{ taskId: 't2', todoId: '1', open: true, filter: ChildFilter.All }]
+  const fake = fakeBridge({
+    workspaces: [],
+    tasks: [sampleTask('t1', 'w1'), sampleTask('t2', 'w1')],
+    uiState: [],
+    settings: { ...DEFAULT_SETTINGS, todoHubEnabled: true },
+    todos: {
+      t1: {
+        items: [{ id: '1', text: 'Watch CI', state: TodoState.Doing, note: null, completedAt: null }],
+        updatedAt: 1,
+      },
+    },
+    watchers: [watcher, sampleWatcher('w2', 't2')],
+    commits: [sampleCommit('c1', 't1'), sampleCommit('c2', 't2')],
+    filings: [filing, { ...filing, taskId: 't2' }],
+    todoPanels,
+  })
+
+  const hub = await fake.bridge.invoke(CommandName.TodoHubGet, { taskId: 't1' })
+  expect(hub.filings).toEqual([filing])
+  expect(hub.panels).toEqual([])
+  expect(hub.children.todos.map(({ todoId, children }) => [todoId, children.map(({ kind }) => kind)])).toEqual([
+    ['1', [ChildKind.Watcher]],
+  ])
+  expect(hub.children.unfiled.children.map(({ kind }) => kind)).toEqual([ChildKind.Commit])
+  // A task with no todo list has everything under no todo.
+  const other = await fake.bridge.invoke(CommandName.TodoHubGet, { taskId: 't2' })
+  expect(other.children.todos).toEqual([])
+  expect(other.children.unfiled.todoId).toBe(UNFILED_TODO_ID)
+  expect(other.children.unfiled.children).toHaveLength(2)
+
+  // A panel is added, then replaced in place.
+  const opened = { taskId: 't1', todoId: '1', open: true, filter: ChildFilter.Watchers }
+  await fake.bridge.invoke(CommandName.TodoHubSetPanel, opened)
+  await fake.bridge.invoke(CommandName.TodoHubSetPanel, { ...opened, filter: ChildFilter.All })
+  expect(todoPanels).toEqual([todoPanels[0], { ...opened, filter: ChildFilter.All }])
+  expect((await fake.bridge.invoke(CommandName.TodoHubGet, { taskId: 't1' })).panels).toEqual([
+    { ...opened, filter: ChildFilter.All },
+  ])
+})
+
+it('answers the todo hub with nothing for a main that has none, and remembers no panel it has nowhere to keep', async () => {
+  const fake = fakeBridge({
+    workspaces: [],
+    tasks: [sampleTask('t1', 'w1')],
+    uiState: [],
+    settings: { ...DEFAULT_SETTINGS, todoHubEnabled: true },
+  })
+  const opened = { taskId: 't1', todoId: '1', open: true, filter: ChildFilter.All }
+
+  await expect(fake.bridge.invoke(CommandName.TodoHubSetPanel, opened)).resolves.toBeNull()
+  const hub = await fake.bridge.invoke(CommandName.TodoHubGet, { taskId: 't1' })
+
+  expect(hub).toMatchObject({ filings: [], panels: [], children: { todos: [], unfiled: { children: [] } } })
 })

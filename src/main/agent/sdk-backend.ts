@@ -18,7 +18,7 @@ import { CONTROL_SERVER_NAME } from '../../shared/control'
 import type { ImageData } from '../../shared/images'
 import type { Environment } from '../login-env'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
-import { BOUNDED_TOOLS } from '../permissions/sandbox-classify'
+import { BOUNDED_TOOLS, isOutsideTool, OUTSIDE_TOOLS } from '../permissions/sandbox-classify'
 import { permissionSuggestionSchema } from '../permissions/schema'
 import { AsyncQueue } from './async-queue'
 import { ChildTool, isChildTool } from './child-calls'
@@ -385,14 +385,19 @@ export function subagentGladeToolGuard(
 /** What the agent is told when Glade couldn't check a call against the sandbox's bounds: it doesn't run. */
 export const SANDBOX_CHECK_FAILED = 'Glade could not check this tool call against the sandbox, so it did not run.'
 
-/** The tools the agent sandbox bounds, as a hook matcher (`BOUNDED_TOOLS`). */
-export const SANDBOX_TOOLS = BOUNDED_TOOLS.join('|')
+/**
+ * The tools the agent sandbox bounds (`BOUNDED_TOOLS`), and the ones that reach outside it altogether (`OUTSIDE_TOOLS`:
+ * every MCP tool, `SendMessage` and `RemoteTrigger`, #515), as a hook matcher.
+ */
+export const SANDBOX_TOOLS = [...BOUNDED_TOOLS, ...OUTSIDE_TOOLS].join('|')
 
 const sandboxedToolInput = z.looseObject({
   tool_name: z.string(),
   tool_use_id: z.string(),
   tool_input: z.record(z.string(), z.unknown()).optional().catch(undefined),
   agent_id: z.string().optional(),
+  // Of a shape Glade doesn't know, it's as if the hook hadn't said: the server is then one Glade can't vouch for.
+  mcp_server: z.looseObject({ name: z.string(), source: z.string() }).optional().catch(undefined),
 })
 
 /** A `PreToolUse` hook's answer that settles a call: it runs, or it doesn't, with what the agent is told. */
@@ -408,7 +413,9 @@ function hookDecision(decision: 'allow' | 'deny', reason?: string): Awaited<Retu
 
 /**
  * The `PreToolUse` hook that holds a sandboxed session's file tools, `WebFetch`, `Bash` and `Monitor` to the sandbox's
- * bounds (#514, `docs/sdk-notes.md` §15). A `PreToolUse` hook runs in every permission mode and before Claude Code
+ * bounds (#514, `docs/sdk-notes.md` §15), and its MCP tools, `SendMessage` and `RemoteTrigger` to what's granted
+ * outside it (#515): each such call says which server its tool is on (`mcp_server`), as the SDK names it.
+ * A `PreToolUse` hook runs in every permission mode and before Claude Code
  * matches a single rule, so this is where Glade decides a call that crosses the bounds, whatever the user's, the
  * project's or the local settings would allow: it asks the host (`SessionHooks.onToolStarting`), waits on its answer
  * however long that takes (a card may wait on the user), and returns it as the hook's own decision. `deny` stops the
@@ -434,12 +441,14 @@ export function sandboxToolGuard(
       return hookDecision('deny', SANDBOX_CHECK_FAILED)
     }
     const { tool_name: toolName, tool_use_id: toolUseId, tool_input: toolInput, agent_id: agentId } = parsed.data
-    // The matcher may match more than the names it lists (another server's `mcp__x__Read`): only these are bounded.
-    if (!bounded.has(toolName)) return {}
+    // The matcher may match more than the names it lists: only these are the host's to decide.
+    if (!bounded.has(toolName) && !isOutsideTool(toolName)) return {}
+    const { mcp_server: mcpServer } = parsed.data
     try {
       const decision = await onToolStarting({
         toolName,
         input: toolInput ?? {},
+        mcpServer: mcpServer === undefined ? null : { name: mcpServer.name, source: mcpServer.source },
         toolUseId,
         agentId: agentId ?? null,
         signal,

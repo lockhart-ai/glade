@@ -198,7 +198,8 @@
     paths writable (`/tmp/claude`, `~/.npm/_logs` and the like); Glade can't remove them.
   - **Three grant scopes,** kept in SQLite (`sandbox_grants`): a **task**'s, from a permission card; a
     **workspace**'s, from a card or Settings › Workspace; and **Glade-wide**, only from Settings › Agent, for what
-    every workspace needs. A grant is a folder, a single file or a domain. A folder is **read-only or read-write**:
+    every workspace needs. A grant is a folder, a single file or a domain; or (P15-11, below) an MCP server, or
+    other agents. A folder is **read-only or read-write**:
     a read asks for read-only access and a write for read-write. A domain is one grant for both the agent's commands
     and `WebFetch`.
   - **The card's actions:** Allow for this task · Allow for this workspace · Deny, with Deny's optional note, and no
@@ -223,13 +224,15 @@
     whatever task rules exist, shows the command, and has no "always for this command".
   - **Credential files stay blocked even inside a granted folder,** the home folder included: `~/.ssh`, `~/.aws`,
     `~/.gnupg`, `~/.config/gh`, `~/.config/gcloud`, `~/.azure`, `~/.kube`, `~/Library/Keychains`, `~/.netrc`,
-    `~/.git-credentials` and `~/.docker/config.json`; and, since the security review, `~/.claude.json`, `~/.npmrc`,
-    `~/.pypirc`, `~/.config/op`, more registry and cloud tools' token files, and Glade's own data folder.
+    `~/.git-credentials` and `~/.docker/config.json`; and, since the security review, `~/.claude.json`,
+    `~/.config/op`, more registry and cloud tools' token files, and Glade's own data folder. `~/.npmrc` and
+    `~/.pypirc` aren't among them (P15-11, below).
   - **The user's own Claude Code settings still merge in** (`settingSources` includes `"user"`), but **can't let a
     call past the sandbox unasked** (the security review, below). Their allow rules and additional directories no
     longer decide a file tool's, `WebFetch`'s or a command's call at the boundary: Glade does, first. What still
     widens it, documented and not fought: a domain or a Unix socket in their own `sandbox` lists, which merge with
-    Glade's; and their hooks and MCP servers, which run on the host (waiting on Jared, #445).
+    Glade's; and their hooks, which run on the host. Their MCP servers run on the host too, and are granted one by
+    one (P15-11, below).
   - **The switch** (`sandboxEnabled`, Settings › Agent › Sandbox) is app-wide and **off by default until the phase's
     security review is done** (#452); the default then flips to on. Existing workspaces and tasks take it on their
     next session start, with no grants. With it off, a session starts exactly as it did before P15.
@@ -369,11 +372,53 @@
       overrides an allow rule is read from Claude Code's code, not probed); a command that reaches Glade in Allow all
       though it wasn't excluded still goes ahead, since some sandboxed commands ask for other reasons; the words on a
       domain's card for a local host ("This is your own Mac. Allowing it lets the agent reach every service running
-      on it.", and one each for an address and a local name), which no design shows; `~/.npmrc` is now a credential
-      path no grant opens, where the meta listed it as something to grant; and which extensions still open in their
-      own app (PNG, JPEG, GIF, WebP, HEIC, TIFF, BMP, PDF).
-    - Not done here, waiting on Jared (#445): whether other MCP servers' tools ask in Allow all with the sandbox on,
-      and hooks and MCP servers from existing settings that run files in the workspace.
+      on it.", and one each for an address and a local name), which no design shows; `~/.npmrc` and `~/.pypirc` made
+      credential paths no grant opens, where the meta listed `~/.npmrc` as something to grant (taken back in P15-11,
+      below); and which extensions still open in their own app (PNG, JPEG, GIF, WebP, HEIC, TIFF, BMP, PDF).
+    - Left open by the review: hooks from existing settings that run files in the workspace. What it left open about
+      MCP servers is decided in P15-11, next.
+  - **MCP servers, and the tools that reach other agents, are grants too (P15-11, #515).** Decided with Jared after
+    the review: a reasonable guard, not a locked box, and no prompt floods.
+    - **An MCP server Glade doesn't build is a third kind of grant,** next to folders and domains: a server from the
+      user's Claude Code config, a repository's `.mcp.json`, or a claude.ai connector (Gmail, Drive, Claude Docs).
+      It runs outside the sandbox with whatever access it has. With the sandbox on, in either permission mode, the
+      first call to any tool of a server that isn't granted shows a card: "The agent wants to use the `<server>` MCP
+      server", with the tool being called and its input, and Allow for this task · Allow for this workspace · Deny.
+      **One grant per server, never per tool or per call:** a card for every call would be a flood. Calls to the
+      same server that arrive while its card is open wait on that card rather than opening their own. Once granted,
+      the server's tools behave as with the sandbox off: unasked in Allow all, and asking per call in the ask mode.
+    - **Glade's own tools never ask:** `glade` always, and `glade-control` as before P15 (off unless its switch is
+      on; in the ask mode its tools that change things ask). A server is Glade's when the SDK says it's in-process
+      (`source: 'sdk'`) and it's one the session was given, as the ask mode already told them; the name proves
+      nothing, so a configured server that calls itself `glade` asks like any other.
+    - **Enforced in the same `PreToolUse` hook** as the bounds (the review, above), so an allow rule for the server's
+      tools in the user's or the project's settings can't skip the card.
+    - **`SendMessage` and `RemoteTrigger` are granted the same way,** with the same card and scopes, and listed with
+      the MCP servers: they reach agents outside the task's sandbox, which a sandboxed agent could have do what it
+      may not. `SendMessage` to one of the task's own subagents never asks (they run in the same sandbox); to
+      anything else it asks, "The agent wants to message other Claude sessions". `RemoteTrigger` asks, "The agent
+      wants to manage cloud agents". One grant covers every other session, or every cloud agent: not one per target.
+    - **A grant is kept by the name the server's tools carry** (`mcp__<server>__<tool>`: Claude Code turns every
+      character of a server's name outside `[a-zA-Z0-9_-]` into `_`), since that's what each call carries and what
+      Claude Code's own rules for a server are written with; the name Claude Code reports it by (`claude.ai Claude
+      Docs`) is what the card and Settings show. Nothing of these grants goes into the session's sandbox settings.
+    - **Settings has a third list, MCP servers,** under Folders and Domains, in Settings › Workspace and Glade-wide
+      in Settings › Agent. Add… offers the servers the workspace's sessions have reported (every workspace's, for the
+      Glade-wide list), by name, then the other agents. Glade keeps those names per workspace
+      (`reported_mcp_servers`); nothing is granted by a server being reported.
+    - **`~/.npmrc` and `~/.pypirc` are grantable again,** as single files, like any other file in the home folder:
+      they hold a registry's settings as often as its token, and `npm` and `pip` need them. The review had made them
+      credential paths nothing opens.
+    - Calls made without Jared here: the card and the list have **no design**, and are built from the folder and
+      domain cards and the Folders and Domains lists (`docs/design/README.md` says so); the card's line under its
+      title ("It runs outside the sandbox, with whatever access it has. Allowing it covers every tool of the
+      server.", and one each for the other agents); the names in Settings, **Messaging other Claude sessions** and
+      **Cloud agents**; that only the id the SDK gave a subagent counts as the task's own (a `SendMessage` to a
+      subagent by a name it was given, or to `main`, asks: a name can also be another session's, and how Claude Code
+      settles that isn't probed); that a granted server's call gets no "Allowed by … grant" line in the ask mode,
+      where its own card or task rule already says what was decided; that a call waiting on another call's card is
+      withdrawn with it when the turn is stopped; and that a server whose name leaves nothing a tool's name can carry
+      gets the plain card (Allow once · Deny).
   - **A session resumed into the sandbox is told of it once (P15-07, #452).** Claude Code keeps a session's system
     prompt when it resumes it, so a session that started before the sandbox was on knows nothing of it, nor that a
     blocked command is answered with `request_access`. When such a session runs sandboxed, Glade sends it what the
@@ -382,7 +427,7 @@
     relaunch neither loses nor repeats it. A session that still runs outside the sandbox isn't told.
   - **Known friction.** Anything a command needs from the home folder fails until it's granted: toolchains
     installed there (nvm, pyenv, rustup, cargo, go), `~/.gitconfig` (commits lose their author), `~/.npmrc` and
-    package caches. That's what the Glade-wide lists are for. `ssh` git remotes, Docker, localhost databases and some
+    package caches. That's what the Glade-wide lists are for (`~/.npmrc`, a single file, is granted from its card). `ssh` git remotes, Docker, localhost databases and some
     tools that check TLS can't work inside the sandbox at all, and ask to run outside it each time. Denying the home
     folder also hides `~/.zshenv` and Claude Code's own shell snapshot from commands: they run with Glade's `PATH`
     but without the user's aliases and functions. A file granted by itself can be written in place but not replaced:
@@ -485,6 +530,23 @@
     todo is in progress. A subagent's calls are left alone: what it makes follows its todo. `add_artifact` takes the
     todo's id and needs it. An agent with no todos is told to create one first, and Glade keeps Claude Code's task
     tools on for its sessions, whatever the user's settings say ([`model-surface.md`](model-surface.md)).
+  - **The Todos tab as the hub** (P16-06, #497; `design/screens/46-todo-hub.png` to `49-todo-hub-unfiled.png`). With
+    the switch on, the Todos tab shows `TodoHub` in place of the list; no other tab changes until #501.
+    - **The window groups for itself.** It loads a task's filings and its todos' panels when the tab shows the task
+      (`todoHub.get`), keeps the filings current from `filings.changed`, and works out each todo's children with the
+      same resolver main has (`groupChildren`), from the lists the store already keeps for the other tabs. So a child
+      filed, moved, made or changed shows at once, with no reload. A `filings.changed` that lands while the hub loads
+      makes it read again, so an answer made before the change never wins.
+    - **Renders stay small** (`CLAUDE.md`, Performance). A todo's card is memoised on its own todo, children and
+      panel; a closed todo builds no list; a tile is given only which child it is and reads it from the store through
+      an index made once per list, so one child's update renders that tile alone; and every age keeps its own clock.
+      `src/renderer/history-renders.test.tsx` holds it at 100 todos with 50 children under one.
+    - **The tile** (`src/renderer/todos/tiles/`) is one shell (`Tile`: icon, title, tag, state, age; at rest, hover,
+      focus, live, outlined) filled in by a component per kind. This issue's are plain: enough to show each child.
+      What a tile does and opens to is #498 (files and links) and #499 (subagents, watchers and commits).
+    - **Each todo's panel is as you left it:** the window changes it at once and has main remember it
+      (`todoHub.setPanel`). A filter whose kind has no children shows All, and is remembered, for when it has some
+      again.
   - **Calls made without Jared, for the release notes (P16).** From the groundwork (P16-03, #494):
     1. A child whose own filing names a todo that's gone goes to the placeholder, even when the subagent that made
        it is under a todo that's still there: the agent filed it apart from its subagent, so it doesn't fall back to
@@ -512,40 +574,64 @@
     11. Both tools read ids leniently (`C3`, `#2`) and say a todo's state in Claude Code's own words (`pending`,
         `in progress`, `completed`).
     12. The prompt's one line about the tools is only in a session that starts with the switch on. A session resumed
-        from before the switch is sent it with the rest of the hub's lines (15, below).
+        from before the switch is sent it with the rest of the hub's lines (26, below).
     13. A session keeps the tools it started with: if the switch is turned off under it, both answer with a tool
         error and do nothing.
 
+    From the hub's tab (P16-06, #497):
+
+    14. A todo with nothing under it doesn't open: it has no chevron, and →, ↵ and a click do nothing. It has nothing
+        to show.
+    15. A closed todo's counts aren't Tab stops (they're still buttons, for the pointer): → opens the todo, and its
+        pills are. Otherwise a task with 100 todos has 500 more stops between its todos.
+    16. Clicking a todo's head (its state icon, title and status line) opens and closes it; the space around its tiles
+        doesn't.
+    17. The hub drops the line under the heading ("The agent writes this list and checks items off as it works."), as
+        the screens do.
+    18. A task with no todos and nothing made says "No todos for this task." at the top, where the screens put it, and
+        not today's centred "No todos yet.".
+    19. A todo waiting on you keeps its purple icon and status line, as everywhere in the app. Nothing sets that
+        state yet.
+    20. A link's tile says `#511`, a ticket's key or a page's domain after its title, as the screens draw it, and not
+        the Artifacts tab's `#511 · acme/api`. #498 owns the link tile and may change it.
+    21. Until #499, a watcher's tile shows one line under its label (its last report while it's live, how it ended
+        after), from the Watchers tab's own model, and a running subagent's shows its summary.
+    22. While the hub shows a task, main watches its file artifacts for outside edits, as it does for the Artifacts
+        tab, so a file's place in its todo's list is current.
+    23. Until its filings have loaded, the hub shows the todos with nothing under them, and no placeholder group,
+        rather than everything under no todo for a moment.
+    24. A todo's context menu (Copy, Ask agent about this) opens from its head. The placeholder group has none.
+
     From filing as it's made (P16-04, #495):
-    14. A session has the hub for its whole life, or not at all: the switch is read as the session starts, for its
+    25. A session has the hub for its whole life, or not at all: the switch is read as the session starts, for its
         tools, its prompt, its hooks and the task tools' switch together, as the sandbox's is. Turned on while a
         session runs, it changes nothing for that session; the task gets the hub when its session next starts.
-    15. The hub's prompt paragraphs aren't in `INSTRUCTION_UPDATES`: they're tracked by themselves
+    26. The hub's prompt paragraphs aren't in `INSTRUCTION_UPDATES`: they're tracked by themselves
         (`session_context.todo_hub`), so how many instructions a session has had is the same with the switch on or
         off. A session that started without them and resumes with the hub on is sent all three once (#496's line
         among them), ahead of its next message.
-    16. What an agent owes a filing for is only what it made itself, in a call, with the hub on, that named no todo.
+    27. What an agent owes a filing for is only what it made itself, in a call, with the hub on, that named no todo.
         Never what the task made before the hub, a link you added, an artifact added through the control API, or a
         child whose todo was deleted later (it drops to the placeholder, and nothing asks). What's owed is kept in
         SQLite, so a relaunch doesn't forget it; how often a turn was held isn't, so a turn carried on after a
         relaunch can be held twice more.
-    17. A marker naming a todo that isn't in the list still comes off the call: it counts as naming none, and the
+    28. A marker naming a todo that isn't in the list still comes off the call: it counts as naming none, and the
         agent is told afterwards.
-    18. When a turn's end is held, the reply the agent had written goes to the tool log, and the chat shows the one
+    29. When a turn's end is held, the reply the agent had written goes to the tool log, and the chat shows the one
         it ends on; if it files and writes no reply again, the one it had written is the turn's. An agent that
         ignores both holds ends its turn on the reply it wrote third.
-    19. A turn you stopped is never held, nor is a compaction. What an interrupted message made is taken in at the end
+    30. A turn you stopped is never held, nor is a compaction. What an interrupted message made is taken in at the end
         of the next turn.
-    20. `add_artifact` declared again with another todo moves the artifact there (`moved`). `update_artifact` takes no
+    31. `add_artifact` declared again with another todo moves the artifact there (`moved`). `update_artifact` takes no
         todo: moving is `file_children`'s. An artifact that's removed, by the agent or by you, leaves no filing, so one
         added again starts under no todo. One pointed at another file or page keeps its todo, and gets a new short id
         the next time Glade names it.
-    21. A named call that made nothing (it failed, or you denied it) leaves no filing behind.
-    22. If the switch is turned off under a session that has the hub, its hooks still take markers off (its prompt
+    32. A named call that made nothing (it failed, or you denied it) leaves no filing behind.
+    33. If the switch is turned off under a session that has the hub, its hooks still take markers off (its prompt
         still asks for them), and file, ask and hold nothing; `add_artifact` adds as it did before the hub. A session
         that then starts again has no hooks, while Claude Code keeps the prompt it started with: the markers it
         writes show until the switch is back on. That's only reachable by turning the hidden switch off by hand.
-    23. A child's kind in what Glade tells the agent is the hub's (`watcher` for a monitor, a background command, a
+    34. A child's kind in what Glade tells the agent is the hub's (`watcher` for a monitor, a background command, a
         wakeup and a cron job), as `list_children` says it, not the probes' (`background command`, `wakeup`).
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a

@@ -82,7 +82,8 @@ export interface Subagent {
   readonly log: readonly SubagentRow[]
 }
 
-function subagentStatus(state: ToolCallState): SubagentStatus {
+/** A subagent's status, from its `Agent` call's state. */
+export function subagentStatus(state: ToolCallState): SubagentStatus {
   switch (state) {
     case ToolCallState.Running:
       return SubagentStatus.Running

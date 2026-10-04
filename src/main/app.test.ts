@@ -28,11 +28,13 @@ import {
   E2E_LOGIN_GLOBAL,
   E2E_MENU_BAR_GLOBAL,
   E2E_NOTIFIER_GLOBAL,
+  E2E_TODO_HUB_GLOBAL,
   E2E_WINDOW_SIZE,
   type E2eAgentEnvs,
   type E2eLogin,
   type E2eMenuBar,
   type E2eSpec,
+  type E2eTodoHub,
 } from './e2e'
 import { openAppDatabase } from './db/database'
 import { LATEST_SCHEMA_VERSION, MIGRATIONS } from './db/migrations'
@@ -50,6 +52,7 @@ import { markRunning } from './relaunch'
 import type { FileLogSinkOptions } from './logging/file-sink'
 import { createFakeSpawner } from './terminal/fake-pty'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
+import { ChildKind, FilingSource } from '../shared/todoHub'
 import { writePlugin } from './plugins/test-plugins'
 
 type Handler = (...args: unknown[]) => unknown
@@ -462,6 +465,7 @@ beforeEach(() => {
   electron.glyphImagesMissing = false
   Reflect.deleteProperty(globalThis, E2E_NOTIFIER_GLOBAL)
   Reflect.deleteProperty(globalThis, E2E_MENU_BAR_GLOBAL)
+  Reflect.deleteProperty(globalThis, E2E_TODO_HUB_GLOBAL)
   electron.app.isPackaged = false
   electron.app.userData = mkdtempSync(join(tmpdir(), 'glade-app-'))
   electron.app.logs = mkdtempSync(join(tmpdir(), 'glade-app-logs-'))
@@ -1989,6 +1993,40 @@ describe('startApp in e2e mode', () => {
     } finally {
       db.close()
     }
+  })
+
+  it('files children under todos for a spec, through main’s own service, which tells the window (P16)', async () => {
+    askForE2e()
+    await startAndWaitUntilReady()
+    const db = new Database(join(electron.app.userData, 'glade.db'))
+    const taskId = sampleTask(db, sampleWorkspace(db, electron.app.userData).id).id
+    db.close()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+    const hub = Reflect.get(globalThis, E2E_TODO_HUB_GLOBAL) as E2eTodoHub
+    const plan = { kind: ChildKind.File, key: 'docs/plan.md' }
+    const filing = { ...plan, todoId: '1', source: FilingSource.Named }
+    const { send } = onlyWindow().webContents
+
+    // With the hub off, as it is by default, nothing is filed and nothing sent.
+    expect(hub.file(taskId, [filing])).toEqual([])
+    expect(hub.unfile(taskId, [plan])).toEqual([])
+
+    await handler?.(fromWindow(), CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
+    const filed = hub.file(taskId, [filing])
+    expect(filed).toEqual([{ taskId, ...filing, filedAt: expect.any(Number) as unknown }])
+    await vi.waitFor(() => {
+      expect(send).toHaveBeenCalledWith(EVENT_CHANNEL, { type: EventType.FilingsChanged, taskId, filed, removed: [] })
+    })
+
+    expect(hub.unfile(taskId, [plan])).toEqual([plan])
+    await vi.waitFor(() => {
+      expect(send).toHaveBeenCalledWith(EVENT_CHANNEL, {
+        type: EventType.FilingsChanged,
+        taskId,
+        filed: [],
+        removed: [plan],
+      })
+    })
   })
 
   it('exits with an error, without opening a window, when the seed fixture is bad', async () => {

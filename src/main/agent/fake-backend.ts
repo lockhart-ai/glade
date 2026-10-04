@@ -149,12 +149,16 @@ export class FakeAgentSession implements AgentSession {
   }
 
   /**
-   * Puts a call to a tool the sandbox bounds to the session's `PreToolUse` hook, as the SDK does before it matches any
+   * Puts a call to a tool the sandbox bounds, or one that reaches outside it (an MCP tool, with the server it's on;
+   * `SendMessage`; `RemoteTrigger`), to the session's `PreToolUse` hook, as the SDK does before it matches any
    * rule, in every permission mode (`docs/sdk-notes.md` §15), and resolves with what the hook decided: null when it
    * leaves the call to Claude Code, and with no such hook (a session that isn't sandboxed). `abort` cancels the hook's
    * signal, as the SDK does on an interrupt.
    */
-  startTool(call: Omit<ToolCallStarting, 'signal' | 'agentId'> & { readonly agentId?: string | null }): {
+  startTool(
+    call: Omit<ToolCallStarting, 'signal' | 'agentId' | 'mcpServer'> &
+      Partial<Pick<ToolCallStarting, 'agentId' | 'mcpServer'>>,
+  ): {
     readonly decision: Promise<ToolStartDecision | null>
     abort(): void
   } {
@@ -164,7 +168,12 @@ export class FakeAgentSession implements AgentSession {
       decision:
         hook === undefined
           ? Promise.resolve(null)
-          : hook({ ...call, agentId: call.agentId ?? null, signal: controller.signal }),
+          : hook({
+              ...call,
+              agentId: call.agentId ?? null,
+              mcpServer: call.mcpServer ?? null,
+              signal: controller.signal,
+            }),
       abort: () => {
         controller.abort()
       },

@@ -51,6 +51,7 @@ import {
   createE2eAgent,
   createE2eEditor,
   createE2eNetwork,
+  createE2eTodoHub,
   E2E_MENU_BAR_GLOBAL,
   E2E_NOTIFIER_GLOBAL,
   E2E_WINDOW_SIZE,
@@ -77,6 +78,7 @@ import { createReplyNotifications } from './notifications/notifications'
 import type { Notifier } from './notifications/notifier'
 import { createRecordingNotifier } from './notifications/recording-notifier'
 import { openTaskWithoutWindow } from './tasks/attention'
+import { fileChildren, unfileChildren } from './todo-hub/todo-hub'
 import { markQuit, markRunning, noteRelaunch } from './relaunch'
 import { CloseGuard } from './close-guard'
 import { testModeLogsFolder } from './isolation'
@@ -850,6 +852,15 @@ export function startApp({
     })
 
     const { runner } = bridge
+
+    // A spec files children under todos through main's own service, until the agent's tools do (P16).
+    if (testMode?.kind === TestModeKind.E2e) {
+      const filing = { db: database.db, emit: bridge.emit }
+      createE2eTodoHub({
+        file: (taskId, filings) => fileChildren(filing, taskId, filings),
+        unfile: (taskId, children) => unfileChildren(filing, taskId, children),
+      })
+    }
 
     // Closing the window, or quitting, with unsaved edits in the Files tab is called off, and the window asks what to do
     // with them first; then it closes or quits again.

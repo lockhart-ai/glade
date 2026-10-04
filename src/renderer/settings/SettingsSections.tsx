@@ -703,8 +703,8 @@ export function WorkspaceSection(): React.JSX.Element {
       >
         <SandboxHeading id="settings-workspace-sandbox" />
         <p className={styles.sandboxIntro}>
-          What this workspace’s agents can use, on top of the Glade-wide folders and domains in Agent. Allow for this
-          workspace, on a permission card, adds here.
+          What this workspace’s agents can use, on top of the Glade-wide folders, domains and MCP servers in Agent.
+          Allow for this workspace, on a permission card, adds here.
         </p>
         {/* Keyed by the workspace, so a row being added in one isn't carried into another's lists. */}
         <SandboxLists key={workspace.id} workspaceId={workspace.id} root={workspace.rootPath} />

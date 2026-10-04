@@ -16,6 +16,7 @@ import type { BroadcastOutcome } from '../../shared/broadcast'
 import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../shared/settings'
 import type { InstalledPlugin, PluginCapability } from '../../shared/plugins'
+import type { ReportedMcpServer } from '../../shared/mcpServers'
 import type { FolderAccess, Grant, GrantKey, SettingsGrantTarget } from '../../shared/sandbox'
 import type { ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
@@ -58,6 +59,7 @@ import type { AttachedFile } from '../../shared/attachedFiles'
 import type { SearchResult } from '../../shared/search'
 import type { DoneCounts, TaskCursor } from '../../shared/doneList'
 import type { TerminalTab } from '../../shared/terminal'
+import type { Filing, TodoId, TodoPanel } from '../../shared/todoHub'
 
 export enum HydrationStatus {
   Loading = 'loading',
@@ -81,6 +83,9 @@ export interface HydrationFailed {
 
 /** Where the store is in loading its first snapshot from main. */
 export type Hydration = HydrationLoading | HydrationReady | HydrationFailed
+
+/** A task's todo panels in the hub, as you left them, by todo id (`UNFILED_TODO_ID` for the placeholder group's). */
+export type TodoPanels = Readonly<Record<TodoId, TodoPanel>>
 
 /** The persisted UI state values that have been set, by key. */
 export type UiStateValues = Readonly<Partial<Record<UiStateKey, string>>>
@@ -233,6 +238,23 @@ export interface GladeData {
    * kept current by events.
    */
   readonly todos: Readonly<Record<string, TodoList | null>>
+  /**
+   * Each task's filings (the todo hub, P16: which todo each filed child is under), by task id. A task has none here
+   * until the hub's tab has shown it (`loadTodoHub`); `filings.changed` then keeps them current. Empty while the hub
+   * is off (`todoHubEnabled`), which never loads or is sent any.
+   */
+  readonly filings: Readonly<Record<string, readonly Filing[]>>
+  /**
+   * How many `filings.changed` events each task has had, by task id: bumped as each lands, so a load of the hub that
+   * started before one can tell, when it answers, that it may be stale, and reads again.
+   */
+  readonly filingsVersion: Readonly<Record<string, number>>
+  /**
+   * How you left each todo's panel in the hub (whether it's open, and its filter), by task id and then by todo id
+   * (`UNFILED_TODO_ID` for the placeholder group): loaded with the task's filings, then changed as you open, close
+   * and filter. A todo with none is closed, showing all.
+   */
+  readonly todoPanels: Readonly<Record<string, TodoPanels>>
   readonly uiState: UiStateValues
   /**
    * The latest request to show a turn in the tool log; null until one is made. A one-off UI intent, so it's the one
@@ -416,8 +438,13 @@ export interface GladeActions {
   addSandboxGrant: (target: SettingsGrantTarget, grant: Grant) => Promise<void>
   /** Sets a listed folder's access (`sandbox.setFolderAccess`); running tasks have it from their next call. */
   setSandboxFolderAccess: (target: SettingsGrantTarget, path: string, access: FolderAccess) => Promise<void>
-  /** Removes a folder or domain from a scope's list (`sandbox.removeGrant`). */
+  /** Removes a folder, domain, MCP server or other agents from a scope's list (`sandbox.removeGrant`). */
   removeSandboxGrant: (target: SettingsGrantTarget, grant: GrantKey) => Promise<void>
+  /**
+   * Reads the MCP servers a scope's sessions have reported (`sandbox.listReportedServers`): what its MCP servers list
+   * offers under Add…. Asked for as Add… is clicked, and not kept: a session may report another at any time.
+   */
+  listReportedServers: (target: SettingsGrantTarget) => Promise<readonly ReportedMcpServer[]>
   /** Reads the control endpoint's status (`control.status`). */
   loadControlStatus: () => Promise<void>
   /** Replaces the control endpoint's token (Regenerate token, `control.regenerateToken`); the old one stops working. */
@@ -688,6 +715,13 @@ export interface GladeActions {
   watchArtifacts: (taskId: string) => Promise<void>
   /** The Artifacts tab no longer shows the task (`artifacts.unwatch`). */
   unwatchArtifacts: (taskId: string) => Promise<void>
+  /**
+   * Loads a task's todo hub (`todoHub.get`): its filings, and its todos' panels the first time. Called as the hub's
+   * tab shows the task. Fails while the hub is off.
+   */
+  loadTodoHub: (taskId: string) => Promise<void>
+  /** Opens, closes or filters a todo's panel in the hub, at once, and remembers it (`todoHub.setPanel`). */
+  setTodoPanel: (panel: TodoPanel) => Promise<void>
   /** Stops one of a task's running subagents, by the `Agent` call that started it (`subagents.stop`). */
   stopSubagent: (taskId: string, toolUseId: string) => Promise<void>
   /** Stops one of a task's live watchers (`watchers.stop`). */
@@ -796,6 +830,9 @@ export const INITIAL_DATA: GladeData = {
   commits: {},
   handoffs: {},
   todos: {},
+  filings: {},
+  filingsVersion: {},
+  todoPanels: {},
   uiState: {},
   toolLogFocus: null,
   inputFocusRequest: 0,

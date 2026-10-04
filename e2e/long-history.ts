@@ -46,12 +46,22 @@ type SeedToolEvent =
       readonly parentToolUseId?: string
       readonly turn: number
       readonly minutesAgo: number
+      /** For an `Agent` call: the todo its subagent is filed under in the todo hub. */
+      readonly todo?: string
     }
 
 interface SeedArtifact {
   readonly path: string
   readonly title: string
   readonly minutesAgo: number
+  /** The todo it's filed under in the todo hub. */
+  readonly todo?: string
+}
+
+/** How a todo's panel was left in the todo hub. */
+interface SeedTodoPanel {
+  readonly todo: string
+  readonly open: boolean
 }
 
 interface SeedTask {
@@ -65,6 +75,26 @@ interface SeedTask {
   readonly messages: readonly SeedMessage[]
   readonly toolEvents: readonly SeedToolEvent[]
   readonly artifacts: readonly SeedArtifact[]
+  readonly todoPanels?: readonly SeedTodoPanel[]
+}
+
+/** How many children the long task's first todo has in the todo hub: the hub's big case (`CLAUDE.md`, Performance). */
+export const HUB_CHILDREN_UNDER_FIRST = 50
+
+/** The subagents among them, the running ones included; the rest are artifacts. */
+const HUB_SUBAGENTS_UNDER_FIRST = 30
+
+/**
+ * The todo a child is filed under in the hub, when the seed files them: the first todo has the first of each kind (and
+ * the subagents still running), `HUB_CHILDREN_UNDER_FIRST` in all, and the rest go round the other todos.
+ */
+function hubTodo(scale: HistoryScale, kind: 'subagent' | 'artifact', index: number): string {
+  const running = kind === 'subagent' && index > scale.subagents - RUNNING_SUBAGENTS
+  const first =
+    kind === 'subagent'
+      ? running || index <= HUB_SUBAGENTS_UNDER_FIRST - RUNNING_SUBAGENTS
+      : index <= HUB_CHILDREN_UNDER_FIRST - HUB_SUBAGENTS_UNDER_FIRST
+  return first || scale.todos < 2 ? '1' : String(2 + (index % (scale.todos - 1)))
 }
 
 const AREAS = ['billing', 'search', 'uploads', 'auth', 'dashboard', 'webhooks', 'exports', 'notifications'] as const
@@ -110,8 +140,11 @@ function share(count: number, turns: number, turn: number): number {
   return Math.floor((count * turn) / turns) - Math.floor((count * (turn - 1)) / turns)
 }
 
-/** A task's sample history at `scale`, with its turns ending `minutesAgo` minutes before the capture. */
-function historyTask(title: string, scale: HistoryScale, selected: boolean): SeedTask {
+/**
+ * A task's sample history at `scale`, with its turns ending `minutesAgo` minutes before the capture. With `hub`, its
+ * subagents and artifacts are filed under its todos, and its first three todos are open.
+ */
+function historyTask(title: string, scale: HistoryScale, selected: boolean, hub = false): SeedTask {
   const turns = Math.max(1, Math.floor(scale.messages / 2))
   // One minute per turn, oldest first.
   const at = (turn: number): number => turns - turn + 1
@@ -165,6 +198,7 @@ function historyTask(title: string, scale: HistoryScale, selected: boolean): See
         toolUseId,
         turn,
         minutesAgo,
+        ...(hub ? { todo: hubTodo(scale, 'subagent', subagent) } : {}),
       })
       for (let step = 0; step < subagentCalls; step += 1) {
         toolEvents.push({
@@ -206,6 +240,7 @@ function historyTask(title: string, scale: HistoryScale, selected: boolean): See
     path: `docs/reports/${area(index)}-${String(index + 1)}.md`,
     title: `The ${area(index)} report, part ${String(index + 1)}`,
     minutesAgo: scale.artifacts - index,
+    ...(hub ? { todo: hubTodo(scale, 'artifact', index + 1) } : {}),
   }))
   return {
     title,
@@ -218,6 +253,7 @@ function historyTask(title: string, scale: HistoryScale, selected: boolean): See
     messages,
     toolEvents,
     artifacts,
+    ...(hub ? { todoPanels: ['1', '2', '3'].map((id) => ({ todo: id, open: true })) } : {}),
   }
 }
 
@@ -229,15 +265,23 @@ export enum SelectedHistory {
 
 /**
  * Writes the fixture into `folder` and returns its path: the long task and the small one in one workspace, with
- * `selected` showing and the right panel on `panelTab`.
+ * `selected` showing and the right panel on `panelTab`. With `hub`, the todo hub is on (the hidden `todoHubEnabled`
+ * setting) and the tasks' subagents and artifacts are filed under their todos, `HUB_CHILDREN_UNDER_FIRST` of the long
+ * task's under its first.
  */
-export function writeLongHistorySeed(folder: string, selected: SelectedHistory, panelTab = 'tool-calls'): string {
+export function writeLongHistorySeed(
+  folder: string,
+  selected: SelectedHistory,
+  panelTab = 'tool-calls',
+  hub = false,
+): string {
   const seed = {
     workspace: { name: 'Acme API', rootPath: '/Users/sample/code/api' },
     panelTab,
+    ...(hub ? { settings: { todoHubEnabled: true } } : {}),
     tasks: [
-      historyTask(SHORT_TASK_TITLE, SHORT_HISTORY, selected === SelectedHistory.Short),
-      historyTask(LONG_TASK_TITLE, LONG_HISTORY, selected === SelectedHistory.Long),
+      historyTask(SHORT_TASK_TITLE, SHORT_HISTORY, selected === SelectedHistory.Short, hub),
+      historyTask(LONG_TASK_TITLE, LONG_HISTORY, selected === SelectedHistory.Long, hub),
     ],
   }
   const path = join(folder, 'long-history.json')
