@@ -959,6 +959,7 @@ describe('applySeed', () => {
       instructions: true,
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: null,
+      sandbox: true,
     })
   })
 

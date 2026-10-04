@@ -48,8 +48,9 @@ export const LINK_ARTIFACTS_LINE =
 /**
  * What the prompt says of the agent sandbox, in a session that runs in one (#445, #450): what its commands can use,
  * and that a command the sandbox blocks is answered with `request_access`, not by leaving the sandbox. A session
- * resumed from before the sandbox was turned on keeps its old prompt (Claude Code applies the append at start only);
- * the tool's own description says when to call it too.
+ * resumed from before the sandbox was turned on keeps its old prompt (Claude Code applies the append at start only),
+ * so it's sent this once, ahead of its next message, when it resumes in the sandbox (`./session-context`, #452). The
+ * tool's own description says when to call it too.
  */
 export const SANDBOX_LINE =
   'Your commands run in a sandbox: they can read and write the workspace folder, and beyond it only the folders ' +
@@ -61,7 +62,8 @@ export const SANDBOX_LINE =
 /**
  * The instructions added to the prompt after sessions had started with it, oldest first. Claude Code keeps a session's
  * prompt when it resumes it, so a session that started before one was added is sent it once, ahead of its next message
- * (`./session-context`). Only ever append: a session's place in this list is saved as a count.
+ * (`./session-context`). Only ever append: a session's place in this list is saved as a count. Only what every session
+ * is told goes here: `SANDBOX_LINE` is for sandboxed sessions alone, and is tracked by itself.
  */
 export const INSTRUCTION_UPDATES: readonly string[] = [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE]
 

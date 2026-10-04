@@ -2666,7 +2666,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const handoff = getHandoff(db, task.id) ?? null
     // A session Glade starts has everything its prompt says; one it resumes keeps the prompt it started with, and is
     // sent what it's missing with its next message (`startTurn`).
-    if (task.sessionId === null) setSessionContext(db, task.id, startedContext(handoff))
+    if (task.sessionId === null) setSessionContext(db, task.id, startedContext(handoff, sandboxed))
     // The session's calls are decided against the live session, which exists once the backend has started it.
     let decide: (call: ToolPermissionCall) => Promise<ToolPermissionAnswer> = () => Promise.resolve(WITHDRAWN)
     let verdict: (prompt: string) => PromptVerdict = () => PromptVerdict.Allow
@@ -3020,6 +3020,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         startedElsewhere: task.importedAt !== null,
         handoff,
         prompt: systemPromptAppend(task, getSettings(db), live.control, handoff, live.sandbox !== null),
+        // A session that started before the sandbox was on, and resumed in it, is told of it once (#452).
+        sandboxed: live.sandbox !== null,
       }
       const missing = messages.length === 0 ? [] : missingContext(check)
       if (missing.length > 0) setSessionContext(db, taskId, contextAfter(check, missing))
