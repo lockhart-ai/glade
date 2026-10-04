@@ -150,7 +150,7 @@ export function listCommitCalls(db: Database, taskId: string): CommitCall[] {
 
 /**
  * A task's commits, newest first (by when they were committed; of those made in the same second, the one linked last
- * first), as the Changes tab lists them: each with the subagent that made it, from the tool log (the parent of the
+ * first), as a commit's tile lists them: each with the subagent that made it, from the tool log (the parent of the
  * `Bash` call that made it).
  */
 export function listTaskCommits(db: Database, taskId: string): TaskCommit[] {

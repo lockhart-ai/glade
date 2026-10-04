@@ -416,7 +416,7 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, watchers: withWatchers(state.watchers, event.taskId, event.watchers) }
     case EventType.CommitsChanged:
       return { ...state, commits: { ...state.commits, [event.taskId]: event.commits } }
-    // The todo hub's (P16), which main never sends while the hub is off.
+    // The todo hub's (P16).
     case EventType.FilingsChanged:
       return withFilingsChange(state, event)
     case EventType.TerminalTabsChanged: {

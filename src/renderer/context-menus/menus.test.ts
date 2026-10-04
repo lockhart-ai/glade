@@ -11,7 +11,6 @@ import {
   linkMenu,
   pinLabel,
   queuedMessageMenu,
-  subagentMenu,
   taskMenu,
   terminalTabMenu,
   todoMenu,
@@ -127,11 +126,6 @@ const CASES: readonly Case[] = [
   {
     target: 'Link artifact',
     entries: linkArtifactMenu(spies('open', 'copy', 'remove'), SHORTCUT_HINTS),
-    leftOut: [],
-  },
-  {
-    target: 'Subagent',
-    entries: subagentMenu({ expanded: false }, { ...spies('toggleLog', 'copyLog'), stop: vi.fn() }),
     leftOut: [],
   },
   {
@@ -301,11 +295,3 @@ describe('agentTabMenu', () => {
   })
 })
 
-describe('subagentMenu', () => {
-  it('collapses an open log, and can’t stop a subagent that isn’t running', () => {
-    expect(written(subagentMenu({ expanded: true }, { ...spies('toggleLog', 'copyLog'), stop: null }))).toEqual([
-      'Collapse log ↵',
-      'Copy log',
-    ])
-  })
-})

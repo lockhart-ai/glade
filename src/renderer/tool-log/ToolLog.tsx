@@ -75,8 +75,7 @@ interface TurnStartProps {
 }
 
 /**
- * How a row is laid out: `compact` puts a call on one line, without its result, and tightens a note, as a subagent's
- * log in the Subagents tab does (docs/design/html/11-subagents.html).
+ * How a row is laid out: `compact` puts a call on one line, without its result, and tightens a note, for rows nested under a call.
  */
 interface DensityProps {
   readonly compact?: boolean | undefined
@@ -192,8 +191,7 @@ function sameAgentCall(a: AgentCallProps, b: AgentCallProps): boolean {
  * A call that started a subagent, in the Agents tab (P16, #536; `docs/design/html/50-agents.html`): a tool call's row,
  * live while the subagent runs ("Running · 29m" on the running call's highlight), then how it ended, how long it ran
  * and the first line of what it came to ("Done · 28m · Opened PR #511"). While it runs, the SDK's summary of what it's
- * doing now is under that, on one line with the whole of it in its tooltip, as its row in the Subagents tab has it
- * (#278, #537). Clicking it goes to the subagent's own tab, where what it did is, rather than opening the call's
+ * doing now is under that, on one line with the whole of it in its tooltip (#278, #537). Clicking it goes to the subagent's own tab, where what it did is, rather than opening the call's
  * output; its context menu is a tool call's.
  */
 const AgentCall = memo(function AgentCall({ row, rootPath, turnStart, onOpen }: AgentCallProps): React.JSX.Element {
@@ -413,8 +411,8 @@ export interface ToolLogProps {
 
 /**
  * A task's tool log: every tool call and working note of the task's own agent in order, with a divider where each turn
- * after the first starts. A subagent's calls and notes are in the Subagents tab instead: its `Agent` call is one row
- * here. A call a permission was decided about says so on its row. It keeps to the bottom as it grows, unless you've
+ * after the first starts. A subagent's calls and notes are on its own tab of the Agents tab instead: its `Agent` call
+ * is one row here. A call a permission was decided about says so on its row. It keeps to the bottom as it grows, unless you've
  * scrolled up. Asked to show a turn, it scrolls to the turn's first row (its divider, or turn 1's first row) and
  * highlights it for a moment.
  *

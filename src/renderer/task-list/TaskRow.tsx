@@ -35,11 +35,11 @@ export interface TaskRowProps {
   /** What opens the task's context menu from the row: a right-click, or ⇧F10 while it has the focus. */
   menuTarget?: ContextMenuTargetProps
   /**
-   * How many live watchers its agent has (the Watchers tab): the row shows an eye and the count on its indicators line,
+   * How many live watchers its agent has (the Agents tab): the row shows an eye and the count on its indicators line,
    * done or not, so a task waiting on you that's still watching something shows it. None by default.
    */
   watching?: number
-  /** How many of its agent's subagents are running (the Subagents tab), shown on its indicators line. None by default. */
+  /** How many of its agent's subagents are running (the Agents tab), shown on its indicators line. None by default. */
   subagents?: number
 }
 

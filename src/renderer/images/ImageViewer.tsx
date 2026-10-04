@@ -58,13 +58,13 @@ export interface ImageViewerProps {
   readonly returnFocus: React.RefObject<HTMLElement | null>
   /**
    * What the header over the image showing says and does, for its source; undefined for none. A message's pasted
-   * images have no header; a workspace image opened from the Artifacts tab has its artifact's title, Open in Files and
+   * images have no header; a workspace image opened from the Todos tab has its artifact's title, Open in Files and
    * Reveal in Finder.
    */
   readonly header?: (source: ImageViewerSource) => ImageViewerHeader | undefined
   /**
    * Whether closing it puts the focus on the task's input instead of `returnFocus` (#415): true for a message's
-   * pasted images, in the chat or queued. False (the default) for a workspace image, opened from the Artifacts tab or
+   * pasted images, in the chat or queued. False (the default) for a workspace image, opened from the Todos tab or
    * the Files tab, where closing keeps a keyboard user's place in the list or row it opened from instead.
    */
   readonly focusesTaskInput?: boolean

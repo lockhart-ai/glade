@@ -412,7 +412,7 @@ export function createControlService(context: ControlServiceContext): ControlSer
       const checked = await checkArtifacts(root, artifacts, 'patch.artifacts')
       const updates = await checkArtifactUpdates(root, updateArtifacts, 'patch.updateArtifacts')
       const removals = checkArtifactRemovals(root, removeArtifacts, 'patch.removeArtifacts')
-      // What each repointed artifact's new file is now, which places it in the Artifacts tab. A link has none.
+      // What each repointed artifact's new file is now, which places it in the Todos tab. A link has none.
       const files = await Promise.all(
         updates.map(async ({ ref, newRef }) =>
           ref.kind === ArtifactKind.File && newRef.kind === ArtifactKind.File && newRef.path !== ref.path

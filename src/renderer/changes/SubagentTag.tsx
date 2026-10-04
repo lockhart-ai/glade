@@ -13,8 +13,8 @@ export interface SubagentTagProps {
 }
 
 /**
- * The subagent that made something, as a tag after it: a commit in the Changes tab, and in the todo hub (P16) a
- * commit's tile, where it goes to the subagent's tab in the Agents tab (#537).
+ * The subagent that made something, as a tag after it: on a commit's tile in the Todos tab (P16), where it goes to the
+ * subagent's tab in the Agents tab (#537).
  */
 export function SubagentTag({ name, title, className, onOpen }: SubagentTagProps): React.JSX.Element {
   if (onOpen === undefined) {

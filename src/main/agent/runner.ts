@@ -17,7 +17,7 @@
  *   turn's edits changed.
  * - Each tool call is saved as running and filled in as done or error when its result arrives. A subagent's tool calls
  *   carry their `Agent` call's id. A subagent's own text (`forwardSubagentText`) isn't held back: it goes straight to
- *   the tool log as narration carrying its `Agent` call's id, for the Subagents tab, and never to the chat.
+ *   the tool log as narration carrying its `Agent` call's id, for the Agents tab, and never to the chat.
  * - The task's activity is working for the turn, then waiting on you, or error if the turn failed.
  * - A final reply in a task you aren't viewing marks it unread (`../tasks/attention`) and is notified (`notifyReply`).
  * - The task's context usage follows the agent's latest top-level message, and its context window is what the turn's
@@ -46,13 +46,13 @@
  *
  * **Commits** (`../changes/tracker`, `docs/sdk-notes.md` §14). Each `Bash` call is put to the change tracker before it
  * runs (the session's `PreToolUse` hook, which the call waits for) and once its result is in, a subagent's and a
- * background subagent's too, so the commits a task makes are linked to it for the Changes tab. The tracker reads git in
+ * background subagent's too, so the commits a task makes are linked to it for the Todos tab's commit tiles. The tracker reads git in
  * the background; it never holds up a turn, and a failed session forgets its calls that were running.
  *
  * **Background subagents** (`docs/sdk-notes.md`, "Background subagents"). An `Agent` call with `run_in_background`
  * returns as soon as its subagent is launched, and the turn carries on and ends without waiting for it, so the task goes
  * back to waiting on you and takes messages while the subagent works. The subagent isn't done then: its `Agent` call's
- * row keeps running, for the Subagents tab, until the SDK's task notification says it ended, when it's done, or failed
+ * row keeps running, for the Agents tab, until the SDK's task notification says it ended, when it's done, or failed
  * (a stopped one fails, as a stopped turn's calls do). Its calls and notes are logged as they arrive, whether a turn is
  * running or not, with the turn its `Agent` call was made in; they never open a turn, and a turn ending doesn't cut
  * them off. Stop subagent stops it by the SDK's task id, as a foreground one. The agent then usually starts a turn of
@@ -554,7 +554,7 @@ export interface AgentRunnerOptions {
    */
   readonly isOnline?: () => boolean
   /**
-   * Works out the commits each task's `Bash` calls make, for the Changes tab (`../changes/tracker`). One reading the
+   * Works out the commits each task's `Bash` calls make, for the Todos tab's commit tiles (`../changes/tracker`). One reading the
    * `git` on the PATH by default.
    */
   readonly changes?: ChangeTracker
@@ -1581,7 +1581,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       turn.pending.push({ text, sdkUuid })
       return
     }
-    // A subagent's text is the subagent's business, not the chat's: it's what the Subagents tab says it's doing.
+    // A subagent's text is the subagent's business, not the chat's: it's what the Agents tab says it's doing.
     if (text.trim() === '') return
     emitToolEventAppended(emit, appendNarration(db, { taskId, turn: turn.number, text: text.trim(), parentToolUseId }))
   }

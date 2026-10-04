@@ -92,7 +92,7 @@ export function withClosedFile(openFiles: OpenFiles, path: string): OpenFiles {
   return { ...openFiles, paths, activePath }
 }
 
-/** The most files an expanded commit lists in the Changes tab; a larger one ends with "and N more". */
+/** The most files an expanded commit lists in a commit's tile; a larger one ends with "and N more". */
 export const MAX_COMMIT_FILES = 100
 
 /**
@@ -110,7 +110,7 @@ export interface CommitFileRef {
 }
 
 /**
- * The key a commit's file is open under in the Files tab: `/commit/<commit id>/<path>`. The Changes tab opens a file
+ * The key a commit's file is open under in the Files tab: `/commit/<commit id>/<path>`. A commit's tile opens a file
  * this way when it's no longer at its path in the workspace (deleted since, its worktree removed).
  */
 export function commitFileKey({ commitId, path }: CommitFileRef): string {

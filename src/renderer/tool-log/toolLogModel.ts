@@ -356,7 +356,7 @@ export function isParentEvent(event: ToolEvent): boolean {
 
 /**
  * The tool log's rows for the task's own agent: its calls, notes, dividers and compactions, in order. What a subagent
- * does belongs under it in the Subagents tab, not here, so an `Agent` call is a single row, with no calls under it.
+ * does belongs on its own tab of the Agents tab, not here, so an `Agent` call is a single row, with no calls under it.
  */
 export function parentLogRows(events: readonly ToolEvent[], permissions?: PermissionLines): ToolLogRow[] {
   return toolLogRows(events.filter(isParentEvent), permissions)
@@ -424,8 +424,7 @@ const NO_LOG_WATCHERS: LogWatchers = { ended: [], startedBy: new Set<string>() }
 
 /**
  * The tool log's rows for one agent of the task (`isAgentEvent`), in order: the Agents tab's list for that agent (P16,
- * #536). The task's own agent's are `parentLogRows`; a subagent's are its calls and notes, the ones the Subagents tab
- * nests under its row. Either way an `Agent` call is a single row, with nothing under it: its subagent has a tab of
+ * #536). The task's own agent's are `parentLogRows`; a subagent's are its calls and notes. Either way an `Agent` call is a single row, with nothing under it: its subagent has a tab of
  * its own.
  *
  * With the agent's `watchers` (#537), each one that has ended is a row at the time it ended: after everything logged

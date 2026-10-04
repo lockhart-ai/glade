@@ -23,7 +23,7 @@ function FileArtifactTile({ artifact, childRef }: FileArtifactTileProps): React.
   const { taskId, path, title } = artifact
   const host = useArtifactTileHost()
   const selected = useGladeStore((state) => state.openFiles[taskId]?.activePath === path)
-  // How its file looks, and what Open and Reveal do: one with its row in the Artifacts tab.
+  // How its file looks, and what Open and Reveal do.
   const file = useFileArtifact(artifact)
   const tile = useRef<HTMLDivElement>(null)
   const menuOpen = useTileMenuOpen(childRef)
@@ -79,7 +79,7 @@ function FileArtifactTile({ artifact, childRef }: FileArtifactTileProps): React.
 }
 
 /**
- * A file artifact's tile, which does what its row in the Artifacts tab does (#498), with the row's own pieces: its
+ * A file artifact's tile (#498): its
  * type's icon (an image's thumbnail, larger, in its place), its title, its type and how long ago the file last changed.
  * Clicking it, or ↵ or Space while it has the focus, opens the file in the Files tab, or the image viewer for an image,
  * which steps only through this todo's images. Under the pointer or with the focus, its age gives way to three icon

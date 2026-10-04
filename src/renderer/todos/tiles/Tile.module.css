@@ -30,7 +30,7 @@
   cursor: pointer;
 }
 
-/* A file that's gone fades back, as its row in the Artifacts tab does: its title and its icon as faint as the rest. */
+/* A file that's gone fades back: its title and its icon as faint as the rest. */
 .muted .title {
   color: var(--color-faint);
 }
@@ -55,7 +55,7 @@
   color: var(--color-faint);
 }
 
-/* An image file's thumbnail where the icon goes, the size the Artifacts tab's rows have: the tile is a little taller. */
+/* An image file's thumbnail where the icon goes: the tile is a little taller. */
 .withMedia {
   align-items: center;
   gap: 10px;
@@ -106,7 +106,7 @@
 
 /*
  * A file's or a link's actions take its age's place while the tile is under the pointer or has the focus (#498): icon
- * buttons, as the Artifacts tab's rows have.
+ * buttons.
  */
 .actions {
   flex-shrink: 0;

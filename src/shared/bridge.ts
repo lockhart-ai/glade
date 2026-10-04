@@ -506,7 +506,7 @@ export interface WatchersListLiveResponse {
 }
 
 /**
- * Stops one of a task's live watchers (Stop, in the Watchers tab), the SDK's own way where it has one: a monitor or
+ * Stops one of a task's live watchers (Stop, on its card in the Agents tab), the SDK's own way where it has one: a monitor or
  * background command's process is stopped (`stopTask`), and answers once the SDK has been asked; its end arrives as
  * `watchers.changed`. A wakeup or cron job is stopped at once: it stays in the agent's session, but its fires are
  * turned away (`docs/sdk-notes.md` §13). Broadcasts `watchers.changed`. Fails with `invalid_transition` for a watcher
@@ -519,14 +519,14 @@ export interface WatchersStopRequest {
 }
 
 /**
- * The files one of a task's commits changed (a commit expanded in the Changes tab), read from git through the
+ * The files one of a task's commits changed (a commit's tile opened in the Todos tab), read from git through the
  * repository's common git dir, so they can be read after the commit's worktree is removed. Capped at `MAX_COMMIT_FILES`
  * (`./files`), with how many there are in all. Fails with `not_found` when the task has no such commit, and `internal`
  * when its repository no longer has it.
  */
 export interface ChangesFilesRequest {
   readonly taskId: string
-  /** The commit's id, as the Changes tab has it (`TaskCommit.id`). */
+  /** The commit's id, as its tile has it (`TaskCommit.id`). */
   readonly id: string
 }
 
@@ -535,7 +535,7 @@ export interface ChangesFilesResponse {
 }
 
 /**
- * Opens a file one of a task's commits changed in its Files tab, and shows it (a file clicked in the Changes tab): the
+ * Opens a file one of a task's commits changed in its Files tab, and shows it (a file clicked in a commit's opened tile): the
  * file as it is now, when it's still at that path in the task's workspace; otherwise (deleted since, its worktree
  * removed, or outside the workspace) the file as the commit left it, read-only, under its commit file key
  * (`commitFileKey` in `./files`). Broadcasts `openFiles.changed`. Fails with `not_found` when the task has no such
@@ -550,8 +550,7 @@ export interface ChangesOpenFileRequest {
 }
 
 /**
- * Whether a task's workspace root is in a git repository: the Changes tab says so when it isn't, rather than that the
- * task has made no commits yet.
+ * Whether a task's workspace root is in a git repository: what a task's commits can be read from.
  */
 export interface ChangesRepositoryRequest {
   readonly taskId: string
@@ -761,7 +760,7 @@ export interface FileRequest {
   /**
    * Relative to the task's workspace root, normalized: no `.` or `..` parts, no leading or trailing `/`. `files.read`,
    * `files.open` and `files.close` also take a commit file's key (`commitFileKey` in `./files`): a file as one of the
-   * task's commits left it, which the Changes tab opens read-only.
+   * task's commits left it, which a commit's tile opens read-only.
    */
   readonly path: string
 }
@@ -815,7 +814,7 @@ export interface OpenFilesResponse {
 export type FilesOpenInEditorRequest = FileRequest
 
 /**
- * A file's thumbnail, for its row in the Artifacts tab: a small PNG of an image (PNG, JPEG, GIF, WebP or SVG), made
+ * A file's thumbnail, for its tile in the Todos tab: a small PNG of an image (PNG, JPEG, GIF, WebP or SVG), made
  * once and kept on disk until the file changes; none for any other file, or an image that can't be read or is too
  * large; or that it's missing. Never fails for a file that isn't there, or can't be read.
  */
@@ -1632,7 +1631,7 @@ export interface ToolEventRemovedEvent {
 export interface TaskOpenRequestedEvent {
   readonly type: EventType.TaskOpenRequested
   readonly taskId: string
-  /** A subagent of the task to show in the Subagents tab, as picking it there does; null for none. */
+  /** A subagent of the task to show on its own tab of the Agents tab, as picking it there does; null for none. */
   readonly subagentId: string | null
 }
 
@@ -1771,7 +1770,7 @@ export interface CommitsChangedEvent {
 /**
  * Children of a task were filed under todos, moved between them, or lost their filing (the todo hub, `./todoHub`).
  * Carries the change alone, never the task's whole list: the filings made, each as it now is (one for a child that
- * already had a filing replaces it), and the children whose filing was taken away. Never sent while the hub is off.
+ * already had a filing replaces it), and the children whose filing was taken away.
  */
 export interface FilingsChangedEvent {
   readonly type: EventType.FilingsChanged

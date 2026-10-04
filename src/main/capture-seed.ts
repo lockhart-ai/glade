@@ -284,9 +284,9 @@ export interface SeedTask {
   readonly permissionMarks?: readonly SeedPermissionMark[] | undefined
   /** An open question set (the question card) its agent asked; none unless given. */
   readonly questionSet?: SeedQuestionSet | undefined
-  /** What its agent left running or scheduled (the Watchers tab), in the order it started them. */
+  /** What its agents left running or scheduled (the Agents tab's watchers), in the order they started them. */
   readonly watchers?: readonly SeedWatcher[] | undefined
-  /** The commits it made (the Changes tab); none unless given. */
+  /** The commits it made (the Todos tab's commit tiles); none unless given. */
   readonly commits?: readonly SeedCommit[] | undefined
   /** How its todos' panels were left in the todo hub; each closed, showing all, unless given. */
   readonly todoPanels?: readonly SeedTodoPanel[] | undefined
@@ -1195,7 +1195,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       for (const commit of sample.commits ?? []) {
         fileUnder(commit.todo, seedCommit(db, task.id, seed.workspace.rootPath, commit, now))
       }
-      // Filed as main files any child, with no window to tell yet. Nothing is filed while the hub is off.
+      // Filed as main files any child, with no window to tell yet.
       fileChildren({ db, emit: () => undefined }, task.id, filings, now)
       for (const { todo, open, filter } of sample.todoPanels ?? []) {
         setTodoPanel(db, { taskId: task.id, todoId: todo, open, filter: filter ?? ChildFilter.All })

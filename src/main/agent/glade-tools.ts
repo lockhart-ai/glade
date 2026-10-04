@@ -140,7 +140,7 @@ export interface AddArtifactInput extends ArtifactTarget {
   readonly title: string
   /**
    * The id of the todo the artifact belongs under. Only in a session with the todo hub on, where the handler refuses
-   * a call without one; with the hub off the tool has no such field.
+   * a call without one.
    */
   readonly todo?: string | undefined
 }
@@ -399,12 +399,12 @@ export interface GladeToolHandlers {
   requestAccess(input: AccessRequest, call: AccessCall): Promise<GladeToolResult>
   /**
    * Lists the task's children by the todo each is under, with their short ids; an error result for a todo that isn't
-   * in the task's list, and while the todo hub is off.
+   * in the task's list.
    */
   listChildren(input: ListChildrenInput): GladeToolResult
   /**
    * Files children under todos, or moves them, all of them or none; an error result, with nothing filed, when a child
-   * or a todo isn't there, and while the todo hub is off.
+   * or a todo isn't there.
    */
   fileChildren(input: FileChildrenInput): GladeToolResult
 }
@@ -560,7 +560,7 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
   [GladeTool.UpdateArtifact]:
     "Change one of the task's artifacts, named by its path (a file) or its url (a link): give it a new title, point a " +
     'file at another file of the workspace (newPath), e.g. after you moved or renamed it, or a link at another page ' +
-    '(newUrl), or both. It keeps its place in the Artifacts tab.',
+    '(newUrl), or both. It stays under its todo in the Todos tab.',
   [GladeTool.RemoveArtifact]:
     "Take a file (by its path) or a link (by its url) off the task's artifacts, e.g. one that's no longer a " +
     'deliverable. A file itself is left alone.',

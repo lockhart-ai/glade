@@ -1,5 +1,5 @@
 /**
- * Keeps the Artifacts tab's order live (#307): the tab lists artifacts by when their files last changed, so when one
+ * Keeps the order of a todo's tiles live (#307): the tab lists artifacts by when their files last changed, so when one
  * may have changed, it's looked at again (`refreshTaskArtifacts`), and moves. Two things say one may have:
  *
  * - a finished tool call in the task, or one of its subagents, that wrote to its path: Write, Edit, MultiEdit and
@@ -57,7 +57,7 @@ export interface ArtifactWatcherOptions {
 
 export interface ArtifactWatcher {
   /**
-   * The Artifacts tab shows the task (`artifacts.watch`): every artifact's file is looked at now, and the folders
+   * The Todos tab shows the task (`artifacts.watch`): every artifact's file is looked at now, and the folders
    * they're in are watched until the tab lets it go. Counted: each `watch` is ended by an `unwatch`.
    */
   watch(taskId: string): void

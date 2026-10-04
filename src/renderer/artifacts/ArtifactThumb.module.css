@@ -1,6 +1,6 @@
 /*
  * An artifact's thumbnail, or its type's icon in a frame the same size, from docs/design/html/10-artifacts.html (.tile)
- * and docs/design/html/46-todo-hub.html (.thumb): the Artifacts tab's rows and the todo hub's image tiles share it.
+ * and docs/design/html/46-todo-hub.html (.thumb): the Todos tab's image tiles.
  */
 .frame {
   flex-shrink: 0;

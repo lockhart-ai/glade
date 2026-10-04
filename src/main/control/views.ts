@@ -133,7 +133,7 @@ export interface TaskDetail extends TaskSummary {
   readonly importedAt: EpochMs | null
   /** Its handoff note (the Backfilled card); null when it has none. */
   readonly handoff: TaskDetailHandoff | null
-  /** Its artifacts (the Artifacts tab), in the order they were first declared. */
+  /** Its artifacts (the Todos tab), in the order they were first declared. */
   readonly artifacts: readonly TaskDetailArtifact[]
   /** The caller's own id it was created with (`create_task`'s `externalId`); null when it has none. */
   readonly externalId: string | null

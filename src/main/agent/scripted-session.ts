@@ -45,7 +45,7 @@
  *   for a call that names files in it by absolute path.
  * - A `Shell` step is a `Bash` call that really runs its command, in the session's folder or one beside it: its call,
  *   then the session's `PreToolUse` hook (`hooks.onBashStarting`), which it waits for, then its result, what the
- *   command printed. The Changes tab's scripts make real commits with it (`docs/sdk-notes.md` §14).
+ *   command printed. The commit tiles' scripts make real commits with it (`docs/sdk-notes.md` §14).
  * - The sandbox steps (`NetworkAccess`, `WebFetch`, `OutsideFile`, `SandboxOverride`, `SandboxedBash`) play what a
  *   sandboxed session sends, in the probed shapes (`./sandbox-requests`, `docs/sdk-notes.md` §15): crossing the
  *   sandbox's bounds asks the runner in any permission mode, unless the session's grants cover it, which are what it

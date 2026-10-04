@@ -200,7 +200,7 @@ export interface GladeData {
   readonly permissionMarks: Readonly<Record<string, readonly PermissionMark[]>>
   /** The files open in each task's Files tab, by task id: loaded with its logs, then kept current by events. */
   readonly openFiles: Readonly<Record<string, OpenFiles>>
-  /** Each task's artifacts (the Artifacts tab), by task id: loaded with its logs, then kept current by events. */
+  /** Each task's artifacts (the Todos tab), by task id: loaded with its logs, then kept current by events. */
   readonly artifacts: Readonly<Record<string, readonly Artifact[]>>
   /**
    * How many `artifacts.changed` events each task has had applied, by task id: bumped every time one lands, so a
@@ -713,11 +713,11 @@ export interface GladeActions {
   /** Adds a link to a task's artifacts, called what it says (`artifacts.addLink`, #407); one already there stays. */
   addLinkArtifact: (taskId: string, url: string, text: string) => Promise<void>
   /**
-   * The Artifacts tab shows a task (`artifacts.watch`): main looks at its artifacts' files again, and watches them for
+   * The Todos tab shows a task (`artifacts.watch`): main looks at its artifacts' files again, and watches them for
    * edits from outside the agent until `unwatchArtifacts`.
    */
   watchArtifacts: (taskId: string) => Promise<void>
-  /** The Artifacts tab no longer shows the task (`artifacts.unwatch`). */
+  /** The Todos tab no longer shows the task (`artifacts.unwatch`). */
   unwatchArtifacts: (taskId: string) => Promise<void>
   /**
    * Loads a task's todo hub (`todoHub.get`): its filings, and its todos' panels the first time. Called as the hub's
@@ -730,7 +730,7 @@ export interface GladeActions {
   stopSubagent: (taskId: string, toolUseId: string) => Promise<void>
   /** Stops one of a task's live watchers (`watchers.stop`). */
   stopWatcher: (taskId: string, id: string) => Promise<void>
-  /** The files one of a task's commits changed (`changes.files`). Not kept in the store: the Changes tab holds them. */
+  /** The files one of a task's commits changed (`changes.files`). Not kept in the store: its tile holds them. */
   commitFiles: (taskId: string, commitId: string) => Promise<CommitFiles>
   /**
    * Opens a file one of a task's commits changed in the task's Files tab, as it is now or as the commit left it

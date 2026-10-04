@@ -61,7 +61,7 @@ export function parseTaskNotices(prompt: string): TaskNotice[] {
   })
 }
 
-/** The last non-blank line of an event, which the Watchers tab shows as what the watch last reported. */
+/** The last non-blank line of an event, which the Agents tab shows as what the watch last reported. */
 export function lastLine(text: string): string | null {
   const lines = text.split('\n').filter((line) => line.trim() !== '')
   return lines.at(-1)?.trim() ?? null

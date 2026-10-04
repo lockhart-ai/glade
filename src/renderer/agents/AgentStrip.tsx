@@ -154,7 +154,7 @@ export interface AgentStripProps {
  *
  * It's one tab stop, on the tab showing; ← and → pick the agent before or after, wrapping at the ends.
  *
- * A subagent's tab has a context menu (#537), with what its row in the Subagents tab has: Copy log, and Stop subagent
+ * A subagent's tab has a context menu (#537): Copy log, and Stop subagent
  * while it runs. Its log is read from the store as the menu opens, so the strip doesn't render with the log.
  *
  * It reads only the order of the task's subagents, so it renders when one starts, or moves between the running and the

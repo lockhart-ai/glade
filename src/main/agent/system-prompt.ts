@@ -91,7 +91,7 @@ export const TODO_HUB_ARTIFACTS_LINE = `An artifact goes under a todo too: give 
 /**
  * Everything the prompt says of the todo hub, a paragraph each. They aren't in `INSTRUCTION_UPDATES`: the hub was built
  * behind a switch, so whether a session has them is tracked by itself, as the sandbox's line is. A session that started
- * without them (before the hub, or with its switch off) is sent them once, ahead of its next message
+ * without them (before the hub, or while it was behind its switch) is sent them once, ahead of its next message
  * (`./session-context`).
  */
 export const TODO_HUB_LINES: readonly string[] = [TODO_HUB_FILING_LINE, TODO_HUB_ARTIFACTS_LINE, TODO_HUB_TOOLS_LINE]

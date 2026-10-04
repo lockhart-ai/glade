@@ -2,7 +2,7 @@
  * What the Agents tab shows of a task's watchers (P16, #537; `docs/design/html/52-agents-watcher.html`,
  * `53-agents-watcher-done.html`), worked out from the task's watchers: whose each one is, which are pinned under an
  * agent's tool calls and which are rows among them, and what each says. What a watcher is called, what it runs and
- * what it last reported are the Watchers tab's (`../watchers/watchersModel`).
+ * what it last reported are in `../watchers/watchersModel`.
  *
  * A watcher belongs to the agent whose call started it: a subagent's by that subagent's `Agent` call
  * (`Watcher.parentToolUseId`), and the task's own agent's, Main's, by null. While it's live (its process runs, it's

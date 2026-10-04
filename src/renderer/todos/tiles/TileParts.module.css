@@ -18,7 +18,7 @@
   text-overflow: ellipsis;
 }
 
-/* The Changes tab's tag (../../changes/SubagentTag.module.css), as a tile's line holds it. */
+/* The subagent's tag (../../changes/SubagentTag.module.css), as a tile's line holds it. */
 span.by,
 button.by {
   flex-shrink: 0;

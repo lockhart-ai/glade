@@ -73,7 +73,7 @@ export interface AgentsTabProps {
  * line under the strip (`AgentLine`).
  *
  * What the agent showing is watching is pinned under its tool calls, outside their scroll (`PinnedWatchers`, #537), and
- * takes the place of the Watchers tab: each watcher is on the tab of the agent that started it, a subagent's on that
+ * is where a task's watchers are: each watcher is on the tab of the agent that started it, a subagent's on that
  * subagent's, where it stays after the subagent finishes. Once a watcher ends it's a row of the list instead.
  *
  * Which agent's tab a task is on is remembered for the task (`selectAgentTab`), across tasks and relaunches; one

@@ -1,5 +1,5 @@
 /**
- * The icon an artifact shows before its title, in the Artifacts tab's row and on its tile in the todo hub: a file's by
+ * The icon an artifact shows before its title, on its tile in the Todos tab: a file's by
  * its type, a link's by what it is.
  */
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'

@@ -135,8 +135,8 @@
   text-overflow: ellipsis;
 }
 
-/* What a running subagent is doing now, under its Agent call's "Running · 6m" in the Agents tab: the Subagents tab's
-   summary line, on one line with the rest in its tooltip. */
+/* What a running subagent is doing now, under its Agent call's "Running · 6m" in the Agents tab: its summary, on one
+   line with the rest in its tooltip. */
 .doing {
   padding-left: 18px;
   margin-top: 3px;
@@ -309,7 +309,7 @@
   }
 }
 
-/* A subagent's log in the Subagents tab (docs/design/html/11-subagents.html): each call on one line, notes tighter. */
+/* Rows nested under a call, laid out tighter: each call on one line, notes tighter. */
 .call.compact {
   padding: 4px 2px;
   border-radius: 6px;

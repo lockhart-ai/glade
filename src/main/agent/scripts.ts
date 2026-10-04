@@ -132,7 +132,7 @@ export enum ScriptStepKind {
    * Code runs one: the `tool_use`, then the session's `PreToolUse` hook (`hooks.onBashStarting`) with the call's folder
    * and command, which the call waits for, then the command, then its result: what it printed, an error if it exited
    * non-zero. Git in it reads no config of the machine's (`SHELL_GIT_ENV`), so a script's commits are the same
-   * anywhere. For the Changes tab's scripts, whose agents make real commits (`docs/sdk-notes.md` §14).
+   * anywhere. For the commit tiles' scripts, whose agents make real commits (`docs/sdk-notes.md` §14).
    */
   Shell = 'shell',
   /**
@@ -3385,7 +3385,7 @@ const scheduledCheck: AgentScript = {
   ],
 }
 
-/** What the `watches-things` script's agent starts, and says, for the Watchers tab's specs and screenshots. */
+/** What the `watches-things` script's agent starts, and says, for the Agents tab's watchers' specs and screenshots. */
 export const WATCHES_THINGS = {
   prompt:
     'Watch the CI on PR #42, run the integration tests and build the docs in the background, check the docs ' +
@@ -3417,7 +3417,7 @@ export const WATCHES_THINGS = {
   docsBuildFailed: 'The docs build failed: a broken link in docs/upgrade.md. The integration tests are still running.',
   queueChecked: 'The staging queue is at 212 jobs, well under 1,000.',
   lintPassed: 'Lint passed on CI. Still waiting on the other checks.',
-  again: "Still on it: the watchers I left are in the Watchers tab, and I'll report when they wake me.",
+  again: "Still on it: the watchers I left are in the Agents tab, and I'll report when they wake me.",
 } as const
 
 /** What the `wakes-a-subagent` scripts' agent and subagent say (#395). */
@@ -3921,7 +3921,7 @@ const backfillsTasks: AgentScript = {
 }
 
 /**
- * What the `makes-commits` and `makes-another-commit` scripts' agents commit, for the Changes tab's specs and
+ * What the `makes-commits` and `makes-another-commit` scripts' agents commit, for the commit tiles' specs and
  * screenshots: in the workspace's repository (`setup` makes it, as a person's existing one, when it isn't one yet) and,
  * through a subagent, in a worktree beside it.
  */
@@ -3964,7 +3964,7 @@ export const MAKES_COMMITS = {
   mergeCommand: 'git merge --no-ff -q -m "Merge the upgrade guide" docs/upgrade',
   reply:
     'Fixed the UTC date test (it built its date in local time), bumped the version to 2.4.1, and merged the renamed ' +
-    'upgrade guide. The commits are in the Changes tab.',
+    'upgrade guide. The commits are in the Todos tab.',
   /** The other task's. */
   otherPrompt: 'Tidy the README.',
   otherTitle: 'Tidy the README',
@@ -3975,7 +3975,7 @@ export const MAKES_COMMITS = {
 } as const
 
 /**
- * Makes real commits in the workspace's repository (`docs/sdk-notes.md` §14), each a way the Changes tab has to see:
+ * Makes real commits in the workspace's repository (`docs/sdk-notes.md` §14), each a way Glade has to see:
  * a `git commit` that prints its hash, the release script committing silently, an amend of that commit, a subagent
  * committing a rename and a binary file in a worktree of its own, and a merge commit of its branch.
  */
@@ -4418,7 +4418,7 @@ const sharesLinks: AgentScript = {
  * Add to artifacts.
  */
 export const TRACKS_LINKS_REPLY =
-  'PR #412 is open for the navigation, and it and the ticket are in Artifacts with the release notes. It fixes ' +
+  'PR #412 is open for the navigation, and it and the ticket are under its todo with the release notes. It fixes ' +
   'https://github.com/acme/api/issues/398, and follows [the code sample style guide](https://example.com/style/code-samples).'
 
 /**

@@ -31,8 +31,8 @@ interface OpenCommitProps {
 }
 
 /**
- * What a commit's tile opens to: its branch and the subagent that made it (the Changes tab's tag), then the files it
- * changed (the Changes tab's list). The subagent's name goes to its tab in the Agents tab (`showAgent`, #537). A file
+ * What a commit's tile opens to: its branch and the subagent that made it (`SubagentTag`), then the files it
+ * changed (`CommitFileList`). The subagent's name goes to its tab in the Agents tab (`showAgent`, #537). A file
  * opens in the Files tab, read-only: as it is now, or as the commit left it when it's gone from its path. View only:
  * nothing here commits, pushes or reverts.
  */
@@ -72,7 +72,7 @@ function OpenCommit({ taskId, commit, by, files }: OpenCommitProps): React.JSX.E
 }
 
 /**
- * A commit's tile, which does what its row in the Changes tab does: its short hash, its subject (`merge` after it for
+ * A commit's tile (#499): its short hash, its subject (`merge` after it for
  * a merge commit), the lines it added and removed, and how long ago it was made. Click it (or ↵ or Space on it) to
  * open it in place to its branch, the subagent that made it and its files, read from git the first time it opens and
  * kept while the tile shows; click again to close it.

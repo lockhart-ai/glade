@@ -136,11 +136,11 @@ export interface HandlerContext {
   readonly menuBar?: MenuBarCommands
   /** Where errors in the window are logged (`log.rendererError`). Nothing by default. */
   readonly log?: Logger
-  /** Reads git, for the Changes tab. The `git` on the PATH by default. */
+  /** Reads git, for the Todos tab's commit tiles. The `git` on the PATH by default. */
   readonly git?: Git
   /** Makes and keeps the artifacts' thumbnails (`files.thumbnail`). None by default: every file shows its type. */
   readonly thumbnails?: Thumbnails
-  /** Watches the files of the artifacts the Artifacts tab shows (`artifacts.watch`). None by default: nothing is. */
+  /** Watches the files of the artifacts the Todos tab shows (`artifacts.watch`). None by default: nothing is. */
   readonly artifactWatch?: ArtifactWatcher
   /** Asks git what the Browse tab hides, and lists a repository's files for its search. The `git` on the PATH by default. */
   readonly workspaceGit?: WorkspaceGit

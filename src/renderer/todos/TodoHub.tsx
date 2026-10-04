@@ -526,8 +526,7 @@ export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown
     loadTodoHub(taskId).catch(() => undefined)
   }, [taskId, loadTodoHub])
 
-  // While the tab shows the task, main watches its file artifacts for edits from anywhere, as it does for the
-  // Artifacts tab: a file's place in its todo's list goes by when it last changed.
+  // While the tab shows the task, main watches its file artifacts for edits from anywhere, since a file's place in its todo's list goes by when it last changed.
   useEffect(() => {
     watchArtifacts(taskId).catch(() => undefined)
     return () => {
