@@ -374,7 +374,7 @@ import {
   toolCallVerdict,
   type SandboxBounds,
 } from '../permissions/sandbox-classify'
-import { absolutePath } from '../permissions/canonical-path'
+import { absolutePath, canonicalKey, keyInside } from '../permissions/canonical-path'
 import { cardGrantTarget, createPermissionBroker, type PermissionBroker } from '../permissions/permissions'
 import {
   AccessOutcomeKind,
@@ -2393,6 +2393,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
     if (named === null) return null
     const { path, access } = named
+    // A call in the workspace root needs no grant, and most calls are: nothing is looked up for one.
+    const key = canonicalKey(path, bounds.fs)
+    if (key === null || keyInside(key, bounds.readable[0] ?? key)) return null
     const granting = grantingGrant(db, task, { kind: SandboxGrantKind.Folder, path, access })
     if (granting?.grant.kind !== SandboxGrantKind.Folder) return null
     const ask: SandboxFolderAsk = { kind: SandboxAskKind.Folder, path: granting.grant.path, access }

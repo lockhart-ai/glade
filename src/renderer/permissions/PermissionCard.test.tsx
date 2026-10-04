@@ -4,6 +4,7 @@ import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shar
 import {
   PermissionDecisionKind,
   PermissionDestination,
+  PermissionMarkKind,
   PermissionRequestState,
   PermissionRuleBehavior,
   PermissionUpdateType,
@@ -11,6 +12,8 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  type PermissionMark,
+  type PermissionMarkOutcome,
   type PermissionRequest,
   type ToolCallEvent,
   type ToolEvent,
@@ -29,7 +32,7 @@ import {
   sampleWorkspace,
   type FakeHandlers,
 } from '../store/test-bridge'
-import { FolderAccess, SandboxAskKind } from '../../shared/sandbox'
+import { FolderAccess, SandboxAskKind, SandboxGrantScope } from '../../shared/sandbox'
 import { REQUEST_ACCESS_TOOL } from '../../shared/toolName'
 import { OUTSIDE_SANDBOX_NOTE, TRIMMED_LINES } from './permissionCardModel'
 import { moduleClass } from '../components/moduleClass'
@@ -1166,5 +1169,51 @@ describe('the sandbox’s cards', () => {
     await renderChat(bare)
 
     for (const [index] of bare.entries()) expect(card(index).children).toHaveLength(2)
+  })
+})
+
+describe('a call a rule decided', () => {
+  const SHARED = { kind: SandboxAskKind.Folder, path: '/Users/me/code/acme-shared', access: FolderAccess.Read } as const
+  const UV = { kind: SandboxAskKind.Folder, path: '/Users/me/.cache/uv', access: FolderAccess.ReadWrite } as const
+  const mark = (toolUseId: string, outcome: PermissionMarkOutcome): PermissionMark => ({
+    taskId: 't1',
+    toolUseId,
+    outcome,
+    createdAt: 2_000,
+  })
+
+  it('says so on its row as main marks it, and what the sandbox blocked once that’s known, with no card', async () => {
+    const read = { ...agentCall('read-shared', { file_path: `${SHARED.path}/common.yaml` }), name: 'Read' }
+    const sync = { ...agentCall('uv-sync', { command: 'uv sync --frozen' }), name: 'Bash' }
+    const { fake } = await renderChat([], [read, sync])
+    expect(decisions()).toEqual([])
+
+    act(() => {
+      fake.emit({
+        type: EventType.PermissionMarked,
+        mark: mark('read-shared', { kind: PermissionMarkKind.Grant, scope: SandboxGrantScope.Workspace, ask: SHARED }),
+      })
+      fake.emit({
+        type: EventType.PermissionMarked,
+        mark: mark('uv-sync', { kind: PermissionMarkKind.Blocked, ask: null }),
+      })
+    })
+    expect(decisions()).toEqual([
+      'allowed: Allowed by workspace grant: read ~/code/acme-shared',
+      'blocked: Blocked by the sandbox',
+    ])
+
+    // The agent's request_access names what the command was blocked from: that row's line alone changes.
+    act(() => {
+      fake.emit({
+        type: EventType.PermissionMarked,
+        mark: mark('uv-sync', { kind: PermissionMarkKind.Blocked, ask: UV }),
+      })
+    })
+    expect(decisions()).toEqual([
+      'allowed: Allowed by workspace grant: read ~/code/acme-shared',
+      'blocked: Blocked by the sandbox: write to ~/.cache/uv',
+    ])
+    expect(inTheChat()).toHaveLength(0)
   })
 })

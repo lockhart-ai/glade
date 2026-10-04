@@ -96,6 +96,29 @@ describe('argumentSummary', () => {
     expect(argumentSummary(call({ name: 'NotebookEdit', input: { notebook_path: 'a.ipynb' } }))).toBe('a.ipynb')
   })
 
+  it('shows a file outside the root from ~ when it’s under the home folder, as the sandbox’s cards name folders', () => {
+    const root = '/Users/sample/code/api'
+    const shared = '/Users/sample/code/acme-shared/openapi/common.yaml'
+    expect(argumentSummary(call({ name: 'Read', input: { file_path: shared } }), root)).toBe(
+      '~/code/acme-shared/openapi/common.yaml',
+    )
+    expect(argumentSummary(call({ name: 'Read', input: { file_path: shared } }))).toBe(
+      '~/code/acme-shared/openapi/common.yaml',
+    )
+    expect(argumentSummary(call({ name: 'Read', input: { file_path: '/Users/Shared/notes.md' } }), root)).toBe(
+      '/Users/Shared/notes.md',
+    )
+  })
+
+  it('shows the path a request_access call asks for, not its input', () => {
+    const input = { path: '/Users/sample/.cache/uv', access: 'write', reason: 'uv needs its cache.' }
+    expect(argumentSummary(call({ name: 'mcp__glade__request_access', input }))).toBe('~/.cache/uv')
+    // Without a path, it's an MCP tool's input like any other.
+    expect(argumentSummary(call({ name: 'mcp__glade__request_access', input: { access: 'read' } }))).toBe(
+      '{"access":"read"}',
+    )
+  })
+
   it('shows the pattern for Grep, the first line of the command for Bash, and so on', () => {
     expect(argumentSummary(call({ name: 'Grep', input: { pattern: 'throttle', path: 'api' } }))).toBe('throttle')
     expect(argumentSummary(call({ name: 'Bash', input: { command: '\npytest api/tests -q\necho done' } }))).toBe(
