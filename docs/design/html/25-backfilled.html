@@ -14,6 +14,112 @@
 body{margin:0;background:#0A0B0F}
 a{color:#8FB2F5}a:hover{color:#B5CBF8}
 </style>
+<style>
+/* The Todos tab (P16, #491): what the work produced, under the todo that made it, in place of the Artifacts and
+   Changes tabs. A todo holds files, links and changes only; what's going on (subagents, watchers) is in the Agents
+   tab (50 to 54). Every colour is a token from tokens.md: inner #222430, inner-hover #282B39, inner-2 #2E3243,
+   inner-border #373C4F, strong #3D425E, text #E6E8F0, muted #AEB3C3, faint #999DB0, slate #5C6378, blue #5B8DEF,
+   blue text #8FB2F5, teal #7FD1C7, pink #E58FA8.
+   Every todo is a card on inner-2: closed or open, active, not started or done, with something under it or with
+   nothing. Nothing inside a card is black: its tiles are on inner with an inner-border outline, and the selected pill
+   is on strong. Nothing under a todo is live, so no count, pill or tile is ever blue: grey throughout, and pink only
+   for a commit's removed lines. */
+/* The todos' cards are space-xs (4px) apart, as the Todos tab's items are today, and so is the Not under a todo card
+   from the last of them, with no hairline between. */
+.hub{flex-grow:1;min-height:0;overflow:hidden;padding:12px 8px;display:flex;flex-direction:column;gap:4px}
+.sum{flex-shrink:0;display:flex;flex-direction:column;gap:8px;padding:0 9px 8px 9px}
+.sum .l{display:flex;justify-content:space-between;align-items:baseline}
+.sum b{font-size:14px;font-weight:600;color:#E6E8F0}
+.sum .u{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0}
+.bar{height:6px;border-radius:3px;background:#2E3243;overflow:hidden;display:flex}
+.bar .d{background:#7FD1C7}
+.bar .p{background:#5B8DEF}
+.empty{flex-shrink:0;padding:0 9px 4px 9px;font-size:13px;line-height:1.5;color:#999DB0}
+
+/* A todo: a card, whatever its state and whether or not anything is under it; its state icon, its status line and
+   its struck-through title say which it is. Three lines, closed or open: its title, its status line, and one row of
+   icons. */
+.todo{flex-shrink:0;display:flex;gap:8px;padding:8px;background:#2E3243;border:1px solid transparent;border-radius:10px}
+.st{flex-shrink:0;width:18px;height:18px;margin-top:1px;display:flex;align-items:center;justify-content:center}
+.ring{width:12px;height:12px;box-sizing:border-box;border:2px solid #5B8DEF;border-radius:7px;display:flex;align-items:center;justify-content:center}
+.ring span{width:4px;height:4px;border-radius:2px;background:#5B8DEF}
+.main{flex-grow:1;min-width:0}
+.tl{display:flex;align-items:baseline;gap:8px}
+.title{flex-grow:1;min-width:0;font-size:14px;line-height:1.4;font-weight:500;color:#E6E8F0}
+.todo.ns .title{font-weight:400}
+.todo.done .title{font-weight:400;color:#999DB0;text-decoration:line-through;text-decoration-color:#5C6378}
+.when{flex-shrink:0;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;white-space:nowrap}
+.chev{flex-shrink:0;align-self:center;display:flex;color:#999DB0}
+.note{margin-top:2px;font-size:12.5px;line-height:1.4;color:#8FB2F5}
+/* A PR, an issue or a ticket the todo names, when the task has it as a link (#500): the app's link, underlined
+   under the pointer. */
+.lk{color:#8FB2F5;text-decoration:none;border-radius:3px}
+.lk.hover{text-decoration:underline}
+.lk.focus{outline:2px solid #8FB2F5;outline-offset:1px}
+
+/* The third line is the same box closed and open, so opening a todo moves nothing above it. Closed: an icon and a
+   count per kind (files, links, changes), kinds with none left out. Open: the same icons as filter pills, with All in
+   front. A count is never blue: nothing under a todo is live. */
+.kinds{display:flex;align-items:center;gap:12px;height:22px;margin-top:6px}
+.kinds[role=group]{gap:4px}
+.cnt{display:flex;align-items:center;gap:4px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11.5px;color:#AEB3C3}
+.cnt svg{color:#999DB0}
+.todo.done .cnt{color:#999DB0}
+.pill{display:flex;align-items:center;gap:4px;height:22px;box-sizing:border-box;padding:0 8px;background:transparent;border:1px solid #373C4F;border-radius:11px;font:inherit;font-size:11.5px;color:#AEB3C3;white-space:nowrap;cursor:pointer}
+.pill i{font-style:normal;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0}
+.pill svg{color:#999DB0}
+.pill.hover{border-color:#5C6378;color:#E6E8F0}
+.pill.focus{outline:2px solid #8FB2F5;outline-offset:2px}
+.pill.on{background:#3D425E;border-color:#3D425E;color:#E6E8F0}
+.pill.on i{color:#AEB3C3}
+.pill.on svg{color:#E6E8F0}
+
+/* Under an open todo: one flat list, a tile per file, link or commit, most recently updated first. */
+.kids{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.tile{display:flex;flex-direction:column;padding:6px 8px;background:#222430;border:1px solid #373C4F;border-radius:7px}
+.tile.hover{background:#282B39}
+.tile.focus{outline:2px solid #8FB2F5;outline-offset:-2px}
+/* The file showing in the Files tab is outlined (#307). */
+.tile.sel{border-color:#5C6378}
+.th{display:flex;gap:8px}
+.ki{flex-shrink:0;width:14px;height:14px;margin-top:2px;display:flex;align-items:center;justify-content:center;color:#999DB0}
+/* An image file's tile has its thumbnail where the icon goes, 40×28, so it's a little
+   taller than the rest. */
+.tile.img .th{align-items:center;gap:10px}
+.tile.img .ki{width:40px;height:28px;margin-top:0}
+.thumb{display:block;width:40px;height:28px;box-sizing:border-box;border:1px solid #373C4F;border-radius:5px;overflow:hidden}
+.kt{flex-grow:1;min-width:0;font-size:12.5px;line-height:1.4;color:#E6E8F0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kt .h{font-family:'Geist Mono',ui-monospace,monospace;font-size:11.5px;color:#8FB2F5;margin-right:6px}
+.kt .tag{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;margin-left:6px}
+.ks{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;line-height:1.5;color:#999DB0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The subagent that made a commit, after its branch, as a tag. It goes to that subagent's tab in
+   Agents. A commit the task's own agent made has no tag. */
+.meta{display:flex;align-items:center;gap:8px;min-width:0}
+.meta span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.by{flex-shrink:0;padding:0 6px;border:1px solid #373C4F;border-radius:5px;font-family:Geist,system-ui,sans-serif;font-size:11px;line-height:15px;color:#AEB3C3;white-space:nowrap}
+.kr{flex-shrink:0;display:flex;align-items:center;gap:6px;height:18px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;white-space:nowrap}
+.add{color:#7FD1C7}
+.del{color:#E58FA8}
+/* A file's actions, in place of its age while the tile is under the pointer or has the focus: icon buttons. */
+.acts{flex-shrink:0;display:flex;gap:2px;height:18px;align-items:center;margin-right:-4px}
+.ib{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;color:#AEB3C3}
+/* Under a commit's first line, in line with its text, once it's opened in place: its branch and the subagent that
+   made it, then its files in a box on inner-2, never black. */
+.tb{margin-left:22px}
+.well{margin:6px 0 2px;padding:4px 8px;background:#2E3243;border-radius:6px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;line-height:1.7;color:#AEB3C3}
+.well div{display:flex;justify-content:space-between;gap:12px;white-space:nowrap}
+.well div span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.well div span:last-child{flex-shrink:0;color:#999DB0}
+.well b{font-weight:500;color:#999DB0;margin-right:8px}
+
+/* Not under a todo: the placeholder for the files, links and commits no todo was recorded for, after the todos. A
+   card as a todo is, closed or open, with its heading where a todo's title is; it opens and filters as a todo does. */
+.loose{flex-shrink:0;padding:8px 8px 8px 34px;background:#2E3243;border:1px solid transparent;border-radius:10px}
+.loose.bare{padding-left:8px}
+.loose.bare .kinds{margin-top:0}
+.lh{display:flex;align-items:center;gap:11px;height:20px;margin-left:-23px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#999DB0}
+.lh+.kinds{margin-top:4px}
+</style>
 </helmet>
 <div style="position: relative; width: 1920px; height: 1200px; box-sizing: border-box; padding: 8px 8px 8px 8px; gap: 8px; display: flex; flex-direction: column; background: #0A0B0F; color: #E6E8F0; font-family: Geist, system-ui, sans-serif; overflow: hidden">
 <div aria-label="Window controls" style="position: absolute; left: 16px; top: 16px; display: flex; gap: 9px; z-index: 9"><span style="flex-shrink: 0; width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; background: #FF5F57; border: 0.5px solid #E0443E"></span><span style="flex-shrink: 0; width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; background: #FEBC2E; border: 0.5px solid #DEA123"></span><span style="flex-shrink: 0; width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; background: #28C840; border: 0.5px solid #1AAB29"></span></div>
@@ -130,42 +236,18 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 </div>
 <aside style="flex-shrink: 0; width: 440px; box-sizing: border-box; background: #222430; border: 1px solid #373C4F; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.25); overflow: hidden; display: flex; flex-direction: column">
 <div style="display: flex; align-items: center; gap: 2px; padding: 8px 8px; border-bottom: 1px solid #373C4F">
-<button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Tool calls</button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Files</button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Todos</button><button type="button" aria-pressed="true" style="height: 28px; padding: 0 8px; background: #2E3243; color: #E6E8F0; border: 1px solid #373C4F; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Artifacts <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">3</span></button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Subagents</button>
+<button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Agents <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">1</span></button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Files</button><button type="button" aria-pressed="true" style="height: 28px; padding: 0 8px; background: #2E3243; color: #E6E8F0; border: 1px solid #373C4F; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Todos</button>
 <span style="flex-grow: 1"></span><button type="button" aria-label="Collapse side panel" title="Collapse side panel" style="flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: transparent; border: 0; border-radius: 7px; color: #999DB0; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"></rect><path d="M15 4.5v15"></path></svg></button>
 </div>
-<div style="flex-grow: 1; overflow: hidden; padding: 12px 8px; display: flex; flex-direction: column; gap: 8px">
-<div style="flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px; background: #2E3243; border: 1px solid #3D425E; border-radius: 10px">
-<div style="display: flex; align-items: flex-start; gap: 10px">
-<span style="display: flex; color: #8FB2F5; padding-top: 1px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5"></path></svg></span>
-<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
-<span style="font-size: 14px; font-weight: 600; color: #E6E8F0">Migration notes</span>
-<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: #AEB3C3">notes/billing-webhooks/notes.md</span>
-<span style="font-size: 12px; color: #999DB0">Markdown · 86 lines · 196d ago</span>
+<div class="hub">
+<div class="empty">No todos for this task.</div>
+<div class="loose open bare">
+<div class="kinds" role="group" aria-label="Show"><button type="button" class="pill on" aria-pressed="true">All<i>3</i></button><button type="button" class="pill" aria-pressed="false" aria-label="Files"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg><i>3</i></button></div>
+<div class="kids">
+<div class="tile"><div class="th"><span class="ki"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span><div class="kt">Replay script<span class="tag">Python</span></div><div class="kr"><span>190d</span></div></div></div>
+<div class="tile"><div class="th"><span class="ki"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span><div class="kt">Migration notes<span class="tag">Markdown</span></div><div class="kr"><span>196d</span></div></div></div>
+<div class="tile"><div class="th"><span class="ki"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span><div class="kt">Decisions<span class="tag">Markdown</span></div><div class="kr"><span>196d</span></div></div></div>
 </div>
-</div>
-<div style="display: flex; gap: 6px"><button type="button" style="display: flex; align-items: center; justify-content: center; gap: 7px; height: 28px; padding: 0 14px; border-radius: 8px; font: inherit; font-size: 13px; background: #232531; color: #E6E8F0; border: 1px solid #3D425E; font-weight: 500; cursor: pointer; white-space: nowrap">Open</button><button type="button" style="display: flex; align-items: center; justify-content: center; gap: 7px; height: 28px; padding: 0 14px; border-radius: 8px; font: inherit; font-size: 13px; background: transparent; color: #E6E8F0; border: 1px solid #3D425E; font-weight: 500; cursor: pointer; white-space: nowrap">Copy</button><button type="button" style="display: flex; align-items: center; justify-content: center; gap: 7px; height: 28px; padding: 0 14px; border-radius: 8px; font: inherit; font-size: 13px; background: transparent; color: #E6E8F0; border: 1px solid #3D425E; font-weight: 500; cursor: pointer; white-space: nowrap">Reveal in folder</button></div>
-</div>
-<div style="flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px; background: transparent; border: 1px solid #373C4F; border-radius: 10px">
-<div style="display: flex; align-items: flex-start; gap: 10px">
-<span style="display: flex; color: #999DB0; padding-top: 1px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5"></path></svg></span>
-<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
-<span style="font-size: 14px; font-weight: 600; color: #E6E8F0">Decisions</span>
-<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: #AEB3C3">notes/billing-webhooks/decisions.md</span>
-<span style="font-size: 12px; color: #999DB0">Markdown · 24 lines · 196d ago</span>
-</div>
-</div>
-<div style="display: flex; gap: 6px"><button type="button" style="display: flex; align-items: center; justify-content: center; gap: 7px; height: 28px; padding: 0 14px; border-radius: 8px; font: inherit; font-size: 13px; background: #232531; color: #E6E8F0; border: 1px solid #3D425E; font-weight: 500; cursor: pointer; white-space: nowrap">Open</button><button type="button" style="display: flex; align-items: center; justify-content: center; gap: 7px; height: 28px; padding: 0 14px; border-radius: 8px; font: inherit; font-size: 13px; background: transparent; color: #E6E8F0; border: 1px solid #3D425E; font-weight: 500; cursor: pointer; white-space: nowrap">Copy</button><button type="button" style="display: flex; align-items: center; justify-content: center; gap: 7px; height: 28px; padding: 0 14px; border-radius: 8px; font: inherit; font-size: 13px; background: transparent; color: #E6E8F0; border: 1px solid #3D425E; font-weight: 500; cursor: pointer; white-space: nowrap">Reveal in folder</button></div>
-</div>
-<div style="flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px; background: transparent; border: 1px solid #373C4F; border-radius: 10px">
-<div style="display: flex; align-items: flex-start; gap: 10px">
-<span style="display: flex; color: #999DB0; padding-top: 1px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5"></path></svg></span>
-<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
-<span style="font-size: 14px; font-weight: 600; color: #E6E8F0">Replay script</span>
-<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: #AEB3C3">scripts/replay_webhooks.py</span>
-<span style="font-size: 12px; color: #999DB0">Python · 58 lines · 190d ago</span>
-</div>
-</div>
-<div style="display: flex; gap: 6px"><button type="button" style="display: flex; align-items: center; justify-content: center; gap: 7px; height: 28px; padding: 0 14px; border-radius: 8px; font: inherit; font-size: 13px; background: #232531; color: #E6E8F0; border: 1px solid #3D425E; font-weight: 500; cursor: pointer; white-space: nowrap">Open</button><button type="button" style="display: flex; align-items: center; justify-content: center; gap: 7px; height: 28px; padding: 0 14px; border-radius: 8px; font: inherit; font-size: 13px; background: transparent; color: #E6E8F0; border: 1px solid #3D425E; font-weight: 500; cursor: pointer; white-space: nowrap">Copy</button><button type="button" style="display: flex; align-items: center; justify-content: center; gap: 7px; height: 28px; padding: 0 14px; border-radius: 8px; font: inherit; font-size: 13px; background: transparent; color: #E6E8F0; border: 1px solid #3D425E; font-weight: 500; cursor: pointer; white-space: nowrap">Reveal in folder</button></div>
 </div>
 </div>
 </aside>

@@ -426,7 +426,7 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
 
 ### Changes
 
-![The Changes tab](design/screens/24-changes.png)
+![A commit’s tile, opened to its files](design/screens/48-todo-hub-tiles.png)
 
 The Changes tab lists the commits the task made, newest first, and its count is how many. Glade only watches git here:
 the agent commits, branches and makes worktrees as it likes, and the tab shows what it did. There's nothing to commit,

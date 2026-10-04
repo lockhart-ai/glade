@@ -26,7 +26,7 @@ can nest one level (header and right panel float inside the task card).
 | `slate` | `#5C6378` | Done, an active task that's idle (#430), finished tool calls, a withdrawn permission's shield |
 | `pink` | `#E58FA8` | Errors, destructive menu items, deleted lines, a denied or blocked permission |
 | `teal` | `#7FD1C7` | Added lines, strings in code, done todos, a granted permission |
-| `live` | `#273049` | A live tile (P16, behind `todoHubEnabled` until #501): a watcher whose process runs, pinned under its agent's tool calls in the Agents tab (52); and, as built until #535, a running subagent or watcher under a todo |
+| `live` | `#273049` | A live tile (P16): a watcher whose process runs, pinned under its agent's tool calls in the Agents tab (52) |
 | `live-border` | `#40568C` | The live tile's outline |
 | user bubble | `#22304D` | Your messages |
 | question highlight | `#1E1B33` / `#3B3366` | Background / border of every agent reply (#410), and of the question card and the permission card (#538) |
