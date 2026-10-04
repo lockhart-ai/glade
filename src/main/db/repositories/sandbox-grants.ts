@@ -4,6 +4,7 @@ import {
   coversAccess,
   FolderAccess,
   mergeGrants,
+  OtherAgents,
   SandboxGrantKind,
   SandboxGrantScope,
   type Grant,
@@ -41,10 +42,11 @@ interface GrantOwner {
 }
 
 const TABLE = 'sandbox_grants'
-const COLUMNS = 'scope, workspace_id, task_id, kind, value, access, is_file, created_at'
+const COLUMNS = 'scope, workspace_id, task_id, kind, value, access, is_file, name, created_at'
 const SCOPES = Object.values(SandboxGrantScope)
 const KINDS = Object.values(SandboxGrantKind)
 const ACCESSES = Object.values(FolderAccess)
+const AGENTS = Object.values(OtherAgents)
 /** Picks out one scope's grants, given its owner's columns. */
 const SAME_OWNER = 'scope = @scope AND workspace_id IS @workspaceId AND task_id IS @taskId'
 
@@ -59,13 +61,17 @@ function ownerOf(target: SandboxGrantTarget): GrantOwner {
   }
 }
 
-/** The value a grant is stored and looked up by: a folder's path, or a domain. */
+/** The value a grant is stored and looked up by: a folder's path, a domain, an MCP server's key, or which agents. */
 function valueOf(key: SandboxGrantKey): string {
   switch (key.kind) {
     case SandboxGrantKind.Folder:
       return key.path
     case SandboxGrantKind.Domain:
       return key.domain
+    case SandboxGrantKind.McpServer:
+      return key.server
+    case SandboxGrantKind.Agents:
+      return key.agents
   }
 }
 
@@ -90,6 +96,10 @@ function parseGrant(row: Row): Grant {
     }
     case SandboxGrantKind.Domain:
       return { kind, domain: row.text('value') }
+    case SandboxGrantKind.McpServer:
+      return { kind, server: row.text('value'), name: row.text('name') }
+    case SandboxGrantKind.Agents:
+      return { kind, agents: row.oneOf('value', AGENTS) }
   }
 }
 
@@ -108,9 +118,10 @@ function folderAccess(db: Database, owner: GrantOwner, path: string): FolderAcce
 }
 
 /**
- * Grants a folder (or a single file) or domain to a scope. One the scope already has stays as it was, granted when it
- * first was, and a folder or a file as it first was, except that a folder granted read-only and now read-write is
- * upgraded: adding never narrows a folder's access (see `setSandboxFolderAccess`). Answers with what changed.
+ * Grants a folder (or a single file), a domain, an MCP server or other agents to a scope. One the scope already has
+ * stays as it was, granted when it first was, and a folder or a file as it first was (an MCP server under the name it
+ * first had), except that a folder granted read-only and now read-write is upgraded: adding never narrows a folder's
+ * access (see `setSandboxFolderAccess`). Answers with what changed.
  */
 export function addSandboxGrant(
   db: Database,
@@ -130,7 +141,7 @@ export function addSandboxGrant(
     const { changes } = db
       .prepare(
         `INSERT INTO ${TABLE} (${COLUMNS})
-         VALUES (@scope, @workspaceId, @taskId, @kind, @value, @access, @isFile, @createdAt)
+         VALUES (@scope, @workspaceId, @taskId, @kind, @value, @access, @isFile, @name, @createdAt)
          ON CONFLICT DO NOTHING`,
       )
       .run({
@@ -139,6 +150,7 @@ export function addSandboxGrant(
         value: valueOf(grant),
         access: grant.kind === SandboxGrantKind.Folder ? grant.access : null,
         isFile: grant.kind === SandboxGrantKind.Folder && grant.file === true ? 1 : 0,
+        name: grant.kind === SandboxGrantKind.McpServer ? grant.name : null,
         createdAt: now,
       })
     return changes > 0 ? SandboxGrantChange.Added : SandboxGrantChange.Unchanged
@@ -172,7 +184,7 @@ export function setSandboxFolderAccess(
   })()
 }
 
-/** Takes a folder or domain back from a scope. Answers whether the scope had it. */
+/** Takes a folder, domain, MCP server or other agents back from a scope. Answers whether the scope had it. */
 export function removeSandboxGrant(db: Database, target: SandboxGrantTarget, key: SandboxGrantKey): boolean {
   const { changes } = db
     .prepare(`DELETE FROM ${TABLE} WHERE ${SAME_OWNER} AND kind = @kind AND value = @value`)
@@ -180,7 +192,7 @@ export function removeSandboxGrant(db: Database, target: SandboxGrantTarget, key
   return changes > 0
 }
 
-/** One scope's grants, folders and domains, in the order they were first granted. */
+/** One scope's grants, of every kind, in the order they were first granted. */
 export function listSandboxGrants(db: Database, target: SandboxGrantTarget): SandboxGrant[] {
   return db
     .prepare(`SELECT ${COLUMNS} FROM ${TABLE} WHERE ${SAME_OWNER} ORDER BY created_at, rowid`)

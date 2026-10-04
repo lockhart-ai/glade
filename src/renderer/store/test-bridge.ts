@@ -79,6 +79,7 @@ import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import { controlUrl, type ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
 import { IDLE_LOGIN, LoginState, type LoginStatus } from '../../shared/login'
+import type { ReportedMcpServer } from '../../shared/mcpServers'
 import { offersSetting, PluginStatus, withGrant, withSetting, type InstalledPlugin } from '../../shared/plugins'
 import {
   coversAccess,
@@ -226,6 +227,11 @@ export interface FakeMain {
    * adding refuses as main does: a domain that isn't one, a duplicate, a workspace's root or a folder inside it.
    */
   sandboxGrants?: Record<string, readonly Grant[]>
+  /**
+   * The MCP servers `sandbox.listReportedServers` answers with, by scope (`settingsGrantScopeKey`); none when left
+   * out.
+   */
+  reportedServers?: Record<string, readonly ReportedMcpServer[]>
   /**
    * The port the control endpoint listens on while it's on, when the chosen one is taken; the chosen one when left out.
    * `control.status` answers as main would: listening while `controlEnabled` is on, with `token-1` from the first time
@@ -920,6 +926,16 @@ export function fakeHandlers(
           }
           return saveSandboxGrants(target, [...grants, { kind: grant.kind, domain }])
         }
+        case SandboxGrantKind.McpServer:
+          if (grants.some((other) => other.kind === grant.kind && other.server === grant.server)) {
+            return refuseGrant(SETTINGS_GRANT_REFUSALS.duplicateServer)
+          }
+          return saveSandboxGrants(target, [...grants, grant])
+        case SandboxGrantKind.Agents:
+          if (grants.some((other) => other.kind === grant.kind && other.agents === grant.agents)) {
+            return refuseGrant(SETTINGS_GRANT_REFUSALS.duplicateAgents)
+          }
+          return saveSandboxGrants(target, [...grants, grant])
       }
     },
     [CommandName.SandboxSetFolderAccess]: ({ target, path, access }) =>
@@ -936,10 +952,15 @@ export function fakeHandlers(
           (grant) =>
             !(
               (grant.kind === SandboxGrantKind.Folder && key.kind === grant.kind && grant.path === key.path) ||
-              (grant.kind === SandboxGrantKind.Domain && key.kind === grant.kind && grant.domain === key.domain)
+              (grant.kind === SandboxGrantKind.Domain && key.kind === grant.kind && grant.domain === key.domain) ||
+              (grant.kind === SandboxGrantKind.McpServer && key.kind === grant.kind && grant.server === key.server) ||
+              (grant.kind === SandboxGrantKind.Agents && key.kind === grant.kind && grant.agents === key.agents)
             ),
         ),
       ),
+    [CommandName.SandboxListReportedServers]: ({ target }) => ({
+      servers: main.reportedServers?.[settingsGrantScopeKey(target)] ?? [],
+    }),
     [CommandName.TerminalList]: () => ({ tabs: [...terminalTabs] }),
     [CommandName.TerminalCreate]: ({ workspaceId }) => {
       const workspace = main.workspaces.find(({ id }) => id === workspaceId)

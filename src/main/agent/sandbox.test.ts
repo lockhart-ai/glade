@@ -24,7 +24,7 @@ import {
   usableGrants,
   type SandboxGrants,
 } from './sandbox'
-import { FolderAccess } from '../../shared/sandbox'
+import { FolderAccess, OtherAgents } from '../../shared/sandbox'
 import { SANDBOX_OVERRIDE_ASK_RULE } from './sandbox-requests'
 
 const HOME = '/Users/me'
@@ -45,11 +45,12 @@ const FIRST_CREDENTIALS = [
   '.docker/config.json',
 ]
 
-/** The ones the review added: Claude Code's own state, registry logins, and more cloud tools' tokens. */
+/**
+ * The ones the review added: Claude Code's own state, registry logins, and more cloud tools' tokens. `~/.npmrc` and
+ * `~/.pypirc` were among them, and were taken out again (#515): each is granted as any file in the home folder is.
+ */
 const ADDED_CREDENTIALS = [
   '.claude.json',
-  '.npmrc',
-  '.pypirc',
   '.cargo/credentials',
   '.cargo/credentials.toml',
   '.gem/credentials',
@@ -191,7 +192,7 @@ describe('credentials', () => {
   })
 
   // #514, finding 8: none of these was denied, so a grant of `~`, `~/.config` or `~/Library` opened them.
-  it.each(['.claude.json', '.npmrc', '.pypirc', '.config/op', '.oci', '.config/doctl', '.fly'])(
+  it.each(['.claude.json', '.cargo/credentials', '.config/op', '.oci', '.config/doctl', '.fly'])(
     'denies ~/%s to commands and file tools, whatever is granted',
     (path) => {
       const everything: SandboxGrants = { folders: [{ path: HOME, access: FolderAccess.ReadWrite }], domains: [] }
@@ -203,6 +204,26 @@ describe('credentials', () => {
       expect(permissions?.deny?.some((rule) => rule.startsWith(`Edit(/${absolute}`))).toBe(true)
     },
   )
+
+  // #515: #514 had put both among the credential paths, so nothing could open them, and `npm` and `pip` couldn't read
+  // a registry's settings without leaving the sandbox.
+  it.each(['.npmrc', '.pypirc'])('leaves ~/%s to be granted, as any file in the home folder is', (name) => {
+    const path = `${HOME}/${name}`
+    expect(credentialPaths(HOME).map((credential) => credential.path)).not.toContain(path)
+
+    const start = sandboxStartSettings(ROOT, HOME)
+    expect(start.sandbox?.filesystem?.denyWrite).not.toContain(path)
+    expect(start.sandbox?.credentials?.files).not.toContainEqual({ path, mode: 'deny' })
+    expect(start.permissions?.deny?.some((rule) => rule.includes(path))).toBe(false)
+
+    // Granted by itself, read-only: a command may read that file, and write nothing.
+    const granted: SandboxGrants = { folders: [{ path, access: FolderAccess.Read, file: true }], domains: [] }
+    const { sandbox, permissions } = sandboxOverlay(ROOT, PermissionMode.AllowAll, granted, HOME)
+    expect(sandbox?.filesystem?.allowRead).toContain(path)
+    expect(sandbox?.filesystem?.allowWrite).not.toContain(path)
+    expect(sandbox?.credentials?.files).not.toContainEqual({ path, mode: 'deny' })
+    expect(permissions?.deny?.some((rule) => rule.includes(path))).toBe(false)
+  })
 
   it('keeps the file tools out of them: a folder and everything in it, a file by itself', () => {
     const rules = credentialDenyRules(HOME)
@@ -216,8 +237,6 @@ describe('credentials', () => {
       '.git-credentials',
       '.docker/config.json',
       '.claude.json',
-      '.npmrc',
-      '.pypirc',
       '.cargo/credentials',
       '.cargo/credentials.toml',
       '.gem/credentials',
@@ -609,6 +628,36 @@ describe('usableGrants', () => {
       rejected: [],
     })
     expect(usableGrants(NO_GRANTS)).toEqual({ grants: NO_GRANTS, rejected: [] })
+  })
+
+  // #515: what's granted outside the sandbox goes with the rest, though none of it reaches the sandbox's settings.
+  it('keeps the MCP servers and other agents granted, leaving out a server no tool’s name could carry', () => {
+    const grants: SandboxGrants = {
+      folders: [],
+      domains: [],
+      servers: ['claude_ai_Acme_Docs', 'claude.ai Acme Docs', 'acme-tracker', ''],
+      agents: [OtherAgents.Sessions],
+    }
+
+    expect(usableGrants(grants)).toEqual({
+      grants: {
+        folders: [],
+        domains: [],
+        servers: ['claude_ai_Acme_Docs', 'acme-tracker'],
+        agents: [OtherAgents.Sessions],
+      },
+      rejected: [
+        { value: 'claude.ai Acme Docs', problem: GrantProblem.NotAServer },
+        { value: '', problem: GrantProblem.NotAServer },
+      ],
+    })
+    // Grants that say nothing of either stay as they were.
+    expect(usableGrants({ folders: [], domains: [] }).grants).toStrictEqual({ folders: [], domains: [] })
+    // And nothing of them is in the overlay a session takes.
+    const overlay = JSON.stringify(sandboxOverlay(ROOT, PermissionMode.AllowAll, grants, HOME))
+    expect(overlay).toBe(
+      JSON.stringify(sandboxOverlay(ROOT, PermissionMode.AllowAll, { folders: [], domains: [] }, HOME)),
+    )
   })
 
   it.each([

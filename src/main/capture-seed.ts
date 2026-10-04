@@ -39,6 +39,7 @@ import {
   type PermissionMarkOutcome,
 } from '../shared/domain'
 import { taskPermissionRule } from '../shared/permissions'
+import type { ReportedMcpServer } from '../shared/mcpServers'
 import type { CardGrantScope, SandboxAsk } from '../shared/sandbox'
 import { permissionMarkOutcomeSchema, sandboxAskSchema } from './permissions/schema'
 import { setPermissionMark } from './db/repositories/permission-marks'
@@ -80,11 +81,13 @@ import { INSTRUCTION_UPDATES } from './agent/system-prompt'
 import { DEFAULT_SETTINGS, type SettingsPatch } from '../shared/settings'
 import { SETTING_SCHEMAS, updateSettings } from './db/repositories/settings'
 import { replaceUsageReadings, saveAccount } from './db/repositories/account'
-import { usageLevel, UsageLevel, UsageLimitKind, type UsageLimit } from '../shared/account'
+import { usageLevel, UsageLevel, UsageLimitKind, type ExtraUsageStatus, type UsageLimit } from '../shared/account'
 import { storeControlToken, storedToken } from './control/token'
+import { noteReportedServers } from './db/repositories/reported-mcp-servers'
 import { addSandboxGrant } from './db/repositories/sandbox-grants'
 import {
   FolderAccess,
+  OtherAgents,
   SandboxGrantKind,
   SandboxGrantScope,
   type Grant,
@@ -451,6 +454,11 @@ export interface SeedUsageReading {
   readonly resetsInMinutes: number | null
   /** How long before the capture it was read. */
   readonly readMinutesAgo: number
+  /**
+   * What the usage call said of extra usage (`UsageLimitKind.ExtraUsage` only): whether it's available, and the money
+   * spent, in the currency's minor units. None unless given.
+   */
+  readonly extraUsage?: ExtraUsageStatus | undefined
 }
 
 /** A fixture: one workspace, opened, and its tasks. */
@@ -491,6 +499,11 @@ export interface CaptureSeed {
   readonly models?: readonly ModelChoice[] | undefined
   /** The sandbox grants Settings lists (#451); none unless given. */
   readonly sandboxGrants?: SeedSandboxGrants | undefined
+  /**
+   * The MCP servers the fixture's workspace's sessions have reported (#515), which Settings' MCP servers lists offer
+   * under Add…; none unless given.
+   */
+  readonly reportedServers?: readonly ReportedMcpServer[] | undefined
 }
 
 /**
@@ -590,6 +603,12 @@ const seedAccountSchema = z.strictObject({
 const seedGrant = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal(SandboxGrantKind.Folder), path: z.string().min(1), access: z.enum(FolderAccess) }),
   z.strictObject({ kind: z.literal(SandboxGrantKind.Domain), domain: z.string().min(1) }),
+  z.strictObject({
+    kind: z.literal(SandboxGrantKind.McpServer),
+    server: z.string().min(1),
+    name: z.string().min(1),
+  }),
+  z.strictObject({ kind: z.literal(SandboxGrantKind.Agents), agents: z.enum(OtherAgents) }),
 ]) satisfies z.ZodType<Grant>
 
 const seedUsageReadingSchema = z
@@ -600,9 +619,25 @@ const seedUsageReadingSchema = z
     level: z.enum(UsageLevel).optional(),
     resetsInMinutes: minutesAgo.nullable(),
     readMinutesAgo: minutesAgo,
+    extraUsage: z
+      .strictObject({
+        available: z.boolean(),
+        spend: z
+          .strictObject({
+            spent: z.number().nonnegative(),
+            cap: z.number().nonnegative().nullable(),
+            currency: z.string().regex(/^[A-Z]{3}$/),
+            decimalPlaces: z.number().int().min(0).max(4),
+          })
+          .nullable(),
+      })
+      .optional(),
   })
   .refine(({ kind, model }) => (kind === UsageLimitKind.WeeklyModel) === (model !== undefined), {
     message: 'a model is given for a per-model weekly limit, and only for one',
+  })
+  .refine(({ kind, extraUsage }) => kind === UsageLimitKind.ExtraUsage || extraUsage === undefined, {
+    message: 'only extra usage’s reading says what the usage call said of extra usage',
   }) satisfies z.ZodType<SeedUsageReading>
 
 /** The limit a seed's reading is of. */
@@ -634,6 +669,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
   sandboxGrants: z
     .strictObject({ glade: z.array(seedGrant).optional(), workspace: z.array(seedGrant).optional() })
     .optional(),
+  reportedServers: z.array(z.strictObject({ server: z.string().min(1), name: z.string().min(1) })).optional(),
   controlToken: storedToken.optional(),
   panelTab: z.string().optional(),
   panelWidth: z.int().positive().optional(),
@@ -994,6 +1030,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
           resetsAt: reading.resetsInMinutes === null ? null : now + reading.resetsInMinutes * MINUTE,
           level: reading.level ?? usageLevel(reading.utilization),
           readAt: now - reading.readMinutesAgo * MINUTE,
+          ...(reading.extraUsage === undefined ? {} : { extraUsage: reading.extraUsage }),
         })),
       )
     }
@@ -1010,6 +1047,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       // A millisecond apart, so each list keeps the fixture's order.
       for (const [index, grant] of (grants ?? []).entries()) addSandboxGrant(db, { target, grant }, now + index)
     }
+    noteReportedServers(db, workspace.id, seed.reportedServers ?? [], now)
     if (seed.panelTab !== undefined) setUiState(db, { key: UiStateKey.RightPanelTab, value: seed.panelTab })
     if (seed.panelWidth !== undefined) {
       setUiState(db, { key: UiStateKey.RightPanelWidth, value: String(seed.panelWidth) })
