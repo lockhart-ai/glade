@@ -80,14 +80,21 @@ export function childIdNumber(id: string): number | null {
 export enum FilingSource {
   /** The call that made it named the todo. */
   Named = 'named',
-  /** The call named none, and the agent filed it when Glade asked, right after the call or as its turn ended. */
+  /**
+   * The call named none, and the agent filed it itself (`file_children`): when Glade asked, right after the call or as
+   * its turn ended, or when you asked it to sort what the task made before the hub. Any filing by the agent of a child
+   * that had none of its own.
+   */
   Asked = 'asked',
   /**
    * It was made by a subagent, and went where the subagent is. Not a filing of its own: the child still follows its
    * subagent when that one moves (`groupChildren`).
    */
   Inherited = 'inherited',
-  /** The agent moved it here from another todo, or from the placeholder. */
+  /**
+   * The agent moved it here (`file_children`) from the todo it was filed under: any filing by the agent of a child
+   * that had one of its own, one whose todo has since been deleted included.
+   */
   Moved = 'moved',
 }
 
@@ -261,8 +268,8 @@ interface Place {
 
 const UNFILED: Place = { todoId: UNFILED_TODO_ID, source: null }
 
-/** A child as the maps here key it. A kind has no colon, so no two children share one. */
-function refKey({ kind, key }: ChildRef): string {
+/** A child as a map keys it. A kind has no colon, so no two children share one. */
+export function refKey({ kind, key }: ChildRef): string {
   return `${kind}:${key}`
 }
 

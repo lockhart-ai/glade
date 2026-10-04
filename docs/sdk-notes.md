@@ -2985,6 +2985,14 @@ for each tool, and the refusal's text are in `src/main/agent/child-calls.ts`. Th
 the model wrote them: it asks no hook, so it takes no marker off and tells its agent nothing. P16-04 (#495) adds the
 three hooks to `SessionHooks` and has the scripted session ask them, once the rule is picked.
 
+The filing tool the probes stood in for is real since P16-05 (#496), behind the hidden `todoHubEnabled` setting:
+`mcp__glade__file_children`, with the input the probes used (`{ filings: [{ child, todo }] }`, a child's short id and
+a todo's id each), and `mcp__glade__list_children` beside it ([`model-surface.md`](model-surface.md)). Two scripts
+play them through the real handlers: `unsorted-children` makes one of each kind of child with nothing filing them (a
+file, a link, a subagent that commits and leaves its tests running, a `Monitor`), and `sorts-children`, played in that
+task after a relaunch with the setting on, lists them, files each under a todo in one call, moves the subagent, and
+is refused a todo and a child that aren't there.
+
 ---
 
 ## SDK bumps

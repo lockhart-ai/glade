@@ -37,11 +37,11 @@ import {
   type PluginTask,
   type PluginToolCall,
 } from '../../shared/plugin-api'
-import { isSubagentTool } from '../../shared/subagents'
+import { isSubagentTool, subagentName, UNNAMED_SUBAGENT } from '../../shared/subagents'
 import { toolDisplayName } from '../../shared/toolName'
 
-/** What a subagent is called when its call names neither a description nor a type, as the Subagents tab has it. */
-export const UNNAMED_SUBAGENT = 'Subagent'
+// What a subagent is called when its call names neither a description nor a type, as the Subagents tab has it.
+export { UNNAMED_SUBAGENT }
 
 /** The tools whose argument is the file they work on, and the input field that names it. */
 const FILE_FIELDS: Readonly<Record<string, string>> = {
@@ -203,21 +203,13 @@ function subagentState(state: ToolCallState): PluginSubagentState {
   }
 }
 
-/** What a subagent is called: its call's description, else its type, as the Subagents tab has it. */
-function subagentName(input: ToolInput): string {
-  for (const field of ['description', 'subagent_type']) {
-    const value = stringField(input, field)?.trim()
-    if (value !== undefined && value !== '') return cutText(value)
-  }
-  return UNNAMED_SUBAGENT
-}
-
 /** The subagent an `Agent` call started, as a plugin sees it, with the last thing it said or did. */
 export function pluginSubagent(call: ToolCallEvent, latest: string | null): PluginSubagent {
   return {
     id: call.toolUseId,
     taskId: call.taskId,
-    name: subagentName(call.input),
+    // Its call's description, else its type, as the Subagents tab has it.
+    name: cutText(subagentName(call)),
     state: subagentState(call.state),
     latest,
     startedAt: call.createdAt,
