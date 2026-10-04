@@ -743,8 +743,10 @@ receives `compact_summary`. See §5.
       extra usage off (tests use the SDK's types for that), whether the rate limit event's `isUsingOverage`,
       `overageStatus` and the `overage` window then say the same (Glade doesn't read the first two), and how fresh the
       call's answer is (the SDK's types mention "an answer served from cached data"). If any of this is wrong, the
-      cost is bounded: a task is resumed on a reading only when it says something other than the reading before did,
-      and a task still over the limit pauses again; Resume now always retries.
+      cost is bounded: a task is resumed once on extra usage being available, and once a window on its limit having
+      cleared (the limit and its `resets_at`, never a percentage, which moves with every reading), and a task still
+      over the limit pauses again; Resume now always retries. This takes a window's `resets_at` to be the same in
+      every answer until the window rolls over, which hasn't been checked across two live answers.
   - **Reading usage while every task is paused (#519).** The call needs a live session. A task's session outlives its
     turn, so a task paused since Glade started still has one, and one of them is asked: when Glade's window gets the
     focus, and every 5 minutes, while anything is paused on a usage limit. After a relaunch no session is live until

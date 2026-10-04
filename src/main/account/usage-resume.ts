@@ -11,8 +11,10 @@
  *
  * Either way a turn still over the limit pauses again, with the reset time it's given. So a reading that's wrong costs
  * one refused request a task, and no more: a task is resumed on what a reading says only when that differs from what
- * the reading before said of it (`RunAgain.evidence`), so nothing is retried over and over. What each task was last
- * told is kept in memory alone: a relaunch may try each paused task once more.
+ * the reading before said of it (`RunAgain.evidence`), which is coarse: that extra usage is available, or that its
+ * limit cleared in this window, and never how much is used. So a task turned away again isn't retried while readings
+ * go on saying it can run, only once that stops being so and comes back, or its limit's window rolls over. What each
+ * task was last told is kept in memory alone: a relaunch may try each paused task once more.
  *
  * The usage call needs a live session to ask (`AgentRunner.refreshUsage`). A task's session outlives its turn, paused
  * or not, so there's one as long as a task has run since Glade started; after a relaunch with nothing run yet there's

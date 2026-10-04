@@ -12,6 +12,7 @@ import {
   canRunAgain,
   checkedOffline,
   createPauseTimers,
+  EXTRA_USAGE_EVIDENCE,
   MAX_TIMER_MS,
   OFFLINE_FIRST_CHECK_MS,
   OFFLINE_MAX_CHECK_MS,
@@ -201,30 +202,75 @@ describe('canRunAgain', () => {
     expect(canRunAgain(pause, snapshot)?.reason ?? null).toBe(reason)
   })
 
-  it('says what the reading said, so a later reading that says the same is told from one that doesn’t', () => {
-    const pause = pausedOn(SESSION)
-    const before = canRunAgain(pause, usage([reading(SESSION, 1), reading(EXTRA, 0)], true))
+  describe('what it rests on, which a paused turn is resumed on once', () => {
+    /** A reading of `limit` in the window that resets at `resetsAt`. */
+    const inWindow = (limit: UsageLimit, utilization: number, resetsAt: number): UsageReading => ({
+      ...reading(limit, utilization),
+      resetsAt,
+    })
+    const BY_EXTRA_USAGE = usage([reading(SESSION, 1), reading(EXTRA, 0)], true)
+    const SESSION_CLEARED = usage([reading(SESSION, 0.2)])
 
-    // The same again, read later: nothing new.
-    const again = usage(
+    // Each pair of readings, put to a turn paused on the session limit: the same evidence, or not.
+    it.each<[string, UsageSnapshot, UsageSnapshot, boolean]>([
+      // Extra usage: available is all it says, however much is spent, of it or of anything else.
+      ['extra usage being spent', BY_EXTRA_USAGE, usage([reading(SESSION, 1), reading(EXTRA, 0.1)], true), true],
+      ['extra usage nearly spent', BY_EXTRA_USAGE, usage([reading(SESSION, 1), reading(EXTRA, 0.99)], true), true],
+      ['extra usage with no row', BY_EXTRA_USAGE, usage([reading(SESSION, 1)], true), true],
+      ['extra usage with no cap', BY_EXTRA_USAGE, usage([reading(SESSION, 1), reading(EXTRA, null)], true), true],
       [
-        { ...reading(SESSION, 1), readAt: NOW + 5 },
-        { ...reading(EXTRA, 0), readAt: NOW + 5 },
+        'another limit filling meanwhile',
+        BY_EXTRA_USAGE,
+        usage([reading(SESSION, 1), reading(WEEK, 0.7), reading(EXTRA, 0.3)], true),
+        true,
       ],
-      true,
-    )
-    expect(canRunAgain(pause, again)).toEqual(before)
-    // Extra usage being spent, its limit lifting, or a row gone: each is something else.
-    const spending = canRunAgain(pause, usage([reading(SESSION, 1), reading(EXTRA, 0.1)], true))
-    const lifted = canRunAgain(pause, usage([reading(SESSION, 0.5), reading(EXTRA, 0)], true))
-    const rowless = canRunAgain(pause, usage([reading(SESSION, 1)], true))
-    const evidence = [before, spending, lifted, rowless].map((verdict) => verdict?.evidence)
-    expect(new Set(evidence).size).toBe(4)
-    expect(evidence).not.toContain(undefined)
-    // What another limit says is no part of it.
-    expect(canRunAgain(pause, usage([reading(SESSION, 1), reading(WEEK, 0.7), reading(EXTRA, 0)], true))).toEqual(
-      before,
-    )
+      [
+        'the same read later',
+        BY_EXTRA_USAGE,
+        usage(
+          [
+            { ...reading(SESSION, 1), readAt: NOW + 5 },
+            { ...reading(EXTRA, 0), readAt: NOW + 5 },
+          ],
+          true,
+        ),
+        true,
+      ],
+      // A cleared limit: the limit and its window, however much of it is used.
+      ['the cleared limit filling', SESSION_CLEARED, usage([reading(SESSION, 0.6)]), true],
+      ['the cleared limit close to spent', SESSION_CLEARED, usage([reading(SESSION, 0.99, UsageLevel.Warning)]), true],
+      ['the limit’s window rolled over', SESSION_CLEARED, usage([inWindow(SESSION, 0.2, NOW + 6 * HOUR)]), false],
+      [
+        'a window with no reset time, then one with',
+        usage([{ ...reading(SESSION, 0.2), resetsAt: null }]),
+        SESSION_CLEARED,
+        false,
+      ],
+      // Availability itself changing.
+      ['extra usage coming on while the limit is clear', SESSION_CLEARED, usage([reading(SESSION, 0.2)], true), false],
+      ['the limit clearing while extra usage is on', BY_EXTRA_USAGE, usage([reading(SESSION, 0.2)], true), false],
+    ])('%s', (_, first, second, same) => {
+      const pause = pausedOn(SESSION)
+      const [before, after] = [canRunAgain(pause, first), canRunAgain(pause, second)]
+
+      expect(before).not.toBeNull()
+      expect(after).not.toBeNull()
+      expect(after?.evidence === before?.evidence).toBe(same)
+    })
+
+    it('never says how much is used, and names a cleared limit with its window', () => {
+      const pause = pausedOn(OPUS_WEEK)
+
+      expect(canRunAgain(pause, usage([reading(OPUS_WEEK, 1), reading(EXTRA, 0.37)], true))?.evidence).toBe(
+        EXTRA_USAGE_EVIDENCE,
+      )
+      expect(canRunAgain(pause, usage([reading(OPUS_WEEK, 0.37)]))?.evidence).toBe(
+        `weekly_model:Opus cleared, resets ${String(NOW + HOUR)}`,
+      )
+      expect(canRunAgain(pause, usage([reading(OPUS_WEEK, 0.37), reading(EXTRA, 0.12)], true))?.evidence).toBe(
+        `weekly_model:Opus cleared, resets ${String(NOW + HOUR)}, ${EXTRA_USAGE_EVIDENCE}`,
+      )
+    })
   })
 })
 

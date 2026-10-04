@@ -51,8 +51,10 @@
   monthly cap). While any task is paused on a usage limit it reads usage again when its window gets the focus and
   every 5 minutes, on one timer for the app, through a session that's already live: it never starts one to ask, so
   after a relaunch nothing is read until a task runs. A task still over the limit pauses again, with no error card. A
-  task is resumed on a reading only when it says something other than the reading before did of that task, so a
-  reading that's wrong costs one refused request a task, not a loop. Which readings count is one pure rule
+  task is resumed once on what a reading says: once on extra usage being available, and once a window on its limit
+  having cleared, never on how much is used, which moves with every reading. It's tried again only when availability
+  itself changes (extra usage goes and comes back, or the limit's window rolls over), so a reading that's wrong costs
+  one refused request a task, not a loop. Which readings count is one pure rule
   (`canRunAgain`, `src/main/agent/pauses.ts`). Offline pauses are untouched.
 - **Notifications:** native OS notifications for any agent message in a task you're not viewing, even while Glade is
   focused. Task name + start of the message. Sound off. Focus/DND handled by the OS.

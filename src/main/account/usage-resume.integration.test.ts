@@ -55,6 +55,8 @@ const EXTRA_OFF = { is_enabled: false, monthly_limit: null, used_credits: null, 
 interface SampleAccount {
   /** How much of the session limit is used, from 0 to 100. */
   session: number
+  /** When the session limit's window resets: the same for every reading in the window, as a real one's is. */
+  sessionResetsAt: number
   extraUsage: Record<string, unknown>
   /** Whether the call fails, as an SDK without it would. */
   fails: boolean
@@ -78,13 +80,13 @@ let clock: number
 
 function usageAnswer(): Promise<unknown> {
   if (account.fails) return Promise.reject(new Error('This SDK has no usage call.'))
-  const at = (ms: number): string => new Date(Date.now() + ms).toISOString()
+  const at = (time: number): string => new Date(time).toISOString()
   return Promise.resolve({
     subscription_type: 'max',
     rate_limits_available: true,
     rate_limits: {
-      five_hour: { utilization: account.session, resets_at: at(HOUR) },
-      seven_day: { utilization: 22, resets_at: at(4 * DAY) },
+      five_hour: { utilization: account.session, resets_at: at(account.sessionResetsAt) },
+      seven_day: { utilization: 22, resets_at: at(NOW + 4 * DAY) },
       extra_usage: account.extraUsage,
     },
     behaviors: null,
@@ -139,7 +141,7 @@ beforeEach(() => {
   database = openTestDatabase()
   acme = createWorkspace(database.db, { name: 'Acme API', rootPath: '/code/acme-api' }, 1_000)
   storefront = createWorkspace(database.db, { name: 'Storefront', rootPath: '/code/storefront' }, 1_100)
-  account = { session: 38, extraUsage: EXTRA_OFF, fails: false }
+  account = { session: 38, sessionResetsAt: NOW + HOUR, extraUsage: EXTRA_OFF, fails: false }
   clock = 2_000
   launch()
 })
@@ -183,9 +185,17 @@ function rejected(window: string, inMs = HOUR): unknown {
   }
 }
 
-/** The running turn of `task` ends on the usage limit: `window` refuses requests until `inMs` from now. */
-async function hitLimit({ session }: Running, window = 'five_hour', inMs = HOUR): Promise<void> {
+/** The running turn of `task` ends on the usage limit, and the usage call says the session limit is spent. */
+async function hitLimit(task: Running, window = 'five_hour', inMs = HOUR): Promise<void> {
   account.session = 100
+  await turnedAway(task, window, inMs)
+}
+
+/**
+ * The running turn of `task` is turned away: `window` refuses requests until `inMs` from now, whatever the usage call
+ * goes on saying.
+ */
+async function turnedAway({ session }: Running, window = 'five_hour', inMs = HOUR): Promise<void> {
   session.emit(
     rejected(window, inMs),
     sdk.apiErrorMessage('rate_limit', sdk.USAGE_LIMIT_ERROR),
@@ -415,29 +425,80 @@ describe('a reading that says the account can run again', () => {
     expect(activities(first, second)).toEqual([TaskActivity.Paused, TaskActivity.Paused])
   })
 
-  it('resumes them once more when a reading says something else, and only then', async () => {
+  it('resumes a task paused again exactly once while extra usage stays available, however its spending rises', async () => {
+    const task = await limited()
+    account.extraUsage = EXTRA_ON
+    await focus()
+    expect(turns(task)).toEqual([2])
+
+    // Turned away again, while other tasks spend extra usage: each reading says more of it is used, and the session
+    // fills on, yet it's still "available", which is all the task was resumed on.
+    await hitLimit(task)
+    for (const [usedCredits, session] of [
+      [250, 100],
+      [900, 104],
+      [2400, 109],
+    ] as const) {
+      account.extraUsage = { ...EXTRA_ON, used_credits: usedCredits }
+      account.session = session
+      await tick()
+      expect(activities(task)).toEqual([TaskActivity.Paused])
+    }
+    vi.advanceTimersByTime(USAGE_RECHECK_MIN_GAP_MS)
+    await focus()
+
+    expect(turns(task)).toEqual([2])
+    expect(log.withMessage('usage says the paused task can run again')).toHaveLength(1)
+    // The meter followed every reading all the same.
+    expect(bridge.account.status().usage.at(-1)).toMatchObject({
+      limit: { kind: UsageLimitKind.ExtraUsage },
+      utilization: 0.48,
+    })
+  })
+
+  it('resumes it once more when extra usage stops being available and comes back, and only then', async () => {
     const task = await limited()
     account.extraUsage = EXTRA_ON
     await focus()
     await hitLimit(task)
-    await tick()
+    await tick(2)
     expect(turns(task)).toEqual([2])
 
-    // Extra usage is being spent: something took it.
-    account.extraUsage = { ...EXTRA_ON, used_credits: 250 }
+    // Out of credits, then topped up: the reading in between said it couldn't run.
+    account.extraUsage = { ...EXTRA_ON, used_credits: 5000, spend_limit_reached: true }
+    await tick()
+    expect(turns(task)).toEqual([2])
+    account.extraUsage = { ...EXTRA_ON, monthly_limit: 10_000, used_credits: 5000 }
     await tick()
     expect(turns(task)).toEqual([3])
 
     await hitLimit(task)
     await tick(3)
     expect(turns(task)).toEqual([3])
+  })
 
-    // Turned off, then on again as it was: the reading in between said it couldn't run.
-    account.extraUsage = EXTRA_OFF
+  it('resumes a task once a window on a limit that reads clear, however it fills, and again once it rolls over', async () => {
+    const task = await limited()
+    // The call says the session limit has room, and it's wrong: the task is turned away again.
+    account.session = 20
+    await focus()
+    expect(turns(task)).toEqual([2])
+    await turnedAway(task)
+
+    for (const session of [35, 60, 85]) {
+      account.session = session
+      await tick()
+    }
+    expect(turns(task)).toEqual([2])
+    expect(activities(task)).toEqual([TaskActivity.Paused])
+
+    // The session's next window: one more go.
+    account.sessionResetsAt = NOW + 6 * HOUR
     await tick()
-    account.extraUsage = { ...EXTRA_ON, used_credits: 250 }
-    await tick()
-    expect(turns(task)).toEqual([4])
+    expect(turns(task)).toEqual([3])
+    await turnedAway(task)
+    await tick(2)
+    expect(turns(task)).toEqual([3])
   })
 
   it('resumes nothing while extra usage is on but can’t be used', async () => {

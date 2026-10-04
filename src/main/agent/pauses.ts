@@ -117,16 +117,21 @@ export enum RunAgainReason {
 export interface RunAgain {
   readonly reason: RunAgainReason
   /**
-   * What the reading said that this rests on: the limits it goes by, how much of each is used and when each resets.
-   * Glade resumes a paused turn once on it, and again only once a reading says something else, so a reading that's
-   * wrong can't have the turn retried over and over.
+   * What the reading said that this rests on, coarsely: which limit cleared and the window it's in (when it resets),
+   * and whether extra usage is available. Never how much is used, which moves with every reading while anything runs.
+   * Glade resumes a paused turn once on it, and again only once a reading says something else: the limit's window
+   * rolled over, or extra usage went and came back. So a reading that's wrong can't have the turn retried over and
+   * over.
    */
   readonly evidence: string
 }
 
-/** What a reading says of its limit, as `RunAgain.evidence` words it. */
-function said({ limit, utilization, resetsAt }: UsageReading): string {
-  return `${usageLimitKey(limit)} ${String(utilization)} ${String(resetsAt)}`
+/** What `RunAgain.evidence` says while extra usage is available, however much of it is spent. */
+export const EXTRA_USAGE_EVIDENCE = 'extra usage available'
+
+/** What `RunAgain.evidence` says of a limit that cleared: the limit and its window, so it's one retry a window. */
+function clearedEvidence({ limit, resetsAt }: UsageReading): string {
+  return `${usageLimitKey(limit)} cleared, resets ${String(resetsAt)}`
 }
 
 /**
@@ -148,11 +153,8 @@ export function canRunAgain(pause: TaskPause, usage: UsageSnapshot): RunAgain | 
   const rejected = plan === undefined ? undefined : reading(plan)
   const cleared = rejected !== undefined && rejected.level !== UsageLevel.Limited ? rejected : undefined
   const evidence: string[] = []
-  if (cleared !== undefined) evidence.push(said(cleared))
-  if (usage.extraUsageAvailable) {
-    const extra = reading({ kind: UsageLimitKind.ExtraUsage })
-    evidence.push(extra === undefined ? UsageLimitKind.ExtraUsage : said(extra))
-  }
+  if (cleared !== undefined) evidence.push(clearedEvidence(cleared))
+  if (usage.extraUsageAvailable) evidence.push(EXTRA_USAGE_EVIDENCE)
   if (evidence.length === 0) return null
   return {
     reason: cleared === undefined ? RunAgainReason.ExtraUsage : RunAgainReason.LimitCleared,

@@ -217,9 +217,11 @@ things end the pause sooner (#519):
   read. When a reading says the account can run again, it resumes the paused tasks without a click: the limit that
   turned a task away is no longer spent (a bigger plan, say), or extra usage is on with room left (turned on, nothing
   disabling it, its spend limit not reached, under its monthly cap).
-- A reading can be wrong, so Glade acts on each **once**: a task is resumed on a reading only when it says something
-  other than the reading before did of that task. A task that's turned away again stays paused until a reading
-  changes, its limit resets, or you press **Resume now**.
+- A reading can be wrong, so Glade acts on what it says **once**: on extra usage being available, however much of it
+  is spent, and on a limit having cleared, once for that limit's window. A task that's turned away again stays paused
+  through every later reading that says the same, whatever the percentages do meanwhile. It's tried again only when
+  that changes (extra usage stops being available and comes back, or the limit's window rolls over), when its limit
+  resets, or when you press **Resume now**.
 
 Glade reads usage through a session that's already running (a paused task's own stays alive), and never starts one
 just to ask. So after a relaunch with every task paused it has nothing to ask until a task runs: until then the

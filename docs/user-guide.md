@@ -231,7 +231,8 @@ scroll: the chat passes under them.
   - If you turn on **extra usage** (or move to a bigger plan) while tasks are paused, Glade notices by itself and
     resumes them: it checks your usage again whenever you come back to its window, and every 5 minutes, and the usage
     meter gets an "Extra usage" row. It tries once on what it reads; if the tasks are turned away again, they stay
-    paused until your usage reads differently, the limit resets, or you press **Resume now**. Just after a relaunch,
+    paused until extra usage stops being available and comes back, the limit resets, or you press **Resume now**.
+    Just after a relaunch,
     before any task has run, there's nothing running for it to ask: press **Resume now**.
 - If Glade quit mid-turn, a notice at the next launch says how many tasks resumed.
 
