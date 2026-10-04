@@ -91,11 +91,12 @@ test('the todo hub’s switch: off by default, set by hand, kept across a relaun
   expect(await hubEnabled(window)).toBe(true)
 
   // The Todos tab is the hub now (#497, `./todo-hub-tab.spec.ts`): the same todos, each a card, in the same order,
-  // without the line that explains the list. No other tab changes.
+  // without the line that explains the list.
   await expect(panel.tab(/^Todos/)).toHaveText('Todos 3/7')
   await expect(todoHub(window).heads).toHaveText(TODOS)
   await expect(panel.tabPanel).not.toContainText('The agent writes this list')
-  await expect(panel.panel.getByRole('tab')).toHaveCount(7)
+  // The panel has three tabs with the switch on: Agents · Files · Todos (#536, `./agents-tab.spec.ts`).
+  await expect(panel.tabs).toHaveText([/^Agents/, 'Files', /^Todos/])
 
   // Main answers with a group per todo, in the agent's order, and nothing under any: this task made nothing else.
   const hub = await invoke(window, CommandName.TodoHubGet, { taskId })

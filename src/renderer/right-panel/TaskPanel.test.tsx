@@ -371,7 +371,7 @@ describe('TaskPanel', () => {
         expect(tabNames()).toEqual(TAB_NAMES)
       })
 
-      it('is the hub with the switch on: each todo a card with what’s under it, and the other six tabs as they were', async () => {
+      it('is the hub with the switch on: each todo a card with what’s under it, in a panel of three tabs', async () => {
         await renderPanel({
           todos: { t1: list(1, 4) },
           watchers: [watcher],
@@ -387,13 +387,8 @@ describe('TaskPanel', () => {
         fireEvent.click(count)
         expect(screen.getByRole('group', { name: 'Watcher: CI checks on PR #511' })).toBeInTheDocument()
         expect(tab(/^Todos/)).toHaveTextContent('Todos 1/4')
-        expect(tab(/^Watchers/)).toHaveTextContent('Watchers 1')
-        expect(tabNames()).toEqual(TAB_NAMES)
-
-        // The Watchers tab is the one it was.
-        fireEvent.click(tab(/^Watchers/))
-        expect(screen.getByRole('tabpanel')).toHaveTextContent('CI checks on PR #511')
-        expect(document.querySelector('[data-todo-head]')).toBeNull()
+        // Agents · Files · Todos (#536): the tabs the hub and the Agents tab replace aren't shown.
+        expect(tabNames()).toEqual(['Agents', 'Files', 'Todos'])
       })
 
       it('follows the switch as it’s turned on and off, and shows the task you pick', async () => {

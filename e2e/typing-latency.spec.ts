@@ -11,7 +11,7 @@ import {
   SelectedHistory,
   writeLongHistorySeed,
 } from './long-history'
-import { chat, inputBar, taskHeader, taskPanel, todoHub } from './selectors'
+import { agentsTab, chat, inputBar, taskHeader, taskPanel, todoHub } from './selectors'
 
 /** A key every 60 ms: fast typing, about 200 words a minute. */
 const PACE_MS = 60
@@ -120,6 +120,33 @@ async function typesPromptly(window: Page): Promise<void> {
   await expect(bar.field).toHaveValue(TEXT)
   await expect(chat(window).agentReplies).toHaveCount(LONG_HISTORY.messages / 2 + 1)
 }
+
+// The same task with the Agents tab open on it (P16, #536), which the panel shows in place of Tool calls and
+// Subagents while the todo hub's switch is on: a tab for each of its 90 subagents and Main, and Main's list, the whole
+// tool log of the task's own agent. Every event of the turn reaches them; a tab renders only when its own agent's
+// name or state changed, and a row only when its own event did, so the keys don't wait on them. (With the switch off,
+// the test above waits on the Subagents tab's count, as it always has.)
+test('typing stays prompt with the Agents tab open on a task with a very long history', async ({
+  launch,
+  tempFolder,
+}) => {
+  test.setTimeout(120_000)
+  const seed = writeLongHistorySeed(tempFolder(), SelectedHistory.Long, 'agents', true)
+  const { window } = await launch({ seed, agentScript: 'multi-tool-turn' })
+  await expect(taskHeader(window).title).toHaveText(LONG_TASK_TITLE)
+  await expect(chat(window).agentReplies).toHaveCount(LONG_HISTORY.messages / 2)
+  const panel = taskPanel(window)
+  const agents = agentsTab(window)
+  await expect(panel.tabs).toHaveCount(3)
+  await expect(panel.tab(/^Agents/)).toHaveText(`Agents ${String(LONG_HISTORY.subagents + 1)}`)
+  await expect(agents.tabs).toHaveCount(LONG_HISTORY.subagents + 1)
+  await expect(agents.tab('Main')).toHaveAttribute('aria-selected', 'true')
+  // Main's list is there, with every subagent it started as a call of its own.
+  await expect(agents.list.locator('[data-agent-call]')).toHaveCount(LONG_HISTORY.subagents)
+
+  await typesPromptly(window)
+  await expect(agents.tab('Main')).toHaveAttribute('aria-selected', 'true')
+})
 
 // The same task with the todo hub open on it (P16, #497): 40 todos, each a card, three of them open, the first over 50
 // tiles, two of them subagents still running, and each todo's title naming a PR the task has as a link, so each is a

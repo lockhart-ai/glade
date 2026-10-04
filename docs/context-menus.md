@@ -42,6 +42,12 @@ line); **Not under a todo** has none, and a tile's own menu comes with its kind 
 ticket a todo names, which is a link while the task has it as one (#500), has the link's menu, not the todo's: Open
 link and Copy link, with no Add to artifacts, since it's one already.
 
+**The Agents tab** (#536, behind the same hidden `todoHubEnabled` setting until #501): a tool call in an agent's list
+has the tool call's menu, as in the Tool calls tab, a subagent's `Agent` call included. An agent's tab in the strip
+has no menu. The Subagents tab isn't shown with the setting on, so its **Subagent** menu (Copy log, Stop subagent)
+isn't reachable there; whether the Agents tab takes those over is open ([`decisions.md`](decisions.md), "From the
+Agents tab").
+
 A **commit's tile** has no menu, as a commit in the Changes tab has none: it only shows what the agent did.
 
 **A file's and a link's tile** in the todo hub (#498, behind the same hidden `todoHubEnabled` setting until #501) have

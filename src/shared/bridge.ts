@@ -138,6 +138,7 @@ export enum CommandName {
   ArtifactsUnwatch = 'artifacts.unwatch',
   TodoHubGet = 'todoHub.get',
   TodoHubSetPanel = 'todoHub.setPanel',
+  AgentsSetTab = 'agents.setTab',
   UiStateGet = 'uiState.get',
   UiStateGetAll = 'uiState.getAll',
   UiStateSet = 'uiState.set',
@@ -596,6 +597,12 @@ export interface TasksHistoryResponse {
   readonly watchers: readonly Watcher[]
   /** The commits its agent and subagents made (the Changes tab), newest first. */
   readonly commits: readonly TaskCommit[]
+  /**
+   * Which agent's tab its Agents tab was left on (P16, #536): a subagent's `Agent` call's `tool_use` id, or null for
+   * Main. Only there while the todo hub is on (the hidden `todoHubEnabled` setting): with it off, a task's history is
+   * what it was before the hub.
+   */
+  readonly agentTab?: string | null
 }
 
 /**
@@ -991,6 +998,17 @@ export interface TodoHubGetResponse {
  * such task.
  */
 export type TodoHubSetPanelRequest = TodoPanel
+
+/**
+ * Remembers which agent's tab a task's Agents tab is on (P16, #536), for the task: a subagent's, by the `tool_use` id
+ * of the `Agent` call that started it, or null for Main, the task's own agent. The subagent needn't be in the task's
+ * log: the window falls back to Main for one that isn't. Nothing is broadcast. Fails with `invalid_transition` while
+ * the hub is off (the hidden `todoHubEnabled` setting), writing nothing, and `not_found` when there's no such task.
+ */
+export interface AgentsSetTabRequest {
+  readonly taskId: string
+  readonly agentId: string | null
+}
 
 /** Puts text on the clipboard (the context menus' Copy items). */
 export interface ClipboardWriteTextRequest {
@@ -1468,6 +1486,7 @@ export interface CommandMap {
   [CommandName.ArtifactsUnwatch]: CommandSpec<ArtifactsWatchRequest, null>
   [CommandName.TodoHubGet]: CommandSpec<TodoHubGetRequest, TodoHubGetResponse>
   [CommandName.TodoHubSetPanel]: CommandSpec<TodoHubSetPanelRequest, null>
+  [CommandName.AgentsSetTab]: CommandSpec<AgentsSetTabRequest, null>
   [CommandName.UiStateGet]: CommandSpec<UiStateGetRequest, UiStateGetResponse>
   [CommandName.UiStateGetAll]: CommandSpec<EmptyRequest, UiStateGetAllResponse>
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>

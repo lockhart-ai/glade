@@ -27,6 +27,7 @@ import {
 } from '../../shared/todoHub'
 import { CommandFailure } from '../bridge/errors'
 import type { Emit } from '../bridge/events'
+import { getAgentTab, setAgentTab } from '../db/repositories/agent-tabs'
 import { listArtifacts } from '../db/repositories/artifacts'
 import { listFilings, putFilings, removeFilings } from '../db/repositories/child-filings'
 import { assignChildIds, findChildById } from '../db/repositories/child-ids'
@@ -87,6 +88,24 @@ export function rememberTodoPanel(db: Database, panel: TodoPanel): void {
   requireTodoHub(db)
   requireTask(db, panel.taskId)
   setTodoPanel(db, panel)
+}
+
+/**
+ * Which agent's tab a task's Agents tab was left on (#536), as its history carries it: a subagent's `Agent` call's
+ * `tool_use` id, or null for Main. Nothing at all while the hub is off, so a task's history is what it was before.
+ */
+export function agentTabOf(db: Database, taskId: string): { readonly agentTab?: string | null } {
+  return isTodoHubEnabled(db) ? { agentTab: getAgentTab(db, taskId) } : {}
+}
+
+/**
+ * Remembers which agent's tab a task's Agents tab is on (`agents.setTab`): null is Main. The subagent needn't be in
+ * the task's log. Fails with `invalid_transition` while the hub is off, and `not_found` when there's no such task.
+ */
+export function rememberAgentTab(db: Database, taskId: string, agentId: string | null): void {
+  requireTodoHub(db)
+  requireTask(db, taskId)
+  setAgentTab(db, taskId, agentId)
 }
 
 /**

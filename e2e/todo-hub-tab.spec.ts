@@ -61,7 +61,7 @@ test('the todo hub: counts closed, filters and tiles open, each todo as you left
   const hub = todoHub(window)
   await expect(taskHeader(window).title).toHaveText(SHIP)
 
-  // Every todo is a card, in the tab's order, and the other tabs are all still there.
+  // Every todo is a card, in the tab's order, in a panel of three tabs (#536, `./agents-tab.spec.ts`).
   await expect(hub.heading).toHaveText('1 of 4 done')
   await expect(hub.heads).toHaveText([
     /^Doing: #501 Return Retry-After on 429s/,
@@ -69,7 +69,7 @@ test('the todo hub: counts closed, filters and tiles open, each todo as you left
     'To do: Draft the 2.5 release notes',
     /^Done: #503 Document the rate limits/,
   ])
-  await expect(taskPanel(window).panel.getByRole('tab')).toHaveCount(7)
+  await expect(taskPanel(window).tabs).toHaveText([/^Agents/, 'Files', /^Todos/])
 
   // Closed: a count per kind, a kind with none left out, blue while one of its children is live.
   expect(await kindsOf(window, '#502')).toEqual(['3 links', '1 subagent', '1 watcher, 1 running', '2 changes'])

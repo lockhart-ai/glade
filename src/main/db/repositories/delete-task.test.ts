@@ -1,5 +1,6 @@
 import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { setAgentTab } from './agent-tabs'
 import {
   ArtifactDateGroup,
   ArtifactFilter,
@@ -114,6 +115,7 @@ function fillTask(db: Database, task: Task): void {
   assignChildIds(db, taskId, [{ kind: ChildKind.File, key: 'docs/plan.md' }])
   putFilings(db, taskId, [{ kind: ChildKind.File, key: 'docs/plan.md', todoId: '1', source: FilingSource.Named }])
   setTodoPanel(db, { taskId, todoId: '1', open: true, filter: ChildFilter.Files })
+  setAgentTab(db, taskId, `agent-${taskId}`)
   oweFilings(db, taskId, [{ kind: ChildKind.Watcher, key: `monitor-${taskId}` }])
   setWorkspaceSelection(db, task.workspaceId, taskId)
   appendQuestionSet(db, {
@@ -190,6 +192,8 @@ function fillTask(db: Database, task: Task): void {
 
 /** The tables `fillTask` writes to. A new table that belongs to a task fails the test below until it's added here. */
 const FILLED_TABLES = [
+  // The agent's tab its Agents tab was left on (#536).
+  'agent_tabs',
   // The Artifacts tab's filter, as you last chose it (#407).
   'artifact_filters',
   // The Artifacts tab's date groups you opened or folded.

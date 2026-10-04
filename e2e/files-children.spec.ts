@@ -4,7 +4,7 @@
 // marker off, so it shows nowhere. Its second turn names none: Glade tells it what its calls made, and it files that
 // itself, before its turn ends; the artifacts it declares give `add_artifact` their todo. Its watchers are never
 // filed, asked about or held for. What's filed survives a relaunch, and the resumed session keeps filing. The spec
-// reads where main puts each thing over the bridge, and the Tool calls tab for what the log shows.
+// reads where main puts each thing over the bridge, and Main's tool calls in the Agents tab for what the log shows.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
@@ -86,9 +86,9 @@ test('the todo hub on: a commit is under a todo, and a subagent has one, by the 
     [ChildKind.Commit, MADE.named.commit.todo, FilingSource.Named],
     [ChildKind.Subagent, MADE.named.subagent.todo, FilingSource.Named],
   ])
-  await panel.tab(/^Tool calls/).click()
+  await panel.tab(/^Agents/).click()
   await expect(panel.call(/^Done\s*file_children/)).toHaveCount(0)
-  // The marker shows nowhere: not in what main keeps, nor in the Tool calls tab.
+  // The marker shows nowhere: not in what main keeps, nor in Main's tool calls.
   expect(await everythingShown(window, taskId)).not.toMatch(/\[todo/i)
   await expect(panel.log).not.toContainText('[todo')
   // Its watchers are as their calls wrote them.

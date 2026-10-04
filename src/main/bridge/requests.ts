@@ -78,6 +78,7 @@ import {
   type WorkspacesRevealRequest,
   type TodoHubGetRequest,
   type TodoHubSetPanelRequest,
+  type AgentsSetTabRequest,
 } from '../../shared/bridge'
 import { AttachedFileKind, isAttachedFileName, isAttachedFileOf, type AttachedFile } from '../../shared/attachedFiles'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
@@ -428,6 +429,11 @@ const todoHubSetPanelRequest = z.strictObject({
   filter: z.enum(ChildFilter),
 }) satisfies z.ZodType<TodoHubSetPanelRequest>
 
+const agentsSetTabRequest = z.strictObject({
+  taskId: z.string(),
+  agentId: z.string().min(1).nullable(),
+}) satisfies z.ZodType<AgentsSetTabRequest>
+
 const pluginsSetEnabledRequest = z.strictObject({
   id: z.string(),
   enabled: z.boolean(),
@@ -651,6 +657,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.ArtifactsUnwatch]: artifactsWatchRequest,
   [CommandName.TodoHubGet]: todoHubGetRequest,
   [CommandName.TodoHubSetPanel]: todoHubSetPanelRequest,
+  [CommandName.AgentsSetTab]: agentsSetTabRequest,
   [CommandName.UiStateGet]: uiStateGetRequest,
   [CommandName.UiStateGetAll]: emptyRequest,
   [CommandName.UiStateSet]: uiStateSetRequest,

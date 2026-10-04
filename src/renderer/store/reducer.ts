@@ -176,7 +176,23 @@ export function withHistory(
     watchers: { ...state.watchers, [taskId]: history.watchers },
     // Commits, too: the loaded list is the task's whole list as it was then.
     commits: { ...state.commits, [taskId]: history.commits },
+    // Like the Artifacts tab's filter, only this window picks it. A history without one (the todo hub is off) leaves
+    // it as it is.
+    agentTabs: withAgentTab(state.agentTabs, taskId, history.agentTab),
   }
+}
+
+/**
+ * Each task's agent tab, with `taskId`'s as loaded or picked: a subagent's, or null for Main, which is kept as no
+ * entry. Undefined leaves them as they are.
+ */
+export function withAgentTab(
+  agentTabs: GladeData['agentTabs'],
+  taskId: string,
+  agentId: string | null | undefined,
+): GladeData['agentTabs'] {
+  if (agentId === undefined || (agentTabs[taskId] ?? null) === agentId) return agentTabs
+  return agentId === null ? without(agentTabs, taskId) : { ...agentTabs, [taskId]: agentId }
 }
 
 /**
@@ -298,10 +314,12 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     filings: without(state.filings, taskId),
     filingsVersion: without(state.filingsVersion, taskId),
     todoPanels: without(state.todoPanels, taskId),
+    agentTabs: without(state.agentTabs, taskId),
     inputDrafts: without(state.inputDrafts, taskId),
     fileFocus: state.fileFocus?.taskId === taskId ? null : state.fileFocus,
     toolLogFocus: state.toolLogFocus?.taskId === taskId ? null : state.toolLogFocus,
     subagentFocus: state.subagentFocus?.taskId === taskId ? null : state.subagentFocus,
+    todoFocus: state.todoFocus?.taskId === taskId ? null : state.todoFocus,
     renamingTaskId: state.renamingTaskId === taskId ? null : state.renamingTaskId,
     deletingTaskId: state.deletingTaskId === taskId ? null : state.deletingTaskId,
   }

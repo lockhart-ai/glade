@@ -126,6 +126,17 @@ export interface SubagentFocus {
 }
 
 /**
+ * A request to show a todo in the todo hub (P16), scrolled into view with the focus on it: made by the line under a
+ * subagent's tab in the Agents tab that names the todo it's working on (#536), and acted on by the hub. `request` goes
+ * up by one with every request, like `ToolLogFocus`'s.
+ */
+export interface TodoFocus {
+  readonly taskId: string
+  readonly todoId: TodoId
+  readonly request: number
+}
+
+/**
  * A request to add text to a task's message field (Quote in reply, Ask agent about this), made by a context menu and
  * acted on by the input bar, which adds it to its draft and focuses the field. `request` goes up by one with every
  * request, like `ToolLogFocus`'s.
@@ -255,6 +266,13 @@ export interface GladeData {
    * and filter. A todo with none is closed, showing all.
    */
   readonly todoPanels: Readonly<Record<string, TodoPanels>>
+  /**
+   * The subagent whose tab each task's Agents tab is on (P16, #536), by task id, as its `Agent` call's tool_use id: a
+   * task with none is on Main, the task's own agent. Loaded with the task's logs while the todo hub is on, then
+   * changed as you pick a tab (`selectAgentTab`). One that's no longer among the task's subagents shows Main
+   * (`shownAgent`).
+   */
+  readonly agentTabs: Readonly<Record<string, string>>
   readonly uiState: UiStateValues
   /**
    * The latest request to show a turn in the tool log; null until one is made. A one-off UI intent, so it's the one
@@ -276,6 +294,11 @@ export interface GladeData {
    * one-off UI intent, like `toolLogFocus`.
    */
   readonly subagentFocus: SubagentFocus | null
+  /**
+   * The latest request to show a todo in the todo hub (the todo a subagent's tab names); null until one is made. A
+   * one-off UI intent, like `toolLogFocus`.
+   */
+  readonly todoFocus: TodoFocus | null
   /**
    * The task whose title is being renamed in its task list row (F2); null when none is. A one-off UI intent, like
    * `toolLogFocus`.
@@ -634,9 +657,26 @@ export interface GladeActions {
   compactTask: (taskId: string) => Promise<void>
   /**
    * Asks the tool log to show a task's turn (see `ToolLogFocus`). For the selected task, it also opens the right panel
-   * at Tool calls, so the turn shows even when the panel was collapsed or on another tab.
+   * at Tool calls, so the turn shows even when the panel was collapsed or on another tab. With the todo hub on, that's
+   * the Agents tab, on Main's tab (`showAgent`).
    */
   focusTurn: (taskId: string, turn: number) => void
+  /**
+   * Picks an agent's tab in a task's Agents tab (P16, #536), at once, and remembers it for the task (`agents.setTab`):
+   * a subagent's, by its `Agent` call's tool_use id, or null for Main.
+   */
+  selectAgentTab: (taskId: string, agentId: string | null) => Promise<void>
+  /**
+   * Shows one of a task's agents in the Agents tab: picks its tab (`selectAgentTab`) and, for the selected task, opens
+   * the right panel at Agents, even when it was collapsed or on another tab. What a plugin's `openTask` with a
+   * subagent, the chat's tool-calls chip and an `Agent` call in a list do while the todo hub is on.
+   */
+  showAgent: (taskId: string, agentId: string | null) => void
+  /**
+   * Shows a todo in the todo hub (see `TodoFocus`): for the selected task, it opens the right panel at Todos, where
+   * the hub scrolls to the todo and puts the focus on it.
+   */
+  showTodo: (taskId: string, todoId: TodoId) => void
   /** Asks the input bar to focus its message field (see `inputFocusRequest`). */
   focusInput: () => void
   /** Registers a modal as open, bumping `openModalCount` (see `useModalPresence`). */
@@ -833,11 +873,13 @@ export const INITIAL_DATA: GladeData = {
   filings: {},
   filingsVersion: {},
   todoPanels: {},
+  agentTabs: {},
   uiState: {},
   toolLogFocus: null,
   inputFocusRequest: 0,
   fileFocus: null,
   subagentFocus: null,
+  todoFocus: null,
   renamingTaskId: null,
   deletingTaskId: null,
   removingWorkspaceId: null,

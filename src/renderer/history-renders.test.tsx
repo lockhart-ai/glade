@@ -3,7 +3,8 @@
 // only when its own data changed. Rows are counted by a function each calls exactly once per render. The Broadcast
 // modal's recipients (#489) are held to the same: one row per active task, in every workspace. So is the todo hub
 // (P16, #497): a card per todo, and a tile per child of an open one. The links a todo's text names (#500) are worked
-// out when the task's links or its todos change, and at no other time.
+// out when the task's links or its todos change, and at no other time. And so is the Agents tab (P16, #536): a tab per
+// agent in its strip, and the list of the one agent showing.
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsageLevel, UsageLimitKind, type UsageReading } from '../shared/account'
@@ -25,6 +26,8 @@ import {
   type ToolEvent,
 } from '../shared/domain'
 import { FolderAccess, SandboxAskKind } from '../shared/sandbox'
+import { AgentsTab } from './agents'
+import { agentCallResult, agentDotLabel, agentStateLine } from './agents/agentsModel'
 import { BroadcastDialog } from './broadcast'
 import { attentionLabel, reachText } from './broadcast/broadcastModel'
 import { Chat } from './chat'
@@ -88,6 +91,19 @@ vi.mock('./usage-meter/usageMeterModel', async (importOriginal) => {
 vi.mock('./subagents/subagentsModel', async (importOriginal) => {
   const original = await importOriginal<typeof import('./subagents/subagentsModel')>()
   return { ...original, statusLabel: vi.fn(original.statusLabel) }
+})
+
+// The Agents tab: every subagent's tab names its dot (one `agentDotLabel` call per render of one), every subagent's
+// `Agent` call says how it's doing under it (one `agentCallResult` call per render of that line), and the line under
+// the strip says the subagent's state (one `agentStateLine` call per render of it).
+vi.mock('./agents/agentsModel', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./agents/agentsModel')>()
+  return {
+    ...original,
+    agentDotLabel: vi.fn(original.agentDotLabel),
+    agentCallResult: vi.fn(original.agentCallResult),
+    agentStateLine: vi.fn(original.agentStateLine),
+  }
 })
 
 // Every card of the todo hub counts its children by kind (one `kindCounts` call per render of one), and every tile
@@ -1044,5 +1060,168 @@ describe('the todo hub, with 100 todos and 50 children under one (P16, #497)', (
       expect(read()).toEqual({ lookups: 0, todos: 100, lines: 0 })
       expect(screen.getByRole('link', { name: 'PR #511' })).toBeInTheDocument()
     })
+  })
+})
+
+describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', () => {
+  const SUBAGENTS = 50
+  const RUNNING = 10
+  const MAIN_CALLS = 2000
+
+  /** Fifty subagents, the last ten still running, each with a note and a call of its own. */
+  const AGENTS = Array.from({ length: SUBAGENTS }, (_, index) =>
+    hubAgent(
+      `agent-${String(index)}`,
+      `review-${String(index)}`,
+      60 - index,
+      index < SUBAGENTS - RUNNING ? { state: ToolCallState.Done, output: 'Looks good.', finishedAt: HUB_NOW } : {},
+    ),
+  )
+  const EVENTS: ToolEvent[] = [
+    ...Array.from({ length: MAIN_CALLS }, (_, index) => call(`main-${String(index)}`, 1)),
+    ...AGENTS.flatMap((agent) => [
+      agent,
+      note(`said-${agent.toolUseId}`, 1, agent.toolUseId),
+      call(`did-${agent.toolUseId}`, 1, { parentToolUseId: agent.toolUseId }),
+    ]),
+  ]
+  const agent = (index: number): ToolCallEvent => {
+    const found = AGENTS[index]
+    if (found === undefined) throw new Error('No such subagent')
+    return found
+  }
+  const tab = (name: string): HTMLElement => screen.getByRole('tab', { name: new RegExp(`${name}$`) })
+
+  async function renderAgents(): Promise<HubStore> {
+    const wrapper = await hubStore({
+      todos: [hubTodo('1', 'Review every PR')],
+      toolEvents: EVENTS,
+      filings: AGENTS.map(({ toolUseId }) => hubFiling(refOf.subagent(toolUseId), '1')),
+    })
+    render(<AgentsTab taskId="t1" />, { wrapper: wrapper.wrapper })
+    await act(() => Promise.resolve())
+    // A tab per agent, and Main's list alone: its own calls, and one row per subagent it started.
+    expect(screen.getAllByRole('tab')).toHaveLength(SUBAGENTS + 1)
+    expect(rendered()).toEqual({ tabs: SUBAGENTS, rows: MAIN_CALLS + SUBAGENTS, times: SUBAGENTS, line: 0 })
+    return wrapper
+  }
+
+  /** How many tabs, rows, live times and lines rendered since the last look, which starts the count again. */
+  function rendered(): { tabs: number; rows: number; times: number; line: number } {
+    const counts = {
+      tabs: renders(agentDotLabel),
+      rows: renders(clockTime),
+      times: renders(agentCallResult),
+      line: renders(agentStateLine),
+    }
+    for (const counter of [agentDotLabel, clockTime, agentCallResult, agentStateLine]) vi.mocked(counter).mockClear()
+    return counts
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(HUB_NOW)
+    for (const counter of [agentDotLabel, clockTime, agentCallResult, agentStateLine]) vi.mocked(counter).mockClear()
+  })
+
+  it('renders nothing when an agent you aren’t looking at works: not a tab, not a row of the list showing', async () => {
+    const { fake } = await renderAgents()
+
+    act(() => {
+      fake.emit({
+        type: EventType.ToolEventAppended,
+        toolEvent: call('late-3', 1, { parentToolUseId: agent(3).toolUseId }),
+      })
+      fake.emit({ type: EventType.ToolEventAppended, toolEvent: note('late-note-49', 1, agent(49).toolUseId) })
+      fake.emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), status: 'Running the tests.' } })
+    })
+    expect(rendered()).toEqual({ tabs: 0, rows: 0, times: 0, line: 0 })
+
+    // On a subagent's tab, what Main and the others do renders nothing either.
+    fireEvent.click(tab('review-49'))
+    rendered()
+    act(() => {
+      fake.emit({ type: EventType.ToolEventAppended, toolEvent: call('late-main', 1) })
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: { ...agent(48), progressSummary: 'Reading the diff' },
+      })
+    })
+    expect(rendered()).toEqual({ tabs: 0, rows: 0, times: 0, line: 0 })
+  })
+
+  it('renders only the row that was added or changed in the list showing', async () => {
+    const { fake } = await renderAgents()
+    const running = call('late-main', 1, { state: ToolCallState.Running, output: null, finishedAt: null })
+
+    act(() => {
+      fake.emit({ type: EventType.ToolEventAppended, toolEvent: running })
+    })
+    expect(rendered()).toEqual({ tabs: 0, rows: 1, times: 0, line: 0 })
+
+    act(() => {
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: { ...running, state: ToolCallState.Done, output: 'ok' },
+      })
+    })
+    expect(rendered()).toEqual({ tabs: 0, rows: 1, times: 0, line: 0 })
+  })
+
+  it('renders the two tabs that changed when another agent is picked, and the new list: not the strip', async () => {
+    await renderAgents()
+
+    fireEvent.click(tab('review-49'))
+    // Main's tab has no dot to count: the subagent's is the one counted. Its list is its note and its call.
+    expect(rendered()).toEqual({ tabs: 1, rows: 2, times: 0, line: 1 })
+
+    fireEvent.click(tab('review-7'))
+    expect(rendered()).toEqual({ tabs: 2, rows: 2, times: 0, line: 1 })
+    expect(screen.getAllByRole('tab')).toHaveLength(SUBAGENTS + 1)
+  })
+
+  it('renders one tab when a subagent finishes, is woken or starts, as it moves, and no row of another’s list', async () => {
+    const { fake } = await renderAgents()
+    fireEvent.click(tab('review-48'))
+    rendered()
+
+    act(() => {
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: { ...agent(49), state: ToolCallState.Done, output: 'Looks good.', finishedAt: HUB_NOW },
+      })
+    })
+    expect(rendered()).toEqual({ tabs: 1, rows: 0, times: 0, line: 0 })
+    expect(tab('review-49')).not.toHaveAttribute('data-running')
+
+    // Woken after it finished (#395).
+    act(() => {
+      fake.emit({ type: EventType.ToolEventUpdated, toolEvent: { ...agent(0), state: ToolCallState.Running } })
+    })
+    expect(rendered()).toEqual({ tabs: 1, rows: 0, times: 0, line: 0 })
+
+    act(() => {
+      fake.emit({ type: EventType.ToolEventAppended, toolEvent: hubAgent('agent-new', 'review-new', 0) })
+    })
+    expect(rendered()).toEqual({ tabs: 1, rows: 0, times: 0, line: 0 })
+    expect(screen.getAllByRole('tab')).toHaveLength(SUBAGENTS + 2)
+  })
+
+  it('renders only the times as the clock ticks: no tab, and no row', async () => {
+    await renderAgents()
+
+    act(() => {
+      vi.advanceTimersByTime(NOW_REFRESH_MS)
+    })
+    // Each running subagent's call counts its own time, in Main's list.
+    expect(rendered()).toEqual({ tabs: 0, rows: 0, times: RUNNING, line: 0 })
+
+    // On a running subagent's tab, the line under the strip is the one thing that ticks.
+    fireEvent.click(tab('review-49'))
+    rendered()
+    act(() => {
+      vi.advanceTimersByTime(NOW_REFRESH_MS)
+    })
+    expect(rendered()).toEqual({ tabs: 0, rows: 0, times: 0, line: 1 })
   })
 })

@@ -56,7 +56,7 @@ import {
   type WriteClipboard,
 } from '../files/files'
 import { todoListFor } from '../todos/todos'
-import { readTodoHub, rememberTodoPanel } from '../todo-hub/todo-hub'
+import { agentTabOf, readTodoHub, rememberAgentTab, rememberTodoPanel } from '../todo-hub/todo-hub'
 import { addTaskLinkByHand, removeTaskArtifact } from '../artifacts/artifacts'
 import { attachFile, discardAttachedFile } from '../attachments/attachments'
 import { NO_THUMBNAILS, type Thumbnails } from '../artifacts/thumbnails'
@@ -258,6 +258,7 @@ export function createHandlers(context: HandlerContext): Handlers {
         handoff: getHandoff(db, id) ?? null,
         watchers: listWatchers(db, id).map(publicWatcher),
         commits: listTaskCommits(db, id),
+        ...agentTabOf(db, id),
       }
     },
     [CommandName.ChangesFiles]: async ({ taskId, id }) => ({ files: await commitFiles(changes, taskId, id) }),
@@ -382,6 +383,10 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.TodoHubGet]: ({ taskId }) => readTodoHub(db, taskId),
     [CommandName.TodoHubSetPanel]: (panel) => {
       rememberTodoPanel(db, panel)
+      return null
+    },
+    [CommandName.AgentsSetTab]: ({ taskId, agentId }) => {
+      rememberAgentTab(db, taskId, agentId)
       return null
     },
     [CommandName.ClipboardWriteText]: async ({ text }) => {
