@@ -66,5 +66,7 @@ it('leaves existing requests asking nothing of the sandbox, granted to nobody, a
     grantedScope: SandboxGrantScope.Workspace,
   })
   expect(closed).toMatchObject({ sandbox: ask, grantedScope: SandboxGrantScope.Workspace, grantedRule: null })
+  // And no call is marked yet.
+  expect(db.prepare('SELECT COUNT(*) FROM permission_marks').pluck().get()).toBe(0)
   db.close()
 })

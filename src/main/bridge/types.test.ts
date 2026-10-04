@@ -26,6 +26,7 @@ import {
   type ArtifactGroupFold,
   type Message,
   type OpenFiles,
+  type PermissionMark,
   type PermissionRequest,
   type QuestionSet,
   type QueuedMessage,
@@ -88,6 +89,7 @@ const TASK_HANDLERS = {
     queuedMessages: [],
     questionSets: [],
     permissionRequests: [],
+    permissionMarks: [],
     openFiles: { taskId: 't', paths: [], activePath: null },
     todos: null,
     artifacts: [],
@@ -291,6 +293,7 @@ describe('the command map', () => {
       readonly queuedMessages: readonly QueuedMessage[]
       readonly questionSets: readonly QuestionSet[]
       readonly permissionRequests: readonly PermissionRequest[]
+      readonly permissionMarks: readonly PermissionMark[]
       readonly openFiles: OpenFiles
       readonly todos: TodoList | null
       readonly artifacts: readonly Artifact[]
@@ -492,6 +495,9 @@ describe('events', () => {
         case EventType.PermissionAnswered:
         case EventType.PermissionWithdrawn:
           expectTypeOf(event.permissionRequest).toEqualTypeOf<PermissionRequest>()
+          break
+        case EventType.PermissionMarked:
+          expectTypeOf(event.mark).toEqualTypeOf<PermissionMark>()
           break
         case EventType.OpenFilesChanged:
           expectTypeOf(event.openFiles).toEqualTypeOf<OpenFiles>()

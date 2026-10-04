@@ -39,6 +39,7 @@ import type {
   OpenFiles,
   PastedBlock,
   PermissionDecision,
+  PermissionMark,
   PermissionRequest,
   QuestionAnswers,
   QuestionSet,
@@ -192,6 +193,8 @@ export interface GladeData {
    * loaded with its logs, then kept current by events.
    */
   readonly permissionRequests: Readonly<Record<string, readonly PermissionRequest[]>>
+  /** Each loaded task's tool calls a rule decided (`PermissionMark`), in the order they were first marked. */
+  readonly permissionMarks: Readonly<Record<string, readonly PermissionMark[]>>
   /** The files open in each task's Files tab, by task id: loaded with its logs, then kept current by events. */
   readonly openFiles: Readonly<Record<string, OpenFiles>>
   /** Each task's artifacts (the Artifacts tab), by task id: loaded with its logs, then kept current by events. */
@@ -746,6 +749,7 @@ export const INITIAL_DATA: GladeData = {
   queuedMessages: {},
   questionSets: {},
   permissionRequests: {},
+  permissionMarks: {},
   openFiles: {},
   artifacts: {},
   artifactsVersion: {},

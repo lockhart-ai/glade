@@ -202,6 +202,14 @@
  * (`onAccessRequested`). A request the app quit on is answered as any other: the grant is saved with the answer, and
  * the session Glade resumes to tell the agent starts with it.
  *
+ * **What a rule decided** (`PermissionMark`). Where Glade can tell that a rule, not you, decided a call, it marks the
+ * call, for its row in the Tool calls list to say: a file tool or `WebFetch` a sandbox grant covers ("Allowed by
+ * workspace grant"), a call in the ask mode that a rule from an earlier Allow for this task covers ("Allowed by task
+ * rule"), a sandboxed command whose result says "Operation not permitted" ("Blocked by the sandbox", naming what of
+ * once the agent's `request_access` after it says), a credential path refused, and a `request_access` call answered
+ * without a card. A call in the workspace root with no rule involved has no mark, and a call you're asked about shows
+ * your answer instead. Each mark is saved, and only that call's goes to the windows.
+ *
  * **Resume on launch.** A turn the app quit or crashed in is left working in the database: a turn's user messages and
  * its working activity are saved together, so none is left unanswered. On launch, `resumeInterrupted` carries each
  * one on: it resumes the task's SDK session by its saved id (`docs/sdk-notes.md` §8), adds a resumed divider to the
@@ -242,6 +250,8 @@ import {
   MessageRole,
   PauseReason,
   PermissionDecisionKind,
+  PermissionMarkKind,
+  PermissionMode,
   PermissionRequestState,
   RefusalScope,
   TaskActivity,
@@ -255,6 +265,8 @@ import {
   type Message,
   type PastedBlock,
   type PermissionDecision,
+  type PermissionMarkOutcome,
+  type ToolInput,
   type PermissionRequest,
   type QuestionAnswers,
   type QuestionReply,
@@ -265,8 +277,9 @@ import {
   type ToolCallEvent,
 } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
-import { permissionRuleString, taskPermissionRule } from '../../shared/permissions'
+import { permissionRuleString, ruleCovers, taskPermissionRule } from '../../shared/permissions'
 import {
+  FolderAccess,
   folderVerb,
   grantCovers,
   SandboxAskKind,
@@ -274,6 +287,7 @@ import {
   SandboxGrantScope,
   type CardGrantScope,
   type SandboxApplyResult,
+  type SandboxFolderAsk,
   type SandboxGrantAsk,
   type SandboxGrantTarget,
 } from '../../shared/sandbox'
@@ -287,6 +301,7 @@ import { apiRowArgument, apiRowResult } from '../../shared/taskError'
 import { CommandFailure } from '../bridge/errors'
 import {
   emitMessageAppended,
+  emitPermissionMarked,
   emitQueueChanged,
   emitTaskUpdated,
   emitTodosChanged,
@@ -307,6 +322,7 @@ import {
   setRestartDelivery,
   type NewPermissionRequest,
 } from '../db/repositories/permission-requests'
+import { latestUnnamedBlock, setPermissionMark } from '../db/repositories/permission-marks'
 import { getOpenQuestionSet, getQuestionSet, listOpenQuestionSets } from '../db/repositories/question-sets'
 import { listTaskPermissionRules } from '../db/repositories/task-permission-rules'
 import { listQueuedMessages, listTasksWithQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
@@ -347,13 +363,18 @@ import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import type { NotifyReply } from '../notifications/notifications'
 import { PermissionVerdict } from '../permissions/classify'
 import {
+  fetchedHost,
+  fileToolPath,
+  isSandboxOverride,
   isUnboundedRule,
   isWriteTool,
   sandboxBounds,
   SandboxCrossing,
+  sandboxCrossing,
   toolCallVerdict,
   type SandboxBounds,
 } from '../permissions/sandbox-classify'
+import { absolutePath } from '../permissions/canonical-path'
 import { cardGrantTarget, createPermissionBroker, type PermissionBroker } from '../permissions/permissions'
 import {
   AccessOutcomeKind,
@@ -364,7 +385,7 @@ import {
   type AccessRequest,
   type RunningCommand,
 } from '../permissions/sandbox-ask'
-import { grantingScope } from '../sandbox/grants'
+import { grantingGrant } from '../sandbox/grants'
 import { createQuestionBroker, toolResultFor, type QuestionBroker } from '../questions/questions'
 import { addQueuedMessage } from '../tasks/queue'
 import { changesTodos, refreshTodos } from '../todos/todos'
@@ -386,7 +407,7 @@ import {
   type ToolPermissionCall,
 } from './backend'
 import { gatedSession } from './gated-session'
-import { SANDBOX_NETWORK_TOOL } from './sandbox-requests'
+import { FileAccess, SANDBOX_NETWORK_TOOL } from './sandbox-requests'
 import { NO_GRANTS, sandboxOverlay, sandboxStartSettings, usableGrants, type SandboxGrants } from './sandbox'
 import { CONTROL_SERVER } from '../control/names'
 import type { AccountSink } from '../account/account'
@@ -972,6 +993,9 @@ interface DecidedRequest {
 
 /** The tools whose calls run a command in the sandbox: a connection's request belongs to one of them. */
 const COMMAND_TOOL_NAMES: readonly string[] = ['Bash', 'Monitor']
+
+/** What a command the sandbox blocked prints, in whatever case its tool writes it (`docs/sdk-notes.md` §15). */
+const BLOCKED_BY_SANDBOX = /operation not permitted/i
 
 /**
  * How many turns of the microtask queue a connection's request waits for its command's `tool_use` to be logged, when
@@ -2137,6 +2161,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       case AgentEventKind.ToolCallStarted:
         recovered(taskId, turn)
         onToolCall(taskId, turn, event)
+        markRuled(taskId, live, event)
         return
       case AgentEventKind.ToolResult:
         onToolResult(taskId, live, turn, event)
@@ -2314,6 +2339,76 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (scope === null || task === undefined) return true
     await runner.applySandboxGrants(cardGrantTarget(scope, task), { awaitTaskId: taskId })
     return !live.closed
+  }
+
+  /** Records what a rule decided of a tool call, and tells the windows of that call's mark when it's news. */
+  const mark = (taskId: string, toolUseId: string, outcome: PermissionMarkOutcome): void => {
+    const marked = setPermissionMark(db, { taskId, toolUseId, outcome })
+    if (marked !== undefined) emitPermissionMarked(emit, marked)
+  }
+
+  /**
+   * Marks a call a rule decides, as it starts (see the module comment): one the sandbox refuses for its credential
+   * path, one a grant covers, or, in the ask mode, one a task rule covers. Any other call is left unmarked.
+   */
+  const markRuled = (
+    taskId: string,
+    live: LiveSession,
+    call: Pick<ToolCallStartedEvent, 'toolUseId' | 'name' | 'input'>,
+  ): void => {
+    const task = getTask(db, taskId)
+    if (task === undefined) return
+    const { toolUseId, name: toolName, input } = call
+    const outcome =
+      (live.sandbox === null ? null : sandboxOutcome(task, live.sandbox, toolName, input)) ??
+      ruleOutcome(live, taskId, toolName, input)
+    if (outcome !== null) mark(taskId, toolUseId, outcome)
+  }
+
+  /** What the sandbox's grants decide of a file tool's or `WebFetch`'s call; null when they decide nothing of it. */
+  const sandboxOutcome = (
+    task: Task,
+    sandbox: LiveSandbox,
+    toolName: string,
+    input: ToolInput,
+  ): PermissionMarkOutcome | null => {
+    const { bounds } = sandbox
+    const crossing = sandboxCrossing({ toolName, input }, bounds)
+    const named = fileToolPath({ toolName, input }, bounds)
+    if (crossing === SandboxCrossing.Credential && named !== null) {
+      return { kind: PermissionMarkKind.Blocked, ask: { kind: SandboxAskKind.Folder, ...named } }
+    }
+    if (crossing !== SandboxCrossing.None) return null
+    if (toolName === 'WebFetch') {
+      const host = fetchedHost(input)
+      const granting = host === null ? null : grantingGrant(db, task, { kind: SandboxGrantKind.Domain, domain: host })
+      if (host === null || granting === null) return null
+      const ask: SandboxGrantAsk = {
+        kind: SandboxAskKind.Domain,
+        domain: host,
+        command: null,
+        commandDescription: null,
+      }
+      return { kind: PermissionMarkKind.Grant, scope: granting.scope, ask }
+    }
+    if (named === null) return null
+    const { path, access } = named
+    const granting = grantingGrant(db, task, { kind: SandboxGrantKind.Folder, path, access })
+    if (granting?.grant.kind !== SandboxGrantKind.Folder) return null
+    const ask: SandboxFolderAsk = { kind: SandboxAskKind.Folder, path: granting.grant.path, access }
+    return { kind: PermissionMarkKind.Grant, scope: granting.scope, ask }
+  }
+
+  /** The task rule that lets a call through in the ask mode, as its mark; null in Allow all, and when none covers it. */
+  const ruleOutcome = (
+    live: LiveSession,
+    taskId: string,
+    toolName: string,
+    input: ToolInput,
+  ): PermissionMarkOutcome | null => {
+    if (live.settings.permissionMode !== PermissionMode.AskBeforeEdits) return null
+    const covering = listTaskPermissionRules(db, taskId).find(({ rule }) => ruleCovers(rule, toolName, input))
+    return covering === undefined ? null : { kind: PermissionMarkKind.TaskRule, rule: covering.rule }
   }
 
   /**
@@ -2586,7 +2681,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    */
   const onBashFinished = (taskId: string, live: LiveSession, call: BashCallFinished): void => {
     const { sandbox } = live
-    if (sandbox === null || live.closed || !call.failed) return
+    if (sandbox === null || live.closed) return
+    // A command the sandbox blocked says so, whether or not it went on to fail: which path, it doesn't reliably say.
+    const unsandboxed = isSandboxOverride(getToolCall(db, taskId, call.toolUseId)?.input ?? {})
+    if (!unsandboxed && BLOCKED_BY_SANDBOX.test(call.output)) {
+      mark(taskId, call.toolUseId, { kind: PermissionMarkKind.Blocked, ask: null })
+    }
+    if (!call.failed) return
     const reason = sandboxFailureReason(call.output)
     if (reason === null) return
     const failure = call.output.trim()
@@ -3027,17 +3128,34 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const caller = accessCaller(live, request, call.toolUseId)
       const plan = accessPlan(request, sandbox.bounds)
       taskLog(taskId).info('access requested', { ...caller, access: request.access, plan: plan.kind })
+      const access = request.access === FileAccess.Read ? FolderAccess.Read : FolderAccess.ReadWrite
+      /** What the call asked for, as the path it named: for a mark on a call that opened no card. */
+      const named: SandboxFolderAsk = {
+        kind: SandboxAskKind.Folder,
+        path: absolutePath(request.path, sandbox.bounds.root, sandbox.bounds.home),
+        access,
+      }
+      // The command the sandbox blocked just before is the one this asks about: its mark now says what of.
+      const blocked = latestUnnamedBlock(db, taskId)
+      if (blocked !== undefined) {
+        const ask = plan.kind === AccessPlanKind.Ask ? plan.ask : named
+        mark(taskId, blocked.toolUseId, { kind: PermissionMarkKind.Blocked, ask })
+      }
       switch (plan.kind) {
         case AccessPlanKind.InWorkspace:
           return { kind: AccessOutcomeKind.InWorkspace }
         case AccessPlanKind.Credential:
+          mark(taskId, caller.toolUseId, { kind: PermissionMarkKind.Blocked, ask: named })
           return { kind: AccessOutcomeKind.Credential }
         case AccessPlanKind.NotGrantable:
           return { kind: AccessOutcomeKind.NotGrantable, problem: plan.problem }
         case AccessPlanKind.AlreadyAllowed: {
-          const { path, access } = plan
-          const scope = grantingScope(db, task, { kind: SandboxGrantKind.Folder, path, access })
-          return { kind: AccessOutcomeKind.AlreadyAllowed, scope }
+          const granting = grantingGrant(db, task, { kind: SandboxGrantKind.Folder, path: plan.path, access })
+          if (granting?.grant.kind === SandboxGrantKind.Folder) {
+            const ask: SandboxFolderAsk = { ...named, path: granting.grant.path }
+            mark(taskId, caller.toolUseId, { kind: PermissionMarkKind.Grant, scope: granting.scope, ask })
+          }
+          return { kind: AccessOutcomeKind.AlreadyAllowed, scope: granting?.scope ?? null }
         }
         case AccessPlanKind.Ask:
           break

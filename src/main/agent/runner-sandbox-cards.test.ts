@@ -7,9 +7,10 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createBridge } from '../../preload/bridge'
-import { BridgeErrorCode, CommandName, type GladeBridge } from '../../shared/bridge'
+import { BridgeErrorCode, CommandName, EventType, type GladeBridge } from '../../shared/bridge'
 import {
   PermissionDecisionKind,
+  PermissionMarkKind,
   PermissionMode,
   PermissionRequestState,
   TaskActivity,
@@ -17,6 +18,8 @@ import {
   ToolEventKind,
   UiStateKey,
   type PermissionDecision,
+  type PermissionMark,
+  type PermissionMarkOutcome,
   type PermissionRequest,
   type Task,
   type ToolCallEvent,
@@ -33,6 +36,7 @@ import {
 import { REQUEST_ACCESS_TOOL } from '../../shared/toolName'
 import { registerBridge } from '../bridge'
 import { fakeIpcPair } from '../bridge/fake-ipc'
+import { listPermissionMarks } from '../db/repositories/permission-marks'
 import { listPermissionRequests } from '../db/repositories/permission-requests'
 import { listSandboxGrants } from '../db/repositories/sandbox-grants'
 import { updateSettings } from '../db/repositories/settings'
@@ -1287,5 +1291,241 @@ describe('request_access', () => {
     await requestAccess(resumed, 'toolu_again', writing(CACHE))
     await settle()
     expect(toolCall('toolu_again').output).toContain('is already granted for this task')
+  })
+})
+
+describe('what a rule decided', () => {
+  const SHARED = `${HOME}/code/acme-shared`
+  const TOOLS = `${HOME}/code/tools`
+
+  function marks(taskId = task.id): [string, PermissionMarkOutcome][] {
+    return listPermissionMarks(database.db, taskId).map(({ toolUseId, outcome }) => [toolUseId, outcome])
+  }
+
+  /** A tool call that Claude Code runs without asking: its `tool_use` alone. */
+  async function runs(session: FakeAgentSession, toolUseId: string, name: string, input: Record<string, unknown>) {
+    session.emit(sdk.toolUse(toolUseId, name, input))
+    await settle()
+  }
+
+  /** A sandboxed command that has run: its `tool_use`, then the hook that hears its result. */
+  async function command(session: FakeAgentSession, toolUseId: string, output: string, failed = true, input = {}) {
+    session.emit(sdk.toolUse(toolUseId, 'Bash', { command: 'uv sync --frozen', ...input }))
+    await settle()
+    await session.finishBash({ toolUseId, command: 'uv sync --frozen', output, failed }).answer
+    session.emit(sdk.toolResult(toolUseId, output, failed))
+    await settle()
+  }
+
+  const folder = (path: string, access: FolderAccess) => ({ kind: SandboxAskKind.Folder, path, access }) as const
+  const grant = (target: SandboxGrantTarget, granted: Grant) =>
+    grantSandboxAccess({ db: database.db, runner }, { target, grant: granted })
+
+  it('marks a file tool or WebFetch that a grant lets through, by the narrowest scope that grants it', async () => {
+    await grant(
+      { scope: SandboxGrantScope.Workspace, workspaceId: workspace.id },
+      {
+        kind: SandboxGrantKind.Folder,
+        path: SHARED,
+        access: FolderAccess.Read,
+      },
+    )
+    await grant(
+      { scope: SandboxGrantScope.Glade },
+      { kind: SandboxGrantKind.Folder, path: TOOLS, access: FolderAccess.ReadWrite },
+    )
+    await grant({ scope: SandboxGrantScope.Glade }, { kind: SandboxGrantKind.Domain, domain: '*.acme.dev' })
+    await grant(
+      { scope: SandboxGrantScope.Task, taskId: task.id },
+      { kind: SandboxGrantKind.Folder, path: WEB, access: FolderAccess.Read },
+    )
+    const session = await startTurn()
+    const seen: PermissionMark[] = []
+    glade.subscribe((event) => {
+      if (event.type === EventType.PermissionMarked) seen.push(event.mark)
+    })
+
+    await runs(session, 'toolu_shared', 'Read', { file_path: `${SHARED}/openapi/common.yaml` })
+    await runs(session, 'toolu_tools', 'Write', { file_path: `${TOOLS}/bin/gen`, content: 'x' })
+    await runs(session, 'toolu_web', 'Read', { file_path: `${WEB}/package.json` })
+    await runs(session, 'toolu_fetch', 'WebFetch', { url: 'https://docs.acme.dev/x' })
+
+    expect(marks()).toEqual([
+      [
+        'toolu_shared',
+        { kind: PermissionMarkKind.Grant, scope: SandboxGrantScope.Workspace, ask: folder(SHARED, FolderAccess.Read) },
+      ],
+      [
+        'toolu_tools',
+        { kind: PermissionMarkKind.Grant, scope: SandboxGrantScope.Glade, ask: folder(TOOLS, FolderAccess.ReadWrite) },
+      ],
+      [
+        'toolu_web',
+        { kind: PermissionMarkKind.Grant, scope: SandboxGrantScope.Task, ask: folder(WEB, FolderAccess.Read) },
+      ],
+      [
+        'toolu_fetch',
+        {
+          kind: PermissionMarkKind.Grant,
+          scope: SandboxGrantScope.Glade,
+          ask: { kind: SandboxAskKind.Domain, domain: 'docs.acme.dev', command: null, commandDescription: null },
+        },
+      ],
+    ])
+    // Each call's mark went to the windows by itself, once.
+    expect(seen.map(({ toolUseId }) => toolUseId)).toEqual(['toolu_shared', 'toolu_tools', 'toolu_web', 'toolu_fetch'])
+    // And comes back with the task's history.
+    const history = await glade.invoke(CommandName.TasksHistory, { id: task.id })
+    expect(history.permissionMarks.map(({ toolUseId }) => toolUseId)).toEqual(seen.map(({ toolUseId }) => toolUseId))
+  })
+
+  it('marks nothing for a call in the workspace root, outside every folder the sandbox denies, or that will ask', async () => {
+    const session = await startTurn()
+
+    await runs(session, 'toolu_mine', 'Edit', { file_path: `${ROOT}/src/date.ts`, old_string: 'a', new_string: 'b' })
+    await runs(session, 'toolu_hosts', 'Read', { file_path: '/etc/hosts' })
+    await runs(session, 'toolu_outside', 'Read', { file_path: `${WEB}/package.json` })
+    await runs(session, 'toolu_search', 'WebSearch', { query: 'backoff' })
+    await runs(session, 'toolu_fetch', 'WebFetch', { url: 'https://docs.acme.dev/x' })
+    await runs(session, 'toolu_nourl', 'WebFetch', {})
+    await runs(session, 'toolu_bash', 'Bash', { command: 'npm test' })
+
+    expect(marks()).toEqual([])
+  })
+
+  it('marks a credential path the sandbox refuses, whatever is granted', async () => {
+    await grant(
+      { scope: SandboxGrantScope.Task, taskId: task.id },
+      { kind: SandboxGrantKind.Folder, path: HOME, access: FolderAccess.ReadWrite },
+    )
+    const session = await startTurn()
+
+    const asked = await callTool(session, {
+      toolUseId: 'toolu_key',
+      toolName: 'Read',
+      input: { file_path: '~/.ssh/id_ed25519' },
+    })
+
+    await expect(asked.answer).resolves.toMatchObject({ behavior: ToolPermissionBehavior.Deny, byUser: false })
+    expect(marks()).toEqual([
+      ['toolu_key', { kind: PermissionMarkKind.Blocked, ask: folder(`${HOME}/.ssh/id_ed25519`, FolderAccess.Read) }],
+    ])
+  })
+
+  it('marks a call a task rule covers in the ask mode, and none in Allow all', async () => {
+    const lint = { toolName: 'Bash', ruleContent: 'npm run lint *' }
+    addTaskPermissionRule(database.db, { taskId: task.id, rule: lint })
+    addTaskPermissionRule(database.db, { taskId: task.id, rule: { toolName: 'Edit' } })
+    const session = await startTurn()
+    await runs(session, 'toolu_allow_all', 'Bash', { command: 'npm run lint' })
+    expect(marks()).toEqual([])
+
+    await setMode(PermissionMode.AskBeforeEdits)
+    await runs(session, 'toolu_lint', 'Bash', { command: 'npm run lint -- --fix' })
+    await runs(session, 'toolu_edit', 'Edit', { file_path: `${ROOT}/a.ts`, old_string: 'a', new_string: 'b' })
+    await runs(session, 'toolu_test', 'Bash', { command: 'npm test' })
+    await runs(session, 'toolu_both', 'Bash', { command: 'npm run lint && rm -rf dist' })
+
+    expect(marks()).toEqual([
+      ['toolu_lint', { kind: PermissionMarkKind.TaskRule, rule: lint }],
+      ['toolu_edit', { kind: PermissionMarkKind.TaskRule, rule: { toolName: 'Edit' } }],
+    ])
+  })
+
+  it('marks a task rule’s call with the sandbox off, too', async () => {
+    updateSettings(database.db, { sandboxEnabled: false })
+    await setMode(PermissionMode.AskBeforeEdits)
+    addTaskPermissionRule(database.db, { taskId: task.id, rule: { toolName: 'Bash', ruleContent: 'npm test' } })
+    const session = await startTurn()
+
+    await runs(session, 'toolu_test', 'Bash', { command: 'npm test' })
+    await runs(session, 'toolu_read', 'Read', { file_path: `${WEB}/package.json` })
+
+    expect(marks().map(([toolUseId]) => toolUseId)).toEqual(['toolu_test'])
+  })
+
+  it('marks a sandboxed command whose result says the sandbox blocked it, failed or not, in any case', async () => {
+    const session = await startTurn()
+
+    await command(session, 'toolu_cat', 'Exit code 1\ncat: /x/secret.txt: Operation not permitted')
+    await command(session, 'toolu_redirect', 'Exit code 1\n(eval):1: operation not permitted: /x/new.txt')
+    await command(session, 'toolu_carried_on', 'cat: /x/a: Operation not permitted\ndone', false)
+    await command(session, 'toolu_other', 'Exit code 1\nnpm error missing script: build')
+    await command(session, 'toolu_fine', 'ok', false)
+    // A command you let run outside the sandbox wasn't blocked by it, whatever it prints.
+    await command(session, 'toolu_out', 'kill: (1): Operation not permitted', true, { dangerouslyDisableSandbox: true })
+
+    const blocked = { kind: PermissionMarkKind.Blocked, ask: null }
+    expect(marks()).toEqual([
+      ['toolu_cat', blocked],
+      ['toolu_redirect', blocked],
+      ['toolu_carried_on', blocked],
+    ])
+  })
+
+  it('names what the blocked command was blocked from once the agent’s request_access says, on the latest unnamed one', async () => {
+    const session = await startTurn()
+    await command(session, 'toolu_first', 'Exit code 1\ncat: /x: Operation not permitted')
+    await command(session, 'toolu_uv', 'Exit code 1\nerror: Operation not permitted (os error 1)')
+
+    void session
+      .callTool('toolu_access', REQUEST_ACCESS_TOOL, {
+        path: `${HOME}/code/cache`,
+        access: 'write',
+        reason: 'uv needs its cache.',
+      })
+      .catch(() => undefined)
+    await settle()
+
+    expect(marks()).toEqual([
+      ['toolu_first', { kind: PermissionMarkKind.Blocked, ask: null }],
+      ['toolu_uv', { kind: PermissionMarkKind.Blocked, ask: folder(`${HOME}/code/cache`, FolderAccess.ReadWrite) }],
+    ])
+    // The request itself is a card's: its row shows your answer, not a mark.
+    expect(only('toolu_access').state).toBe(PermissionRequestState.Open)
+  })
+
+  it('marks a request_access answered without a card: by the grant that covers it, or refused for a credential path', async () => {
+    await grant(
+      { scope: SandboxGrantScope.Workspace, workspaceId: workspace.id },
+      {
+        kind: SandboxGrantKind.Folder,
+        path: SHARED,
+        access: FolderAccess.Read,
+      },
+    )
+    const session = await startTurn()
+    await command(session, 'toolu_cat', 'Exit code 1\ncat: Operation not permitted')
+    const access = (toolUseId: string, path: string, kind = 'read') =>
+      session.callTool(toolUseId, REQUEST_ACCESS_TOOL, { path, access: kind, reason: 'Needed.' })
+
+    await access('toolu_granted', `${SHARED}/notes.md`)
+    await access('toolu_key', '~/.ssh/id_ed25519')
+    await access('toolu_root', `${ROOT}/out.txt`, 'write')
+    await access('toolu_etc', '/etc/hosts')
+    await access('toolu_glob', `${HOME}/code/*`)
+    await settle()
+
+    expect(marks()).toEqual([
+      // The blocked command is named by the first request after it, as the path that request named.
+      ['toolu_cat', { kind: PermissionMarkKind.Blocked, ask: folder(`${SHARED}/notes.md`, FolderAccess.Read) }],
+      [
+        'toolu_granted',
+        { kind: PermissionMarkKind.Grant, scope: SandboxGrantScope.Workspace, ask: folder(SHARED, FolderAccess.Read) },
+      ],
+      ['toolu_key', { kind: PermissionMarkKind.Blocked, ask: folder(`${HOME}/.ssh/id_ed25519`, FolderAccess.Read) }],
+    ])
+  })
+
+  it('keeps its marks across a relaunch', async () => {
+    const session = await startTurn()
+    await command(session, 'toolu_cat', 'Exit code 1\ncat: Operation not permitted')
+
+    relaunch()
+
+    const history = await glade.invoke(CommandName.TasksHistory, { id: task.id })
+    expect(history.permissionMarks).toMatchObject([
+      { toolUseId: 'toolu_cat', outcome: { kind: PermissionMarkKind.Blocked, ask: null } },
+    ])
   })
 })

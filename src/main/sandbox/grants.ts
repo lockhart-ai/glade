@@ -257,8 +257,23 @@ export async function grantSandboxAccess(
   return { change, sessions: await runner.applySandboxGrants(grant.target, options) }
 }
 
+/** A grant that gives a task what it uses, and whose it is. */
+export interface GrantingGrant {
+  readonly scope: SandboxGrantScope
+  /** The grant as its scope keeps it: the folder granted, which may hold the path asked about, or the domain. */
+  readonly grant: Grant
+}
+
 /** The scope whose grant gives a task a folder with at least an access, or a domain: the narrowest that does. */
 export function grantingScope(db: Database, task: GrantedTask, grant: Grant): SandboxGrantScope | null {
+  return grantingGrant(db, task, grant)?.scope ?? null
+}
+
+/**
+ * The grant that gives a task a folder (or a path inside it) with at least an access, or a host's domain: the narrowest
+ * scope's that does, the task's own before its workspace's before a Glade-wide one. Null when none does.
+ */
+export function grantingGrant(db: Database, task: GrantedTask, grant: Grant): GrantingGrant | null {
   const targets: readonly SandboxGrantTarget[] = [
     { scope: SandboxGrantScope.Task, taskId: task.id },
     { scope: SandboxGrantScope.Workspace, workspaceId: task.workspaceId },
@@ -276,8 +291,11 @@ export function grantingScope(db: Database, task: GrantedTask, grant: Grant): Sa
         return held.kind === SandboxGrantKind.Domain && hostMatches(grant.domain, held.domain)
     }
   }
-  const found = targets.find((target) => listSandboxGrants(db, target).some(({ grant: held }) => gives(held)))
-  return found?.scope ?? null
+  for (const target of targets) {
+    const held = listSandboxGrants(db, target).find(({ grant: one }) => gives(one))
+    if (held !== undefined) return { scope: target.scope, grant: held.grant }
+  }
+  return null
 }
 
 /**

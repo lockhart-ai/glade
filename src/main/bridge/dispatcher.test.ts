@@ -77,6 +77,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
       queuedMessages: [],
       questionSets: [],
       permissionRequests: [],
+      permissionMarks: [],
       openFiles: { taskId: 't', paths: [], activePath: null },
       todos: null,
       artifacts: [],

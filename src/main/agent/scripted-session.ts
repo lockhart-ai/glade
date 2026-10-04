@@ -77,6 +77,7 @@ import {
 } from './backend'
 import { CONTROL_SERVER } from '../control/names'
 import { GLADE_SERVER, GladeTool } from './glade-tools'
+import { ruleCovers } from '../../shared/permissions'
 import { createMcpToolCaller, type McpToolCaller, type McpToolOutcome } from './mcp-tool-caller'
 import { runShell } from './scripted-shell'
 import {
@@ -131,9 +132,6 @@ import {
   WakeCause,
 } from './scripts'
 
-/** What makes a command more than one: Claude Code splits these apart, and asks about the parts a rule doesn't cover. */
-const COMPOUND = /&&|\|\||[;|&\n`]|\$\(/
-
 /**
  * Whether a permission rule lets a call through, as Claude Code decides it, closely enough for scripts: a rule without
  * content covers every call to its tool; a `Bash` rule's content covers the command itself, or, ending in ` *` or `:*`,
@@ -141,14 +139,7 @@ const COMPOUND = /&&|\|\||[;|&\n`]|\$\(/
  * Claude Code would ask about its parts, and the scripts don't split it.
  */
 export function scriptedRuleCovers(rule: PermissionRule, toolName: string, input: ToolInput): boolean {
-  if (rule.toolName !== toolName) return false
-  const content = rule.ruleContent ?? ''
-  if (content === '') return true
-  const command = input.command
-  if (toolName !== 'Bash' || typeof command !== 'string' || COMPOUND.test(command)) return false
-  const prefix = /^(.*?)(?: \*|:\*)$/.exec(content)?.[1]
-  if (prefix === undefined) return command === content
-  return command === prefix || command.startsWith(`${prefix} `)
+  return ruleCovers(rule, toolName, input)
 }
 
 /** Picks the script a session plays from the first message sent to it. Throws when it has none for that message. */

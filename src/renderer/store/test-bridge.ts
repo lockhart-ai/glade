@@ -53,6 +53,7 @@ import {
   type InputDraft,
   type Message,
   type OpenFiles,
+  type PermissionMark,
   type PermissionRequest,
   type QuestionSet,
   type QueuedMessage,
@@ -108,6 +109,7 @@ export interface FakeMain {
    * one that isn't open, as main does.
    */
   readonly permissionRequests?: PermissionRequest[]
+  readonly permissionMarks?: PermissionMark[]
   /** Every task's open files; none when left out. `files.open` and `files.close` change them. */
   readonly openFiles?: OpenFiles[]
   /**
@@ -443,6 +445,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       queuedMessages: queueOf(id),
       questionSets: (main.questionSets ?? []).filter((set) => set.taskId === id),
       permissionRequests: (main.permissionRequests ?? []).filter((request) => request.taskId === id),
+      permissionMarks: (main.permissionMarks ?? []).filter((mark) => mark.taskId === id),
       openFiles: openFilesOf(id),
       todos: main.todos?.[id] ?? null,
       artifacts: artifacts.filter((artifact) => artifact.taskId === id),

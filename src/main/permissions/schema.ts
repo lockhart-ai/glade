@@ -8,13 +8,15 @@ import { z } from 'zod'
 import {
   PermissionDecisionKind,
   PermissionDestination,
+  PermissionMarkKind,
   PermissionRuleBehavior,
   PermissionUpdateType,
   type PermissionDecision,
+  type PermissionMarkOutcome,
   type PermissionRule,
   type PermissionSuggestion,
 } from '../../shared/domain'
-import { FolderAccess, SandboxAskKind, type SandboxAsk } from '../../shared/sandbox'
+import { FolderAccess, SandboxAskKind, SandboxGrantScope, type SandboxAsk } from '../../shared/sandbox'
 
 /** A permission rule: a tool, and optionally what of it. */
 export const permissionRuleSchema = z.object({
@@ -54,6 +56,31 @@ export const sandboxAskSchema = z.discriminatedUnion('kind', [
   }),
   z.object({ kind: z.literal(SandboxAskKind.Outside) }),
 ]) satisfies z.ZodType<SandboxAsk>
+
+const folderAskSchema = z.object({
+  kind: z.literal(SandboxAskKind.Folder),
+  path: z.string(),
+  access: z.enum(FolderAccess),
+})
+
+/** What a rule decided of a tool call, as stored with its mark (`PermissionMarkOutcome`). */
+export const permissionMarkOutcomeSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal(PermissionMarkKind.Grant),
+    scope: z.enum(SandboxGrantScope),
+    ask: z.discriminatedUnion('kind', [
+      folderAskSchema,
+      z.object({
+        kind: z.literal(SandboxAskKind.Domain),
+        domain: z.string(),
+        command: z.string().nullable(),
+        commandDescription: z.string().nullable(),
+      }),
+    ]),
+  }),
+  z.object({ kind: z.literal(PermissionMarkKind.TaskRule), rule: permissionRuleSchema }),
+  z.object({ kind: z.literal(PermissionMarkKind.Blocked), ask: folderAskSchema.nullable() }),
+]) satisfies z.ZodType<PermissionMarkOutcome>
 
 /**
  * How you answer a permission request: Allow once, Allow for this task, Allow for this workspace, or Deny with an

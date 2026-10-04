@@ -8,7 +8,7 @@
  */
 import type { AttachedFile } from './attachedFiles'
 import type { ImageData, ImageRef } from './images'
-import type { CardGrantScope, SandboxAsk } from './sandbox'
+import type { CardGrantScope, SandboxAsk, SandboxFolderAsk, SandboxGrantAsk, SandboxGrantScope } from './sandbox'
 
 /** Epoch milliseconds (UTC). */
 export type EpochMs = number
@@ -882,6 +882,45 @@ export interface DenyDecision {
 }
 
 export type PermissionDecision = AllowOnceDecision | AllowForTaskDecision | AllowForWorkspaceDecision | DenyDecision
+
+/** What a rule decided of a tool call, with nobody asked. */
+export enum PermissionMarkKind {
+  /** A sandbox grant let it through: a folder or domain granted to the task, its workspace or Glade-wide. */
+  Grant = 'grant',
+  /** A rule an earlier Allow for this task made let it through. */
+  TaskRule = 'task_rule',
+  /** The sandbox refused it, or something of it: a command it blocked, or a credential path. */
+  Blocked = 'blocked',
+}
+
+/** What a rule decided of a tool call: who let it through and what for, or that the sandbox blocked it. */
+export type PermissionMarkOutcome =
+  | {
+      readonly kind: PermissionMarkKind.Grant
+      /** Whose grant it is. */
+      readonly scope: SandboxGrantScope
+      /** What the call did with the grant: read or write its folder, or reach its domain. */
+      readonly ask: SandboxGrantAsk
+    }
+  | { readonly kind: PermissionMarkKind.TaskRule; readonly rule: PermissionRule }
+  | {
+      readonly kind: PermissionMarkKind.Blocked
+      /** What it was blocked from; null when Glade can't tell (a command's result doesn't say). */
+      readonly ask: SandboxFolderAsk | null
+    }
+
+/**
+ * A tool call that a rule decided, not you (#450, `docs/design/README.md`, the shield): its row in the Tool calls list
+ * says so, "Allowed by workspace grant: read ~/code/acme-shared" or "Blocked by the sandbox: write to ~/.cache/uv". One
+ * per call, by its `tool_use` id.
+ */
+export interface PermissionMark {
+  readonly taskId: string
+  readonly toolUseId: string
+  readonly outcome: PermissionMarkOutcome
+  /** When the call was first marked. */
+  readonly createdAt: EpochMs
+}
 
 /**
  * A permission rule granted with Allow for this task: it lets the task's agent make the calls it covers without asking,

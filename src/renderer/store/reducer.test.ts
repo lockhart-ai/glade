@@ -6,7 +6,9 @@ import {
   ArtifactFilter,
   ArtifactKind,
   DividerKind,
+  PermissionMarkKind,
   PermissionRequestState,
+  type PermissionMark,
   QuestionReplyKind,
   QuestionSetState,
   TodoState,
@@ -23,6 +25,7 @@ import {
   type Watcher,
 } from '../../shared/domain'
 import { noOpenFiles } from '../../shared/files'
+import { FolderAccess, SandboxAskKind, type SandboxFolderAsk } from '../../shared/sandbox'
 import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
 import {
   applyEvent,
@@ -268,6 +271,7 @@ describe("a task's logs", () => {
       queuedMessages: [],
       questionSets: [],
       permissionRequests: [],
+      permissionMarks: [],
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
@@ -291,6 +295,7 @@ describe("a task's logs", () => {
       queuedMessages: [],
       questionSets: [],
       permissionRequests: [],
+      permissionMarks: [],
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
@@ -324,6 +329,7 @@ describe("a task's logs", () => {
       queuedMessages: [],
       questionSets: [],
       permissionRequests: [],
+      permissionMarks: [],
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
@@ -343,6 +349,7 @@ describe("a task's logs", () => {
         queuedMessages: [],
         questionSets: [],
         permissionRequests: [],
+        permissionMarks: [],
         openFiles: noOpenFiles('t2'),
         todos: null,
         artifacts: [],
@@ -373,6 +380,7 @@ describe("a task's queue", () => {
       queuedMessages: [second],
       questionSets: [],
       permissionRequests: [],
+      permissionMarks: [],
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
@@ -416,6 +424,7 @@ describe("a task's questions", () => {
       toolEvents: [],
       queuedMessages: [],
       permissionRequests: [],
+      permissionMarks: [],
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
@@ -473,10 +482,54 @@ describe("a task's permission requests", () => {
       commits: [],
     }
     // A request opened while the history loaded stays, after the loaded ones.
-    const loaded = withHistory(asked, 't1', { ...empty, permissionRequests: [denied] })
+    const loaded = withHistory(asked, 't1', { ...empty, permissionRequests: [denied], permissionMarks: [] })
     expect(loaded.permissionRequests.t1?.map(({ id, state: closedState }) => [id, closedState])).toEqual([
       ['p1', PermissionRequestState.Denied],
       ['p2', PermissionRequestState.Open],
+    ])
+  })
+})
+
+describe("a task's permission marks", () => {
+  const mark = (toolUseId: string, ask: SandboxFolderAsk | null = null, createdAt = 1): PermissionMark => ({
+    taskId: 't1',
+    toolUseId,
+    outcome: { kind: PermissionMarkKind.Blocked, ask },
+    createdAt,
+  })
+  const UV: SandboxFolderAsk = {
+    kind: SandboxAskKind.Folder,
+    path: '/Users/me/.cache/uv',
+    access: FolderAccess.ReadWrite,
+  }
+
+  it('adds a call’s mark, replaces it in place when it changes, and keeps a newer one over a history load', () => {
+    const marked = [mark('a'), mark('b'), mark('a', UV)].reduce(
+      (data, one) => applyEvent(data, { type: EventType.PermissionMarked, mark: one }),
+      state,
+    )
+    expect(marked.permissionMarks.t1).toEqual([mark('a', UV), mark('b')])
+
+    const history = {
+      messages: [],
+      toolEvents: [],
+      queuedMessages: [],
+      questionSets: [],
+      permissionRequests: [],
+      openFiles: noOpenFiles('t1'),
+      todos: null,
+      artifacts: [],
+      artifactGroups: [],
+      artifactFilter: ArtifactFilter.All,
+      handoff: null,
+      watchers: [],
+      commits: [],
+    }
+    // The load read `a` before it was named, and a call the window hadn't heard of; `b` came after the load was read.
+    const loaded = withHistory(marked, 't1', { ...history, permissionMarks: [mark('earlier'), mark('a')] })
+    expect(loaded.permissionMarks.t1).toEqual([mark('earlier'), mark('a', UV), mark('b')])
+    expect(withHistory(state, 't1', { ...history, permissionMarks: [mark('a')] }).permissionMarks.t1).toEqual([
+      mark('a'),
     ])
   })
 })
@@ -494,6 +547,7 @@ describe("a task's open files", () => {
       queuedMessages: [],
       questionSets: [],
       permissionRequests: [],
+      permissionMarks: [],
       todos: null,
       artifacts: [],
       artifactGroups: [],
@@ -539,6 +593,7 @@ describe("a task's artifacts", () => {
     queuedMessages: [],
     questionSets: [],
     permissionRequests: [],
+    permissionMarks: [],
     openFiles: noOpenFiles('t1'),
     todos: null,
     artifacts,
@@ -627,6 +682,7 @@ describe("a task's watchers", () => {
     queuedMessages: [],
     questionSets: [],
     permissionRequests: [],
+    permissionMarks: [],
     openFiles: noOpenFiles('t1'),
     todos: null,
     artifacts: [],
@@ -692,6 +748,7 @@ describe("every task's running subagents", () => {
       queuedMessages: [],
       questionSets: [],
       permissionRequests: [],
+      permissionMarks: [],
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
@@ -732,6 +789,7 @@ describe("a task's commits", () => {
     queuedMessages: [],
     questionSets: [],
     permissionRequests: [],
+    permissionMarks: [],
     openFiles: noOpenFiles('t1'),
     todos: null,
     artifacts: [],
@@ -765,6 +823,7 @@ describe("a task's handoff note", () => {
     queuedMessages: [],
     questionSets: [],
     permissionRequests: [],
+    permissionMarks: [],
     openFiles: noOpenFiles('t1'),
     todos: null,
     artifacts: [],
@@ -805,6 +864,7 @@ describe("a task's todo list", () => {
     queuedMessages: [],
     questionSets: [],
     permissionRequests: [],
+    permissionMarks: [],
     openFiles: noOpenFiles('t1'),
     todos,
     artifacts: [],

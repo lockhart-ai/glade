@@ -3,6 +3,7 @@ import {
   PermissionRequestState,
   QuestionSetState,
   type Message,
+  type PermissionMark,
   type PermissionRequest,
   type QuestionSet,
   type QueuedMessage,
@@ -74,6 +75,11 @@ export function emitPermissionRequest(emit: Emit, permissionRequest: PermissionR
       emit({ type: EventType.PermissionWithdrawn, permissionRequest })
       return
   }
+}
+
+/** Tells every window what a rule decided of one tool call: that call's mark alone. */
+export function emitPermissionMarked(emit: Emit, mark: PermissionMark): void {
+  emit({ type: EventType.PermissionMarked, mark })
 }
 
 /** Tells every window a task's message queue changed, with the whole queue as it now is. */
