@@ -3,6 +3,10 @@
 // the real wiring: a session starts with the tools, prompt and hooks it had, scripted agents that make every kind of
 // child (todos, files, links, subagents, watchers) never touch the hub's tables or send its event, and its commands
 // answer nothing. Each later issue of the phase keeps this passing.
+//
+// P16-04 (#495) files children as they're made: with the setting off, `add_artifact` takes no todo, the prompt has
+// none of its lines, no hook reads a marker, asks the agent to file anything or holds the end of a turn, and Claude
+// Code's task tools are left to the user's settings.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,17 +16,20 @@ import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createBridge } from '../../preload/bridge'
 import { CommandName, EventType, type GladeEvent } from '../../shared/bridge'
-import { ArtifactKind, ToolEventKind, type Task } from '../../shared/domain'
+import { ArtifactKind, MessageRole, ToolEventKind, type Task, type ToolCallEvent } from '../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { isSubagentTool } from '../../shared/subagents'
 import { FakeAgentBackend, settle } from '../agent/fake-backend'
 import { createGladeMcpServer, GLADE_SERVER } from '../agent/glade-tools'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
-import { AGENT_SCRIPTS, type AgentScriptName } from '../agent/scripts'
+import { AGENT_SCRIPTS, FILES_CHILDREN, type AgentScriptName } from '../agent/scripts'
+import { sdkOptions } from '../agent/sdk-backend'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from '../agent/test-mode-backend'
 import { registerBridge } from '../bridge'
 import { fakeIpcPair } from '../bridge/fake-ipc'
 import { listArtifacts } from '../db/repositories/artifacts'
+import { listMessages } from '../db/repositories/messages'
+import { getSessionContext } from '../db/repositories/session-context'
 import { getSettings } from '../db/repositories/settings'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
@@ -64,7 +71,10 @@ const HUB_PROMPT = /file_children|under one of your todos|\[todo \d+\]|Glade fil
 /** Every event main sent before the phase. */
 const EVENTS_BEFORE: readonly EventType[] = Object.values(EventType).filter((type) => type !== EventType.FilingsChanged)
 
-const HUB_TABLES = /child_ids|child_filings|todo_panels/
+const HUB_TABLES = /child_ids|child_filings|todo_panels|owed_filings/
+
+/** The SDK hooks Glade registered before the phase, for a task as it starts. */
+const SDK_HOOKS_BEFORE = ['PreToolUse', 'UserPromptSubmit', 'Stop', 'PostCompact']
 
 function watch(database_: Database): void {
   const prepare = database_.prepare.bind(database_)
@@ -125,7 +135,7 @@ function expectUntouched(): void {
   expect(events.length).toBeGreaterThan(0)
   // Looked at only now, the statements having been checked.
   const rows = `SELECT (SELECT COUNT(*) FROM child_ids) + (SELECT COUNT(*) FROM child_filings)
-    + (SELECT COUNT(*) FROM todo_panels)`
+    + (SELECT COUNT(*) FROM todo_panels) + (SELECT COUNT(*) FROM owed_filings)`
   expect(db.prepare(rows).pluck().get()).toBe(0)
 }
 
@@ -164,11 +174,60 @@ describe('with the todo hub off, as it starts', () => {
     await server.instance.connect(serverSide)
     const client = new Client({ name: 'test', version: '1.0.0' })
     await client.connect(clientSide)
-    expect((await client.listTools()).tools.map(({ name }) => name)).toEqual(TOOLS_BEFORE)
+    const { tools } = await client.listTools()
+    expect(tools.map(({ name }) => name)).toEqual(TOOLS_BEFORE)
+    // `add_artifact` takes what it took: no todo, and its description says nothing of one.
+    const addArtifact = tools.find(({ name }) => name === 'add_artifact')
+    expect(Object.keys(addArtifact?.inputSchema.properties ?? {})).toEqual(['path', 'url', 'title'])
+    expect(addArtifact?.description).not.toMatch(/todo/i)
     await client.close()
 
     expect(Object.keys(options.hooks ?? {}).sort()).toEqual(HOOKS_BEFORE)
     expect(options.systemPromptAppend).not.toMatch(HUB_PROMPT)
+    // Nothing ahead of its message either, and its session isn't recorded as told of the hub.
+    expect(agents.session.sent.map(({ text }) => text)).toEqual(['Move the image uploads to S3.'])
+    expect(getSessionContext(db, task.id)?.todoHub).toBe(false)
+    // What the SDK is given is what it was: no hook that reads a call, hears of a message's calls or holds a turn,
+    // and Claude Code's task tools left to the user's own settings.
+    expect(options.keepTaskTools).toBeUndefined()
+    const sdk = sdkOptions(options, {})
+    expect(Object.keys(sdk.hooks ?? {})).toEqual(SDK_HOOKS_BEFORE)
+    expect(sdk.hooks?.PreToolUse?.map(({ matcher }) => matcher)).toEqual([undefined, 'Bash'])
+    expect(sdk.settings).toEqual({ deniedMcpServers: [{ serverName: 'glade-control' }] })
+    expectUntouched()
+  })
+
+  it('reads no marker, asks the agent to file nothing and holds no turn, for an agent that names todos and one that names none', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'glade-todo-hub-inert-'))
+    folders.push(root)
+    task = sampleTask(db, sampleWorkspace(db, root).id)
+    // Real timers: its commits are real commands, which fake timers would race with.
+    const agent = start('files-children')
+    agent.send(task.id, FILES_CHILDREN.prompt)
+    await backend.whenIdle()
+    agent.send(task.id, 'And the order totals.')
+    await backend.whenIdle()
+
+    const calls = listToolEvents(db, task.id).filter(
+      (event): event is ToolCallEvent => event.kind === ToolEventKind.ToolCall,
+    )
+    // Each call ran, and is logged, as the model wrote it: nothing took its marker off.
+    const marked = calls.filter(({ input }) =>
+      Object.values(input).some((value) => /^\[todo \d\] /.test(String(value))),
+    )
+    expect(marked.map(({ name }) => name)).toEqual(['Agent', 'Bash'])
+    // The second turn named no todo, and nothing asked: the agent made no filing call, and each turn ended on its
+    // one reply.
+    expect(calls.map(({ name }) => name)).not.toContain('mcp__glade__file_children')
+    const replies = listMessages(db, task.id).filter(({ role }) => role === MessageRole.Agent)
+    expect(replies.map(({ body }) => body)).toEqual([FILES_CHILDREN.named.reply, FILES_CHILDREN.unnamed.reply])
+    // No reply was written twice: none of the agent's own text went to the tool log as a held turn's would.
+    const narrated = listToolEvents(db, task.id).flatMap((event) =>
+      event.kind === ToolEventKind.Narration && event.parentToolUseId === null ? [event.text] : [],
+    )
+    expect(narrated).toEqual([])
+    // Its artifacts were declared with no todo taken.
+    expect(listArtifacts(db, task.id)).toHaveLength(2)
     expectUntouched()
   })
 

@@ -244,6 +244,20 @@
  * Marking costs a call nothing it didn't already pay: the path is resolved once, by the classifier, and the task's
  * rules and grants are kept on the session between changes to them.
  *
+ * **Filing under todos** (P16-04, #495; `../todo-hub/filing`, `docs/sdk-notes.md` §16). With the hidden `todoHubEnabled`
+ * setting on as a session starts, it has the todo hub for its whole life: its prompt says so (a resumed session is
+ * sent the lines once, `./session-context`), Claude Code's task tools stay on whatever the user's settings say, and
+ * three hooks file what the agent produces. Each `Agent` call, and each `Bash` call of its own in the foreground (it
+ * may commit), is read as it streams and again before it runs (`childStarting`): `[todo N]` at the start of its
+ * description names its todo, the subagent is recorded as working on it or the commits are filed under it, and the
+ * marker comes off the call's row in the tool log and off the input the tool runs with, so it shows nowhere. A
+ * watcher's call (`Monitor`, background `Bash`, `ScheduleWakeup`, `CronCreate`) is left exactly as it is. Once a message's calls have run (`batchFinished`), the agent is told of what they
+ * made that's under no todo, with their results, and files it with one `file_children` call. And a turn about to end
+ * with a filing owed is held (`turnEnding`), twice at most; the reply it had written goes to the tool log as
+ * narration, since the agent writes it again (if it doesn't, that reply is the turn's after all). A turn you stopped,
+ * and a compaction, are never held. A subagent is never asked to file anything: what it commits follows its todo,
+ * and so does a subagent it starts, unless that call names another. With the setting off, a session has none of this.
+ *
  * **Resume on launch.** A turn the app quit or crashed in is left working in the database: a turn's user messages and
  * its working activity are saved together, so none is left unanswered. On launch, `resumeInterrupted` carries each
  * one on: it resumes the task's SDK session by its saved id (`docs/sdk-notes.md` §8), adds a resumed divider to the
@@ -402,7 +416,7 @@ import { getWorkspace } from '../db/repositories/workspaces'
 import { noteReportedServers } from '../db/repositories/reported-mcp-servers'
 import { createWatcherTracker, StopAction } from '../watchers/watchers'
 import { createChangeTracker, type ChangeTracker } from '../changes/tracker'
-import { createGit } from '../git/git'
+import { createGit, type Git } from '../git/git'
 import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import type { NotifyReply } from '../notifications/notifications'
 import { PermissionVerdict } from '../permissions/classify'
@@ -457,13 +471,17 @@ import {
   type AgentSessionSettings,
   type BashCallFinished,
   type BashFinishedAnswer,
+  type ChildCallStarting,
   type CompactSummary,
   type SessionJob,
+  type ToolBatch,
   type ToolCallStarting,
+  type TurnEnding,
   type ToolPermissionAnswer,
   type ToolPermissionCall,
   type ToolStartDecision,
 } from './backend'
+import { namedTodo, readsTodo } from './child-calls'
 import { createExcludedCommands, type ExcludedCommands } from './excluded-commands'
 import { gatedSession } from './gated-session'
 import { FileAccess, SANDBOX_NETWORK_TOOL } from './sandbox-requests'
@@ -504,6 +522,7 @@ import {
   type ContextCheck,
 } from './session-context'
 import { summarizeTurn } from './turn-summary'
+import { createChildFiler } from '../todo-hub/filing'
 
 export interface AgentRunnerOptions {
   readonly db: Database
@@ -540,6 +559,12 @@ export interface AgentRunnerOptions {
    * `git` on the PATH by default.
    */
   readonly changes?: ChangeTracker
+  /**
+   * How the change tracker the runner makes reads git, when it's given none (`changes`): the `git` on the PATH by
+   * default. The runner's own tracker is the one that says when a call's commits are linked, which the todo hub files
+   * them by.
+   */
+  readonly git?: Git
   /**
    * Told what each session says of the account (`../account/account`): the account, asked for as the session starts;
    * its usage, asked for as the session starts and after each turn; and every `rate_limit_event`. Nothing is asked or
@@ -751,6 +776,14 @@ interface Turn {
   apiError: ApiErrorEvent | null
   /** The id of the running Compact row, until the SDK reports how the compaction went; null otherwise. */
   compaction: string | null
+  /** Whether the turn is a compaction you asked for (`compact`), not a turn of the agent's: its end is never held. */
+  compactOnly: boolean
+  /**
+   * The reply the agent had written when the turn's end was last held for filings owed (#495), which went to the tool
+   * log: the turn's reply after all, if the agent writes none once it has filed. Null while the turn was never held
+   * with a reply written.
+   */
+  heldReply: string | null
   /**
    * The turn's own rows a refusal-fallback retry may still supersede, by the SDK message uuid that made each: the
    * turn's narration and tool call rows logged so far (`./events.ts`, `TextEvent.sdkUuid`).
@@ -841,6 +874,11 @@ interface LiveSession {
   readonly reported: Map<string, string>
   /** Whether the session has the `glade-control` tools, which its system prompt says. */
   readonly control: boolean
+  /**
+   * Whether the session has the todo hub (#495): it started with `todoHubEnabled` on, so it has the hub's tools, its
+   * prompt's lines (or is owed them) and the hooks that file what it makes, for its whole life.
+   */
+  readonly todoHub: boolean
   /** The permission requests the session's calls wait on, by id: whether each is a background subagent's. */
   readonly requests: Map<string, boolean>
   /**
@@ -1317,6 +1355,8 @@ function newTurn(number: number): Turn {
     retrying: null,
     apiError: null,
     compaction: null,
+    compactOnly: false,
+    heldReply: null,
     sdkRows: new Map(),
     refusal: null,
     sandboxFailure: null,
@@ -1349,7 +1389,19 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const permissions = options.permissions ?? createPermissionBroker(context, notifyReply)
   const sessions = new Map<string, LiveSession>()
   const watchers = createWatcherTracker({ db, emit })
-  const changes = options.changes ?? createChangeTracker({ db, emit, git: createGit(), log })
+  // Files what the agents' own calls make under their todos: only a session with the todo hub on ever asks it to.
+  const filer = createChildFiler({ db, emit })
+  const changes =
+    options.changes ??
+    createChangeTracker({
+      db,
+      emit,
+      git: options.git ?? createGit(),
+      log,
+      onCommitsLinked: (taskId, toolUseId) => {
+        filer.commitsLinked(taskId, toolUseId)
+      },
+    })
   // Resumes a paused turn when its pause is due.
   const timers = createPauseTimers((taskId) => {
     onPauseDue(taskId)
@@ -1540,9 +1592,22 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     emitToolEventAppended(emit, appendNarration(db, { taskId, turn: turn.number, text: text.trim(), parentToolUseId }))
   }
 
-  const onToolCall = (taskId: string, turn: Turn, event: ToolCallStartedEvent): void => {
+  /**
+   * A call's input as the tool log keeps it. In a session with the todo hub, a call that names its todo (an `Agent`
+   * call, or the agent's own `Bash` call in the foreground) is read there and then, before its row is written, so a
+   * subagent's todo is recorded before the subagent shows, and is logged without the marker, as the tool runs without
+   * it (`childStarting`): the marker shows nowhere. Any other call, a watcher's included, is logged as it was written.
+   */
+  const loggedInput = (taskId: string, live: LiveSession, event: ToolCallStartedEvent): ToolInput => {
+    const { toolUseId, name: toolName, input, parentToolUseId } = event
+    if (!live.todoHub) return input
+    return filer.callStarting(taskId, { toolName, input, toolUseId, subagent: parentToolUseId !== null }) ?? input
+  }
+
+  const onToolCall = (taskId: string, live: LiveSession, turn: Turn, event: ToolCallStartedEvent): void => {
     flushPreamble(taskId, turn)
-    const { toolUseId, name, input, parentToolUseId, sdkUuid } = event
+    const { toolUseId, name, parentToolUseId, sdkUuid } = event
+    const input = loggedInput(taskId, live, event)
     const call = appendToolCall(db, { taskId, turn: turn.number, name, input, toolUseId, parentToolUseId })
     emitToolEventAppended(emit, call)
     turn.running.set(toolUseId, parentToolUseId)
@@ -1858,7 +1923,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       .map((part) => part.text)
       .join('\n\n')
       .trim()
-    const reply = held === '' ? event.result.trim() : held
+    // A turn held at its end for filings owed, whose agent wrote no reply again: the one it had written stands.
+    const reply = held === '' ? event.result.trim() || (turn.heldReply ?? '') : held
     if (reply !== '') {
       const turnEvents = listToolEvents(db, taskId).filter((toolEvent) => toolEvent.turn === turn.number)
       const finishedAt = Date.now()
@@ -2137,7 +2203,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         if (text !== '') emitToolEventAppended(emit, appendNarration(db, { taskId, turn, text, parentToolUseId }))
         return true
       }
-      const { toolUseId, name, input } = event
+      const { toolUseId, name } = event
+      const input = loggedInput(taskId, live, event)
       emitToolEventAppended(emit, appendToolCall(db, { taskId, turn, name, input, toolUseId, parentToolUseId }))
       live.backgroundCalls.set(toolUseId, owner)
       return true
@@ -2396,7 +2463,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         return
       case AgentEventKind.ToolCallStarted:
         recovered(taskId, turn)
-        onToolCall(taskId, turn, event)
+        onToolCall(taskId, live, turn, event)
         markRuled(taskId, live, event)
         return
       case AgentEventKind.ToolResult:
@@ -2937,12 +3004,93 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
   }
 
+  /**
+   * Lets the session's messages streamed before a hook was called be handled first: the hook's answer reads what they
+   * wrote (the todo list, the tool log, the watchers). The SDK hands a hook its call after the messages before it, and
+   * every one of those is handled before a macrotask runs.
+   */
+  const caughtUp = (): Promise<void> =>
+    new Promise((resolve) => {
+      setImmediate(resolve)
+    })
+
+  /**
+   * A call a todo is read off is about to run, in a session with the todo hub (see the module comment): an `Agent`
+   * call, or the agent's own `Bash` call in the foreground. What it makes is filed under the todo it names, and it runs
+   * without the marker.
+   */
+  const childStarting = async (
+    taskId: string,
+    live: LiveSession,
+    { toolName, input, toolUseId, agentId }: ChildCallStarting,
+  ): Promise<ToolInput | null> => {
+    if (live.closed) return null
+    // A todo made by an earlier call of the same message is in the task's list once that call's result has been
+    // handled, which may be after this call streamed.
+    if (namedTodo(toolName, input) !== null) await caughtUp()
+    return filer.callStarting(taskId, { toolName, input, toolUseId, subagent: agentId !== null })
+  }
+
+  /**
+   * The calls of one of the agent's own messages have run, in a session with the todo hub: the subagents and commits
+   * they made that are under no todo are what the agent is told to file, with their results. A `Bash` call's commits
+   * are waited for first. A watcher's call is passed over: nothing is said of it.
+   */
+  const batchFinished = async (taskId: string, live: LiveSession, batch: ToolBatch): Promise<string | null> => {
+    const calls = batch.calls.filter(({ toolName, input }) => readsTodo({ toolName, input, subagent: false }))
+    // A function, so the check isn't narrowed away: the session can close during either wait.
+    const isClosed = (): boolean => live.closed
+    if (isClosed() || calls.length === 0) return null
+    await caughtUp()
+    const cwd = rootOf(taskId)
+    await Promise.all(
+      calls.flatMap(({ toolName, toolUseId, input: { command }, output }) =>
+        toolName === BASH_TOOL && typeof command === 'string'
+          ? [changes.bashFinished(taskId, { toolUseId, command, output, cwd })]
+          : [],
+      ),
+    )
+    if (isClosed()) return null
+    const asked = filer.batchFinished(
+      taskId,
+      calls.map(({ toolUseId }) => toolUseId),
+    )
+    if (asked !== null) taskLog(taskId).info('asked the agent to file what it made', { calls: calls.length })
+    return asked
+  }
+
+  /**
+   * The agent is about to end its turn, in a session with the todo hub: with a filing owed, the end is held, and the
+   * reply it had written goes to the tool log, since it writes its reply again once it has filed; it's kept too, for
+   * a turn whose agent files and writes nothing more. A turn you stopped ends, and so does a compaction, which is no
+   * turn of the agent's.
+   */
+  const turnEnding = async (taskId: string, live: LiveSession, ending: TurnEnding): Promise<string | null> => {
+    await caughtUp()
+    const { turn } = live
+    if (live.closed || turn === null || turn.stopping || turn.compactOnly) return null
+    const reason = filer.turnEnding(taskId, ending.held)
+    if (reason === null) return null
+    taskLog(taskId).info('turn end held: filings owed', { turn: turn.number, heldBefore: ending.held })
+    const written = turn.pending
+      .map((part) => part.text)
+      .join('\n\n')
+      .trim()
+    if (written !== '') turn.heldReply = written
+    flushPreamble(taskId, turn)
+    return reason
+  }
+
   const start = (task: Task): LiveSession => {
     const workspace = getWorkspace(db, task.workspaceId)
     if (workspace === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${task.workspaceId}`)
     const settings = getSettings(db)
     // The sandbox, when on, is the session's for its whole life: a change to the setting applies from its next start.
     const sandboxed = settings.sandboxEnabled
+    // So is the todo hub: its tools, its prompt's lines and its hooks are the session's from start to end.
+    const todoHub = settings.todoHubEnabled
+    // Whatever calls the task's last session was running went with it.
+    filer.sessionEnded(task.id)
     const taskRules = listTaskPermissionRules(db, task.id).map(({ rule }) => rule)
     // A sandboxed session isn't told of a rule for a whole tool the sandbox bounds: Claude Code would take it for every
     // folder. Glade decides those calls itself (`toolCallVerdict`).
@@ -2954,6 +3102,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       permissionMode: task.permissionMode,
       allowedRules: allowedRules.length,
       sandboxed,
+      todoHub,
       cwd: workspace.rootPath,
       resumeSessionId: task.sessionId,
     })
@@ -2962,7 +3111,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const handoff = getHandoff(db, task.id) ?? null
     // A session Glade starts has everything its prompt says; one it resumes keeps the prompt it started with, and is
     // sent what it's missing with its next message (`startTurn`).
-    if (task.sessionId === null) setSessionContext(db, task.id, startedContext(handoff, sandboxed))
+    if (task.sessionId === null) setSessionContext(db, task.id, startedContext(handoff, sandboxed, todoHub))
     // The session's calls are decided against the live session, which exists once the backend has started it.
     let decide: (call: ToolPermissionCall) => Promise<ToolPermissionAnswer> = () => Promise.resolve(WITHDRAWN)
     let verdict: (prompt: string) => PromptVerdict = () => PromptVerdict.Allow
@@ -2972,6 +3121,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     let accessRequested: (call: AccessCallStarting) => void = () => undefined
     // A call that starts before the session is live is refused: there's nothing yet to decide it against.
     let starting: (call: ToolCallStarting) => Promise<ToolStartDecision | null> = () => Promise.resolve(WITHDRAWN)
+    // A hook that fires before the session is live leaves its call, or its turn's end, as it is.
+    let childCall: (call: ChildCallStarting) => Promise<ToolInput | null> = () => Promise.resolve(null)
+    let batchDone: (batch: ToolBatch) => Promise<string | null> = () => Promise.resolve(null)
+    let ending: (ending: TurnEnding) => Promise<string | null> = () => Promise.resolve(null)
     // Settled once a sandboxed session has its overlay, or wouldn't take it.
     let overlaid: (taken: boolean) => void = () => undefined
     const overlay = new Promise<boolean>((resolve) => {
@@ -2988,6 +3141,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       env: sessionEnv(task),
       allowedRules,
       ...(sandboxed ? { flagSettings: sandboxStartSettings(workspace.rootPath, home, denied) } : {}),
+      // Nothing can be filed under a todo without an id: the session keeps the tools that give todos one.
+      ...(todoHub ? { keepTaskTools: true } : {}),
       log: agentLog(task.id),
       onToolPermission: (call) => decide(call),
       hooks: {
@@ -3011,6 +3166,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
               // And each call to a tool the sandbox bounds is checked against the bounds before it runs, whatever
               // rule of Claude Code's would let it through.
               onToolStarting: (call: ToolCallStarting) => starting(call),
+            }
+          : {}),
+        // With the todo hub, what the agent's own calls make is filed under its todos as it's made.
+        ...(todoHub
+          ? {
+              onChildStarting: (call: ChildCallStarting) => childCall(call),
+              onBatchFinished: (batch: ToolBatch) => batchDone(batch),
+              onTurnEnding: (turnEnd: TurnEnding) => ending(turnEnd),
             }
           : {}),
       },
@@ -3047,6 +3210,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       inProcess,
       reported: new Map(),
       control,
+      todoHub,
       requests: new Map(),
       accessCalls: [],
       sdkModel: null,
@@ -3081,6 +3245,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       live.accessCalls.splice(0, Math.max(0, live.accessCalls.length - MAX_HANDED))
     }
     starting = (call) => toolStarting(task.id, live, call)
+    childCall = (call) => childStarting(task.id, live, call)
+    batchDone = (batch) => batchFinished(task.id, live, batch)
+    ending = (turnEnd) => turnEnding(task.id, live, turnEnd)
     sessions.set(task.id, live)
     // The session's messages wait on its overlay, and are never sent if it won't take it.
     if (sandboxed) void applySandbox(task.id, live).then(overlaid)
@@ -3338,9 +3505,19 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         recorded: getSessionContext(db, taskId),
         startedElsewhere: task.importedAt !== null,
         handoff,
-        prompt: systemPromptAppend(task, getSettings(db), live.control, handoff, live.sandbox !== null),
+        // The prompt for the session as it runs: the todo hub is the session's as it started, whatever the setting
+        // says now.
+        prompt: systemPromptAppend(
+          task,
+          { ...getSettings(db), todoHubEnabled: live.todoHub },
+          live.control,
+          handoff,
+          live.sandbox !== null,
+        ),
         // A session that started before the sandbox was on, and resumed in it, is told of it once (#452).
         sandboxed: live.sandbox !== null,
+        // And one that started with the todo hub off, and resumed with it on, of the hub (#495).
+        todoHub: live.todoHub,
       }
       const missing = messages.length === 0 ? [] : missingContext(check)
       if (missing.length > 0) setSessionContext(db, taskId, contextAfter(check, missing))
@@ -3868,6 +4045,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       setActivity(taskId, TaskActivity.Working)
       live.turn = newTurn(turn)
       live.turn.compaction = compaction.id
+      live.turn.compactOnly = true
       const uuid = randomUUID()
       live.turn.awaiting.add(uuid)
       give(live, COMPACT_COMMAND, uuid)
@@ -3927,6 +4105,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       questions.withdraw(taskId)
       permissions.withdrawAll(taskId)
       timers.disarm(taskId)
+      filer.sessionEnded(taskId)
       const live = sessions.get(taskId)
       if (live === undefined) return
       agentLog(taskId).info('session closed', { reason: 'task deleted', turn: live.turn?.number ?? null })

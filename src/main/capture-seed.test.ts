@@ -1311,6 +1311,8 @@ describe('applySeed', () => {
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: null,
       sandbox: true,
+      // Nor the todo hub's lines, when a capture runs with the hub on.
+      todoHub: true,
     })
   })
 

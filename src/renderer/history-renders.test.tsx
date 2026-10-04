@@ -861,6 +861,41 @@ describe('the todo hub, with 100 todos and 50 children under one (P16, #497)', (
     expect(rendered()).toEqual({ cards: 2, tiles: 1 })
   })
 
+  it('renders only the tiles whose outline changed as the Files tab shows another file, and none for a tile’s menu (#498)', async () => {
+    const { fake } = await renderHub()
+    const paths = FILES.map(({ path }) => path)
+
+    // The Files tab shows one of the todo's files: its tile alone takes the outline.
+    act(() => {
+      fake.emit({ type: EventType.OpenFilesChanged, openFiles: { taskId: 't1', paths, activePath: paths[0] ?? null } })
+    })
+    expect(rendered()).toEqual({ cards: 0, tiles: 1 })
+    expect(document.querySelectorAll('[role="group"][aria-current]')).toHaveLength(1)
+
+    // Then another: the tile that lost the outline, and the one that took it.
+    act(() => {
+      fake.emit({ type: EventType.OpenFilesChanged, openFiles: { taskId: 't1', paths, activePath: paths[1] ?? null } })
+    })
+    expect(rendered()).toEqual({ cards: 0, tiles: 2 })
+
+    // A file that's no child of the todo: only the tile that lost the outline.
+    act(() => {
+      fake.emit({ type: EventType.OpenFilesChanged, openFiles: { taskId: 't1', paths, activePath: 'README.md' } })
+    })
+    expect(rendered()).toEqual({ cards: 0, tiles: 1 })
+
+    // A tile's context menu opens, and closes: the list keeps the one menu, and only the tile it's for renders, to
+    // keep its buttons showing while the menu is open, and to let them go again.
+    fireEvent.contextMenu(screen.getByRole('group', { name: 'File: Part 3' }))
+    await act(() => Promise.resolve())
+    const menu = screen.getByRole('menu', { name: 'Artifact actions' })
+    expect(rendered()).toEqual({ cards: 0, tiles: 1 })
+    fireEvent.keyDown(menu, { key: 'Escape' })
+    await act(() => Promise.resolve())
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(rendered()).toEqual({ cards: 0, tiles: 1 })
+  })
+
   describe('the links a todo’s text names (#500)', () => {
     const PR_511 = hubLink('https://github.com/acme/api/pull/511', 'Return Retry-After on 429s', 1)
     /** The todos, with the third's status line naming PR #511. */

@@ -52,6 +52,16 @@
  *   started with (`flagSettings`) merged with what `applyFlagSettings` set last. A `Bash` call's result first goes
  *   through the session's `Bash` hook (`hooks.onBashFinished`), which the turn waits on. A step that can't be played as
  *   written kills the session with a `MalformedStepError` naming it.
+ * - With the todo hub's hooks (a session that started with it on, `docs/sdk-notes.md` §16), the session asks them as
+ *   Claude Code does. A call a todo is read off (`readsTodo` in `./child-calls`: an `Agent` call, or the agent's own
+ *   `Bash` call in the foreground) is streamed as the model wrote it, then put to the `PreToolUse` hook
+ *   (`hooks.onChildStarting`), and the tool runs with the input the hook hands back: what the session says of the call
+ *   afterwards (its subagent's description) has no marker. A watcher's call is put to no hook, and runs as written.
+ *   Once the agent's own calls of one message all have their results, the `PostToolBatch` hook hears of them
+ *   (`hooks.onBatchFinished`), and each time the turn is about to end, the `Stop` hook may hold it
+ *   (`hooks.onTurnEnding`): the agent then takes another step and writes its reply again, however often it's held.
+ *   What the agent does with what either hook tells it is the script's `filing`: it files what it's told of with one
+ *   `file_children` call, or doesn't. A subagent's calls are told to neither of those two.
  * - A `Fail` step kills the session: its message stream throws, and it plays nothing more.
  * - The script can be picked by the session's first message (a `ScriptChooser`), so different tasks can play different
  *   scripts. A chooser that has none for it kills the session as a `Fail` step would.
@@ -61,6 +71,7 @@ import { randomUUID } from 'node:crypto'
 import { isAbsolute, resolve } from 'node:path'
 import { autoCompactThreshold, contextWindowFor } from '../../shared/contextWindow'
 import { CompactionTrigger, PermissionMode, type PermissionRule, type ToolInput } from '../../shared/domain'
+import { FILE_CHILDREN_TOOL } from '../../shared/toolName'
 import { AsyncQueue } from './async-queue'
 import {
   PromptVerdict,
@@ -69,6 +80,7 @@ import {
   type AgentSessionOptions,
   type AgentSessionSettings,
   type BashFinishedAnswer,
+  type BatchCall,
   type McpServerOrigin,
   type SandboxFlagSettings,
   type SandboxSettings,
@@ -78,6 +90,7 @@ import {
 } from './backend'
 import { BOUNDED_TOOLS, isOutsideTool } from '../permissions/sandbox-classify'
 import { CONTROL_SERVER } from '../control/names'
+import { ChildTool, readsTodo } from './child-calls'
 import { GLADE_SERVER, GladeTool } from './glade-tools'
 import { ruleCovers } from '../../shared/permissions'
 import { createMcpToolCaller, type McpToolCaller, type McpToolOutcome } from './mcp-tool-caller'
@@ -327,6 +340,15 @@ export const LAUNCHED_OUTPUT =
   'Async agent launched successfully. The agent is working in the background. You will be notified automatically ' +
   'when it completes.'
 
+/**
+ * How many times a scripted turn lets its `Stop` hook hold its end before the session dies, saying so. Claude Code has
+ * no such limit (`docs/sdk-notes.md` §16): this only stops a host that never lets go from hanging a test for good.
+ */
+export const MAX_SCRIPTED_HOLDS = 10
+
+/** A child as Glade names it to the agent, on a line of its own: `- c3: subagent "Review the date helpers"`. */
+const NAMED_CHILD = /^- (c\d+): \w+ "(.*)"$/gm
+
 /** The tools that start a subagent: `Agent` in `tool_use` (the init tools list calls it `Task`). */
 const SUBAGENT_TOOLS: ReadonlySet<string> = new Set(['Agent', 'Task'])
 
@@ -371,6 +393,11 @@ interface TurnState {
   readonly uuids: string[]
   /** The script turns of messages folded into the turn that it hasn't started playing yet. */
   readonly folded: ScriptTurn[]
+  /**
+   * The agent's own calls of the message being played that have their results, until every one has and the session's
+   * `PostToolBatch` hook is told of them. Kept only in a session with that hook.
+   */
+  readonly batch: BatchCall[]
 }
 
 /** A tool call waiting on its result. */
@@ -469,6 +496,7 @@ function newTurnState(key: string, uuid: string | null, notified = uuid === null
     idle: false,
     uuids: uuid === null ? [] : [uuid],
     folded: [],
+    batch: [],
   }
   return turn
 }
@@ -518,6 +546,8 @@ export class ScriptedSession implements AgentSession {
   private scheduled = 0
   /** How many foreground `Bash` calls the session has run as tasks: what numbers theirs. */
   private foregroundCommands = 0
+  /** How many `file_children` calls the agent has made when told to file: what numbers their ids. */
+  private filed = 0
   /** The script the session plays: picked on its first message. */
   private script: AgentScript | null = null
   private turn: TurnState | null = null
@@ -734,6 +764,7 @@ export class ScriptedSession implements AgentSession {
         if (step === undefined) break
         left = rest
         await this.step(turn, step, uuid)
+        if (this.options.session.hooks?.onBatchFinished !== undefined) await this.batchEnded(turn, uuid)
       }
       if (wasInterrupted() && isLive()) this.abort(turn)
     } catch (error) {
@@ -768,7 +799,9 @@ export class ScriptedSession implements AgentSession {
         if (step.parent === undefined) turn.lastText = step.text
         return
       case ScriptStepKind.ToolUse:
-        this.toolUse(turn, step.id, step.name, step.input, step.parent ?? null, uuid)
+        if (this.asksTodo(step.name, step.input, step.parent ?? null)) {
+          await this.called(turn, step.id, step.name, step.input, step.parent ?? null, uuid)
+        } else this.toolUse(turn, step.id, step.name, step.input, step.parent ?? null, uuid)
         return
       case ScriptStepKind.ToolResult:
         this.toolResult(turn, step.id, step.output, step.isError ?? false, step.details)
@@ -780,10 +813,10 @@ export class ScriptedSession implements AgentSession {
         return
       }
       case ScriptStepKind.Result:
-        // The session's `Stop` hook runs as the turn ends, before its `result`.
-        this.options.session.hooks?.onTurnEnded(
-          this.jobs.map(({ id, schedule, recurring, prompt }) => ({ id, schedule, recurring, prompt })),
-        )
+        // The session's `Stop` hook runs as the turn ends, before its `result`, and may hold the end.
+        if (this.options.session.hooks?.onTurnEnding === undefined) this.turnEnded()
+        else await this.ending(turn, uuid)
+        if (turn.isInterrupted) return
         this.costUsd += TURN_COST_USD
         this.result(turn, turn.uuids, {
           subtype: 'success',
@@ -826,9 +859,12 @@ export class ScriptedSession implements AgentSession {
         this.endWatch(watch, step.outcome ?? 'completed', step.summary)
         return
       }
-      case ScriptStepKind.Background:
-        this.background(turn, step, uuid)
+      case ScriptStepKind.Background: {
+        const launched = this.background(turn, step, uuid)
+        // Only a session whose hook reads the call waits on it: any other has launched it by now.
+        if (this.options.session.hooks?.onChildStarting !== undefined) await launched
         return
+      }
       case ScriptStepKind.MessageSubagent:
         await this.messageSubagent(turn, step, uuid)
         return
@@ -1027,14 +1063,20 @@ export class ScriptedSession implements AgentSession {
    * "launched" result now, then the subagent plays on its own. It keeps the session busy, like a `Wake`, until it ends
    * and the turn it starts, if any, has played.
    */
-  private background(turn: TurnState, step: BackgroundStep, uuid: string | null): void {
+  private async background(turn: TurnState, step: BackgroundStep, uuid: string | null): Promise<void> {
     this.backgrounds += 1
     const taskId = step.agentId ?? `a${this.idPrefix}${String(this.backgrounds)}`
-    const input: ToolInput = { ...step.input, run_in_background: true }
+    const written: ToolInput = { ...step.input, run_in_background: true }
     if (step.agentId !== undefined) this.pinned.set(step.id, pinnedCallId(step.agentId))
     const agentId = this.sdkToolId(turn, step.id)
     this.subagentTasks.set(agentId, taskId)
-    this.assistant(turn, { type: 'tool_use', id: agentId, name: 'Agent', input }, null, uuid)
+    this.assistant(turn, { type: 'tool_use', id: agentId, name: 'Agent', input: written }, null, uuid)
+    // The subagent starts with the input the session's hook hands back, if it has one for the call.
+    const hook = this.options.session.hooks?.onChildStarting
+    const input =
+      hook === undefined
+        ? written
+        : ((await hook({ toolName: ChildTool.Agent, input: written, toolUseId: agentId, agentId: null })) ?? written)
     const description = typeof input.description === 'string' ? input.description : ''
     this.descriptions.set(taskId, description)
     this.push({
@@ -1060,6 +1102,7 @@ export class ScriptedSession implements AgentSession {
       tool_use_result: { isAsync: true, status: 'async_launched', agentId: taskId, description, prompt: input.prompt },
     })
     turn.afterResult = true
+    this.batched(turn, { toolName: ChildTool.Agent, input, toolUseId: agentId, output: LAUNCHED_OUTPUT })
     this.options.onWake?.()
     const subagent = newTurnState(turn.key, null)
     // Its messages are its own: numbered apart from the turn's, which carries on meanwhile.
@@ -1336,8 +1379,10 @@ export class ScriptedSession implements AgentSession {
    * its denial. An interrupt while it waits ends the turn as an interrupted one.
    */
   private async permission(turn: TurnState, step: PermissionStep, uuid: string | null): Promise<void> {
-    this.toolUse(turn, step.id, step.name, step.input, step.parent ?? null, uuid)
-    const answer = await this.permitted(turn, step, step.mcpServer ?? null)
+    // Claude Code asks about the input the tool would run with: the one a hook handed back, if one did.
+    const input = await this.called(turn, step.id, step.name, step.input, step.parent ?? null, uuid)
+    if (turn.isInterrupted) return
+    const answer = await this.permitted(turn, { ...step, input }, step.mcpServer ?? null)
     if (answer === null) return
     switch (answer.behavior) {
       case ToolPermissionBehavior.Allow:
@@ -1378,12 +1423,14 @@ export class ScriptedSession implements AgentSession {
    */
   private async shell(turn: TurnState, step: ShellStep, uuid: string | null): Promise<void> {
     const { command, description } = step
-    this.toolUse(turn, step.id, 'Bash', { command, description }, step.parent ?? null, uuid)
-    if (await this.refused(turn, step, { command, description })) return
+    // A function, so the checks aren't narrowed away: an interrupt can land during any await.
+    const wasInterrupted = (): boolean => turn.isInterrupted
+    await this.called(turn, step.id, 'Bash', { command, description }, step.parent ?? null, uuid)
+    if (wasInterrupted() || (await this.refused(turn, step, { command, description }))) return
     const cwd = resolve(this.options.session.cwd, step.cwd ?? '.')
     await this.options.session.hooks?.onBashStarting?.({ toolUseId: this.sdkToolId(turn, step.id), cwd, command })
     const { output, failed } = await runShell(command, cwd)
-    if (!turn.isInterrupted) this.toolResult(turn, step.id, output, failed)
+    if (!wasInterrupted()) this.toolResult(turn, step.id, output, failed)
   }
 
   /**
@@ -1873,8 +1920,127 @@ export class ScriptedSession implements AgentSession {
     const sdkParent = parent === null ? null : this.sdkToolId(turn, parent)
     turn.running.set(id, { sdkId, parent: sdkParent, name, input })
     this.assistant(turn, { type: 'tool_use', id: sdkId, name, input }, sdkParent, uuid)
+    this.startTasks(sdkId, name, input, sdkParent)
+  }
+
+  /** What the SDK starts for a call as its tool runs: a subagent's task, or a background command's. */
+  private startTasks(sdkId: string, name: string, input: ToolInput, sdkParent: string | null): void {
     if (SUBAGENT_TOOLS.has(name)) this.startForeground(sdkId, input)
     if (startsWatch(name, input)) this.startWatch(sdkId, input, sdkParent)
+  }
+
+  /**
+   * Whether a call is put to the session's `PreToolUse` hook for the calls a todo is read off (`readsTodo`), in a
+   * session that has the hook (`docs/sdk-notes.md` §16): an `Agent` call, the agent's own or a subagent's (`parent`),
+   * or the agent's own `Bash` call in the foreground. A watcher's call never is.
+   */
+  private asksTodo(name: string, input: ToolInput, parent: string | null): boolean {
+    const hooked = this.options.session.hooks?.onChildStarting !== undefined
+    return hooked && readsTodo({ toolName: name, input, subagent: parent !== null })
+  }
+
+  /**
+   * Makes a tool call, and answers the input its tool runs with. A call a todo is read off is streamed as the model
+   * wrote it, then put to the session's hook, and runs with the input the hook hands back: what the session says of
+   * the call from then on (its subagent's description) is that input's. Any other call runs as written.
+   */
+  private async called(
+    turn: TurnState,
+    id: string,
+    name: string,
+    input: ToolInput,
+    parent: string | null,
+    uuid: string | null,
+  ): Promise<ToolInput> {
+    const hook = this.options.session.hooks?.onChildStarting
+    if (hook === undefined || !this.asksTodo(name, input, parent)) {
+      this.toolUse(turn, id, name, input, parent, uuid)
+      return input
+    }
+    const sdkId = this.sdkToolId(turn, id)
+    const sdkParent = parent === null ? null : this.sdkToolId(turn, parent)
+    // A subagent's call names it, by a made-up id, as the SDK's hooks do.
+    const agentId = parent === null ? null : `a${this.idPrefix}${parent}`
+    turn.running.set(id, { sdkId, parent: sdkParent, name, input })
+    this.assistant(turn, { type: 'tool_use', id: sdkId, name, input }, sdkParent, uuid)
+    const ran = (await hook({ toolName: name, input, toolUseId: sdkId, agentId })) ?? input
+    // An interrupt while the hook decided: the call never ran, and the turn rejects it.
+    if (turn.isInterrupted) return ran
+    turn.running.set(id, { sdkId, parent: sdkParent, name, input: ran })
+    this.startTasks(sdkId, name, ran, sdkParent)
+    return ran
+  }
+
+  /** Keeps one of the agent's own calls that has its result, for the session's `PostToolBatch` hook, if it has one. */
+  private batched(turn: TurnState, call: BatchCall): void {
+    if (this.options.session.hooks?.onBatchFinished !== undefined) turn.batch.push(call)
+  }
+
+  /**
+   * The agent's own calls of the message being played all have their results: the session's `PostToolBatch` hook is
+   * told of them, as Claude Code tells it before the agent's next step (`docs/sdk-notes.md` §16), and the agent acts
+   * on what it answers (`fileAsked`). A call still running (a subagent the turn waits on) keeps the message open.
+   */
+  private async batchEnded(turn: TurnState, uuid: string | null): Promise<void> {
+    const hook = this.options.session.hooks?.onBatchFinished
+    const open = (): boolean => [...turn.running.values()].some(({ parent }) => parent === null)
+    // A function, so the checks aren't narrowed away: an interrupt can land while the hook answers.
+    const wasInterrupted = (): boolean => turn.isInterrupted
+    while (hook !== undefined && turn.batch.length > 0 && !open() && !wasInterrupted()) {
+      const told = await hook({ calls: turn.batch.splice(0) })
+      if (told !== null && !wasInterrupted()) await this.fileAsked(turn, told, uuid, false)
+    }
+  }
+
+  /** Tells the session's `Stop` hook the jobs the session has, as the SDK does each time a turn is about to end. */
+  private turnEnded(): void {
+    this.options.session.hooks?.onTurnEnded(
+      this.jobs.map(({ id, schedule, recurring, prompt }) => ({ id, schedule, recurring, prompt })),
+    )
+  }
+
+  /**
+   * The turn is about to end, in a session whose `Stop` hook may hold it (`docs/sdk-notes.md` §16): each time the hook
+   * says why it can't, the agent reads that, acts on it (`fileAsked`) and writes its reply again, then tries once more,
+   * for as long as the hook holds it. Past `MAX_SCRIPTED_HOLDS`, the session dies.
+   */
+  private async ending(turn: TurnState, uuid: string | null): Promise<void> {
+    // A function, so the checks aren't narrowed away: an interrupt can land during any await.
+    const wasInterrupted = (): boolean => turn.isInterrupted
+    for (let holds = 0; ; holds += 1) {
+      this.turnEnded()
+      const reason = (await this.options.session.hooks?.onTurnEnding?.({ held: holds > 0 })) ?? null
+      if (reason === null || wasInterrupted()) return
+      if (holds >= MAX_SCRIPTED_HOLDS) {
+        throw new Error(`The Stop hook held the end of a turn ${String(holds + 1)} times: it must let go.`)
+      }
+      await this.fileAsked(turn, reason, uuid, true)
+      await this.batchEnded(turn, uuid)
+      if (wasInterrupted()) return
+      this.assistant(turn, { type: 'text', text: turn.lastText }, null, uuid)
+    }
+  }
+
+  /**
+   * The agent was told of what it made that's under no todo: right after the calls that made it, or (`held`) as the end
+   * of its turn is held. As its script says (`AgentScript.filing`), it files what it was told of with one
+   * `file_children` call, through the tool's real handler: each child, by the short id Glade named it by, under the
+   * todo the script gives for its title. A script with no filing, or none for these children, leaves them: the agent
+   * ignores what it was told.
+   */
+  private async fileAsked(turn: TurnState, told: string, uuid: string | null, held: boolean): Promise<void> {
+    const filing = this.script?.filing
+    if (filing === undefined || (filing.onlyWhenHeld === true && !held)) return
+    const filings = [...told.matchAll(NAMED_CHILD)].flatMap(([, child = '', title = '']) => {
+      const todo = Object.entries(filing.todos).find(([text]) => title.includes(text))?.[1]
+      return todo === undefined ? [] : [{ child, todo }]
+    })
+    if (filings.length === 0) return
+    this.filed += 1
+    const id = `file-children-${String(this.filed)}`
+    this.toolUse(turn, id, FILE_CHILDREN_TOOL, { filings }, null, uuid)
+    const outcome = await this.tools.call(FILE_CHILDREN_TOOL, { filings })
+    this.toolResult(turn, id, outcome.output, outcome.isError)
   }
 
   /**
@@ -2087,6 +2253,9 @@ export class ScriptedSession implements AgentSession {
     const merged = made === undefined && details === undefined ? undefined : { ...made, ...details }
     this.pushToolResult(call?.sdkId ?? this.sdkToolId(turn, id), call?.parent ?? null, output, isError, merged)
     turn.afterResult = true
+    if (call?.parent === null) {
+      this.batched(turn, { toolName: call.name, input: call.input, toolUseId: call.sdkId, output })
+    }
   }
 
   private pushToolResult(

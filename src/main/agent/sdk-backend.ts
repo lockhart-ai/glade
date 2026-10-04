@@ -21,6 +21,7 @@ import { SILENT_LOGGER, type Logger } from '../logging/logger'
 import { BOUNDED_TOOLS, isOutsideTool, OUTSIDE_TOOLS } from '../permissions/sandbox-classify'
 import { permissionSuggestionSchema } from '../permissions/schema'
 import { AsyncQueue } from './async-queue'
+import { readsTodo, TODO_TOOLS } from './child-calls'
 import { ACCESS_TOOL_NAME, gladeOwnServers, GLADE_SERVER } from './glade-tools'
 import {
   PromptVerdict,
@@ -29,6 +30,7 @@ import {
   type AgentSession,
   type AgentSessionOptions,
   type AgentSessionSettings,
+  type BatchCall,
   type SandboxFlagSettings,
   type SandboxSettings,
   type SessionHooks,
@@ -131,6 +133,12 @@ function unpacked(path: string): string {
  * (`startup_failure_reason`), which the error card words, rather than only a failed process.
  */
 export const SESSION_ENV: Environment = { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1', CLAUDE_CODE_STARTUP_FAILURE_RESULTS: '1' }
+
+/**
+ * What keeps Claude Code's task tools on in a session's flag settings, whatever a settings file says (#495,
+ * `docs/sdk-notes.md` §16): `CLAUDE_CODE_ENABLE_TASKS` set false there gives the session `TodoWrite` instead.
+ */
+export const TASK_TOOLS_ENV: Environment = { CLAUDE_CODE_ENABLE_TASKS: 'true' }
 
 /** What names Glade to the API, in the User-Agent of each session's requests: `glade/0.13.0`. */
 export function clientAppEnv(version: string): Environment {
@@ -264,6 +272,12 @@ const promptHookInput = z.looseObject({ prompt: z.string() })
 const sessionJob = z.looseObject({ id: z.string(), schedule: z.string(), recurring: z.boolean(), prompt: z.string() })
 
 const stopHookInput = z.looseObject({ session_crons: z.array(z.unknown()).optional().catch(undefined) })
+
+/** What a `Stop` hook says of the turn's end, as far as holding it reads: whether it was held before, and whose it is. */
+const turnEndingInput = z.looseObject({
+  stop_hook_active: z.boolean().optional().catch(undefined),
+  agent_id: z.string().optional().catch(undefined),
+})
 
 const postCompactHookInput = z.looseObject({ trigger: z.enum(CompactionTrigger), compact_summary: z.string() })
 
@@ -453,6 +467,118 @@ export function sandboxToolGuard(
   }
 }
 
+/** The tools Glade reads a todo off, as a hook matcher (`TODO_TOOLS`): `Agent`, and `Bash`, which may commit. */
+export const CHILD_TOOLS = TODO_TOOLS.join('|')
+
+const childCallInput = z.looseObject({
+  tool_name: z.string(),
+  tool_use_id: z.string(),
+  tool_input: z.record(z.string(), z.unknown()),
+  agent_id: z.string().optional(),
+})
+
+/**
+ * The `PreToolUse` hook on `Agent` and `Bash` (`docs/sdk-notes.md` §16, #495): puts each call Glade reads a todo off
+ * (`readsTodo`) to the host (`SessionHooks.onChildStarting`), and hands the tool the input it answers with, the whole
+ * of it, in place of the model's (`updatedInput`): the call's marker for its todo taken off, so nothing the SDK says of
+ * the call afterwards carries it.
+ *
+ * It never decides the call: an `allow` from a hook skips the permission check, and the ask mode would run the call
+ * without asking. With no decision, Claude Code asks about the new input as it would have about the old.
+ *
+ * Every other call is left alone, at once: a `Bash` call in the background (a watcher isn't filed), and a subagent's
+ * `Bash` call (one with an `agent_id`: what a subagent commits follows its todo). So is anything this can't read, and
+ * a call the host fails on: the call runs as the model wrote it.
+ */
+export function childCallHook(
+  onChildStarting: NonNullable<SessionHooks['onChildStarting']>,
+  log: Logger = SILENT_LOGGER,
+): HookCallback {
+  return async (input) => {
+    const parsed = childCallInput.safeParse(input)
+    if (!parsed.success) return {}
+    const { tool_name: toolName, tool_use_id: toolUseId, tool_input: toolInput, agent_id: agentId } = parsed.data
+    // The matcher may match more than the names it lists (another server's `mcp__x__Bash`), and a `Bash` call in the
+    // background, or a subagent's, isn't read.
+    if (!readsTodo({ toolName, input: toolInput, subagent: agentId !== undefined })) return {}
+    try {
+      const updated = await onChildStarting({ toolName, input: toolInput, toolUseId, agentId: agentId ?? null })
+      if (updated === null) return {}
+      return { hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { ...updated } } }
+    } catch (error) {
+      log.error('failed to read the todo a call names', { toolName, toolUseId, error })
+      return {}
+    }
+  }
+}
+
+const toolBatchInput = z.looseObject({
+  tool_calls: z.array(z.unknown()),
+  agent_id: z.string().optional(),
+})
+
+const batchCallInput = z.looseObject({
+  tool_name: z.string(),
+  tool_use_id: z.string(),
+  tool_input: z.record(z.string(), z.unknown()).optional().catch(undefined),
+  tool_response: z.unknown().optional(),
+})
+
+/** A `Bash` call's result as some hooks give it: what it printed, apart. */
+const commandResponse = z.looseObject({
+  stdout: z.string().optional().catch(undefined),
+  stderr: z.string().optional().catch(undefined),
+})
+
+/** A result given as content blocks: its text ones. */
+const textBlocks = z.array(z.looseObject({ type: z.literal('text'), text: z.string() }))
+
+/**
+ * What a call's result says, as text, from what a `PostToolBatch` hook gives of it (`tool_response`): the text the
+ * agent reads, a command's output, or a result's text blocks. Empty for anything else.
+ */
+export function responseText(response: unknown): string {
+  if (typeof response === 'string') return response
+  const blocks = textBlocks.safeParse(response)
+  if (blocks.success) return blocks.data.map(({ text }) => text).join('\n')
+  const command = commandResponse.safeParse(response)
+  if (!command.success) return ''
+  return [command.data.stdout ?? '', command.data.stderr ?? ''].filter(Boolean).join('\n')
+}
+
+/**
+ * The `PostToolBatch` hook (`docs/sdk-notes.md` §16, #495): once the calls of one of the agent's own messages have all
+ * run, tells the host of them (`SessionHooks.onBatchFinished`) and adds what it answers to what the agent reads with
+ * their results (`additionalContext`), before its next step.
+ *
+ * It fires for a subagent's messages too, with the subagent's `agent_id`, and context answered to one of those goes to
+ * that subagent: those are ignored, at once. A call of a shape Glade doesn't know is left out; a host that fails adds
+ * nothing.
+ */
+export function toolBatchHook(
+  onBatchFinished: NonNullable<SessionHooks['onBatchFinished']>,
+  log: Logger = SILENT_LOGGER,
+): HookCallback {
+  return async (input) => {
+    const parsed = toolBatchInput.safeParse(input)
+    if (!parsed.success || parsed.data.agent_id !== undefined) return {}
+    const calls = parsed.data.tool_calls.flatMap((raw): BatchCall[] => {
+      const call = batchCallInput.safeParse(raw)
+      if (!call.success) return []
+      const { tool_name: toolName, tool_use_id: toolUseId, tool_input: toolInput, tool_response: response } = call.data
+      return [{ toolName, toolUseId, input: toolInput ?? {}, output: responseText(response) }]
+    })
+    try {
+      const context = await onBatchFinished({ calls })
+      if (context === null) return {}
+      return { hookSpecificOutput: { hookEventName: 'PostToolBatch', additionalContext: context } }
+    } catch (error) {
+      log.error("failed to note a message's tool calls", { error })
+      return {}
+    }
+  }
+}
+
 /**
  * The SDK hooks every session gets (`docs/sdk-notes.md` §9, §13 and §14): a subagent's call to one of Glade's own
  * tools is always refused (`subagentGladeToolGuard`, above), whether or not the session tells the runner anything
@@ -463,6 +589,12 @@ export function sandboxToolGuard(
  * `Bash` call that has run (`onBashFinished`, §15), its `PostToolUse` and `PostToolUseFailure` hooks tell it, of
  * `Monitor`'s commands too, and the call's result waits for the answer. A sandboxed session's calls to the tools the
  * sandbox bounds are decided before they run (`onToolStarting`, `sandboxToolGuard`): that hook fails closed.
+ *
+ * A session with the todo hub on (#495, §16) has three more: the `Agent` calls, and its own `Bash` calls in the
+ * foreground, run with the input the host hands back (`onChildStarting`, `childCallHook`), the host is told of each of its
+ * messages' calls once they've run and can tell the agent something with their results (`onBatchFinished`,
+ * `toolBatchHook`), and the `Stop` hook holds the end of a turn while the host says why it can't end
+ * (`onTurnEnding`). Without those, a session's hooks are exactly what they were.
  */
 export function sdkHooks(
   hooks: SessionHooks | undefined,
@@ -495,13 +627,27 @@ export function sdkHooks(
     }
     return Promise.resolve({})
   }
-  const onStop: HookCallback = (input) => {
+  const { onTurnEnding } = hooks
+  const onStop: HookCallback = async (input) => {
     try {
       hooks.onTurnEnded(sessionJobs(input, log))
     } catch (error) {
       log.error('failed to read the scheduled jobs', { error })
     }
-    return Promise.resolve({})
+    if (onTurnEnding === undefined) return {}
+    const ending = turnEndingInput.safeParse(input)
+    // Only the agent's own turn is ever held.
+    if (!ending.success || ending.data.agent_id !== undefined) return {}
+    const held = ending.data.stop_hook_active === true
+    try {
+      const reason = await onTurnEnding({ held })
+      if (reason === null) return {}
+      log.info('turn end held', { held })
+      return { decision: 'block', reason }
+    } catch (error) {
+      log.error('failed to decide whether a turn may end', { error })
+      return {}
+    }
   }
   const onPostCompact: HookCallback = (input) => {
     const parsed = postCompactHookInput.safeParse(input)
@@ -540,12 +686,16 @@ export function sdkHooks(
     return {}
   }
   if (onBashStarting !== undefined) preToolUse.push({ matcher: 'Bash', hooks: [onBash] })
-  const { onBashFinished } = hooks
+  const { onBashFinished, onChildStarting, onBatchFinished } = hooks
+  if (onChildStarting !== undefined) {
+    preToolUse.push({ matcher: CHILD_TOOLS, hooks: [childCallHook(onChildStarting, log)] })
+  }
   return {
     PreToolUse: preToolUse,
     UserPromptSubmit: [{ hooks: [onPrompt] }],
     Stop: [{ hooks: [onStop] }],
     PostCompact: [{ hooks: [onPostCompact] }],
+    ...(onBatchFinished === undefined ? {} : { PostToolBatch: [{ hooks: [toolBatchHook(onBatchFinished, log)] }] }),
     ...(onBashFinished === undefined
       ? {}
       : {
@@ -677,9 +827,13 @@ export function sdkOptions(
     // would join the in-process one under the same name, each tool twice, calling Glade over HTTP as no task at all.
     // Denied by name, it's left out, and the in-process one, which the denylist doesn't reach, is the only one
     // (docs/sdk-notes.md §12).
+    // With the todo hub on, Claude Code's task tools stay on too: set here, in the flag settings, the switch outranks
+    // the user's, the project's and the local settings files, any of which could swap them for `TodoWrite`, whose
+    // items have no id to file under (docs/sdk-notes.md §16).
     settings: {
       deniedMcpServers: [{ serverName: CONTROL_SERVER_NAME }],
       ...(permissions === undefined || permissions === null ? {} : { permissions: sdkPermissions(permissions) }),
+      ...(options.keepTaskTools === true ? { env: { ...TASK_TOOLS_ENV } } : {}),
     },
     // The sandbox the session's commands run in, as it starts: what `applyFlagSettings` adds to later, and can't take
     // back (docs/sdk-notes.md §15). None without one.

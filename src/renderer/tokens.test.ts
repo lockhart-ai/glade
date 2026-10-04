@@ -193,6 +193,13 @@ const surfaceFloors: readonly ContrastFloor[] = [
   // P16: a live tile's outline, against the tile and against the open todo's card it sits on.
   { foreground: '--color-live-border', background: '--color-live', minimum: 1.8 },
   { foreground: '--color-live-border', background: '--color-inner-2', minimum: 1.75 },
+  // #538: the question and permission cards, and what sits inside them (tiles, pills, fields, blocks).
+  { foreground: '--color-question-border', background: '--color-question-bg', minimum: 1.45 },
+  { foreground: '--color-question-surface', background: '--color-question-bg', minimum: 1.18 },
+  { foreground: '--color-question-surface-border', background: '--color-question-surface', minimum: 1.2 },
+  { foreground: '--color-question-surface-border-hover', background: '--color-question-surface', minimum: 2 },
+  { foreground: '--color-question-outline', background: '--color-question-surface', minimum: 3.9 },
+  { foreground: '--color-question-outline', background: '--color-question-border', minimum: 3.2 },
 ]
 
 /** `--color-inner-border` as tokens.md writes it, `inner-border`. */
@@ -241,6 +248,8 @@ describe('text contrast', () => {
     '--color-inner-2',
     '--color-menu',
     '--color-live',
+    '--color-question-bg',
+    '--color-question-surface',
   ]
 
   for (const text of textColors) {
@@ -255,6 +264,19 @@ describe('text contrast', () => {
     expect(tokensMd).not.toMatch(/known exception/i)
     expect(tokensMd).toContain('`text`, `muted` and `faint` each meet 4.5:1 on every surface')
   })
+
+  // #538: a picked option is filled with the card's border colour; its label and detail are `text` and `muted`.
+  it.each(['--color-text', '--color-muted'] as const)('%s on a picked option meets 4.5:1', (text) => {
+    expect(contrastRatio(colors[text], colors['--color-question-border'])).toBeGreaterThanOrEqual(4.5)
+  })
+
+  // #538: a removed line is pink and an added one teal, on the block inside a permission card.
+  it.each(['--color-pink', '--color-teal', '--color-blue-text'] as const)(
+    '%s on the surface inside a card meets 4.5:1',
+    (text) => {
+      expect(contrastRatio(colors[text], colors['--color-question-surface'])).toBeGreaterThanOrEqual(4.5)
+    },
+  )
 
   // P16: a live tile says "Running" in the blue for text, on its tint.
   it('blue-text on live meets 4.5:1', () => {

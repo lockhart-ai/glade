@@ -3,8 +3,10 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { faFileLines } from '@fortawesome/free-regular-svg-icons'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChildKind } from '../../../shared/todoHub'
+import type { ContextMenuTargetProps } from '../../context-menus'
 import { NOW_REFRESH_MS } from '../../task-list/useNow'
 import { HUB_NOW, minutesAgo } from '../test-hub'
 import { Tile, TileLine, TileTone, type TileProps } from './Tile'
@@ -177,6 +179,108 @@ describe('Tile', () => {
       fireEvent.click(tile())
       fireEvent.keyDown(tile(), { key: 'Enter' })
       expect(tile()).not.toHaveClass(styles.openable ?? '')
+    })
+  })
+
+  describe('what a file’s and a link’s tile add (#498)', () => {
+    /** A context menu's target, as `useContextMenu` makes one: ⇧F10 is its key. */
+    function menuTarget(): ContextMenuTargetProps & { readonly opened: string[] } {
+      const opened: string[] = []
+      return {
+        opened,
+        onContextMenu: (event) => {
+          event.preventDefault()
+          opened.push('right-click')
+        },
+        onKeyDown: (event) => {
+          if (event.key !== 'F10' || !event.shiftKey) return
+          event.preventDefault()
+          opened.push('key')
+        },
+      }
+    }
+
+    it('says more about its tag under the pointer, and nothing unless given', () => {
+      const { rerender } = render(<Tile {...FILE} tagTitle="docs/rate-limits.md" />)
+      expect(screen.getByText('Markdown')).toHaveAttribute('title', 'docs/rate-limits.md')
+      rerender(<Tile {...FILE} />)
+      expect(screen.getByText('Markdown')).not.toHaveAttribute('title')
+    })
+
+    it('fades back when muted, says it’s the current one when selected, and is busy while it’s worked out', () => {
+      const { rerender } = render(<Tile {...FILE} />)
+      expect(tile()).not.toHaveClass(styles.muted ?? '')
+      expect(tile()).not.toHaveAttribute('aria-current')
+      expect(tile()).not.toHaveAttribute('aria-busy')
+
+      rerender(<Tile {...FILE} muted selected busy />)
+      expect(tile()).toHaveClass(styles.muted ?? '')
+      expect(tile()).toHaveAttribute('aria-current', 'true')
+      expect(tile()).toHaveAttribute('aria-busy', 'true')
+      // A muted tile's title and icon are as faint as the rest; nothing about it is pink.
+      expect(tileCss).toMatch(/\.muted \.title \{\s*color: var\(--color-faint\)/)
+      expect(tileCss).toMatch(/\.muted \.icon \{\s*opacity: 0\.6/)
+    })
+
+    it('hands out its own element', () => {
+      const ref = createRef<HTMLDivElement>()
+      render(<Tile {...FILE} ref={ref} />)
+      expect(ref.current).toBe(tile())
+    })
+
+    it('opens its context menu on a right-click, and on ⇧F10 from itself or a control inside it', () => {
+      const target = menuTarget()
+      const onOpen = vi.fn()
+      render(<Tile {...FILE} onOpen={onOpen} menuTarget={target} actions={<button type="button">More</button>} />)
+
+      fireEvent.contextMenu(screen.getByText('Markdown'))
+      fireEvent.keyDown(tile(), { key: 'F10', shiftKey: true })
+      fireEvent.keyDown(screen.getByRole('button', { name: 'More' }), { key: 'F10', shiftKey: true })
+      expect(target.opened).toEqual(['right-click', 'key', 'key'])
+      // The menu's key is the menu's alone, and every other key is still the tile's.
+      expect(onOpen).not.toHaveBeenCalled()
+      fireEvent.keyDown(tile(), { key: 'Enter' })
+      expect(onOpen).toHaveBeenCalledTimes(1)
+    })
+
+    it('has its menu though it opens nothing, as a file that’s gone has', () => {
+      const target = menuTarget()
+      render(<Tile {...FILE} menuTarget={target} />)
+
+      fireEvent.keyDown(tile(), { key: 'Enter' })
+      fireEvent.keyDown(tile(), { key: ' ' })
+      fireEvent.click(tile())
+      expect(target.opened).toEqual([])
+      fireEvent.keyDown(tile(), { key: 'F10', shiftKey: true })
+      fireEvent.contextMenu(tile())
+      expect(target.opened).toEqual(['key', 'right-click'])
+      expect(tile()).not.toHaveClass(styles.openable ?? '')
+    })
+
+    it('has no menu unless given one', () => {
+      render(<Tile {...FILE} />)
+      // Nothing stops the right-click: it's the window's own.
+      expect(fireEvent.contextMenu(tile())).toBe(true)
+    })
+
+    it('keeps its actions in its age’s place while they’re pinned, e.g. while its menu is open, and only if it has some', () => {
+      const { rerender } = render(<Tile {...FILE} actions={<button type="button">More</button>} />)
+      expect(tile()).not.toHaveClass(styles.pinned ?? '')
+      rerender(<Tile {...FILE} actions={<button type="button">More</button>} actionsPinned />)
+      expect(tile()).toHaveClass(styles.pinned ?? '')
+      rerender(<Tile {...FILE} actionsPinned />)
+      expect(tile()).not.toHaveClass(styles.pinned ?? '')
+    })
+
+    it('shows its icon buttons in its age’s place under the pointer, with the focus and while pinned, 22px square, never on black', () => {
+      expect(tileCss).toMatch(
+        /\.acting:hover \.actions,\s*\.acting:focus-within \.actions,\s*\.pinned \.actions \{\s*display: flex/,
+      )
+      expect(tileCss).toMatch(
+        /\.acting:hover \.right,\s*\.acting:focus-within \.right,\s*\.pinned \.right \{\s*display: none/,
+      )
+      expect(tileCss).toMatch(/\.actions \.action \{\s*width: 22px;\s*height: 22px/)
+      expect(tileCss).toMatch(/\.actions \.action:hover:enabled \{\s*background: var\(--color-inner-2\)/)
     })
   })
 })

@@ -29,6 +29,7 @@ import { useGladeStore } from '../store/react'
 import type { TodoPanels } from '../store/state'
 import { formatAgo, formatFullDate } from '../task-header/headerModel'
 import { useNow } from '../task-list/useNow'
+import { ArtifactTiles } from './tiles/ArtifactTiles'
 import { ChildTile } from './tiles/ChildTile'
 import { subagentsIn } from './tiles/childIndex'
 import { askAboutTodo, NoTodos, STATE_LABELS, StateIcon } from './Todos'
@@ -180,16 +181,22 @@ interface TilesProps {
   readonly shown: readonly Child[]
 }
 
-/** An open todo's children: one flat list, a tile each. Each tile reads its own child, so the list only orders them. */
+/**
+ * An open todo's children: one flat list, a tile each. Each tile reads its own child, so the list only orders them.
+ * Around it, what its file and link tiles keep once for the list (`ArtifactTiles`, #498): an artifact's context menu,
+ * and the image viewer, which steps through this list's images alone.
+ */
 function Tiles({ taskId, under, shown }: TilesProps): React.JSX.Element {
   return (
-    <ul className={styles.tiles} aria-label={`Under ${under}`}>
-      {shown.map(({ kind, key }) => (
-        <li key={refKey({ kind, key })}>
-          <ChildTile taskId={taskId} kind={kind} childKey={key} />
-        </li>
-      ))}
-    </ul>
+    <ArtifactTiles taskId={taskId} shown={shown}>
+      <ul className={styles.tiles} aria-label={`Under ${under}`}>
+        {shown.map(({ kind, key }) => (
+          <li key={refKey({ kind, key })}>
+            <ChildTile taskId={taskId} kind={kind} childKey={key} />
+          </li>
+        ))}
+      </ul>
+    </ArtifactTiles>
   )
 }
 

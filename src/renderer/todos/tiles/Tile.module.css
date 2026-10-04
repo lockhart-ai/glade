@@ -37,6 +37,15 @@
   cursor: pointer;
 }
 
+/* A file that's gone fades back, as its row in the Artifacts tab does: its title and its icon as faint as the rest. */
+.muted .title {
+  color: var(--color-faint);
+}
+
+.muted .icon {
+  opacity: 0.6;
+}
+
 .head {
   display: flex;
   gap: var(--space-md);
@@ -124,13 +133,36 @@
 }
 
 .acting:hover .actions,
-.acting:focus-within .actions {
+.acting:focus-within .actions,
+.pinned .actions {
   display: flex;
 }
 
+/* Pinned while the tile's menu is open, when neither the pointer nor the focus is on the tile any more. */
 .acting:hover .right,
-.acting:focus-within .right {
+.acting:focus-within .right,
+.pinned .right {
   display: none;
+}
+
+/*
+ * One of those icon buttons (.ib): 22px square around a 14px icon, so the row of them is no taller than the tile's
+ * first line allows. Under the pointer it's on inner-2, the card's own grey: nothing inside a card is black.
+ */
+.actions .action {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--color-muted);
+}
+
+.actions .action svg {
+  font-size: 14px;
+}
+
+.actions .action:hover:enabled {
+  background: var(--color-inner-2);
+  color: var(--color-text);
 }
 
 /* Under the first line, in line with its text: the tile's own lines, then what it opens to in place. */

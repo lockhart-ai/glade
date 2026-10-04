@@ -1,9 +1,10 @@
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
-import type { KeyboardEvent, MouseEvent, ReactNode } from 'react'
+import type { KeyboardEvent, MouseEvent, ReactNode, Ref } from 'react'
 import type { EpochMs } from '../../../shared/domain'
 import type { ChildKind } from '../../../shared/todoHub'
 import { Icon, IconSize } from '../../components'
 import { classNames } from '../../components/classNames'
+import type { ContextMenuTargetProps } from '../../context-menus'
 import { tileLabel } from '../todoHubModel'
 import { Age } from './Age'
 import styles from './Tile.module.css'
@@ -35,6 +36,8 @@ export interface TileProps {
   readonly lead?: string | null
   /** A short tag after its title, in small mono type: a file's type, a link's number or domain. None unless given. */
   readonly tag?: string | null
+  /** What its tag says under the pointer: a file's path, a link's repository (#498). Nothing unless given. */
+  readonly tagTitle?: string | undefined
   /** Where it stands, before its age: `Running`, `Done`, a commit's `+54 −0`. Nothing unless given. */
   readonly state?: ReactNode
   /** How its state reads (`TileTone`); plain unless given. */
@@ -45,11 +48,27 @@ export interface TileProps {
   readonly live?: boolean
   /** Whether it's outlined, e.g. the file the Files tab shows (#498). */
   readonly selected?: boolean
+  /** Whether it's faded back: a file that's gone, its title and its icon as faint as the rest (#498). */
+  readonly muted?: boolean
+  /** Whether it's still being worked out, e.g. a file's thumbnail on its way (#498): a capture waits for it. */
+  readonly busy?: boolean
   /**
    * What takes its age's place while the tile is under the pointer or has the focus: a file's or a link's icon
    * buttons (#498). Its age stays unless given.
    */
   readonly actions?: ReactNode
+  /**
+   * Whether its actions stay in its age's place whatever has the pointer or the focus: while its menu is open (#498),
+   * so the button the menu hangs from stays where it is, and takes the focus back once the menu closes.
+   */
+  readonly actionsPinned?: boolean
+  /**
+   * What opens its context menu, on a right-click or ⇧F10 while it (or a control inside it) has the focus
+   * (`useContextMenu`'s `targetProps`, #498). It has no menu unless given.
+   */
+  readonly menuTarget?: ContextMenuTargetProps | undefined
+  /** The tile's own element, e.g. to hand the focus back to it (#498). */
+  readonly ref?: Ref<HTMLDivElement> | undefined
   /**
    * What a click on the tile does, and ↵ or Space while it has the focus: open a file, a subagent's log, a commit's
    * files (#498, #499). Nothing unless given. A click on a control inside the tile is the control's own.
@@ -80,12 +99,18 @@ export function Tile({
   media,
   lead = null,
   tag = null,
+  tagTitle,
   state,
   tone = TileTone.Plain,
   at,
   live = false,
   selected = false,
+  muted = false,
+  busy = false,
   actions,
+  actionsPinned = false,
+  menuTarget,
+  ref,
   onOpen,
   children,
 }: TileProps): React.JSX.Element {
@@ -93,25 +118,35 @@ export function Tile({
     if (!onControl(event)) onOpen?.()
   }
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    // Its context menu's key first (⇧F10), from the tile or a control inside it.
+    menuTarget?.onKeyDown(event)
+    if (event.defaultPrevented || onOpen === undefined) return
     if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return
     event.preventDefault()
-    onOpen?.()
+    onOpen()
   }
   return (
     <div
+      ref={ref}
       className={classNames(
         styles.tile,
         live && styles.live,
         selected && styles.selected,
+        muted && styles.muted,
         onOpen !== undefined && styles.openable,
         actions !== undefined && styles.acting,
+        actions !== undefined && actionsPinned && styles.pinned,
       )}
       role="group"
       aria-label={tileLabel(kind, name)}
+      aria-current={selected || undefined}
+      aria-busy={busy || undefined}
       tabIndex={0}
       data-kind={kind}
       data-live={live ? '' : undefined}
-      {...(onOpen === undefined ? {} : { onClick, onKeyDown })}
+      {...(onOpen === undefined ? {} : { onClick })}
+      {...(onOpen === undefined && menuTarget === undefined ? {} : { onKeyDown })}
+      {...(menuTarget === undefined ? {} : { onContextMenu: menuTarget.onContextMenu })}
     >
       <div className={classNames(styles.head, media !== undefined && styles.withMedia)}>
         <span className={classNames(styles.icon, media !== undefined && styles.media)} aria-hidden="true">
@@ -120,7 +155,11 @@ export function Tile({
         <div className={styles.title} title={name}>
           {lead !== null && <span className={styles.lead}>{lead}</span>}
           {name}
-          {tag !== null && <span className={styles.tag}>{tag}</span>}
+          {tag !== null && (
+            <span className={styles.tag} title={tagTitle}>
+              {tag}
+            </span>
+          )}
         </div>
         <div className={classNames(styles.right, tone === TileTone.Live && styles.liveText)}>
           {state !== undefined && (

@@ -161,7 +161,7 @@ export function childLabel({ id, kind, title }: NamedChild): string {
 }
 
 /** A todo's id as the agent gives it: `2`, or `#2` as Glade writes it. */
-function todoIdOf(given: string): TodoId {
+export function todoIdOf(given: string): TodoId {
   return given.trim().replace(/^#/, '')
 }
 
@@ -237,8 +237,27 @@ function nameChildren(db: Database, taskId: string, children: TaskChildren): Nam
     .sort((a, b) => byNumber(a.id, b.id))
 }
 
+/**
+ * Some of a task's children as the agent is told of them, in the order given: each with its short id, which a child
+ * Glade hasn't named before gets here (`identifyChildren`), and none as following a subagent. For the children Glade
+ * asks the agent to file (`./filing`), which are the agent's own.
+ */
+export function nameSome(
+  db: Database,
+  taskId: string,
+  children: TaskChildren,
+  some: readonly ChildRef[],
+): NamedChild[] {
+  const described = describeChildren(children)
+  return identifyChildren(db, taskId, some).map((child) => ({
+    ...child,
+    title: shown(described.get(refKey(child))?.title ?? ''),
+    follows: null,
+  }))
+}
+
 /** What refuses a call that names a todo the task's list doesn't have. */
-function noSuchTodo(ids: readonly TodoId[], todos: readonly FilingTodo[]): string {
+export function noSuchTodo(ids: readonly TodoId[], todos: readonly FilingTodo[]): string {
   return `There's no todo ${ids.map((id) => `#${id}`).join(', ')} in this task's list. ${todosLine(todos)}`
 }
 

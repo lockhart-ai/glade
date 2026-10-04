@@ -8,7 +8,7 @@
 // and answering it carries the agent on.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { ALLOWS_FOR_TASK, ASKS_PERMISSION, PERMISSION_AT_QUIT, SUBAGENT_PERMISSION } from '../src/main/agent/scripts'
 import { CommandName } from '../src/shared/bridge'
 import { PermissionMode, TaskActivity, ToolEventKind, type Task, type ToolCallEvent } from '../src/shared/domain'
@@ -18,6 +18,14 @@ import { chat, firstRun, inputBar, settings, subagentsTab, taskHeader, taskList,
 import { invoke } from './task-view'
 
 const ASK = 'Ask before edits and commands'
+
+/** An element's fill and border colours, as the app draws them. */
+function drawn(locator: Locator): Promise<{ readonly background: string; readonly border: string }> {
+  return locator.evaluate((el) => {
+    const style = getComputedStyle(el)
+    return { background: style.backgroundColor, border: style.borderTopColor }
+  })
+}
 
 function workspaceRoot(tempFolder: () => string): string {
   const root = join(tempFolder(), 'acme-api')
@@ -117,6 +125,9 @@ test('in the ask mode, an edit and a command wait on cards: Allow once by mouse,
   await expect(edit).toContainText('Edit')
   await expect(edit).toContainText(ASKS_PERMISSION.edit.file_path)
   await expect(edit.getByLabel('Change')).toContainText('+ - Retries now back off exponentially.')
+  // The card is on an agent reply's purple, and its diff on the surface inside it, not the window's black (#538).
+  expect(await drawn(edit)).toEqual({ background: 'rgb(30, 27, 51)', border: 'rgb(59, 51, 102)' })
+  expect(await drawn(edit.getByLabel('Change'))).toEqual({ background: 'rgb(46, 39, 72)', border: 'rgb(59, 51, 102)' })
   await expect(taskHeader(window).stateDot).toHaveAccessibleName('Active · waiting on you')
   await expect(taskList(window).dot(taskList(window).taskRow('Note the retry change'))).toHaveAttribute(
     'data-state',
