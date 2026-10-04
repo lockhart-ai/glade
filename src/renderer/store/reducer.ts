@@ -357,6 +357,10 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, watchers: { ...state.watchers, [event.taskId]: event.watchers } }
     case EventType.CommitsChanged:
       return { ...state, commits: { ...state.commits, [event.taskId]: event.commits } }
+    // The todo hub's, which main never sends while the hub is off (P16): the window keeps no filings until the hub's
+    // tab is built (#497).
+    case EventType.FilingsChanged:
+      return state
     case EventType.TerminalTabsChanged: {
       const { renamingTerminalId } = state
       const renaming = event.tabs.some(({ id }) => id === renamingTerminalId) ? renamingTerminalId : null

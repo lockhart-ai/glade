@@ -370,6 +370,51 @@
         sandbox]`, once, ahead of its next message, and not at all while it still runs outside the sandbox. A
         session recorded before this counts as not told, so one that started sandboxed while the sandbox was still
         off by default is told once more.
+- **Todos as the hub (P16, #491).** The Todos tab becomes the one place for everything a task made, ran and is
+  waiting on: a todo is a step of work, and its **children** (files, links, subagents, watchers, commits) sit under
+  it. What's decided so far is the groundwork (P16-03, #494); the rest is in the phase's issues.
+  - **Built dark.** The whole phase lands behind a hidden setting, `todoHubEnabled`: a boolean, off by default, with
+    nothing in Settings, as P15's `sandboxEnabled` was before its switch was drawn. With it off, nothing of the hub is
+    read, written, sent or shown: the tools, the prompt, the hooks and every screen are what they were, and a test
+    holds that (`src/main/todo-hub/inert.test.ts`). The phase's last issue (#501) turns it on and removes the four
+    tabs it replaces. To try the phase before then, turn it on by hand: quit Glade, run
+    `sqlite3 ~/Library/Application\ Support/glade/glade.db "INSERT INTO settings (key, value) VALUES ('todoHubEnabled', 'true') ON CONFLICT (key) DO UPDATE SET value = 'true'"`
+    and open it again (`'false'` turns it back off). In a dev build (`npm run dev`), View › Toggle Developer Tools
+    and `await glade.invoke('settings.update', { patch: { todoHubEnabled: true } })` does the same without a relaunch.
+  - **A todo's id is Claude Code's own** (`Task #N`, which the todo parser already read): unique within a task, the
+    same across a compaction, a resume and a relaunch, and never used again once its todo is deleted
+    (`sdk-notes.md` §16). It reaches the window with each todo, whatever the switch says, and the Todos tab keys its
+    rows on it. A `TodoWrite` item has none: nothing can be filed under it, and its row is keyed by its place in the
+    list. (Glade will keep Claude Code's task tools on for its sessions, in #495, so that shouldn't occur.)
+  - **A child is named by its kind and its own key:** a file by its artifact's path, a link by its URL, a subagent
+    and a watcher by the `tool_use` id of the call that started it, a commit by its hash and working tree. It also
+    has a **short id** within its task (`c1`, `c2`, …), which Glade shows the agent and the agent files and moves
+    children by: given the first time Glade names the child, kept in SQLite, the same for the life of the task and
+    never given to another child, even after the first is removed.
+  - **A filing is "this child, this todo, how, when", one per child:** filing a child again replaces its filing. How
+    it was filed is one of: named in the call that made it, filed by the agent when Glade asked, inherited from the
+    subagent that made it, or moved by the agent.
+  - **Where a child shows:** under the todo its filing names. With no filing, or once its todo is no longer in the
+    list (deleted), it's under **Not under a todo**, the placeholder group, which has a reserved id (`unfiled`) for
+    its own panel state. What a subagent made (a watcher, a commit, a subagent of its own, however deep) is a child
+    of the todo in its own right and follows the subagent's todo, unless it has a filing of its own; so moving a
+    subagent brings what it made. A deleted todo's filings are kept, since its id is never reused.
+  - **Counts and order.** A todo counts its children by kind, and a kind is live while one of its children is: a
+    running subagent, or a watcher whose process runs (one that's only scheduled isn't). A todo's list is ordered by
+    last update, newest first: a file's last change, a link's last change, a subagent's latest activity, a watcher's
+    last wake (else its end, else its start), a commit's time.
+  - **Each todo's panel remembers** whether it's open and its filter, per task in SQLite, for the placeholder group
+    too.
+  - **Calls made without Jared, for the release notes (P16).** From the groundwork (P16-03, #494):
+    1. A child whose own filing names a todo that's gone goes to the placeholder, even when the subagent that made
+       it is under a todo that's still there: the agent filed it apart from its subagent, so it doesn't fall back to
+       following it.
+    2. An inherited filing isn't a filing of the child's own: a child still follows the subagent that made it, and
+       the stored filing only places a child whose subagent Glade can't tell (an artifact a subagent declared).
+    3. With the switch off, the hub's bridge commands are refused (`invalid_transition`) rather than answered empty.
+    4. A todo's panel state isn't broadcast to other windows, as the Artifacts tab's filter isn't.
+    5. A task from before the hub gets its children's short ids the first time Glade names them, oldest first within
+       each kind: artifacts, then subagents, then watchers, then commits.
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
     `manifest.json`: `id` (the folder's name), `name`, `version`, `entry` (an HTML file in the folder) and an optional

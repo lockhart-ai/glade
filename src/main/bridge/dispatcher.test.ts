@@ -131,6 +131,10 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.ArtifactsSetGroupOpen]: () => null,
     [CommandName.ArtifactsWatch]: () => null,
     [CommandName.ArtifactsUnwatch]: () => null,
+    [CommandName.TodoHubGet]: () => {
+      throw new Error('not in these tests')
+    },
+    [CommandName.TodoHubSetPanel]: () => null,
     [CommandName.UiStateGet]: () => Promise.resolve({ value: 'async' }),
     [CommandName.UiStateGetAll]: () => ({ entries: [] }),
     [CommandName.SearchQuery]: () => ({ results: [] }),

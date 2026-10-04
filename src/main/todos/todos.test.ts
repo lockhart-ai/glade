@@ -84,12 +84,13 @@ describe('deriveTodoList', () => {
     expect(deriveTodoList([first])).toEqual({
       items: [
         {
+          id: null,
           text: 'Find how uploads are stored',
           state: TodoState.Doing,
           note: 'Finding how uploads are stored',
           completedAt: null,
         },
-        { text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null },
+        { id: null, text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null },
       ],
       updatedAt: first.createdAt,
     })
@@ -101,9 +102,15 @@ describe('deriveTodoList', () => {
     ])
     expect(deriveTodoList([first, call('Bash', { command: 'ls' }), second])).toEqual({
       items: [
-        { text: 'Find how uploads are stored', state: TodoState.Done, note: null, completedAt: second.createdAt },
-        { text: 'Copy the files', state: TodoState.Doing, note: 'Copying the files', completedAt: null },
-        { text: 'Delete local copies', state: TodoState.Todo, note: null, completedAt: null },
+        {
+          id: null,
+          text: 'Find how uploads are stored',
+          state: TodoState.Done,
+          note: null,
+          completedAt: second.createdAt,
+        },
+        { id: null, text: 'Copy the files', state: TodoState.Doing, note: 'Copying the files', completedAt: null },
+        { id: null, text: 'Delete local copies', state: TodoState.Todo, note: null, completedAt: null },
       ],
       updatedAt: second.createdAt,
     })
@@ -118,8 +125,8 @@ describe('deriveTodoList', () => {
         ]),
       ])?.items,
     ).toEqual([
-      { text: 'Copy', state: TodoState.Doing, note: null, completedAt: null },
-      { text: 'Check', state: TodoState.Doing, note: null, completedAt: null },
+      { id: null, text: 'Copy', state: TodoState.Doing, note: null, completedAt: null },
+      { id: null, text: 'Check', state: TodoState.Doing, note: null, completedAt: null },
     ])
   })
 
@@ -143,12 +150,41 @@ describe('deriveTodoList', () => {
     ]
     expect(deriveTodoList(calls)).toEqual({
       items: [
-        { text: 'Find how uploads are stored', state: TodoState.Done, note: null, completedAt: calls[4]?.createdAt },
-        { text: 'Copy the files', state: TodoState.Doing, note: 'Copying the files', completedAt: null },
-        { text: 'Delete the local copies', state: TodoState.Todo, note: null, completedAt: null },
+        {
+          id: '1',
+          text: 'Find how uploads are stored',
+          state: TodoState.Done,
+          note: null,
+          completedAt: calls[4]?.createdAt,
+        },
+        { id: '2', text: 'Copy the files', state: TodoState.Doing, note: 'Copying the files', completedAt: null },
+        { id: '3', text: 'Delete the local copies', state: TodoState.Todo, note: null, completedAt: null },
       ],
       updatedAt: calls.at(-1)?.createdAt,
     })
+  })
+
+  it('gives each item the id TaskCreate gave it, which survives every later change, and none to a TodoWrite item', () => {
+    const ids = (calls: readonly ToolCallEvent[]) => deriveTodoList(calls)?.items.map(({ id, text }) => [id, text])
+    const calls = [
+      taskCreate('1', 'Find the uploads'),
+      taskCreate('2', 'Copy the files'),
+      taskCreate('3', 'Delete local copies'),
+      taskUpdate({ taskId: '2', subject: 'Copy the 3,900 files', status: 'in_progress' }),
+      taskUpdate({ taskId: '1', status: 'deleted' }),
+      // The count never goes back: a todo made after a deletion gets the next number, never the freed one.
+      taskCreate('4', 'Spot-check the copies'),
+      taskUpdate({ taskId: '2', status: 'completed' }),
+    ]
+    expect(ids(calls)).toEqual([
+      ['2', 'Copy the 3,900 files'],
+      ['3', 'Delete local copies'],
+      ['4', 'Spot-check the copies'],
+    ])
+    // The older tool's items have none, whatever the list had before.
+    expect(ids([...calls, todoWrite([{ content: 'Copy the files', status: 'pending' }])])).toEqual([
+      [null, 'Copy the files'],
+    ])
   })
 
   it('removes a deleted task, and ignores an update to one it does not know', () => {
@@ -159,7 +195,7 @@ describe('deriveTodoList', () => {
       taskUpdate({ taskId: '9', status: 'completed' }),
     ]
     expect(deriveTodoList(calls)?.items).toEqual([
-      { text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null },
+      { id: '2', text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null },
     ])
   })
 
@@ -171,8 +207,8 @@ describe('deriveTodoList', () => {
       taskUpdate({ taskId: '1', status: 'completed' }),
     ]
     expect(deriveTodoList(calls)?.items).toEqual([
-      { text: 'Find the stored uploads', state: TodoState.Done, note: null, completedAt: calls[3]?.createdAt },
-      { text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null },
+      { id: '1', text: 'Find the stored uploads', state: TodoState.Done, note: null, completedAt: calls[3]?.createdAt },
+      { id: null, text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null },
     ])
   })
 
@@ -187,7 +223,9 @@ describe('deriveTodoList', () => {
       call('TodoWrite', { todos: [] }, { parent: 'toolu_agent' }),
     ]
     const list = deriveTodoList(calls)
-    expect(list?.items).toEqual([{ text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null }])
+    expect(list?.items).toEqual([
+      { id: null, text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null },
+    ])
     expect(list?.updatedAt).toBe(kept.createdAt)
     expect(deriveTodoList(calls.slice(1))).toBeNull()
   })
@@ -371,7 +409,7 @@ describe('todoListFor', () => {
     finish('c', 'Updated task #1 status')
 
     expect(todoListFor(db, task.id)).toEqual({
-      items: [{ text: 'Copy the files', state: TodoState.Done, note: null, completedAt: 5_200 }],
+      items: [{ id: '1', text: 'Copy the files', state: TodoState.Done, note: null, completedAt: 5_200 }],
       updatedAt: 5_200,
     })
   })

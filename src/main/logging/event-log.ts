@@ -289,6 +289,14 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
           subjects: event.commits.map(({ subject }) => excerpt(subject)),
         })
         return
+      case EventType.FilingsChanged:
+        // What kind of child went under which todo, never its key: a file's path or a link's URL may name a project.
+        tools.info('filings changed', {
+          taskId: event.taskId,
+          filed: event.filed.map(({ kind, todoId, source }) => `${kind} ${todoId} ${source}`),
+          removed: event.removed.map(({ kind }) => kind),
+        })
+        return
       case EventType.FileShown:
         tools.info('file shown', { taskId: event.taskId, path: event.path, line: event.line })
         return

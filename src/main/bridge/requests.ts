@@ -75,6 +75,8 @@ import {
   type SandboxSetFolderAccessRequest,
   type WorkspacesUpdateRequest,
   type WorkspacesRevealRequest,
+  type TodoHubGetRequest,
+  type TodoHubSetPanelRequest,
 } from '../../shared/bridge'
 import { AttachedFileKind, isAttachedFileName, isAttachedFileOf, type AttachedFile } from '../../shared/attachedFiles'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
@@ -95,6 +97,7 @@ import { MAX_PASTED_BLOCK_LENGTH, PASTE_ID_PATTERN } from '../../shared/pastedCo
 import { PluginCapability } from '../../shared/plugins'
 import { FolderAccess, SandboxGrantKind, SandboxGrantScope } from '../../shared/sandbox'
 import { MAX_TERMINAL_NAME, MAX_TERMINAL_SIZE, MAX_TERMINAL_WRITE } from '../../shared/terminal'
+import { ChildFilter } from '../../shared/todoHub'
 import { SETTING_SCHEMAS } from '../db/repositories/settings'
 import { permissionDecisionSchema } from '../permissions/schema'
 import { questionAnswersSchema } from '../questions/schema'
@@ -415,6 +418,15 @@ const artifactsSetGroupOpenRequest = z.strictObject({
 
 const artifactsWatchRequest = z.strictObject({ taskId: z.string() }) satisfies z.ZodType<ArtifactsWatchRequest>
 
+const todoHubGetRequest = z.strictObject({ taskId: z.string() }) satisfies z.ZodType<TodoHubGetRequest>
+
+const todoHubSetPanelRequest = z.strictObject({
+  taskId: z.string(),
+  todoId: z.string().min(1),
+  open: z.boolean(),
+  filter: z.enum(ChildFilter),
+}) satisfies z.ZodType<TodoHubSetPanelRequest>
+
 const pluginsSetEnabledRequest = z.strictObject({
   id: z.string(),
   enabled: z.boolean(),
@@ -627,6 +639,8 @@ export const REQUEST_SCHEMAS = {
   [CommandName.ArtifactsSetGroupOpen]: artifactsSetGroupOpenRequest,
   [CommandName.ArtifactsWatch]: artifactsWatchRequest,
   [CommandName.ArtifactsUnwatch]: artifactsWatchRequest,
+  [CommandName.TodoHubGet]: todoHubGetRequest,
+  [CommandName.TodoHubSetPanel]: todoHubSetPanelRequest,
   [CommandName.UiStateGet]: uiStateGetRequest,
   [CommandName.UiStateGetAll]: emptyRequest,
   [CommandName.UiStateSet]: uiStateSetRequest,

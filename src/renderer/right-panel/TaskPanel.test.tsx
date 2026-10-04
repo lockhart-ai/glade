@@ -288,6 +288,7 @@ describe('TaskPanel', () => {
   describe('the Todos tab', () => {
     const list = (done: number, total: number): TodoList => ({
       items: Array.from({ length: total }, (_, index) => ({
+        id: String(index + 1),
         text: `Step ${String(index + 1)}`,
         state: index < done ? TodoState.Done : index === done ? TodoState.Doing : TodoState.Todo,
         note: index === done ? 'Working on it' : null,

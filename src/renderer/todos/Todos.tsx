@@ -163,8 +163,8 @@ export function Todos({ taskId, list, now }: TodosProps): React.JSX.Element {
         <div className={styles.explainer}>{TODOS_EXPLAINER}</div>
       </div>
       <ul className={styles.list} aria-label="Todos">
-        {orderTodos(list.items).map(({ todo, position }) => (
-          <TodoItem key={position} todo={todo} now={now} menuTarget={menu.targetProps(todo)} />
+        {orderTodos(list.items).map(({ todo, key }) => (
+          <TodoItem key={key} todo={todo} now={now} menuTarget={menu.targetProps(todo)} />
         ))}
       </ul>
       <ContextMenu label="Todo actions" state={menu} entries={entries} />

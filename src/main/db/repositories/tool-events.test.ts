@@ -24,6 +24,7 @@ import {
   interruptRunningToolCall,
   interruptRunningToolCalls,
   listRunningToolCallsNamed,
+  listSubagentActivity,
   listToolCallsNamed,
   listToolEvents,
   setSubagentProgress,
@@ -582,6 +583,45 @@ describe('listToolCallsNamed', () => {
     expect(done.id).toBe(create.id)
     expect(listToolCallsNamed(test.db, task.id, ['Grep'])).toEqual([])
     expect(listToolCallsNamed(test.db, task.id, [])).toEqual([])
+  })
+})
+
+describe('listSubagentActivity', () => {
+  it('is empty for a task with no subagents, or whose subagents have done nothing', () => {
+    appendToolCall(test.db, bashCall('toolu_1'), 3_000)
+    appendToolCall(test.db, { ...bashCall('toolu_agent'), name: 'Agent', input: {} }, 3_100)
+    appendNarration(test.db, { taskId: task.id, turn: 1, text: 'Next.' }, 3_200)
+
+    expect(listSubagentActivity(test.db, task.id)).toEqual(new Map())
+  })
+
+  it('gives each subagent the time of the latest thing it did: a call, a note or a result', () => {
+    appendToolCall(test.db, { ...bashCall('toolu_a'), name: 'Agent', input: {} }, 3_000)
+    appendToolCall(test.db, { ...bashCall('toolu_b'), name: 'Agent', input: {} }, 3_000)
+    // The first subagent's call finished after everything else it did.
+    appendToolCall(test.db, bashCall('toolu_a_1', 'toolu_a'), 3_100)
+    appendNarration(test.db, { taskId: task.id, turn: 1, text: 'Checking.', parentToolUseId: 'toolu_a' }, 3_300)
+    updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_a_1', state: ToolCallState.Done, output: 'ok' }, 3_900)
+    // The second's last note came after its call's result.
+    appendToolCall(test.db, bashCall('toolu_b_1', 'toolu_b'), 3_200)
+    updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_b_1', state: ToolCallState.Done, output: 'ok' }, 3_400)
+    appendNarration(test.db, { taskId: task.id, turn: 1, text: 'Done.', parentToolUseId: 'toolu_b' }, 3_500)
+    // A subagent's own subagent is something it did, and has its own activity.
+    appendToolCall(test.db, { ...bashCall('toolu_c', 'toolu_b'), name: 'Agent', input: {} }, 3_600)
+    appendToolCall(test.db, bashCall('toolu_c_1', 'toolu_c'), 3_700)
+    // The agent's own calls, and another task's subagent, are no one's here.
+    appendToolCall(test.db, bashCall('toolu_main'), 9_000)
+    const other = sampleTask(test.db, task.workspaceId)
+    appendToolCall(test.db, { ...bashCall('toolu_other', 'toolu_a'), taskId: other.id }, 9_500)
+
+    expect(listSubagentActivity(test.db, task.id)).toEqual(
+      new Map([
+        ['toolu_a', 3_900],
+        ['toolu_b', 3_600],
+        ['toolu_c', 3_700],
+      ]),
+    )
+    expect(listSubagentActivity(test.db, other.id)).toEqual(new Map([['toolu_a', 9_500]]))
   })
 })
 
