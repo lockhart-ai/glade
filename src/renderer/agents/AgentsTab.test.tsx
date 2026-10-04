@@ -119,6 +119,8 @@ const rows = (): string[] =>
     .filter((element) => element.hasAttribute('data-agent-call') || element.querySelector('button') !== null)
     .map((element) => element.textContent)
 const line = (): HTMLElement | null => panel().querySelector('[data-agent-line]')
+/** The todo's title on the line under the strip: the link to that todo. */
+const todoLink = (): HTMLElement => within(panel()).getByRole('button', { name: /^#50\d / })
 const setTab = (fake: HubStore['fake']): unknown[] =>
   fake.invoke.mock.calls.filter(([command]) => command === CommandName.AgentsSetTab).map(([, request]) => request)
 
@@ -389,7 +391,7 @@ describe('the line under the strip, on a subagent’s tab', () => {
     fireEvent.click(tab('limits-502'))
 
     expect(line()).toHaveTextContent(/^Working on #502 Per-key limits for \/searchRunning · 6m$/)
-    expect(within(line() as HTMLElement).getByRole('button')).toHaveTextContent('#502 Per-key limits for /search')
+    expect(todoLink()).toHaveTextContent('#502 Per-key limits for /search')
   })
 
   it('says what it worked on, and how long it ran, once it has finished', async () => {
@@ -404,12 +406,12 @@ describe('the line under the strip, on a subagent’s tab', () => {
     const { store } = await renderAgents()
     fireEvent.click(tab('fix-501'))
 
-    fireEvent.click(within(line() as HTMLElement).getByRole('button', { name: '#501 Return Retry-After on 429s' }))
+    fireEvent.click(todoLink())
 
     expect(store.getState().todoFocus).toEqual({ taskId: 't1', todoId: '1', request: 1 })
     expect(activePanelTab(store.getState().uiState, 'w1', true)).toBe(PanelTab.Todos)
     // Asked again, it's a new request.
-    fireEvent.click(within(line() as HTMLElement).getByRole('button'))
+    fireEvent.click(todoLink())
     expect(store.getState().todoFocus?.request).toBe(2)
   })
 
@@ -693,7 +695,7 @@ describe('a strip with more agents than fit', () => {
 
   it('scrolls on its chevron, by about a tab', async () => {
     const scrollBy = vi.fn()
-    HTMLElement.prototype.scrollBy = scrollBy as unknown as HTMLElement['scrollBy']
+    HTMLElement.prototype.scrollBy = scrollBy
     await renderAgents(MANY)
 
     fireEvent.click(screen.getByRole('button', { name: 'Scroll agents right' }))

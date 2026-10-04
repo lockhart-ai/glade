@@ -1056,7 +1056,11 @@ describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', 
       call(`did-${agent.toolUseId}`, 1, { parentToolUseId: agent.toolUseId }),
     ]),
   ]
-  const agent = (index: number): ToolCallEvent => AGENTS[index] as ToolCallEvent
+  const agent = (index: number): ToolCallEvent => {
+    const found = AGENTS[index]
+    if (found === undefined) throw new Error('No such subagent')
+    return found
+  }
   const tab = (name: string): HTMLElement => screen.getByRole('tab', { name: new RegExp(`${name}$`) })
 
   async function renderAgents(): Promise<HubStore> {

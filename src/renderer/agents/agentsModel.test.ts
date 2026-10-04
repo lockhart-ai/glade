@@ -107,7 +107,7 @@ describe('agentsOf', () => {
     ]
 
     expect(agentsOf(events).ids).toEqual(['legacy', 'cut-off', 'paused'])
-    expect(isRunning(events[0] as ToolCallEvent)).toBe(false)
+    expect(events.map(isRunning)).toEqual([false, true, false])
   })
 
   it('gives a subagent of a subagent a tab of its own, among the rest', () => {
