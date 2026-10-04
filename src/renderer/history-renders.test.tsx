@@ -763,6 +763,35 @@ describe('the todo hub, with 100 todos and 50 children under one (P16, #497)', (
     expect(rendered()).toEqual({ cards: 0, tiles: 1 })
   })
 
+  it('renders only the commit’s tile that opens to its files, and none when another commit is made or time passes (#499)', async () => {
+    const { fake } = await renderHub()
+
+    fireEvent.click(screen.getByRole('group', { name: 'Change: Commit 0' }))
+    await act(() => Promise.resolve())
+    // Opened, then its files read (here: that they can't be).
+    expect(rendered()).toEqual({ cards: 0, tiles: 2 })
+    expect(screen.getByRole('status')).toHaveTextContent(/^Its files can’t be read/)
+
+    // A new commit is filed under a closed todo, and main sends every commit again: no tile, and that todo's card.
+    const made = hubCommit('f'.repeat(40), 'Another', 0)
+    act(() => {
+      fake.emitBatch([
+        { type: EventType.CommitsChanged, taskId: 't1', commits: [made, ...COMMITS.map((each) => ({ ...each }))] },
+        { type: EventType.FilingsChanged, taskId: 't1', filed: [hubFiling(refOf.commit(made), '2')], removed: [] },
+      ])
+    })
+    expect(rendered()).toEqual({ cards: 1, tiles: 0 })
+
+    // An hour passes: the open tile's age moves on by itself, and no tile renders, the open one included.
+    expect(screen.getByRole('group', { name: 'Change: Commit 0' })).toHaveTextContent('+12 −3 · 1h')
+    act(() => {
+      vi.setSystemTime(HUB_NOW + 60 * 60_000)
+      vi.advanceTimersByTime(NOW_REFRESH_MS)
+    })
+    expect(rendered()).toEqual({ cards: 0, tiles: 0 })
+    expect(screen.getByRole('group', { name: 'Change: Commit 0' })).toHaveTextContent('+12 −3 · 2h')
+  })
+
   it('renders nothing when the task changes in a way no child shows: its log grows, its lists arrive anew, the clock ticks', async () => {
     const { fake } = await renderHub()
 

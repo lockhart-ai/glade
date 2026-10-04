@@ -1,0 +1,46 @@
+/*
+ * What a commit's tile opens to in place (#499), from docs/design/html/48-todo-hub-tiles.html: its branch with the tag
+ * of the subagent that made it (.meta, .by), then its files in a box (.well). Nothing inside a card is black: an opened
+ * tile's box is on inner-2.
+ */
+
+/* A line with the subagent that made it after it: the text gives way, the tag doesn't. */
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.metaText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The Changes tab's tag (../../changes/SubagentTag.module.css), as a tile's line holds it. */
+span.by {
+  flex-shrink: 0;
+  max-width: 60%;
+  padding: 0 var(--space-sm);
+  line-height: 15px;
+}
+
+/* What a tile opens to in place, under its lines: a commit's files. */
+.well {
+  margin: var(--space-sm) 0 var(--space-2xs);
+  padding: var(--space-xs) var(--space-md);
+  background: var(--color-inner-2);
+  border-radius: 6px;
+  cursor: auto;
+}
+
+/* A commit's files: each row has its own padding, so its path starts where the box's text would. */
+.files {
+  padding: var(--space-2xs);
+}
+
+/* A file's row under the pointer: on the tile's own grey, since the box is already on inner-2. */
+.files button:hover {
+  background: var(--color-inner);
+}

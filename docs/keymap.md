@@ -78,6 +78,9 @@ each in turn, after the tile: Open, Reveal in folder and More on a file, Open li
 or Space presses one. Context menu (⇧F10) on the tile, or on one of its buttons, opens the artifact's menu
 (`context-menus.md`), as More does. A file that's gone opens nothing, and its Open and Reveal in folder are off.
 
+On a **commit's tile**, ↵ or Space opens it in place to its branch and its files, and again closes it (#499). Tab then
+goes on into its files, and ↵ on one opens it in the Files tab.
+
 ## Rebinding
 
 The keymap lives in `src/shared/keymap.ts` (the commands themselves are in `src/shared/commands.ts`): one command per

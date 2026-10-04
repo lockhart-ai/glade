@@ -1,0 +1,13 @@
+/* The subagent that made something, as a tag: a commit in the Changes tab (24-changes.html), and in the todo hub. */
+.subagent {
+  min-width: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--color-inner-border);
+  border-radius: 5px;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-label);
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

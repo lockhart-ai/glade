@@ -3,14 +3,17 @@ import { CommitFileStatus, ToolCallState, ToolEventKind, type ToolCallEvent } fr
 import { sampleCommit } from '../store/test-bridge'
 import {
   additionsLabel,
+  branchLabel,
   commitMeta,
   deletionsLabel,
   filePathLabel,
   madeBy,
+  madeByTitle,
   moreFilesLabel,
   shortHash,
   statusLetter,
   statusName,
+  UNKNOWN_SUBAGENT,
 } from './changesModel'
 
 const NOW = new Date(2026, 8, 25, 13, 14).getTime()
@@ -46,6 +49,16 @@ describe('a commit’s row', () => {
     expect(commitMeta(sampleCommit('c1', 't1', { branch: null, merge: true, committedAt: NOW }), NOW)).toBe(
       'detached · just now · merge',
     )
+  })
+
+  it('names its branch, or says it was made on a detached HEAD', () => {
+    expect(branchLabel(sampleCommit('c1', 't1'))).toBe('fix/date-test')
+    expect(branchLabel({ branch: null })).toBe('detached')
+  })
+
+  it('says which subagent made it, in its tag’s tooltip', () => {
+    expect(madeByTitle('fix-501')).toBe('Made by the subagent “fix-501”')
+    expect(madeBy(sampleCommit('c1', 't1', { subagentToolUseId: 'gone' }), [])).toBe(UNKNOWN_SUBAGENT)
   })
 
   it('names the subagent that made it, from its call in the tool log, and none for the task’s own agent', () => {
