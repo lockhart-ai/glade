@@ -799,8 +799,6 @@ interface LiveSandbox {
   failure: string | null
   /** The commands the user's Claude Code settings keep out of the sandbox, as the files stand (`./excluded-commands`). */
   readonly excluded: ExcludedCommands
-  /** The session's own in-process MCP servers, by name: Glade's, whose tools need no grant (#515). */
-  readonly inProcess: readonly string[]
   /**
    * The cards open for an MCP server or for other agents, by what each asks for (`sharedCardKey`): settled once its
    * card is answered or withdrawn, and any grant applied. Another call that needs the same waits on it, rather than
@@ -831,6 +829,11 @@ interface LiveSession {
   rules: readonly PermissionRule[] | null
   /** The names of the session's in-process MCP servers that are Glade's own, whose tools never ask: `glade` only. */
   readonly gladeServers: readonly string[]
+  /**
+   * The session's own in-process MCP servers, by name (`glade`, and `glade-control` while agents may control Glade):
+   * Glade's, whose tools need no grant (#515), and which aren't among the servers a workspace has reported.
+   */
+  readonly inProcess: readonly string[]
   /**
    * The MCP servers the session has named that Glade has kept for its workspace, by key: each one's name as kept, so
    * the same list, turn after turn, is written once.
@@ -2313,11 +2316,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
     if (event.kind === AgentEventKind.McpServersReported) {
       // A CLI that doesn't say where a server came from names Glade's own too: those aren't anyone's to grant.
-      const inProcess = live.sandbox?.inProcess ?? live.gladeServers
       noteServers(
         taskId,
         live,
-        event.servers.filter(({ source, reportedName }) => source !== null || !inProcess.includes(reportedName)),
+        event.servers.filter(({ source, reportedName }) => source !== null || !live.inProcess.includes(reportedName)),
       )
       return
     }
@@ -3031,18 +3033,18 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       sandbox: sandboxed
         ? {
             root: workspace.rootPath,
-            ...checkedGrants(task.id, workspace.rootPath, grantsOf(task), { excluded, inProcess }),
+            ...checkedGrants(task.id, workspace.rootPath, grantsOf(task), excluded, inProcess),
             held: null,
             writeRules: new Set(writeRules.map(({ toolName }) => toolName)),
             failure: null,
             excluded,
-            inProcess,
             asking: new Map(),
             started: new Map(),
           }
         : null,
       rules: null,
       gladeServers: gladeOwnServers(servers),
+      inProcess,
       reported: new Map(),
       control,
       requests: new Map(),
@@ -3100,7 +3102,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     taskId: string,
     root: string,
     granted: SandboxGrants,
-    { excluded, inProcess }: Pick<LiveSandbox, 'excluded' | 'inProcess'>,
+    excluded: ExcludedCommands,
+    inProcess: readonly string[],
   ): Pick<LiveSandbox, 'grants' | 'bounds'> => {
     const { grants, rejected } = usableGrants(granted)
     for (const { value, problem } of rejected) {
@@ -3701,7 +3704,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         const { sandbox } = live
         if (task === undefined || sandbox === null || live.closed || !grantCovers(target, task)) continue
         // The session's calls are decided against the new grants at once, and its commands once the overlay lands.
-        const { grants, bounds } = checkedGrants(taskId, sandbox.root, grantsOf(task), sandbox)
+        const { grants, bounds } = checkedGrants(taskId, sandbox.root, grantsOf(task), sandbox.excluded, live.inProcess)
         sandbox.grants = grants
         sandbox.bounds = bounds
         sandbox.held = null

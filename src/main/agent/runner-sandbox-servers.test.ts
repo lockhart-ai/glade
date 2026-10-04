@@ -1249,8 +1249,11 @@ describe('Settings’ MCP servers lists', () => {
   })
 
   it('leave out Glade’s own on a CLI that doesn’t say where a server is from, and keep them with the sandbox off', async () => {
-    updateSettings(database.db, { sandboxEnabled: false })
-    const unsourced = { ...(init() as Record<string, unknown>), mcp_servers: [{ name: 'glade' }, { name: 'gmail' }] }
+    updateSettings(database.db, { sandboxEnabled: false, controlEnabled: true })
+    const unsourced = {
+      ...(init() as Record<string, unknown>),
+      mcp_servers: [{ name: 'glade' }, { name: 'glade-control' }, { name: 'gmail' }],
+    }
 
     await startTurn(task.id, unsourced)
 
