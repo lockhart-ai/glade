@@ -21,7 +21,7 @@ import { SILENT_LOGGER, type Logger } from '../logging/logger'
 import { BOUNDED_TOOLS, isOutsideTool, OUTSIDE_TOOLS } from '../permissions/sandbox-classify'
 import { permissionSuggestionSchema } from '../permissions/schema'
 import { AsyncQueue } from './async-queue'
-import { ChildTool, isChildTool } from './child-calls'
+import { readsTodo, TODO_TOOLS } from './child-calls'
 import { ACCESS_TOOL_NAME, gladeOwnServers, GLADE_SERVER } from './glade-tools'
 import {
   PromptVerdict,
@@ -467,8 +467,8 @@ export function sandboxToolGuard(
   }
 }
 
-/** The tools of Claude Code's own that make something a todo can hold, as a hook matcher (`ChildTool`). */
-export const CHILD_TOOLS = Object.values(ChildTool).join('|')
+/** The tools Glade reads a todo off, as a hook matcher (`TODO_TOOLS`): `Agent`, and `Bash`, which may commit. */
+export const CHILD_TOOLS = TODO_TOOLS.join('|')
 
 const childCallInput = z.looseObject({
   tool_name: z.string(),
@@ -478,16 +478,17 @@ const childCallInput = z.looseObject({
 })
 
 /**
- * The `PreToolUse` hook on the tools that make something a todo can hold (`docs/sdk-notes.md` §16, #495): puts each
- * call of the agent's own to the host (`SessionHooks.onChildStarting`), and hands the tool the input it answers with,
- * the whole of it, in place of the model's (`updatedInput`): the call's marker for its todo taken off, so nothing the
- * SDK says of the call afterwards carries it.
+ * The `PreToolUse` hook on `Agent` and `Bash` (`docs/sdk-notes.md` §16, #495): puts each call Glade reads a todo off
+ * (`readsTodo`) to the host (`SessionHooks.onChildStarting`), and hands the tool the input it answers with, the whole
+ * of it, in place of the model's (`updatedInput`): the call's marker for its todo taken off, so nothing the SDK says of
+ * the call afterwards carries it.
  *
  * It never decides the call: an `allow` from a hook skips the permission check, and the ask mode would run the call
  * without asking. With no decision, Claude Code asks about the new input as it would have about the old.
  *
- * A subagent's call (one with an `agent_id`) is left alone, at once: what a subagent makes follows its todo. So is
- * anything this can't read, and a call the host fails on: the call runs as the model wrote it.
+ * Every other call is left alone, at once: a `Bash` call in the background (a watcher isn't filed), and a subagent's
+ * `Bash` call (one with an `agent_id`: what a subagent commits follows its todo). So is anything this can't read, and
+ * a call the host fails on: the call runs as the model wrote it.
  */
 export function childCallHook(
   onChildStarting: NonNullable<SessionHooks['onChildStarting']>,
@@ -495,12 +496,13 @@ export function childCallHook(
 ): HookCallback {
   return async (input) => {
     const parsed = childCallInput.safeParse(input)
-    if (!parsed.success || parsed.data.agent_id !== undefined) return {}
-    const { tool_name: toolName, tool_use_id: toolUseId, tool_input: toolInput } = parsed.data
-    // The matcher may match more than the names it lists (another server's `mcp__x__Bash`): only these make a child.
-    if (!isChildTool(toolName)) return {}
+    if (!parsed.success) return {}
+    const { tool_name: toolName, tool_use_id: toolUseId, tool_input: toolInput, agent_id: agentId } = parsed.data
+    // The matcher may match more than the names it lists (another server's `mcp__x__Bash`), and a `Bash` call in the
+    // background, or a subagent's, isn't read.
+    if (!readsTodo({ toolName, input: toolInput, subagent: agentId !== undefined })) return {}
     try {
-      const updated = await onChildStarting({ toolName, input: toolInput, toolUseId })
+      const updated = await onChildStarting({ toolName, input: toolInput, toolUseId, agentId: agentId ?? null })
       if (updated === null) return {}
       return { hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { ...updated } } }
     } catch (error) {
@@ -588,8 +590,8 @@ export function toolBatchHook(
  * `Monitor`'s commands too, and the call's result waits for the answer. A sandboxed session's calls to the tools the
  * sandbox bounds are decided before they run (`onToolStarting`, `sandboxToolGuard`): that hook fails closed.
  *
- * A session with the todo hub on (#495, §16) has three more: its own calls to the tools that make something a todo can
- * hold run with the input the host hands back (`onChildStarting`, `childCallHook`), the host is told of each of its
+ * A session with the todo hub on (#495, §16) has three more: the `Agent` calls, and its own `Bash` calls in the
+ * foreground, run with the input the host hands back (`onChildStarting`, `childCallHook`), the host is told of each of its
  * messages' calls once they've run and can tell the agent something with their results (`onBatchFinished`,
  * `toolBatchHook`), and the `Stop` hook holds the end of a turn while the host says why it can't end
  * (`onTurnEnding`). Without those, a session's hooks are exactly what they were.

@@ -4007,9 +4007,10 @@ const makesAnotherCommit: AgentScript = {
 }
 
 /**
- * What the `files-children` script's agent keeps as todos and makes under them, for the todo hub's specs (P16,
- * `docs/sdk-notes.md` §16). Each child has the text its call gives it and the todo it belongs to, by the id
- * Claude Code gives the todo (`Task #N`: its place in `todos`, from 1).
+ * What the `files-children` script's agent keeps as todos and makes, for the todo hub's specs (P16,
+ * `docs/sdk-notes.md` §16). A subagent and a commit have the text their call gives them and the todo they belong to,
+ * by the id Claude Code gives the todo (`Task #N`: its place in `todos`, from 1). A watcher has only its text: watchers
+ * aren't filed, so no call that starts one names a todo.
  */
 export const FILES_CHILDREN = {
   prompt: 'Review the date helpers, fix the UTC test, and watch CI on the PR.',
@@ -4021,7 +4022,7 @@ export const FILES_CHILDREN = {
   ],
   /** Makes the workspace a repository, with no commit of its own, when it isn't one yet. */
   setup: 'test -d .git || git init -q -b main',
-  /** The first turn's children: each call names its todo. */
+  /** The first turn's children: the `Agent` call, and the `Bash` call that commits, each name their todo. */
   named: {
     subagent: { text: 'Review the date helpers', todo: '1' },
     subagentSummary: 'The header builds its date in local time; nothing else in the date helpers does.',
@@ -4030,13 +4031,13 @@ export const FILES_CHILDREN = {
     commitCommand:
       "mkdir -p src && printf 'export const header = (d: Date) => d.toISOString().slice(0, 10)\\n' > src/date.ts" +
       ' && git add src/date.ts && git commit -m "Fix the UTC date test"',
-    monitor: { text: 'CI checks on PR #42', todo: '3' },
+    monitor: 'CI checks on PR #42',
     monitorCommand: 'gh pr checks 42 --watch --interval 30 | grep --line-buffered -E "pass|fail"',
-    command: { text: 'Integration tests', todo: '2' },
+    command: 'Integration tests',
     commandCommand: 'npm run test:integration -- --reporter=dot',
-    wakeup: { text: 'Check CI again once the checks have had time to finish', todo: '3' },
+    wakeup: 'Check CI again once the checks have had time to finish',
     wakeupPrompt: 'Check whether the CI checks on PR #42 finished, and report.',
-    cron: { text: 'Check the PR for review comments, and report any.', todo: '3' },
+    cron: 'Check the PR for review comments, and report any.',
     cronSchedule: '0 9 * * *',
     cronHumanSchedule: 'Every day at 9:00 AM',
     cronJob: 'c4f1d02a',
@@ -4072,17 +4073,22 @@ export const FILES_CHILDREN = {
     file: { path: 'src/date.ts', title: 'Date header helper', todo: '2' },
     link: { url: 'https://github.com/acme/api/pull/42', title: 'Fix the UTC date test', todo: '3' },
   },
-  /** The todo the agent files each of the second turn's children under, once Glade tells it what it made. */
-  filed: { subagent: '1', commit: '2', monitor: '3', command: '2', wakeup: '3', cron: '3' },
+  /** The todo the agent files the second turn's subagent and commit under, once Glade tells it what it made. */
+  filed: { subagent: '1', commit: '2' },
 } as const
 
-/** The children each turn of `files-children` makes, by their key in `FILES_CHILDREN.named` and `.unnamed`. */
+/** What each turn of `files-children` makes, by its key in `FILES_CHILDREN.named` and `.unnamed`. */
 export type FiledChild = 'subagent' | 'commit' | 'monitor' | 'command' | 'wakeup' | 'cron'
+
+/** Whether a call that makes one names its todo: a subagent's and a commit's do, a watcher's never does. */
+function namesTodo(child: FiledChild): child is 'subagent' | 'commit' {
+  return child === 'subagent' || child === 'commit'
+}
 
 /**
  * One turn of `files-children`: a subagent in the background, a commit, a `Monitor`, a command in the background, a
  * `ScheduleWakeup` and a `CronCreate` job, each call as `call` makes its input from the tool, the input without a todo
- * and the todo it belongs to (to name it, or not). The commit is real (`ScriptStepKind.Shell`).
+ * and what it makes (to name its todo, or not). The commit is real (`ScriptStepKind.Shell`).
  */
 function childrenTurn(
   made: typeof FILES_CHILDREN.named | typeof FILES_CHILDREN.unnamed,
@@ -4157,14 +4163,15 @@ function childrenTurn(
 }
 
 /**
- * Makes one of each kind of child a todo can hold, twice (`docs/sdk-notes.md` §16), for Glade to file (P16-04, #495):
- * the first turn keeps three todos with Claude Code's own todo tools and names one in each call that makes a child (a
- * marker at the start of the call's own text, `[todo 2] …`); the second turn makes the same kinds and names none, as an
- * agent that forgot would, then declares a file and a link as artifacts, giving `add_artifact` each one's todo. The
- * calls are as the model wrote them. In a session with the todo hub on, Glade takes each marker off and files what the
- * call made, and tells the agent what its second turn's calls made, which it files as `filing` says
- * (`FILES_CHILDREN.filed`). With the hub off, nothing reads a marker, `add_artifact` takes no todo, and nothing is
- * asked or filed.
+ * Makes a subagent, a commit and one of each kind of watcher, twice (`docs/sdk-notes.md` §16), for Glade to file what
+ * it files (P16-04, #495): the first turn keeps three todos with Claude Code's own todo tools and names one in the
+ * `Agent` call and in the `Bash` call that commits (a marker at the start of the call's description, `[todo 2] …`); the
+ * second turn names none, as an agent that forgot would, then declares a file and a link as artifacts, giving
+ * `add_artifact` each one's todo. No call that starts a watcher names a todo, in either turn: watchers aren't filed.
+ * The calls are as the model wrote them. In a session with the todo hub on, Glade takes each marker off, records the
+ * subagent's todo and files the commit, and tells the agent what its second turn's calls made, which it files as
+ * `filing` says (`FILES_CHILDREN.filed`). With the hub off, nothing reads a marker, `add_artifact` takes no todo, and
+ * nothing is asked or filed.
  */
 const filesChildren: AgentScript = {
   name: 'files-children',
@@ -4172,10 +4179,6 @@ const filesChildren: AgentScript = {
     todos: {
       [FILES_CHILDREN.unnamed.subagent]: FILES_CHILDREN.filed.subagent,
       [FILES_CHILDREN.unnamed.commitSubject]: FILES_CHILDREN.filed.commit,
-      [FILES_CHILDREN.unnamed.monitor]: FILES_CHILDREN.filed.monitor,
-      [FILES_CHILDREN.unnamed.command]: FILES_CHILDREN.filed.command,
-      [FILES_CHILDREN.unnamed.wakeup]: FILES_CHILDREN.filed.wakeup,
-      [FILES_CHILDREN.unnamed.cron]: FILES_CHILDREN.filed.cron,
     },
   },
   turns: [
@@ -4191,7 +4194,7 @@ const filesChildren: AgentScript = {
       ...FILES_CHILDREN.todos.flatMap((item, index) => createTodo(item, index + 1)),
       ...updateTodo(1, 'in_progress'),
       ...childrenTurn(FILES_CHILDREN.named, (tool, input, child) =>
-        nameTodo(tool, input, FILES_CHILDREN.named[child].todo),
+        namesTodo(child) ? nameTodo(tool, input, FILES_CHILDREN.named[child].todo) : input,
       ),
       ...updateTodo(1, 'completed'),
       ...updateTodo(2, 'completed'),

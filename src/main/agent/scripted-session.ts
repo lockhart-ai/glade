@@ -53,14 +53,15 @@
  *   through the session's `Bash` hook (`hooks.onBashFinished`), which the turn waits on. A step that can't be played as
  *   written kills the session with a `MalformedStepError` naming it.
  * - With the todo hub's hooks (a session that started with it on, `docs/sdk-notes.md` §16), the session asks them as
- *   Claude Code does. The agent's own call to a tool that makes a child (`./child-calls`) is streamed as the model
- *   wrote it, then put to the `PreToolUse` hook (`hooks.onChildStarting`), and the tool runs with the input the hook
- *   hands back: what the session says of the call afterwards (its task's description, a job's prompt) has no marker.
+ *   Claude Code does. A call a todo is read off (`readsTodo` in `./child-calls`: an `Agent` call, or the agent's own
+ *   `Bash` call in the foreground) is streamed as the model wrote it, then put to the `PreToolUse` hook
+ *   (`hooks.onChildStarting`), and the tool runs with the input the hook hands back: what the session says of the call
+ *   afterwards (its subagent's description) has no marker. A watcher's call is put to no hook, and runs as written.
  *   Once the agent's own calls of one message all have their results, the `PostToolBatch` hook hears of them
  *   (`hooks.onBatchFinished`), and each time the turn is about to end, the `Stop` hook may hold it
  *   (`hooks.onTurnEnding`): the agent then takes another step and writes its reply again, however often it's held.
  *   What the agent does with what either hook tells it is the script's `filing`: it files what it's told of with one
- *   `file_children` call, or doesn't. A subagent's calls are put to none of the three.
+ *   `file_children` call, or doesn't. A subagent's calls are told to neither of those two.
  * - A `Fail` step kills the session: its message stream throws, and it plays nothing more.
  * - The script can be picked by the session's first message (a `ScriptChooser`), so different tasks can play different
  *   scripts. A chooser that has none for it kills the session as a `Fail` step would.
@@ -89,7 +90,7 @@ import {
 } from './backend'
 import { BOUNDED_TOOLS, isOutsideTool } from '../permissions/sandbox-classify'
 import { CONTROL_SERVER } from '../control/names'
-import { ChildTool, isChildTool } from './child-calls'
+import { ChildTool, readsTodo } from './child-calls'
 import { GLADE_SERVER, GladeTool } from './glade-tools'
 import { ruleCovers } from '../../shared/permissions'
 import { createMcpToolCaller, type McpToolCaller, type McpToolOutcome } from './mcp-tool-caller'
@@ -798,8 +799,9 @@ export class ScriptedSession implements AgentSession {
         if (step.parent === undefined) turn.lastText = step.text
         return
       case ScriptStepKind.ToolUse:
-        if (this.namesTodo(step.name, step.parent)) await this.called(turn, step.id, step.name, step.input, null, uuid)
-        else this.toolUse(turn, step.id, step.name, step.input, step.parent ?? null, uuid)
+        if (this.asksTodo(step.name, step.input, step.parent ?? null)) {
+          await this.called(turn, step.id, step.name, step.input, step.parent ?? null, uuid)
+        } else this.toolUse(turn, step.id, step.name, step.input, step.parent ?? null, uuid)
         return
       case ScriptStepKind.ToolResult:
         this.toolResult(turn, step.id, step.output, step.isError ?? false, step.details)
@@ -860,7 +862,7 @@ export class ScriptedSession implements AgentSession {
       case ScriptStepKind.Background: {
         const launched = this.background(turn, step, uuid)
         // Only a session whose hook reads the call waits on it: any other has launched it by now.
-        if (this.namesTodo(ChildTool.Agent, undefined)) await launched
+        if (this.options.session.hooks?.onChildStarting !== undefined) await launched
         return
       }
       case ScriptStepKind.MessageSubagent:
@@ -1074,7 +1076,7 @@ export class ScriptedSession implements AgentSession {
     const input =
       hook === undefined
         ? written
-        : ((await hook({ toolName: ChildTool.Agent, input: written, toolUseId: agentId })) ?? written)
+        : ((await hook({ toolName: ChildTool.Agent, input: written, toolUseId: agentId, agentId: null })) ?? written)
     const description = typeof input.description === 'string' ? input.description : ''
     this.descriptions.set(taskId, description)
     this.push({
@@ -1928,18 +1930,19 @@ export class ScriptedSession implements AgentSession {
   }
 
   /**
-   * Whether a call is put to the session's `PreToolUse` hook for the tools that make a child: the agent's own call to
-   * one of them, in a session that has the hook (`docs/sdk-notes.md` §16). A subagent's never is.
+   * Whether a call is put to the session's `PreToolUse` hook for the calls a todo is read off (`readsTodo`), in a
+   * session that has the hook (`docs/sdk-notes.md` §16): an `Agent` call, the agent's own or a subagent's (`parent`),
+   * or the agent's own `Bash` call in the foreground. A watcher's call never is.
    */
-  private namesTodo(name: string, parent: string | null | undefined): boolean {
-    return this.options.session.hooks?.onChildStarting !== undefined && (parent ?? null) === null && isChildTool(name)
+  private asksTodo(name: string, input: ToolInput, parent: string | null): boolean {
+    const hooked = this.options.session.hooks?.onChildStarting !== undefined
+    return hooked && readsTodo({ toolName: name, input, subagent: parent !== null })
   }
 
   /**
-   * Makes a tool call, and answers the input its tool runs with. The agent's own call to a tool that makes a child is
-   * streamed as the model wrote it, then put to the session's hook, and runs with the input the hook hands back: what
-   * the session says of the call from then on (its task's description, a job's prompt) is that input's. Any other call
-   * runs as written.
+   * Makes a tool call, and answers the input its tool runs with. A call a todo is read off is streamed as the model
+   * wrote it, then put to the session's hook, and runs with the input the hook hands back: what the session says of
+   * the call from then on (its subagent's description) is that input's. Any other call runs as written.
    */
   private async called(
     turn: TurnState,
@@ -1950,18 +1953,21 @@ export class ScriptedSession implements AgentSession {
     uuid: string | null,
   ): Promise<ToolInput> {
     const hook = this.options.session.hooks?.onChildStarting
-    if (hook === undefined || !this.namesTodo(name, parent)) {
+    if (hook === undefined || !this.asksTodo(name, input, parent)) {
       this.toolUse(turn, id, name, input, parent, uuid)
       return input
     }
     const sdkId = this.sdkToolId(turn, id)
-    turn.running.set(id, { sdkId, parent: null, name, input })
-    this.assistant(turn, { type: 'tool_use', id: sdkId, name, input }, null, uuid)
-    const ran = (await hook({ toolName: name, input, toolUseId: sdkId })) ?? input
+    const sdkParent = parent === null ? null : this.sdkToolId(turn, parent)
+    // A subagent's call names it, by a made-up id, as the SDK's hooks do.
+    const agentId = parent === null ? null : `a${this.idPrefix}${parent}`
+    turn.running.set(id, { sdkId, parent: sdkParent, name, input })
+    this.assistant(turn, { type: 'tool_use', id: sdkId, name, input }, sdkParent, uuid)
+    const ran = (await hook({ toolName: name, input, toolUseId: sdkId, agentId })) ?? input
     // An interrupt while the hook decided: the call never ran, and the turn rejects it.
     if (turn.isInterrupted) return ran
-    turn.running.set(id, { sdkId, parent: null, name, input: ran })
-    this.startTasks(sdkId, name, ran, null)
+    turn.running.set(id, { sdkId, parent: sdkParent, name, input: ran })
+    this.startTasks(sdkId, name, ran, sdkParent)
     return ran
   }
 

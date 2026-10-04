@@ -413,13 +413,18 @@ The handlers are `listForAgent` and `fileForAgent` in `src/main/todo-hub/agent-c
 (`src/main/todo-hub/todo-hub.ts`) and the resolver (`groupChildren` in `src/shared/todoHub.ts`). The prompt says the
 tools exist in one line ("System prompt", below).
 
-## Implemented, behind the switch: filing a child as it's made (P16-04, #495)
+## Implemented, behind the switch: filing produced work as it's made (P16-04, #495)
 
-**Only with the todo hub on.** A session that starts with `todoHubEnabled` on files everything its agent makes under
-one of its todos as it's made, so nothing new is left under "Not under a todo". With the setting off, none of this
-exists: `add_artifact` takes no `todo`, the prompt has none of these lines, and no hook reads a call, tells the agent
-anything or holds a turn (`src/main/todo-hub/inert.test.ts`). The code is `src/main/todo-hub/filing.ts`, and the
-evidence for each part is in [`sdk-notes.md` §16](sdk-notes.md#16-filing-a-child-under-a-todo).
+**Only with the todo hub on.** A session that starts with `todoHubEnabled` on files what its agent produces under one
+of its todos as it's made: its artifacts and its commits. With the setting off, none of this exists: `add_artifact`
+takes no `todo`, the prompt has none of these lines, and no hook reads a call, tells the agent anything or holds a turn
+(`src/main/todo-hub/inert.test.ts`). The code is `src/main/todo-hub/filing.ts`, and the evidence for each part is in
+[`sdk-notes.md` §16](sdk-notes.md#16-filing-a-child-under-a-todo).
+
+The phase first filed everything a task made, subagents and watchers included; Jared then split it into activity (the
+Agents tab) and produced work (Todos). So: **a watcher isn't filed at all**, and **a subagent's todo is plumbing**
+(below), kept so its commits land under the right todo and its tab can say what it's working on, never shown under
+the todo.
 
 **An artifact: `add_artifact` takes `todo`, and needs it.** With the hub on, the tool's input is
 `{ path, title, todo }` or `{ url, title, todo }`: `todo` is the id of the todo the artifact belongs under (the `N` of
@@ -441,48 +446,65 @@ before they hear of the artifact. The reply ends `It's under todo #2.`
 - If the setting is turned off under a session that has this `add_artifact`, the tool adds the artifact as it did
   before the hub, and files nothing.
 
-**A subagent, a watcher, a commit: the call that makes it names its todo.** These come from Claude Code's own tools
-(`Agent`, `Monitor`, `Bash` in the background or one that commits, `ScheduleWakeup`, `CronCreate`), which Glade can't
-add a field to. So the todo travels as a marker at the start of the call's own text, `[todo 2] Review the date
-helpers`: the `description` of an `Agent`, `Monitor` or `Bash` call, the `reason` of a `ScheduleWakeup`, the `prompt`
-of a `CronCreate` (`src/main/agent/child-calls.ts`). The rule, which Jared picked from #492's findings:
+**A commit, and a subagent's todo: the call names it.** A commit comes from a `Bash` call and a subagent from an
+`Agent` call, Claude Code's own tools, which Glade can't add a field to. So the todo travels as a marker at the start
+of the call's `description`, `[todo 2] Review the date helpers` (`src/main/agent/child-calls.ts`). The rule, which
+Jared picked from #492's findings:
 
-1. **Named in the call.** Glade files what the call makes under that todo (`named`), from the moment it exists, and
-   takes the marker off before the tool runs and off the call's row in the tool log, so it shows nowhere: not in a
-   subagent's name, a watcher's label, a cron job's prompt or the Tool calls tab. `[todo #2]`, other case and space
-   around it are read too.
+1. **Named in the call.** For an `Agent` call, Glade records the subagent it starts as working on that todo (`named`),
+   before the subagent exists. For a `Bash` call in the foreground, it files what the call commits under that todo, as
+   each commit is found. Either way it takes the marker off before the tool runs and off the call's row in the tool
+   log, so it shows nowhere: not in the subagent's name or the Tool calls tab. `[todo #2]`, other case and space around
+   it are read too.
 2. **A call that names none goes ahead,** and so does one whose marker names a todo that isn't in the list (the marker
    still comes off). Once the calls of its message have run, Glade tells the agent, with their results, what they made
-   and which todos it has, each child by its short id, and the agent answers with one `file_children` call (`asked`):
+   and which todos it has, each by its short id, and the agent answers with one `file_children` call (`asked`):
 
    ```
    Glade: file what you just made under its todo now, before your next step, with one mcp__glade__file_children call.
    Made:
    - c4: subagent "Review the order totals"
-   - c5: watcher "Deploy to staging"
-   - c6: commit "73ad18a Note the date review"
+   - c5: commit "73ad18a Note the date review"
    Your todos: #1 Review the date helpers (completed) · #2 Fix the UTC date test (in progress)
    If no todo fits, create it first with TaskCreate.
    ```
 
-   A commit Glade finds after an unnamed `Bash` call goes the same way: the agent's next step waits until git has
-   been read. An agent with no todos is told `You have no todos yet: create one with TaskCreate first.`
-3. **A turn can't end with a filing owed.** Glade holds the end of the turn, saying what's left, twice a turn at most:
+   A commit Glade finds after an unnamed `Bash` call goes the same way, however it was made (a release script that
+   commits, say): the agent's next step waits until git has been read. An agent with no todos is told
+   `You have no todos yet: create one with TaskCreate first.`
+3. **A turn can't end with a commit, or a subagent's todo, still unfiled.** Glade holds the end of the turn, saying
+   what's left, twice a turn at most:
 
    ```
    Glade: these aren't filed under a todo yet. File them with one mcp__glade__file_children call, then end your turn.
-   - c5: watcher "Deploy to staging"
+   - c5: commit "73ad18a Note the date review"
    Your todos: #1 Review the date helpers (completed) · #2 Fix the UTC date test (in progress)
    ```
 
    The agent files them and writes its reply again; the reply it had written before the hold goes to the tool log, so
-   the chat shows the one it ended on (or, if it writes none after filing, the one it had written). **If it ignores both holds, the turn ends anyway:** what's left stays under
-   "Not under a todo", still owed, and the end of its next turn asks again, twice more. What's owed is kept in SQLite
-   (`owed_filings`), so a relaunch doesn't forget it. A turn you stopped is never held, nor is a compaction.
+   the chat shows the one it ended on (or, if it writes none after filing, the one it had written). **If it ignores
+   both holds, the turn ends anyway:** what's left stays under "Not under a todo", still owed, and the end of its next
+   turn asks again, twice more. What's owed is kept in SQLite (`owed_filings`), so a relaunch doesn't forget it. A turn
+   you stopped is never held, nor is a compaction.
 4. **Nothing is refused, and nothing is guessed** from which todo is in progress.
-5. **A subagent's calls are left alone.** What a subagent makes (its commits, its watchers, its own subagents, at any
-   depth) follows the subagent's todo by itself (`inherited`), a marker in a subagent's own call is left where it is,
-   and a subagent is never told to file anything.
+
+**A subagent's todo is plumbing.** What's stored is "this subagent works on this todo": one subagent, one todo
+(`subagentTodo` in `src/shared/todoHub.ts` reads it back, for the subagent's tab in the Agents tab, #536). It isn't
+produced work, and isn't shown under the todo.
+
+- **Its commits follow it.** What a subagent commits is under the todo it works on, by itself (`inherited`), from the
+  moment the commit is found. A subagent is never told to file anything, and nothing it leaves unnamed is ever owed.
+- **A subagent it starts works on the same todo,** however deep, unless that `Agent` call names another todo of the
+  task's: then the subagent it starts works on that one, and the marker comes off its call too. A marker naming a
+  todo that isn't in the list leaves it on its parent's.
+- **A subagent's other calls are left alone:** a marker at the start of its `Bash` call's description stays where
+  it is.
+
+**A watcher isn't filed.** A `Monitor` call, a `Bash` call with `run_in_background`, a `ScheduleWakeup` and a
+`CronCreate` are left exactly as they are, the agent's and a subagent's alike: the prompt asks for no marker on them,
+none is read or taken off (a watcher's label is what its call says, whatever that starts with), no message follows
+them, and no turn is held for them. A watcher belongs to the agent that started it, and shows with that agent's tool
+calls (#537).
 
 Only what the agent made itself, in a call, with the hub on, is ever owed: never what the task made before the hub, a
 link you added, or an artifact added through the control API. Those wait under "Not under a todo" until you ask the
@@ -584,13 +606,13 @@ prompt leaves out asking for it.
 Four more parts are added after that, each after a blank line, when they apply:
 
 - **The todo hub** (behind the hidden `todoHubEnabled` setting, P16-04 and P16-05, #495 and #496): in a session that
-  starts with the setting on, three paragraphs (`TODO_HUB_LINES`): how what it makes is filed under its todos
-  (`TODO_HUB_FILING_LINE`, word for word what #492 probed, [`sdk-notes.md` §16](sdk-notes.md#16-filing-a-child-under-a-todo)),
-  that an artifact needs a todo too, and that the hub's tools exist and what they're for. With the setting off, the
-  prompt says nothing of any of it:
+  starts with the setting on, three paragraphs (`TODO_HUB_LINES`): how its commits are filed and each subagent gets a
+  todo (`TODO_HUB_FILING_LINE`: what #492 probed, [`sdk-notes.md` §16](sdk-notes.md#16-filing-a-child-under-a-todo),
+  cut down to the two calls Glade reads a todo off, with nothing of watchers), that an artifact needs a todo too, and
+  that the hub's tools exist and what they're for. With the setting off, the prompt says nothing of any of it:
 
   ```
-  Glade files everything you make (a subagent, a watcher or background command, a scheduled wakeup or cron job, a commit) under one of your todos, where the user finds it. Name the todo in the call that makes it: start the description of an Agent, Monitor or background Bash call, the description of a Bash call that commits, the reason of a ScheduleWakeup and the prompt of a CronCreate with the todo's id in square brackets, like "[todo 2] Review the date helpers". Create the todo first (TaskCreate) if none fits. If a call names none, Glade asks you right after it to file what it made, with mcp__glade__file_children: do that at once, before your next step. What a subagent makes is filed with the subagent: leave those.
+  Glade files every commit you make under one of your todos, where the user finds it, and each subagent you start works on one of them. Name the todo in the call: start the description of an Agent call, and of a Bash call that commits, with the todo's id in square brackets, like "[todo 2] Review the date helpers". Create the todo first (TaskCreate) if none fits. If a call names none, Glade asks you right after it to file what it made, with mcp__glade__file_children: do that at once, before your next step. What a subagent commits goes under its todo by itself: leave those.
 
   An artifact goes under a todo too: give add_artifact the todo's id as todo, for a file and for a link.
 

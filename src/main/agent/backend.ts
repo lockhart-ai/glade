@@ -197,8 +197,9 @@ export interface BashFinishedAnswer {
 }
 
 /**
- * A call of the agent's own to one of Claude Code's tools that make something a todo can hold (`./child-calls`) about
- * to run, as the session's `PreToolUse` hook tells it (`docs/sdk-notes.md` §16). Never a subagent's call.
+ * A call Glade reads a todo off (`readsTodo` in `./child-calls`) about to run, as the session's `PreToolUse` hook tells
+ * it (`docs/sdk-notes.md` §16): an `Agent` call, the agent's own or a subagent's, or the agent's own `Bash` call in the
+ * foreground. Never a watcher's call.
  */
 export interface ChildCallStarting {
   readonly toolName: string
@@ -206,6 +207,8 @@ export interface ChildCallStarting {
   readonly input: ToolInput
   /** The call's `tool_use` id. */
   readonly toolUseId: string
+  /** The SDK's id for the subagent making the call; null for the agent's own. */
+  readonly agentId: string | null
 }
 
 /** One call of an assistant message whose calls have all run (`ToolBatch`). */
@@ -236,8 +239,8 @@ export interface TurnEnding {
 /**
  * What the session tells the host as it runs, through Claude Code's hooks (`docs/sdk-notes.md` §13 and §14), parsed at
  * the SDK boundary: the prompts that start its turns, the jobs it has scheduled, the summaries its compactions write
- * (§5) and the `Bash` calls about to run and run (§15). With the todo hub on, also the calls that make something a
- * todo can hold, each message's calls once they've run, and each turn about to end (§16).
+ * (§5) and the `Bash` calls about to run and run (§15). With the todo hub on, also the calls a todo is read off, each
+ * message's calls once they've run, and each turn about to end (§16).
  */
 export interface SessionHooks {
   /**
@@ -272,10 +275,10 @@ export interface SessionHooks {
   /** A compaction wrote its summary (`PostCompact`), just before the SDK reports it done (`compact_boundary`). */
   readonly onCompacted: (compaction: CompactSummary) => void
   /**
-   * A call of the agent's own that makes something a todo can hold is about to run (`PreToolUse`, #495): the call
-   * waits until this resolves. Answers the input the tool runs with in place of the model's (the todo's marker taken
-   * off), or null to leave it as it is. It never decides whether the call runs: Claude Code still asks about it as it
-   * would have. Given only to a session with the todo hub on.
+   * A call Glade reads a todo off is about to run (`PreToolUse`, #495): an `Agent` call, or the agent's own `Bash`
+   * call in the foreground. The call waits until this resolves. Answers the input the tool runs with in place of the
+   * model's (the todo's marker taken off), or null to leave it as it is. It never decides whether the call runs:
+   * Claude Code still asks about it as it would have. Given only to a session with the todo hub on.
    */
   readonly onChildStarting?: (call: ChildCallStarting) => Promise<ToolInput | null>
   /**

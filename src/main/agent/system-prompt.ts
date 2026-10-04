@@ -72,19 +72,19 @@ export const TODO_HUB_TOOLS_LINE =
   'made, list them, then file them all in one call.'
 
 /**
- * What the prompt says of filing what the agent makes as it's made (P16-04, #495), in a session with the todo hub on:
- * to name the todo in the call that makes a child, and what Glade does when a call names none. The wording is the one
- * #492 probed (`docs/sdk-notes.md` §16), word for word, with the filing tool's real name: Opus and Sonnet named a todo
- * in every call that made a child with it.
+ * What the prompt says of filing what the agent produces as it's made (P16-04, #495), in a session with the todo hub
+ * on: to name the todo in the `Agent` call that starts a subagent and in the `Bash` call that commits, and what Glade
+ * does when a call names none. The wording is the one #492 probed (`docs/sdk-notes.md` §16), with the filing tool's
+ * real name, cut down to those two calls when the phase split into Agents and Todos: it asks for no marker on a
+ * watcher's call (`Monitor`, background `Bash`, `ScheduleWakeup`, `CronCreate`), which Glade leaves as it is.
  */
 export const TODO_HUB_FILING_LINE =
-  'Glade files everything you make (a subagent, a watcher or background command, a scheduled wakeup or cron job, a ' +
-  'commit) under one of your todos, where the user finds it. Name the todo in the call that makes it: start the ' +
-  'description of an Agent, Monitor or background Bash call, the description of a Bash call that commits, the reason ' +
-  'of a ScheduleWakeup and the prompt of a CronCreate with the todo\'s id in square brackets, like "[todo 2] Review ' +
-  'the date helpers". Create the todo first (TaskCreate) if none fits. If a call names none, Glade asks you right ' +
-  `after it to file what it made, with ${FILE_CHILDREN_TOOL}: do that at once, before your next step. What a ` +
-  'subagent makes is filed with the subagent: leave those.'
+  'Glade files every commit you make under one of your todos, where the user finds it, and each subagent you start ' +
+  'works on one of them. Name the todo in the call: start the description of an Agent call, and of a Bash call that ' +
+  'commits, with the todo\'s id in square brackets, like "[todo 2] Review the date helpers". Create the todo first ' +
+  '(TaskCreate) if none fits. If a call names none, Glade asks you right after it to file what it made, with ' +
+  `${FILE_CHILDREN_TOOL}: do that at once, before your next step. What a subagent commits goes under its todo by ` +
+  'itself: leave those.'
 
 /** What the prompt says of an artifact's todo, in a session with the todo hub on: `add_artifact` needs one. */
 export const TODO_HUB_ARTIFACTS_LINE = `An artifact goes under a todo too: give ${GladeTool.AddArtifact} the todo's id as todo, for a file and for a link.`

@@ -162,48 +162,67 @@ describe('the scripted session, asked for the todo hub’s hooks', () => {
       .map(({ input }) => input)
   }
 
-  it('streams a call as the model wrote it, and runs it with the input the hook hands back', async () => {
+  it('streams a call as the model wrote it, runs an Agent call with the input the hook hands back, and a watcher’s as written', async () => {
     const played = play([
       init(),
       toolUse('review', 'Agent', { description: '[todo 1] Review the date helpers', prompt: 'Review.' }),
       toolResult('review', 'Nothing else builds a date in local time.'),
       ...tool('ci', 'Monitor', { description: '[todo 3] CI checks', command: 'gh pr checks 42' }, 'Monitor started.'),
+      ...tool(
+        'tests',
+        'Bash',
+        { description: '[todo 2] Integration tests', command: 'npm test', run_in_background: true },
+        'Command running in background.',
+      ),
       toolUse('cron', 'CronCreate', { cron: '0 9 * * *', prompt: '[todo 3] Check the PR.' }),
       toolResult('cron', 'Scheduled.', false, { id: 'c4f1' }),
+      ...tool('status', 'Bash', { description: '[todo 2] Check the tree', command: 'git status' }, 'clean'),
       background('helper', { description: '[todo 2] Fix the test', prompt: 'Fix it.' }, [], { summary: 'Fixed.' }),
       say('Done.'),
       result(),
     ])
     await played.done
 
-    // The stream has each call as written; the hook was asked about each, with that input.
+    // The stream has each call as written.
     expect(written(played.raw).map((input) => input.description ?? input.prompt)).toEqual([
       '[todo 1] Review the date helpers',
       '[todo 3] CI checks',
+      '[todo 2] Integration tests',
       '[todo 3] Check the PR.',
+      '[todo 2] Check the tree',
       '[todo 2] Fix the test',
     ])
-    expect(played.started.map(({ toolName, toolUseId }) => [toolName, toolUseId.replace(/^.*_/, '')])).toEqual([
-      ['Agent', 'review'],
-      ['Monitor', 'ci'],
-      ['CronCreate', 'cron'],
-      ['Agent', 'helper'],
+    // The hook was asked about the `Agent` calls and the command in the foreground, and no watcher's call.
+    expect(
+      played.started.map(({ toolName, toolUseId, agentId }) => [toolName, toolUseId.replace(/^.*_/, ''), agentId]),
+    ).toEqual([
+      ['Agent', 'review', null],
+      ['Bash', 'status', null],
+      ['Agent', 'helper', null],
     ])
-    // What the SDK says of each from then on has no marker: its task's description, a job's prompt, the batch.
-    expect(descriptions(played.raw)).toEqual(['Review the date helpers', 'CI checks', 'Fix the test'])
+    // What the SDK says of a subagent from then on has no marker; a watcher's task is as its call was written.
+    expect(descriptions(played.raw)).toEqual([
+      'Review the date helpers',
+      '[todo 3] CI checks',
+      '[todo 2] Integration tests',
+      'Check the tree',
+      'Fix the test',
+    ])
     expect(
       played.batches.map((calls) => calls.map(({ toolName, input }) => [toolName, input.description ?? input.prompt])),
     ).toEqual([
       [['Agent', 'Review the date helpers']],
-      [['Monitor', 'CI checks']],
-      [['CronCreate', 'Check the PR.']],
+      [['Monitor', '[todo 3] CI checks']],
+      [['Bash', '[todo 2] Integration tests']],
+      [['CronCreate', '[todo 3] Check the PR.']],
+      [['Bash', 'Check the tree']],
       [['Agent', 'Fix the test']],
     ])
     expect(played.endings).toEqual([false])
     expect(played.raw.at(-1)).toMatchObject({ type: 'result', result: 'Done.' })
   })
 
-  it('asks nothing about a subagent’s own calls, and waits for a subagent’s result to close its message', async () => {
+  it('asks about a subagent’s Agent call, saying whose it is, and nothing about its other calls', async () => {
     const played = play([
       init(),
       toolUse('review', 'Agent', { description: 'Review the date helpers' }),
@@ -214,6 +233,8 @@ describe('the scripted session, asked for the todo hub’s hooks', () => {
         'review',
       ),
       toolResult('tests', 'Command running in background.'),
+      toolUse('commit', 'Bash', { command: 'git commit -am "Fix"', description: '[todo 2] Commit' }, 'review'),
+      toolResult('commit', '[main abc1234] Fix'),
       toolUse('nested', 'Agent', { description: '[todo 9] Check the fixtures' }, 'review'),
       toolResult('nested', 'Fine.'),
       toolResult('review', 'Reviewed.'),
@@ -222,14 +243,21 @@ describe('the scripted session, asked for the todo hub’s hooks', () => {
     ])
     await played.done
 
-    // Only the agent's own call went to the hooks: the subagent's ran as it wrote them, markers and all.
-    expect(played.started.map(({ toolName }) => toolName)).toEqual(['Agent'])
+    // The agent's own call, then its subagent's `Agent` call, which names the subagent that made it.
+    expect(
+      played.started.map(({ toolName, toolUseId, agentId }) => [toolName, toolUseId.replace(/^.*_/, ''), agentId]),
+    ).toEqual([
+      ['Agent', 'review', null],
+      ['Agent', 'nested', expect.stringMatching(/review$/)],
+    ])
+    // The nested subagent starts without the marker; the subagent's commands ran as it wrote them.
     expect(descriptions(played.raw)).toEqual([
       'Review the date helpers',
       '[todo 2] Tests',
-      '[todo 9] Check the fixtures',
+      '[todo 2] Commit',
+      'Check the fixtures',
     ])
-    // One message, told of once the subagent it waited on had finished.
+    // One message of the agent's own, told of once the subagent it waited on had finished: none of the subagent's.
     expect(played.batches.map((calls) => calls.map(({ toolName, output }) => [toolName, output]))).toEqual([
       [['Agent', 'Reviewed.']],
     ])
@@ -314,8 +342,9 @@ describe('the scripted session, asked for the todo hub’s hooks', () => {
     const stopped = play(
       [
         init(),
-        ...tool('ci', 'Monitor', { description: '[todo 3] CI checks', command: 'gh pr checks 42' }, 'Started.'),
-        permission('deploy', 'Monitor', { description: '[todo 3] Deploy', command: './deploy.sh' }, 'Started.'),
+        toolUse('review', 'Agent', { description: '[todo 3] Review the deploy' }),
+        toolResult('review', 'Reviewed.'),
+        permission('commit', 'Bash', { description: '[todo 3] Commit', command: 'git commit -am "Fix"' }, 'Committed.'),
         shell('status', 'git status', '[todo 2] Check the tree'),
         say('Done.'),
         result(),
@@ -398,6 +427,8 @@ describe('a scripted agent, through the runner, with the todo hub on', () => {
     { description: 'Deploy to staging', command: './deploy-status.sh' },
     'Started.',
   )
+  /** A subagent started for no todo, which the turn waits on. */
+  const REVIEW = [toolUse('review', 'Agent', { description: 'Review the deploy' }), toolResult('review', 'It is fine.')]
 
   function start(script: AgentScript): AgentRunner {
     backend = createTestModeAgentBackend({ script })
@@ -441,17 +472,17 @@ describe('a scripted agent, through the runner, with the todo hub on', () => {
   it('files at the end of its turn when it ignored Glade right after the call: held once, its reply written again', async () => {
     const agent = start({
       name: 'files-when-held',
-      turns: [[init(), ...TODO, ...WATCH, say('The deploy is being watched.'), result()]],
-      filing: { todos: { 'Deploy to staging': '1' }, onlyWhenHeld: true },
+      turns: [[init(), ...TODO, ...REVIEW, say('The deploy is reviewed.'), result()]],
+      filing: { todos: { 'Review the deploy': '1' }, onlyWhenHeld: true },
     })
 
-    await send(agent, 'Watch the staging deploy.')
+    await send(agent, 'Review the staging deploy.')
 
-    expect(placed()).toEqual([['watcher asked'], []])
-    expect(toolCalls().map(({ name }) => name)).toEqual(['TaskCreate', 'Monitor', FILE_CHILDREN_TOOL])
+    expect(placed()).toEqual([['subagent asked'], []])
+    expect(toolCalls().map(({ name }) => name)).toEqual(['TaskCreate', 'Agent', FILE_CHILDREN_TOOL])
     // The reply it wrote before the hold is in the tool log; the user reads the one it ended on.
-    expect(narrated()).toEqual(['The deploy is being watched.'])
-    expect(replies()).toEqual(['The deploy is being watched.'])
+    expect(narrated()).toEqual(['The deploy is reviewed.'])
+    expect(replies()).toEqual(['The deploy is reviewed.'])
     expect(listOwedFilings(db, task.id)).toEqual([])
   })
 
@@ -459,66 +490,77 @@ describe('a scripted agent, through the runner, with the todo hub on', () => {
     const agent = start({
       name: 'never-files',
       turns: [
-        [init(), ...TODO, ...WATCH, say('The deploy is being watched.'), result()],
+        [init(), ...TODO, ...REVIEW, say('The deploy is reviewed.'), result()],
         [init(), say('Nothing new.'), result()],
       ],
     })
 
-    await send(agent, 'Watch the staging deploy.')
+    await send(agent, 'Review the staging deploy.')
 
     // Told after the call, then held twice: it only wrote its reply again, and the turn ended all the same.
-    expect(toolCalls().map(({ name }) => name)).toEqual(['TaskCreate', 'Monitor'])
-    expect(narrated()).toEqual(['The deploy is being watched.', 'The deploy is being watched.'])
-    expect(replies()).toEqual(['The deploy is being watched.'])
-    // What it made is under "Not under a todo", still owed.
-    expect(placed()).toEqual([[], ['watcher unfiled']])
+    expect(toolCalls().map(({ name }) => name)).toEqual(['TaskCreate', 'Agent'])
+    expect(narrated()).toEqual(['The deploy is reviewed.', 'The deploy is reviewed.'])
+    expect(replies()).toEqual(['The deploy is reviewed.'])
+    // Its subagent has no todo, and one is still owed.
+    expect(placed()).toEqual([[], ['subagent unfiled']])
     expect(listOwedFilings(db, task.id)).toHaveLength(1)
-    expect(listWatchers(db, task.id)).toHaveLength(1)
 
     await send(agent, 'Anything new?')
 
     expect(narrated().slice(2)).toEqual(['Nothing new.', 'Nothing new.'])
-    expect(replies()).toEqual(['The deploy is being watched.', 'Nothing new.'])
+    expect(replies()).toEqual(['The deploy is reviewed.', 'Nothing new.'])
+    expect(placed()).toEqual([[], ['subagent unfiled']])
+  })
+
+  it('is never told of a watcher, or held for one: its turn ends once, on its reply', async () => {
+    const agent = start({
+      name: 'only-watches',
+      turns: [[init(), ...TODO, ...WATCH, say('The deploy is being watched.'), result()]],
+      // It would file a watcher if it were told of one.
+      filing: { todos: { 'Deploy to staging': '1' } },
+    })
+
+    await send(agent, 'Watch the staging deploy.')
+
+    expect(toolCalls().map(({ name }) => name)).toEqual(['TaskCreate', 'Monitor'])
+    expect(narrated()).toEqual([])
+    expect(replies()).toEqual(['The deploy is being watched.'])
+    expect(listWatchers(db, task.id)).toHaveLength(1)
     expect(placed()).toEqual([[], ['watcher unfiled']])
+    expect(listOwedFilings(db, task.id)).toEqual([])
   })
 
   it('still asks about a call that names its todo, in the ask mode, and asks about it without the marker', async () => {
     updateTask(db, task.id, { permissionMode: PermissionMode.AskBeforeEdits })
+    const command = 'git commit -am "Fix the deploy script"'
     const agent = start({
       name: 'asks-about-a-named-call',
       turns: [
         [
           init(),
           ...TODO,
-          permission(
-            'deploy',
-            'Monitor',
-            { description: '[todo 1] Deploy to staging', command: './deploy.sh' },
-            'Started.',
-          ),
-          say('The deploy is being watched.'),
+          permission('commit', 'Bash', { description: '[todo 1] Commit the fix', command }, 'Committed.'),
+          say('The fix is committed.'),
           result(),
         ],
       ],
     })
 
-    agent.send(task.id, 'Watch the staging deploy.')
+    agent.send(task.id, 'Fix the deploy script.')
     await backend.whenIdle()
 
     // The hook took the marker off and decided nothing: the call waits on you, as any command does in the ask mode.
     const [request] = listOpenPermissionRequests(db, task.id)
-    expect(request).toMatchObject({
-      toolName: 'Monitor',
-      input: { description: 'Deploy to staging', command: './deploy.sh' },
-    })
+    expect(request).toMatchObject({ toolName: 'Bash', input: { description: 'Commit the fix', command } })
     agent.answerPermission(request?.id ?? '', { kind: PermissionDecisionKind.AllowOnce })
     // The session went idle on the card: its turn plays on from the answer.
     await vi.waitFor(() => {
       expect(replies()).toHaveLength(1)
     })
 
-    expect(placed()).toEqual([['watcher named'], []])
-    expect(listWatchers(db, task.id).map(({ label }) => label)).toEqual(['Deploy to staging'])
-    expect(replies()).toEqual(['The deploy is being watched.'])
+    // Its row has no marker, and the turn ended unheld: the command committed nothing here, so nothing is owed.
+    expect(toolCalls().at(-1)).toMatchObject({ name: 'Bash', input: { description: 'Commit the fix', command } })
+    expect(narrated()).toEqual([])
+    expect(replies()).toEqual(['The fix is committed.'])
   })
 })

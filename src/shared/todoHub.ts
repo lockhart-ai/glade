@@ -420,3 +420,14 @@ export function groupChildren({
     unfiled: grouped(UNFILED_TODO_ID, unfiled),
   }
 }
+
+/**
+ * The todo a subagent works on (P16-04, #495), by the `Agent` call that started it: the one that call named, or the
+ * agent filed it under since, else the one the subagent that started it works on, however deep. Null while it has
+ * none, and once its todo is no longer in the list. One subagent works on one todo; it's what its commits follow, and
+ * what its tab says (#536). It's plumbing: a subagent isn't something its todo produced.
+ */
+export function subagentTodo(children: TaskChildren, toolUseId: string): TodoId | null {
+  const isIt = ({ kind, key }: ChildRef): boolean => kind === ChildKind.Subagent && key === toolUseId
+  return groupChildren(children).todos.find((group) => group.children.some(isIt))?.todoId ?? null
+}

@@ -531,15 +531,22 @@
     answers with when Glade asks it to file what it just made (#495), and how a task from before the hub gets sorted
     ("file your things under your todos"). A subagent that moves brings what it made, by the resolver, so no row of
     those is rewritten ([`model-surface.md`](model-surface.md)).
-  - **Every child is filed as it's made** (P16-04, #495), with the rule Jared picked from #492's findings
-    (`sdk-notes.md` §16): the call that makes a subagent, a watcher or a commit names its todo, `[todo N]` at the
-    start of its own text, and Glade files what it makes there and takes the marker off before the tool runs, so it
-    shows nowhere. A call that names none goes ahead, and Glade tells the agent straight after it what it made, which
-    the agent files with one `file_children` call. A turn can't end with a filing owed: Glade holds the end, twice at
-    most, then lets it end, and the next turn's end asks again. Nothing is refused, and nothing is guessed from which
-    todo is in progress. A subagent's calls are left alone: what it makes follows its todo. `add_artifact` takes the
-    todo's id and needs it. An agent with no todos is told to create one first, and Glade keeps Claude Code's task
-    tools on for its sessions, whatever the user's settings say ([`model-surface.md`](model-surface.md)).
+  - **Produced work is filed as it's made** (P16-04, #495), with the rule Jared picked from #492's findings
+    (`sdk-notes.md` §16), narrowed when the phase split into Agents (activity) and Todos (produced work). The `Bash`
+    call that commits names its todo, `[todo N]` at the start of its description, and Glade files the commit there and
+    takes the marker off before the tool runs, so it shows nowhere. A call that names none goes ahead, and Glade tells
+    the agent straight after it what it made, which the agent files with one `file_children` call. A turn can't end
+    with a filing owed: Glade holds the end, twice at most, then lets it end, and the next turn's end asks again.
+    Nothing is refused, and nothing is guessed from which todo is in progress. `add_artifact` takes the todo's id and
+    needs it. An agent with no todos is told to create one first, and Glade keeps Claude Code's task tools on for its
+    sessions, whatever the user's settings say ([`model-surface.md`](model-surface.md)).
+    - **A subagent's todo is plumbing.** The `Agent` call names its todo the same way, and an unnamed one is asked
+      about the same way. What's stored is "this subagent works on this todo", one todo each: it's what its commits
+      follow, by themselves, and what its tab in the Agents tab says (#536). It's never shown under the todo. A
+      subagent's subagent works on its parent's todo unless its call names another, and a subagent is never asked to
+      file anything.
+    - **Watchers aren't filed at all.** A `Monitor`, background `Bash`, `ScheduleWakeup` or `CronCreate` call is left
+      exactly as it is: no marker asked for, read or taken off, no message after it, no hold for it.
   - **The Todos tab as the hub** (P16-06, #497; `design/screens/46-todo-hub.png` to `49-todo-hub-unfiled.png`). With
     the switch on, the Todos tab shows `TodoHub` in place of the list; no other tab changes until #501.
     - **The window groups for itself.** It loads a task's filings and its todos' panels when the tab shows the task
@@ -613,6 +620,7 @@
     24. A todo's context menu (Copy, Ask agent about this) opens from its head. The placeholder group has none.
 
     From filing as it's made (P16-04, #495):
+
     25. A session has the hub for its whole life, or not at all: the switch is read as the session starts, for its
         tools, its prompt, its hooks and the task tools' switch together, as the sandbox's is. Turned on while a
         session runs, it changes nothing for that session; the task gets the hub when its session next starts.
@@ -620,29 +628,38 @@
         (`session_context.todo_hub`), so how many instructions a session has had is the same with the switch on or
         off. A session that started without them and resumes with the hub on is sent all three once (#496's line
         among them), ahead of its next message.
-    27. What an agent owes a filing for is only what it made itself, in a call, with the hub on, that named no todo.
-        Never what the task made before the hub, a link you added, an artifact added through the control API, or a
-        child whose todo was deleted later (it drops to the placeholder, and nothing asks). What's owed is kept in
-        SQLite, so a relaunch doesn't forget it; how often a turn was held isn't, so a turn carried on after a
-        relaunch can be held twice more.
-    28. A marker naming a todo that isn't in the list still comes off the call: it counts as naming none, and the
+    27. The prompt paragraph is #492's cut down to the two calls a todo is read off (an `Agent` call, a `Bash` call
+        that commits), reworded to say a subagent works on a todo and its commits go under it. That wording wasn't
+        probed.
+    28. What an agent owes a filing for is only a commit or a subagent it made itself, in a call, with the hub on, that
+        named no todo. Never what the task made before the hub, a link you added, an artifact added through the
+        control API, or something whose todo was deleted later (it drops to the placeholder, and nothing asks).
+        What's owed is kept in SQLite, so a relaunch doesn't forget it; how often a turn was held isn't, so a turn
+        carried on after a relaunch can be held twice more.
+    29. A marker naming a todo that isn't in the list still comes off the call: it counts as naming none, and the
         agent is told afterwards.
-    29. When a turn's end is held, the reply the agent had written goes to the tool log, and the chat shows the one
+    30. When a turn's end is held, the reply the agent had written goes to the tool log, and the chat shows the one
         it ends on; if it files and writes no reply again, the one it had written is the turn's. An agent that
         ignores both holds ends its turn on the reply it wrote third.
-    30. A turn you stopped is never held, nor is a compaction. What an interrupted message made is taken in at the end
+    31. A turn you stopped is never held, nor is a compaction. What an interrupted message made is taken in at the end
         of the next turn.
-    31. `add_artifact` declared again with another todo moves the artifact there (`moved`). `update_artifact` takes no
-        todo: moving is `file_children`'s. An artifact that's removed, by the agent or by you, leaves no filing, so one
-        added again starts under no todo. One pointed at another file or page keeps its todo, and gets a new short id
-        the next time Glade names it.
-    32. A named call that made nothing (it failed, or you denied it) leaves no filing behind.
-    33. If the switch is turned off under a session that has the hub, its hooks still take markers off (its prompt
+    32. `add_artifact` declared again with another todo moves the artifact there (`moved`). `update_artifact` takes no
+        todo: moving is `file_children`'s. An artifact that's removed, by the agent, by you or through the control
+        API, leaves no filing, so one added again starts under no todo. One pointed at another file or page keeps its
+        todo, and gets a new short id the next time Glade names it.
+    33. A named `Agent` call that started no subagent (it failed, or you denied it) leaves no todo recorded.
+    34. A `Bash` call in the background is a watcher's call, so no todo is read off it, and a commit it makes is left
+        under no todo with nothing asked. A foreground call the SDK moves to the background is still read: what it
+        commits is filed, and the watcher it becomes isn't.
+    35. A subagent's `Agent` call that names a todo of the task's has its marker taken off, as the agent's own does.
+        One that names a todo that isn't there loses the marker too, and stays on its parent's todo. A marker on a
+        subagent's `Bash` call is left where it is: its commits follow its todo.
+    36. If the switch is turned off under a session that has the hub, its hooks still take markers off (its prompt
         still asks for them), and file, ask and hold nothing; `add_artifact` adds as it did before the hub. A session
         that then starts again has no hooks, while Claude Code keeps the prompt it started with: the markers it
         writes show until the switch is back on. That's only reachable by turning the hidden switch off by hand.
-    34. A child's kind in what Glade tells the agent is the hub's (`watcher` for a monitor, a background command, a
-        wakeup and a cron job), as `list_children` says it, not the probes' (`background command`, `wakeup`).
+    37. The store and the agent's tools (#494, #496) still know a watcher as a kind of child, and a subagent still
+        shows in the hub's groups until #535 takes both out: `file_children` can file either, and nothing here does.
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
     `manifest.json`: `id` (the folder's name), `name`, `version`, `entry` (an HTML file in the folder) and an optional

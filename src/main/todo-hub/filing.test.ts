@@ -1,6 +1,7 @@
-// Filing a child as it's made (P16-04, #495), on a real database: what Glade does at each of the three hooks, without
-// a session around it. Each test plays what the hooks say and what the runner writes for a call (its row in the tool
-// log, its watcher, its commit), in the order a real session gives them.
+// Filing produced work as it's made (P16-04, #495), on a real database: what Glade does at each of the three hooks,
+// without a session around it. Each test plays what the hooks say and what the runner writes for a call (its row in
+// the tool log, its watcher, its commit), in the order a real session gives them. Commits are filed, a subagent's todo
+// is recorded, and a watcher's call is left exactly as it is.
 import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
@@ -13,7 +14,14 @@ import {
   type Artifact,
   type Task,
 } from '../../shared/domain'
-import { ChildKind, commitChildKey, FilingSource, type ChildRef, type TodoChildren } from '../../shared/todoHub'
+import {
+  ChildKind,
+  commitChildKey,
+  FilingSource,
+  subagentTodo,
+  type ChildRef,
+  type TodoChildren,
+} from '../../shared/todoHub'
 import { ChildTool, nameTodo } from '../agent/child-calls'
 import { addArtifact, addLinkArtifact } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
@@ -35,7 +43,7 @@ import {
   NOTHING_ADDED,
   type ChildFiler,
 } from './filing'
-import { readTodoHub } from './todo-hub'
+import { readTodoHub, taskChildren } from './todo-hub'
 
 let database: TestDatabase
 let db: Database
@@ -135,16 +143,20 @@ function committed(hash: string, subject: string, toolUseId: string, committedAt
 }
 
 const subagent = (toolUseId: string): ChildRef => ({ kind: ChildKind.Subagent, key: toolUseId })
-const watcher = (toolUseId: string): ChildRef => ({ kind: ChildKind.Watcher, key: toolUseId })
 
-/** The agent's own call, about to run: what the hook answers for it. */
+/** The agent's own call, as it's written or about to run: what Glade answers for it. */
 function starting(tool: ChildTool, toolUseId: string, input: Record<string, unknown>) {
-  return filer.callStarting(task.id, { toolName: tool, input, toolUseId })
+  return filer.callStarting(task.id, { toolName: tool, input, toolUseId, subagent: false })
 }
 
-/** A call that names `todo`, about to run. */
+/** A call of the agent's own that names `todo`. */
 function named(tool: ChildTool, toolUseId: string, input: Record<string, unknown>, todo: string) {
   return starting(tool, toolUseId, nameTodo(tool, input, todo))
+}
+
+/** A subagent's own call. */
+function nested(tool: ChildTool, toolUseId: string, input: Record<string, unknown>) {
+  return filer.callStarting(task.id, { toolName: tool, input, toolUseId, subagent: true })
 }
 
 /** A group's children as `kind key source`, sorted. */
@@ -171,12 +183,12 @@ function threeTodos(): void {
 describe('a call that names its todo', () => {
   beforeEach(threeTodos)
 
-  it('files a subagent under the todo before it exists, and runs without the marker', () => {
+  it('records a subagent’s todo before the subagent exists, and runs without the marker', () => {
     const input = { description: 'Review src/dates.js', prompt: 'Review it.', subagent_type: 'Explore' }
 
     expect(named(ChildTool.Agent, 'toolu_agent', input, '1')).toEqual(input)
 
-    // Filed already, by the call that will start it: it's under its todo from the moment its row is written.
+    // Recorded already, by the call that will start it.
     expect(filings()).toEqual(['subagent toolu_agent #1 named'])
     expect(events).toEqual([
       {
@@ -189,7 +201,8 @@ describe('a call that names its todo', () => {
       },
     ])
     logged('Agent', 'toolu_agent', input)
-    expect(placed()).toEqual([['subagent toolu_agent named'], [], [], []])
+    // It can be read back: the todo the subagent works on.
+    expect(subagentTodo(taskChildren(db, task.id), 'toolu_agent')).toBe('1')
     // Its message's calls have run: there's nothing to ask, and nothing more is written.
     events = []
     expect(filer.batchFinished(task.id, ['toolu_agent'])).toBeNull()
@@ -197,43 +210,7 @@ describe('a call that names its todo', () => {
     expect(listOwedFilings(db, task.id)).toEqual([])
   })
 
-  it('files each kind of watcher by the call that starts it', () => {
-    const monitor = { description: 'CI checks on PR #511', command: 'gh pr checks 511 --watch' }
-    const command = { description: 'Integration tests', command: 'npm run test:integration', run_in_background: true }
-    const wakeup = { delaySeconds: 300, reason: 'Check CI again', prompt: 'Check CI.' }
-    const cron = { cron: '0 9 * * *', prompt: 'Check the PR for review comments.' }
-
-    expect(named(ChildTool.Monitor, 'toolu_monitor', monitor, '3')).toEqual(monitor)
-    expect(named(ChildTool.Bash, 'toolu_command', command, '2')).toEqual(command)
-    expect(named(ChildTool.ScheduleWakeup, 'toolu_wakeup', wakeup, '3')).toEqual(wakeup)
-    expect(named(ChildTool.CronCreate, 'toolu_cron', cron, '3')).toEqual(cron)
-
-    // Filed in the same instant, so listed by their keys.
-    expect(filings()).toEqual([
-      'watcher toolu_command #2 named',
-      'watcher toolu_cron #3 named',
-      'watcher toolu_monitor #3 named',
-      'watcher toolu_wakeup #3 named',
-    ])
-    for (const [toolUseId, label] of [
-      ['toolu_monitor', 'CI checks on PR #511'],
-      ['toolu_command', 'Integration tests'],
-      ['toolu_wakeup', 'Check CI again'],
-      ['toolu_cron', 'Check the PR for review comments.'],
-    ] as const) {
-      watching(toolUseId, label)
-    }
-    const calls = ['toolu_monitor', 'toolu_command', 'toolu_wakeup', 'toolu_cron']
-    expect(filer.batchFinished(task.id, calls)).toBeNull()
-    expect(placed()).toEqual([
-      [],
-      ['watcher toolu_command named'],
-      ['watcher toolu_cron named', 'watcher toolu_monitor named', 'watcher toolu_wakeup named'],
-      [],
-    ])
-  })
-
-  it('reads the marker however the model writes it', () => {
+  it('reads the marker however the model writes it, and only once for a call told of twice', () => {
     for (const [index, marker] of ['[todo 2]', '[todo #2]', '  [TODO 2]', '[Todo 2]   '].entries()) {
       const toolUseId = `toolu_${String(index)}`
       expect(starting(ChildTool.Agent, toolUseId, { description: `${marker} Review src/dates.js` })).toEqual({
@@ -241,13 +218,19 @@ describe('a call that names its todo', () => {
       })
       expect(listFilings(db, task.id).find(({ key }) => key === toolUseId)?.todoId).toBe('2')
     }
+    // As it streams, then as it's about to run: the marker comes off both times, and it's filed once.
+    events = []
+    expect(starting(ChildTool.Agent, 'toolu_0', { description: '[todo 2] Review src/dates.js' })).toEqual({
+      description: 'Review src/dates.js',
+    })
+    expect(events).toEqual([])
   })
 
   it('files a commit under the todo as the commit is found', () => {
     const input = { command: 'git commit -am "Fix the UTC date test"', description: 'Commit the fix' }
 
     expect(named(ChildTool.Bash, 'toolu_commit', input, '2')).toEqual(input)
-    // A command in the foreground may make nothing: nothing is filed until it has.
+    // A command may commit nothing: nothing is filed until it has.
     expect(filings()).toEqual([])
 
     logged('Bash', 'toolu_commit', input)
@@ -263,17 +246,19 @@ describe('a call that names its todo', () => {
     expect(placed()).toEqual([[], [`commit ${fix.key} named`], [], []])
   })
 
-  it('files a commit nobody told it of, and a command moved to the background, once the message has run', () => {
+  it('files a commit nobody told it of once the message has run: one a release script made', () => {
     const input = { command: 'npm run release', description: 'Cut the release' }
     named(ChildTool.Bash, 'toolu_release', input, '2')
     logged('Bash', 'toolu_release', input)
-    // A release script that commits, and runs past its timeout: the SDK moves it to the background.
+    // A release script that commits, and runs past its timeout: the SDK moves it to the background, as a watcher.
     const release = committed('b'.repeat(40), 'Release 2.4', 'toolu_release')
     watching('toolu_release', 'Cut the release', null, WatcherKind.Command)
 
     expect(filer.batchFinished(task.id, ['toolu_release'])).toBeNull()
 
-    expect(placed()).toEqual([[], [`commit ${release.key} named`, 'watcher toolu_release named'], [], []])
+    // The commit is under its todo; the watcher it became isn't filed.
+    expect(filings()).toEqual([`commit ${release.key} #2 named`])
+    expect(placed()).toEqual([[], [`commit ${release.key} named`], [], ['watcher toolu_release unfiled']])
   })
 
   it('leaves a commit linked to a call that named no todo for the agent to file', () => {
@@ -289,35 +274,21 @@ describe('a call that names its todo', () => {
     expect(events).toEqual([])
   })
 
-  it('takes back the filing of a call that made nothing: one that failed, or was refused', () => {
-    named(ChildTool.Monitor, 'toolu_refused', { description: 'CI checks', command: 'gh pr checks 511' }, '3')
-    named(ChildTool.Agent, 'toolu_evicted', { description: 'Review src/dates.js' }, '1')
-    expect(filings()).toHaveLength(2)
-    // You denied the monitor, so no task started for it; the subagent's call was evicted from the log (a retry on a
-    // fallback model superseded it).
-    logged('Monitor', 'toolu_refused', { description: 'CI checks', command: 'gh pr checks 511' })
+  it('takes back the todo of a subagent that never started: a call that failed, or was refused', () => {
+    named(ChildTool.Agent, 'toolu_refused', { description: 'Review src/dates.js' }, '1')
+    named(ChildTool.Bash, 'toolu_failed', { command: 'git commit -am "Fix"', description: 'Commit' }, '2')
+    expect(filings()).toEqual(['subagent toolu_refused #1 named'])
+    // The `Agent` call's row was evicted from the log (a retry on a fallback model superseded it), and the command
+    // committed nothing.
+    logged('Bash', 'toolu_failed', { command: 'git commit -am "Fix"' })
     events = []
 
-    expect(filer.batchFinished(task.id, ['toolu_refused', 'toolu_evicted'])).toBeNull()
+    expect(filer.batchFinished(task.id, ['toolu_refused', 'toolu_failed'])).toBeNull()
 
     expect(filings()).toEqual([])
     expect(events).toEqual([
-      {
-        type: EventType.FilingsChanged,
-        taskId: task.id,
-        filed: [],
-        removed: [watcher('toolu_refused'), subagent('toolu_evicted')],
-      },
+      { type: EventType.FilingsChanged, taskId: task.id, filed: [], removed: [subagent('toolu_refused')] },
     ])
-  })
-
-  it('files nothing for a wakeup that only cancels the ones before it', () => {
-    expect(
-      named(ChildTool.ScheduleWakeup, 'toolu_stop', { stop: true, reason: 'No need to check again' }, '3'),
-    ).toEqual({ stop: true, reason: 'No need to check again' })
-
-    expect(filings()).toEqual([])
-    expect(filer.batchFinished(task.id, ['toolu_stop'])).toBeNull()
   })
 
   it('files under a todo that is done, and three subagents of one message under three todos', () => {
@@ -330,6 +301,59 @@ describe('a call that names its todo', () => {
 
     expect(filer.batchFinished(task.id, ['toolu_a', 'toolu_b', 'toolu_c'])).toBeNull()
     expect(placed()).toEqual([['subagent toolu_a named'], ['subagent toolu_b named'], ['subagent toolu_c named'], []])
+    const children = taskChildren(db, task.id)
+    expect(['toolu_a', 'toolu_b', 'toolu_c'].map((id) => subagentTodo(children, id))).toEqual(['1', '2', '3'])
+  })
+})
+
+describe('a watcher’s call', () => {
+  beforeEach(threeTodos)
+
+  const WATCHERS = [
+    [ChildTool.Monitor, 'toolu_monitor', { description: '[todo 3] CI checks on PR #511', command: 'gh pr checks 511' }],
+    [
+      ChildTool.Bash,
+      'toolu_command',
+      { description: '[todo 2] Integration tests', command: 'npm run test:integration', run_in_background: true },
+    ],
+    [
+      ChildTool.ScheduleWakeup,
+      'toolu_wakeup',
+      { delaySeconds: 300, reason: '[todo 3] Check CI again', prompt: 'Check.' },
+    ],
+    [ChildTool.CronCreate, 'toolu_cron', { cron: '0 9 * * *', prompt: '[todo 3] Check the PR for review comments.' }],
+  ] as const
+
+  it('is left exactly as it is: no marker read or taken off, nothing filed, nothing asked, no hold', () => {
+    for (const [tool, toolUseId, input] of WATCHERS) {
+      // Whatever its text starts with, it's the model's own: Glade hands nothing back in its place.
+      expect(starting(tool, toolUseId, input)).toBeNull()
+      expect(nested(tool, toolUseId, input)).toBeNull()
+      watching(toolUseId, String(Object.values(input)[0]))
+    }
+    const calls = WATCHERS.map(([, toolUseId]) => toolUseId)
+
+    expect(filer.batchFinished(task.id, calls)).toBeNull()
+    expect(filer.turnEnding(task.id, false)).toBeNull()
+
+    expect(filings()).toEqual([])
+    expect(listOwedFilings(db, task.id)).toEqual([])
+    expect(events).toEqual([])
+    expect(placed()[3]).toHaveLength(4)
+  })
+
+  it('is never asked about beside a subagent and a commit that are', () => {
+    starting(ChildTool.Agent, 'toolu_agent', { description: 'Review the order totals' })
+    logged('Agent', 'toolu_agent', { description: 'Review the order totals' })
+    starting(ChildTool.Monitor, 'toolu_deploy', { description: 'Deploy to staging', command: './deploy-status.sh' })
+    watching('toolu_deploy', 'Deploy to staging')
+
+    const asked = filer.batchFinished(task.id, ['toolu_agent', 'toolu_deploy'])
+
+    expect(asked).toContain('- c1: subagent "Review the order totals"')
+    expect(asked).not.toContain('Deploy to staging')
+    expect(listOwedFilings(db, task.id)).toEqual([subagent('toolu_agent')])
+    expect(filer.turnEnding(task.id, false)).not.toContain('Deploy to staging')
   })
 })
 
@@ -359,17 +383,19 @@ describe('a call that names no todo of the task', () => {
     // Nothing is filed by guessing, whichever todo is in progress.
     updateTodo('1', 'in_progress')
     expect(placed()).toEqual([[], [], [], ['subagent toolu_agent unfiled']])
+    expect(subagentTodo(taskChildren(db, task.id), 'toolu_agent')).toBeNull()
   })
 
   it('counts a marker for a todo that is not there as naming none, and still takes it off', () => {
-    const input = { description: 'CI checks on PR #511', command: 'gh pr checks 511 --watch' }
+    const input = { command: 'git commit -am "Fix"', description: 'Commit the fix' }
 
-    expect(named(ChildTool.Monitor, 'toolu_monitor', input, '9')).toEqual(input)
+    expect(named(ChildTool.Bash, 'toolu_commit', input, '9')).toEqual(input)
+    committed('a'.repeat(40), 'Fix the UTC date test', 'toolu_commit')
+    filer.commitsLinked(task.id, 'toolu_commit')
     expect(filings()).toEqual([])
-    watching('toolu_monitor', 'CI checks on PR #511')
 
-    expect(filer.batchFinished(task.id, ['toolu_monitor'])).toContain('- c1: watcher "CI checks on PR #511"')
-    expect(placed()).toEqual([[], [], [], ['watcher toolu_monitor unfiled']])
+    expect(filer.batchFinished(task.id, ['toolu_commit'])).toContain('- c1: commit "aaaaaaa Fix the UTC date test"')
+    expect(placed()[3]).toHaveLength(1)
   })
 
   it('counts a marker for a deleted todo as naming none', () => {
@@ -385,46 +411,36 @@ describe('a call that names no todo of the task', () => {
     expect(filings()).toEqual([])
   })
 
-  it('tells of five children made in one message at once, each with its short id, in the order they were made', () => {
-    const agent = { description: 'Review the order totals' }
-    const commit = { command: 'git commit -am "Note the review"', description: 'Commit the note' }
-    const monitor = { description: 'Deploy to staging', command: './deploy-status.sh' }
-    const wakeup = { delaySeconds: 300, reason: 'Check the deploy', prompt: 'Check it.' }
-    const calls = ['toolu_agent', 'toolu_commit', 'toolu_monitor', 'toolu_wakeup']
-    for (const [toolUseId, tool, input] of [
-      ['toolu_agent', ChildTool.Agent, agent],
-      ['toolu_commit', ChildTool.Bash, commit],
-      ['toolu_monitor', ChildTool.Monitor, monitor],
-      ['toolu_wakeup', ChildTool.ScheduleWakeup, wakeup],
-    ] as const) {
-      expect(starting(tool, toolUseId, input)).toBeNull()
-      logged(tool, toolUseId, input)
+  it('tells of five commits made in one message at once, each with its short id, in the order they were made', () => {
+    const calls = ['toolu_notes', 'toolu_fix', 'toolu_release']
+    for (const toolUseId of calls) {
+      expect(starting(ChildTool.Bash, toolUseId, { command: 'git commit -am "…"', description: 'Commit' })).toBeNull()
+      logged('Bash', toolUseId, { command: 'git commit -am "…"' })
     }
-    watching('toolu_monitor', 'Deploy to staging')
-    watching('toolu_wakeup', 'Check the deploy', null, WatcherKind.Wakeup)
-    // Two commits by the one call, in the same second: they keep the order they were made in.
-    committed('d'.repeat(40), 'Note the review', 'toolu_commit', 5_000)
-    committed('e'.repeat(40), 'Fix a typo in the note', 'toolu_commit', 5_000)
+    // Two by one call in the same second, which keep the order they were made in, one by the next, two by the last.
+    committed('d'.repeat(40), 'Note the review', 'toolu_notes', 5_000)
+    committed('e'.repeat(40), 'Fix a typo in the note', 'toolu_notes', 5_000)
+    committed('f'.repeat(40), 'Fix the UTC date test', 'toolu_fix', 6_000)
+    committed('1'.repeat(40), 'Bump the version', 'toolu_release', 7_000)
+    committed('2'.repeat(40), 'Release 2.4', 'toolu_release', 8_000)
 
     const asked = filer.batchFinished(task.id, calls)
 
     expect(asked?.split('\n').slice(1, 7)).toEqual([
       'Made:',
-      '- c1: subagent "Review the order totals"',
-      '- c2: commit "ddddddd Note the review"',
-      '- c3: commit "eeeeeee Fix a typo in the note"',
-      '- c4: watcher "Deploy to staging"',
-      '- c5: watcher "Check the deploy"',
+      '- c1: commit "ddddddd Note the review"',
+      '- c2: commit "eeeeeee Fix a typo in the note"',
+      '- c3: commit "fffffff Fix the UTC date test"',
+      '- c4: commit "1111111 Bump the version"',
+      '- c5: commit "2222222 Release 2.4"',
     ])
     expect(listOwedFilings(db, task.id)).toHaveLength(5)
     // One call files them all, and nothing is owed any more.
-    fileForAgent(context(), task.id, [
-      { child: 'c1', todo: '1' },
-      { child: 'c2', todo: '2' },
-      { child: 'c3', todo: '2' },
-      { child: 'c4', todo: '3' },
-      { child: 'c5', todo: '3' },
-    ])
+    fileForAgent(
+      context(),
+      task.id,
+      ['c1', 'c2', 'c3', 'c4', 'c5'].map((child) => ({ child, todo: '2' })),
+    )
     expect(listOwedFilings(db, task.id)).toEqual([])
     expect(filings().map((filing) => filing.split(' ').at(-1))).toEqual(Array(5).fill('asked'))
     expect(filer.turnEnding(task.id, false)).toBeNull()
@@ -436,10 +452,10 @@ describe('a call that names no todo of the task', () => {
 
     expect(filer.batchFinished(task.id, ['toolu_ls'])).toBeNull()
     expect(filer.batchFinished(task.id, [])).toBeNull()
-    // A tool that makes no child is none of its business.
-    expect(
-      filer.callStarting(task.id, { toolName: 'Read', input: { file_path: 'a.ts' }, toolUseId: 'toolu_read' }),
-    ).toBe(null)
+    // A tool Glade reads no todo off is none of its business.
+    expect(starting('Read' as ChildTool, 'toolu_read', { file_path: 'a.ts', description: '[todo 1] Read it' })).toBe(
+      null,
+    )
     expect(listOwedFilings(db, task.id)).toEqual([])
     expect(events).toEqual([])
   })
@@ -447,17 +463,17 @@ describe('a call that names no todo of the task', () => {
   it('tells an agent with no todo list to create a todo first', () => {
     const other = sampleTask(db, task.workspaceId)
     task = other
-    starting(ChildTool.Monitor, 'toolu_monitor', { description: 'Deploy to staging', command: './deploy-status.sh' })
-    watching('toolu_monitor', 'Deploy to staging')
+    starting(ChildTool.Bash, 'toolu_commit', { command: 'git commit -am "Fix"', description: 'Commit the fix' })
+    committed('a'.repeat(40), 'Fix the UTC date test', 'toolu_commit')
 
-    const asked = filer.batchFinished(task.id, ['toolu_monitor'])
+    const asked = filer.batchFinished(task.id, ['toolu_commit'])
 
     expect(asked).toBe(
       [
         'Glade: file what you just made under its todo now, before your next step, with one ' +
           'mcp__glade__file_children call.',
         'Made:',
-        '- c1: watcher "Deploy to staging"',
+        '- c1: commit "aaaaaaa Fix the UTC date test"',
         NO_TODOS,
       ].join('\n'),
     )
@@ -470,7 +486,7 @@ describe('a call that names no todo of the task', () => {
       [
         "Glade: these aren't filed under a todo yet. File them with one mcp__glade__file_children call, then end " +
           'your turn.',
-        '- c1: watcher "Deploy to staging"',
+        '- c1: commit "aaaaaaa Fix the UTC date test"',
         NO_TODOS,
       ].join('\n'),
     )
@@ -492,19 +508,19 @@ describe('a call that names no todo of the task', () => {
 describe('the end of a turn', () => {
   beforeEach(threeTodos)
 
-  /** A subagent and a watcher the agent made without naming a todo, and was told of. */
+  /** A subagent and a commit the agent made without naming a todo, and was told of. */
   function twoOwed(): void {
     starting(ChildTool.Agent, 'toolu_agent', { description: 'Review src/dates.js' })
     logged('Agent', 'toolu_agent', { description: 'Review src/dates.js' })
-    starting(ChildTool.Monitor, 'toolu_monitor', { description: 'CI checks', command: 'gh pr checks 511' })
-    watching('toolu_monitor', 'CI checks')
-    filer.batchFinished(task.id, ['toolu_agent', 'toolu_monitor'])
+    starting(ChildTool.Bash, 'toolu_commit', { command: 'git commit -am "Fix"', description: 'Commit the fix' })
+    committed('a'.repeat(40), 'Fix the UTC date test', 'toolu_commit')
+    filer.batchFinished(task.id, ['toolu_agent', 'toolu_commit'])
   }
 
   const HOLD = [
     "Glade: these aren't filed under a todo yet. File them with one mcp__glade__file_children call, then end your turn.",
     '- c1: subagent "Review src/dates.js"',
-    '- c2: watcher "CI checks"',
+    '- c2: commit "aaaaaaa Fix the UTC date test"',
     'Your todos: #1 Review the date helpers (pending) · #2 Fix the UTC date test (pending) · ' +
       '#3 Watch CI on PR #511 (pending)',
   ].join('\n')
@@ -527,7 +543,7 @@ describe('the end of a turn', () => {
     // The agent ignored it twice: the turn ends, and what's left stays under "Not under a todo".
     expect(filer.turnEnding(task.id, true)).toBeNull()
     expect(filer.turnEnding(task.id, true)).toBeNull()
-    expect(placed()).toEqual([[], [], [], ['subagent toolu_agent unfiled', 'watcher toolu_monitor unfiled']])
+    expect(placed()[3]).toHaveLength(2)
 
     // The end of its next turn asks again, twice more.
     expect(filer.turnEnding(task.id, false)).toBe(HOLD)
@@ -541,13 +557,15 @@ describe('the end of a turn', () => {
 
     fileForAgent(context(), task.id, [{ child: 'c1', todo: '1' }])
     expect(filer.turnEnding(task.id, true)).toBe(
-      [HOLD.split('\n')[0], '- c2: watcher "CI checks"', HOLD.split('\n')[3]].join('\n'),
+      [HOLD.split('\n')[0], '- c2: commit "aaaaaaa Fix the UTC date test"', HOLD.split('\n')[3]].join('\n'),
     )
-    fileForAgent(context(), task.id, [{ child: 'c2', todo: '3' }])
+    fileForAgent(context(), task.id, [{ child: 'c2', todo: '2' }])
 
     expect(filer.turnEnding(task.id, true)).toBeNull()
-    expect(placed()).toEqual([['subagent toolu_agent asked'], [], ['watcher toolu_monitor asked'], []])
+    const kinds = filings().map((filing) => filing.replace(/ a+ \S+/, ''))
+    expect(kinds.sort()).toEqual(['commit #2 asked', 'subagent toolu_agent #1 asked'])
     expect(listOwedFilings(db, task.id)).toEqual([])
+    expect(subagentTodo(taskChildren(db, task.id), 'toolu_agent')).toBe('1')
   })
 
   it('still asks after a relaunch: what is owed is kept, though how often the turn was held is not', () => {
@@ -561,27 +579,27 @@ describe('the end of a turn', () => {
   })
 
   it('takes in what a message that never finished made: a turn you stopped', () => {
-    starting(ChildTool.Monitor, 'toolu_monitor', { description: 'CI checks', command: 'gh pr checks 511' })
-    watching('toolu_monitor', 'CI checks')
+    starting(ChildTool.Agent, 'toolu_agent', { description: 'Review src/dates.js' })
+    logged('Agent', 'toolu_agent', { description: 'Review src/dates.js' })
     named(ChildTool.Bash, 'toolu_commit', { command: 'git commit -am "Fix"', description: 'Commit' }, '2')
     const fix = committed('f'.repeat(40), 'Fix the UTC date test', 'toolu_commit')
     // You stopped the turn before its message's calls had all run: nothing told the agent, and the turn ended. At
-    // the end of the next one, the watcher is owed, and the commit is under the todo its call named.
+    // the end of the next one, the subagent is owed a todo, and the commit is under the todo its call named.
 
-    expect(filer.turnEnding(task.id, false)).toContain('- c1: watcher "CI checks"')
-    expect(placed()).toEqual([[], [`commit ${fix.key} named`], [], ['watcher toolu_monitor unfiled']])
+    expect(filer.turnEnding(task.id, false)).toContain('- c1: subagent "Review src/dates.js"')
+    expect(placed()).toEqual([[], [`commit ${fix.key} named`], [], ['subagent toolu_agent unfiled']])
   })
 
   it('forgets the calls of a session that is gone, and how often its turn was held', () => {
     twoOwed()
-    starting(ChildTool.Monitor, 'toolu_lost', { description: 'Deploy', command: './deploy-status.sh' })
+    starting(ChildTool.Agent, 'toolu_lost', { description: 'Review src/users.js' })
     filer.turnEnding(task.id, false)
     filer.turnEnding(task.id, true)
     expect(filer.turnEnding(task.id, true)).toBeNull()
 
     filer.sessionEnded(task.id)
-    // The lost call's watcher, started by a session that died, is nobody's to ask about.
-    watching('toolu_lost', 'Deploy')
+    // The lost call's subagent, started by a session that died, is nobody's to ask about.
+    logged('Agent', 'toolu_lost', { description: 'Review src/users.js' })
 
     // What was owed before still is, and is asked for afresh.
     expect(filer.turnEnding(task.id, true)).toBe(HOLD)
@@ -607,36 +625,89 @@ describe('the end of a turn', () => {
     expect(filer.turnEnding(task.id, false)).toBeNull()
     expect(placed()[3]).toHaveLength(5)
   })
+})
 
-  it('leaves a subagent’s children to follow the subagent: its watcher, its commit, its own subagent', () => {
+describe('a subagent’s own calls', () => {
+  beforeEach(threeTodos)
+
+  it('are never asked about: its commits, and the subagents it starts, work on its todo', () => {
     named(ChildTool.Agent, 'toolu_agent', { description: 'Review src/dates.js' }, '1')
     logged('Agent', 'toolu_agent', { description: 'Review src/dates.js' })
-    // What the subagent does reaches no hook of Glade's: only the tool log, the watchers and the commits say.
+    // The subagent starts one of its own, naming no todo, and both commit.
+    expect(nested(ChildTool.Agent, 'toolu_nested', { description: 'Check the tests' })).toBeNull()
     logged('Agent', 'toolu_nested', { description: 'Check the tests' }, 'toolu_agent')
+    logged('Bash', 'toolu_sub_bash', { command: 'git commit -am "Fix"' }, 'toolu_agent')
+    const fix = committed('3'.repeat(40), 'Fix the date helpers', 'toolu_sub_bash')
     logged('Bash', 'toolu_nested_bash', { command: 'git commit -am "Fix"' }, 'toolu_nested')
-    const nestedFix = committed('3'.repeat(40), 'Fix the date tests', 'toolu_nested_bash')
-    watching('toolu_tests', 'The test run', 'toolu_agent')
-    // The agent commits too, naming another todo.
-    named(ChildTool.Bash, 'toolu_commit', { command: 'git commit -am "Fix"', description: 'Commit' }, '2')
-    logged('Bash', 'toolu_commit', { command: 'git commit -am "Fix"' })
-    const fix = committed('4'.repeat(40), 'Fix the UTC date test', 'toolu_commit')
+    const nestedFix = committed('4'.repeat(40), 'Fix the date tests', 'toolu_nested_bash')
+    // The tracker says of each call that its commits were linked: a subagent's are none of the filer's to file.
+    filer.commitsLinked(task.id, 'toolu_sub_bash')
+    filer.commitsLinked(task.id, 'toolu_nested_bash')
 
-    expect(filer.batchFinished(task.id, ['toolu_agent', 'toolu_commit'])).toBeNull()
+    expect(filer.batchFinished(task.id, ['toolu_agent'])).toBeNull()
     expect(filer.turnEnding(task.id, false)).toBeNull()
 
+    // Only the subagent the agent started has a todo recorded: the rest follows it.
+    expect(filings()).toEqual(['subagent toolu_agent #1 named'])
     expect(placed()).toEqual([
       [
+        `commit ${fix.key} inherited`,
         `commit ${nestedFix.key} inherited`,
         'subagent toolu_agent named',
         'subagent toolu_nested inherited',
-        'watcher toolu_tests inherited',
       ],
-      [`commit ${fix.key} named`],
+      [],
       [],
       [],
     ])
-    // Only the two the agent made have a filing of their own.
-    expect(filings()).toEqual(['subagent toolu_agent #1 named', `commit ${fix.key} #2 named`])
+    const children = taskChildren(db, task.id)
+    expect(subagentTodo(children, 'toolu_nested')).toBe('1')
+    expect(listOwedFilings(db, task.id)).toEqual([])
+  })
+
+  it('work on another todo when the subagent’s Agent call names one, and the marker comes off', () => {
+    named(ChildTool.Agent, 'toolu_agent', { description: 'Review src/dates.js' }, '1')
+    logged('Agent', 'toolu_agent', { description: 'Review src/dates.js' })
+    events = []
+
+    expect(nested(ChildTool.Agent, 'toolu_nested', { description: '[todo 2] Fix the UTC test' })).toEqual({
+      description: 'Fix the UTC test',
+    })
+    // Told of twice, as any call is: recorded once.
+    expect(nested(ChildTool.Agent, 'toolu_nested', { description: '[todo 2] Fix the UTC test' })).toEqual({
+      description: 'Fix the UTC test',
+    })
+    logged('Agent', 'toolu_nested', { description: 'Fix the UTC test' }, 'toolu_agent')
+    logged('Bash', 'toolu_nested_bash', { command: 'git commit -am "Fix"' }, 'toolu_nested')
+    const fix = committed('5'.repeat(40), 'Fix the UTC date test', 'toolu_nested_bash')
+
+    expect(events).toHaveLength(1)
+    expect(filings()).toEqual(['subagent toolu_agent #1 named', 'subagent toolu_nested #2 named'])
+    const children = taskChildren(db, task.id)
+    expect(subagentTodo(children, 'toolu_agent')).toBe('1')
+    expect(subagentTodo(children, 'toolu_nested')).toBe('2')
+    // What it commits follows it there.
+    expect(placed()[1]).toEqual([`commit ${fix.key} inherited`, 'subagent toolu_nested named'])
+    expect(filer.turnEnding(task.id, false)).toBeNull()
+  })
+
+  it('stay on the parent’s todo when the marker names a todo that is not there, and its Bash calls are left alone', () => {
+    named(ChildTool.Agent, 'toolu_agent', { description: 'Review src/dates.js' }, '1')
+    logged('Agent', 'toolu_agent', { description: 'Review src/dates.js' })
+
+    // The marker still comes off: it shows nowhere.
+    expect(nested(ChildTool.Agent, 'toolu_nested', { description: '[todo 9] Check the tests' })).toEqual({
+      description: 'Check the tests',
+    })
+    logged('Agent', 'toolu_nested', { description: 'Check the tests' }, 'toolu_agent')
+    // A subagent's command is its own, marker or no marker: nothing is read off it.
+    expect(nested(ChildTool.Bash, 'toolu_sub_bash', { command: 'git commit', description: '[todo 2] Commit' })).toBe(
+      null,
+    )
+
+    expect(filings()).toEqual(['subagent toolu_agent #1 named'])
+    expect(subagentTodo(taskChildren(db, task.id), 'toolu_nested')).toBe('1')
+    expect(listOwedFilings(db, task.id)).toEqual([])
   })
 })
 
@@ -644,9 +715,9 @@ describe('with the hub turned off under a session that has it', () => {
   beforeEach(threeTodos)
 
   it('still takes a marker off, and files, asks, holds and writes nothing', () => {
-    starting(ChildTool.Monitor, 'toolu_owed', { description: 'Deploy to staging', command: './deploy-status.sh' })
-    watching('toolu_owed', 'Deploy to staging')
-    expect(filer.batchFinished(task.id, ['toolu_owed'])).toContain('- c1: watcher')
+    starting(ChildTool.Agent, 'toolu_owed', { description: 'Review src/users.js' })
+    logged('Agent', 'toolu_owed', { description: 'Review src/users.js' })
+    expect(filer.batchFinished(task.id, ['toolu_owed'])).toContain('- c1: subagent')
     updateSettings(db, { todoHubEnabled: false })
     events = []
     const run: string[] = []
@@ -660,15 +731,16 @@ describe('with the hub turned off under a session that has it', () => {
     expect(named(ChildTool.Agent, 'toolu_agent', { description: 'Review src/dates.js' }, '1')).toEqual({
       description: 'Review src/dates.js',
     })
-    expect(starting(ChildTool.Monitor, 'toolu_ci', { description: 'CI checks', command: 'gh pr checks 511' })).toBe(
-      null,
-    )
+    expect(nested(ChildTool.Agent, 'toolu_nested', { description: '[todo 2] Check the tests' })).toEqual({
+      description: 'Check the tests',
+    })
+    expect(starting(ChildTool.Agent, 'toolu_other', { description: 'Review src/orders.js' })).toBe(null)
     logged('Agent', 'toolu_agent', { description: 'Review src/dates.js' })
-    watching('toolu_ci', 'CI checks')
+    logged('Agent', 'toolu_other', { description: 'Review src/orders.js' })
     committed('9'.repeat(40), 'Fix', 'toolu_agent')
     filer.commitsLinked(task.id, 'toolu_agent')
 
-    expect(filer.batchFinished(task.id, ['toolu_agent', 'toolu_ci'])).toBeNull()
+    expect(filer.batchFinished(task.id, ['toolu_agent', 'toolu_other'])).toBeNull()
     expect(filer.turnEnding(task.id, false)).toBeNull()
 
     expect(events).toEqual([])
@@ -676,8 +748,8 @@ describe('with the hub turned off under a session that has it', () => {
     // What was owed while it was on is still there, for when it's on again; what was made meanwhile isn't asked for.
     db.prepare = prepare
     updateSettings(db, { todoHubEnabled: true })
-    expect(filer.turnEnding(task.id, false)).toContain('- c1: watcher "Deploy to staging"')
-    expect(filer.turnEnding(task.id, true)).not.toContain('CI checks')
+    expect(filer.turnEnding(task.id, false)).toContain('- c1: subagent "Review src/users.js"')
+    expect(filer.turnEnding(task.id, true)).not.toContain('Review src/orders.js')
   })
 })
 

@@ -247,15 +247,16 @@
  * **Filing under todos** (P16-04, #495; `../todo-hub/filing`, `docs/sdk-notes.md` §16). With the hidden `todoHubEnabled`
  * setting on as a session starts, it has the todo hub for its whole life: its prompt says so (a resumed session is
  * sent the lines once, `./session-context`), Claude Code's task tools stay on whatever the user's settings say, and
- * three hooks file what the agent's own calls make. Each call to a tool that makes a subagent, a watcher or a commit is
- * read as it streams and again before it runs (`childStarting`): `[todo N]` at the start of its text names its todo,
- * what it makes is filed there, and the marker comes off the call's row in the tool log and off the input the tool
- * runs with, so it shows nowhere. Once a message's calls have run (`batchFinished`), the agent is told of what they
+ * three hooks file what the agent produces. Each `Agent` call, and each `Bash` call of its own in the foreground (it
+ * may commit), is read as it streams and again before it runs (`childStarting`): `[todo N]` at the start of its
+ * description names its todo, the subagent is recorded as working on it or the commits are filed under it, and the
+ * marker comes off the call's row in the tool log and off the input the tool runs with, so it shows nowhere. A
+ * watcher's call (`Monitor`, background `Bash`, `ScheduleWakeup`, `CronCreate`) is left exactly as it is. Once a message's calls have run (`batchFinished`), the agent is told of what they
  * made that's under no todo, with their results, and files it with one `file_children` call. And a turn about to end
  * with a filing owed is held (`turnEnding`), twice at most; the reply it had written goes to the tool log as
  * narration, since the agent writes it again (if it doesn't, that reply is the turn's after all). A turn you stopped,
- * and a compaction, are never held. A subagent's calls
- * reach none of the three: what it makes follows its own todo. With the setting off, a session has none of this.
+ * and a compaction, are never held. A subagent is never asked to file anything: what it commits follows its todo,
+ * and so does a subagent it starts, unless that call names another. With the setting off, a session has none of this.
  *
  * **Resume on launch.** A turn the app quit or crashed in is left working in the database: a turn's user messages and
  * its working activity are saved together, so none is left unanswered. On launch, `resumeInterrupted` carries each
@@ -480,7 +481,7 @@ import {
   type ToolPermissionCall,
   type ToolStartDecision,
 } from './backend'
-import { isChildTool, namedTodo } from './child-calls'
+import { namedTodo, readsTodo } from './child-calls'
 import { createExcludedCommands, type ExcludedCommands } from './excluded-commands'
 import { gatedSession } from './gated-session'
 import { FileAccess, SANDBOX_NETWORK_TOOL } from './sandbox-requests'
@@ -1592,15 +1593,15 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   /**
-   * A call's input as the tool log keeps it. In a session with the todo hub, a call of the agent's own that names its
-   * todo is filed there and then, before its row is written, so what it makes is under its todo from the first, and is
-   * logged without the marker, as the tool runs without it (`childStarting`): the marker shows nowhere. A subagent's
-   * call is logged as it wrote it.
+   * A call's input as the tool log keeps it. In a session with the todo hub, a call that names its todo (an `Agent`
+   * call, or the agent's own `Bash` call in the foreground) is read there and then, before its row is written, so a
+   * subagent's todo is recorded before the subagent shows, and is logged without the marker, as the tool runs without
+   * it (`childStarting`): the marker shows nowhere. Any other call, a watcher's included, is logged as it was written.
    */
   const loggedInput = (taskId: string, live: LiveSession, event: ToolCallStartedEvent): ToolInput => {
     const { toolUseId, name: toolName, input, parentToolUseId } = event
-    if (!live.todoHub || parentToolUseId !== null) return input
-    return filer.callStarting(taskId, { toolName, input, toolUseId }) ?? input
+    if (!live.todoHub) return input
+    return filer.callStarting(taskId, { toolName, input, toolUseId, subagent: parentToolUseId !== null }) ?? input
   }
 
   const onToolCall = (taskId: string, live: LiveSession, turn: Turn, event: ToolCallStartedEvent): void => {
@@ -2202,7 +2203,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         if (text !== '') emitToolEventAppended(emit, appendNarration(db, { taskId, turn, text, parentToolUseId }))
         return true
       }
-      const { toolUseId, name, input } = event
+      const { toolUseId, name } = event
+      const input = loggedInput(taskId, live, event)
       emitToolEventAppended(emit, appendToolCall(db, { taskId, turn, name, input, toolUseId, parentToolUseId }))
       live.backgroundCalls.set(toolUseId, owner)
       return true
@@ -3013,27 +3015,29 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     })
 
   /**
-   * A call of the agent's own to a tool that makes a child is about to run, in a session with the todo hub (see the
-   * module comment): what it makes is filed under the todo it names, and it runs without the marker.
+   * A call a todo is read off is about to run, in a session with the todo hub (see the module comment): an `Agent`
+   * call, or the agent's own `Bash` call in the foreground. What it makes is filed under the todo it names, and it runs
+   * without the marker.
    */
   const childStarting = async (
     taskId: string,
     live: LiveSession,
-    call: ChildCallStarting,
+    { toolName, input, toolUseId, agentId }: ChildCallStarting,
   ): Promise<ToolInput | null> => {
     if (live.closed) return null
     // A todo made by an earlier call of the same message is in the task's list once that call's result has been
     // handled, which may be after this call streamed.
-    if (namedTodo(call.toolName, call.input) !== null) await caughtUp()
-    return filer.callStarting(taskId, call)
+    if (namedTodo(toolName, input) !== null) await caughtUp()
+    return filer.callStarting(taskId, { toolName, input, toolUseId, subagent: agentId !== null })
   }
 
   /**
-   * The calls of one of the agent's own messages have run, in a session with the todo hub: what they made that's
-   * under no todo is what the agent is told to file, with their results. A `Bash` call's commits are waited for first.
+   * The calls of one of the agent's own messages have run, in a session with the todo hub: the subagents and commits
+   * they made that are under no todo are what the agent is told to file, with their results. A `Bash` call's commits
+   * are waited for first. A watcher's call is passed over: nothing is said of it.
    */
   const batchFinished = async (taskId: string, live: LiveSession, batch: ToolBatch): Promise<string | null> => {
-    const calls = batch.calls.filter(({ toolName }) => isChildTool(toolName))
+    const calls = batch.calls.filter(({ toolName, input }) => readsTodo({ toolName, input, subagent: false }))
     // A function, so the check isn't narrowed away: the session can close during either wait.
     const isClosed = (): boolean => live.closed
     if (isClosed() || calls.length === 0) return null

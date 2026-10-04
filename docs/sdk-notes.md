@@ -3093,8 +3093,7 @@ one), leaves a foreground subagent unfiled for as long as it runs, and files by 
 
 **What Glade tells the agent after a call that named no todo,** and **when it holds the turn's end:** the two
 messages quoted above, word for word, with the tool's real name (#496). A child's kind is said as
-`mcp__glade__list_children` says it (`subagent`, `watcher`, `commit`), so a background command and a wakeup both read
-`watcher`.
+`mcp__glade__list_children` says it (`subagent`, `commit`); as built, neither message ever names a watcher.
 
 **The refusal,** if Jared picks a rule that refuses (1 or 3), as probed:
 
@@ -3115,71 +3114,85 @@ both rules did here.
 
 ### What Glade does [behind `todoHubEnabled`]
 
-Jared picked the recommendation, and P16-04 (#495) builds it (`src/main/todo-hub/filing.ts`, the runner's
-`childStarting`, `batchFinished` and `turnEnding`, and three hooks in `sdk-backend.ts`). All of it is only in a session
-that starts with the hidden `todoHubEnabled` setting on; with it off a session's options, prompt and hooks are exactly
-what they were (`src/main/todo-hub/inert.test.ts`). Nothing below was probed again against the real API: it's built to
-what the probes above saw, and tested on the fake and scripted backends.
+Jared picked the recommendation, then narrowed what's filed when the phase split into Agents (activity) and Todos
+(produced work): **commits are filed, a subagent's todo is recorded as plumbing, and watchers aren't filed at all.**
+P16-04 (#495) builds that (`src/main/todo-hub/filing.ts`, the runner's `childStarting`, `batchFinished` and
+`turnEnding`, and three hooks in `sdk-backend.ts`). All of it is only in a session that starts with the hidden
+`todoHubEnabled` setting on; with it off a session's options, prompt and hooks are exactly what they were
+(`src/main/todo-hub/inert.test.ts`). Nothing below was probed again against the real API: it's built to what the
+probes above saw, and tested on the fake and scripted backends.
 
-- **`PreToolUse`, matcher `Agent|Monitor|Bash|ScheduleWakeup|CronCreate`** (`childCallHook`). A call with an
-  `agent_id` is answered `{}` at once. For the agent's own call, the host reads the marker and the hook answers
-  `{ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput } }`, the whole input with the marker taken off,
-  and never a `permissionDecision`. A call with no marker is answered `{}`. A marker naming a todo that isn't in the
-  task's list still comes off, and files nothing. The hook sits beside Glade's others on `PreToolUse` (the guard for
-  its own tools, the `Bash` hook for commits, the sandbox's), each of which answers `{}` or a decision of its own.
-  That combination wasn't probed. By the bundled binary's code (2.1.283), each hook's answer is taken by itself: an
-  `updatedInput` with no decision becomes the call's input whatever the other hooks answered, and one that fails the
-  tool's input schema refuses the call, which is why the whole input goes back, changed in one text field only.
+- **Which calls a todo is read off** (`readsTodo` in `child-calls.ts`): an `Agent` call, whoever makes it, and the
+  agent's own `Bash` call in the foreground, which may commit. Nothing else: a `Monitor`, a `Bash` call with
+  `run_in_background`, a `ScheduleWakeup` and a `CronCreate` are left exactly as the model wrote them, so the findings
+  above about rewriting those four tools' inputs are unused.
+- **`PreToolUse`, matcher `Agent|Bash`** (`childCallHook`). For a call a todo is read off, the host reads the marker
+  and the hook answers `{ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput } }`, the whole input with
+  the marker taken off, and never a `permissionDecision`. A call with no marker is answered `{}`, and so, at once, is
+  a `Bash` call in the background and a subagent's `Bash` call (one with an `agent_id`). A marker naming a todo that
+  isn't in the task's list still comes off, and files nothing. The hook sits beside Glade's others on `PreToolUse`
+  (the guard for its own tools, the `Bash` hook for commits, the sandbox's), each of which answers `{}` or a decision
+  of its own. That combination wasn't probed. By the bundled binary's code (2.1.283), each hook's answer is taken by
+  itself: an `updatedInput` with no decision becomes the call's input whatever the other hooks answered, and one that
+  fails the tool's input schema refuses the call, which is why the whole input goes back, changed in one text field
+  only.
+- **A subagent's `Agent` call is read too** (its hook input carries the subagent's `agent_id`): a subagent's subagent
+  works on its parent's todo unless its call names another todo of the task's, and then the marker comes off as it
+  does for the agent's own. A model wasn't probed naming a todo from inside a subagent: subagents don't have Glade's
+  prompt lines, so one only would if the agent told it to.
 - **The marker comes off the tool log too.** The `tool_use` block in the stream is the model's own, so the runner
-  takes the marker off as it logs the call, and files what the call makes there and then, before the row is written:
-  a subagent and a watcher are named by their call's id, so they're filed before they exist, and the window hears the
-  filing before the row. The hook, which comes after the block in the stream, files nothing twice. It does file what
-  the stream couldn't: a todo made by an earlier call of the same message is only in Glade's list once that call's
-  result has been handled, which can be after the later call's block streamed, so the hook lets the messages
-  streamed before it be handled first (one turn of the event loop), then looks again.
+  takes the marker off as it logs the call, and records a subagent's todo there and then, before the row is written:
+  a subagent is named by its call's id, so its todo is known before it exists, and the window hears the filing before
+  the row. The hook, which comes after the block in the stream, files nothing twice. It does file what the stream
+  couldn't: a todo made by an earlier call of the same message is only in Glade's list once that call's result has
+  been handled, which can be after the later call's block streamed, so the hook lets the messages streamed before it
+  be handled first (one turn of the event loop), then looks again.
 - **A commit** is filed as the change tracker links it (§14), when its `Bash` call named a todo: the tracker says
   which call linked commits before it tells the windows of them.
 - **`PostToolBatch`, no matcher** (`toolBatchHook`). A batch with an `agent_id` is answered `{}` at once. Otherwise
   the host is told the calls (`tool_use_id`, `tool_name`, `tool_input` and `tool_response`, read as text whether it's
   a string, a command's `{ stdout, stderr }` or text blocks), and what it answers goes back as `additionalContext`.
-  The host only looks at the calls to the five tools: it waits for git to have been read for each `Bash` call, takes
-  back the filing of a named call that made nothing (one that failed, or that you denied), and answers with the
-  message above for what the others made, by short id. What it tells the agent of is recorded as owed (`owed_filings`
-  in SQLite) until it's filed.
+  The host only looks at the calls a todo is read off: it waits for git to have been read for each `Bash` call, takes
+  back the todo of a subagent a named call never started (one that failed, or that you denied), and answers with the
+  message above for the subagents and commits the others made, by short id. What it tells the agent of is recorded as
+  owed (`owed_filings` in SQLite) until it's filed. A watcher's call in the batch is passed over.
 - **`Stop`** (the hook that already tells the session's jobs). With a filing owed, it answers
   `{ decision: 'block', reason }` with the message above, twice a turn at most, counted from `stop_hook_active`:
   `false` starts a turn's count again. After two holds it answers `{}`, the turn ends, and the next turn's end asks
   again. A `Stop` with an `agent_id` is never held; nor is a turn the user stopped, which Glade knows from its own
   Stop rather than from whether the hook fires (still not probed), or a `/compact`. Before a hold, the reply the agent
   had written goes to the tool log: it writes the reply again once it has filed, and the chat shows that one.
-- **A subagent's calls reach none of the three,** so a marker in one is left where it is, and what a subagent makes
-  follows its todo by the resolver (`groupChildren`), from the parent of each call in the tool log.
+- **A subagent is never asked anything:** `PostToolBatch` and `Stop` ignore it, and what it commits follows its todo
+  by the resolver (`groupChildren`), from the parent of each call in the tool log.
 - **The task tools stay on:** `settings: { env: { CLAUDE_CODE_ENABLE_TASKS: 'true' } }` in the session's SDK options,
   beside the `deniedMcpServers` rule (§12) and the sandbox's permissions (§15).
-- **The prompt lines** are the paragraph above, word for word, then a sentence for `add_artifact`'s todo and the line
-  for the hub's tools ([`model-surface.md`](model-surface.md), "System prompt"). A session that started without them
-  and resumes with the hub on is sent them once, ahead of its next message (§8).
-- **A foreground subagent that named no todo** is under no todo for as long as it runs, as found above: its
-  `PostToolBatch` comes when it returns. That's accepted: the named path is why it's rare.
+- **The prompt lines** are the paragraph above cut down to the two calls (no `Monitor`, background `Bash`,
+  `ScheduleWakeup` or `CronCreate`, so the 36-of-36 result is for a longer paragraph than the one shipped), then a
+  sentence for `add_artifact`'s todo and the line for the hub's tools ([`model-surface.md`](model-surface.md), "System
+  prompt"). A session that started without them and resumes with the hub on is sent them once, ahead of its next
+  message (§8).
+- **A foreground subagent that named no todo** has none for as long as it runs, as found above: its `PostToolBatch`
+  comes when it returns. That's accepted: the named path is why it's rare. Its commits are under no todo meanwhile,
+  and land under its todo once the agent has filed it.
 
 ### Test backends
 
 The scripted backend emits these calls: the `files-children` script (`src/main/agent/scripts.ts`) keeps three todos
 and makes a background subagent, a real commit, a `Monitor`, a background command, a `ScheduleWakeup` and a
-`CronCreate` job, each naming its todo; then on its second turn the same kinds naming none, and a file and a link
-declared with `add_artifact`'s `todo`. The marker, where it goes for each tool, and the refusal's text (unused: nothing is
-refused) are in `src/main/agent/child-calls.ts`.
+`CronCreate` job. Its first turn names a todo in the `Agent` call and in the `Bash` call that commits; its second
+names none, and declares a file and a link with `add_artifact`'s `todo`. No call that starts a watcher names a todo, in
+either turn. The marker, where it goes for each tool, and the refusal's text (unused: nothing is refused) are in
+`src/main/agent/child-calls.ts`.
 
 The scripted session asks the three hooks as Claude Code does (`SessionHooks.onChildStarting`, `onBatchFinished`,
-`onTurnEnding`), when the session has them (P16-04, #495): it streams the agent's own call as the model wrote it, puts
-it to the `PreToolUse` hook, and runs it with the input the hook hands back, so the task's description and a job's
-prompt have no marker; it tells the `PostToolBatch` hook the agent's own calls of a message once they all have
-results; and each time a turn is about to end it asks the `Stop` hook, taking another step and writing its reply again
-for as long as it's held (past ten holds the session dies, saying so, so a host that never lets go fails a test
-rather than hanging it). What the agent does with what the hooks tell it is the script's `filing`: it files what it's
-told of with one `file_children` call through the tool's real handler, at once or only once held, or, with no
-`filing`, ignores it. A subagent's calls are put to none of the three. Without the hooks, the session plays as it
-always has.
+`onTurnEnding`), when the session has them (P16-04, #495): it streams a call a todo is read off as the model wrote
+it, puts it to the `PreToolUse` hook, and runs it with the input the hook hands back, so the subagent's description
+has no marker (a watcher's call is put to no hook, and runs as written); it tells the `PostToolBatch` hook the agent's
+own calls of a message once they all have results; and each time a turn is about to end it asks the `Stop` hook,
+taking another step and writing its reply again for as long as it's held (past ten holds the session dies, saying so,
+so a host that never lets go fails a test rather than hanging it). What the agent does with what the hooks tell it is
+the script's `filing`: it files what it's told of with one `file_children` call through the tool's real handler, at
+once or only once held, or, with no `filing`, ignores it. Without the hooks, the session plays as it always has.
 
 The filing tool the probes stood in for is real since P16-05 (#496), behind the hidden `todoHubEnabled` setting:
 `mcp__glade__file_children`, with the input the probes used (`{ filings: [{ child, todo }] }`, a child's short id and

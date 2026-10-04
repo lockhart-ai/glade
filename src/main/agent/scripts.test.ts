@@ -31,6 +31,7 @@ import {
 } from '../../shared/domain'
 import { autoCompactThreshold } from '../../shared/contextWindow'
 import { FolderAccess, OtherAgents, SandboxAskKind, SandboxGrantKind, SandboxGrantScope } from '../../shared/sandbox'
+import { subagentTodo } from '../../shared/todoHub'
 import { listArtifacts, listFileArtifacts } from '../db/repositories/artifacts'
 import { listMessages } from '../db/repositories/messages'
 import { getOpenQuestionSet } from '../db/repositories/question-sets'
@@ -49,7 +50,7 @@ import { listToolEvents } from '../db/repositories/tool-events'
 import type { NotifyReply } from '../notifications/notifications'
 import { createQuestionBroker } from '../questions/questions'
 import { createdTaskId } from '../todos/schema'
-import { readTodoHub } from '../todo-hub/todo-hub'
+import { readTodoHub, taskChildren } from '../todo-hub/todo-hub'
 import { todoListFor } from '../todos/todos'
 import { listWatchers } from '../db/repositories/watchers'
 import { ChildTool, namedTodo, TODO_FIELDS } from './child-calls'
@@ -283,6 +284,8 @@ describe('AGENT_SCRIPTS', () => {
 
   describe('files-children', () => {
     const CHILDREN: readonly FiledChild[] = ['subagent', 'commit', 'monitor', 'command', 'wakeup', 'cron']
+    /** The two whose call names a todo, and so how many filing calls a turn that names none ends up making. */
+    const FILED = 2
     /** The tool that makes each child. */
     const TOOLS: Readonly<Record<FiledChild, ChildTool>> = {
       subagent: ChildTool.Agent,
@@ -320,7 +323,7 @@ describe('AGENT_SCRIPTS', () => {
       return found
     }
 
-    it('names a todo it keeps in every call that makes a child, the first turn', async () => {
+    it('names a todo it keeps in the Agent call and the Bash call that commits, the first turn, and in no watcher’s', async () => {
       const agent = start('files-children')
       agent.send(task.id, FILES_CHILDREN.prompt)
       await backend.whenIdle()
@@ -337,7 +340,14 @@ describe('AGENT_SCRIPTS', () => {
       ])
 
       for (const child of CHILDREN) {
-        const { text, todo } = FILES_CHILDREN.named[child]
+        const made = FILES_CHILDREN.named[child]
+        if (typeof made === 'string') {
+          // A watcher isn't filed: its call is written with its own text alone.
+          const call = callWith(TOOLS[child], made)
+          expect(namedTodo(call.name, call.input)).toBeNull()
+          continue
+        }
+        const { text, todo } = made
         const call = callWith(TOOLS[child], `[todo ${todo}] ${text}`)
         // It names a todo the list has, and its own text is what's left.
         expect(ids).toContain(todo)
@@ -370,8 +380,8 @@ describe('AGENT_SCRIPTS', () => {
         const call = callWith(TOOLS[child], FILES_CHILDREN.unnamed[child])
         expect(namedTodo(call.name, call.input)).toBeNull()
       }
-      // Six calls name a todo, the first turn's, and no more.
-      expect(calls().filter((call) => namedTodo(call.name, call.input) !== null)).toHaveLength(CHILDREN.length)
+      // Two calls name a todo, the first turn's `Agent` call and its commit, and no more.
+      expect(calls().filter((call) => namedTodo(call.name, call.input) !== null)).toHaveLength(FILED)
       expect(commitSubjects()).toEqual([FILES_CHILDREN.unnamed.commitSubject, FILES_CHILDREN.named.commitSubject])
       expect(listWatchers(database.db, task.id)).toHaveLength(8)
       // The todo list is the first turn's: the second made nothing a todo.
@@ -416,31 +426,33 @@ describe('AGENT_SCRIPTS', () => {
           .map(({ state }) => state)
       }
 
-      it('files what each call of the first turn makes under the todo it names, and the marker shows nowhere', async () => {
+      it('records the first turn’s subagent’s todo and files its commit where each call says, and leaves its watchers', async () => {
         const events: GladeEvent[] = []
         const agent = start('files-children', { emit: (event) => events.push(event) })
         agent.send(task.id, FILES_CHILDREN.prompt)
         await backend.whenIdle()
 
-        // A subagent, a watcher of each kind and a commit, each under the todo its call named.
+        // The subagent and the commit, each under the todo its call named; the four watchers aren't filed.
         expect(placed()).toEqual([
           ['subagent named'],
-          ['commit named', 'watcher named'],
-          ['watcher named', 'watcher named', 'watcher named'],
+          ['commit named'],
           [],
+          ['watcher unfiled', 'watcher unfiled', 'watcher unfiled', 'watcher unfiled'],
         ])
+        const { named } = FILES_CHILDREN
+        const subagent = callWith(ChildTool.Agent, named.subagent.text)
+        expect(subagentTodo(taskChildren(database.db, task.id), subagent.toolUseId)).toBe(named.subagent.todo)
         // The calls ran, and were logged, with their own text alone.
         for (const child of CHILDREN) {
-          const { text } = FILES_CHILDREN.named[child]
+          const made = named[child]
+          const text = typeof made === 'string' ? made : made.text
           expect(callWith(TOOLS[child], text).input[TODO_FIELDS[TOOLS[child]]]).toBe(text)
         }
-        const { named } = FILES_CHILDREN
         expect(listWatchers(database.db, task.id).map(({ label, detail }) => [label, detail])).toEqual([
-          [named.monitor.text, named.monitorCommand],
-          [named.command.text, named.commandCommand],
-          [named.wakeup.text, named.wakeupPrompt],
-          // A cron job fires with its prompt: the marker is in neither its label nor what it runs.
-          [named.cron.text, named.cron.text],
+          [named.monitor, named.monitorCommand],
+          [named.command, named.commandCommand],
+          [named.wakeup, named.wakeupPrompt],
+          [named.cron, named.cron],
         ])
         const shown = JSON.stringify([listToolEvents(database.db, task.id), listWatchers(database.db, task.id), events])
         expect(shown).not.toMatch(/\[todo/i)
@@ -458,22 +470,15 @@ describe('AGENT_SCRIPTS', () => {
         agent.send(task.id, 'And the order totals.')
         await backend.whenIdle()
 
-        // Six messages that made a child, six filing calls, each right after its message: none was left for the
-        // end of the turn. The file and the link it then declared are under the todo each `add_artifact` call gave.
-        expect(filingCalls()).toEqual(Array(CHILDREN.length).fill(ToolCallState.Done))
+        // The subagent's message and the commit's, a filing call right after each: none was left for the end of the
+        // turn, and nothing was said of the four watchers. The file and the link it then declared are under the todo
+        // each `add_artifact` call gave.
+        expect(filingCalls()).toEqual(Array(FILED).fill(ToolCallState.Done))
         expect(placed()).toEqual([
           ['subagent asked', 'subagent named'],
-          ['commit asked', 'commit named', 'file named', 'watcher asked', 'watcher named'],
-          [
-            'link named',
-            'watcher asked',
-            'watcher asked',
-            'watcher asked',
-            'watcher named',
-            'watcher named',
-            'watcher named',
-          ],
-          [],
+          ['commit asked', 'commit named', 'file named'],
+          ['link named'],
+          Array(8).fill('watcher unfiled'),
         ])
         expect(database.db.prepare('SELECT COUNT(*) FROM owed_filings').pluck().get()).toBe(0)
         expect(commitSubjects()).toEqual([FILES_CHILDREN.unnamed.commitSubject, FILES_CHILDREN.named.commitSubject])
@@ -496,15 +501,16 @@ describe('AGENT_SCRIPTS', () => {
         resumed.send(task.id, 'Do that again.')
         await backend.whenIdle()
         expect(placed()[0]).toEqual(['subagent named', 'subagent named'])
-        expect(placed()[3]).toEqual([])
+        // Only its watchers are under no todo.
+        expect(new Set(placed()[3])).toEqual(new Set(['watcher unfiled']))
         expect(filingCalls()).toEqual([])
 
         resumed.send(task.id, 'And the order totals.')
         await backend.whenIdle()
 
         expect(placed()[0]).toEqual(['subagent asked', 'subagent named', 'subagent named'])
-        expect(placed()[3]).toEqual([])
-        expect(filingCalls()).toEqual(Array(CHILDREN.length).fill(ToolCallState.Done))
+        expect(new Set(placed()[3])).toEqual(new Set(['watcher unfiled']))
+        expect(filingCalls()).toEqual(Array(FILED).fill(ToolCallState.Done))
         // It started with the hub's lines in its prompt, so none was sent to it again when it resumed.
         expect(getSessionContext(database.db, task.id)?.todoHub).toBe(true)
       })

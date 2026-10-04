@@ -190,17 +190,17 @@ describe("the todo hub's lines", () => {
     expect(places[0]).toBeGreaterThan(0)
   })
 
-  it('says to name the todo in the call that makes a child, in the words the probes ran with', () => {
-    // docs/sdk-notes.md §16, "The prompt lines": Opus and Sonnet named a todo in every call with this paragraph.
+  it('says to name the todo in the Agent call and the Bash call that commits, and asks nothing of a watcher’s call', () => {
+    // docs/sdk-notes.md §16, "The prompt lines", cut down to the two calls Glade reads a todo off.
     expect(TODO_HUB_FILING_LINE).toBe(
-      'Glade files everything you make (a subagent, a watcher or background command, a scheduled wakeup or cron job, a ' +
-        'commit) under one of your todos, where the user finds it. Name the todo in the call that makes it: start the ' +
-        'description of an Agent, Monitor or background Bash call, the description of a Bash call that commits, the ' +
-        "reason of a ScheduleWakeup and the prompt of a CronCreate with the todo's id in square brackets, like " +
-        '"[todo 2] Review the date helpers". Create the todo first (TaskCreate) if none fits. If a call names none, ' +
-        'Glade asks you right after it to file what it made, with mcp__glade__file_children: do that at once, before ' +
-        'your next step. What a subagent makes is filed with the subagent: leave those.',
+      'Glade files every commit you make under one of your todos, where the user finds it, and each subagent you start ' +
+        'works on one of them. Name the todo in the call: start the description of an Agent call, and of a Bash call ' +
+        'that commits, with the todo\'s id in square brackets, like "[todo 2] Review the date helpers". Create the ' +
+        'todo first (TaskCreate) if none fits. If a call names none, Glade asks you right after it to file what it ' +
+        'made, with mcp__glade__file_children: do that at once, before your next step. What a subagent commits goes ' +
+        'under its todo by itself: leave those.',
     )
+    expect(TODO_HUB_FILING_LINE).not.toMatch(/Monitor|background|ScheduleWakeup|CronCreate|wakeup|cron|watcher/i)
     expect(TODO_HUB_ARTIFACTS_LINE).toBe(
       "An artifact goes under a todo too: give add_artifact the todo's id as todo, for a file and for a link.",
     )

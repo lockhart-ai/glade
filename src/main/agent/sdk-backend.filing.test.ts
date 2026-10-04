@@ -1,6 +1,6 @@
 // The SDK hooks a session with the todo hub gets (P16-04, #495; `docs/sdk-notes.md` §16), given the inputs #492's
-// probes saw the SDK call them with: `PreToolUse` on the tools that make a child, `PostToolBatch`, and `Stop`, which
-// can hold the end of a turn. And the setting that keeps Claude Code's task tools on.
+// probes saw the SDK call them with: `PreToolUse` on `Agent` and `Bash`, the calls a todo is read off, `PostToolBatch`,
+// and `Stop`, which can hold the end of a turn. And the setting that keeps Claude Code's task tools on.
 import type { HookInput, HookJSONOutput } from '@anthropic-ai/claude-agent-sdk'
 import { expect, it, vi } from 'vitest'
 import { Effort, PermissionMode, type ToolInput } from '../../shared/domain'
@@ -100,7 +100,8 @@ it('gives a session with the todo hub its three hooks, and any other session exa
   const hub = sdkHooks(hubHandlers())
   expect(Object.keys(hub)).toEqual(['PreToolUse', 'UserPromptSubmit', 'Stop', 'PostCompact', 'PostToolBatch'])
   expect(hub.PreToolUse?.map(({ matcher }) => matcher)).toEqual([undefined, CHILD_TOOLS])
-  expect(CHILD_TOOLS).toBe('Agent|Monitor|Bash|ScheduleWakeup|CronCreate')
+  // A subagent, and a command that may commit: no watcher's tool is matched at all.
+  expect(CHILD_TOOLS).toBe('Agent|Bash')
   // Every message's calls, whatever the tools: no matcher.
   expect(hub.PostToolBatch).toMatchObject([{ hooks: [expect.any(Function)] }])
   expect(hub.PostToolBatch?.[0]?.matcher).toBeUndefined()
@@ -111,14 +112,19 @@ it('gives a session with the todo hub its three hooks, and any other session exa
 })
 
 it('hands a call that names its todo the input without the marker, the whole of it, and never decides the call', async () => {
-  const written = { description: '[todo 2] CI checks on PR #42', timeout_ms: 1_800_000, command: 'gh pr checks 42' }
-  const ran: ToolInput = { ...written, description: 'CI checks on PR #42' }
+  const written = { description: '[todo 2] Review the date helpers', subagent_type: 'Explore', prompt: 'Review.' }
+  const ran: ToolInput = { ...written, description: 'Review the date helpers' }
   const onChildStarting = vi.fn(() => Promise.resolve<ToolInput | null>(ran))
   const hooks = sdkHooks(hubHandlers({ onChildStarting }))
 
-  const answers = await callPreToolUse(hooks, preToolUse('Monitor', written))
+  const answers = await callPreToolUse(hooks, preToolUse('Agent', written))
 
-  expect(onChildStarting).toHaveBeenCalledExactlyOnceWith({ toolName: 'Monitor', input: written, toolUseId: 'toolu_1' })
+  expect(onChildStarting).toHaveBeenCalledExactlyOnceWith({
+    toolName: 'Agent',
+    input: written,
+    toolUseId: 'toolu_1',
+    agentId: null,
+  })
   // The guard for Glade's own tools has nothing to say of it; the hub's hook hands back the input alone.
   expect(answers).toEqual([{}, { hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: ran } }])
   // No decision, ever: an `allow` here would run the call in the ask mode without asking (sdk-notes §16).
@@ -130,34 +136,72 @@ it('hands a call that names its todo the input without the marker, the whole of 
   expect(hookSpecificOutput.updatedInput).not.toBe(ran)
 })
 
-it('leaves a call with no marker as the model wrote it', async () => {
-  const onChildStarting = vi.fn(() => Promise.resolve(null))
+it('reads an Agent call and a Bash call in the foreground, and leaves one with no marker as the model wrote it', async () => {
+  const onChildStarting = vi.fn<NonNullable<SessionHooks['onChildStarting']>>(() => Promise.resolve(null))
   const hooks = sdkHooks(hubHandlers({ onChildStarting }))
 
-  for (const tool of ['Agent', 'Monitor', 'Bash', 'ScheduleWakeup', 'CronCreate']) {
+  for (const tool of ['Agent', 'Bash']) {
     await expect(callPreToolUse(hooks, preToolUse(tool, { description: 'Review the date helpers' }))).resolves.toEqual([
       {},
       {},
     ])
   }
-  expect(onChildStarting).toHaveBeenCalledTimes(5)
+  expect(onChildStarting.mock.calls.map(([{ toolName }]) => toolName)).toEqual(['Agent', 'Bash'])
 })
 
-it('never touches a subagent’s call, a marker in it included, or a tool that makes no child', async () => {
+it('never touches a watcher’s call, a marker in it included: no hook of the hub’s even matches three of the four', async () => {
   const onChildStarting = vi.fn(() => Promise.resolve<ToolInput | null>({ description: 'never used' }))
+  const hooks = sdkHooks(hubHandlers({ onChildStarting }))
+  const watchers: [string, ToolInput][] = [
+    ['Monitor', { description: '[todo 3] CI checks', command: 'gh pr checks 42' }],
+    ['ScheduleWakeup', { delaySeconds: 300, reason: '[todo 3] Check CI again', prompt: 'Check.' }],
+    ['CronCreate', { cron: '0 9 * * *', prompt: '[todo 3] Check the PR.' }],
+  ]
+
+  // Only the guard for Glade's own tools is asked about these, and it has nothing to say.
+  for (const [tool, input] of watchers) {
+    await expect(callPreToolUse(hooks, preToolUse(tool, input))).resolves.toEqual([{}])
+  }
+  // A command in the background is a `Bash` call, so the hook is asked, and leaves it at once.
+  const background = { description: '[todo 2] Run the tests', command: 'npm test', run_in_background: true }
+  await expect(callPreToolUse(hooks, preToolUse('Bash', background))).resolves.toEqual([{}, {}])
+  // So does the hook itself, whatever it's asked about.
   const hook = childCallHook(onChildStarting)
-  const marked = { description: '[todo 2] Run the tests', command: 'npm test', run_in_background: true }
+  for (const [tool, input] of watchers) await expect(hook(preToolUse(tool, input), 'x', SIGNAL)).resolves.toEqual({})
+
+  expect(onChildStarting).not.toHaveBeenCalled()
+})
+
+it('reads a subagent’s Agent call, saying whose it is, and never its Bash call or a tool of another server', async () => {
+  const onChildStarting = vi.fn(({ input }: { input: ToolInput }) =>
+    Promise.resolve<ToolInput | null>({ ...input, description: 'Check the fixtures' }),
+  )
+  const hook = childCallHook(onChildStarting)
+  const nested = { description: '[todo 3] Check the fixtures', prompt: 'Check them.' }
 
   // A subagent's call, at any depth, carries the id of the subagent that made it.
+  await expect(hook(preToolUse('Agent', nested, { agent_id: 'a236' }), 'x', SIGNAL)).resolves.toEqual({
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      updatedInput: { description: 'Check the fixtures', prompt: 'Check them.' },
+    },
+  })
+  expect(onChildStarting).toHaveBeenCalledExactlyOnceWith({
+    toolName: 'Agent',
+    input: nested,
+    toolUseId: 'toolu_1',
+    agentId: 'a236',
+  })
+
+  // What a subagent commits follows its todo: its command is its own, marker or no marker.
+  const marked = { description: '[todo 2] Commit the fix', command: 'git commit -am "Fix"' }
   await expect(
     hook(preToolUse('Bash', marked, { agent_id: 'aa75', agent_type: 'general-purpose' }), 'x', SIGNAL),
   ).resolves.toEqual({})
-  await expect(hook(preToolUse('Agent', marked, { agent_id: 'a236' }), 'x', SIGNAL)).resolves.toEqual({})
   // The matcher can match more than the names it lists: another server's tool is none of these.
   await expect(hook(preToolUse('mcp__shell__Bash', marked), 'x', SIGNAL)).resolves.toEqual({})
   await expect(hook(preToolUse('Read', { file_path: 'a.ts' }), 'x', SIGNAL)).resolves.toEqual({})
-
-  expect(onChildStarting).not.toHaveBeenCalled()
+  expect(onChildStarting).toHaveBeenCalledTimes(1)
 })
 
 it('runs a call as written when it can’t read the input, or the host fails', async () => {

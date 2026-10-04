@@ -215,8 +215,7 @@ describe('with the todo hub off, as it starts', () => {
     const marked = calls.filter(({ input }) =>
       Object.values(input).some((value) => /^\[todo \d\] /.test(String(value))),
     )
-    expect(marked.map(({ name }) => name)).toEqual(['Agent', 'Bash', 'Monitor', 'Bash', 'ScheduleWakeup', 'CronCreate'])
-    expect(listWatchers(db, task.id).map(({ label }) => label)).toContain('[todo 3] CI checks on PR #42')
+    expect(marked.map(({ name }) => name)).toEqual(['Agent', 'Bash'])
     // The second turn named no todo, and nothing asked: the agent made no filing call, and each turn ended on its
     // one reply.
     expect(calls.map(({ name }) => name)).not.toContain('mcp__glade__file_children')

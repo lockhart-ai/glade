@@ -1,16 +1,17 @@
-// Filing what an agent makes under its todos as it's made (P16-04, #495), end to end with the scripted agent and the
-// hidden `todoHubEnabled` setting on. The agent's first turn names a todo in each call that makes a child: Glade files
-// what the call made and takes the marker off, so it shows nowhere. Its second turn names none: Glade tells it what
-// its calls made, and it files that itself, before its turn ends; the artifacts it declares give `add_artifact` their todo.
-// What's filed survives a relaunch, and the resumed session keeps filing. The hub's own tab is another issue's (#497),
-// so the spec reads where main puts each child over the bridge, and the Tool calls tab for what the log shows.
+// Filing what an agent produces under its todos as it's made (P16-04, #495), end to end with the scripted agent and
+// the hidden `todoHubEnabled` setting on. The agent's first turn names a todo in the `Agent` call that starts a
+// subagent and in the `Bash` call that commits: Glade records the subagent's todo, files the commit, and takes each
+// marker off, so it shows nowhere. Its second turn names none: Glade tells it what its calls made, and it files that
+// itself, before its turn ends; the artifacts it declares give `add_artifact` their todo. Its watchers are never
+// filed, asked about or held for. What's filed survives a relaunch, and the resumed session keeps filing. The spec
+// reads where main puts each thing over the bridge, and the Tool calls tab for what the log shows.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { FILES_CHILDREN as MADE } from '../src/main/agent/scripts'
 import { CommandName } from '../src/shared/bridge'
 import { ToolEventKind } from '../src/shared/domain'
-import { type TodoChildren } from '../src/shared/todoHub'
+import { ChildKind, FilingSource, type TodoChildren } from '../src/shared/todoHub'
 import { agentReceived, agentSessions, expect, test } from './fixtures'
 import { chat, firstRun, inputBar, taskList, taskPanel } from './selectors'
 import { invoke } from './task-view'
@@ -50,15 +51,10 @@ async function everythingShown(window: Page, taskId: string): Promise<string> {
   return JSON.stringify([toolEvents, watchers, commits, artifacts])
 }
 
-/** The first turn's children: each under the todo its call named. */
-const NAMED = [
-  ['subagent named'],
-  ['commit named', 'watcher named'],
-  ['watcher named', 'watcher named', 'watcher named'],
-  [],
-]
+/** The four watchers a turn of the script starts, which nothing files. */
+const WATCHERS = Array<string>(4).fill('watcher unfiled')
 
-test('the todo hub on: what an agent makes is under a todo by the time its turn ends, named in the call or filed when told', async ({
+test('the todo hub on: a commit is under a todo, and a subagent has one, by the time the turn ends; watchers are left alone', async ({
   launch,
   tempFolder,
 }) => {
@@ -71,55 +67,54 @@ test('the todo hub on: what an agent makes is under a todo by the time its turn 
   await taskList(window).newTask.click()
   const taskId = await onlyTaskId(window)
 
-  // Its first turn: three todos, and a subagent, a commit and four watchers, each call naming a todo.
+  // Its first turn: three todos, a subagent and a commit whose calls name a todo, and four watchers.
   await send(window, MADE.prompt)
   await expect(chat(window).agentReplies.first()).toContainText(MADE.named.reply)
-  // The session started with the hub on: its prompt says how to name a todo, and nothing was sent ahead of the message.
+  // The session started with the hub on: its prompt says how to name a todo, asks no marker of a watcher's call, and
+  // nothing was sent ahead of the message.
   const [session] = await agentSessions(glade)
-  expect(session?.systemPromptAppend).toContain('Name the todo in the call that makes it')
+  expect(session?.systemPromptAppend).toContain(
+    'start the description of an Agent call, and of a Bash call that commits',
+  )
+  expect(session?.systemPromptAppend).not.toMatch(/ScheduleWakeup|CronCreate/)
   expect(await agentReceived(glade)).toEqual([MADE.prompt])
 
-  // Everything is under the todo its call named, with nothing left under no todo, and nothing was asked of the agent.
-  expect(await placed(window, taskId)).toEqual(NAMED)
+  // The commit is under the todo its call named, and the subagent's todo is recorded; nothing was asked of the agent.
+  expect(await placed(window, taskId)).toEqual([['subagent named'], ['commit named'], [], WATCHERS])
+  const first = await invoke(window, CommandName.TodoHubGet, { taskId })
+  expect(first.filings.map(({ kind, todoId, source }) => [kind, todoId, source]).sort()).toEqual([
+    [ChildKind.Commit, MADE.named.commit.todo, FilingSource.Named],
+    [ChildKind.Subagent, MADE.named.subagent.todo, FilingSource.Named],
+  ])
   await panel.tab(/^Tool calls/).click()
   await expect(panel.call(/^Done\s*file_children/)).toHaveCount(0)
-  // The marker shows nowhere: not in what main keeps (a call's row, a watcher's label, a cron job's prompt), nor in
-  // the Tool calls tab.
+  // The marker shows nowhere: not in what main keeps, nor in the Tool calls tab.
   expect(await everythingShown(window, taskId)).not.toMatch(/\[todo/i)
   await expect(panel.log).not.toContainText('[todo')
-  await expect(panel.call(new RegExp(`^Done\\s*Monitor\\s*${MADE.named.monitor.text}`))).toBeVisible()
+  // Its watchers are as their calls wrote them.
   const { watchers } = await invoke(window, CommandName.TasksHistory, { id: taskId })
   expect(watchers.map(({ label }) => label)).toEqual([
-    MADE.named.monitor.text,
-    MADE.named.command.text,
-    MADE.named.wakeup.text,
-    MADE.named.cron.text,
+    MADE.named.monitor,
+    MADE.named.command,
+    MADE.named.wakeup,
+    MADE.named.cron,
   ])
-  expect(watchers.at(-1)?.detail).toBe(MADE.named.cron.text)
 
-  // Its second turn makes the same kinds and names no todo. Glade tells it what each message made, and it files that
-  // with one call each time, without being asked by you: by the end of the turn nothing is under no todo. The file
-  // and the link it declares as artifacts go under the todo each `add_artifact` call names.
+  // Its second turn names no todo. Glade tells it of the subagent, then of the commit, and it files each with one
+  // call, without being asked by you. Nothing is said of its watchers. The file and the link it declares as artifacts
+  // go under the todo each `add_artifact` call names.
   await send(window, 'And the order totals.')
   await expect(chat(window).agentReplies.last()).toContainText(MADE.unnamed.reply)
   const filed = [
     ['subagent asked', 'subagent named'],
-    ['commit asked', 'commit named', 'file named', 'watcher asked', 'watcher named'],
-    [
-      'link named',
-      'watcher asked',
-      'watcher asked',
-      'watcher asked',
-      'watcher named',
-      'watcher named',
-      'watcher named',
-    ],
-    [],
+    ['commit asked', 'commit named', 'file named'],
+    ['link named'],
+    [...WATCHERS, ...WATCHERS],
   ]
   expect(await placed(window, taskId)).toEqual(filed)
-  // Six messages that made a child, six filing calls, in the tool log like any other call.
-  await expect(panel.call(/^Done\s*file_children/)).toHaveCount(6)
-  // The turn ended once, on its reply: its end was never held.
+  // Two filing calls, in the tool log like any other call.
+  await expect(panel.call(/^Done\s*file_children/)).toHaveCount(2)
+  // The turn ended once, on its reply: its end was never held, by a watcher or anything else.
   await expect(chat(window).agentReplies).toHaveCount(2)
   const { toolEvents } = await invoke(window, CommandName.TasksHistory, { id: taskId })
   const narrated = toolEvents.filter(
@@ -135,12 +130,12 @@ test('the todo hub on: what an agent makes is under a todo by the time its turn 
   expect(await placed(page, taskId)).toEqual(filed)
 
   // The resumed session keeps filing. A scripted agent starts its script again on a relaunch, so this turn's calls
-  // each name a todo once more.
+  // name a todo once more.
   await send(page, 'Do that again.')
   await expect(chat(page).agentReplies).toHaveCount(3)
   const again = await placed(page, taskId)
   expect(again[0]).toEqual(['subagent asked', 'subagent named', 'subagent named'])
-  expect(again[3]).toEqual([])
+  expect(new Set(again[3])).toEqual(new Set(['watcher unfiled']))
   expect(await everythingShown(page, taskId)).not.toMatch(/\[todo/i)
   // It started with the hub's lines in its prompt, so the session that resumed was sent none of them again.
   const [resumed] = await agentSessions(relaunched)
