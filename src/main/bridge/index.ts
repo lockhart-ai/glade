@@ -11,6 +11,7 @@ import { createRateLimiter, type RateLimits } from '../control/rate-limit'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
 import { taskSandboxGrants } from '../sandbox/grants'
 import { createAccountTracker, type AccountTracker } from '../account/account'
+import { createUsageResume, type UsageResume } from '../account/usage-resume'
 import {
   createLoginService,
   retryIfLoggedOut,
@@ -160,6 +161,11 @@ export interface RegisteredBridge {
   readonly endpoint: ControlEndpoint
   /** The account the tasks run on and its usage warning, whose timer ends when the app quits. */
   readonly account: AccountTracker
+  /**
+   * What resumes the tasks a usage limit paused once the account can run again: told when Glade's window gets the
+   * focus, and its timer ends when the app quits.
+   */
+  readonly usageResume: UsageResume
   /** Logging in to Claude, whose running login, if any, stops when the app quits. */
   readonly login: LoginService
   /** What watches the artifacts' files, which stops when the app quits. */
@@ -247,6 +253,19 @@ export function registerBridge({
     },
     tasks,
   )
+  // The tasks a usage limit paused resume by themselves once a reading of the account's usage says it can run again
+  // (#519): it hears every event, to read usage again for as long as one is paused, and resumes them as one batch.
+  const usageResume = createUsageResume({
+    db,
+    runner: {
+      resumePaused: (taskId) => {
+        runner.resumePaused(taskId)
+      },
+      refreshUsage: () => runner.refreshUsage(),
+    },
+    batch: windows.batch,
+    log: log.scoped(LogScope.Runner),
+  })
   const emit: Emit = (event) => {
     logEvent(event)
     feed.observe(event)
@@ -254,13 +273,21 @@ export function registerBridge({
     windows.emit(event)
     observe?.(event)
     backgroundWork.observe(event)
+    usageResume.observe(event)
   }
   // One broker for the agent's questions: the Glade tools' `ask` waits on it, and the runner answers through it.
   const questions = createQuestionBroker({ db, emit }, notifyReply)
   // The permission requests the ask mode's tool calls wait on, notified as questions are.
   const permissions = createPermissionBroker({ db, emit }, notifyReply)
   // What the sessions say of the account and its usage limits, for Settings › General and the usage note.
-  const account = createAccountTracker({ db, emit, log: log.scoped(LogScope.Runner) })
+  const account = createAccountTracker({
+    db,
+    emit,
+    log: log.scoped(LogScope.Runner),
+    onUsageRead: (usage) => {
+      usageResume.usageRead(usage)
+    },
+  })
   const runner = createAgentRunner({
     db,
     emit,
@@ -397,6 +424,7 @@ export function registerBridge({
     control,
     endpoint,
     account,
+    usageResume,
     login,
     artifactWatch,
     folderWatch,

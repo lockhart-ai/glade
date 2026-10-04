@@ -73,7 +73,7 @@ import {
 } from './scripts'
 import { OFFLINE_FIRST_CHECK_MS, USAGE_LIMIT_FALLBACK_MS } from './pauses'
 import { createAccountTracker, type AccountSink, type AccountTracker } from '../account/account'
-import { UsageLevel, UsageLimitKind } from '../../shared/account'
+import { UsageLevel, UsageLimitKind, type UsageSnapshot } from '../../shared/account'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
 import { createMemoryLog } from '../logging/memory-sink'
 import type { Logger } from '../logging/logger'
@@ -91,13 +91,18 @@ interface Listeners {
   readonly log?: Logger
   /** What hears about the account. Nothing by default. */
   readonly account?: AccountSink
+  /** Whether the account's extra usage is turned on, asked with each usage call. On by default. */
+  readonly extraUsageOn?: () => boolean
 }
 
 function start(
   name: AgentScriptName,
-  { emit = () => undefined, notifyReply, log, account }: Listeners = {},
+  { emit = () => undefined, notifyReply, log, account, extraUsageOn }: Listeners = {},
 ): AgentRunner {
-  backend = createTestModeAgentBackend({ script: AGENT_SCRIPTS[name] })
+  backend = createTestModeAgentBackend({
+    script: AGENT_SCRIPTS[name],
+    ...(extraUsageOn === undefined ? {} : { extraUsageOn }),
+  })
   const base = { db: database.db, emit }
   const questions = createQuestionBroker(base)
   const context = { ...base, questions }
@@ -753,15 +758,78 @@ describe('AGENT_SCRIPTS', () => {
     })
   })
 
+  it('usage-limit-twice: is turned away again the first time it’s resumed, and finishes the second', async () => {
+    const agent = start('usage-limit-twice')
+    const first = await pausedBy(agent, 'Move the uploads to S3.')
+
+    agent.resumePaused(task.id)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    const second = getTask(database.db, task.id)
+    expect(second).toMatchObject({ activity: TaskActivity.Paused, error: null })
+    expect(second?.pause).toMatchObject({ reason: PauseReason.UsageLimit, limit: { kind: UsageLimitKind.Session } })
+    expect(second?.pause?.since).toBeGreaterThan(first?.since ?? 0)
+    expect(calls().map((call) => call.name)).not.toContain(API_TOOL_NAME)
+    expect(reply()).toBeUndefined()
+
+    agent.resumePaused(task.id)
+    const idle = backend.whenIdle()
+    await vi.advanceTimersByTimeAsync(10_000)
+    await idle
+    expect(reply()).toBe('The copy finished: all 3,900 files are in the bucket.')
+    expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, pause: null })
+  })
+
   describe('usage warnings', () => {
     let account: AccountTracker
+    /** Each answer of the usage call the account read. */
+    let read: UsageSnapshot[]
 
     beforeEach(() => {
-      account = createAccountTracker({ db: database.db, emit: () => undefined })
+      read = []
+      account = createAccountTracker({
+        db: database.db,
+        emit: () => undefined,
+        onUsageRead: (usage) => read.push(usage),
+      })
     })
 
     afterEach(() => {
       account.close()
+    })
+
+    it('usage-limit-extra: the usage call says the session is spent, and tells of extra usage once it’s on', async () => {
+      let extraUsage = false
+      const agent = start('usage-limit-extra', { account, extraUsageOn: () => extraUsage })
+      await pausedBy(agent, 'Move the uploads to S3.')
+
+      const told = (): unknown[] => account.status().usage.map(({ limit, utilization }) => [limit.kind, utilization])
+      expect(told()).toEqual([
+        [UsageLimitKind.Session, 1],
+        [UsageLimitKind.Weekly, 0.64],
+      ])
+      expect(account.status().usage[0]?.level).toBe(UsageLevel.Limited)
+      expect(read.at(-1)?.extraUsageAvailable).toBe(false)
+
+      // Turned on in the browser; the paused task's session is asked again.
+      extraUsage = true
+      expect(agent.refreshUsage()).toBe(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(told()).toEqual([
+        [UsageLimitKind.Session, 1],
+        [UsageLimitKind.Weekly, 0.64],
+        [UsageLimitKind.ExtraUsage, 0],
+      ])
+      expect(read.at(-1)?.extraUsageAvailable).toBe(true)
+      expect(activity()).toBe(TaskActivity.Paused)
+    })
+
+    it('usage-limit-extra: has extra usage on from the start unless the test mode says when', async () => {
+      await pausedBy(start('usage-limit-extra', { account }), 'Move the uploads to S3.')
+
+      expect(account.status().usage.map(({ limit }) => limit.kind)).toContain(UsageLimitKind.ExtraUsage)
+      expect(read.at(-1)?.extraUsageAvailable).toBe(true)
     })
 
     it('usage-meter: the usage call answers once the turn ends, with every window and when each resets', async () => {

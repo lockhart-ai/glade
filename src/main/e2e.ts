@@ -132,6 +132,11 @@ export interface E2eAgent {
   readonly flagSettings: SandboxFlagSettings[]
   /** What Seatbelt logged of the sessions' sandboxed commands, one denial each, as `log stream` prints it. */
   readonly sandboxLog: string[]
+  /**
+   * Whether the account's extra usage is turned on, as the sessions' usage call says when asked: off until a spec turns
+   * it on, as you would in the browser while a task is paused on a usage limit (#519).
+   */
+  extraUsage: boolean
 }
 
 /** What records the scripted agent's sessions and messages for a spec (`createE2eAgent`). */
@@ -142,17 +147,20 @@ export interface E2eAgentRecorder {
   ) => void
   readonly onFlagSettings: (settings: SandboxFlagSettings) => void
   readonly onSandboxLog: (text: string) => void
+  /** Whether the spec has turned the account's extra usage on (`E2eAgent.extraUsage`). */
+  readonly extraUsageOn: () => boolean
 }
 
 /**
  * Puts an empty `E2eAgent` on the global object for a spec to read (`E2E_AGENT_GLOBAL`), and answers with what hears
  * each session the scripted agent starts and each message it's sent: it records the session's options and the
- * message's content.
+ * message's content. It also says whether the spec has turned extra usage on.
  */
 export function createE2eAgent(): E2eAgentRecorder {
-  const agent: E2eAgent = { received: [], sessions: [], flagSettings: [], sandboxLog: [] }
+  const agent: E2eAgent = { received: [], sessions: [], flagSettings: [], sandboxLog: [], extraUsage: false }
   Reflect.set(globalThis, E2E_AGENT_GLOBAL, agent)
   return {
+    extraUsageOn: () => agent.extraUsage,
     onSent: (content) => {
       agent.received.push(content)
     },

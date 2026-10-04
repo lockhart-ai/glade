@@ -589,6 +589,11 @@ export interface GladeActions {
   /** Retries every task a lost login stopped (Retry all, `tasks.retryLoggedOut`). */
   retryLoggedOut: () => Promise<void>
   /**
+   * Resumes every task a usage limit paused, in every workspace, each on its own model (Resume now,
+   * `tasks.resumePaused`). The tasks arrive as events: working, or paused again if still over the limit.
+   */
+  resumePausedTasks: () => Promise<void>
+  /**
    * Starts Claude Code's own login (`login.start`), which opens the browser; `taskId`'s turn is retried once you're
    * logged in. Resolves once it has started; how it goes arrives as events.
    */

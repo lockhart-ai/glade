@@ -199,7 +199,32 @@ the plan's name and above how long ago it was read ("From Claude Code · updated
 Glade asks Claude Code as each task's session starts and after each turn (its experimental usage call), and also reads
 the rate limit events that come as each turn starts; when the call fails, the events alone keep the meter going. It
 keeps the latest reading of each limit, so a relaunch shows them again, and drops each when its window resets. An API
-key or a cloud provider has no plan limits, so the meter is hidden for them.
+key or a cloud provider has no plan limits, so the meter is hidden for them. Extra usage has a row from the moment it's
+turned on: with nothing spent yet it reads "Extra usage 0%" (of its monthly cap), and with no cap, "within limits".
+
+### Paused on a usage limit
+
+A turn that runs into a usage limit pauses its task rather than stopping it on an error
+(`design/screens/17-usage-limit.png`): one banner across the top for every paused task, in every workspace, saying
+when they resume, and each resumes by itself when its limit resets. Messages sent meanwhile wait in the queue. Three
+things end the pause sooner (#519):
+
+- **Resume now**, on the banner beside **Switch model**, tries every task a usage limit paused again at once, each on
+  its own model. A task still over the limit pauses again, with whatever reset time it's given: the banner comes back
+  for it, and there's no error card. (**Switch model** does the same on another model.)
+- **Glade resumes them by itself when the account can run again.** While any task is paused on a usage limit, it reads
+  the account's usage again when its window gets the focus and every 5 minutes, and the usage meter shows what it
+  read. When a reading says the account can run again, it resumes the paused tasks without a click: the limit that
+  turned a task away is no longer spent (a bigger plan, say), or extra usage is on with room left (turned on, nothing
+  disabling it, its spend limit not reached, under its monthly cap).
+- A reading can be wrong, so Glade acts on each **once**: a task is resumed on a reading only when it says something
+  other than the reading before did of that task. A task that's turned away again stays paused until a reading
+  changes, its limit resets, or you press **Resume now**.
+
+Glade reads usage through a session that's already running (a paused task's own stays alive), and never starts one
+just to ask. So after a relaunch with every task paused it has nothing to ask until a task runs: until then the
+tasks wait for their reset time or for **Resume now**. Nothing is read again while nothing is paused on a usage limit.
+A task paused because the network is down is left to the network: it resumes when that's back.
 
 ### Logged out
 

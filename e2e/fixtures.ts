@@ -565,6 +565,30 @@ export async function setOnline({ app }: Glade, online: boolean): Promise<void> 
 }
 
 /**
+ * Turns the account's extra usage on or off, as you would in the browser (`E2E_AGENT_GLOBAL`): what the scripted
+ * sessions' usage call says of it from then on, for a script that tells of extra usage. It starts off.
+ */
+export async function setExtraUsage({ app }: Glade, on: boolean): Promise<void> {
+  await inMain(
+    app,
+    (_, { name, value }) => {
+      ;(Reflect.get(globalThis, name) as E2eAgent).extraUsage = value
+    },
+    { name: E2E_AGENT_GLOBAL, value: on },
+  )
+}
+
+/**
+ * Tells the app its window got the focus, as coming back to Glade from another app does: an e2e run's window is never
+ * shown, so it never gets the focus itself.
+ */
+export async function focusWindow({ app }: Glade): Promise<void> {
+  await inMain(app, ({ app: electronApp, BrowserWindow }) => {
+    electronApp.emit('browser-window-focus', {}, BrowserWindow.getAllWindows()[0])
+  })
+}
+
+/**
  * Ends the login Log in started, as the browser would (`E2E_LOGIN_GLOBAL`): an e2e run never logs anyone in or out, so
  * its login is a stand-in that waits for the spec.
  */
