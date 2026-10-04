@@ -5,18 +5,18 @@ import { migrate } from '../migrate'
 import { listOwedFilings, oweFilings } from '../repositories/owed-filings'
 import { getSessionContext, setSessionContext } from '../repositories/session-context'
 import { MIGRATIONS } from '.'
-import { fileAtCreationMigration } from './0061-file-at-creation'
+import { fileAtCreationMigration } from './0062-file-at-creation'
 
-it('is migration 61, after every earlier one', () => {
-  expect(fileAtCreationMigration.version).toBe(61)
-  expect(MIGRATIONS.indexOf(fileAtCreationMigration)).toBe(MIGRATIONS.filter((m) => m.version < 61).length)
+it('is migration 62, after every earlier one', () => {
+  expect(fileAtCreationMigration.version).toBe(62)
+  expect(MIGRATIONS.indexOf(fileAtCreationMigration)).toBe(MIGRATIONS.filter((m) => m.version < 62).length)
 })
 
 it('leaves every session recorded before it as not told of the todo hub, and nothing owed', () => {
   const db = openDatabase(':memory:')
   migrate(
     db,
-    MIGRATIONS.filter((migration) => migration.version < 61),
+    MIGRATIONS.filter((migration) => migration.version < 62),
   )
   db.prepare("INSERT INTO workspaces VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)").run()
   for (const id of ['glade', 'imported']) {

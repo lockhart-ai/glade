@@ -58,7 +58,8 @@ import { sandboxFileGrantsMigration } from './0057-sandbox-file-grants'
 import { sessionSandboxContextMigration } from './0058-session-sandbox-context'
 import { todoHubMigration } from './0059-todo-hub'
 import { mcpServerGrantsMigration } from './0060-mcp-server-grants'
-import { fileAtCreationMigration } from './0061-file-at-creation'
+import { extraUsageSpendMigration } from './0061-extra-usage-spend'
+import { fileAtCreationMigration } from './0062-file-at-creation'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -121,6 +122,7 @@ export const MIGRATIONS: readonly Migration[] = [
   sessionSandboxContextMigration,
   todoHubMigration,
   mcpServerGrantsMigration,
+  extraUsageSpendMigration,
   fileAtCreationMigration,
 ]
 

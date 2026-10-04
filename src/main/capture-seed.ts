@@ -81,7 +81,7 @@ import { INSTRUCTION_UPDATES } from './agent/system-prompt'
 import { DEFAULT_SETTINGS, type SettingsPatch } from '../shared/settings'
 import { SETTING_SCHEMAS, updateSettings } from './db/repositories/settings'
 import { replaceUsageReadings, saveAccount } from './db/repositories/account'
-import { usageLevel, UsageLevel, UsageLimitKind, type UsageLimit } from '../shared/account'
+import { usageLevel, UsageLevel, UsageLimitKind, type ExtraUsageStatus, type UsageLimit } from '../shared/account'
 import { storeControlToken, storedToken } from './control/token'
 import { noteReportedServers } from './db/repositories/reported-mcp-servers'
 import { addSandboxGrant } from './db/repositories/sandbox-grants'
@@ -454,6 +454,11 @@ export interface SeedUsageReading {
   readonly resetsInMinutes: number | null
   /** How long before the capture it was read. */
   readonly readMinutesAgo: number
+  /**
+   * What the usage call said of extra usage (`UsageLimitKind.ExtraUsage` only): whether it's available, and the money
+   * spent, in the currency's minor units. None unless given.
+   */
+  readonly extraUsage?: ExtraUsageStatus | undefined
 }
 
 /** A fixture: one workspace, opened, and its tasks. */
@@ -614,9 +619,25 @@ const seedUsageReadingSchema = z
     level: z.enum(UsageLevel).optional(),
     resetsInMinutes: minutesAgo.nullable(),
     readMinutesAgo: minutesAgo,
+    extraUsage: z
+      .strictObject({
+        available: z.boolean(),
+        spend: z
+          .strictObject({
+            spent: z.number().nonnegative(),
+            cap: z.number().nonnegative().nullable(),
+            currency: z.string().regex(/^[A-Z]{3}$/),
+            decimalPlaces: z.number().int().min(0).max(4),
+          })
+          .nullable(),
+      })
+      .optional(),
   })
   .refine(({ kind, model }) => (kind === UsageLimitKind.WeeklyModel) === (model !== undefined), {
     message: 'a model is given for a per-model weekly limit, and only for one',
+  })
+  .refine(({ kind, extraUsage }) => kind === UsageLimitKind.ExtraUsage || extraUsage === undefined, {
+    message: 'only extra usage’s reading says what the usage call said of extra usage',
   }) satisfies z.ZodType<SeedUsageReading>
 
 /** The limit a seed's reading is of. */
@@ -1009,6 +1030,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
           resetsAt: reading.resetsInMinutes === null ? null : now + reading.resetsInMinutes * MINUTE,
           level: reading.level ?? usageLevel(reading.utilization),
           readAt: now - reading.readMinutesAgo * MINUTE,
+          ...(reading.extraUsage === undefined ? {} : { extraUsage: reading.extraUsage }),
         })),
       )
     }

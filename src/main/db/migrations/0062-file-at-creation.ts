@@ -16,7 +16,7 @@ import type { Migration } from '../migrate'
  *   ahead of its next message. Every session recorded before this counts as not told: 0.
  */
 export const fileAtCreationMigration: Migration = {
-  version: 61,
+  version: 62,
   name: 'Add the filings a task’s agent owes, and whether its session was told of the todo hub',
   up(db) {
     db.exec(`
