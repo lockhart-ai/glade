@@ -30,14 +30,16 @@ import {
   type ToolEvent,
 } from '../../shared/domain'
 import { autoCompactThreshold } from '../../shared/contextWindow'
-import { FolderAccess, SandboxAskKind, SandboxGrantScope } from '../../shared/sandbox'
+import { FolderAccess, OtherAgents, SandboxAskKind, SandboxGrantKind, SandboxGrantScope } from '../../shared/sandbox'
 import { listArtifacts, listFileArtifacts } from '../db/repositories/artifacts'
 import { listMessages } from '../db/repositories/messages'
 import { getOpenQuestionSet } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { listOpenPermissionRequests, listPermissionRequests } from '../db/repositories/permission-requests'
+import { listReportedServers } from '../db/repositories/reported-mcp-servers'
 import { listSandboxGrants } from '../db/repositories/sandbox-grants'
+import { taskSandboxGrants } from '../sandbox/grants'
 import { getSettings, updateSettings } from '../db/repositories/settings'
 import { listTaskCommits } from '../db/repositories/task-commits'
 import { getTask, updateTask } from '../db/repositories/tasks'
@@ -80,6 +82,7 @@ import {
   TRACKS_LINKS_REPLY,
   ASKS_SANDBOX,
   CROSSES_SANDBOX,
+  REACHES_OUTSIDE,
   SANDBOX_FAILS,
   type AgentScriptName,
   type FiledChild,
@@ -132,6 +135,8 @@ function start(
     mcpServers: (forTask) => ({
       [GLADE_SERVER]: createGladeMcpServer(context, forTask.id, getSettings(database.db)),
     }),
+    // And the grants as saved, as the app reads them for a sandboxed session.
+    sandboxGrants: (forTask) => taskSandboxGrants(database.db, forTask),
   })
   return runner
 }
@@ -1347,6 +1352,101 @@ describe('AGENT_SCRIPTS', () => {
       rmSync(join(settings, '..'), { recursive: true, force: true })
     },
   )
+
+  it('reaches-outside: runs straight through unsandboxed in Allow all, with nothing asked for', async () => {
+    updateSettings(database.db, { sandboxEnabled: false })
+    await send(start('reaches-outside'), 'Look up the retry policy.')
+
+    expect(listPermissionRequests(database.db, task.id)).toEqual([])
+    expect(calls().map(({ name, state }) => [name, state])).toEqual([
+      [REACHES_OUTSIDE.search, ToolCallState.Done],
+      [REACHES_OUTSIDE.read, ToolCallState.Done],
+      [REACHES_OUTSIDE.issue, ToolCallState.Done],
+      ['Agent', ToolCallState.Done],
+      ['SendMessage', ToolCallState.Done],
+      ['SendMessage', ToolCallState.Done],
+      ['RemoteTrigger', ToolCallState.Done],
+    ])
+    expect(reply()).toBe(REACHES_OUTSIDE.reply)
+  })
+
+  // #515: the connector's first call has a rule in the user's own settings that keeps Claude Code from asking about
+  // it, so without Glade's own hook it ran unasked.
+  it('reaches-outside: sandboxed in Allow all, asks once for each server and each kind of other agents, never for its own subagent', async () => {
+    updateSettings(database.db, { sandboxEnabled: true })
+    const agent = start('reaches-outside')
+    await sendAndWaitAnHour(agent, 'Look up the retry policy.')
+    const open = (): PermissionRequest | undefined => listOpenPermissionRequests(database.db, task.id)[0]
+    const decide = async (decision: PermissionDecision): Promise<void> => {
+      agent.answerPermission(open()?.id ?? '', decision)
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+    }
+    const forTask: PermissionDecision = { kind: PermissionDecisionKind.AllowForTask }
+
+    // The connector, by the name Claude Code reports it under, kept by the name its tools carry.
+    expect(open()).toMatchObject({
+      toolName: REACHES_OUTSIDE.search,
+      input: { query: REACHES_OUTSIDE.query },
+      sandbox: {
+        kind: SandboxAskKind.McpServer,
+        server: REACHES_OUTSIDE.connectorKey,
+        name: REACHES_OUTSIDE.connector.name,
+      },
+    })
+    await decide(forTask)
+    // Its second tool ran unasked; the server from the workspace's `.mcp.json` is its own card.
+    expect(open()).toMatchObject({
+      toolName: REACHES_OUTSIDE.issue,
+      sandbox: { kind: SandboxAskKind.McpServer, server: 'acme-tracker', name: 'acme-tracker' },
+    })
+    await decide({ kind: PermissionDecisionKind.Deny, note: 'No tickets.' })
+    // The message to its own subagent never asked; the one to another session does.
+    expect(open()).toMatchObject({
+      toolName: 'SendMessage',
+      input: { to: REACHES_OUTSIDE.peer },
+      sandbox: { kind: SandboxAskKind.Agents, agents: OtherAgents.Sessions },
+    })
+    await decide({ kind: PermissionDecisionKind.AllowForWorkspace })
+    expect(open()).toMatchObject({
+      toolName: 'RemoteTrigger',
+      sandbox: { kind: SandboxAskKind.Agents, agents: OtherAgents.Cloud },
+    })
+    await decide(forTask)
+
+    await vi.waitFor(() => {
+      expect(listMessages(database.db, task.id).at(-1)?.body).toBe(REACHES_OUTSIDE.reply)
+    })
+    expect(listPermissionRequests(database.db, task.id)).toHaveLength(4)
+    expect(calls().map(({ name, state }) => [name, state])).toEqual([
+      [REACHES_OUTSIDE.search, ToolCallState.Done],
+      [REACHES_OUTSIDE.read, ToolCallState.Done],
+      [REACHES_OUTSIDE.issue, ToolCallState.Error],
+      ['Agent', ToolCallState.Done],
+      ['SendMessage', ToolCallState.Done],
+      ['SendMessage', ToolCallState.Done],
+      ['RemoteTrigger', ToolCallState.Done],
+    ])
+    expect(
+      listSandboxGrants(database.db, { scope: SandboxGrantScope.Task, taskId: task.id }).map(({ grant }) => grant),
+    ).toEqual([
+      {
+        kind: SandboxGrantKind.McpServer,
+        server: REACHES_OUTSIDE.connectorKey,
+        name: REACHES_OUTSIDE.connector.name,
+      },
+      { kind: SandboxGrantKind.Agents, agents: OtherAgents.Cloud },
+    ])
+    // The workspace's servers are there for Settings to offer, the one denied included.
+    expect(listReportedServers(database.db, task.workspaceId)).toEqual([
+      { server: 'acme-tracker', name: 'acme-tracker' },
+      { server: REACHES_OUTSIDE.connectorKey, name: REACHES_OUTSIDE.connector.name },
+    ])
+
+    // The next message looks the policy up again: the task's grant still covers it.
+    await send(agent, 'Check it again.')
+    expect(listOpenPermissionRequests(database.db, task.id)).toEqual([])
+    expect(listMessages(database.db, task.id).at(-1)?.body).toBe(REACHES_OUTSIDE.again)
+  })
 
   it.each([PermissionMode.AllowAll, PermissionMode.AskBeforeEdits])(
     'sandbox-fails: in %s, refuses both requests to run outside the sandbox without asking, and stops on the error',

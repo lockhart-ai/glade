@@ -26,6 +26,11 @@
       {
         "kind": "domain",
         "domain": "files.pythonhosted.org"
+      },
+      {
+        "kind": "mcp_server",
+        "server": "claude_ai_Acme_Docs",
+        "name": "claude.ai Acme Docs"
       }
     ],
     "workspace": [
@@ -46,9 +51,32 @@
       {
         "kind": "domain",
         "domain": "api.stripe.com"
+      },
+      {
+        "kind": "mcp_server",
+        "server": "acme-tracker",
+        "name": "acme-tracker"
+      },
+      {
+        "kind": "agents",
+        "agents": "sessions"
       }
     ]
   },
+  "reportedServers": [
+    {
+      "server": "claude_ai_Acme_Docs",
+      "name": "claude.ai Acme Docs"
+    },
+    {
+      "server": "acme-tracker",
+      "name": "acme-tracker"
+    },
+    {
+      "server": "gmail",
+      "name": "gmail"
+    }
+  ],
   "workspace": {
     "name": "Acme API",
     "rootPath": "/Users/sample/code/api"

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Effort, type Task, type Workspace } from '../../../shared/domain'
 import {
   FolderAccess,
+  OtherAgents,
   SandboxGrantKind,
   SandboxGrantScope,
   type Grant,
@@ -22,6 +23,8 @@ import { createWorkspace } from './workspaces'
 const read = (path: string): Grant => ({ kind: SandboxGrantKind.Folder, path, access: FolderAccess.Read })
 const readWrite = (path: string): Grant => ({ kind: SandboxGrantKind.Folder, path, access: FolderAccess.ReadWrite })
 const domain = (host: string): Grant => ({ kind: SandboxGrantKind.Domain, domain: host })
+const server = (key: string, name = key): Grant => ({ kind: SandboxGrantKind.McpServer, server: key, name })
+const agents = (which: OtherAgents): Grant => ({ kind: SandboxGrantKind.Agents, agents: which })
 
 const GLADE: SandboxGrantTarget = { scope: SandboxGrantScope.Glade }
 
@@ -74,6 +77,63 @@ describe('addSandboxGrant', () => {
       { target: taskTarget, grant: domain('acme.dev'), createdAt: 13 },
     ])
     expect(listSandboxGrants(database.db, { scope: SandboxGrantScope.Task, taskId: other.id })).toEqual([])
+  })
+
+  // #515: MCP servers and other agents are grants too, each one row in each scope.
+  it('adds MCP servers, by key with their names, and other agents, to each scope', () => {
+    const docs = server('claude_ai_Acme_Docs', 'claude.ai Acme Docs')
+    expect(add(GLADE, docs, 10)).toBe(SandboxGrantChange.Added)
+    expect(add(workspaceTarget, server('acme-tracker'), 11)).toBe(SandboxGrantChange.Added)
+    expect(add(workspaceTarget, agents(OtherAgents.Sessions), 12)).toBe(SandboxGrantChange.Added)
+    expect(add(taskTarget, agents(OtherAgents.Cloud), 13)).toBe(SandboxGrantChange.Added)
+    expect(add(taskTarget, docs, 14)).toBe(SandboxGrantChange.Added)
+
+    expect(listSandboxGrants(database.db, GLADE)).toEqual([{ target: GLADE, grant: docs, createdAt: 10 }])
+    expect(listSandboxGrants(database.db, workspaceTarget).map(({ grant }) => grant)).toEqual([
+      server('acme-tracker'),
+      agents(OtherAgents.Sessions),
+    ])
+    expect(listSandboxGrants(database.db, taskTarget).map(({ grant }) => grant)).toEqual([
+      agents(OtherAgents.Cloud),
+      docs,
+    ])
+  })
+
+  it('keeps one grant of a server in a scope, under the name it first had', () => {
+    add(workspaceTarget, server('gmail', 'Gmail'), 10)
+    add(workspaceTarget, agents(OtherAgents.Sessions), 11)
+
+    expect(add(workspaceTarget, server('gmail', 'Gmail (work)'), 20)).toBe(SandboxGrantChange.Unchanged)
+    expect(add(workspaceTarget, agents(OtherAgents.Sessions), 21)).toBe(SandboxGrantChange.Unchanged)
+
+    expect(listSandboxGrants(database.db, workspaceTarget)).toEqual([
+      { target: workspaceTarget, grant: server('gmail', 'Gmail'), createdAt: 10 },
+      { target: workspaceTarget, grant: agents(OtherAgents.Sessions), createdAt: 11 },
+    ])
+  })
+
+  it('keeps a server, a domain and a folder with the same value apart', () => {
+    add(taskTarget, server('sessions'), 10)
+    add(taskTarget, domain('sessions'), 11)
+    add(taskTarget, read('sessions'), 12)
+    add(taskTarget, agents(OtherAgents.Sessions), 13)
+
+    expect(listGrantsCovering(database.db, task)).toEqual([
+      server('sessions'),
+      domain('sessions'),
+      read('sessions'),
+      agents(OtherAgents.Sessions),
+    ])
+    // Changing a folder's access leaves the others of that value alone.
+    expect(setSandboxFolderAccess(database.db, taskTarget, 'sessions', FolderAccess.ReadWrite)).toBe(
+      SandboxGrantChange.Changed,
+    )
+    expect(listGrantsCovering(database.db, task)).toEqual([
+      server('sessions'),
+      domain('sessions'),
+      readWrite('sessions'),
+      agents(OtherAgents.Sessions),
+    ])
   })
 
   it('never duplicates a grant: the first stays, granted when it first was', () => {
@@ -219,7 +279,47 @@ describe('removeSandboxGrant', () => {
   })
 })
 
+describe('removeSandboxGrant, for what runs outside the sandbox', () => {
+  it('removes a server by its key, and other agents by which, from its scope only', () => {
+    add(GLADE, server('gmail', 'Gmail'), 10)
+    add(workspaceTarget, server('gmail', 'Gmail'), 11)
+    add(workspaceTarget, agents(OtherAgents.Sessions), 12)
+    add(workspaceTarget, agents(OtherAgents.Cloud), 13)
+
+    const key = { kind: SandboxGrantKind.McpServer, server: 'gmail' } as const
+    expect(removeSandboxGrant(database.db, workspaceTarget, key)).toBe(true)
+    expect(removeSandboxGrant(database.db, workspaceTarget, key)).toBe(false)
+    expect(removeSandboxGrant(database.db, workspaceTarget, agents(OtherAgents.Sessions))).toBe(true)
+    // Nothing that only looks like it: another kind, or a key that only starts the same.
+    expect(removeSandboxGrant(database.db, workspaceTarget, { kind: SandboxGrantKind.Domain, domain: 'cloud' })).toBe(
+      false,
+    )
+    expect(removeSandboxGrant(database.db, GLADE, { kind: SandboxGrantKind.McpServer, server: 'gmai' })).toBe(false)
+
+    expect(listSandboxGrants(database.db, workspaceTarget).map(({ grant }) => grant)).toEqual([
+      agents(OtherAgents.Cloud),
+    ])
+    expect(listSandboxGrants(database.db, GLADE).map(({ grant }) => grant)).toEqual([server('gmail', 'Gmail')])
+  })
+})
+
 describe('listGrantsCovering', () => {
+  it('unites servers and other agents across the scopes, each once', () => {
+    add(GLADE, server('gmail', 'Gmail'), 10)
+    add(workspaceTarget, server('gmail', 'gmail'), 11)
+    add(workspaceTarget, agents(OtherAgents.Sessions), 12)
+    add(taskTarget, agents(OtherAgents.Sessions), 13)
+    add({ scope: SandboxGrantScope.Task, taskId: other.id }, agents(OtherAgents.Cloud), 14)
+
+    expect(listGrantsCovering(database.db, task)).toEqual([server('gmail', 'Gmail'), agents(OtherAgents.Sessions)])
+    expect(listGrantsCovering(database.db, other)).toEqual([
+      server('gmail', 'Gmail'),
+      agents(OtherAgents.Sessions),
+      agents(OtherAgents.Cloud),
+    ])
+    expect(listGrantsCovering(database.db, elsewhere)).toEqual([server('gmail', 'Gmail')])
+  })
+
   it('is empty with nothing granted', () => {
     expect(listGrantsCovering(database.db, task)).toEqual([])
   })

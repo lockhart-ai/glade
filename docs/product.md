@@ -192,15 +192,25 @@ context meter's colours, the usage limit closest to running out with how much of
 it resets. Nothing read yet, or nothing said of how much is used, it's an empty ring and "Usage · within limits"; from
 70% of a limit the ring and percentage turn purple, as Claude Code's own warning starts there; at a limit the row
 takes the question card's highlight ("Session limit · Resets at 15:40"), while the paused tasks' banner shows across
-the top as before. Clicking the row opens a popover over it that lists every limit Claude Code has told of (Session,
+the top as before. While the account is running on extra usage (a plan limit is spent, and extra usage is on with room
+left, as the last usage call said), the row shows that instead, with the money spent: "Extra usage CA$12.34 · spent",
+or "Extra usage CA$12.34 · of CA$50.00" with a monthly cap. That isn't a failure, so the row stays blue, the ring at
+how much of the cap is spent (purple from 70% of it, and an empty ring with no cap). Clicking the row opens a popover over it that lists every limit Claude Code has told of (Session,
 This week, each model's week, extra usage while it's on), each with a bar, how much is used and when it resets, under
 the plan's name and above how long ago it was read ("From Claude Code · updated 2 min ago").
 
 Glade asks Claude Code as each task's session starts and after each turn (its experimental usage call), and also reads
 the rate limit events that come as each turn starts; when the call fails, the events alone keep the meter going. It
 keeps the latest reading of each limit, so a relaunch shows them again, and drops each when its window resets. An API
-key or a cloud provider has no plan limits, so the meter is hidden for them. Extra usage has a row from the moment it's
-turned on: with nothing spent yet it reads "Extra usage 0%" (of its monthly cap), and with no cap, "within limits".
+key or a cloud provider has no plan limits, so the meter is hidden for them.
+
+Extra usage has a row from the moment it's turned on, and the row says the money spent this month, in the account's
+currency (#530): with no monthly cap, "CA$12.34 spent" and no bar, since there's nothing for it to be a fraction of;
+with a cap, "CA$12.34 of CA$50.00" and the bar at how much of the cap that is. The amount comes from the usage call,
+in the currency's own units (two decimal places for dollars, none for yen), and is kept with the reading; it's never
+written to the log. The rate limit events tell of no money, so a reading from one keeps the amount the last call gave.
+When the call gives no amount Glade can show (no currency, say, or one it can't format), the row reads as it did
+before: a percentage of the cap, or "within limits".
 
 ### Paused on a usage limit
 
@@ -308,7 +318,8 @@ the switch the next time its agent's session starts. With it on:
   folders. And whatever you've granted. Nothing else: not the rest of your home folder, not other users' folders or
   other volumes, and no network domain at all.
 - **Nothing is granted to begin with.** There's no starter list of folders or domains.
-- **A grant** is a folder (read-only or read-write), one file by itself, or a domain. It has one of three scopes:
+- **A grant** is a folder (read-only or read-write), one file by itself, a domain, an MCP server, or other agents
+  (below). It has one of three scopes:
   - **This task**, from a card. It ends with the task and is listed nowhere.
   - **This workspace**, from a card or Settings › Workspace. Every task in the workspace has it.
   - **Glade-wide**, only from Settings › Agent, for what every workspace needs: a toolchain or package cache in your
@@ -317,13 +328,24 @@ the switch the next time its agent's session starts. With it on:
   "…write to…" or "…reach `registry.npmjs.org`", answered **Allow for this task** · **Allow for this workspace** ·
   **Deny**. Reading asks for read-only access and writing for read-write. There's no Allow once for a folder or a
   domain. A card never offers your home folder or anything above it: a file directly in it is asked for by itself.
+- **An MCP server Glade doesn't build asks once** (#515): one from your Claude Code config, a repository's
+  `.mcp.json`, or a claude.ai connector. It runs outside the sandbox with whatever access it has, so the first call
+  to any of its tools shows a card, "The agent wants to use the `<server>` MCP server", with the tool and its input
+  and the same three answers. It's one grant for the whole server, not one per tool or call; once granted, its tools
+  behave as with the sandbox off. Glade's own tools never ask. A rule in your own settings that allows the server's
+  tools doesn't skip the card.
+- **Reaching other agents asks once too.** A message to another Claude session (`SendMessage` to anything but the
+  task's own subagents) asks "The agent wants to message other Claude sessions", and `RemoteTrigger` asks "The agent
+  wants to manage cloud agents": those agents run outside the task's sandbox. A message to one of the task's own
+  subagents never asks.
 - **A blocked command asks afterwards.** A command can't ask before the sandbox blocks it: it fails with "Operation
   not permitted". The agent then asks for the folder itself (Glade's `request_access` tool, `model-surface.md`), with
   its reason, on the same card, and runs the command again once you allow it. Subagents ask the same way.
 - **Running a command outside the sandbox** always asks, in Allow all too, shows the command, and is only ever
   **Allow once** or **Deny**.
-- **Credential files** (`~/.ssh`, `~/.aws`, `~/.netrc`, `~/.npmrc` and the like) and Glade's own data are never
-  opened, even inside a folder you granted.
+- **Credential files** (`~/.ssh`, `~/.aws`, `~/.netrc`, `~/.claude.json` and the like) and Glade's own data are
+  never opened, even inside a folder you granted. (`~/.npmrc` and `~/.pypirc` aren't among them: each is granted as
+  a file by itself, like any other file in your home folder.)
 - **Files that run code** (git hooks and config, shell startup files, `.vscode`, `.mcp.json`, Claude Code's own
   settings) stay closed to the agent's commands inside a folder granted read-write, and a file tool's write to one
   is only ever **Allow once** or **Deny**.
@@ -339,7 +361,8 @@ the switch the next time its agent's session starts. With it on:
 The sandbox covers the agent's commands and file tools. The terminal tabs, Glade's own reading of your repository and
 Glade's own tools run as you, as before. Your own Claude Code settings (`~/.claude/settings.json`) still apply to a
 task's session, but an allow rule there can't let a call past the sandbox unasked, and a command they exclude from
-the sandbox asks each time; a domain in their own sandbox lists, and their hooks and MCP servers, still apply. How it's built on the Claude
+the sandbox asks each time; a domain in their own sandbox lists, and their hooks, still apply, and their MCP servers ask
+as above. How it's built on the Claude
 Agent SDK's sandbox is in `decisions.md` and `sdk-notes.md` §15; how to use it is in the user guide.
 
 ## Settings

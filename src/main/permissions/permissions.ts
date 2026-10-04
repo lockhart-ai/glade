@@ -13,9 +13,10 @@
  * - **Withdrawing** closes it without one (`permission.withdrawn`): the turn that made the call was stopped, failed or
  *   ended, its session closed, or the SDK cancelled the call (`signal`). The call that waits on it gets nothing.
  * - **A sandbox request** (`PermissionRequest.sandbox`, #450) asks for a folder or a domain, or to run a command
- *   outside the sandbox. A folder or domain is allowed for the task or for its workspace, never once: the answer saves
- *   the grant with it (`../sandbox/grants`), and whoever made the call applies it to the running sessions before the
- *   call goes on. Running outside the sandbox is allowed once, or denied, and nothing is remembered.
+ *   outside the sandbox; or (#515) for an MCP server Glade doesn't build, or other agents. All but the command are
+ *   allowed for the task or for its workspace, never once: the answer saves the grant with it (`../sandbox/grants`),
+ *   and whoever made the call applies it to the running sessions before the call goes on. Running outside the sandbox
+ *   is allowed once, or denied, and nothing is remembered.
  * - **A card grants exactly what it showed.** The grant saved is the request's own folder, as the card named it, never
  *   resolved again. If that folder has moved since the card opened (it, or a folder above it, swapped for a link:
  *   `hasMoved`), allowing it is refused: the request closes denied, with `FOLDER_MOVED_NOTE` for the agent to read,
@@ -35,6 +36,7 @@ import {
 import { permissionSummary, taskPermissionRule } from '../../shared/permissions'
 import {
   grantFor,
+  isGrantAsk,
   SandboxAskKind,
   sandboxAskPhrase,
   SandboxGrantScope,
@@ -100,10 +102,10 @@ export const FOLDER_MOVED_NOTE =
   'Glade didn’t grant this: the folder changed while the request was open, and no longer leads where the request ' +
   'said. Nothing was granted. Ask again for the folder you need.'
 
-/** What a request asks a grant for: its folder or domain; null for any other request. */
+/** What a request asks a grant for: a folder, a domain, an MCP server or other agents; null for any other request. */
 function grantAsk(request: Pick<PermissionRequest, 'sandbox'>): SandboxGrantAsk | null {
   const { sandbox } = request
-  return sandbox === null || sandbox.kind === SandboxAskKind.Outside ? null : sandbox
+  return sandbox === null || !isGrantAsk(sandbox) ? null : sandbox
 }
 
 /** The tasks a card's grant covers: the request's task, or every task in that task's workspace. */
@@ -133,7 +135,7 @@ function closingFor(decision: PermissionDecision, request: PermissionRequest): P
       if (grantAsk(request) !== null) {
         throw new CommandFailure(
           BridgeErrorCode.InvalidRequest,
-          'A folder or domain is allowed for the task or the workspace, not once',
+          'A folder, domain, MCP server or other agents are allowed for the task or the workspace, not once',
         )
       }
       return { state: PermissionRequestState.Allowed }

@@ -24,6 +24,60 @@ describe('parsing SDK messages', () => {
     ])
   })
 
+  // #515: what Settings' MCP servers lists offer under Add….
+  it('reads the MCP servers an init names that aren’t in-process ones, each by the key its tools carry', () => {
+    const init = {
+      ...(sdk.init() as Record<string, unknown>),
+      tools: ['Bash', 'mcp__glade__set_title', 'mcp__claude_ai_Acme_Docs__search', 'mcp__spaced_out__read'],
+      mcp_servers: [
+        { name: 'glade', status: 'connected', source: 'sdk' },
+        { name: 'claude.ai Acme Docs', status: 'connected', source: 'claudeai' },
+        { name: 'acme-tracker', status: 'pending', source: 'project' },
+        // One whose tools' names carry its collapsed spelling, and one from a CLI that doesn't say where it's from.
+        { name: 'spaced  out', status: 'connected', source: 'user' },
+        { name: 'legacy', status: 'failed' },
+        // A name nothing can be made of.
+        { name: '', status: 'failed', source: 'user' },
+      ],
+    }
+
+    expect(parse(init)).toEqual([
+      { kind: AgentEventKind.SessionStarted, sessionId: sdk.SESSION_ID, model: sdk.MODEL },
+      {
+        kind: AgentEventKind.McpServersReported,
+        servers: [
+          {
+            server: 'claude_ai_Acme_Docs',
+            name: 'claude.ai Acme Docs',
+            reportedName: 'claude.ai Acme Docs',
+            source: 'claudeai',
+          },
+          { server: 'acme-tracker', name: 'acme-tracker', reportedName: 'acme-tracker', source: 'project' },
+          { server: 'spaced_out', name: 'spaced out', reportedName: 'spaced  out', source: 'user' },
+          { server: 'legacy', name: 'legacy', reportedName: 'legacy', source: null },
+        ],
+      },
+    ])
+  })
+
+  it('reports no servers for an init with only in-process ones, or whose list it can’t read', () => {
+    const started = [{ kind: AgentEventKind.SessionStarted, sessionId: sdk.SESSION_ID, model: sdk.MODEL }]
+    const base = sdk.init() as Record<string, unknown>
+
+    expect(parse({ ...base, mcp_servers: [{ name: 'glade', status: 'connected', source: 'sdk' }] })).toEqual(started)
+    expect(parse({ ...base, mcp_servers: 'none', tools: 7 })).toEqual(started)
+    expect(parse({ ...base, mcp_servers: [{ status: 'connected' }] })).toEqual(started)
+    expect(parse({ ...base, mcp_servers: undefined, tools: undefined })).toEqual(started)
+    // A source of a shape it doesn't know is as if the CLI hadn't said.
+    expect(parse({ ...base, mcp_servers: [{ name: 'gmail', source: 7 }] })).toEqual([
+      ...started,
+      {
+        kind: AgentEventKind.McpServersReported,
+        servers: [{ server: 'gmail', name: 'gmail', reportedName: 'gmail', source: null }],
+      },
+    ])
+  })
+
   it("reads the agent's text and tool calls, at the top level and in a subagent", () => {
     expect(parse(sdk.text('Checking the tests.'))).toEqual([
       { kind: AgentEventKind.ContextUsed, tokens: sdk.CONTEXT_USED },

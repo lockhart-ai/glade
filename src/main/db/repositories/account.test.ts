@@ -77,6 +77,36 @@ describe('the usage readings', () => {
     expect(listUsageReadings(database.db)).toEqual([closer, WEEK, OPUS, SONNET, EXTRA])
   })
 
+  it('keeps what the usage call said of extra usage with its reading: whether it’s available, and the money', () => {
+    const capped: UsageReading = {
+      ...EXTRA,
+      utilization: 0.2468,
+      extraUsage: { available: true, spend: { spent: 1234, cap: 5000, currency: 'CAD', decimalPlaces: 2 } },
+    }
+    replaceUsageReadings(database.db, [SESSION, capped])
+    expect(listUsageReadings(database.db)).toEqual([SESSION, capped])
+    // No other limit's reading says anything of it.
+    expect(listUsageReadings(database.db)[0]).not.toHaveProperty('extraUsage')
+
+    // No cap, in a currency with no decimal places, and a fraction of a minor unit, as it was said.
+    const uncapped: UsageReading = {
+      ...EXTRA,
+      utilization: null,
+      extraUsage: { available: false, spend: { spent: 1234.5, cap: null, currency: 'JPY', decimalPlaces: 0 } },
+    }
+    saveUsageReading(database.db, uncapped)
+    expect(listUsageReadings(database.db)).toEqual([SESSION, uncapped])
+
+    // No amount the meter can show, and then a reading that says nothing of extra usage: neither keeps the old money.
+    const noAmount: UsageReading = { ...EXTRA, extraUsage: { available: true, spend: null } }
+    saveUsageReading(database.db, noAmount)
+    expect(listUsageReadings(database.db)).toEqual([SESSION, noAmount])
+    saveUsageReading(database.db, capped)
+    saveUsageReading(database.db, EXTRA)
+    expect(listUsageReadings(database.db)).toEqual([SESSION, EXTRA])
+    expect(listUsageReadings(database.db)[1]).not.toHaveProperty('extraUsage')
+  })
+
   it('replaces every reading at once', () => {
     replaceUsageReadings(database.db, [SESSION, WEEK, OPUS])
     replaceUsageReadings(database.db, [WEEK])
