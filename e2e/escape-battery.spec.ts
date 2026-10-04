@@ -252,7 +252,7 @@ async function runBattery(
   } finally {
     await stopServers(servers)
     if (KEEP_WORLD) console.log(`The battery's world is kept at ${world.root}`)
-    else world.remove()
+    else await world.remove()
   }
 }
 

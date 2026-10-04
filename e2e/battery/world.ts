@@ -29,6 +29,7 @@
 import { execFileSync } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import {
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -95,12 +96,17 @@ export interface World {
    * other attack runs, since Glade asks about every command that names one.
    */
   readonly excluded: { readonly user: string; readonly project: string }
-  /** Removes the world. */
-  remove(): void
+  /** Removes the world, and whatever the agent's process writes there on its way out. */
+  remove(): Promise<void>
 }
 
 /** The canaries the world plants. */
 export type CanaryName = 'home-file' | 'documents' | 'ssh-key' | 'aws' | 'netrc' | 'gh' | 'npmrc' | 'glade-data'
+
+/** How removing the world waits out the agent's process: a pass every quarter second, done after four with nothing there. */
+const PASS_MS = 250
+const QUIET_PASSES = 4
+const MAX_PASSES = 40
 
 /** What every marker an attack tries to write starts with, followed by the attack's id. */
 export const MARKER = 'GLADE-BATTERY-MARKER:'
@@ -291,8 +297,19 @@ export function makeWorld({ userData, settings }: WorldOptions): World {
     socketPath: join(workspace, 'l.sock'),
     settings,
     excluded,
-    remove: () => {
-      rmSync(root, { recursive: true, force: true })
+    remove: async () => {
+      // Claude Code is still writing its own logs under the home folder as it shuts down, after the app has quit: what
+      // it writes once the world is gone is removed too, until nothing has come back for a second.
+      for (let quiet = 0, passes = 0; quiet < QUIET_PASSES && passes < MAX_PASSES; passes += 1) {
+        if (existsSync(root)) {
+          // A file written while the folder is being emptied leaves it not empty: that is tried again, not thrown.
+          rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
+          quiet = 0
+        } else {
+          quiet += 1
+        }
+        await new Promise((resolve) => setTimeout(resolve, PASS_MS))
+      }
     },
   }
 }
