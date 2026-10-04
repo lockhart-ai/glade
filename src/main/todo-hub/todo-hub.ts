@@ -1,7 +1,10 @@
 /**
- * The todo hub in main (P16, #491; `src/shared/todoHub.ts`): reading a task's children grouped by todo, giving them the
- * short ids the agent names them by, filing them, and remembering each todo's panel. What the agent's own two tools do
- * with them (`list_children`, `file_children`) is in `./agent-children`.
+ * The todo hub in main (P16, #491; `src/shared/todoHub.ts`): reading what a task produced grouped by todo, giving its
+ * children the short ids the agent names them by, filing them, and remembering each todo's panel. What the agent's own
+ * two tools do with them (`list_children`, `file_children`) is in `./agent-children`.
+ *
+ * A todo holds produced work only (#535): files, links and commits. A subagent is filed too, as plumbing (its todo is
+ * what its commits follow), and never shown under the todo; a watcher isn't filed, read or named here at all.
  *
  * **Built dark.** Everything here is behind the hidden setting `todoHubEnabled`, off until the phase's last issue
  * (#501), and each entry point checks it itself: with it off, a read or a panel change is refused, a filing changes
@@ -30,13 +33,12 @@ import type { Emit } from '../bridge/events'
 import { getAgentTab, setAgentTab } from '../db/repositories/agent-tabs'
 import { listArtifacts } from '../db/repositories/artifacts'
 import { listFilings, putFilings, removeFilings } from '../db/repositories/child-filings'
-import { assignChildIds, findChildById } from '../db/repositories/child-ids'
+import { assignChildIds, findChildById, isWatcherId } from '../db/repositories/child-ids'
 import { settleOwedFilings } from '../db/repositories/owed-filings'
 import { getSettings } from '../db/repositories/settings'
 import { listTaskCommits } from '../db/repositories/task-commits'
 import { listTodoPanels, setTodoPanel } from '../db/repositories/todo-panels'
-import { listSubagentActivity, listToolCallsNamed } from '../db/repositories/tool-events'
-import { listWatchers, publicWatcher } from '../db/repositories/watchers'
+import { listToolCallsNamed } from '../db/repositories/tool-events'
 import { requireTask } from '../tasks/service'
 import { todoListFor } from '../todos/todos'
 
@@ -51,27 +53,22 @@ export function requireTodoHub(db: Database): void {
 }
 
 /**
- * Everything of a task the hub groups: its todo list, artifacts, subagents (every `Agent` call, nested ones included,
- * each with when it last did anything), watchers, commits and filings. While the hub is off, it has no filings.
+ * Everything of a task the hub groups: its todo list, artifacts, subagents (every `Agent` call, nested ones included),
+ * commits and filings. While the hub is off, it has no filings.
  */
 export function taskChildren(db: Database, taskId: string): TaskChildren {
-  const activity = listSubagentActivity(db, taskId)
   return {
     todos: todoListFor(db, taskId)?.items ?? [],
     artifacts: listArtifacts(db, taskId),
-    subagents: listToolCallsNamed(db, taskId, SUBAGENT_TOOL_NAMES).map((call) => ({
-      call,
-      lastActivityAt: Math.max(call.createdAt, call.finishedAt ?? 0, activity.get(call.toolUseId) ?? 0),
-    })),
-    watchers: listWatchers(db, taskId).map(publicWatcher),
+    subagents: listToolCallsNamed(db, taskId, SUBAGENT_TOOL_NAMES),
     commits: listTaskCommits(db, taskId),
     filings: isTodoHubEnabled(db) ? listFilings(db, taskId) : [],
   }
 }
 
 /**
- * A task's todo hub (`todoHub.get`): its children grouped by todo, the filings that put them there, and its todos'
- * panels. Fails with `invalid_transition` while the hub is off, and `not_found` when there's no such task.
+ * A task's todo hub (`todoHub.get`): what it produced grouped by todo, its filings (its subagents' todos among them),
+ * and its todos' panels. Fails with `invalid_transition` while the hub is off, and `not_found` when there's no such task.
  */
 export function readTodoHub(db: Database, taskId: string): TodoHubGetResponse {
   requireTodoHub(db)
@@ -125,6 +122,14 @@ export function identifyChildren(db: Database, taskId: string, children: readonl
  */
 export function childWithId(db: Database, taskId: string, id: ChildId): ChildRef | undefined {
   return isTodoHubEnabled(db) ? findChildById(db, taskId, id) : undefined
+}
+
+/**
+ * Whether a short id was a watcher's, from when watchers had ids (before #535): it names no child (`childWithId`), and
+ * is told apart so the agent can be told that watchers aren't filed. Never while the hub is off.
+ */
+export function wasWatcherId(db: Database, taskId: string, id: ChildId): boolean {
+  return isTodoHubEnabled(db) && isWatcherId(db, taskId, id)
 }
 
 /** What filing needs: the database, and the windows to tell. */

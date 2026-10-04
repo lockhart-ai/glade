@@ -116,7 +116,7 @@ function fillTask(db: Database, task: Task): void {
   putFilings(db, taskId, [{ kind: ChildKind.File, key: 'docs/plan.md', todoId: '1', source: FilingSource.Named }])
   setTodoPanel(db, { taskId, todoId: '1', open: true, filter: ChildFilter.Files })
   setAgentTab(db, taskId, `agent-${taskId}`)
-  oweFilings(db, taskId, [{ kind: ChildKind.Watcher, key: `monitor-${taskId}` }])
+  oweFilings(db, taskId, [{ kind: ChildKind.Subagent, key: `agent-${taskId}` }])
   setWorkspaceSelection(db, task.workspaceId, taskId)
   appendQuestionSet(db, {
     taskId,

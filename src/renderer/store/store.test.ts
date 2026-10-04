@@ -1739,7 +1739,7 @@ describe('the todo hub (P16)', () => {
     const data: FakeMain = { ...main(), settings: ON, todoPanels: [] }
     const { store, invoke } = await hydrated(data)
     await store.getState().loadTodoHub('t1')
-    const opened = { taskId: 't1', todoId: '4', open: true, filter: ChildFilter.Watchers }
+    const opened = { taskId: 't1', todoId: '4', open: true, filter: ChildFilter.Commits }
     const group = { taskId: 't1', todoId: UNFILED_TODO_ID, open: true, filter: ChildFilter.All }
 
     const opening = store.getState().setTodoPanel(opened)

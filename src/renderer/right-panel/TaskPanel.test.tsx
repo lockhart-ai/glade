@@ -340,10 +340,18 @@ describe('TaskPanel', () => {
       const HUB_ON: Settings = { ...DEFAULT_SETTINGS, todoHubEnabled: true }
       const ON_TODOS = [{ key: UiStateKey.RightPanelTab, value: 'todos' }]
       const watcher = sampleWatcher('w1', 't1', { toolUseId: 'watch-a', label: 'CI checks on PR #511' })
+      const pr: Artifact = {
+        kind: ArtifactKind.Link,
+        taskId: 't1',
+        url: 'https://github.com/acme/api/pull/511',
+        title: 'Return Retry-After on 429s',
+        addedAt: 1,
+        updatedAt: 1,
+      }
       const filed: Filing = {
         taskId: 't1',
-        kind: ChildKind.Watcher,
-        key: 'watch-a',
+        kind: ChildKind.Link,
+        key: pr.url,
         todoId: '2',
         source: FilingSource.Named,
         filedAt: 1,
@@ -356,6 +364,7 @@ describe('TaskPanel', () => {
         const { invoke } = await renderPanel({
           todos: { t1: list(1, 4) },
           watchers: [watcher],
+          artifacts: [pr],
           filings: [filed],
           uiState: ON_TODOS,
         })
@@ -375,17 +384,20 @@ describe('TaskPanel', () => {
         await renderPanel({
           todos: { t1: list(1, 4) },
           watchers: [watcher],
+          artifacts: [pr],
           filings: [filed],
           settings: HUB_ON,
           uiState: ON_TODOS,
         })
 
-        const count = await screen.findByRole('button', { name: '1 watcher, 1 running' })
+        const count = await screen.findByRole('button', { name: '1 link' })
         expect(screen.getByRole('tabpanel')).toHaveTextContent('1 of 4 done')
         expect(screen.getByRole('tabpanel')).not.toHaveTextContent('The agent writes this list')
         expect(document.querySelectorAll('[data-todo-head]')).toHaveLength(4)
         fireEvent.click(count)
-        expect(screen.getByRole('group', { name: 'Watcher: CI checks on PR #511' })).toBeInTheDocument()
+        expect(screen.getByRole('group', { name: 'Link: Return Retry-After on 429s' })).toBeInTheDocument()
+        // The task's watcher is no child of a todo: it's in its own tab alone.
+        expect(screen.getByRole('tabpanel')).not.toHaveTextContent('CI checks on PR #511')
         expect(tab(/^Todos/)).toHaveTextContent('Todos 1/4')
         // Agents · Files · Todos (#536): the tabs the hub and the Agents tab replace aren't shown.
         expect(tabNames()).toEqual(['Agents', 'Files', 'Todos'])
@@ -395,6 +407,7 @@ describe('TaskPanel', () => {
         const { emit, store } = await renderPanel({
           todos: { t1: list(1, 4) },
           watchers: [watcher],
+          artifacts: [pr],
           filings: [filed],
           uiState: ON_TODOS,
         })

@@ -51,8 +51,15 @@ async function everythingShown(window: Page, taskId: string): Promise<string> {
   return JSON.stringify([toolEvents, watchers, commits, artifacts])
 }
 
-/** The four watchers a turn of the script starts, which nothing files. */
-const WATCHERS = Array<string>(4).fill('watcher unfiled')
+/** The todo each of the task's subagents works on, in the order they started: plumbing, which no todo shows. */
+async function working(window: Page, taskId: string): Promise<(string | undefined)[]> {
+  const { filings } = await invoke(window, CommandName.TodoHubGet, { taskId })
+  const { toolEvents } = await invoke(window, CommandName.TasksHistory, { id: taskId })
+  return toolEvents
+    .filter((event) => event.kind === ToolEventKind.ToolCall && event.name === 'Agent')
+    .map((event) => (event.kind === ToolEventKind.ToolCall ? event.toolUseId : ''))
+    .map((toolUseId) => filings.find(({ kind, key }) => kind === ChildKind.Subagent && key === toolUseId)?.todoId)
+}
 
 test('the todo hub on: a commit is under a todo, and a subagent has one, by the time the turn ends; watchers are left alone', async ({
   launch,
@@ -79,8 +86,10 @@ test('the todo hub on: a commit is under a todo, and a subagent has one, by the 
   expect(session?.systemPromptAppend).not.toMatch(/ScheduleWakeup|CronCreate/)
   expect(await agentReceived(glade)).toEqual([MADE.prompt])
 
-  // The commit is under the todo its call named, and the subagent's todo is recorded; nothing was asked of the agent.
-  expect(await placed(window, taskId)).toEqual([['subagent named'], ['commit named'], [], WATCHERS])
+  // The commit is under the todo its call named, and the subagent's todo is recorded, though the subagent is under
+  // none; nothing was asked of the agent. The four watchers are under nothing.
+  expect(await placed(window, taskId)).toEqual([[], ['commit named'], [], []])
+  expect(await working(window, taskId)).toEqual([MADE.named.subagent.todo])
   const first = await invoke(window, CommandName.TodoHubGet, { taskId })
   expect(first.filings.map(({ kind, todoId, source }) => [kind, todoId, source]).sort()).toEqual([
     [ChildKind.Commit, MADE.named.commit.todo, FilingSource.Named],
@@ -105,13 +114,10 @@ test('the todo hub on: a commit is under a todo, and a subagent has one, by the 
   // go under the todo each `add_artifact` call names.
   await send(window, 'And the order totals.')
   await expect(chat(window).agentReplies.last()).toContainText(MADE.unnamed.reply)
-  const filed = [
-    ['subagent asked', 'subagent named'],
-    ['commit asked', 'commit named', 'file named'],
-    ['link named'],
-    [...WATCHERS, ...WATCHERS],
-  ]
+  const filed = [[], ['commit asked', 'commit named', 'file named'], ['link named'], []]
   expect(await placed(window, taskId)).toEqual(filed)
+  expect(await working(window, taskId)).toEqual(['1', '1'])
+  expect((await invoke(window, CommandName.TasksHistory, { id: taskId })).watchers).toHaveLength(8)
   // Two filing calls, in the tool log like any other call.
   await expect(panel.call(/^Done\s*file_children/)).toHaveCount(2)
   // The turn ended once, on its reply: its end was never held, by a watcher or anything else.
@@ -133,9 +139,8 @@ test('the todo hub on: a commit is under a todo, and a subagent has one, by the 
   // name a todo once more.
   await send(page, 'Do that again.')
   await expect(chat(page).agentReplies).toHaveCount(3)
-  const again = await placed(page, taskId)
-  expect(again[0]).toEqual(['subagent asked', 'subagent named', 'subagent named'])
-  expect(new Set(again[3])).toEqual(new Set(['watcher unfiled']))
+  expect(await working(page, taskId)).toEqual(['1', '1', '1'])
+  expect((await placed(page, taskId))[3]).toEqual([])
   expect(await everythingShown(page, taskId)).not.toMatch(/\[todo/i)
   // It started with the hub's lines in its prompt, so the session that resumed was sent none of them again.
   const [resumed] = await agentSessions(relaunched)

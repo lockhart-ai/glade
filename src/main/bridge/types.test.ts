@@ -57,7 +57,6 @@ const NO_CHILDREN: GroupedChildren = groupChildren({
   todos: [],
   artifacts: [],
   subagents: [],
-  watchers: [],
   commits: [],
   filings: [],
 })

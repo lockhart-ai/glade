@@ -4,7 +4,14 @@
  * children that filter shows. Pure, so it's tested on its own. Behind the hidden `todoHubEnabled` setting.
  */
 import type { Todo } from '../../shared/domain'
-import { CHILD_KINDS, ChildFilter, ChildKind, type Child, type TodoPanel } from '../../shared/todoHub'
+import {
+  ChildFilter,
+  ChildKind,
+  PRODUCED_KINDS,
+  type Child,
+  type ProducedKind,
+  type TodoPanel,
+} from '../../shared/todoHub'
 
 /**
  * What the hub says in place of the summary, above the placeholder group, for a task that made things and kept no todo
@@ -15,22 +22,20 @@ export const NO_HUB_TODOS = 'No todos for this task.'
 /** The placeholder group's heading: the children no todo has. */
 export const UNFILED_HEADING = 'Not under a todo'
 
-/** One kind of a todo's children, counted: how many there are, and how many of them are live. */
+/** One kind of a todo's children, counted. */
 export interface KindCount {
-  readonly kind: ChildKind
+  readonly kind: ProducedKind
   readonly count: number
-  /** How many are running now: running subagents, or watchers whose process runs. */
-  readonly live: number
 }
 
 /**
- * A todo's children counted by kind, in the order its row shows them (files, links, subagents, watchers, changes),
- * leaving out a kind it has none of.
+ * A todo's children counted by kind, in the order its row shows them (files, links, changes), leaving out a kind it
+ * has none of.
  */
 export function kindCounts(children: readonly Child[]): KindCount[] {
-  return CHILD_KINDS.flatMap((kind) => {
-    const ofKind = children.filter((child) => child.kind === kind)
-    return ofKind.length === 0 ? [] : [{ kind, count: ofKind.length, live: ofKind.filter(({ live }) => live).length }]
+  return PRODUCED_KINDS.flatMap((kind) => {
+    const count = children.filter((child) => child.kind === kind).length
+    return count === 0 ? [] : [{ kind, count }]
   })
 }
 
@@ -40,46 +45,36 @@ interface KindNames {
   readonly many: string
 }
 
-const KIND_NAMES: Readonly<Record<ChildKind, KindNames>> = {
+const KIND_NAMES: Readonly<Record<ProducedKind, KindNames>> = {
   [ChildKind.File]: { one: 'file', many: 'files' },
   [ChildKind.Link]: { one: 'link', many: 'links' },
-  [ChildKind.Subagent]: { one: 'subagent', many: 'subagents' },
-  [ChildKind.Watcher]: { one: 'watcher', many: 'watchers' },
   [ChildKind.Commit]: { one: 'change', many: 'changes' },
 }
 
-/**
- * What a kind's count says in words, in its tooltip and to a screen reader: `3 links`, `1 change`, and for a kind
- * with something live, how many: `2 subagents, 1 running`.
- */
-export function kindCountLabel({ kind, count, live }: KindCount): string {
+/** What a kind's count says in words, in its tooltip and to a screen reader: `3 links`, `1 change`. */
+export function kindCountLabel({ kind, count }: KindCount): string {
   const names = KIND_NAMES[kind]
-  const counted = `${String(count)} ${count === 1 ? names.one : names.many}`
-  return live === 0 ? counted : `${counted}, ${String(live)} running`
+  return `${String(count)} ${count === 1 ? names.one : names.many}`
 }
 
-/** What a tile's kind is called, ahead of its title, to a screen reader: `Subagent`, `Change`. */
-export function kindLabel(kind: ChildKind): string {
+/** What a tile's kind is called, ahead of its title, to a screen reader: `File`, `Change`. */
+export function kindLabel(kind: ProducedKind): string {
   const { one } = KIND_NAMES[kind]
   return `${one.charAt(0).toUpperCase()}${one.slice(1)}`
 }
 
-/** How a tile is named to a screen reader: its kind, then its title (`Subagent: fix-501-ci`). */
-export function tileLabel(kind: ChildKind, title: string): string {
+/** How a tile is named to a screen reader: its kind, then its title (`Change: Return Retry-After on 429s`). */
+export function tileLabel(kind: ProducedKind, title: string): string {
   return `${kindLabel(kind)}: ${title}`
 }
 
 /** The filter that shows one kind alone. */
-export function filterOfKind(kind: ChildKind): ChildFilter {
+export function filterOfKind(kind: ProducedKind): ChildFilter {
   switch (kind) {
     case ChildKind.File:
       return ChildFilter.Files
     case ChildKind.Link:
       return ChildFilter.Links
-    case ChildKind.Subagent:
-      return ChildFilter.Subagents
-    case ChildKind.Watcher:
-      return ChildFilter.Watchers
     case ChildKind.Commit:
       return ChildFilter.Commits
   }
@@ -99,8 +94,8 @@ export function filterChildren(children: readonly Child[], filter: ChildFilter):
 }
 
 /**
- * Whether two lists of children show the same: the same children in the same order, each live or not as before. The
- * resolver makes every list anew (`groupChildren`), so a todo whose children haven't changed is told by this.
+ * Whether two lists of children show the same: the same children in the same order. The resolver makes every list
+ * anew (`groupChildren`), so a todo whose children haven't changed is told by this.
  */
 export function sameChildren(a: readonly Child[], b: readonly Child[]): boolean {
   return (
@@ -108,7 +103,7 @@ export function sameChildren(a: readonly Child[], b: readonly Child[]): boolean 
     (a.length === b.length &&
       a.every((child, index) => {
         const other = b[index]
-        return other?.kind === child.kind && other.key === child.key && other.live === child.live
+        return other?.kind === child.kind && other.key === child.key
       }))
   )
 }

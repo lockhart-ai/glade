@@ -19,6 +19,7 @@ import {
   commitChildKey,
   FilingSource,
   subagentTodo,
+  subagentTodos,
   type ChildRef,
   type TodoChildren,
 } from '../../shared/todoHub'
@@ -144,18 +145,18 @@ function committed(hash: string, subject: string, toolUseId: string, committedAt
 
 const subagent = (toolUseId: string): ChildRef => ({ kind: ChildKind.Subagent, key: toolUseId })
 
-/** The agent's own call, as it's written or about to run: what Glade answers for it. */
-function starting(tool: ChildTool, toolUseId: string, input: Record<string, unknown>) {
+/** The agent's own call, as it's written or about to run, by its tool's name: what Glade answers for it. */
+function starting(tool: string, toolUseId: string, input: Record<string, unknown>) {
   return filer.callStarting(task.id, { toolName: tool, input, toolUseId, subagent: false })
 }
 
 /** A call of the agent's own that names `todo`. */
 function named(tool: ChildTool, toolUseId: string, input: Record<string, unknown>, todo: string) {
-  return starting(tool, toolUseId, nameTodo(tool, input, todo))
+  return starting(tool, toolUseId, nameTodo(input, todo))
 }
 
 /** A subagent's own call. */
-function nested(tool: ChildTool, toolUseId: string, input: Record<string, unknown>) {
+function nested(tool: string, toolUseId: string, input: Record<string, unknown>) {
   return filer.callStarting(task.id, { toolName: tool, input, toolUseId, subagent: true })
 }
 
@@ -168,6 +169,11 @@ function refs(group: TodoChildren): string[] {
 function placed(): string[][] {
   const { todos, unfiled } = readTodoHub(db, task.id).children
   return [...todos.map(refs), refs(unfiled)]
+}
+
+/** The todo each of the task's subagents works on, by its call: plumbing, which no todo shows. */
+function working(): Record<string, string> {
+  return Object.fromEntries(subagentTodos(taskChildren(db, task.id)))
 }
 
 function filings(): string[] {
@@ -256,9 +262,9 @@ describe('a call that names its todo', () => {
 
     expect(filer.batchFinished(task.id, ['toolu_release'])).toBeNull()
 
-    // The commit is under its todo; the watcher it became isn't filed.
+    // The commit is under its todo; the watcher it became isn't filed, and is under nothing.
     expect(filings()).toEqual([`commit ${release.key} #2 named`])
-    expect(placed()).toEqual([[], [`commit ${release.key} named`], [], ['watcher toolu_release unfiled']])
+    expect(placed()).toEqual([[], [`commit ${release.key} named`], [], []])
   })
 
   it('leaves a commit linked to a call that named no todo for the agent to file', () => {
@@ -300,7 +306,9 @@ describe('a call that names its todo', () => {
     for (const id of ['toolu_a', 'toolu_b', 'toolu_c']) logged('Agent', id, {})
 
     expect(filer.batchFinished(task.id, ['toolu_a', 'toolu_b', 'toolu_c'])).toBeNull()
-    expect(placed()).toEqual([['subagent toolu_a named'], ['subagent toolu_b named'], ['subagent toolu_c named'], []])
+    // Each works on its todo, and none is shown under it.
+    expect(placed()).toEqual([[], [], [], []])
+    expect(working()).toEqual({ toolu_a: '1', toolu_b: '2', toolu_c: '3' })
     const children = taskChildren(db, task.id)
     expect(['toolu_a', 'toolu_b', 'toolu_c'].map((id) => subagentTodo(children, id))).toEqual(['1', '2', '3'])
   })
@@ -310,18 +318,14 @@ describe('a watcher’s call', () => {
   beforeEach(threeTodos)
 
   const WATCHERS = [
-    [ChildTool.Monitor, 'toolu_monitor', { description: '[todo 3] CI checks on PR #511', command: 'gh pr checks 511' }],
+    ['Monitor', 'toolu_monitor', { description: '[todo 3] CI checks on PR #511', command: 'gh pr checks 511' }],
     [
-      ChildTool.Bash,
+      'Bash',
       'toolu_command',
       { description: '[todo 2] Integration tests', command: 'npm run test:integration', run_in_background: true },
     ],
-    [
-      ChildTool.ScheduleWakeup,
-      'toolu_wakeup',
-      { delaySeconds: 300, reason: '[todo 3] Check CI again', prompt: 'Check.' },
-    ],
-    [ChildTool.CronCreate, 'toolu_cron', { cron: '0 9 * * *', prompt: '[todo 3] Check the PR for review comments.' }],
+    ['ScheduleWakeup', 'toolu_wakeup', { delaySeconds: 300, reason: '[todo 3] Check CI again', prompt: 'Check.' }],
+    ['CronCreate', 'toolu_cron', { cron: '0 9 * * *', prompt: '[todo 3] Check the PR for review comments.' }],
   ] as const
 
   it('is left exactly as it is: no marker read or taken off, nothing filed, nothing asked, no hold', () => {
@@ -339,13 +343,15 @@ describe('a watcher’s call', () => {
     expect(filings()).toEqual([])
     expect(listOwedFilings(db, task.id)).toEqual([])
     expect(events).toEqual([])
-    expect(placed()[3]).toHaveLength(4)
+    // Nor is a watcher under no todo: it's no child at all.
+    expect(placed()).toEqual([[], [], [], []])
+    expect(database.db.prepare('SELECT COUNT(*) FROM child_ids').pluck().get()).toBe(0)
   })
 
   it('is never asked about beside a subagent and a commit that are', () => {
     starting(ChildTool.Agent, 'toolu_agent', { description: 'Review the order totals' })
     logged('Agent', 'toolu_agent', { description: 'Review the order totals' })
-    starting(ChildTool.Monitor, 'toolu_deploy', { description: 'Deploy to staging', command: './deploy-status.sh' })
+    starting('Monitor', 'toolu_deploy', { description: 'Deploy to staging', command: './deploy-status.sh' })
     watching('toolu_deploy', 'Deploy to staging')
 
     const asked = filer.batchFinished(task.id, ['toolu_agent', 'toolu_deploy'])
@@ -382,7 +388,8 @@ describe('a call that names no todo of the task', () => {
     expect(listOwedFilings(db, task.id)).toEqual([subagent('toolu_agent')])
     // Nothing is filed by guessing, whichever todo is in progress.
     updateTodo('1', 'in_progress')
-    expect(placed()).toEqual([[], [], [], ['subagent toolu_agent unfiled']])
+    expect(placed()).toEqual([[], [], [], []])
+    expect(working()).toEqual({})
     expect(subagentTodo(taskChildren(db, task.id), 'toolu_agent')).toBeNull()
   })
 
@@ -453,9 +460,7 @@ describe('a call that names no todo of the task', () => {
     expect(filer.batchFinished(task.id, ['toolu_ls'])).toBeNull()
     expect(filer.batchFinished(task.id, [])).toBeNull()
     // A tool Glade reads no todo off is none of its business.
-    expect(starting('Read' as ChildTool, 'toolu_read', { file_path: 'a.ts', description: '[todo 1] Read it' })).toBe(
-      null,
-    )
+    expect(starting('Read', 'toolu_read', { file_path: 'a.ts', description: '[todo 1] Read it' })).toBe(null)
     expect(listOwedFilings(db, task.id)).toEqual([])
     expect(events).toEqual([])
   })
@@ -543,7 +548,9 @@ describe('the end of a turn', () => {
     // The agent ignored it twice: the turn ends, and what's left stays under "Not under a todo".
     expect(filer.turnEnding(task.id, true)).toBeNull()
     expect(filer.turnEnding(task.id, true)).toBeNull()
-    expect(placed()[3]).toHaveLength(2)
+    // The commit shows there; the subagent has no todo, and shows nowhere.
+    expect(placed()[3]).toHaveLength(1)
+    expect(working()).toEqual({})
 
     // The end of its next turn asks again, twice more.
     expect(filer.turnEnding(task.id, false)).toBe(HOLD)
@@ -587,7 +594,8 @@ describe('the end of a turn', () => {
     // the end of the next one, the subagent is owed a todo, and the commit is under the todo its call named.
 
     expect(filer.turnEnding(task.id, false)).toContain('- c1: subagent "Review src/dates.js"')
-    expect(placed()).toEqual([[], [`commit ${fix.key} named`], [], ['subagent toolu_agent unfiled']])
+    expect(placed()).toEqual([[], [`commit ${fix.key} named`], [], []])
+    expect(working()).toEqual({})
   })
 
   it('forgets the calls of a session that is gone, and how often its turn was held', () => {
@@ -623,7 +631,9 @@ describe('the end of a turn', () => {
     addArtifact(db, { taskId: task.id, path: 'docs/plan.md', title: 'The plan' })
 
     expect(filer.turnEnding(task.id, false)).toBeNull()
-    expect(placed()[3]).toHaveLength(5)
+    // The commit, the link and the file: what it produced. The subagent and the watcher aren't under anything.
+    expect(placed()[3]).toHaveLength(3)
+    expect(listOwedFilings(db, task.id)).toEqual([])
   })
 })
 
@@ -649,17 +659,8 @@ describe('a subagent’s own calls', () => {
 
     // Only the subagent the agent started has a todo recorded: the rest follows it.
     expect(filings()).toEqual(['subagent toolu_agent #1 named'])
-    expect(placed()).toEqual([
-      [
-        `commit ${fix.key} inherited`,
-        `commit ${nestedFix.key} inherited`,
-        'subagent toolu_agent named',
-        'subagent toolu_nested inherited',
-      ],
-      [],
-      [],
-      [],
-    ])
+    expect(placed()).toEqual([[`commit ${fix.key} inherited`, `commit ${nestedFix.key} inherited`], [], [], []])
+    expect(working()).toEqual({ toolu_agent: '1', toolu_nested: '1' })
     const children = taskChildren(db, task.id)
     expect(subagentTodo(children, 'toolu_nested')).toBe('1')
     expect(listOwedFilings(db, task.id)).toEqual([])
@@ -687,7 +688,7 @@ describe('a subagent’s own calls', () => {
     expect(subagentTodo(children, 'toolu_agent')).toBe('1')
     expect(subagentTodo(children, 'toolu_nested')).toBe('2')
     // What it commits follows it there.
-    expect(placed()[1]).toEqual([`commit ${fix.key} inherited`, 'subagent toolu_nested named'])
+    expect(placed()[1]).toEqual([`commit ${fix.key} inherited`])
     expect(filer.turnEnding(task.id, false)).toBeNull()
   })
 

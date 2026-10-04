@@ -168,8 +168,6 @@ export function todoLineVerb(call: Pick<ToolCallEvent, 'state'>): string {
   }
 }
 
-const NO_CHILDREN: readonly never[] = []
-
 /**
  * The todo a subagent works on (`subagentTodo`, #495): the one its `Agent` call named or was filed under since, else
  * the one the subagent that started it works on, however deep. Null for a subagent with no todo, one whose todo was
@@ -182,12 +180,8 @@ export function agentTodo(
   agentId: string,
 ): Todo | null {
   if (filings === undefined || todos === undefined) return null
-  // Only the subagents and their filings say which todo a subagent is under; when each last did anything doesn't.
-  const subagents = [...agents.calls.values()].map((call) => ({ call, lastActivityAt: call.createdAt }))
-  const todoId = subagentTodo(
-    { todos, artifacts: NO_CHILDREN, subagents, watchers: NO_CHILDREN, commits: NO_CHILDREN, filings },
-    agentId,
-  )
+  // Only the todos, the subagents and their filings say which todo a subagent works on (#535).
+  const todoId = subagentTodo({ todos, subagents: [...agents.calls.values()], filings }, agentId)
   return todoId === null ? null : (todos.find(({ id }) => id === todoId) ?? null)
 }
 

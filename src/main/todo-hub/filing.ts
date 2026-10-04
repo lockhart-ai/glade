@@ -42,8 +42,8 @@ import { isSubagentTool } from '../../shared/subagents'
 import {
   childOfArtifact,
   childOfCommit,
+  childOfSubagent,
   childrenOf,
-  ChildKind,
   FilingSource,
   refKey,
   type ChildRef,
@@ -139,7 +139,7 @@ export function fileArtifact(
 
 /** The subagent an `Agent` call starts: named by the call itself, so its todo is recorded before it exists. */
 function subagentOf(toolUseId: string): ChildRef {
-  return { kind: ChildKind.Subagent, key: toolUseId }
+  return childOfSubagent({ toolUseId })
 }
 
 /** A call as the filer is told of it: the tool, its input and its id, and whether a subagent made it. */

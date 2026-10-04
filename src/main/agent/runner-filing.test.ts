@@ -6,7 +6,7 @@ import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import { MessageRole, ToolEventKind, type Task, type ToolCallEvent, type ToolInput } from '../../shared/domain'
-import { subagentTodo } from '../../shared/todoHub'
+import { subagentTodo, subagentTodos } from '../../shared/todoHub'
 import { FILE_CHILDREN_TOOL } from '../../shared/toolName'
 import type { BashEnd, ChangeTracker } from '../changes/tracker'
 import { listFilings } from '../db/repositories/child-filings'
@@ -237,6 +237,11 @@ function placed(): string[][] {
   )
 }
 
+/** The todo each of the task's subagents works on, by its call: plumbing, which no todo shows. */
+function working(): Record<string, string> {
+  return Object.fromEntries(subagentTodos(taskChildren(db, task.id)))
+}
+
 function filings(): string[] {
   return listFilings(db, task.id)
     .map(({ kind, key, todoId, source }) => `${kind} ${key} #${todoId} ${source}`)
@@ -311,7 +316,8 @@ describe('a call that names its todo', () => {
     expect(listOwedFilings(db, task.id)).toEqual([])
 
     expect(filings()).toEqual([`commit ${'a'.repeat(40)} /code/acme-api #2 named`, 'subagent toolu_agent #1 named'])
-    expect(placed()).toEqual([['subagent named'], ['commit named'], [], []])
+    expect(placed()).toEqual([[], ['commit named'], [], []])
+    expect(working()).toEqual({ toolu_agent: '1' })
     // Nowhere: not the tool log's rows, nor anything the windows were sent.
     expect(shown()).not.toMatch(/\[todo/i)
     expect(logged('Agent')).toMatchObject([{ description: 'Review the date helpers' }])
@@ -381,7 +387,8 @@ describe('a call that names its todo', () => {
       }),
     ).resolves.toEqual({ description: 'Fix the test', prompt: 'Fix it.' })
     expect(events).toEqual([])
-    expect(placed()).toEqual([[], ['subagent named'], [], []])
+    expect(placed()).toEqual([[], [], [], []])
+    expect(Object.values(working())).toEqual(['2'])
   })
 
   it('files three subagents started in one message under three todos', async () => {
@@ -431,7 +438,8 @@ describe('a call that names its todo', () => {
     expect(shown()).not.toMatch(/\[todo/i)
     const asked = await session().finishBatch(batch(['toolu_agent', 'Agent']))
     expect(asked).toContain('- c1: subagent "Review the date helpers"')
-    expect(placed()).toEqual([[], [], [], ['subagent unfiled']])
+    expect(placed()).toEqual([[], [], [], []])
+    expect(working()).toEqual({})
   })
 })
 
@@ -507,12 +515,7 @@ describe('a subagent’s own calls', () => {
     expect(subagentTodo(children, 'toolu_nested')).toBe('1')
     expect(subagentTodo(children, 'toolu_other')).toBe('3')
     // Each subagent's commit is under the todo it works on, with nothing asked.
-    expect(placed()).toEqual([
-      ['commit inherited', 'subagent inherited', 'subagent named', 'watcher inherited'],
-      ['commit named'],
-      ['commit inherited', 'subagent named'],
-      [],
-    ])
+    expect(placed()).toEqual([['commit inherited'], ['commit named'], ['commit inherited'], []])
     // The marker is off every `Agent` call's row, a subagent's too.
     expect(logged('Agent').map(({ description }) => description)).toEqual([
       'Review the date helpers',
@@ -584,12 +587,8 @@ describe('a call that names no todo', () => {
     })
     await settle()
 
-    expect(placed()).toEqual([
-      ['subagent asked'],
-      ['commit asked'],
-      [],
-      ['watcher unfiled', 'watcher unfiled', 'watcher unfiled', 'watcher unfiled'],
-    ])
+    // The commit is where the agent filed it; its four watchers are under nothing.
+    expect(placed()).toEqual([[], ['commit asked'], [], []])
     expect(subagentTodo(taskChildren(db, task.id), 'toolu_agent')).toBe('1')
     // Its filing call is a message like any other, with nothing to file, and the turn ends unheld: no watcher holds it.
     await expect(session().finishBatch(batch(['toolu_file', FILE_CHILDREN_TOOL]))).resolves.toBeNull()
@@ -686,7 +685,8 @@ describe('a call that names no todo', () => {
     expect(narrated).toEqual(['The totals are being reviewed.', 'The totals are being reviewed, as I said.'])
     expect(getTask(db, task.id)?.activity).toBe('waiting')
     // What's left stays under "Not under a todo", and is still owed.
-    expect(placed()).toEqual([[], [], [], ['subagent unfiled']])
+    expect(placed()).toEqual([[], [], [], []])
+    expect(working()).toEqual({})
     expect(listOwedFilings(db, task.id)).toHaveLength(1)
 
     // The end of its next turn asks again, and this time it files.
@@ -698,7 +698,7 @@ describe('a call that names no todo', () => {
     await expect(session().tryToEnd(true)).resolves.toBeNull()
     session().emit(sdk.result('Nothing else.'))
     await settle()
-    expect(placed()).toEqual([[], [], ['subagent asked'], []])
+    expect(working()).toEqual({ toolu_agent: '3' })
     expect(reply()).toBe('Nothing else.')
   })
 
@@ -715,7 +715,7 @@ describe('a call that names no todo', () => {
     await settle()
 
     expect(reply()).toBe('The totals are being reviewed.')
-    expect(placed()).toEqual([[], [], ['subagent asked'], []])
+    expect(working()).toEqual({ toolu_agent: '3' })
   })
 
   it('never holds a turn you stopped, and takes in what its unfinished message made at the end of the next', async () => {
@@ -927,7 +927,8 @@ describe('the todo hub turned on while a task has a session', () => {
     expect(session().sent.map(({ text: sent }) => sent)).toEqual(['One more thing.'])
     // What the old session made, before the hub was its own, is nobody's to ask about.
     await expect(session().tryToEnd()).resolves.toBeNull()
-    expect(placed()).toEqual([['subagent named'], ['subagent unfiled']])
+    expect(placed()).toEqual([[], []])
+    expect(Object.values(working())).toEqual(['1'])
   })
 
   it('sends a session that started elsewhere Glade’s whole prompt, hub and all, and records it as told', async () => {

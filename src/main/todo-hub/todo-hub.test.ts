@@ -14,6 +14,7 @@ import {
   childrenOf,
   commitChildKey,
   FilingSource,
+  subagentTodos,
   TODO_HUB_OFF,
   UNFILED_TODO_ID,
   type ChildRef,
@@ -40,6 +41,7 @@ import {
   rememberTodoPanel,
   taskChildren,
   unfileChildren,
+  wasWatcherId,
 } from './todo-hub'
 
 let database: TestDatabase
@@ -139,8 +141,9 @@ const PLAN: ChildRef = { kind: ChildKind.File, key: 'docs/plan.md' }
 const PR: ChildRef = { kind: ChildKind.Link, key: 'https://example.com/acme/api/pull/511' }
 const REVIEWER: ChildRef = { kind: ChildKind.Subagent, key: 'toolu_agent' }
 const NESTED: ChildRef = { kind: ChildKind.Subagent, key: 'toolu_nested' }
-const CI: ChildRef = { kind: ChildKind.Watcher, key: 'toolu_monitor' }
-const NESTED_CI: ChildRef = { kind: ChildKind.Watcher, key: 'toolu_nested_monitor' }
+/** The calls that started the task's two watchers. A watcher is no child: it has no `ChildRef`. */
+const CI_CALL = 'toolu_monitor'
+const NESTED_CI_CALL = 'toolu_nested_monitor'
 const FIX: ChildRef = { kind: ChildKind.Commit, key: commitChildKey({ hash: 'abc123', repoPath: '/code/acme-api' }) }
 const NESTED_FIX: ChildRef = {
   kind: ChildKind.Commit,
@@ -148,8 +151,9 @@ const NESTED_FIX: ChildRef = {
 }
 
 /**
- * A task that made one of everything: three todos, a file and a link, a subagent with a subagent of its own, a watcher
- * the agent started and one the nested subagent left running, and a commit by the agent and one by the nested subagent.
+ * A task that made one of everything: three todos, a file and a link, a subagent with a subagent of its own, a commit
+ * by the agent and one by the nested subagent, and (what the hub doesn't hold) a watcher the agent started and one
+ * the nested subagent left running.
  */
 function busyTask(): void {
   createTodo('1', 'Plan the move', 3_000)
@@ -166,8 +170,8 @@ function busyTask(): void {
   finish(NESTED.key, 'The tests pass.', 5_500)
   call('Bash', 'toolu_bash', { command: 'git commit -am "Fix"' }, 6_000)
   finish('toolu_bash', '[main abc123] Fix the date helpers', 6_100)
-  monitor(CI.key, null, 7_000)
-  const nested = monitor(NESTED_CI.key, NESTED.key, 7_100)
+  monitor(CI_CALL, null, 7_000)
+  const nested = monitor(NESTED_CI_CALL, NESTED.key, 7_100)
   updateWatcher(db, nested.id, { state: WatcherState.Finished, endedAt: 7_900 })
   commit('abc123', 'toolu_bash', 6_050)
   commit('def456', 'toolu_nested_bash', 5_250)
@@ -212,7 +216,7 @@ describe('the switch', () => {
 })
 
 describe('reading a task’s hub', () => {
-  it('gathers its todos, artifacts, every subagent with when it last did anything, watchers, commits and filings', () => {
+  it('gathers its todos, artifacts, every subagent, commits and filings, and no watcher', () => {
     busyTask()
     turnOn()
     fileChildren(context(), task.id, [{ ...PLAN, todoId: '1', source: FilingSource.Named }], 8_000)
@@ -225,23 +229,11 @@ describe('reading a task’s hub', () => {
       ['3', 'Watch CI on PR #511'],
     ])
     expect(children.artifacts.map(({ title }) => title)).toEqual(['The plan', '#511'])
-    expect(
-      children.subagents.map(({ call: agent, lastActivityAt }) => [
-        agent.toolUseId,
-        agent.parentToolUseId,
-        agent.state,
-        lastActivityAt,
-      ]),
-    ).toEqual([
-      // The outer one still runs; the last thing it did was its subagent finishing.
-      [REVIEWER.key, null, ToolCallState.Running, 5_500],
-      // The nested one finished after its last note.
-      [NESTED.key, REVIEWER.key, ToolCallState.Done, 5_500],
+    expect(children.subagents.map((agent) => [agent.toolUseId, agent.parentToolUseId, agent.state])).toEqual([
+      [REVIEWER.key, null, ToolCallState.Running],
+      [NESTED.key, REVIEWER.key, ToolCallState.Done],
     ])
-    expect(children.watchers.map(({ toolUseId, parentToolUseId }) => [toolUseId, parentToolUseId])).toEqual([
-      [CI.key, null],
-      [NESTED_CI.key, NESTED.key],
-    ])
+    expect(Object.keys(children).sort()).toEqual(['artifacts', 'commits', 'filings', 'subagents', 'todos'])
     expect(children.commits.map(({ hash, subagentToolUseId }) => [hash, subagentToolUseId])).toEqual([
       ['abc123', null],
       ['def456', NESTED.key],
@@ -251,15 +243,7 @@ describe('reading a task’s hub', () => {
     ])
   })
 
-  it('dates a subagent that has done nothing by when it started, and one that only finished by when it did', () => {
-    call('Agent', 'toolu_idle', { description: 'Wait' }, 5_000)
-    call('Agent', 'toolu_quick', { description: 'Answer' }, 5_100)
-    finish('toolu_quick', 'Done.', 5_900)
-
-    expect(taskChildren(db, task.id).subagents.map(({ lastActivityAt }) => lastActivityAt)).toEqual([5_000, 5_900])
-  })
-
-  it('shows a task from before the hub with everything under "Not under a todo"', () => {
+  it('shows a task from before the hub with everything it produced under "Not under a todo", and nothing else', () => {
     busyTask()
     turnOn()
 
@@ -272,18 +256,36 @@ describe('reading a task’s hub', () => {
       ['2', 0],
       ['3', 0],
     ])
-    // Most recently updated first: the file changed last, then the watchers, the commits and the subagents.
-    expect(refs(hub.children.unfiled)).toEqual([PLAN, NESTED_CI, CI, FIX, REVIEWER, NESTED, NESTED_FIX, PR].map(ref))
+    // Most recently updated first: the file changed last, then the commits, then the link. Its two subagents and its
+    // two watchers are under nothing.
+    expect(refs(hub.children.unfiled)).toEqual([PLAN, FIX, NESTED_FIX, PR].map(ref))
     expect(hub.children.unfiled.tallies).toEqual({
-      [ChildKind.File]: { count: 1, live: false },
-      [ChildKind.Link]: { count: 1, live: false },
-      [ChildKind.Subagent]: { count: 2, live: true },
-      [ChildKind.Watcher]: { count: 2, live: true },
-      [ChildKind.Commit]: { count: 2, live: false },
+      [ChildKind.File]: 1,
+      [ChildKind.Link]: 1,
+      [ChildKind.Commit]: 2,
     })
+    expect(subagentTodos(taskChildren(db, task.id))).toEqual(new Map())
   })
 
-  it('puts each child under the todo it’s filed under, and what a subagent made under the subagent’s', () => {
+  it('shows a task that has only subagents and watchers as having produced nothing', () => {
+    createTodo('1', 'Review the date helpers', 3_000)
+    call('Agent', REVIEWER.key, { description: 'Review src/dates.js' }, 5_000)
+    monitor(CI_CALL, null, 7_000)
+    monitor(NESTED_CI_CALL, REVIEWER.key, 7_100)
+    turnOn()
+    fileChildren(context(), task.id, [{ ...REVIEWER, todoId: '1', source: FilingSource.Named }], 8_000)
+
+    const hub = readTodoHub(db, task.id)
+
+    expect(hub.children.todos.map(refs)).toEqual([[]])
+    expect(hub.children.unfiled.children).toEqual([])
+    // The subagent's todo is still there to read: it's a filing, as any other.
+    expect(hub.filings.map(({ kind, key, todoId }) => [kind, key, todoId])).toEqual([
+      [ChildKind.Subagent, REVIEWER.key, '1'],
+    ])
+  })
+
+  it('puts each child under the todo it’s filed under, and a subagent’s commits under the todo it works on', () => {
     busyTask()
     turnOn()
     fileChildren(
@@ -293,7 +295,6 @@ describe('reading a task’s hub', () => {
         { ...PLAN, todoId: '1', source: FilingSource.Named },
         { ...PR, todoId: '3', source: FilingSource.Named },
         { ...REVIEWER, todoId: '2', source: FilingSource.Named },
-        { ...CI, todoId: '3', source: FilingSource.Named },
       ],
       8_000,
     )
@@ -302,24 +303,23 @@ describe('reading a task’s hub', () => {
 
     expect(children.todos.map(refs)).toEqual([
       [ref(PLAN)],
-      // The subagent, its own subagent, and what that one made and left running.
-      [NESTED_CI, REVIEWER, NESTED, NESTED_FIX].map(ref),
-      [CI, PR].map(ref),
+      // What the subagent's own subagent committed: neither subagent, and not the watcher that one left running.
+      [ref(NESTED_FIX)],
+      [ref(PR)],
     ])
-    expect(children.todos[1]?.children.map(({ source }) => source)).toEqual([
-      FilingSource.Inherited,
-      FilingSource.Named,
-      FilingSource.Inherited,
-      FilingSource.Inherited,
-    ])
-    expect(children.todos[1]?.tallies[ChildKind.Subagent]).toEqual({ count: 2, live: true })
-    expect(children.todos[2]?.tallies[ChildKind.Watcher]).toEqual({ count: 1, live: true })
+    expect(children.todos[1]?.children.map(({ source }) => source)).toEqual([FilingSource.Inherited])
+    expect(children.todos[1]?.tallies).toEqual({ [ChildKind.File]: 0, [ChildKind.Link]: 0, [ChildKind.Commit]: 1 })
     // The agent's own commit named no todo.
     expect(refs(children.unfiled)).toEqual([ref(FIX)])
-    expect(filings).toHaveLength(4)
+    expect(filings).toHaveLength(3)
+    // Both subagents work on the todo the outer one was started for.
+    expect(Object.fromEntries(subagentTodos(taskChildren(db, task.id)))).toEqual({
+      [REVIEWER.key]: '2',
+      [NESTED.key]: '2',
+    })
   })
 
-  it('moves a subagent with everything it made, and drops a deleted todo’s children to the placeholder', () => {
+  it('moves a subagent’s commits with it, and drops a deleted todo’s children to the placeholder', () => {
     busyTask()
     turnOn()
     fileChildren(context(), task.id, [{ ...REVIEWER, todoId: '2', source: FilingSource.Named }], 8_000)
@@ -327,7 +327,7 @@ describe('reading a task’s hub', () => {
     fileChildren(context(), task.id, [{ ...REVIEWER, todoId: '3', source: FilingSource.Moved }], 8_500)
 
     const moved = readTodoHub(db, task.id).children
-    expect(moved.todos.map(refs)).toEqual([[], [], [NESTED_CI, REVIEWER, NESTED, NESTED_FIX].map(ref)])
+    expect(moved.todos.map(refs)).toEqual([[], [], [ref(NESTED_FIX)]])
     expect(listFilings(db, task.id)).toEqual([
       { taskId: task.id, ...REVIEWER, todoId: '3', source: FilingSource.Moved, filedAt: 8_500 },
     ])
@@ -337,7 +337,8 @@ describe('reading a task’s hub', () => {
     const after = readTodoHub(db, task.id).children
     expect(after.todos.map(({ todoId }) => todoId)).toEqual(['1', '2'])
     expect(after.todos.map(refs)).toEqual([[], []])
-    expect(refs(after.unfiled)).toHaveLength(8)
+    expect(refs(after.unfiled)).toHaveLength(4)
+    expect(subagentTodos(taskChildren(db, task.id))).toEqual(new Map())
     // The filing is kept: Claude Code never gives the number to another todo.
     expect(listFilings(db, task.id)).toHaveLength(1)
   })
@@ -375,19 +376,37 @@ describe('a child’s short id', () => {
       ['c2', ref(PR)],
       ['c3', ref(REVIEWER)],
       ['c4', ref(NESTED)],
-      ['c5', ref(CI)],
-      ['c6', ref(NESTED_CI)],
       // The nested subagent's commit was made before the agent's own.
-      ['c7', ref(NESTED_FIX)],
-      ['c8', ref(FIX)],
+      ['c5', ref(NESTED_FIX)],
+      ['c6', ref(FIX)],
     ])
+    // Its two watchers have no id: they aren't children.
+    expect(db.prepare('SELECT COUNT(*) FROM child_ids').pluck().get()).toBe(6)
+  })
+
+  it('names no child when it was a watcher’s, from before watchers left the hub, and says it was one', () => {
+    busyTask()
+    turnOn()
+    identifyChildren(db, task.id, [PLAN])
+    // As the hub wrote a watcher's then: the table still allows the kind.
+    db.prepare("INSERT INTO child_ids (task_id, number, kind, key) VALUES (?, 2, 'watcher', ?)").run(task.id, CI_CALL)
+
+    expect(childWithId(db, task.id, 'c2')).toBeUndefined()
+    expect(wasWatcherId(db, task.id, 'c2')).toBe(true)
+    expect(wasWatcherId(db, task.id, 'c1')).toBe(false)
+    expect(wasWatcherId(db, task.id, 'c3')).toBe(false)
+    // The next child named doesn't take its number.
+    expect(identifyChildren(db, task.id, [PR])).toEqual([{ ...PR, id: 'c3' }])
+    // And with the hub off, nothing is read.
+    updateSettings(db, { todoHubEnabled: false })
+    expect(wasWatcherId(db, task.id, 'c2')).toBe(false)
   })
 
   it('stays the child’s for the life of the task: as it’s filed, moved, removed and declared again', () => {
     busyTask()
     turnOn()
-    expect(identifyChildren(db, task.id, [CI, PLAN])).toEqual([
-      { ...CI, id: 'c1' },
+    expect(identifyChildren(db, task.id, [NESTED, PLAN])).toEqual([
+      { ...NESTED, id: 'c1' },
       { ...PLAN, id: 'c2' },
     ])
 
@@ -404,14 +423,12 @@ describe('a child’s short id', () => {
       [ref(PLAN)]: 'c2',
       [ref(PR)]: 'c4',
       [ref(REVIEWER)]: 'c5',
-      [ref(NESTED)]: 'c6',
-      [ref(CI)]: 'c1',
-      [ref(NESTED_CI)]: 'c7',
-      [ref(NESTED_FIX)]: 'c8',
+      [ref(NESTED)]: 'c1',
+      [ref(NESTED_FIX)]: 'c6',
       [ref(FIX)]: 'c3',
     })
     expect(childWithId(db, task.id, 'c2')).toEqual(PLAN)
-    expect(childWithId(db, task.id, 'c1')).toEqual(CI)
+    expect(childWithId(db, task.id, 'c1')).toEqual(NESTED)
   })
 
   it('names nothing for an id that was never given, or for another task’s', () => {
@@ -435,8 +452,8 @@ describe('a child’s short id', () => {
       first.close()
 
       const second = openAppDatabase(folder).db
-      expect(identifyChildren(second, kept.id, [CI, PR])).toEqual([
-        { ...CI, id: 'c3' },
+      expect(identifyChildren(second, kept.id, [FIX, PR])).toEqual([
+        { ...FIX, id: 'c3' },
         { ...PR, id: 'c2' },
       ])
       expect(childWithId(second, kept.id, 'c1')).toEqual(PLAN)
@@ -516,14 +533,14 @@ describe('filing', () => {
     fileChildren(
       context(),
       task.id,
-      [PLAN, PR, CI].map((child) => ({ ...child, todoId: '1', source: FilingSource.Named })),
+      [PLAN, PR, REVIEWER].map((child) => ({ ...child, todoId: '1', source: FilingSource.Named })),
       8_000,
     )
     events = []
 
-    expect(unfileChildren(context(), task.id, [PLAN, FIX, CI])).toEqual([PLAN, CI])
+    expect(unfileChildren(context(), task.id, [PLAN, FIX, REVIEWER])).toEqual([PLAN, REVIEWER])
 
-    expect(events).toEqual([{ type: EventType.FilingsChanged, taskId: task.id, filed: [], removed: [PLAN, CI] }])
+    expect(events).toEqual([{ type: EventType.FilingsChanged, taskId: task.id, filed: [], removed: [PLAN, REVIEWER] }])
     expect(listFilings(db, task.id).map(({ key }) => key)).toEqual([PR.key])
     // Nothing that had a filing: nothing to say.
     events = []
@@ -534,13 +551,13 @@ describe('filing', () => {
 
   it('settles what the agent owed a filing for, but for a child that only follows its subagent', () => {
     turnOn()
-    oweFilings(db, task.id, [CI, FIX, PR], 7_000)
+    oweFilings(db, task.id, [REVIEWER, FIX, PR], 7_000)
 
     fileChildren(
       context(),
       task.id,
       [
-        { ...CI, todoId: '3', source: FilingSource.Asked },
+        { ...REVIEWER, todoId: '3', source: FilingSource.Asked },
         // Not a filing of its own: the child still goes where its subagent goes.
         { ...FIX, todoId: '2', source: FilingSource.Inherited },
       ],
@@ -572,7 +589,7 @@ describe('filing', () => {
     ])
     // A child with no filing has none to move, and one that keeps its key (a new title) isn't touched.
     events = []
-    refileChild(context(), task.id, CI, { kind: ChildKind.Watcher, key: 'toolu_other' })
+    refileChild(context(), task.id, FIX, { kind: ChildKind.Commit, key: 'fed987 /code/acme-api' })
     refileChild(context(), task.id, PR, PR)
     expect(events).toEqual([])
     expect(listFilings(db, task.id)).toHaveLength(2)
@@ -595,16 +612,33 @@ describe('a todo’s panel', () => {
     turnOn()
     createTodo('1', 'Plan the move', 3_000)
 
-    rememberTodoPanel(db, { taskId: task.id, todoId: '1', open: true, filter: ChildFilter.Watchers })
+    rememberTodoPanel(db, { taskId: task.id, todoId: '1', open: true, filter: ChildFilter.Commits })
     rememberTodoPanel(db, { taskId: task.id, todoId: UNFILED_TODO_ID, open: true, filter: ChildFilter.All })
     rememberTodoPanel(db, { taskId: task.id, todoId: '9', open: false, filter: ChildFilter.Files })
 
     expect(readTodoHub(db, task.id).panels).toEqual([
-      { taskId: task.id, todoId: '1', open: true, filter: ChildFilter.Watchers },
+      { taskId: task.id, todoId: '1', open: true, filter: ChildFilter.Commits },
       { taskId: task.id, todoId: '9', open: false, filter: ChildFilter.Files },
       { taskId: task.id, todoId: UNFILED_TODO_ID, open: true, filter: ChildFilter.All },
     ])
     expect(events).toEqual([])
+  })
+
+  it('is read back as showing all when it was left on a filter that’s gone, with no error', () => {
+    turnOn()
+    createTodo('1', 'Plan the move', 3_000)
+    // As the hub wrote one then: the table still allows both.
+    const left = db.prepare('INSERT INTO todo_panels (task_id, todo_id, open, filter) VALUES (?, ?, 1, ?)')
+    left.run(task.id, '1', 'subagent')
+    left.run(task.id, UNFILED_TODO_ID, 'watcher')
+
+    expect(readTodoHub(db, task.id).panels).toEqual([
+      { taskId: task.id, todoId: '1', open: true, filter: ChildFilter.All },
+      { taskId: task.id, todoId: UNFILED_TODO_ID, open: true, filter: ChildFilter.All },
+    ])
+    // Its next change is remembered over the row it had.
+    rememberTodoPanel(db, { taskId: task.id, todoId: '1', open: true, filter: ChildFilter.Links })
+    expect(listTodoPanels(db, task.id)[0]).toMatchObject({ todoId: '1', filter: ChildFilter.Links })
   })
 
   it('fails for a task that isn’t there', () => {

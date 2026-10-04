@@ -1,7 +1,7 @@
 /*
  * The Todos tab as the hub (P16, #491), from docs/design/html/46-todo-hub.html to 49-todo-hub-unfiled.html. Behind the
  * hidden todoHubEnabled setting. Every todo is a card on inner-2, closed or open, whatever its state and whether or not
- * anything is under it; nothing inside a card is black. Blue is live, grey is everything else.
+ * anything is under it; nothing inside a card is black. Nothing under a todo is live, so its counts and pills are grey.
  */
 .hub {
   flex-grow: 1;
@@ -308,16 +308,6 @@
 
 .pill.on svg {
   color: var(--color-text);
-}
-
-/* A kind with something live is blue, on a closed todo, a done one and a selected pill alike. */
-.count.live,
-.count.live svg,
-.done .count.live,
-.pill.live,
-.pill.live svg,
-.pill.live .pillCount {
-  color: var(--color-blue-text);
 }
 
 /* Under an open todo: one flat list, a tile per child, most recently updated first. */
