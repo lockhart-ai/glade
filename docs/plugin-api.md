@@ -394,7 +394,7 @@ list, tool log and Subagents tab summarise, and no more.
 |---|---|---|
 | `ready` | none | Asks for `hello` and a `snapshot`. |
 | `status` | `text: string` | Sets the short status at the right of the panel header (Nekomata's "5 cats · 4 kittens"), up to 40 characters; `''` clears it. |
-| `openTask` | `taskId: string`, optional `subagentId: string \| null` | Opens the task, as clicking its row in the task list does, switching to its workspace first if it's in another; with a `subagentId`, also opens the right panel's Subagents tab on that subagent, its log open, as picking it there does. Only right after a click or key press in the plugin's view (below). |
+| `openTask` | `taskId: string`, optional `subagentId: string \| null` | Opens the task, as clicking its row in the task list does, switching to its workspace first if it's in another; with a `subagentId`, also opens the right panel's Subagents tab on that subagent, its log open, as picking it there does (behind the hidden `todoHubEnabled` setting until #501: with it on, the panel's Agents tab, on that subagent's own tab, P16 #536). Only right after a click or key press in the plugin's view (below). |
 
 Anything else, or a message that fails its schema, is dropped and logged. So is a message longer than 16 KB as JSON,
 and any beyond a burst of 50, then 20 a second: a flood is cut off, not queued. A plugin can't send messages or
@@ -456,7 +456,8 @@ while it's busy, and the espresso machine follows the GPU); with it off, the roo
 `select` setting, `style`, in its Glade build's manifest: it draws the scene in whichever style `settings.style` names,
 restyles in place on `settings.changed`, and falls back to its default style when there's no `settings` (an older
 Glade). Clicking a cat opens its task (`openTask` with the task's id), switching workspace if it's in another, and
-clicking a kitten opens its task on that subagent in the Subagents tab (`openTask` with the subagent's id too).
+clicking a kitten opens its task on that subagent in the Subagents tab (`openTask` with the subagent's id too); with
+the hidden `todoHubEnabled` setting on, on the subagent's own tab in the Agents tab (#536).
 
 To install it, build the plugin folder in a clone of the nekomata repo and copy it into the plugins folder:
 

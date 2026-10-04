@@ -178,8 +178,12 @@ export function taskPanel(page: Page) {
     /** The drag handle on the panel's left edge, in the gap beside it. */
     resizeHandle: regions(page).task.getByRole('separator', { name: 'Resize side panel' }),
     collapse: panel.getByRole('button', { name: 'Collapse side panel' }),
-    tab: (name: string | RegExp) => panel.getByRole('tab', { name }),
-    tabPanel: panel.getByRole('tabpanel'),
+    /** One of the panel's own tabs, by its name: not an agent's tab in the Agents tab's strip (`agentsTab`). */
+    tab: (name: string | RegExp) => panel.getByRole('tablist', { name: 'Task panels' }).getByRole('tab', { name }),
+    /** The panel's own tabs, in tab bar order: seven, or Agents · Files · Todos with the todo hub on. */
+    tabs: panel.getByRole('tablist', { name: 'Task panels' }).getByRole('tab'),
+    /** The selected tab's content. (The Agents tab has a panel of its own inside it, for the agent showing.) */
+    tabPanel: panel.getByRole('tabpanel').first(),
     log,
     /** A tool call's row, by its accessible name: its state, name, argument, time, permission line and result. */
     call: (name: string | RegExp) => log.getByRole('button', { name }),
@@ -200,6 +204,44 @@ export function taskPanel(page: Page) {
     todos: panel.getByRole('list', { name: 'Todos' }).getByRole('listitem'),
     /** A done todo's finish time (`4m ago`), with the exact time as its tooltip. */
     todoFinished: (item: Locator) => item.locator('time'),
+  }
+}
+
+/**
+ * The right panel's Agents tab (P16, #536), which takes the place of Tool calls and Subagents while the hidden
+ * `todoHubEnabled` setting is on: a strip with a tab for every agent in the task, and under it the tool calls of the
+ * agent showing (`taskPanel(page).log`, as the Tool calls tab's).
+ */
+export function agentsTab(page: Page) {
+  const panel = regions(page).taskPanel
+  const strip = panel.getByRole('tablist', { name: 'Agents' })
+  const list = panel.getByRole('log', { name: 'Tool log' })
+  const line = panel.locator('[data-agent-line]')
+  return {
+    strip,
+    /**
+     * Every agent's tab, in the strip's order: Main, then the running subagents, then the finished ones, the newest
+     * first within each. A tab's `title` is its agent's name; a running subagent's has `data-running`.
+     */
+    tabs: strip.getByRole('tab'),
+    /** An agent's tab, by its name; `aria-selected` while it's the one showing. */
+    tab: (name: string) => strip.getByTitle(name, { exact: true }),
+    /** The chevron over an end of the strip with more agents past it. */
+    scroll: (side: 'left' | 'right') => strip.getByRole('button', { name: `Scroll agents ${side}` }),
+    /** The agent showing's side of the tab, named by its tab: the line about its todo, and its tool calls. */
+    agentPanel: panel.locator('#agent-panel'),
+    /** The line under the strip on a subagent's tab: "Working on <its todo>", then its state and how long ("Done · 28m"). */
+    line,
+    /** The todo's title on that line: a link to the todo in the Todos tab. */
+    todoLink: line.getByRole('button'),
+    /** The agent showing's tool calls. */
+    list,
+    /** A subagent's `Agent` call in the list of the agent that started it, by the subagent's name: it goes to its tab. */
+    agentCall: (name: string) =>
+      list
+        .locator('[data-agent-call]')
+        .filter({ has: page.getByText(name, { exact: true }) })
+        .getByRole('button'),
   }
 }
 

@@ -181,6 +181,11 @@ export interface FakeMain {
   readonly artifactGroups?: Record<string, ArtifactGroupFold[]>
   /** Each task's Artifacts tab filter, by task id; All when left out. `artifacts.setFilter` changes the fake's own. */
   readonly artifactFilters?: Record<string, ArtifactFilter>
+  /**
+   * The subagent whose tab each task's Agents tab was left on, by task id; Main when left out. `agents.setTab` changes
+   * the fake's own. A task's history carries it only while the hub is on (`todoHubEnabled`), as main's does.
+   */
+  readonly agentTabs?: Record<string, string>
   /** The tasks `artifacts.watch` and `artifacts.unwatch` were asked about, in order: `watch t1`, `unwatch t1`. */
   readonly watchedArtifacts?: string[]
   /** What was put on the clipboard, oldest first: the path of each file `files.copy` copied, and the text of each
@@ -534,6 +539,7 @@ export function fakeHandlers(
       handoff: main.handoffs?.[id] ?? null,
       watchers: (main.watchers ?? []).filter((watcher) => watcher.taskId === id),
       commits: (main.commits ?? []).filter((commit) => commit.taskId === id),
+      ...(settings.todoHubEnabled ? { agentTab: main.agentTabs?.[id] ?? null } : {}),
     }),
     [CommandName.QueueAdd]: ({ taskId, text, images: added }) => {
       queued += 1
@@ -792,6 +798,15 @@ export function fakeHandlers(
       if (panels !== undefined) {
         const at = panels.findIndex(({ taskId, todoId }) => taskId === panel.taskId && todoId === panel.todoId)
         panels.splice(at === -1 ? panels.length : at, at === -1 ? 0 : 1, panel)
+      }
+      return null
+    },
+    [CommandName.AgentsSetTab]: ({ taskId, agentId }) => {
+      if (!settings.todoHubEnabled) return refuse(bridgeError(BridgeErrorCode.InvalidTransition, TODO_HUB_OFF))
+      const tabs = main.agentTabs
+      if (tabs !== undefined) {
+        if (agentId === null) Reflect.deleteProperty(tabs, taskId)
+        else tabs[taskId] = agentId
       }
       return null
     },

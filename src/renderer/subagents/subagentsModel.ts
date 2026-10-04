@@ -204,7 +204,7 @@ export function sameSubagent(a: Subagent, b: Subagent): boolean {
  * How long a subagent has run: from its call until its result, or until `now` while it runs. Null for one that
  * finished before Glade recorded when calls finish.
  */
-export function elapsedMs(subagent: Subagent, now: EpochMs): number | null {
+export function elapsedMs(subagent: Pick<Subagent, 'call'>, now: EpochMs): number | null {
   const { call } = subagent
   if (call.state === ToolCallState.Running) return Math.max(0, now - call.createdAt)
   return call.finishedAt === null ? null : Math.max(0, call.finishedAt - call.createdAt)

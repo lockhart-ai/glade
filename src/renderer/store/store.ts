@@ -19,7 +19,15 @@ import type { ImageData } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import { describeFailure, lastOpenedWorkspace, loadSnapshot } from './hydrate'
 import { isLoaded, withDoneCounts, withDonePage, withLoadedTasks } from './doneLists'
-import { applyEvent, withGroupFold, withHistory, withOpenedWorkspace, withSandboxGrants, withTodoHub } from './reducer'
+import {
+  applyEvent,
+  withAgentTab,
+  withGroupFold,
+  withHistory,
+  withOpenedWorkspace,
+  withSandboxGrants,
+  withTodoHub,
+} from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState, type TerminalEvent } from './state'
 import {
   UnsavedChoice,
@@ -201,21 +209,26 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     // Shows a panel tab of the selected task: the right panel opens at it, even when it was collapsed or on another
     // tab, in that task's own workspace. For another task, nothing changes: the panel shows the task you're viewing.
     const showPanelTab = (taskId: string, tab: PanelTab): void => {
-      const { selectedTaskId, tasks, uiState } = get()
+      const { selectedTaskId, tasks, uiState, settings } = get()
       if (taskId !== selectedTaskId) return
       const workspaceId = tasks[taskId]?.workspaceId
       if (workspaceId === undefined) return
-      if (activePanelTab(uiState, workspaceId) !== tab) {
+      if (activePanelTab(uiState, workspaceId, settings.todoHubEnabled) !== tab) {
         void setUiState(panelTabEntry(uiState, workspaceId, tab))
       }
       if (isCollapsed(uiState, Panel.RightPanel)) void setUiState(collapsedEntry(Panel.RightPanel, false))
     }
 
     // Opens a task main asked to open, as clicking its row does; with a subagent, then shows it in the Subagents tab, as
-    // picking it there does. Selecting it can be called off (unsaved edits), and then nothing more happens.
+    // picking it there does, or with the todo hub on, on its own tab in the Agents tab (#536). Selecting it can be called
+    // off (unsaved edits), and then nothing more happens.
     const openRequested = async ({ taskId, subagentId }: OpenRequest): Promise<void> => {
       await get().selectTask(taskId)
       if (subagentId === null || get().selectedTaskId !== taskId) return
+      if (get().settings.todoHubEnabled) {
+        get().showAgent(taskId, subagentId)
+        return
+      }
       showPanelTab(taskId, PanelTab.Subagents)
       set(({ subagentFocus }) => ({
         subagentFocus: { taskId, subagentId, request: (subagentFocus?.request ?? 0) + 1 },
@@ -807,8 +820,30 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       focusTurn(taskId, turn) {
-        showPanelTab(taskId, PanelTab.ToolCalls)
+        // With the todo hub on, the task's own tool calls are Main's tab of the Agents tab (#536).
+        if (get().settings.todoHubEnabled) get().showAgent(taskId, null)
+        else showPanelTab(taskId, PanelTab.ToolCalls)
         set(({ toolLogFocus }) => ({ toolLogFocus: { taskId, turn, request: (toolLogFocus?.request ?? 0) + 1 } }))
+      },
+
+      // The tab shows at once; main remembers it for the task.
+      async selectAgentTab(taskId, agentId) {
+        if ((get().agentTabs[taskId] ?? null) === agentId) return
+        set(({ agentTabs }) => ({ agentTabs: withAgentTab(agentTabs, taskId, agentId) }))
+        await bridge.invoke(CommandName.AgentsSetTab, { taskId, agentId })
+      },
+
+      showAgent(taskId, agentId) {
+        showPanelTab(taskId, PanelTab.Agents)
+        // It shows at once; one main couldn't remember is only forgotten on the next launch.
+        get()
+          .selectAgentTab(taskId, agentId)
+          .catch(() => undefined)
+      },
+
+      showTodo(taskId, todoId) {
+        showPanelTab(taskId, PanelTab.Todos)
+        set(({ todoFocus }) => ({ todoFocus: { taskId, todoId, request: (todoFocus?.request ?? 0) + 1 } }))
       },
 
       focusInput() {

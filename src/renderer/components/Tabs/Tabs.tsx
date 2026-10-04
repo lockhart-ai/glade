@@ -1,11 +1,7 @@
-import { faChevronLeft, faChevronRight } from '@fortawesome/free-solid-svg-icons'
 import { useLayoutEffect, useRef, type HTMLAttributes, type KeyboardEvent } from 'react'
-import { Button, ButtonVariant } from '../Button/Button'
-import { classNames } from '../classNames'
-import { Icon, IconSize } from '../Icon/Icon'
+import { ScrollRow } from './ScrollRow'
 import styles from './Tabs.module.css'
-import { chevronScroll, revealScroll, ScrollDirection, useSidewaysWheel } from './tabScroll'
-import { useOverflowEdges } from './useOverflowEdges'
+import { revealScroll } from './tabScroll'
 
 /** One tab in a tab bar. */
 export interface TabItem<T extends string> {
@@ -55,8 +51,8 @@ function panelId(tabsId: string, value: string): string {
  *
  * When the row is too narrow for its tabs it scrolls sideways, with no scroll bar: by trackpad, by the mouse wheel
  * (up and down scroll it too), and by a chevron at each end with more tabs past it, which scrolls it about a tab's
- * width. That end fades out under its chevron. The selected tab scrolls into view whenever it changes, however it was
- * chosen.
+ * width (`ScrollRow`). That end fades out under its chevron. The selected tab scrolls into view whenever it changes,
+ * however it was chosen.
  */
 export function Tabs<T extends string>({
   id,
@@ -68,8 +64,6 @@ export function Tabs<T extends string>({
 }: TabsProps<T>): React.JSX.Element {
   const buttons = useRef<(HTMLButtonElement | null)[]>([])
   const list = useRef<HTMLDivElement>(null)
-  const overflow = useOverflowEdges(list, tabs.map((tab) => `${tab.label} ${String(tab.count ?? '')}`).join('\n'))
-  useSidewaysWheel(list)
   // If no tab is selected, the first one takes the tab stop so the bar stays reachable by keyboard.
   const selectedIndex = tabs.findIndex((tab) => tab.value === value)
   const tabStop = Math.max(selectedIndex, 0)
@@ -104,10 +98,6 @@ export function Tabs<T extends string>({
     }
   }, [selectedIndex])
 
-  function scrollBy(direction: ScrollDirection): void {
-    list.current?.scrollBy({ left: chevronScroll(list.current, tabs.length, direction) })
-  }
-
   function handleKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number): void {
     const step = STEPS[event.key]
     if (step === undefined) return
@@ -122,92 +112,48 @@ export function Tabs<T extends string>({
   }
 
   return (
-    <div
-      className={classNames(styles.strip, className)}
-      data-overflow-start={overflow.start}
-      data-overflow-end={overflow.end}
-    >
-      <div ref={list} role="tablist" aria-label={label} className={styles.tablist}>
-        {tabs.map((tab, index) => {
-          const selected = tab.value === value
-          return (
-            <button
-              key={tab.value}
-              ref={(button) => {
-                buttons.current[index] = button
-              }}
-              type="button"
-              role="tab"
-              id={tabId(id, tab.value)}
-              aria-selected={selected}
-              aria-controls={selected ? panelId(id, tab.value) : undefined}
-              tabIndex={index === tabStop ? 0 : -1}
-              className={styles.tab}
-              onClick={() => {
-                onChange(tab.value)
-              }}
-              onKeyDown={(event) => {
-                handleKeyDown(event, index)
-              }}
-            >
-              {tab.count === undefined ? (
-                tab.label
-              ) : (
-                <>
-                  {tab.label} <span className={styles.count}>{tab.count}</span>
-                </>
-              )}
-            </button>
-          )
-        })}
-      </div>
-      {overflow.start && (
-        <ScrollChevron
-          direction={ScrollDirection.Start}
-          onClick={() => {
-            scrollBy(ScrollDirection.Start)
-          }}
-        />
-      )}
-      {overflow.end && (
-        <ScrollChevron
-          direction={ScrollDirection.End}
-          onClick={() => {
-            scrollBy(ScrollDirection.End)
-          }}
-        />
-      )}
-    </div>
-  )
-}
-
-interface ScrollChevronProps {
-  direction: ScrollDirection
-  onClick: () => void
-}
-
-const CHEVRONS = {
-  [ScrollDirection.Start]: { icon: faChevronLeft, label: 'Scroll tabs left' },
-  [ScrollDirection.End]: { icon: faChevronRight, label: 'Scroll tabs right' },
-} as const
-
-/**
- * The chevron over an end of the tab row with more tabs past it. It's for the pointer: out of the tab order, since the
- * arrow keys already move between the tabs and bring each into view.
- */
-function ScrollChevron({ direction, onClick }: ScrollChevronProps): React.JSX.Element {
-  const { icon, label } = CHEVRONS[direction]
-  return (
-    <Button
-      variant={ButtonVariant.Icon}
+    <ScrollRow
+      listRef={list}
+      content={tabs.map((tab) => `${tab.label} ${String(tab.count ?? '')}`).join('\n')}
+      count={tabs.length}
+      noun="tabs"
+      className={className}
+      role="tablist"
       aria-label={label}
-      title={label}
-      tabIndex={-1}
-      className={classNames(styles.chevron, styles[direction])}
-      onClick={onClick}
     >
-      <Icon icon={icon} size={IconSize.Small} />
-    </Button>
+      {tabs.map((tab, index) => {
+        const selected = tab.value === value
+        return (
+          <button
+            key={tab.value}
+            ref={(button) => {
+              buttons.current[index] = button
+            }}
+            type="button"
+            role="tab"
+            id={tabId(id, tab.value)}
+            aria-selected={selected}
+            aria-controls={selected ? panelId(id, tab.value) : undefined}
+            tabIndex={index === tabStop ? 0 : -1}
+            className={styles.tab}
+            onClick={() => {
+              onChange(tab.value)
+            }}
+            onKeyDown={(event) => {
+              handleKeyDown(event, index)
+            }}
+          >
+            {tab.count === undefined ? (
+              tab.label
+            ) : (
+              <>
+                {tab.label} <span className={styles.count}>{tab.count}</span>
+              </>
+            )}
+          </button>
+        )
+      })}
+    </ScrollRow>
   )
 }
 

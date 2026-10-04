@@ -1,0 +1,525 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "settings": {
+    "todoHubEnabled": true
+  },
+  "panelTab": "agents",
+  "tasks": [
+    {
+      "title": "Draft release notes for 2.4",
+      "status": "Waiting on you: two questions",
+      "pinned": true,
+      "minutesAgo": 25
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "status": "Waiting on you: pick a limit for /search",
+      "minutesAgo": 4
+    },
+    {
+      "title": "Ship the rate-limit fixes for 2.5",
+      "objective": "Work #501, #502 and #503 for 2.5: a subagent each, open PRs, watch CI, then draft the release notes.",
+      "status": "All three PRs are merged. A subagent is drafting the release notes.",
+      "activity": "working",
+      "minutesAgo": 0,
+      "startedMinutesAgo": 56,
+      "selected": true,
+      "contextUsedTokens": 88000,
+      "contextWindowTokens": 200000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Work #501, #502 and #503 for 2.5: a subagent each, open PRs, watch CI, then draft the release notes.",
+          "turn": 1,
+          "minutesAgo": 56
+        },
+        {
+          "role": "agent",
+          "body": "PR #511 is green again: the header is on every 429 in a burst now. It's merged, and so is PR #513.\n\nThe release notes are next; a subagent is drafting them from the three PRs.",
+          "turn": 1,
+          "minutesAgo": 3
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "narration",
+          "text": "Three issues, so three subagents, one for each todo.",
+          "turn": 1,
+          "minutesAgo": 56
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "#501 Return Retry-After on 429s",
+            "description": "#501 Return Retry-After on 429s"
+          },
+          "turn": 1,
+          "minutesAgo": 56,
+          "output": "Task #1 created successfully: #501 Return Retry-After on 429s"
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "#502 Per-key limits for /search",
+            "description": "#502 Per-key limits for /search"
+          },
+          "turn": 1,
+          "minutesAgo": 56,
+          "output": "Task #2 created successfully: #502 Per-key limits for /search"
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "#503 Document the rate limits",
+            "description": "#503 Document the rate limits"
+          },
+          "turn": 1,
+          "minutesAgo": 56,
+          "output": "Task #3 created successfully: #503 Document the rate limits"
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "Draft the 2.5 release notes",
+            "description": "Draft the 2.5 release notes"
+          },
+          "turn": 1,
+          "minutesAgo": 56,
+          "output": "Task #4 created successfully: Draft the 2.5 release notes"
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "1",
+            "status": "in_progress",
+            "activeForm": "PR #511 is open"
+          },
+          "turn": 1,
+          "minutesAgo": 55,
+          "output": "Updated task #1 status"
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "2",
+            "status": "in_progress",
+            "activeForm": "A subagent is on it"
+          },
+          "turn": 1,
+          "minutesAgo": 55,
+          "output": "Updated task #2 status"
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "3",
+            "status": "in_progress",
+            "activeForm": "Writing the reference"
+          },
+          "turn": 1,
+          "minutesAgo": 55,
+          "output": "Updated task #3 status"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "fix-501",
+            "prompt": "Fix #501 and open a PR.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 54,
+          "output": "Opened PR #511.",
+          "toolUseId": "use-fix-501",
+          "todo": "1",
+          "finishedMinutesAgo": 26
+        },
+        {
+          "kind": "narration",
+          "text": "`api/throttle.py` builds the 429 response, so the header goes there.",
+          "turn": 1,
+          "minutesAgo": 53,
+          "parentToolUseId": "use-fix-501"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": {
+            "file_path": "/Users/sample/code/api/api/throttle.py"
+          },
+          "turn": 1,
+          "minutesAgo": 53,
+          "output": "import time\n\nfrom rest_framework.throttling import SimpleRateThrottle\n\n# line 5\n# line 6\n# line 7\n# line 8\n# line 9\n# line 10\n# line 11\n# line 12\n# line 13\n# line 14\n# line 15\n# line 16\n# line 17\n# line 18\n# line 19\n# line 20\n# line 21\n# line 22\n# line 23\n# line 24\n# line 25\n# line 26\n# line 27\n# line 28\n# line 29\n# line 30\n# line 31\n# line 32\n# line 33\n# line 34\n# line 35\n# line 36\n# line 37\n# line 38\n# line 39\n# line 40\n# line 41\n# line 42\n# line 43\n# line 44\n# line 45\n# line 46\n# line 47\n# line 48\n# line 49\n# line 50\n# line 51\n# line 52\n# line 53\n# line 54\n# line 55\n# line 56\n# line 57\n# line 58\n# line 59\n# line 60\n# line 61\n# line 62\n# line 63\n# line 64\n# line 65\n# line 66\n# line 67\n# line 68\n# line 69\n# line 70\n# line 71\n# line 72\n# line 73\n# line 74\n# line 75\n# line 76\n# line 77\n# line 78\n# line 79\n# line 80\n# line 81\n# line 82\n# line 83\n# line 84\n# line 85\n# line 86\n# line 87\n# line 88\n# line 89\n# line 90\n# line 91\n# line 92\n# line 93\n# line 94\n# line 95\n# line 96\n# line 97\n# line 98\n# line 99\n# line 100\n# line 101\n# line 102\n# line 103\n# line 104\n# line 105\n# line 106\n# line 107\n# line 108\n# line 109\n# line 110\n# line 111\n# line 112\n# line 113\n# line 114\n# line 115\n# line 116\n# line 117\n# line 118\n# line 119\n# line 120\n# line 121\n# line 122\n# line 123\n# line 124\n# line 125\n# line 126\n# line 127\n# line 128\n# line 129\n# line 130\n# line 131\n# line 132\n# line 133\n# line 134\n# line 135\n# line 136\n# line 137\n# line 138\n# line 139\n# line 140\n# line 141\n# line 142\n# line 143\n# line 144\n# line 145\n# line 146\n# line 147\n# line 148\n# line 149\n# line 150\n# line 151\n# line 152\n# line 153\n# line 154\n# line 155\n# line 156\n# line 157\n# line 158\n# line 159\n# line 160\n# line 161\n# line 162\n# line 163\n# line 164\n# line 165\n# line 166\n# line 167\n# line 168\n# line 169\n# line 170\n# line 171\n# line 172\n# line 173\n# line 174\n# line 175\n# line 176\n# line 177\n# line 178\n# line 179\n# line 180\n# line 181\n# line 182\n# line 183\n# line 184\n# line 185\n# line 186\n# line 187\n# line 188\n# line 189\n# line 190\n# line 191\n# line 192\n# line 193\n# line 194\n# line 195\n# line 196\n# line 197\n# line 198\n# line 199\n# line 200\n# line 201\n# line 202\n# line 203\n# line 204\n# line 205\n# line 206\n# line 207\n# line 208\n# line 209\n# line 210\n# line 211\n# line 212",
+          "parentToolUseId": "use-fix-501"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Edit",
+          "input": {
+            "file_path": "/Users/sample/code/api/api/throttle.py",
+            "old_string": "old 0\nold 1\nold 2\nold 3\nold 4\nold 5",
+            "new_string": "new 0\nnew 1\nnew 2\nnew 3\nnew 4\nnew 5\nnew 6\nnew 7\nnew 8\nnew 9\nnew 10\nnew 11\nnew 12\nnew 13\nnew 14\nnew 15\nnew 16\nnew 17\nnew 18\nnew 19\nnew 20\nnew 21\nnew 22\nnew 23\nnew 24\nnew 25\nnew 26\nnew 27\nnew 28\nnew 29\nnew 30\nnew 31\nnew 32\nnew 33\nnew 34\nnew 35\nnew 36\nnew 37"
+          },
+          "turn": 1,
+          "minutesAgo": 51,
+          "output": "The file has been updated.",
+          "parentToolUseId": "use-fix-501"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "pytest tests/test_throttle.py -q"
+          },
+          "turn": 1,
+          "minutesAgo": 50,
+          "output": "..............\n14 passed",
+          "parentToolUseId": "use-fix-501"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "git commit -m \"Return Retry-After on 429 responses\""
+          },
+          "turn": 1,
+          "minutesAgo": 50,
+          "output": " 1 file changed, 38 insertions(+), 6 deletions(-)\na1b2c3d on fix/501-retry-after",
+          "parentToolUseId": "use-fix-501"
+        },
+        {
+          "kind": "narration",
+          "text": "The header is on a single 429. Next: a test that sends a burst.",
+          "turn": 1,
+          "minutesAgo": 49,
+          "parentToolUseId": "use-fix-501"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Write",
+          "input": {
+            "file_path": "/Users/sample/code/api/tests/test_burst.py",
+            "content": "# line 1\n# line 2\n# line 3\n# line 4\n# line 5\n# line 6\n# line 7\n# line 8\n# line 9\n# line 10\n# line 11\n# line 12\n# line 13\n# line 14\n# line 15\n# line 16\n# line 17\n# line 18\n# line 19\n# line 20\n# line 21\n# line 22\n# line 23\n# line 24\n# line 25\n# line 26\n# line 27\n# line 28\n# line 29\n# line 30\n# line 31\n# line 32\n# line 33\n# line 34\n# line 35\n# line 36\n# line 37\n# line 38\n# line 39\n# line 40\n# line 41\n# line 42\n# line 43\n# line 44\n# line 45\n# line 46\n# line 47\n# line 48\n# line 49\n# line 50\n# line 51\n# line 52\n# line 53\n# line 54"
+          },
+          "turn": 1,
+          "minutesAgo": 49,
+          "output": "File created.",
+          "parentToolUseId": "use-fix-501"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "pytest tests/test_burst.py -v"
+          },
+          "turn": 1,
+          "minutesAgo": 48,
+          "output": "1 failed, 2 passed\ntest_burst.py::test_retry_after_burst FAILED",
+          "state": "error",
+          "parentToolUseId": "use-fix-501"
+        },
+        {
+          "kind": "narration",
+          "text": "The second 429 in a burst returns early, before the header is set. Moving the header up.",
+          "turn": 1,
+          "minutesAgo": 47,
+          "parentToolUseId": "use-fix-501"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Edit",
+          "input": {
+            "file_path": "/Users/sample/code/api/api/throttle.py",
+            "old_string": "old 0\nold 1",
+            "new_string": "new 0\nnew 1\nnew 2\nnew 3\nnew 4\nnew 5"
+          },
+          "turn": 1,
+          "minutesAgo": 45,
+          "output": "The file has been updated.",
+          "parentToolUseId": "use-fix-501"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "pytest tests/test_burst.py -v"
+          },
+          "turn": 1,
+          "minutesAgo": 44,
+          "output": "test_burst.py::test_retry_after_burst PASSED\n3 passed",
+          "parentToolUseId": "use-fix-501"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "git commit -am \"Test the header under burst\""
+          },
+          "turn": 1,
+          "minutesAgo": 43,
+          "output": " 2 files changed, 60 insertions(+), 2 deletions(-)\n0c4d2e1 on fix/501-retry-after",
+          "parentToolUseId": "use-fix-501"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "pytest -q"
+          },
+          "turn": 1,
+          "minutesAgo": 42,
+          "output": "412 passed",
+          "parentToolUseId": "use-fix-501"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "gh pr create --fill"
+          },
+          "turn": 1,
+          "minutesAgo": 27,
+          "output": "https://github.com/acme/api/pull/511\nOpened PR #511",
+          "parentToolUseId": "use-fix-501"
+        },
+        {
+          "kind": "narration",
+          "text": "PR #511 is open: every 429 carries Retry-After, and the burst test covers it.",
+          "turn": 1,
+          "minutesAgo": 26,
+          "parentToolUseId": "use-fix-501"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "docs-503",
+            "prompt": "Document the rate limits.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 54,
+          "output": "The reference is merged.",
+          "toolUseId": "use-docs-503",
+          "todo": "3",
+          "finishedMinutesAgo": 25
+        },
+        {
+          "kind": "tool_call",
+          "name": "Write",
+          "input": {
+            "file_path": "/Users/sample/code/api/docs/rate-limits.md",
+            "content": "x\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\nx\n"
+          },
+          "turn": 1,
+          "minutesAgo": 40,
+          "output": "File created.",
+          "parentToolUseId": "use-docs-503"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "limits-502",
+            "prompt": "Per-key limits for /search.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 53,
+          "output": "Opened PR #513.",
+          "toolUseId": "use-limits-502",
+          "todo": "2",
+          "finishedMinutesAgo": 21
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "pytest tests/test_search_limits.py"
+          },
+          "turn": 1,
+          "minutesAgo": 30,
+          "output": "22 passed",
+          "parentToolUseId": "use-limits-502"
+        },
+        {
+          "kind": "narration",
+          "text": "fix-501 has opened PR #511. The other two are still running.",
+          "turn": 1,
+          "minutesAgo": 25
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "3",
+            "status": "completed"
+          },
+          "turn": 1,
+          "minutesAgo": 24,
+          "output": "Updated task #3 status"
+        },
+        {
+          "kind": "narration",
+          "text": "CI failed on #511: the burst test. A second subagent takes it, under the same todo.",
+          "turn": 1,
+          "minutesAgo": 14
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "fix-501-ci",
+            "prompt": "Fix the burst test on PR #511.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 14,
+          "output": "PR #511 is green again.",
+          "toolUseId": "use-fix-501-ci",
+          "todo": "1",
+          "finishedMinutesAgo": 6
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "pytest tests/test_throttle.py -k burst"
+          },
+          "turn": 1,
+          "minutesAgo": 9,
+          "output": "3 passed",
+          "parentToolUseId": "use-fix-501-ci"
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "1",
+            "status": "completed"
+          },
+          "turn": 1,
+          "minutesAgo": 5,
+          "output": "Updated task #1 status"
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "2",
+            "status": "completed"
+          },
+          "turn": 1,
+          "minutesAgo": 5,
+          "output": "Updated task #2 status"
+        },
+        {
+          "kind": "narration",
+          "text": "All three PRs are merged. The release notes are next.",
+          "turn": 1,
+          "minutesAgo": 3
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "4",
+            "status": "in_progress",
+            "activeForm": "A subagent is drafting them"
+          },
+          "turn": 1,
+          "minutesAgo": 3,
+          "output": "Updated task #4 status"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "notes-25",
+            "prompt": "Draft the 2.5 release notes from the three PRs.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 2,
+          "toolUseId": "use-notes-25",
+          "todo": "4",
+          "progressSummary": "Reading what each PR changed"
+        },
+        {
+          "kind": "narration",
+          "text": "Three PRs to cover: #511, #513 and the docs. Reading what each changed.",
+          "turn": 1,
+          "minutesAgo": 2,
+          "parentToolUseId": "use-notes-25"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "gh pr view 511 --json title,body"
+          },
+          "turn": 1,
+          "minutesAgo": 2,
+          "output": "{\"title\": \"Return Retry-After on 429s\"}",
+          "parentToolUseId": "use-notes-25"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": {
+            "file_path": "/Users/sample/code/api/docs/releases/2.4.md"
+          },
+          "turn": 1,
+          "minutesAgo": 1,
+          "output": "# line 1\n# line 2\n# line 3\n# line 4\n# line 5\n# line 6\n# line 7\n# line 8\n# line 9\n# line 10\n# line 11\n# line 12\n# line 13\n# line 14\n# line 15\n# line 16\n# line 17\n# line 18\n# line 19\n# line 20\n# line 21\n# line 22\n# line 23\n# line 24\n# line 25\n# line 26\n# line 27\n# line 28\n# line 29\n# line 30\n# line 31\n# line 32\n# line 33\n# line 34\n# line 35\n# line 36\n# line 37\n# line 38\n# line 39\n# line 40\n# line 41\n# line 42\n# line 43\n# line 44\n# line 45\n# line 46\n# line 47\n# line 48\n# line 49\n# line 50\n# line 51\n# line 52\n# line 53\n# line 54\n# line 55\n# line 56\n# line 57\n# line 58\n# line 59\n# line 60\n# line 61\n# line 62\n# line 63\n# line 64\n# line 65\n# line 66\n# line 67\n# line 68\n# line 69\n# line 70\n# line 71\n# line 72\n# line 73\n# line 74\n# line 75\n# line 76\n# line 77\n# line 78\n# line 79\n# line 80\n# line 81\n# line 82\n# line 83\n# line 84\n# line 85\n# line 86\n# line 87\n# line 88\n# line 89\n# line 90\n# line 91\n# line 92\n# line 93\n# line 94\n# line 95\n# line 96",
+          "parentToolUseId": "use-notes-25"
+        },
+        {
+          "kind": "narration",
+          "text": "The 2.4 notes group changes by endpoint. Keeping that shape for 2.5.",
+          "turn": 1,
+          "minutesAgo": 1,
+          "parentToolUseId": "use-notes-25"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "python scripts/changelog.py --since v2.4.0"
+          },
+          "turn": 1,
+          "minutesAgo": 0,
+          "parentToolUseId": "use-notes-25"
+        }
+      ]
+    },
+    {
+      "title": "Fix flaky login test",
+      "status": "Found the race; fix passes 200 local runs",
+      "minutesAgo": 9
+    },
+    {
+      "title": "Upgrade Django to 5.2",
+      "status": "Upgraded; two deprecations fixed",
+      "state": "done",
+      "minutesAgo": 2880
+    },
+    {
+      "title": "Set up nightly backups",
+      "status": "Nightly dump, 14-day retention",
+      "state": "done",
+      "minutesAgo": 10080
+    }
+  ]
+}

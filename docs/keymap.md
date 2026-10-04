@@ -53,6 +53,22 @@ search ↑↓ move through its results; ↵ opens the one picked, and Esc clears
 you bind it to), with the focus in the Files tab while Browse shows, puts the focus in Browse's search instead of the
 task search; in the editor, its own ⌘F finds in the file, and anywhere else ⌘F searches tasks as ever.
 
+## The Agents tab, and the panel's three tabs
+
+**Behind the hidden `todoHubEnabled` setting until #501** (P16, #536; `decisions.md`): with it off, ⌘⌥1 – ⌘⌥7 pick the
+right panel's seven tabs, as the table says.
+
+With it on, the right panel has three tabs, **Agents · Files · Todos**, and ⌘⌥1 – ⌘⌥3 pick them; ⌘⌥4 – ⌘⌥7 pick
+nothing. The binding is the same one (Settings ▸ Keyboard still lists it as a range of seven until #501).
+
+The Agents tab's strip of agents (`design/screens/50-agents.png`) is one Tab stop, on the tab of the agent showing.
+With the focus on it, ← and → pick the agent before or after, Main included, wrapping at the ends, and the focus goes
+with the tab picked; ↵ or Space on a tab picks it, as a click does. Held with ⌘, ⌃, ⌥ or ⇧, the arrows are left to
+whatever command has them. These keys are fixed. Tab then reaches, in order: on a subagent's tab, the todo's title in
+the line under the strip (↵ or Space shows that todo in the Todos tab, with the focus on it); then each tool call of
+the agent showing, where ↵ or Space opens a call's output, and on a subagent's `Agent` call goes to that subagent's
+tab; Context menu (⇧F10) on a call opens the tool call's menu.
+
 ## The Todos tab as the todo hub
 
 **Behind the hidden `todoHubEnabled` setting until #501** (P16, #491; `decisions.md`): with it off, the Todos tab has

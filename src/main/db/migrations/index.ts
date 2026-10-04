@@ -60,6 +60,7 @@ import { todoHubMigration } from './0059-todo-hub'
 import { mcpServerGrantsMigration } from './0060-mcp-server-grants'
 import { extraUsageSpendMigration } from './0061-extra-usage-spend'
 import { fileAtCreationMigration } from './0062-file-at-creation'
+import { agentTabsMigration } from './0063-agent-tabs'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -124,6 +125,7 @@ export const MIGRATIONS: readonly Migration[] = [
   mcpServerGrantsMigration,
   extraUsageSpendMigration,
   fileAtCreationMigration,
+  agentTabsMigration,
 ]
 
 /** The version a database is at once every migration has run: the last one's, which can skip versions still in flight. */

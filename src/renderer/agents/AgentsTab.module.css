@@ -1,0 +1,163 @@
+/* The Agents tab (P16, #536), from docs/design/html/50-agents.html, 51-agents-subagent.html and 54-agents-overflow.html:
+   a strip with a tab for every agent, the line that names a subagent's todo, and the agent's tool calls, which are the
+   tool log's own rows (../tool-log/ToolLog.module.css). */
+.agents {
+  flex-grow: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The strip: Main first, which stays put, then the subagents, which scroll sideways when they don't fit. */
+.strip {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-inset);
+  border-bottom: 1px solid var(--color-inner-border);
+}
+
+/* The subagents' part of the strip: a row that scrolls with a chevron over a fade, as the panel's own tabs do
+   (../components/Tabs/ScrollRow). A chevron is a tab's height here. */
+.rest {
+  --tabs-height: 24px;
+
+  flex-grow: 1;
+}
+
+.rest > .row {
+  flex-grow: 1;
+  gap: var(--space-xs);
+}
+
+/* A tab is 24px tall; its hit area is a dense touch target's 28px. */
+.tab {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  /* A long name is cut short, so one agent can't take the strip: the whole of it is the tab's tooltip. */
+  max-width: 200px;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 0 var(--space-md);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-button-sm);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tab::after {
+  content: '';
+  position: absolute;
+  inset: 50% 0 auto;
+  height: var(--touch-target-dense);
+  transform: translateY(-50%);
+}
+
+.tab:hover {
+  background: var(--color-inner-hover);
+  color: var(--color-text);
+}
+
+.tab[aria-selected='true'] {
+  background: var(--color-inner-2);
+  border-color: var(--color-inner-border);
+  color: var(--color-text);
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 1px;
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Main's pin, the sidebar's. */
+.pin {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--color-faint);
+}
+
+/* A subagent's dot: blue while it runs, slate once it's done. */
+.dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-slate);
+}
+
+.dot.running {
+  background: var(--color-blue);
+}
+
+/* The agent's side of the tab: the line about its todo, then its tool calls. */
+.panel {
+  flex-grow: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Under the strip, on a subagent's tab: the todo it's working on, a link to that todo in the Todos tab, and its state. */
+.line {
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  padding: var(--space-md) 17px;
+  border-bottom: 1px solid var(--color-inner-border);
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+
+.working {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.todo {
+  display: inline;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  font: inherit;
+  color: var(--color-blue-text);
+  cursor: pointer;
+}
+
+/* #B5CBF8 in the designs: a link under the pointer. */
+.todo:hover {
+  color: #b5cbf8;
+}
+
+.todo:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 1px;
+}
+
+.state {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+  white-space: nowrap;
+}

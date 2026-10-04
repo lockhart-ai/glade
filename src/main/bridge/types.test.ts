@@ -159,6 +159,7 @@ const TASK_HANDLERS = {
   [CommandName.ArtifactsUnwatch]: () => null,
   [CommandName.TodoHubGet]: () => ({ children: NO_CHILDREN, filings: [], panels: [] }),
   [CommandName.TodoHubSetPanel]: () => null,
+  [CommandName.AgentsSetTab]: () => null,
   [CommandName.WorkspacesRemove]: () => null,
   [CommandName.MenuUpdate]: () => null,
   [CommandName.WindowClose]: () => null,
@@ -257,6 +258,7 @@ const TASK_SCHEMAS = {
   [CommandName.ArtifactsUnwatch]: REQUEST_SCHEMAS[CommandName.ArtifactsUnwatch],
   [CommandName.TodoHubGet]: REQUEST_SCHEMAS[CommandName.TodoHubGet],
   [CommandName.TodoHubSetPanel]: REQUEST_SCHEMAS[CommandName.TodoHubSetPanel],
+  [CommandName.AgentsSetTab]: REQUEST_SCHEMAS[CommandName.AgentsSetTab],
   [CommandName.SearchQuery]: REQUEST_SCHEMAS[CommandName.SearchQuery],
   [CommandName.WorkspacesRemove]: REQUEST_SCHEMAS[CommandName.WorkspacesRemove],
   [CommandName.MenuUpdate]: REQUEST_SCHEMAS[CommandName.MenuUpdate],
@@ -325,6 +327,7 @@ describe('the command map', () => {
       readonly handoff: TaskHandoff | null
       readonly watchers: readonly Watcher[]
       readonly commits: readonly TaskCommit[]
+      readonly agentTab?: string | null
     }>()
     expectTypeOf(glade.invoke(CommandName.QueueAdd, { taskId: 't', text: 'Hi' })).resolves.toEqualTypeOf<{
       readonly queuedMessage: QueuedMessage

@@ -136,6 +136,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
       throw new Error('not in these tests')
     },
     [CommandName.TodoHubSetPanel]: () => null,
+    [CommandName.AgentsSetTab]: () => null,
     [CommandName.UiStateGet]: () => Promise.resolve({ value: 'async' }),
     [CommandName.UiStateGetAll]: () => ({ entries: [] }),
     [CommandName.SearchQuery]: () => ({ results: [] }),

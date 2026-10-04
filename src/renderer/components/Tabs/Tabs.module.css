@@ -2,6 +2,8 @@
   /* The room a chevron takes over an end of the row, and how far in from there the row fades back in. */
   --tabs-chevron: 24px;
   --tabs-fade: 20px;
+  /* How tall a chevron is: a tab's height. */
+  --tabs-height: 28px;
 
   position: relative;
   min-width: 0;
@@ -70,7 +72,7 @@
   top: 50%;
   translate: 0 -50%;
   width: var(--tabs-chevron);
-  height: 28px;
+  height: var(--tabs-height);
 }
 
 .start {
