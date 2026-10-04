@@ -509,6 +509,11 @@ export interface WebFetchStep {
   readonly prompt?: string
   readonly output: string
   readonly parent?: string
+  /**
+   * Whether an allow rule in the user's own Claude Code settings covers the call (`permissions.allow: ["WebFetch"]`):
+   * Claude Code then never asks about it, and only the session's hook can stop it.
+   */
+  readonly settingsAllow?: boolean
 }
 
 export interface OutsideFileStep {
@@ -522,6 +527,12 @@ export interface OutsideFileStep {
   readonly access: FileAccess
   readonly output: string
   readonly parent?: string
+  /**
+   * Whether an allow rule or an additional directory in the user's own Claude Code settings covers the call
+   * (`permissions.allow: ["Write"]`, say): Claude Code then never asks about it, and only the session's hook can stop
+   * it.
+   */
+  readonly settingsAllow?: boolean
 }
 
 export interface SandboxOverrideStep {

@@ -390,6 +390,7 @@ import {
   isUnboundedRule,
   isWriteTool,
   sandboxBounds,
+  sandboxCrossing,
   SandboxCrossing,
   toolCallVerdict,
   type SandboxBounds,
@@ -429,9 +430,12 @@ import {
   type BashFinishedAnswer,
   type CompactSummary,
   type SessionJob,
+  type ToolCallStarting,
   type ToolPermissionAnswer,
   type ToolPermissionCall,
+  type ToolStartDecision,
 } from './backend'
+import { createExcludedCommands, type ExcludedCommands } from './excluded-commands'
 import { gatedSession } from './gated-session'
 import { FileAccess, SANDBOX_NETWORK_TOOL } from './sandbox-requests'
 import { NO_GRANTS, sandboxOverlay, sandboxStartSettings, usableGrants, type SandboxGrants } from './sandbox'
@@ -524,6 +528,18 @@ export interface AgentRunnerOptions {
    * the grants' store (`../sandbox/grants`). Nothing by default.
    */
   readonly sandboxGrants?: (task: Task) => SandboxGrants
+  /**
+   * Glade's own data folder (Electron's `userData`: the database, with the grants, the settings and the control token):
+   * no sandboxed session's commands or file tools may read or write it, even inside a granted folder (#514). None by
+   * default.
+   */
+  readonly dataDir?: string
+  /**
+   * The Claude Code settings files a session in a workspace root merges with Glade's own, for the commands they keep
+   * out of the sandbox (`./excluded-commands`): the app names the user's, the project's and the local ones. None by
+   * default, so a test reads nothing of the machine it runs on.
+   */
+  readonly claudeSettings?: (root: string) => readonly string[]
 }
 
 /**
@@ -742,6 +758,14 @@ interface LiveSandbox {
    * while none has. From then on, every request to run outside the sandbox is refused without asking.
    */
   failure: string | null
+  /** The commands the user's Claude Code settings keep out of the sandbox, as the files stand (`./excluded-commands`). */
+  readonly excluded: ExcludedCommands
+  /**
+   * The calls the session's `PreToolUse` hook let through (`toolStarting`), by `tool_use` id, up to `MAX_HANDED`: if
+   * Claude Code goes on to ask about one (an ask rule of its own, or its check of the files that run code), it gets
+   * the same answer, with no second card.
+   */
+  readonly started: Map<string, ToolStartDecision>
 }
 
 interface LiveSession {
@@ -976,7 +1000,7 @@ function canonicalJson(value: unknown): string {
 const ALLOWED_WITHOUT_ASKING: ToolPermissionAnswer = { behavior: ToolPermissionBehavior.Allow, byUser: false }
 
 /** The answer to a call whose request closed without an answer, or never opened. */
-const WITHDRAWN: ToolPermissionAnswer = {
+const WITHDRAWN: ToolStartDecision = {
   behavior: ToolPermissionBehavior.Deny,
   message: PERMISSION_WITHDRAWN_NOTE,
   byUser: false,
@@ -1016,9 +1040,25 @@ function sandboxError(failure: string): TaskError {
 const NOTHING_TO_ADD: BashFinishedAnswer = { context: null }
 
 /** The answer to a read or write of a credential path in a sandboxed session: refused, with no card. */
-const CREDENTIAL_REFUSED: ToolPermissionAnswer = {
+const CREDENTIAL_REFUSED: ToolStartDecision = {
   behavior: ToolPermissionBehavior.Deny,
   message: CREDENTIAL_REFUSAL,
+  byUser: false,
+}
+
+/**
+ * What the agent is told when a file tool names a path Glade can't say the real place of (#514): one through macOS's
+ * `/.nofollow`, `/.vol` or `/.resolve`, which name any file on the disk by another path, or a loop of links. Refused
+ * without asking: a card couldn't say what allowing it would open.
+ */
+export const UNRESOLVABLE_REFUSAL =
+  "Glade refused this: it can't tell where the path really leads (it goes through /.nofollow, /.vol or /.resolve, or " +
+  "a loop of links), so it can't check it against the sandbox. Use the file's ordinary absolute path."
+
+/** The answer to a read or write of a path that can't be resolved: refused, with no card. */
+const UNRESOLVABLE_REFUSED: ToolStartDecision = {
+  behavior: ToolPermissionBehavior.Deny,
+  message: UNRESOLVABLE_REFUSAL,
   byUser: false,
 }
 
@@ -1049,10 +1089,26 @@ export function alreadyDeniedMessage(note: string | null): string {
 }
 
 /** The answer to a request to run outside a sandbox that couldn't start: refused, with no card. */
-const SANDBOX_FAILED: ToolPermissionAnswer = {
+const SANDBOX_FAILED: ToolStartDecision = {
   behavior: ToolPermissionBehavior.Deny,
   message: SANDBOX_FAILED_REFUSAL,
   byUser: false,
+}
+
+/** What a call the sandbox refuses without asking is answered with, by how it stands to the bounds. */
+function refusalFor(crossing: SandboxCrossing): ToolStartDecision {
+  switch (crossing) {
+    case SandboxCrossing.Credential:
+      return CREDENTIAL_REFUSED
+    case SandboxCrossing.Unresolvable:
+      return UNRESOLVABLE_REFUSED
+    // Only a request to leave a sandbox that couldn't start is refused otherwise.
+    case SandboxCrossing.Override:
+    case SandboxCrossing.Boundary:
+    case SandboxCrossing.Protected:
+    case SandboxCrossing.None:
+      return SANDBOX_FAILED
+  }
 }
 
 /** A permission request once it has closed: your decision on it, or null when it was withdrawn. */
@@ -1203,6 +1259,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const sessionEnv = options.sessionEnv ?? (() => ({}))
   // The home folder, whose reads the agent sandbox denies but for the folders granted.
   const home = homedir()
+  // What no sandboxed session may read or write, besides the credential paths: Glade's own data folder.
+  const denied: readonly string[] = options.dataDir === undefined ? [] : [options.dataDir]
   const log = options.log ?? SILENT_LOGGER
   /** The runner's log for a task. */
   const taskLog = (taskId: string): Logger => log.with({ taskId })
@@ -2319,6 +2377,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const { toolName, toolUseId, agentId } = call
     const { permissionMode } = live.settings
     const { sandbox } = live
+    // The session's hook decided this call before Claude Code asked about it: the same answer, and no second card.
+    const started = sandbox?.started.get(toolUseId)
+    if (sandbox !== null && started !== undefined) {
+      sandbox.started.delete(toolUseId)
+      taskLog(taskId).debug('tool call answered as its hook decided', { toolName, toolUseId })
+      return started
+    }
     const { verdict, crossing } = toolCallVerdict(call, {
       permissionMode,
       gladeServers: live.gladeServers,
@@ -2331,7 +2396,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         return ALLOWED_WITHOUT_ASKING
       case PermissionVerdict.Refuse:
         taskLog(taskId).info('tool call refused by the sandbox', { toolName, toolUseId, agentId, crossing })
-        return crossing === SandboxCrossing.Credential ? CREDENTIAL_REFUSED : SANDBOX_FAILED
+        return refusalFor(crossing)
       case PermissionVerdict.Ask:
         break
     }
@@ -2384,6 +2449,53 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (decision === null || !(await applyGrant(taskId, live, grantedScope(decision, request)))) return WITHDRAWN
     carryOn(taskId, live)
     return sessionAnswer(live, answerFor(decision, request))
+  }
+
+  /**
+   * A sandboxed session's call to a tool the sandbox bounds is about to run (its `PreToolUse` hook, #514): decides it
+   * here when it crosses the bounds, before any of Claude Code's rules can let it through, and leaves every other call
+   * to Claude Code (null), which asks about it as it always has (`decideToolCall`). A crossing is decided as
+   * `decideToolCall` decides one: refused, or asked about on its card, however long you take. A call let through is
+   * remembered, so Claude Code asking about it afterwards gets the same answer.
+   */
+  const toolStarting = async (
+    taskId: string,
+    live: LiveSession,
+    call: ToolCallStarting,
+  ): Promise<ToolStartDecision | null> => {
+    const { sandbox } = live
+    if (sandbox === null || live.closed) return null
+    const { toolName, input, toolUseId, agentId, signal } = call
+    // The one thing done for every call: where its path really is, or whether its command leaves the sandbox.
+    if (sandboxCrossing({ toolName, input }, sandbox.bounds) === SandboxCrossing.None) return null
+    const answer = await decideToolCall(taskId, live, {
+      toolName,
+      input,
+      toolUseId,
+      agentId,
+      title: null,
+      displayName: toolName,
+      description: null,
+      suggestions: [],
+      defaultToNo: false,
+      suppressAlwaysAllowRule: true,
+      mcpServer: null,
+      matchedAskRule: false,
+      blockedPath: null,
+      decisionReason: null,
+      signal,
+    })
+    // Never a rule: nothing that crosses the bounds is remembered as one.
+    const decision: ToolStartDecision =
+      answer.behavior === ToolPermissionBehavior.Allow ? { behavior: answer.behavior, byUser: answer.byUser } : answer
+    if (decision.behavior === ToolPermissionBehavior.Allow) {
+      sandbox.started.set(toolUseId, decision)
+      for (const [oldest] of sandbox.started) {
+        if (sandbox.started.size <= MAX_HANDED) break
+        sandbox.started.delete(oldest)
+      }
+    }
+    return decision
   }
 
   /**
@@ -2486,7 +2598,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (sandbox !== null) {
       // The path is resolved here, once, as the classifier would for `canUseTool`.
       const { crossing, key } = callStanding({ toolName, input }, sandbox.bounds)
-      const named = crossing === SandboxCrossing.Credential ? fileToolPath({ toolName, input }, sandbox.bounds) : null
+      const refused = crossing === SandboxCrossing.Credential || crossing === SandboxCrossing.Unresolvable
+      const named = refused ? fileToolPath({ toolName, input }, sandbox.bounds) : null
       if (named !== null) return { kind: PermissionMarkKind.Blocked, ask: { kind: SandboxAskKind.Folder, ...named } }
       if (crossing !== SandboxCrossing.None) return null
       const granted = grantOutcome(live, sandbox, toolName, input, key)
@@ -2674,6 +2787,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     let compacted: (compaction: CompactSummary) => void = () => undefined
     let bashFinished: (call: BashCallFinished) => Promise<BashFinishedAnswer> = () => Promise.resolve(NOTHING_TO_ADD)
     let accessRequested: (call: AccessCallStarting) => void = () => undefined
+    // A call that starts before the session is live is refused: there's nothing yet to decide it against.
+    let starting: (call: ToolCallStarting) => Promise<ToolStartDecision | null> = () => Promise.resolve(WITHDRAWN)
     // Settled once a sandboxed session has its overlay, or wouldn't take it.
     let overlaid: (taken: boolean) => void = () => undefined
     const overlay = new Promise<boolean>((resolve) => {
@@ -2689,7 +2804,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       mcpServers: servers,
       env: sessionEnv(task),
       allowedRules,
-      ...(sandboxed ? { flagSettings: sandboxStartSettings(workspace.rootPath, home) } : {}),
+      ...(sandboxed ? { flagSettings: sandboxStartSettings(workspace.rootPath, home, denied) } : {}),
       log: agentLog(task.id),
       onToolPermission: (call) => decide(call),
       hooks: {
@@ -2710,9 +2825,17 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
               onAccessRequested: (call: AccessCallStarting) => {
                 accessRequested(call)
               },
+              // And each call to a tool the sandbox bounds is checked against the bounds before it runs, whatever
+              // rule of Claude Code's would let it through.
+              onToolStarting: (call: ToolCallStarting) => starting(call),
             }
           : {}),
       },
+    })
+    // The commands the user's Claude Code settings keep out of the sandbox, read as they're first needed.
+    const excluded = createExcludedCommands({
+      files: sandboxed ? (options.claudeSettings?.(workspace.rootPath) ?? []) : [],
+      log: agentLog(task.id),
     })
     // A sandboxed session's messages and settings wait on its overlay: whether its commands ask is in the overlay
     // alone, so nothing reaches the agent before it, or at all if the session won't take it.
@@ -2725,10 +2848,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       sandbox: sandboxed
         ? {
             root: workspace.rootPath,
-            ...checkedGrants(task.id, workspace.rootPath, grantsOf(task)),
+            ...checkedGrants(task.id, workspace.rootPath, grantsOf(task), excluded),
             held: null,
             writeRules: new Set(writeRules.map(({ toolName }) => toolName)),
             failure: null,
+            excluded,
+            started: new Map(),
           }
         : null,
       rules: null,
@@ -2767,6 +2892,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       live.accessCalls.push(call)
       live.accessCalls.splice(0, Math.max(0, live.accessCalls.length - MAX_HANDED))
     }
+    starting = (call) => toolStarting(task.id, live, call)
     sessions.set(task.id, live)
     // The session's messages wait on its overlay, and are never sent if it won't take it.
     if (sandboxed) void applySandbox(task.id, live).then(overlaid)
@@ -2788,12 +2914,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     taskId: string,
     root: string,
     granted: SandboxGrants,
+    excluded: ExcludedCommands,
   ): Pick<LiveSandbox, 'grants' | 'bounds'> => {
     const { grants, rejected } = usableGrants(granted)
     for (const { value, problem } of rejected) {
       agentLog(taskId).warn('left a grant out of the sandbox', { value, problem })
     }
-    return { grants, bounds: sandboxBounds({ root, home, grants }) }
+    const unsandboxed = (command: string): boolean => excluded.matches(command)
+    return { grants, bounds: sandboxBounds({ root, home, grants, denied, unsandboxed }) }
   }
 
   /**
@@ -2806,7 +2934,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const applySandbox = async (taskId: string, live: LiveSession): Promise<boolean> => {
     const { sandbox } = live
     if (sandbox === null) return true
-    const overlay = sandboxOverlay(sandbox.root, live.settings.permissionMode, sandbox.grants, home)
+    const overlay = sandboxOverlay(sandbox.root, live.settings.permissionMode, sandbox.grants, home, denied)
     let applied: Promise<void>
     try {
       applied = live.session.applyFlagSettings(overlay)
@@ -3312,6 +3440,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           return { kind: AccessOutcomeKind.NotGrantable, problem: plan.problem }
         case AccessPlanKind.TooBroad:
           return { kind: AccessOutcomeKind.TooBroad }
+        case AccessPlanKind.Protected:
+          mark(taskId, caller.toolUseId, { kind: PermissionMarkKind.Blocked, ask: named })
+          return { kind: AccessOutcomeKind.Protected }
         case AccessPlanKind.AlreadyAllowed: {
           const use = { kind: SandboxGrantKind.Folder, key: plan.key, access } as const
           const granting = grantingGrant(heldBy(live, sandbox), use)
@@ -3380,7 +3511,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         const { sandbox } = live
         if (task === undefined || sandbox === null || live.closed || !grantCovers(target, task)) continue
         // The session's calls are decided against the new grants at once, and its commands once the overlay lands.
-        const { grants, bounds } = checkedGrants(taskId, sandbox.root, grantsOf(task))
+        const { grants, bounds } = checkedGrants(taskId, sandbox.root, grantsOf(task), sandbox.excluded)
         sandbox.grants = grants
         sandbox.bounds = bounds
         sandbox.held = null

@@ -19,6 +19,7 @@ import {
   reasonParts,
   sandboxDetail,
   SandboxDetailKind,
+  sandboxCaution,
   sandboxTitle,
   ruleGrant,
   showAllLabel,
@@ -379,6 +380,27 @@ describe('a sandbox request', () => {
       text: 'The agent wants to run a command outside the sandbox',
       subject: null,
     })
+  })
+
+  // #514, finding 5: a card that says only "reach 127.0.0.1" doesn't say it opens every service on this Mac.
+  it('says what a host is when it isn’t an ordinary name, and nothing more of one that is', () => {
+    const reach = (host: string): SandboxAsk => ({
+      kind: SandboxAskKind.Domain,
+      domain: host,
+      command: 'curl -x "$HTTP_PROXY" …',
+      commandDescription: null,
+    })
+
+    expect(sandboxCaution(reach('127.0.0.1'))).toBe(
+      'This is your own Mac. Allowing it lets the agent reach every service running on it.',
+    )
+    expect(sandboxCaution(reach('localhost'))).toContain('your own Mac')
+    expect(sandboxCaution(reach('169.254.169.254'))).toContain('an IP address, not a name')
+    expect(sandboxCaution(reach('intranet'))).toContain('a name on your local network')
+    expect(sandboxCaution(reach('registry.npmjs.org'))).toBeNull()
+    // Nothing for a folder, or for leaving the sandbox, which says what it means by itself.
+    expect(sandboxCaution(folder(FolderAccess.ReadWrite))).toBeNull()
+    expect(sandboxCaution(outside)).toBeNull()
   })
 
   it('shows a file tool’s file, WebFetch’s URL, and nothing for a tool that names neither', () => {

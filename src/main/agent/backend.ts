@@ -160,6 +160,30 @@ export interface BashCallFinished {
   readonly signal: AbortSignal
 }
 
+/**
+ * A call to one of the tools the agent sandbox bounds about to run, as the session's `PreToolUse` hook tells it (#514):
+ * a file tool, `WebFetch`, `Bash` or `Monitor`, the agent's own or a subagent's.
+ */
+export interface ToolCallStarting {
+  readonly toolName: string
+  /** The call's input, as the model sent it. */
+  readonly input: ToolInput
+  /** The call's `tool_use` id. */
+  readonly toolUseId: string
+  /** The SDK's id for the subagent making the call; null for the agent's own. */
+  readonly agentId: string | null
+  /** Aborted when the SDK gives up on the hook, e.g. on an interrupt. */
+  readonly signal: AbortSignal
+}
+
+/**
+ * What the host decides of a call about to run (`SessionHooks.onToolStarting`): it runs, or it doesn't, with the
+ * message the agent gets. A decision never carries a rule: a hook can't hand one to the session.
+ */
+export type ToolStartDecision =
+  | { readonly behavior: ToolPermissionBehavior.Allow; readonly byUser: boolean }
+  | { readonly behavior: ToolPermissionBehavior.Deny; readonly message: string; readonly byUser: boolean }
+
 /** What the host tells the agent about a `Bash` call that has run (`SessionHooks.onBashFinished`). */
 export interface BashFinishedAnswer {
   /**
@@ -191,6 +215,13 @@ export interface SessionHooks {
    */
   readonly onBashStarting?: (call: BashCallStarting) => Promise<void>
   /**
+   * A call to a tool the agent sandbox bounds is about to run (`PreToolUse`, #514), in whatever permission mode and
+   * before any of Claude Code's rules are matched: the call waits until this resolves, however long that takes (a card
+   * may wait on the user). Null leaves the call to Claude Code, which may still ask about it (`onToolPermission`); a
+   * decision is final, whatever rule would have let the call through. Given only to a sandboxed session.
+   */
+  readonly onToolStarting?: (call: ToolCallStarting) => Promise<ToolStartDecision | null>
+  /**
    * A prompt is about to start a turn (`UserPromptSubmit`): one of the host's messages, a background task's wake (its
    * `<task-notification>` blocks) or a scheduled job firing (its prompt). Answers whether it goes ahead.
    */
@@ -207,17 +238,32 @@ export interface SandboxFilesystem {
   /** Folders inside `denyRead` that stay readable. */
   readonly allowRead?: readonly string[]
   readonly allowWrite?: readonly string[]
+  /** Paths inside `allowWrite` that stay unwritable: a path and all under it, or a pattern (`**` for any folders). */
   readonly denyWrite?: readonly string[]
+  /** Whether commands skip the file system's bounds altogether: Glade always says they don't. */
+  readonly disabled?: boolean
 }
 
-/** The hosts a sandboxed command may reach without asking (the SDK's `sandbox.network`). */
+/** The hosts a sandboxed command may reach without asking (the SDK's `sandbox.network`), and what else it may open. */
 export interface SandboxNetwork {
   readonly allowedDomains?: readonly string[]
+  /** Whether a command may listen on a local port. */
+  readonly allowLocalBinding?: boolean
+  /** Whether a command may open any Unix socket (a Docker socket, say). */
+  readonly allowAllUnixSockets?: boolean
+  /** The Unix sockets a command may open, by path. */
+  readonly allowUnixSockets?: readonly string[]
 }
 
 /** A credential file or folder no sandboxed command may read, even in a folder it may (`sandbox.credentials`). */
 export interface SandboxCredentialFile {
   readonly path: string
+  readonly mode: 'deny'
+}
+
+/** A variable of the session's environment no sandboxed command gets (`sandbox.credentials.envVars`). */
+export interface SandboxCredentialVariable {
+  readonly name: string
   readonly mode: 'deny'
 }
 
@@ -233,7 +279,18 @@ export interface SandboxSettings {
   readonly autoAllowBashIfSandboxed?: boolean
   readonly filesystem?: SandboxFilesystem
   readonly network?: SandboxNetwork
-  readonly credentials?: { readonly files?: readonly SandboxCredentialFile[] }
+  readonly credentials?: {
+    readonly files?: readonly SandboxCredentialFile[]
+    readonly envVars?: readonly SandboxCredentialVariable[]
+  }
+  /** Whether a command may send Apple Events, and so start other apps unsandboxed. */
+  readonly allowAppleEvents?: boolean
+  /** Whether a sandbox inside another container runs weaker. */
+  readonly enableWeakerNestedSandbox?: boolean
+  /** Whether a command may reach the system's certificate service, a way to send data out. */
+  readonly enableWeakerNetworkIsolation?: boolean
+  /** The denials Claude Code doesn't report, by command pattern. */
+  readonly ignoreViolations?: Readonly<Record<string, readonly string[]>>
 }
 
 /**

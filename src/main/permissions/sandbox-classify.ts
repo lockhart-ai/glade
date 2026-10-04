@@ -8,25 +8,48 @@
  *   folders; `WebFetch` to a domain that isn't granted; and a command's connection to a host that isn't
  *   (`SandboxNetworkAccess`). Reads elsewhere (`/etc/hosts`, `/usr/…`) go ahead, as do reads inside the bounds.
  * - **Paths are compared by where they really are** (`./canonical-path`): a symbolic link, the data volume's alias,
- *   another case or `~` is the folder it leads to. A path that can't be resolved asks.
+ *   another case or `~` is the folder it leads to. A path that can't be resolved (a loop of links, or one of macOS's
+ *   magic folders, `/.nofollow`, `/.vol` and `/.resolve`, which name any file by another path) is refused: Glade can't
+ *   say where it leads, so no card could say what allowing it would open.
  * - **A granted folder is the path that was granted, and nothing it later leads to.** Grants are kept by where the
  *   folder really was when it was granted (`../sandbox/grants`), and compared here as kept: only the call's own path is
  *   resolved. So a granted folder swapped for a link to another opens nothing new: a call through it leads elsewhere,
- *   and asks. A single file's grant (`SandboxFolderGrant.file`) covers that path alone, not what's beside it.
- * - **A credential path is refused**, read or write, whatever is granted and however it's spelled (`CREDENTIAL_PATHS`).
+ *   and asks. A single file's grant (`SandboxFolderGrant.file`) covers that path alone, not what's beside it. Claude
+ *   Code is never told of a grant for its file tools (#514: it would follow a granted folder swapped for a link), so
+ *   it asks Glade about every file-tool call outside the workspace root, and this is what decides it.
+ * - **A credential path is refused**, read or write, whatever is granted and however it's spelled (`CREDENTIAL_PATHS`),
+ *   and so is Glade's own data folder.
  * - **Running a command outside the sandbox asks**, every time (`dangerouslyDisableSandbox` set to anything but false),
- *   and is refused without asking once the sandbox couldn't start in the session.
- * - **A write inside the bounds that Claude Code still asked about asks.** In Allow all the session runs `acceptEdits`,
- *   which lets edits inside the bounds through by itself: one that reaches Glade was held back by Claude Code's own
- *   check of the files that run code (`.mcp.json`, `.claude/`, `.git/`, shell startup files), or by a user's ask rule.
- *   In the ask mode every write asks as it always has, unless the task was granted the whole tool (Allow for this
- *   task): that rule is kept from the session, which would take it for every folder, and decided here instead, for
- *   writes inside the bounds that aren't to one of those files.
+ *   and is refused without asking once the sandbox couldn't start in the session. So does a command the user's own
+ *   Claude Code settings exclude from the sandbox (`sandbox.excludedCommands`, `../agent/excluded-commands`): it would
+ *   run outside it without saying so.
+ * - **A write to a file that runs code asks, wherever it is** (`PROTECTED_FILES`, `PROTECTED_FOLDERS`: `.mcp.json`,
+ *   `.claude/`, `.git/`, shell startup files, …), and can only be allowed once: no folder or file is ever granted for
+ *   it, inside the bounds or outside them.
+ * - **A write inside the workspace root that Claude Code still asked about asks.** In Allow all the session runs
+ *   `acceptEdits`, which lets edits inside the root through by itself: one that reaches Glade was held back by Claude
+ *   Code's own check of the files that run code, or by a user's ask rule. A write inside a granted folder reaches
+ *   Glade every time, since Claude Code doesn't know of the grant: it goes ahead. In the ask mode every write asks as
+ *   it always has, unless the task was granted the whole tool (Allow for this task): that rule is kept from the
+ *   session, which would take it for every folder, and decided here instead, for writes inside the bounds that aren't
+ *   to one of those files.
  * - **Everything else:** in Allow all it goes ahead; in the ask mode, `./classify` decides it, as with the sandbox off.
+ *
+ * **Glade decides before Claude Code's rules do** (#514). The same standing is taken in the session's `PreToolUse`
+ * hook (`BOUNDED_TOOLS`, `../agent/runner`), which runs in every permission mode and before any allow rule: a call
+ * that crosses the bounds is decided there, so an allow rule or an additional directory in the user's, the project's
+ * or the local Claude Code settings can't let it through unasked.
  */
 import { PermissionMode, type PermissionRule, type ToolInput } from '../../shared/domain'
 import { FolderAccess } from '../../shared/sandbox'
-import { credentialPaths, DENIED_READ_ROOTS, sandboxFolder, usableGrants } from '../agent/sandbox'
+import {
+  credentialPaths,
+  DENIED_READ_ROOTS,
+  PROTECTED_FILES,
+  PROTECTED_FOLDERS,
+  sandboxFolder,
+  usableGrants,
+} from '../agent/sandbox'
 import type { SandboxFolderGrant, SandboxGrants } from '../agent/sandbox'
 import { hostMatches, SANDBOX_NETWORK_TOOL } from '../agent/sandbox-requests'
 import { absolutePath, canonicalKey, keyInside, NATIVE_FS, pathKey, type PathFs } from './canonical-path'
@@ -38,10 +61,12 @@ export enum SandboxCrossing {
   None = 'none',
   /** It reaches a folder or domain that isn't granted. */
   Boundary = 'boundary',
-  /** It writes, inside the bounds, a file Claude Code's own checks hold back: one that runs code, or an ask rule's. */
+  /** It writes a file that runs code, or, inside the root, one Claude Code's own checks or an ask rule hold back. */
   Protected = 'protected',
   /** It reads or writes a credential path, which no grant opens. */
   Credential = 'credential',
+  /** It reads or writes a path Glade can't say the real place of (`canonicalKey`): refused, since no card could. */
+  Unresolvable = 'unresolvable',
   /** It asks to run a command outside the sandbox (`dangerouslyDisableSandbox`). */
   Override = 'override',
 }
@@ -76,35 +101,34 @@ const WRITE_PATHS: Readonly<Record<string, string>> = {
 const BOUNDED_ROOTS: readonly string[] = [...DENIED_READ_ROOTS, '/System/Volumes']
 
 /**
- * The folders and files whose contents run code, by name, wherever they are: what Claude Code's own check holds a
- * write to back for (its list in the bundled binary, and the shell startup files it leaves out).
+ * The folders and files whose contents run code, by name, wherever they are (`../agent/sandbox`): what Claude Code's
+ * own check holds a write to back for, and what the sandbox keeps commands from writing inside a granted folder.
  */
-const CODE_FOLDERS: ReadonlySet<string> = new Set(['.git', '.claude', '.vscode', '.idea'])
-const CODE_FILES: ReadonlySet<string> = new Set([
-  '.mcp.json',
-  '.gitconfig',
-  '.gitmodules',
-  '.ripgreprc',
-  '.bashrc',
-  '.bash_profile',
-  '.bash_login',
-  '.profile',
-  '.zshrc',
-  '.zprofile',
-  '.zshenv',
-  '.zlogin',
-])
+const CODE_FOLDERS: ReadonlySet<string> = new Set(PROTECTED_FOLDERS)
+const CODE_FILES: ReadonlySet<string> = new Set(PROTECTED_FILES)
 
 /** Whether the path with this key is one of the files that run code, or in one of the folders that do. */
-function runsCode(key: string): boolean {
+export function runsCode(key: string): boolean {
   const parts = key.split('/')
   return CODE_FILES.has(parts.at(-1) ?? '') || parts.some((part) => CODE_FOLDERS.has(part))
 }
+
+/** The tools that run a shell command, which the sandbox bounds, and the input field naming the command. */
+const COMMAND_TOOL_NAMES: ReadonlySet<string> = new Set(['Bash', 'Monitor'])
+const COMMAND_FIELD = 'command'
 
 /** The input field naming the path a tool acts on, for one of the tools in `fields`; undefined for any other tool. */
 function pathField(fields: Readonly<Record<string, string>>, toolName: string): string | undefined {
   return Object.hasOwn(fields, toolName) ? fields[toolName] : undefined
 }
+
+/**
+ * The tools the sandbox bounds, whose every call Glade looks at before it runs (the session's `PreToolUse` hook): the
+ * file tools, `WebFetch`, and the tools that run a command.
+ */
+export const BOUNDED_TOOLS: readonly string[] = [
+  ...new Set([...Object.keys(READ_PATHS), ...Object.keys(WRITE_PATHS), 'WebFetch', ...COMMAND_TOOL_NAMES]),
+]
 
 /** Whether a tool writes files. */
 export function isWriteTool(toolName: string): boolean {
@@ -140,10 +164,15 @@ export interface SandboxBounds {
   readonly writableFiles: readonly string[]
   /** The folders its reads are bounded in: the home folder, `/Users`, `/Volumes` and `/System/Volumes`. */
   readonly bounded: readonly string[]
-  /** The credential paths, which nothing opens. */
+  /** The credential paths, and Glade's own data folder, which nothing opens. */
   readonly credentials: readonly string[]
   /** The domains granted. */
   readonly domains: readonly string[]
+  /**
+   * Whether a command would run outside the sandbox without asking to: the user's Claude Code settings exclude it
+   * (`sandbox.excludedCommands`, `../agent/excluded-commands`).
+   */
+  readonly unsandboxed: (command: string) => boolean
   readonly fs: PathFs
 }
 
@@ -152,12 +181,29 @@ export interface SandboxBoundsSource {
   readonly root: string
   readonly home: string
   readonly grants: SandboxGrants
+  /**
+   * Folders nothing opens, besides the credential paths: Glade's own data folder (its database holds the grants, the
+   * settings and the control token). None by default.
+   */
+  readonly denied?: readonly string[]
+  /** Whether a command would run outside the sandbox unasked (`SandboxBounds.unsandboxed`): none does by default. */
+  readonly unsandboxed?: (command: string) => boolean
   /** The file system paths are resolved through: the real one by default. */
   readonly fs?: PathFs
 }
 
+/** Every command runs in the sandbox: what the bounds take when nothing says otherwise. */
+const ALL_SANDBOXED = (): boolean => false
+
 /** The sandbox's bounds for a workspace root and what's granted beyond it; a grant the sandbox can't take is left out. */
-export function sandboxBounds({ root, home, grants, fs = NATIVE_FS }: SandboxBoundsSource): SandboxBounds {
+export function sandboxBounds({
+  root,
+  home,
+  grants,
+  denied = [],
+  unsandboxed = ALL_SANDBOXED,
+  fs = NATIVE_FS,
+}: SandboxBoundsSource): SandboxBounds {
   // A folder that can't be resolved is compared as written.
   const key = (folder: string): string => canonicalKey(sandboxFolder(folder), fs) ?? pathKey(sandboxFolder(folder))
   // A grant is compared as it's kept, never resolved again: what its path leads to now was never granted.
@@ -174,8 +220,9 @@ export function sandboxBounds({ root, home, grants, fs = NATIVE_FS }: SandboxBou
     readableFiles: kept(files),
     writableFiles: kept(files.filter(readWrite)),
     bounded: [home, ...BOUNDED_ROOTS].map(key),
-    credentials: credentialPaths(home).map(({ path }) => key(path)),
+    credentials: [...credentialPaths(home).map(({ path }) => path), ...denied].map(key),
     domains,
+    unsandboxed,
     fs,
   }
 }
@@ -258,6 +305,12 @@ export interface CallStanding {
 export function callStanding(call: SandboxedCall, bounds: SandboxBounds): CallStanding {
   const { toolName, input } = call
   if (isSandboxOverride(input)) return { crossing: SandboxCrossing.Override, key: null }
+  if (COMMAND_TOOL_NAMES.has(toolName)) {
+    // A command the user's settings exclude from the sandbox runs outside it, though it never asked to.
+    const command = input[COMMAND_FIELD]
+    const outside = typeof command === 'string' && bounds.unsandboxed(command)
+    return { crossing: outside ? SandboxCrossing.Override : SandboxCrossing.None, key: null }
+  }
   if (toolName === SANDBOX_NETWORK_TOOL) return { crossing: SandboxCrossing.Boundary, key: null }
   if (toolName === 'WebFetch') {
     const host = fetchedHost(input)
@@ -266,7 +319,7 @@ export function callStanding(call: SandboxedCall, bounds: SandboxBounds): CallSt
   }
   const read = inputKey(input, pathField(READ_PATHS, toolName), bounds)
   if (read !== undefined) {
-    if (read === null) return { crossing: SandboxCrossing.Boundary, key: null }
+    if (read === null) return { crossing: SandboxCrossing.Unresolvable, key: null }
     if (inAny(read, bounds.credentials)) return { crossing: SandboxCrossing.Credential, key: read }
     if (mayRead(read, bounds)) return { crossing: SandboxCrossing.None, key: read }
     const bounded = inAny(read, bounds.bounded)
@@ -274,10 +327,11 @@ export function callStanding(call: SandboxedCall, bounds: SandboxBounds): CallSt
   }
   const written = inputKey(input, pathField(WRITE_PATHS, toolName), bounds)
   if (written !== undefined) {
-    if (written === null) return { crossing: SandboxCrossing.Boundary, key: null }
+    if (written === null) return { crossing: SandboxCrossing.Unresolvable, key: null }
     if (inAny(written, bounds.credentials)) return { crossing: SandboxCrossing.Credential, key: written }
-    if (!mayWrite(written, bounds)) return { crossing: SandboxCrossing.Boundary, key: written }
-    return { crossing: runsCode(written) ? SandboxCrossing.Protected : SandboxCrossing.None, key: written }
+    // A file that runs code is never granted, with its folder or by itself: writing it asks each time, wherever it is.
+    if (runsCode(written)) return { crossing: SandboxCrossing.Protected, key: written }
+    return { crossing: mayWrite(written, bounds) ? SandboxCrossing.None : SandboxCrossing.Boundary, key: written }
   }
   return { crossing: SandboxCrossing.None, key: null }
 }
@@ -323,11 +377,12 @@ export function toolCallVerdict(call: ClassifiedCall & SandboxedCall, session: S
   const { permissionMode, gladeServers, sandbox } = session
   const allowAll = permissionMode === PermissionMode.AllowAll
   if (sandbox !== null) {
-    const crossing = sandboxCrossing(call, sandbox.bounds)
+    const { crossing, key } = callStanding(call, sandbox.bounds)
     switch (crossing) {
       case SandboxCrossing.Override:
         return { verdict: sandbox.failed ? PermissionVerdict.Refuse : PermissionVerdict.Ask, crossing }
       case SandboxCrossing.Credential:
+      case SandboxCrossing.Unresolvable:
         return { verdict: PermissionVerdict.Refuse, crossing }
       case SandboxCrossing.Boundary:
       case SandboxCrossing.Protected:
@@ -336,8 +391,14 @@ export function toolCallVerdict(call: ClassifiedCall & SandboxedCall, session: S
         break
     }
     if (isWriteTool(call.toolName)) {
-      // `acceptEdits` lets a write inside the bounds through by itself: this one was held back by Claude Code's check.
-      if (allowAll) return { verdict: PermissionVerdict.Ask, crossing: SandboxCrossing.Protected }
+      if (allowAll) {
+        // Claude Code asks about every write in a granted folder, which it isn't told of: the grant lets it through.
+        const [root] = sandbox.bounds.writable
+        const granted = key !== null && root !== undefined && !keyInside(key, root)
+        if (granted && !call.matchedAskRule) return { verdict: PermissionVerdict.Allow, crossing }
+        // `acceptEdits` lets a write inside the root through by itself: this one was held back by Claude Code's check.
+        return { verdict: PermissionVerdict.Ask, crossing: SandboxCrossing.Protected }
+      }
       if (!call.matchedAskRule && session.writeRules.includes(call.toolName)) {
         return { verdict: PermissionVerdict.Allow, crossing }
       }
