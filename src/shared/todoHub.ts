@@ -9,14 +9,17 @@
 import {
   ArtifactKind,
   ToolCallState,
+  ToolEventKind,
   WatcherState,
   type Artifact,
   type EpochMs,
   type TaskCommit,
   type Todo,
   type ToolCallEvent,
+  type ToolEvent,
   type Watcher,
 } from './domain'
+import { isSubagentTool } from './subagents'
 
 /** What a child of a todo is. */
 export enum ChildKind {
@@ -183,6 +186,29 @@ export interface SubagentChild {
   readonly call: ToolCallEvent
   /** When it last did anything: its latest tool call, note or result, else when it started. */
   readonly lastActivityAt: EpochMs
+}
+
+/**
+ * A task's subagents, from its tool log: every `Agent` call, nested ones included, in the order they started, each
+ * with when it last did anything (the latest of its own calls, notes and results, else its call's result, else its
+ * start). What the window groups from, as main does from the stored log (`taskChildren` in `src/main/todo-hub`). One
+ * pass over the log.
+ */
+export function subagentsOf(events: readonly ToolEvent[]): SubagentChild[] {
+  const calls: ToolCallEvent[] = []
+  const activity = new Map<string, EpochMs>()
+  for (const event of events) {
+    if (event.kind !== ToolEventKind.ToolCall && event.kind !== ToolEventKind.Narration) continue
+    if (event.kind === ToolEventKind.ToolCall && isSubagentTool(event.name)) calls.push(event)
+    if (event.parentToolUseId === null) continue
+    const finishedAt = event.kind === ToolEventKind.ToolCall ? (event.finishedAt ?? 0) : 0
+    const at = Math.max(event.createdAt, finishedAt, activity.get(event.parentToolUseId) ?? 0)
+    activity.set(event.parentToolUseId, at)
+  }
+  return calls.map((call) => ({
+    call,
+    lastActivityAt: Math.max(call.createdAt, call.finishedAt ?? 0, activity.get(call.toolUseId) ?? 0),
+  }))
 }
 
 /**

@@ -310,7 +310,7 @@ describe('a rule in the user’s own Claude Code settings', () => {
     const session = await startTurn()
 
     const read = await starts(session, 'toolu_key', 'Read', { file_path: '~/.ssh/id_rsa' })
-    const write = await starts(session, 'toolu_npmrc', 'Edit', { file_path: `${HOME}/.npmrc` })
+    const write = await starts(session, 'toolu_netrc', 'Edit', { file_path: `${HOME}/.netrc` })
     const state = await starts(session, 'toolu_state', 'Read', { file_path: `${HOME}/.claude.json` })
 
     for (const call of [read, write, state]) {

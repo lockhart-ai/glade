@@ -36,4 +36,6 @@ A **link artifact**'s row in the Artifacts tab has its own menu: Open link opens
 row does, Copy link copies its address, and Remove from artifacts takes it off the list.
 
 **Todos** have no Mark done or Remove: the agent keeps the list with Claude Code's own todo tools, so changing it is
-the agent's job. Ask agent about this puts the todo in your message to it.
+the agent's job. Ask agent about this puts the todo in your message to it. With the todo hub on (the hidden
+`todoHubEnabled` setting, off until #501), the menu is the same and opens from a todo's head (its title and status
+line); **Not under a todo** has none, and a tile's own menu comes with its kind (#498, #499).

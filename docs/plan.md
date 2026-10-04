@@ -71,8 +71,8 @@ other: create, read, change and delete tasks, and import past Claude Code sessio
 
 ## P15 · Agent sandbox
 
-Agents run in a sandbox: a task's agent can use only its workspace root and the folders and domains you grant it, for
-the task, the workspace or Glade-wide (`decisions.md`, "Agent sandbox"; `sdk-notes.md` §15).
+Agents run in a sandbox: a task's agent can use only its workspace root and the folders, domains and MCP servers you
+grant it, for the task, the workspace or Glade-wide (`decisions.md`, "Agent sandbox"; `sdk-notes.md` §15).
 [Meta issue #445](https://github.com/lockhart-ai/glade/issues/445)
 
 | Issue | What it builds |
@@ -86,6 +86,8 @@ the task, the workspace or Glade-wide (`decisions.md`, "Agent sandbox"; `sdk-not
 | P15-07 (#452) | The docs pass, the probes before launch, telling a resumed session of the sandbox, and turning the sandbox on by default once the phase's security review is done. |
 | P15-08 (#459) | Answered permission cards leave the chat; the decision shows on the tool call's row. |
 | P15-09 (#487) | Glade's own git calls hardened against config the agent can write. |
+| P15-10 (#514) | The fixes from the phase's security review: Glade decides at the sandbox's bounds before Claude Code's rules do. |
+| P15-11 (#515) | MCP servers Glade doesn't build, and the tools that reach other agents (`SendMessage`, `RemoteTrigger`), as grants: one card per server, and a third list in Settings. |
 | P15-12 (#516) | The zero-grant escape battery: the phase's acceptance test, on every PR (`escape-battery.md`). |
 
 Order: 01 → 02 → (03, 04) → (05, 06, 08, 09) → 07.

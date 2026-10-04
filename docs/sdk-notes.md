@@ -2041,7 +2041,9 @@ old system prompt (§8), so Glade sends it what the prompt says of the sandbox o
   outside the root and the read-write folders; `WebFetch` to a domain that isn't granted; `SandboxNetworkAccess`; and
   every request to run outside the sandbox, whatever the `decisionReason`: `input.dangerouslyDisableSandbox` set to
   anything but `false` or the string `"false"` (a model may send `"true"`), or a command the user's settings keep
-  out of the sandbox. A read outside those folders goes ahead, though `acceptEdits` asks about it. `WebSearch` never
+  out of the sandbox. And, since P15-11, any tool of an MCP server Glade doesn't build, `SendMessage` to anything but
+  the task's own subagents, and `RemoteTrigger`, until what it uses is granted ("MCP servers and other agents",
+  below). A read outside those folders goes ahead, though `acceptEdits` asks about it. `WebSearch` never
   asks. In Allow all, everything else that isn't a write goes ahead, and so does a write inside a granted folder
   (Claude Code asks about each, not knowing of the grant); in the ask mode, P11's rules decide it. The same verdict is
   taken in the session's `PreToolUse` hook, before Claude Code matches any rule (the security review, below). A crossing opens one of the sandbox's cards ("The sandbox's cards",
@@ -2428,9 +2430,9 @@ reproduced with `sandbox-exec`).
   single value [docs]. **A list merges across the sources** [docs, and verified for the sandbox's own lists in
   P15-01], so the two empty ones take nothing away: a Unix socket or an allowed domain in the user's own settings
   still reaches the sandbox.
-- **Not done, waiting on Jared (#445):** hooks and MCP servers from those settings, and from a repository's
-  `.mcp.json`, run on the host and may run files the agent can write; and other MCP servers' tools go ahead in Allow
-  all.
+- **Not done:** hooks from those settings run on the host and may run files the agent can write. MCP servers from
+  them, and from a repository's `.mcp.json`, run on the host too: since P15-11 each asks before its first call ("MCP
+  servers and other agents", below).
 
 **The files that run code, inside a grant.** Claude Code write-protects them for commands under the workspace root
 only: its list (from the bundled CLI's code) is `.gitconfig`, `.gitmodules`, `.bashrc`, `.bash_profile`, `.zshrc`,
@@ -2474,9 +2476,11 @@ decimal parts.
 - **`EnterWorktree` and `ExitWorktree` are disallowed** in a sandboxed session (`disallowedTools`): from the bundled
   CLI's code, `EnterWorktree` moves the session's working folder into another worktree of the repository, where
   Claude Code's file tools would follow while Glade's bounds stayed with the root.
-- **More paths nothing opens:** `~/.claude.json`, `~/.npmrc`, `~/.pypirc`, `~/.cargo/credentials` and
+- **More paths nothing opens:** `~/.claude.json`, `~/.cargo/credentials` and
   `credentials.toml`, `~/.gem/credentials`, `~/.config/git/credentials`, `~/.config/op`, and more cloud tools' token
-  folders (`CREDENTIAL_PATHS`). And **Glade's own data folder** (Electron's `userData`: the database holds the
+  folders (`CREDENTIAL_PATHS`). The review also listed `~/.npmrc` and `~/.pypirc`; P15-11 (#515) took them out again,
+  so each is granted as a single file like any other file in the home folder (they hold a registry's settings as
+  often as its token). And **Glade's own data folder** (Electron's `userData`: the database holds the
   grants, the settings and the control token), denied to commands and file tools as a credential folder is, unless
   the workspace root is inside it.
 - **Open in editor** opens a file with `open -t`, in the default text editor, so it's shown and never run: macOS
@@ -2501,7 +2505,112 @@ decimal parts.
 - A check of a path and the write that follows are two steps in any file tool that runs outside the sandbox: a link
   flipped between them is Claude Code's own race, inside the workspace root too.
 - **On each SDK bump,** check the tools that take a path or run a command against the hook's list (`BOUNDED_TOOLS`):
-  a new one isn't bounded until it's added, and the user's settings could then allow it.
+  a new one isn't bounded until it's added, and the user's settings could then allow it. And the tools that reach
+  another agent or another machine against `OUTSIDE_TOOLS` ("MCP servers and other agents", below).
+
+### MCP servers and other agents (P15-11, #515)
+
+What runs outside the sandbox altogether is a grant of its own, decided with Jared after the review: a reasonable
+guard, with no prompt floods. **Nothing here was probed against a live session:** it's built on the hook the review
+added and on the SDK's types, and what's read from the bundled CLI (2.1.283) says so.
+
+**What asks.** The same `PreToolUse` hook (`sandboxToolGuard`) now also matches `mcp__.*`, `SendMessage` and
+`RemoteTrigger` (`OUTSIDE_TOOLS`; a matcher is a pattern, and `mcp__.*` is the documented form for every MCP tool
+[docs]). For each such call the runner works out what it uses outside the sandbox (`outsideUse`,
+`src/main/permissions/sandbox-classify.ts`):
+
+| Call | Uses | Asks |
+| --- | --- | --- |
+| A tool of an in-process server the session was given (`glade`, `glade-control`) | nothing | never: left to Claude Code as before |
+| Any other `mcp__*` tool | its server | "The agent wants to use the `<server>` MCP server", until the server is granted |
+| `SendMessage` whose `to` is the SDK's id of one of the task's own subagents | nothing | never |
+| Any other `SendMessage` | other sessions | "The agent wants to message other Claude sessions" |
+| `RemoteTrigger`, whatever its `action` | cloud agents | "The agent wants to manage cloud agents" |
+
+- **In both permission modes,** and before any rule: an allow rule for the server's tools in the user's or the
+  project's settings (`mcp__gmail`, a server-wide rule [docs]) doesn't skip the card, for the same reason it doesn't
+  skip a folder's (above). The same check is taken again if Claude Code asks about the call (`toolCallVerdict`), as
+  it does for an MCP tool in a sandboxed session's Allow all (`acceptEdits` [docs]).
+- **One card per server, not per tool or call.** While a card for a server (or for other sessions, or cloud agents)
+  is open in a session, every other call that needs the same waits on it (`LiveSandbox.asking`): allowed, they're
+  left to Claude Code as granted calls are; denied, they're denied as "denied earlier in the turn"; withdrawn with
+  the turn (Stop), they're withdrawn too. A background subagent's waiting call isn't the turn's, and then asks for
+  itself. Each task has its own card: a workspace grant made from one task's card covers the other's later calls,
+  not its open card.
+- **Once granted, a call is left to Claude Code** (the hook answers nothing), so it behaves as with the sandbox off:
+  in Allow all it's allowed when Claude Code asks, in the ask mode it gets P11's card or its task rule. In Allow all
+  its row is marked with whose grant let it through (`PermissionMark`, from the hook, which is where the server is
+  known); in the ask mode it isn't, since P11's card or rule already says what was decided.
+- **A denial lasts the turn,** as for a folder or a domain, per server and per kind of other agents.
+- **The plain card** (Allow once · Deny) for an MCP tool whose server's name leaves nothing a grant can be kept by
+  (`mcp__` and nothing after it).
+
+**Which server a tool is on.** The hook's input has `mcp_server: { name, source }` for an `mcp__*` tool
+(`McpServerProvenance`, from `sdk.d.ts`: `name` is the server's config key, "the same value `mcp_status` and
+system/init report", untrusted text; `source` is `sdk` for an in-process server the host registered, else `plugin`
+or a config scope: `user`, `project`, `local`, `dynamic`, `managed`, `enterprise`, `claudeai`, `agent`). **[verified]
+for the in-process case only** ("Probed for P15-07": `mcp_server: { name: 'glade', source: 'sdk' }` on a `glade`
+call's `PreToolUse`); the other sources are from the types.
+
+- **Glade's own** is `source: 'sdk'` and a name the session was given in `mcpServers`, as `classify.ts` tells them
+  for the ask mode. Never the name, or the tool's prefix: a configured server called `glade` reads another source
+  (and merges with the in-process one under that name, §12), so its tools, and then Glade's own under the merged
+  name, ask like any other server's.
+- **A grant is kept by the server's key,** the `<server>` segment of its tools' names, not the reported name. From
+  the bundled CLI's own words (a tool description in the binary): "The `<server>` segment is the NORMALIZED server
+  name — any char outside `[a-zA-Z0-9_-]` becomes `_` (so dots/spaces differ from the configured name), plugin
+  servers keyed `plugin:<plugin>:<server>` appear as `mcp__plugin_<plugin>_<server>__`, and claude.ai connectors as
+  `mcp__claude_ai_<connector>__`". So `claude.ai Claude Docs` is `claude_ai_Claude_Docs`, and its tools are
+  `mcp__claude_ai_Claude_Docs__read`. The key is what every call carries and what Claude Code's own server-wide rule
+  is written with; the reported name is only shown, tidied (one line, no control or text-direction character, cut at
+  120), on the card, the lines and Settings.
+- **Both forms are handled, since which a connector's tools carry wasn't probed.** The key is taken from the tool's
+  own name: the reported name normalised as above, or that with each run of `_` made one and none at either end
+  (in case a version writes a connector's that way: not probed), whichever the tool's name starts with
+  (`mcpServerOfTool`, `src/shared/mcpServers.ts`); else, and when the hook names no server at all, the tool's name up
+  to its first `__`. So a server whose own name has `__` in it is told from a shorter-named one as long as the hook
+  says which. A hook that doesn't say (`mcp_server` missing, or of a shape Glade doesn't know) is a server Glade
+  can't vouch for: it asks.
+- **Two servers whose names normalise alike** (`a.b` and `a b`) share a key, and so a grant: Claude Code's tool
+  names can't tell them apart either.
+
+**`SendMessage`.** Its `to` (from the bundled CLI's tool description) is "a background agent's name or agentId, a
+teammate name, or \"main\"", and in sessions with peers "a name from [the agents listed] …, a teammate name,
+\"main\", or a background agent's agentId"; another tool of the same family takes "a peer session name …, or an
+explicit `uds:<socket>` / `bridge:<session id>` address". So a bare name can be a peer session's as well as a
+subagent's, and how Claude Code settles one that is both isn't known. Glade takes a target for the task's own only
+when it is **exactly the SDK's id of one of the task's `Agent` calls** (`tool_events.sdk_task_id`,
+`findSubagentCall`: the id its `task_started` gave, "Subagents woken again", above), whether that subagent is
+running or has finished. Anything else asks: a name, `main`, `*`, another task's subagent's id, an id in another
+case or with anything around it, an address, a list.
+
+- **Not handled:** a subagent addressed by the `name` its `Agent` call gave it, and a subagent's message to `main`.
+  Both ask (once, until other sessions are granted), though both stay inside the task. Telling them apart safely
+  needs a probe of how `SendMessage` resolves a name.
+
+**Grants.** `sandbox_grants.kind` gains `mcp_server` (`value` the key, `name` the reported name, for showing) and
+`agents` (`value` `sessions` or `cloud`), at the same three scopes (migration 60). Nothing of them goes into the
+overlay: `applyFlagSettings` is still called when one changes, since a change to the grants reapplies the whole
+overlay, but with what it had. Each running session reads its grants again at once (`applySandboxGrants`), so a
+grant removed in Settings makes the next call ask, mid-turn.
+
+**Reported servers.** A session names its servers in each turn's `system/init` (`mcp_servers: [{ name, status,
+source? }]`, `source` "absent on CLIs that predate the field" [types]). Glade keeps the ones that aren't in-process
+for the session's workspace (`reported_mcp_servers`: the key, taken as above against the init's `tools`, and the
+name last reported), and so does a call's `mcp_server`, for a server that connected after the init. With no
+`source`, a server by the name of one of the session's in-process ones is left out. That's all Settings' Add…
+offers: nothing is granted by being reported.
+
+**Left open** (each needs a short real probe):
+
+- That the `PreToolUse` hook fires for an MCP tool with `mcp_server` set for every source, connectors included, and
+  for `SendMessage` and `RemoteTrigger`; and that the matcher `mcp__.*` catches every MCP tool. The guard on Glade's
+  own tools has no matcher at all and relies on the same input.
+- Which form a claude.ai connector's tools carry when its name has runs of punctuation.
+- How `SendMessage` resolves a name (above), and what else reaches another agent or another machine: `ListAgents`
+  only lists; `Agent` with `isolation: "remote"` starts a cloud agent ("availability is gated" [types]) and isn't
+  asked about here.
+- Hooks from the user's and the project's settings, which still run on the host.
 
 ### A stand-in for the model (P15-12, #516) [verified]
 
@@ -2585,7 +2694,11 @@ session's hook first as the SDK does: the `asks-sandbox` script crosses every bo
 (`e2e/sandbox-cards.spec.ts`). Both put a call to a tool the sandbox bounds to the session's `PreToolUse` hook first
 (`FakeAgentSession.startTool`; the scripted session before each such step), and a scripted file-tool or `WebFetch`
 step can say a rule in the user's own settings allows it (`settingsAllow`), so that only the hook stands in its way:
-the `crosses-sandbox` script tries the review's ways past the sandbox in turn.
+the `crosses-sandbox` script tries the review's ways past the sandbox in turn. For P15-11, a `Permission` step is any
+tool's call, so it plays an MCP tool's (with `mcpServer`, the server the SDK would name, and `settingsAllow`), a
+`SendMessage` to another session and a `RemoteTrigger`; the hook hears of each, and of a `MessageSubagent` step's
+`SendMessage` to the task's own subagent; and a script can name the servers its session reports
+(`AgentScript.mcpServers`). The `reaches-outside` script uses each in turn (`e2e/sandbox-servers.spec.ts`).
 
 ## 16. Filing a child under a todo
 
@@ -3120,7 +3233,8 @@ bundled binary. What did change:
   upgrade.
 - **Inherited user config.** With `"user"` settings on, the user's own hooks, plugins, MCP servers, claude.ai connectors
   and permission rules run inside Glade tasks. That is intended, but it can surprise; for example, a user hook can
-  block tools.
+  block tools. (With the agent sandbox on, each MCP server and connector asks before its first call: §15, "MCP
+  servers and other agents".)
 - **The `env` option replaces the environment.** Passing `env` without spreading `process.env` drops `PATH`/`HOME` and
   the login.
 - **Not exercised:** the API-key path, `api_retry`, real auto-compaction (the `"auto"` trigger) and usage-limit

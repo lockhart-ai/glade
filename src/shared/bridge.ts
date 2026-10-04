@@ -57,6 +57,7 @@ import type { AccountStatus } from './account'
 import type { LoginStatus } from './login'
 import type { MenuBarSnapshot } from './menuBar'
 import type { FileSearchResult, FolderEntry } from './browse'
+import type { ReportedMcpServer } from './mcpServers'
 import type { FolderAccess, Grant, GrantKey, SettingsGrantTarget } from './sandbox'
 import type { ChildRef, Filing, GroupedChildren, TodoPanel } from './todoHub'
 
@@ -155,6 +156,7 @@ export enum CommandName {
   SandboxAddGrant = 'sandbox.addGrant',
   SandboxSetFolderAccess = 'sandbox.setFolderAccess',
   SandboxRemoveGrant = 'sandbox.removeGrant',
+  SandboxListReportedServers = 'sandbox.listReportedServers',
   ControlStatus = 'control.status',
   ControlRegenerateToken = 'control.regenerateToken',
   AccountStatus = 'account.status',
@@ -1187,19 +1189,21 @@ export interface SandboxListGrantsRequest {
 }
 
 /**
- * A scope's sandbox grants as they now are, folders and domains, in the order they were first granted. What every
- * `sandbox.*` command answers with.
+ * A scope's sandbox grants as they now are (folders, domains, MCP servers and other agents), in the order they were
+ * first granted. What every `sandbox.*` command that changes them answers with.
  */
 export interface SandboxGrantsResponse {
   readonly grants: readonly Grant[]
 }
 
 /**
- * Grants a folder (read-only or read-write) or a domain to a scope, from Settings' Add…. Saved, broadcast as
- * `sandbox.grantsChanged`, and applied to the running tasks it covers without restarting them; answers once they have
- * it. Fails with `invalid_request`, its message the reason Settings shows under the list, for:
+ * Grants a folder (read-only or read-write), a domain, an MCP server or other agents (#515) to a scope, from Settings'
+ * Add…. Saved, broadcast as `sandbox.grantsChanged`, and applied to the running tasks it covers without restarting
+ * them; answers once they have it. Fails with `invalid_request`, its message the reason Settings shows under the list,
+ * for:
  * - a folder or domain the sandbox can't take: a folder that isn't absolute, is the whole disk or has a glob
- *   character; a domain that isn't a bare host, or `*.` and a host of two labels or more;
+ *   character; a domain that isn't a bare host, or `*.` and a host of two labels or more; an MCP server whose key a
+ *   tool's name couldn't carry;
  * - one the scope already has (a folder with that access or wider; one it has read-only is upgraded instead);
  * - for a workspace, its root or a folder inside it, which its agents can already use.
  */
@@ -1220,12 +1224,27 @@ export interface SandboxSetFolderAccessRequest {
 }
 
 /**
- * Takes a folder or domain back from a scope (the × on its row). Saved, broadcast and applied as `sandbox.addGrant`
- * is: the running tasks it covered lose it from their next call. Nothing changes for one the scope doesn't have.
+ * Takes a folder, domain, MCP server or other agents back from a scope (the × on its row). Saved, broadcast and
+ * applied as `sandbox.addGrant` is: the running tasks it covered lose it from their next call. Nothing changes for one
+ * the scope doesn't have.
  */
 export interface SandboxRemoveGrantRequest {
   readonly target: SettingsGrantTarget
   readonly grant: GrantKey
+}
+
+/**
+ * Asks for the MCP servers a scope's sessions have reported (#515), which its MCP servers list offers under Add…: a
+ * workspace's own, or, Glade-wide, every workspace's. Glade's own in-process servers aren't among them. Fails with
+ * `not_found` for no such workspace.
+ */
+export interface SandboxListReportedServersRequest {
+  readonly target: SettingsGrantTarget
+}
+
+/** The MCP servers reported, by name: each with the key its tools' names carry, which a grant is kept by. */
+export interface SandboxReportedServersResponse {
+  readonly servers: readonly ReportedMcpServer[]
 }
 
 export interface TerminalListResponse {
@@ -1473,6 +1492,10 @@ export interface CommandMap {
   [CommandName.SandboxAddGrant]: CommandSpec<SandboxAddGrantRequest, SandboxGrantsResponse>
   [CommandName.SandboxSetFolderAccess]: CommandSpec<SandboxSetFolderAccessRequest, SandboxGrantsResponse>
   [CommandName.SandboxRemoveGrant]: CommandSpec<SandboxRemoveGrantRequest, SandboxGrantsResponse>
+  [CommandName.SandboxListReportedServers]: CommandSpec<
+    SandboxListReportedServersRequest,
+    SandboxReportedServersResponse
+  >
   [CommandName.TerminalList]: CommandSpec<EmptyRequest, TerminalListResponse>
   [CommandName.TerminalCreate]: CommandSpec<TerminalCreateRequest, TerminalTabResponse>
   /** Adds a tab after a terminal tab, with its name and folder, and a new shell. Broadcasts `terminal.tabsChanged`. */

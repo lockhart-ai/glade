@@ -31,8 +31,9 @@ import { homedir } from 'node:os'
 import { posix } from 'node:path'
 import { PermissionMode } from '../../shared/domain'
 import { hostKind, HostKind } from '../../shared/hosts'
+import { isMcpServerKey } from '../../shared/mcpServers'
 import { permissionRuleString } from '../../shared/permissions'
-import { FolderAccess } from '../../shared/sandbox'
+import { FolderAccess, type OtherAgents } from '../../shared/sandbox'
 import type { SandboxCredentialFile, SandboxFlagSettings, SandboxSettings, SettingsPermissions } from './backend'
 import { domainRuleString, isBareHost, isInside, readRuleContent, SANDBOX_OVERRIDE_ASK_RULE } from './sandbox-requests'
 
@@ -44,14 +45,22 @@ export interface SandboxFolderGrant {
   readonly file?: true
 }
 
-/** Everything granted to a task beyond its workspace root: folders, and domains (`registry.npmjs.org`, `*.acme.dev`). */
+/**
+ * Everything granted to a task beyond its workspace root: folders, and domains (`registry.npmjs.org`, `*.acme.dev`).
+ * And what's granted beyond the sandbox altogether (#515), none of which goes into the sandbox's settings: Glade
+ * holds the session to them itself (`../permissions/sandbox-classify`).
+ */
 export interface SandboxGrants {
   readonly folders: readonly SandboxFolderGrant[]
   readonly domains: readonly string[]
+  /** The MCP servers granted, each by its key (`../../shared/mcpServers`). None when left out. */
+  readonly servers?: readonly string[]
+  /** The other agents granted. None when left out. */
+  readonly agents?: readonly OtherAgents[]
 }
 
 /** Nothing granted: what a task has until it, its workspace or Glade is granted something (`../sandbox/grants`). */
-export const NO_GRANTS: SandboxGrants = { folders: [], domains: [] }
+export const NO_GRANTS: SandboxGrants = { folders: [], domains: [], servers: [], agents: [] }
 
 /** Why a grant can't go into the sandbox's settings. */
 export enum GrantProblem {
@@ -61,6 +70,8 @@ export enum GrantProblem {
   WholeDisk = 'whole_disk',
   /** A folder with a glob character (`*`, `?`, `[`, `]`, `{`, `}` or a backslash): it would match more than itself. */
   Pattern = 'pattern',
+  /** An MCP server whose key a tool's name couldn't carry. */
+  NotAServer = 'not_a_server',
   /** A domain that isn't a host name, with an optional leading `*.`. */
   NotAHost = 'not_a_host',
 }
@@ -113,7 +124,16 @@ export function usableGrants(grants: SandboxGrants): CheckedGrants {
     rejected.push({ value: domain, problem: GrantProblem.NotAHost })
     return false
   })
-  return { grants: { folders, domains }, rejected }
+  const servers = (grants.servers ?? []).filter((server) => {
+    if (isMcpServerKey(server)) return true
+    rejected.push({ value: server, problem: GrantProblem.NotAServer })
+    return false
+  })
+  const outside = {
+    ...(grants.servers === undefined ? {} : { servers }),
+    ...(grants.agents === undefined ? {} : { agents: grants.agents }),
+  }
+  return { grants: { folders, domains, ...outside }, rejected }
 }
 
 /** Whether a credential path is a folder (everything in it) or a single file. */
@@ -148,9 +168,8 @@ export const CREDENTIAL_PATHS: readonly CredentialPath[] = [
   // Added by the phase's security review (#514).
   // Claude Code's own state: MCP servers' headers and tokens, and Glade's control token once its command was run.
   { path: '.claude.json', kind: CredentialKind.File },
-  // Registry logins.
-  { path: '.npmrc', kind: CredentialKind.File },
-  { path: '.pypirc', kind: CredentialKind.File },
+  // Registry logins. Not `~/.npmrc` or `~/.pypirc` (#515): they hold a registry's settings as often as its token, and
+  // tools need them, so each is granted like any other file in the home folder, by itself.
   { path: '.cargo/credentials', kind: CredentialKind.File },
   { path: '.cargo/credentials.toml', kind: CredentialKind.File },
   { path: '.gem/credentials', kind: CredentialKind.File },

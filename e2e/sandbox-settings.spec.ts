@@ -67,14 +67,18 @@ test('the Sandbox switch is read by a task’s next session, and the Glade-wide 
   await expect(modal.grantList('Glade-wide domains')).toContainText('No domains yet.')
   await expect(modal.addGrant('Add a Glade-wide folder')).toBeDisabled()
   await expect(modal.addGrant('Add a Glade-wide domain')).toBeDisabled()
-  await expect(modal.sandbox).toContainText('While the sandbox is off, agents can use any folder and reach any domain')
+  await expect(modal.grantList('Glade-wide MCP servers')).toContainText('No MCP servers yet.')
+  await expect(modal.addGrant('Add a Glade-wide MCP server')).toBeDisabled()
+  await expect(modal.sandbox).toContainText(
+    'While the sandbox is off, agents can use any folder and MCP server and reach any domain',
+  )
 
   // On: the lists can be changed, and the next task's session starts in the sandbox. The running one keeps what it
   // started with.
   await toggle.click()
   await expect(toggle).toBeChecked()
   await expect(modal.addGrant('Add a Glade-wide folder')).toBeEnabled()
-  await expect(modal.sandbox).toContainText('Each workspace has its own folders and domains too')
+  await expect(modal.sandbox).toContainText('Each workspace has its own folders, domains and MCP servers too')
   await modal.close.click()
   await startTask(window, 'And how does it time out?')
   const sessions = await agentSessions(glade)

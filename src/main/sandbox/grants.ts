@@ -1,6 +1,9 @@
 /**
  * Sandbox grants (P15-04, #449; #445 "Grants"): the folders and domains a task's agent may use beyond its workspace
- * root, Glade-wide, for a workspace or for a task, kept in `sandbox_grants` and applied to the agent's session.
+ * root, Glade-wide, for a workspace or for a task, kept in `sandbox_grants` and applied to the agent's session. And
+ * what it may use outside the sandbox altogether (#515): the MCP servers Glade doesn't build, and other agents. Those
+ * are saved, listed and applied live the same way, but nothing of them goes into the session's settings: Glade holds
+ * the session to them itself, before each call (`../permissions/sandbox-classify`).
  *
  * - **Applied after start, never at start.** `applyFlagSettings` can't narrow what a session started with
  *   (`docs/sdk-notes.md` §15), so a sandboxed session starts with only the sandbox's fixed parts, and straight after it
@@ -29,7 +32,8 @@
  *   alone, and nothing beside it. Settings lists it with the folders, by its path.
  * - **Only what the sandbox can take is saved.** A grant is checked here by the sandbox's own rules (`usableGrants`), so
  *   nothing saved is later left out of a session's settings: a folder is absolute, never the whole disk, and has no
- *   glob character; a domain is a bare host, or `*.` and a host of two labels or more (never a whole top-level domain).
+ *   glob character; a domain is a bare host, or `*.` and a host of two labels or more (never a whole top-level domain);
+ *   an MCP server is kept by a key a tool's name can carry (`../../shared/mcpServers`), with its name tidied for showing.
  * - Grants live only in Glade's database and the session's flag settings: nothing is written to the user's files.
  * - **Settings hears each change** (#451). A change to the Glade-wide grants or a workspace's is broadcast as it's
  *   saved (`sandbox.grantsChanged`, with the scope's grants as they now are), whoever made it: Settings, or Allow for
@@ -37,6 +41,7 @@
  */
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, EventType } from '../../shared/bridge'
+import { isMcpServerKey, mcpServerLabel } from '../../shared/mcpServers'
 import {
   coversAccess,
   FolderAccess,
@@ -45,6 +50,8 @@ import {
   SandboxGrantScope,
   type Grant,
   type GrantedTask,
+  type McpServerGrant,
+  type OtherAgents,
   type SandboxApplyResult,
   type SandboxGrantTarget,
 } from '../../shared/sandbox'
@@ -95,10 +102,15 @@ export interface SandboxRevokeOutcome {
   readonly sessions: SandboxApplyResult
 }
 
-/** Grants as a session's sandbox takes them (`../agent/sandbox`): the folders, each with its access, and the domains. */
+/**
+ * Grants as a session's sandbox takes them (`../agent/sandbox`): the folders, each with its access, the domains, and
+ * what's granted outside the sandbox, the MCP servers by key and the other agents.
+ */
 export function sandboxGrantsOf(grants: readonly Grant[]): SandboxGrants {
   const folders: SandboxFolderGrant[] = []
   const domains: string[] = []
+  const servers: string[] = []
+  const agents: OtherAgents[] = []
   for (const grant of grants) {
     switch (grant.kind) {
       case SandboxGrantKind.Folder:
@@ -107,9 +119,15 @@ export function sandboxGrantsOf(grants: readonly Grant[]): SandboxGrants {
       case SandboxGrantKind.Domain:
         domains.push(grant.domain)
         break
+      case SandboxGrantKind.McpServer:
+        servers.push(grant.server)
+        break
+      case SandboxGrantKind.Agents:
+        agents.push(grant.agents)
+        break
     }
   }
-  return { folders, domains }
+  return { folders, domains, servers, agents }
 }
 
 /**
@@ -166,6 +184,8 @@ function problemText(problem: GrantProblem): string {
       return 'a pattern, not a folder'
     case GrantProblem.NotAHost:
       return 'not a domain'
+    case GrantProblem.NotAServer:
+      return 'not an MCP server’s name'
   }
 }
 
@@ -214,13 +234,34 @@ export function grantedDomain(domain: string): string {
   return host
 }
 
-/** A grant as grants keep it (`grantedFolder`, `grantedDomain`). */
+/**
+ * An MCP server's key as grants keep it: only what a tool's name can carry, as given (`../../shared/mcpServers`). The
+ * key is never made from a name here: whoever grants a server says which key its tools' names carry.
+ *
+ * @throws CommandFailure `invalid_request` for anything else.
+ */
+export function grantedServer(server: string): string {
+  if (!isMcpServerKey(server)) throw notGrantable(server, GrantProblem.NotAServer)
+  return server
+}
+
+/** An MCP server's grant as grants keep it: its key checked, and its name tidied for showing (`mcpServerLabel`). */
+function grantedServerGrant(grant: McpServerGrant): McpServerGrant {
+  const server = grantedServer(grant.server)
+  return { kind: grant.kind, server, name: mcpServerLabel(grant.name, server) }
+}
+
+/** A grant as grants keep it (`grantedFolder`, `grantedDomain`, `grantedServer`). */
 export function normalizedGrant(grant: Grant): Grant {
   switch (grant.kind) {
     case SandboxGrantKind.Folder:
       return { ...grant, path: grantedFolder(grant.path) }
     case SandboxGrantKind.Domain:
       return { ...grant, domain: grantedDomain(grant.domain) }
+    case SandboxGrantKind.McpServer:
+      return grantedServerGrant(grant)
+    case SandboxGrantKind.Agents:
+      return grant
   }
 }
 
@@ -249,6 +290,10 @@ function keptKeys(db: Database, target: SandboxGrantTarget, key: SandboxGrantKey
       return keptFolders(db, target, key.path).map((path) => ({ kind: key.kind, path }))
     case SandboxGrantKind.Domain:
       return [{ kind: key.kind, domain: grantedDomain(key.domain) }]
+    case SandboxGrantKind.McpServer:
+      return [{ kind: key.kind, server: grantedServer(key.server) }]
+    case SandboxGrantKind.Agents:
+      return [key]
   }
 }
 
@@ -284,6 +329,10 @@ export function saveCardGrant(db: Database, { target, grant }: NewSandboxGrant):
       return addSandboxGrant(db, { target, grant: { ...grant, path: usableFolder(grant.path) } })
     case SandboxGrantKind.Domain:
       return addSandboxGrant(db, { target, grant: { ...grant, domain: grantedDomain(grant.domain) } })
+    case SandboxGrantKind.McpServer:
+      return addSandboxGrant(db, { target, grant: grantedServerGrant(grant) })
+    case SandboxGrantKind.Agents:
+      return addSandboxGrant(db, { target, grant })
   }
 }
 
@@ -325,10 +374,15 @@ export interface GrantingGrant {
   readonly grant: Grant
 }
 
-/** What a call uses that a grant may give: a path, by its key (where it really is), with an access; or a host. */
+/**
+ * What a call uses that a grant may give: a path, by its key (where it really is), with an access; a host; an MCP
+ * server, by its key; or other agents.
+ */
 export type GrantedUse =
   | { readonly kind: SandboxGrantKind.Folder; readonly key: string; readonly access: FolderAccess }
   | { readonly kind: SandboxGrantKind.Domain; readonly domain: string }
+  | { readonly kind: SandboxGrantKind.McpServer; readonly server: string }
+  | { readonly kind: SandboxGrantKind.Agents; readonly agents: OtherAgents }
 
 /**
  * Every grant that covers a task, each with its scope, the narrowest scope first: the task's own, then its workspace's,
@@ -353,6 +407,10 @@ function gives(held: Grant, use: GrantedUse): boolean {
     }
     case SandboxGrantKind.Domain:
       return held.kind === SandboxGrantKind.Domain && hostMatches(use.domain, held.domain)
+    case SandboxGrantKind.McpServer:
+      return held.kind === SandboxGrantKind.McpServer && held.server === use.server
+    case SandboxGrantKind.Agents:
+      return held.kind === SandboxGrantKind.Agents && held.agents === use.agents
   }
 }
 

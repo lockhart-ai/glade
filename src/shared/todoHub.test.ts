@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   ArtifactKind,
+  DividerKind,
   TodoState,
   ToolCallState,
   ToolEventKind,
@@ -9,6 +10,8 @@ import {
   type Artifact,
   type TaskCommit,
   type Todo,
+  type ToolCallEvent,
+  type ToolEvent,
   type Watcher,
 } from './domain'
 import {
@@ -22,9 +25,11 @@ import {
   CHILD_KINDS,
   ChildFilter,
   ChildKind,
+  refKey,
   commitChildKey,
   FilingSource,
   groupChildren,
+  subagentsOf,
   UNFILED_TODO_ID,
   type ChildRef,
   type Filing,
@@ -800,5 +805,87 @@ describe('groupChildren', () => {
       const times = children.map(({ updatedAt }) => updatedAt)
       expect(times).toEqual([...times].sort((a, b) => b - a))
     }
+  })
+})
+
+describe('a child as one string', () => {
+  it('is its kind and its key, so a file and a link never share one', () => {
+    expect(refKey(FILE('docs/plan.md'))).toBe('file:docs/plan.md')
+    expect(refKey(LINK('docs/plan.md'))).toBe('link:docs/plan.md')
+    expect(refKey(SUBAGENT('toolu_1'))).not.toBe(refKey(WATCHER('toolu_1')))
+  })
+})
+
+describe('subagentsOf', () => {
+  function call(toolUseId: string, fields: Partial<ToolCallEvent> = {}): ToolCallEvent {
+    return { ...subagent(toolUseId).call, state: ToolCallState.Running, ...fields }
+  }
+
+  function note(id: string, parentToolUseId: string | null, createdAt: number): ToolEvent {
+    return { id, taskId: TASK, turn: 1, createdAt, kind: ToolEventKind.Narration, text: 'Checking.', parentToolUseId }
+  }
+
+  it('is every Agent call in the order they started, a subagent’s own included, and no other call', () => {
+    const events: ToolEvent[] = [
+      call('read', { name: 'Read' }),
+      call('agent-a'),
+      call('agent-b', { name: 'Task', parentToolUseId: 'agent-a' }),
+      note('n1', null, 1_500),
+      call('bash', { name: 'Bash', parentToolUseId: 'agent-b' }),
+    ]
+    expect(subagentsOf(events).map(({ call: { toolUseId } }) => toolUseId)).toEqual(['agent-a', 'agent-b'])
+    expect(subagentsOf([])).toEqual([])
+  })
+
+  it('dates a subagent by the latest of its own calls, notes and results', () => {
+    const events: ToolEvent[] = [
+      call('agent-a', { createdAt: 1_000 }),
+      call('did-1', { name: 'Bash', parentToolUseId: 'agent-a', createdAt: 2_000, finishedAt: 2_400 }),
+      note('said', 'agent-a', 3_000),
+      call('did-2', { name: 'Bash', parentToolUseId: 'agent-a', createdAt: 2_600 }),
+    ]
+    expect(subagentsOf(events)).toEqual([{ call: events[0], lastActivityAt: 3_000 }])
+    // A result that came after its last note.
+    const finished = events.map((event) => (event.id === 'event-did-2' ? { ...event, finishedAt: 3_700 } : event))
+    expect(subagentsOf(finished)[0]?.lastActivityAt).toBe(3_700)
+  })
+
+  it('dates one that has done nothing by its start, and a finished one by its result at the least', () => {
+    expect(subagentsOf([call('agent-a', { createdAt: 1_200 })])[0]?.lastActivityAt).toBe(1_200)
+    const done = call('agent-a', { createdAt: 1_200, state: ToolCallState.Done, finishedAt: 5_000 })
+    const did = call('did-1', { name: 'Bash', parentToolUseId: 'agent-a', createdAt: 2_000 })
+    expect(subagentsOf([done, did])[0]?.lastActivityAt).toBe(5_000)
+  })
+
+  it('counts what a nested subagent did for that subagent alone, and skips entries that are nobody’s', () => {
+    const events: ToolEvent[] = [
+      call('agent-a', { createdAt: 1_000 }),
+      call('agent-b', { parentToolUseId: 'agent-a', createdAt: 2_000 }),
+      call('did', { name: 'Bash', parentToolUseId: 'agent-b', createdAt: 9_000 }),
+      {
+        id: 'd1',
+        taskId: TASK,
+        turn: 1,
+        createdAt: 12_000,
+        kind: ToolEventKind.Divider,
+        dividerKind: DividerKind.Turn,
+      },
+    ]
+    expect(subagentsOf(events).map(({ lastActivityAt }) => lastActivityAt)).toEqual([2_000, 9_000])
+  })
+
+  it('groups the same as main does from the stored log: a running subagent is live, under the todo it was filed under', () => {
+    const events: ToolEvent[] = [call('agent-a', { createdAt: 1_000 }), note('said', 'agent-a', 4_000)]
+    const { todos } = groupChildren({
+      todos: [todo('1')],
+      artifacts: [],
+      subagents: subagentsOf(events),
+      watchers: [],
+      commits: [],
+      filings: [filing(SUBAGENT('agent-a'), '1')],
+    })
+    expect(todos[0]?.children).toEqual([
+      { ...SUBAGENT('agent-a'), updatedAt: 4_000, live: true, source: FilingSource.Named },
+    ])
   })
 })

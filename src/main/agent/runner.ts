@@ -201,6 +201,15 @@
  * the same call after all (its own ask rules still apply), so nothing is asked twice. Claude Code is told of no grant
  * for its file tools, so every such call outside the workspace root reaches Glade one way or the other.
  *
+ * **What runs outside the sandbox** (#515). An MCP server Glade doesn't build (the user's, a repository's, a
+ * connector) runs outside the sandbox with whatever access it has, and `SendMessage` and `RemoteTrigger` reach agents
+ * that do. So the same hook hears of every MCP tool's call, and of those two tools', and each asks until what it uses
+ * is granted (`outsideUse`): the server, whichever of its tools is called, or the other agents. One card per server,
+ * not per call: calls that arrive while its card is open wait on that card's answer. Glade's own in-process servers
+ * never ask, nor does a `SendMessage` to one of the task's own subagents. Once granted, a call is left to Claude Code
+ * and decided as with the sandbox off. The servers a session names are kept for its workspace
+ * (`reported_mcp_servers`), for Settings to offer.
+ *
  * **The sandbox's cards** (#450, `../permissions/sandbox-ask`). A call that crosses the bounds opens a request that
  * says what it asks for (`PermissionRequest.sandbox`): a folder, for a file tool outside the grants; a domain, for
  * `WebFetch` or a command's connection, whose request is put on the command running at the time, since the SDK doesn't
@@ -304,10 +313,13 @@ import {
 } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
 import { permissionRuleString, ruleCovers, taskPermissionRule } from '../../shared/permissions'
+import type { ReportedMcpServer } from '../../shared/mcpServers'
 import {
   FolderAccess,
   folderVerb,
   grantCovers,
+  isGrantAsk,
+  sandboxAskPhrase,
   SandboxAskKind,
   SandboxGrantKind,
   SandboxGrantScope,
@@ -387,6 +399,7 @@ import {
 } from '../db/repositories/tool-events'
 import { getWatcher, listWatchers } from '../db/repositories/watchers'
 import { getWorkspace } from '../db/repositories/workspaces'
+import { noteReportedServers } from '../db/repositories/reported-mcp-servers'
 import { createWatcherTracker, StopAction } from '../watchers/watchers'
 import { createChangeTracker, type ChangeTracker } from '../changes/tracker'
 import { createGit } from '../git/git'
@@ -397,13 +410,17 @@ import {
   callStanding,
   fetchedHost,
   fileToolPath,
+  isGrantedUse,
+  isOutsideTool,
   isSandboxOverride,
   isUnboundedRule,
   isWriteTool,
+  outsideUse,
   sandboxBounds,
   sandboxCrossing,
   SandboxCrossing,
   toolCallVerdict,
+  type OutsideUse,
   type SandboxBounds,
 } from '../permissions/sandbox-classify'
 import { absolutePath, keyInside } from '../permissions/canonical-path'
@@ -418,6 +435,7 @@ import {
   accessPlan,
   AccessPlanKind,
   deniedCovers,
+  outsideAsk,
   sandboxAskFor,
   type AccessOutcome,
   type AccessRequest,
@@ -782,6 +800,12 @@ interface LiveSandbox {
   /** The commands the user's Claude Code settings keep out of the sandbox, as the files stand (`./excluded-commands`). */
   readonly excluded: ExcludedCommands
   /**
+   * The cards open for an MCP server or for other agents, by what each asks for (`sharedCardKey`): settled once its
+   * card is answered or withdrawn, and any grant applied. Another call that needs the same waits on it, rather than
+   * opening a card of its own.
+   */
+  readonly asking: Map<string, Promise<void>>
+  /**
    * The calls the session's `PreToolUse` hook let through (`toolStarting`), by `tool_use` id, up to `MAX_HANDED`: if
    * Claude Code goes on to ask about one (an ask rule of its own, or its check of the files that run code), it gets
    * the same answer, with no second card.
@@ -805,6 +829,16 @@ interface LiveSession {
   rules: readonly PermissionRule[] | null
   /** The names of the session's in-process MCP servers that are Glade's own, whose tools never ask: `glade` only. */
   readonly gladeServers: readonly string[]
+  /**
+   * The session's own in-process MCP servers, by name (`glade`, and `glade-control` while agents may control Glade):
+   * Glade's, whose tools need no grant (#515), and which aren't among the servers a workspace has reported.
+   */
+  readonly inProcess: readonly string[]
+  /**
+   * The MCP servers the session has named that Glade has kept for its workspace, by key: each one's name as kept, so
+   * the same list, turn after turn, is written once.
+   */
+  readonly reported: Map<string, string>
   /** Whether the session has the `glade-control` tools, which its system prompt says. */
   readonly control: boolean
   /** The permission requests the session's calls wait on, by id: whether each is a background subagent's. */
@@ -966,10 +1000,11 @@ export const PERMISSIONS_DECIDED_AFTER_RESTART_END =
   'Make an allowed call again, with exactly the same input, and it will run without asking again. Do not make a ' +
   'denied call again. Carry on from there.'
 
-/** One decided request for a folder or domain, in that message: what was asked for, and what the user decided. */
+/** One decided request for something a grant gives, in that message: what was asked for, and what the user decided. */
 function grantDecidedAfterRestart(request: PermissionRequest, ask: SandboxGrantAsk): string {
   const whose = request.agentId === null ? 'Your' : "Your subagent's"
-  const wanted = ask.kind === SandboxAskKind.Folder ? `${folderVerb(ask.access)} ${ask.path}` : `reach ${ask.domain}`
+  // A folder by its whole path, as the agent named it; anything else as its line says it.
+  const wanted = ask.kind === SandboxAskKind.Folder ? `${folderVerb(ask.access)} ${ask.path}` : sandboxAskPhrase(ask)
   const asked = `- ${whose} request to ${wanted} (${request.toolName} call ${request.toolUseId})`
   if (request.state === PermissionRequestState.Allowed) {
     const scope = request.grantedScope === SandboxGrantScope.Workspace ? 'this workspace' : 'this task'
@@ -1153,10 +1188,29 @@ const BLOCKED_BY_SANDBOX = /operation not permitted/i
  */
 const COMMAND_TICKS = 20
 
-/** What a request asks a grant for: its folder or domain; null for any other request. */
+/** What a request asks a grant for: a folder, a domain, an MCP server or other agents; null for any other request. */
 function grantAskOf(request: Pick<PermissionRequest, 'sandbox'>): SandboxGrantAsk | null {
   const { sandbox } = request
-  return sandbox === null || sandbox.kind === SandboxAskKind.Outside ? null : sandbox
+  return sandbox === null || !isGrantAsk(sandbox) ? null : sandbox
+}
+
+/**
+ * What the calls waiting on one card share (#515): an MCP server's key, or which other agents. A card for one of these
+ * answers for every call that needs the same, so only one is ever open in a session. Null for any other request: a
+ * folder's or a domain's call asks for itself.
+ */
+function sharedCardKey(ask: SandboxAsk | null): string | null {
+  switch (ask?.kind) {
+    case SandboxAskKind.McpServer:
+      return `${ask.kind}:${ask.server}`
+    case SandboxAskKind.Agents:
+      return `${ask.kind}:${ask.agents}`
+    case SandboxAskKind.Folder:
+    case SandboxAskKind.Domain:
+    case SandboxAskKind.Outside:
+    case undefined:
+      return null
+  }
 }
 
 /** What a call did with a granted folder (or single file), as its mark says it: the grant's own path, and the access used. */
@@ -1227,6 +1281,7 @@ function startsTurn(event: AgentEvent): boolean {
     case AgentEventKind.ApiError:
       return true
     case AgentEventKind.SessionStarted:
+    case AgentEventKind.McpServersReported:
     case AgentEventKind.ToolResult:
     case AgentEventKind.Compacting:
     case AgentEventKind.Compacted:
@@ -2234,6 +2289,19 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
   }
 
+  /**
+   * Keeps the MCP servers a session named for its workspace, for Settings to offer (`reported_mcp_servers`): only the
+   * ones new to the session, or named otherwise than it last named them.
+   */
+  const noteServers = (taskId: string, live: LiveSession, servers: readonly ReportedMcpServer[]): void => {
+    const news = servers.filter(({ server, name }) => live.reported.get(server) !== name)
+    if (news.length === 0) return
+    for (const { server, name } of news) live.reported.set(server, name)
+    const kept = news.map(({ server, name }) => ({ server, name }))
+    const changed = noteReportedServers(db, live.owner.workspaceId, kept)
+    agentLog(taskId).info('mcp servers reported', { servers: kept.map(({ server }) => server), changed })
+  }
+
   const onEvent = (taskId: string, live: LiveSession, event: AgentEvent): void => {
     if (live.closed) return
     if (event.kind === AgentEventKind.ToolCallStarted) live.callParents.set(event.toolUseId, event.parentToolUseId)
@@ -2244,6 +2312,15 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         agentLog(taskId).info('session id saved', { sessionId: event.sessionId, model: event.model })
         updateTaskFromRunner(context, taskId, { sessionId: event.sessionId })
       }
+      return
+    }
+    if (event.kind === AgentEventKind.McpServersReported) {
+      // A CLI that doesn't say where a server came from names Glade's own too: those aren't anyone's to grant.
+      noteServers(
+        taskId,
+        live,
+        event.servers.filter(({ source, reportedName }) => source !== null || !live.inProcess.includes(reportedName)),
+      )
       return
     }
     if (event.kind === AgentEventKind.SessionFailed) {
@@ -2448,33 +2525,112 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       taskLog(taskId).info('denied as earlier in the turn', { toolName, toolUseId, requestId: denied.id })
       return { behavior: ToolPermissionBehavior.Deny, message: alreadyDeniedMessage(denied.denyNote), byUser: false }
     }
-    const { request, decision } = await requested(
-      taskId,
-      live,
-      {
-        toolUseId: asking,
-        agentId: agentId ?? command?.parentToolUseId ?? null,
-        toolName,
-        input: call.input,
-        title: call.title,
-        displayName: call.displayName,
-        description: call.description,
-        suggestions: call.suggestions,
-        defaultToNo: call.defaultToNo,
-        // Nothing that crosses the sandbox's bounds is ever remembered as a rule: the rule Allow for this task would
-        // grant is the whole tool, for every folder. A folder or domain is granted instead, by its own card.
-        suppressAlwaysAllowRule: call.suppressAlwaysAllowRule || crossing !== SandboxCrossing.None,
-        sandbox: ask,
-      },
-      call.signal,
-    )
-    if (decision === null || !(await applyGrant(taskId, live, grantedScope(decision, request)))) return WITHDRAWN
-    carryOn(taskId, live)
-    return sessionAnswer(live, answerFor(decision, request))
+    // A card for an MCP server or for other agents answers for every call that needs the same: they wait on it.
+    const shared = sandbox === null ? null : sharedCardKey(ask)
+    const settle = sandbox === null || shared === null ? null : holdCard(sandbox, shared)
+    try {
+      const { request, decision } = await requested(
+        taskId,
+        live,
+        {
+          toolUseId: asking,
+          agentId: agentId ?? command?.parentToolUseId ?? null,
+          toolName,
+          input: call.input,
+          title: call.title,
+          displayName: call.displayName,
+          description: call.description,
+          suggestions: call.suggestions,
+          defaultToNo: call.defaultToNo,
+          // Nothing that crosses the sandbox's bounds is ever remembered as a rule: the rule Allow for this task would
+          // grant is the whole tool, for every folder. A folder or domain is granted instead, by its own card.
+          suppressAlwaysAllowRule: call.suppressAlwaysAllowRule || crossing !== SandboxCrossing.None,
+          sandbox: ask,
+        },
+        call.signal,
+      )
+      if (decision === null || !(await applyGrant(taskId, live, grantedScope(decision, request)))) return WITHDRAWN
+      carryOn(taskId, live)
+      return sessionAnswer(live, answerFor(decision, request))
+    } finally {
+      settle?.()
+    }
   }
 
   /**
-   * A sandboxed session's call to a tool the sandbox bounds is about to run (its `PreToolUse` hook, #514): decides it
+   * Notes that a card is open for what `key` names (`sharedCardKey`), for the calls that need the same to wait on.
+   * Answers what settles it, once the card is answered or withdrawn and any grant is in force.
+   */
+  const holdCard = (sandbox: LiveSandbox, key: string): (() => void) => {
+    let settled = (): void => undefined
+    const open = new Promise<void>((resolve) => {
+      settled = resolve
+    })
+    sandbox.asking.set(key, open)
+    return () => {
+      if (sandbox.asking.get(key) === open) sandbox.asking.delete(key)
+      settled()
+    }
+  }
+
+  /**
+   * How a call to a tool that may reach outside the sandbox stands, before anyone is asked (#515): left to Claude
+   * Code (null) when it uses nothing there (one of Glade's own servers' tools, a message to the task's own subagent),
+   * or what it uses is granted; to be decided (undefined) when it isn't. A card already open for the same server or
+   * agents, another call's, is waited for first: its answer may grant this call too, or deny it for the turn. If that
+   * card is withdrawn instead (its own call was cancelled), this call asks for itself.
+   */
+  const outsideStanding = async (
+    taskId: string,
+    live: LiveSession,
+    sandbox: LiveSandbox,
+    call: ToolCallStarting,
+  ): Promise<ToolStartDecision | null | undefined> => {
+    const use = outsideUse(call, sandbox.bounds)
+    if (use === null) return null
+    // A server a call names is one its workspace's sessions have reported, whether or not an init listed it.
+    if (use.kind === SandboxGrantKind.McpServer && call.mcpServer !== null) {
+      noteServers(taskId, live, [{ server: use.server, name: use.name }])
+    }
+    const key = sharedCardKey(outsideAsk(use))
+    for (let open = cardOpenFor(sandbox, key); open !== undefined; open = cardOpenFor(sandbox, key)) {
+      await open
+      // The call was cancelled meanwhile, or its turn is being stopped: it never asks for itself. A background
+      // subagent's call isn't the turn's, and carries on.
+      const stopping = live.turn?.stopping === true && !live.backgroundCalls.has(call.toolUseId)
+      if (live.closed || call.signal.aborted || stopping) return WITHDRAWN
+    }
+    if (!isGrantedUse(use, sandbox.bounds)) return undefined
+    markGrantedUse(taskId, live, sandbox, call.toolUseId, use)
+    return null
+  }
+
+  /** The card open in a session for what `key` names; undefined for none, and for a call no card is shared for. */
+  const cardOpenFor = (sandbox: LiveSandbox, key: string | null): Promise<void> | undefined =>
+    key === null ? undefined : sandbox.asking.get(key)
+
+  /**
+   * Marks a call a grant let through to something outside the sandbox: whose grant, and what for. In the ask mode it
+   * isn't marked: the call is decided next, on a card of its own or by a task rule, and its row says that.
+   */
+  const markGrantedUse = (
+    taskId: string,
+    live: LiveSession,
+    sandbox: LiveSandbox,
+    toolUseId: string,
+    use: OutsideUse,
+  ): void => {
+    if (live.settings.permissionMode !== PermissionMode.AllowAll) return
+    const ask = outsideAsk(use)
+    const granting = grantingGrant(heldBy(live, sandbox), use)
+    if (ask !== null && granting !== null) {
+      mark(taskId, toolUseId, { kind: PermissionMarkKind.Grant, scope: granting.scope, ask })
+    }
+  }
+
+  /**
+   * A sandboxed session's call to a tool the sandbox bounds, or one that reaches outside it (#515), is about to run
+   * (its `PreToolUse` hook, #514): decides it
    * here when it crosses the bounds, before any of Claude Code's rules can let it through, and leaves every other call
    * to Claude Code (null), which asks about it as it always has (`decideToolCall`). A crossing is decided as
    * `decideToolCall` decides one: refused, or asked about on its card, however long you take. A call let through is
@@ -2487,9 +2643,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   ): Promise<ToolStartDecision | null> => {
     const { sandbox } = live
     if (sandbox === null || live.closed) return null
-    const { toolName, input, toolUseId, agentId, signal } = call
-    // The one thing done for every call: where its path really is, or whether its command leaves the sandbox.
-    if (sandboxCrossing({ toolName, input }, sandbox.bounds) === SandboxCrossing.None) return null
+    const { toolName, input, toolUseId, agentId, signal, mcpServer } = call
+    if (isOutsideTool(toolName)) {
+      const standing = await outsideStanding(taskId, live, sandbox, call)
+      if (standing !== undefined) return standing
+    } else if (sandboxCrossing({ toolName, input }, sandbox.bounds) === SandboxCrossing.None) {
+      // The one thing done for every such call: where its path really is, or whether its command leaves the sandbox.
+      return null
+    }
     const answer = await decideToolCall(taskId, live, {
       toolName,
       input,
@@ -2501,7 +2662,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       suggestions: [],
       defaultToNo: false,
       suppressAlwaysAllowRule: true,
-      mcpServer: null,
+      mcpServer,
       matchedAskRule: false,
       blockedPath: null,
       decisionReason: null,
@@ -2859,6 +3020,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       files: sandboxed ? (options.claudeSettings?.(workspace.rootPath) ?? []) : [],
       log: agentLog(task.id),
     })
+    // The servers the session was given in-process: Glade's own, whose tools need no grant.
+    const inProcess = Object.keys(servers)
     // A sandboxed session's messages and settings wait on its overlay: whether its commands ask is in the overlay
     // alone, so nothing reaches the agent before it, or at all if the session won't take it.
     const session = sandboxed ? gatedSession(started, overlay) : started
@@ -2870,16 +3033,19 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       sandbox: sandboxed
         ? {
             root: workspace.rootPath,
-            ...checkedGrants(task.id, workspace.rootPath, grantsOf(task), excluded),
+            ...checkedGrants(task.id, workspace.rootPath, grantsOf(task), excluded, inProcess),
             held: null,
             writeRules: new Set(writeRules.map(({ toolName }) => toolName)),
             failure: null,
             excluded,
+            asking: new Map(),
             started: new Map(),
           }
         : null,
       rules: null,
       gladeServers: gladeOwnServers(servers),
+      inProcess,
+      reported: new Map(),
       control,
       requests: new Map(),
       accessCalls: [],
@@ -2937,13 +3103,16 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     root: string,
     granted: SandboxGrants,
     excluded: ExcludedCommands,
+    inProcess: readonly string[],
   ): Pick<LiveSandbox, 'grants' | 'bounds'> => {
     const { grants, rejected } = usableGrants(granted)
     for (const { value, problem } of rejected) {
       agentLog(taskId).warn('left a grant out of the sandbox', { value, problem })
     }
     const unsandboxed = (command: string): boolean => excluded.matches(command)
-    return { grants, bounds: sandboxBounds({ root, home, grants, denied, unsandboxed }) }
+    // One of the task's own subagents: exactly the id the SDK gave an `Agent` call of this task's. Nothing looser.
+    const ownSubagent = (target: string): boolean => findSubagentCall(db, taskId, target) !== undefined
+    return { grants, bounds: sandboxBounds({ root, home, grants, denied, unsandboxed, inProcess, ownSubagent }) }
   }
 
   /**
@@ -3535,13 +3704,15 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         const { sandbox } = live
         if (task === undefined || sandbox === null || live.closed || !grantCovers(target, task)) continue
         // The session's calls are decided against the new grants at once, and its commands once the overlay lands.
-        const { grants, bounds } = checkedGrants(taskId, sandbox.root, grantsOf(task), sandbox.excluded)
+        const { grants, bounds } = checkedGrants(taskId, sandbox.root, grantsOf(task), sandbox.excluded, live.inProcess)
         sandbox.grants = grants
         sandbox.bounds = bounds
         sandbox.held = null
         agentLog(taskId).info('sandbox grants changed', {
           folders: grants.folders.length,
           domains: grants.domains.length,
+          servers: bounds.servers.length,
+          agents: bounds.agents.length,
         })
         const applying = applySandbox(taskId, live)
         // A session nobody waits on applies in the background: applying never rejects.

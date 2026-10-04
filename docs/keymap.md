@@ -53,6 +53,20 @@ search ↑↓ move through its results; ↵ opens the one picked, and Esc clears
 you bind it to), with the focus in the Files tab while Browse shows, puts the focus in Browse's search instead of the
 task search; in the editor, its own ⌘F finds in the file, and anywhere else ⌘F searches tasks as ever.
 
+## The Todos tab as the todo hub
+
+**Behind the hidden `todoHubEnabled` setting until #501** (P16, #491; `decisions.md`): with it off, the Todos tab has
+no keys of its own beyond Tab and Context menu, as now.
+
+With it on, the tab's todos answer their own keys while one has the focus (`design/screens/46-todo-hub.png`), as the
+Browse tree does; they're fixed. On a todo, or on **Not under a todo**, ↑↓ move to the todo before or after it,
+stopping at the first and last; → opens it, on the filter it was last on (nothing if it's open already, or has nothing
+under it); ← closes it; ↵ or Space opens or closes it, as a click does; and Context menu (⇧F10) opens a todo's menu
+(Copy · Ask agent about this). Held with ⌘, ⌃, ⌥ or ⇧, those keys are left to whatever command has them, so Next /
+previous task (⌥↓ / ⌥↑) work from a todo too. Tab reaches every todo, then an open todo's filter pills and its tiles,
+in order: ↵ or Space on a pill shows that kind alone, or all of them (All), and what ↵ does on a tile is each kind's
+own (#498, #499). A closed todo's counts are skipped, since → opens the todo and its pills say the same.
+
 ## Rebinding
 
 The keymap lives in `src/shared/keymap.ts` (the commands themselves are in `src/shared/commands.ts`): one command per

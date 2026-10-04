@@ -195,6 +195,7 @@ const TASK_HANDLERS = {
   [CommandName.SandboxAddGrant]: () => ({ grants: [] }),
   [CommandName.SandboxSetFolderAccess]: () => ({ grants: [] }),
   [CommandName.SandboxRemoveGrant]: () => ({ grants: [] }),
+  [CommandName.SandboxListReportedServers]: () => ({ servers: [] }),
   [CommandName.ControlStatus]: () => ({ status: CONTROL_STATUS }),
   [CommandName.AccountStatus]: () => ({ status: { account: null, usage: [] } }),
   [CommandName.LoginStatus]: () => ({ status: IDLE_LOGIN }),
