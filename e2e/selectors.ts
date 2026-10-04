@@ -757,8 +757,8 @@ export function settings(page: Page) {
     /** The Sandbox group, in Agent (the switch and the Glade-wide lists) or in the workspace's section (its lists). */
     sandbox: dialog.getByRole('region', { name: 'Sandbox' }),
     /**
-     * One of the sandbox's lists, by its name: "Glade-wide folders" and "Glade-wide domains" in Agent, "Folders" and
-     * "Domains" in the workspace's section.
+     * One of the sandbox's lists, by its name: "Glade-wide folders", "Glade-wide domains" and "Glade-wide MCP servers"
+     * in Agent, "Folders", "Domains" and "MCP servers" in the workspace's section.
      */
     grantList: (list: string) => dialog.getByRole('list', { name: list, exact: true }),
     /** The rows of one of the sandbox's lists: each a folder or domain, by its name, and the one being added. */
@@ -767,8 +767,8 @@ export function settings(page: Page) {
     grantRow: (list: string, name: string) =>
       dialog.getByRole('list', { name: list, exact: true }).getByRole('listitem', { name, exact: true }),
     /**
-     * A list's Add…: "Add a Glade-wide folder" and "Add a Glade-wide domain" in Agent, "Add a folder" and "Add a
-     * domain" in the workspace's section.
+     * A list's Add…: "Add a Glade-wide folder", "Add a Glade-wide domain" and "Add a Glade-wide MCP server" in Agent,
+     * "Add a folder", "Add a domain" and "Add an MCP server" in the workspace's section.
      */
     addGrant: (name: string) => dialog.getByRole('button', { name, exact: true }),
     /** A granted folder's access select, whatever is chosen: its name ends in it ("Access to ~/.nvm: Read-only"). */

@@ -6,8 +6,13 @@ import {
   folderVerb,
   grantCovers,
   grantFor,
+  isGrantAsk,
   isSettingsGrantTarget,
   mergeGrants,
+  OTHER_AGENTS_LABELS,
+  OTHER_AGENTS_TOOLS,
+  OtherAgents,
+  otherAgentsPhrase,
   SandboxAskKind,
   sandboxAskPhrase,
   SandboxGrantKind,
@@ -24,6 +29,8 @@ setHomeFolder('/Users/me')
 const read = (path: string): Grant => ({ kind: SandboxGrantKind.Folder, path, access: FolderAccess.Read })
 const readWrite = (path: string): Grant => ({ kind: SandboxGrantKind.Folder, path, access: FolderAccess.ReadWrite })
 const domain = (host: string): Grant => ({ kind: SandboxGrantKind.Domain, domain: host })
+const server = (key: string, name = key): Grant => ({ kind: SandboxGrantKind.McpServer, server: key, name })
+const agents = (which: OtherAgents): Grant => ({ kind: SandboxGrantKind.Agents, agents: which })
 
 describe('coversAccess', () => {
   it('ranks read-write over read-only', () => {
@@ -50,6 +57,30 @@ describe('mergeGrants', () => {
       domain('acme.dev'),
       read('acme.dev'),
     ])
+  })
+
+  it('keeps each MCP server once, by its key, under the name it first had, and each of the other agents once', () => {
+    expect(
+      mergeGrants([
+        server('claude_ai_Acme_Docs', 'claude.ai Acme Docs'),
+        agents(OtherAgents.Sessions),
+        server('claude_ai_Acme_Docs', 'Acme Docs'),
+        server('acme-tracker'),
+        agents(OtherAgents.Cloud),
+        agents(OtherAgents.Sessions),
+      ]),
+    ).toEqual([
+      server('claude_ai_Acme_Docs', 'claude.ai Acme Docs'),
+      agents(OtherAgents.Sessions),
+      server('acme-tracker'),
+      agents(OtherAgents.Cloud),
+    ])
+  })
+
+  it('keeps a server, a domain and a folder with the same value apart, and agents from a server named like them', () => {
+    expect(
+      mergeGrants([server('sessions'), domain('sessions'), read('sessions'), agents(OtherAgents.Sessions)]),
+    ).toEqual([server('sessions'), domain('sessions'), read('sessions'), agents(OtherAgents.Sessions)])
   })
 
   it('keeps the order each was first granted, a widened folder in its first place', () => {
@@ -120,6 +151,17 @@ describe('what a sandbox request is about', () => {
     expect(sandboxAskPhrase(folder('/opt/tools', FolderAccess.Read))).toBe('read /opt/tools')
     expect(sandboxAskPhrase(reach)).toBe('reach registry.npmjs.org')
     expect(sandboxAskPhrase({ kind: SandboxAskKind.Outside })).toBe('run outside the sandbox')
+    expect(
+      sandboxAskPhrase({ kind: SandboxAskKind.McpServer, server: 'claude_ai_Acme_Docs', name: 'claude.ai Acme Docs' }),
+    ).toBe('use the claude.ai Acme Docs MCP server')
+    // A name with nothing to show reads as the key its tools carry.
+    expect(sandboxAskPhrase({ kind: SandboxAskKind.McpServer, server: 'gmail', name: ' \n ' })).toBe(
+      'use the gmail MCP server',
+    )
+    expect(sandboxAskPhrase({ kind: SandboxAskKind.Agents, agents: OtherAgents.Sessions })).toBe(
+      'message other Claude sessions',
+    )
+    expect(sandboxAskPhrase({ kind: SandboxAskKind.Agents, agents: OtherAgents.Cloud })).toBe('manage cloud agents')
     expect(folderVerb(FolderAccess.Read)).toBe('read')
     expect(folderVerb(FolderAccess.ReadWrite)).toBe('write to')
   })
@@ -138,6 +180,34 @@ describe('what a sandbox request is about', () => {
     } as const
     expect(grantFor(ask)).toEqual(readWrite('/Users/me/code/acme-web'))
     expect(grantFor(host)).toEqual(domain('registry.npmjs.org'))
+  })
+
+  it('grants the MCP server by its key, with its name, or the other agents', () => {
+    expect(
+      grantFor({ kind: SandboxAskKind.McpServer, server: 'claude_ai_Acme_Docs', name: 'claude.ai Acme Docs' }),
+    ).toEqual(server('claude_ai_Acme_Docs', 'claude.ai Acme Docs'))
+    expect(grantFor({ kind: SandboxAskKind.Agents, agents: OtherAgents.Cloud })).toEqual(agents(OtherAgents.Cloud))
+  })
+
+  it('can be granted, all but running outside the sandbox', () => {
+    expect(isGrantAsk(folder('/opt/tools', FolderAccess.Read))).toBe(true)
+    expect(isGrantAsk(reach)).toBe(true)
+    expect(isGrantAsk({ kind: SandboxAskKind.McpServer, server: 'gmail', name: 'gmail' })).toBe(true)
+    expect(isGrantAsk({ kind: SandboxAskKind.Agents, agents: OtherAgents.Sessions })).toBe(true)
+    expect(isGrantAsk({ kind: SandboxAskKind.Outside })).toBe(false)
+  })
+
+  it('names the other agents by what reaching them does, and by the tool that does it', () => {
+    expect(otherAgentsPhrase(OtherAgents.Sessions)).toBe('message other Claude sessions')
+    expect(otherAgentsPhrase(OtherAgents.Cloud)).toBe('manage cloud agents')
+    expect(OTHER_AGENTS_LABELS).toEqual({
+      [OtherAgents.Sessions]: 'Messaging other Claude sessions',
+      [OtherAgents.Cloud]: 'Cloud agents',
+    })
+    expect(OTHER_AGENTS_TOOLS).toEqual({
+      [OtherAgents.Sessions]: 'SendMessage',
+      [OtherAgents.Cloud]: 'RemoteTrigger',
+    })
   })
 })
 

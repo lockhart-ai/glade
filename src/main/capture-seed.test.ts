@@ -42,6 +42,7 @@ import { listQuestionSets } from './db/repositories/question-sets'
 import { getOpenFiles } from './db/repositories/open-files'
 import { listBrowseFolders } from './db/repositories/browse-folders'
 import { listQueuedMessages } from './db/repositories/queued-messages'
+import { listReportedServers } from './db/repositories/reported-mcp-servers'
 import { listSandboxGrants } from './db/repositories/sandbox-grants'
 import { listTaskPermissionRules } from './db/repositories/task-permission-rules'
 import { listToolEvents } from './db/repositories/tool-events'
@@ -57,6 +58,7 @@ import { readTaskFile, workspaceFilesRoot } from './files/files'
 import { openTestDatabase, type TestDatabase } from './db/repositories/test-database'
 import {
   FolderAccess,
+  OtherAgents,
   SandboxGrantKind,
   SandboxGrantScope,
   type Grant,
@@ -349,9 +351,34 @@ describe('readSeed', () => {
       'folder',
       'domain',
       'domain',
+      // What the third list shows (#515): an MCP server, and, for the workspace, other agents too.
+      'mcp_server',
     ])
-    expect(seed.sandboxGrants?.workspace).toHaveLength(4)
+    expect(seed.sandboxGrants?.workspace?.map((grant) => grant.kind)).toEqual([
+      'folder',
+      'folder',
+      'domain',
+      'domain',
+      'mcp_server',
+      'agents',
+    ])
+    // And what its Add… offers: the servers the workspace's sessions have reported.
+    expect(seed.reportedServers?.map(({ name }) => name)).toEqual(['claude.ai Acme Docs', 'acme-tracker', 'gmail'])
   })
+
+  it.each(['sandbox-server-card.json', 'sandbox-agents-card.json'])(
+    'reads %s: a card for an MCP server or for other agents, and the lines of the calls before it (#515)',
+    (fixture) => {
+      const seed = readSeed(join(FIXTURES, fixture))
+      const [task] = seed.tasks
+
+      expect(seed.settings).toEqual({ sandboxEnabled: true })
+      const open = task?.permissionRequests?.filter(({ state }) => state === undefined) ?? []
+      expect(open).toHaveLength(1)
+      expect(['mcp_server', 'agents']).toContain(open[0]?.sandbox?.kind)
+      expect(task?.permissionMarks?.map(({ outcome }) => outcome.kind)).toEqual(['grant'])
+    },
+  )
 
   it('refuses a sandbox grant of no kind, a folder with no access, or a scope it does not know', () => {
     const withGrants = (sandboxGrants: unknown): string => write(JSON.stringify({ ...SEED, sandboxGrants }))
@@ -361,6 +388,14 @@ describe('readSeed', () => {
       /is invalid: /,
     )
     expect(() => readSeed(withGrants({ workspace: [{ kind: 'domain', domain: '' }] }))).toThrow(/is invalid: /)
+    expect(() => readSeed(withGrants({ glade: [{ kind: 'mcp_server', server: 'gmail' }] }))).toThrow(/is invalid: /)
+    expect(() => readSeed(withGrants({ glade: [{ kind: 'mcp_server', server: '', name: 'Gmail' }] }))).toThrow(
+      /is invalid: /,
+    )
+    expect(() => readSeed(withGrants({ glade: [{ kind: 'agents', agents: 'everyone' }] }))).toThrow(/is invalid: /)
+    const reported = (reportedServers: unknown): string => write(JSON.stringify({ ...SEED, reportedServers }))
+    expect(() => readSeed(reported([{ server: 'gmail' }]))).toThrow(/is invalid: /)
+    expect(() => readSeed(reported([{ server: '', name: 'Gmail' }]))).toThrow(/is invalid: /)
     expect(() => readSeed(withGrants({ task: [] }))).toThrow(/is invalid: /)
   })
 
@@ -384,16 +419,23 @@ describe('readSeed', () => {
       /is invalid: /,
     )
     const reading = { kind: 'session', utilization: 0.4, resetsInMinutes: 5, readMinutesAgo: 1 }
+    const CAD = { spent: 1234, cap: null, currency: 'CAD', decimalPlaces: 2 }
     for (const bad of [
       { ...reading, utilization: -1 },
       { ...reading, kind: 'fortnightly' },
       // A model is named for a per-model weekly limit, and only for one.
       { ...reading, kind: 'weekly_model' },
       { ...reading, model: 'Opus' },
+      // Only extra usage's reading says what the usage call said of extra usage, and its money is whole.
+      { ...reading, extraUsage: { available: true, spend: null } },
+      { ...reading, kind: 'extra_usage', extraUsage: { available: true, spend: { spent: 1234, cap: null } } },
+      { ...reading, kind: 'extra_usage', extraUsage: { available: true, spend: { ...CAD, currency: 'dollars' } } },
     ]) {
       expect(() => readSeed(write(JSON.stringify({ ...SEED, usage: [bad] })))).toThrow(/is invalid: /)
     }
     expect(readSeed(write(JSON.stringify({ ...SEED, usage: [reading] }))).usage).toEqual([reading])
+    const extra = { ...reading, kind: 'extra_usage', extraUsage: { available: true, spend: CAD } }
+    expect(readSeed(write(JSON.stringify({ ...SEED, usage: [extra] }))).usage).toEqual([extra])
   })
 
   it('refuses a fixture that is missing or not JSON', () => {
@@ -1067,6 +1109,30 @@ describe('applySeed', () => {
     const granted = (target: SandboxGrantTarget): Grant[] => listSandboxGrants(db, target).map(({ grant }) => grant)
     expect(granted({ scope: SandboxGrantScope.Glade })).toEqual(glade)
     expect(granted({ scope: SandboxGrantScope.Workspace, workspaceId: 'workspace-1' })).toEqual(workspace)
+    expect(listReportedServers(db, 'workspace-1')).toEqual([])
+  })
+
+  it('grants the MCP servers and other agents it gives, and keeps the servers its workspace has reported (#515)', () => {
+    const { db } = database
+    const docs: Grant = { kind: SandboxGrantKind.McpServer, server: 'claude_ai_Acme_Docs', name: 'claude.ai Acme Docs' }
+    const sessions: Grant = { kind: SandboxGrantKind.Agents, agents: OtherAgents.Sessions }
+    const reportedServers = [
+      { server: 'claude_ai_Acme_Docs', name: 'claude.ai Acme Docs' },
+      { server: 'acme-tracker', name: 'acme-tracker' },
+    ]
+
+    applySeed(db, {
+      ...SEED,
+      workspace: { ...SEED.workspace, id: 'workspace-1' },
+      sandboxGrants: { glade: [docs], workspace: [sessions] },
+      reportedServers,
+    })
+
+    const granted = (target: SandboxGrantTarget): Grant[] => listSandboxGrants(db, target).map(({ grant }) => grant)
+    expect(granted({ scope: SandboxGrantScope.Glade })).toEqual([docs])
+    expect(granted({ scope: SandboxGrantScope.Workspace, workspaceId: 'workspace-1' })).toEqual([sessions])
+    // By name, as Settings lists them.
+    expect(listReportedServers(db, 'workspace-1')).toEqual([reportedServers[1], reportedServers[0]])
   })
 
   it('grants nothing unless given, and only the scope it gives', () => {
@@ -1121,6 +1187,13 @@ describe('applySeed', () => {
             resetsInMinutes: null,
             readMinutesAgo: 0,
           },
+          {
+            kind: UsageLimitKind.ExtraUsage,
+            utilization: null,
+            resetsInMinutes: null,
+            readMinutesAgo: 0,
+            extraUsage: { available: true, spend: { spent: 1234, cap: null, currency: 'CAD', decimalPlaces: 2 } },
+          },
         ],
       },
       NOW,
@@ -1150,6 +1223,15 @@ describe('applySeed', () => {
         resetsAt: null,
         level: UsageLevel.Warning,
         readAt: NOW,
+      },
+      // Extra usage, with what the usage call said of it: the money spent.
+      {
+        limit: { kind: UsageLimitKind.ExtraUsage },
+        utilization: null,
+        resetsAt: null,
+        level: UsageLevel.Within,
+        readAt: NOW,
+        extraUsage: { available: true, spend: { spent: 1234, cap: null, currency: 'CAD', decimalPlaces: 2 } },
       },
     ])
   })

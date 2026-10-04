@@ -18,7 +18,8 @@ import {
 import { permissionSubject, taskPermissionRule } from '../../shared/permissions'
 import { shortenHomePath } from '../../shared/homeFolder'
 import { hostNote } from '../../shared/hosts'
-import { folderVerb, SandboxAskKind, type SandboxAsk } from '../../shared/sandbox'
+import { mcpServerLabel } from '../../shared/mcpServers'
+import { folderVerb, OtherAgents, SandboxAskKind, type SandboxAsk } from '../../shared/sandbox'
 import { REQUEST_ACCESS_TOOL, toolDisplayName } from '../../shared/toolName'
 import { subagentName } from '../subagents/subagentsModel'
 import { relativePath } from '../tool-log/toolLogModel'
@@ -310,14 +311,22 @@ export function taskGrantWords(grant: TaskGrant): TaskGrantWords {
   }
 }
 
-/** What a sandbox card's title says: its words, and the folder or domain they name, which the card sets as code. */
+/** What a sandbox card's title says: its words, and what they name, which the card sets as code. */
 export interface SandboxTitle {
   readonly text: string
-  /** The folder (shortened to `~` under the home folder) or the domain; null when the title names nothing. */
+  /**
+   * The folder (shortened to `~` under the home folder), the domain or the MCP server's name; null when the title
+   * names nothing.
+   */
   readonly subject: string | null
+  /** What follows the subject, in words: "MCP server" after a server's name. Left out when nothing does. */
+  readonly after?: string
 }
 
-/** "The agent wants to read `~/code/acme-web`", "…write to…", "…reach `registry.npmjs.org`", or to leave the sandbox. */
+/**
+ * "The agent wants to read `~/code/acme-web`", "…write to…", "…reach `registry.npmjs.org`", "…use the `Gmail` MCP
+ * server", "…message other Claude sessions", "…manage cloud agents", or to leave the sandbox.
+ */
 export function sandboxTitle(ask: SandboxAsk): SandboxTitle {
   switch (ask.kind) {
     case SandboxAskKind.Folder:
@@ -326,7 +335,31 @@ export function sandboxTitle(ask: SandboxAsk): SandboxTitle {
       return { text: 'The agent wants to reach', subject: ask.domain }
     case SandboxAskKind.Outside:
       return { text: 'The agent wants to run a command outside the sandbox', subject: null }
+    case SandboxAskKind.McpServer:
+      return {
+        text: 'The agent wants to use the',
+        subject: mcpServerLabel(ask.name, ask.server),
+        after: 'MCP server',
+      }
+    case SandboxAskKind.Agents:
+      switch (ask.agents) {
+        case OtherAgents.Sessions:
+          return { text: 'The agent wants to message other Claude sessions', subject: null }
+        case OtherAgents.Cloud:
+          return { text: 'The agent wants to manage cloud agents', subject: null }
+      }
   }
+}
+
+/** What an MCP server's card says an answer means, under its title: a server runs outside the sandbox. */
+export const MCP_SERVER_NOTE =
+  'It runs outside the sandbox, with whatever access it has. Allowing it covers every tool of the server.'
+
+/** What the other agents' cards say an answer means, under their titles. */
+export const OTHER_AGENTS_NOTES: Readonly<Record<OtherAgents, string>> = {
+  [OtherAgents.Sessions]:
+    'Another session runs outside this task’s sandbox, and may act on what it’s told. Messages to this task’s own subagents never ask.',
+  [OtherAgents.Cloud]: 'Cloud agents run on Anthropic’s servers, outside this task’s sandbox, with their own access.',
 }
 
 /** What the run-outside-the-sandbox card says the answer means, above the command. */
@@ -338,7 +371,17 @@ export const OUTSIDE_SANDBOX_NOTE = 'Outside the sandbox, it can use any folder 
  * every other request.
  */
 export function sandboxCaution(ask: SandboxAsk): string | null {
-  return ask.kind === SandboxAskKind.Domain ? hostNote(ask.domain) : null
+  switch (ask.kind) {
+    case SandboxAskKind.Domain:
+      return hostNote(ask.domain)
+    case SandboxAskKind.McpServer:
+      return MCP_SERVER_NOTE
+    case SandboxAskKind.Agents:
+      return OTHER_AGENTS_NOTES[ask.agents]
+    case SandboxAskKind.Folder:
+    case SandboxAskKind.Outside:
+      return null
+  }
 }
 
 /** What a sandbox card shows under its title. */
@@ -349,6 +392,8 @@ export enum SandboxDetailKind {
   Reason = 'reason',
   /** The command: the one waiting on a connection, or the one that would run outside the sandbox. */
   Command = 'command',
+  /** The call itself, as a card that isn't the sandbox's shows it: an MCP tool's, with its input. */
+  Call = 'call',
   /** Nothing more than the title. */
   None = 'none',
 }
@@ -361,6 +406,13 @@ export type SandboxDetail =
       readonly body: CommandBody
       /** A line above the command, saying what allowing it means; null for a connection's command. */
       readonly note: string | null
+    }
+  | {
+      readonly kind: SandboxDetailKind.Call
+      /** The tool being called, as the tool log names it. */
+      readonly tool: string
+      /** Its input, as formatted JSON. */
+      readonly body: JsonBody
     }
   | { readonly kind: SandboxDetailKind.None }
 
@@ -379,8 +431,9 @@ function commandDetail(command: string | undefined, description: string | null, 
 
 /**
  * What a sandbox card shows under its title: for a file tool, the tool and its file; for `WebFetch`, its URL; for a
- * command's connection, the command and what it's for; for the agent's own `request_access`, its reason; and for a
- * command asking to leave the sandbox, what that means, the command and what it's for.
+ * command's connection, the command and what it's for; for the agent's own `request_access`, its reason; for a
+ * command asking to leave the sandbox, what that means, the command and what it's for; and for an MCP server or other
+ * agents, the tool being called and its input, as a card in the ask mode shows them.
  */
 export function sandboxDetail(
   request: Pick<PermissionRequest, 'toolName' | 'input' | 'description'>,
@@ -406,6 +459,9 @@ export function sandboxDetail(
       if (path === null) return NO_DETAIL
       return { kind: SandboxDetailKind.Target, tool: toolDisplayName(toolName), target: shortenHomePath(path) }
     }
+    case SandboxAskKind.McpServer:
+    case SandboxAskKind.Agents:
+      return { kind: SandboxDetailKind.Call, tool: toolDisplayName(toolName), body: jsonBody(input) }
   }
 }
 

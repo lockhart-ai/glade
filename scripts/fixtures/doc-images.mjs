@@ -3,7 +3,7 @@
 //
 //   node scripts/fixtures/doc-images.mjs [name…]
 //
-// With no names, it regenerates all 24 (see docs/doc-images.md for the list and what each shows). With one or more
+// With no names, it regenerates all 26 (see docs/doc-images.md for the list and what each shows). With one or more
 // names (e.g. `node scripts/fixtures/doc-images.mjs hero control`), it regenerates only those. Each image is captured
 // in a window that's never shown, from a seed in scripts/fixtures/ (`src/main/capture-seed.ts`), and saved with a
 // 256-colour palette (ffmpeg-static), as the rest of the docs' screenshots are.
@@ -92,6 +92,10 @@ const SCREENSHOTS = {
     out: join(IMAGES, 'guide', 'sandbox-outside-card.png'),
     args: ['--seed', 'sandbox-outside-card.json', '--size', '1280x800', ...TASK_SHOWN],
   },
+  'sandbox-server-card': {
+    out: join(IMAGES, 'guide', 'sandbox-server-card.png'),
+    args: ['--seed', 'sandbox-server-card.json', '--size', '1280x860', ...TASK_SHOWN],
+  },
   'sandbox-failed': {
     out: join(IMAGES, 'guide', 'sandbox-failed.png'),
     args: ['--seed', 'sandbox-failed.json', '--size', '1280x800', ...TASK_SHOWN],
@@ -104,6 +108,19 @@ const SCREENSHOTS = {
   'settings-workspace-sandbox': {
     out: join(IMAGES, 'guide', 'settings-workspace-sandbox.png'),
     args: ['--seed', 'settings-sandbox.json', '--size', '1280x800', ...OPEN_SETTINGS],
+  },
+  // The third list is below the fold: Add… puts the focus on its new row's Add, which scrolls the list into view.
+  'settings-mcp-servers': {
+    out: join(IMAGES, 'guide', 'settings-mcp-servers.png'),
+    args: [
+      '--seed',
+      'settings-sandbox.json',
+      '--size',
+      '1280x800',
+      ...OPEN_SETTINGS,
+      '--click',
+      'button[aria-label="Add an MCP server"]',
+    ],
   },
 }
 

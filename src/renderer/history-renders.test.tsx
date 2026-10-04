@@ -6,6 +6,7 @@
 // out when the task's links or its todos change, and at no other time.
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { UsageLevel, UsageLimitKind, type UsageReading } from '../shared/account'
 import { EventType } from '../shared/bridge'
 import {
   MessageRole,
@@ -55,6 +56,8 @@ import { ChildFilter } from '../shared/todoHub'
 import { rowStatus } from './task-list/rowStatus'
 import { NOW_REFRESH_MS } from './task-list/useNow'
 import { ToolLog } from './tool-log'
+import { UsageMeter } from './usage-meter'
+import { usageMeterState } from './usage-meter/usageMeterModel'
 import { setHomeFolder } from '../shared/homeFolder'
 
 // The sample data's home folder, which paths under it are shown from as `~`.
@@ -75,6 +78,11 @@ vi.mock('./task-list/rowStatus', async (importOriginal) => {
 vi.mock('./broadcast/broadcastModel', async (importOriginal) => {
   const original = await importOriginal<typeof import('./broadcast/broadcastModel')>()
   return { ...original, attentionLabel: vi.fn(original.attentionLabel), reachText: vi.fn(original.reachText) }
+})
+// The usage meter works out what its row says: one `usageMeterState` call per render of the meter.
+vi.mock('./usage-meter/usageMeterModel', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./usage-meter/usageMeterModel')>()
+  return { ...original, usageMeterState: vi.fn(original.usageMeterState) }
 })
 // Every subagent row shows its status: one `statusLabel` call per render of one.
 vi.mock('./subagents/subagentsModel', async (importOriginal) => {
@@ -481,6 +489,53 @@ describe('the task list, with many tasks', () => {
     })
     expect(renders(rowStatus)).toBe(1)
     expect(screen.queryByRole('img', { name: 'Permission' })).toBeNull()
+  })
+
+  it('renders only the usage meter under it when a new usage reading arrives, once a reading (#530)', async () => {
+    const { wrapper, store, fake } = storeWrapper({
+      tasks,
+      uiState: [{ key: UiStateKey.ActiveWorkspaceId, value: 'w1' }],
+    })
+    await act(() => store.getState().hydrate())
+    render(
+      <>
+        <TaskList workspaceId="w1" />
+        <UsageMeter />
+      </>,
+      { wrapper },
+    )
+    const session: UsageReading = {
+      limit: { kind: UsageLimitKind.Session },
+      utilization: 1,
+      resetsAt: AT + 3_600_000,
+      level: UsageLevel.Limited,
+      readAt: AT,
+    }
+    /** The account running on extra usage, with `spent` cents of it spent. */
+    const reading = (spent: number): UsageReading[] => [
+      session,
+      {
+        limit: { kind: UsageLimitKind.ExtraUsage },
+        utilization: null,
+        resetsAt: null,
+        level: UsageLevel.Within,
+        readAt: AT,
+        extraUsage: { available: true, spend: { spent, cap: null, currency: 'CAD', decimalPlaces: 2 } },
+      },
+    ]
+    const meter = screen.getByRole('button', { name: 'Usage' })
+
+    // Each turn's end reads usage again, with more spent: the meter's line follows, and no task's row renders.
+    vi.mocked(rowStatus).mockClear()
+    vi.mocked(usageMeterState).mockClear()
+    for (const [index, spent] of [1234, 1299, 1310].entries()) {
+      act(() => {
+        fake.emit({ type: EventType.AccountChanged, status: { account: null, usage: reading(spent) } })
+      })
+      expect(meter).toHaveTextContent(`Extra usageCA$${(spent / 100).toFixed(2)}spent`)
+      expect(renders(usageMeterState)).toBe(index + 1)
+    }
+    expect(renders(rowStatus)).toBe(0)
   })
 })
 

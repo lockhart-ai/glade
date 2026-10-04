@@ -56,6 +56,16 @@
   itself changes (extra usage goes and comes back, or the limit's window rolls over), so a reading that's wrong costs
   one refused request a task, not a loop. Which readings count is one pure rule
   (`canRunAgain`, `src/main/agent/pauses.ts`). Offline pauses are untouched.
+- **The usage meter shows the money spent on extra usage (#530, Jared, Oct 4):** this replaces #327's "extra usage
+  only as a percentage, not in money". With no monthly cap there was no percentage to show, so the one number that
+  matters wasn't there. Extra usage's row reads "CA$12.34 spent" with no cap (and has no bar: nothing to be a fraction
+  of), and "CA$12.34 of CA$50.00" with one, the bar at its percentage. While the account is running on extra usage (a
+  plan limit is spent and the last usage call said extra usage is available, by #519's rule) the sidebar's one line
+  shows extra usage and the amount, in blue, in place of the limit that ran out; a spent limit with extra usage not
+  available keeps the "limited" highlight. The amount is the usage call's (`extra_usage`: minor units, currency and
+  decimal places), kept in SQLite with the reading and never logged; anything missing or malformed means no amount,
+  never a guessed one. Money is written in `en-US`, as Glade's dates and numbers are, so a currency other than the US
+  dollar is always named ("CA$", "¥") whatever the Mac's locale.
 - **Notifications:** native OS notifications for any agent message in a task you're not viewing, even while Glade is
   focused. Task name + start of the message. Sound off. Focus/DND handled by the OS.
 - **Needs you (#430, corrected by #461):** a task needs you when it's blocked on you or has a reply you haven't read:
@@ -198,7 +208,8 @@
     paths writable (`/tmp/claude`, `~/.npm/_logs` and the like); Glade can't remove them.
   - **Three grant scopes,** kept in SQLite (`sandbox_grants`): a **task**'s, from a permission card; a
     **workspace**'s, from a card or Settings › Workspace; and **Glade-wide**, only from Settings › Agent, for what
-    every workspace needs. A grant is a folder, a single file or a domain. A folder is **read-only or read-write**:
+    every workspace needs. A grant is a folder, a single file or a domain; or (P15-11, below) an MCP server, or
+    other agents. A folder is **read-only or read-write**:
     a read asks for read-only access and a write for read-write. A domain is one grant for both the agent's commands
     and `WebFetch`.
   - **The card's actions:** Allow for this task · Allow for this workspace · Deny, with Deny's optional note, and no
@@ -223,13 +234,15 @@
     whatever task rules exist, shows the command, and has no "always for this command".
   - **Credential files stay blocked even inside a granted folder,** the home folder included: `~/.ssh`, `~/.aws`,
     `~/.gnupg`, `~/.config/gh`, `~/.config/gcloud`, `~/.azure`, `~/.kube`, `~/Library/Keychains`, `~/.netrc`,
-    `~/.git-credentials` and `~/.docker/config.json`; and, since the security review, `~/.claude.json`, `~/.npmrc`,
-    `~/.pypirc`, `~/.config/op`, more registry and cloud tools' token files, and Glade's own data folder.
+    `~/.git-credentials` and `~/.docker/config.json`; and, since the security review, `~/.claude.json`,
+    `~/.config/op`, more registry and cloud tools' token files, and Glade's own data folder. `~/.npmrc` and
+    `~/.pypirc` aren't among them (P15-11, below).
   - **The user's own Claude Code settings still merge in** (`settingSources` includes `"user"`), but **can't let a
     call past the sandbox unasked** (the security review, below). Their allow rules and additional directories no
     longer decide a file tool's, `WebFetch`'s or a command's call at the boundary: Glade does, first. What still
     widens it, documented and not fought: a domain or a Unix socket in their own `sandbox` lists, which merge with
-    Glade's; and their hooks and MCP servers, which run on the host (waiting on Jared, #445).
+    Glade's; and their hooks, which run on the host. Their MCP servers run on the host too, and are granted one by
+    one (P15-11, below).
   - **The switch** (`sandboxEnabled`, Settings › Agent › Sandbox) is app-wide and **off by default until the phase's
     security review is done** (#452); the default then flips to on. Existing workspaces and tasks take it on their
     next session start, with no grants. With it off, a session starts exactly as it did before P15.
@@ -369,11 +382,53 @@
       overrides an allow rule is read from Claude Code's code, not probed); a command that reaches Glade in Allow all
       though it wasn't excluded still goes ahead, since some sandboxed commands ask for other reasons; the words on a
       domain's card for a local host ("This is your own Mac. Allowing it lets the agent reach every service running
-      on it.", and one each for an address and a local name), which no design shows; `~/.npmrc` is now a credential
-      path no grant opens, where the meta listed it as something to grant; and which extensions still open in their
-      own app (PNG, JPEG, GIF, WebP, HEIC, TIFF, BMP, PDF).
-    - Not done here, waiting on Jared (#445): whether other MCP servers' tools ask in Allow all with the sandbox on,
-      and hooks and MCP servers from existing settings that run files in the workspace.
+      on it.", and one each for an address and a local name), which no design shows; `~/.npmrc` and `~/.pypirc` made
+      credential paths no grant opens, where the meta listed `~/.npmrc` as something to grant (taken back in P15-11,
+      below); and which extensions still open in their own app (PNG, JPEG, GIF, WebP, HEIC, TIFF, BMP, PDF).
+    - Left open by the review: hooks from existing settings that run files in the workspace. What it left open about
+      MCP servers is decided in P15-11, next.
+  - **MCP servers, and the tools that reach other agents, are grants too (P15-11, #515).** Decided with Jared after
+    the review: a reasonable guard, not a locked box, and no prompt floods.
+    - **An MCP server Glade doesn't build is a third kind of grant,** next to folders and domains: a server from the
+      user's Claude Code config, a repository's `.mcp.json`, or a claude.ai connector (Gmail, Drive, Claude Docs).
+      It runs outside the sandbox with whatever access it has. With the sandbox on, in either permission mode, the
+      first call to any tool of a server that isn't granted shows a card: "The agent wants to use the `<server>` MCP
+      server", with the tool being called and its input, and Allow for this task · Allow for this workspace · Deny.
+      **One grant per server, never per tool or per call:** a card for every call would be a flood. Calls to the
+      same server that arrive while its card is open wait on that card rather than opening their own. Once granted,
+      the server's tools behave as with the sandbox off: unasked in Allow all, and asking per call in the ask mode.
+    - **Glade's own tools never ask:** `glade` always, and `glade-control` as before P15 (off unless its switch is
+      on; in the ask mode its tools that change things ask). A server is Glade's when the SDK says it's in-process
+      (`source: 'sdk'`) and it's one the session was given, as the ask mode already told them; the name proves
+      nothing, so a configured server that calls itself `glade` asks like any other.
+    - **Enforced in the same `PreToolUse` hook** as the bounds (the review, above), so an allow rule for the server's
+      tools in the user's or the project's settings can't skip the card.
+    - **`SendMessage` and `RemoteTrigger` are granted the same way,** with the same card and scopes, and listed with
+      the MCP servers: they reach agents outside the task's sandbox, which a sandboxed agent could have do what it
+      may not. `SendMessage` to one of the task's own subagents never asks (they run in the same sandbox); to
+      anything else it asks, "The agent wants to message other Claude sessions". `RemoteTrigger` asks, "The agent
+      wants to manage cloud agents". One grant covers every other session, or every cloud agent: not one per target.
+    - **A grant is kept by the name the server's tools carry** (`mcp__<server>__<tool>`: Claude Code turns every
+      character of a server's name outside `[a-zA-Z0-9_-]` into `_`), since that's what each call carries and what
+      Claude Code's own rules for a server are written with; the name Claude Code reports it by (`claude.ai Claude
+      Docs`) is what the card and Settings show. Nothing of these grants goes into the session's sandbox settings.
+    - **Settings has a third list, MCP servers,** under Folders and Domains, in Settings › Workspace and Glade-wide
+      in Settings › Agent. Add… offers the servers the workspace's sessions have reported (every workspace's, for the
+      Glade-wide list), by name, then the other agents. Glade keeps those names per workspace
+      (`reported_mcp_servers`); nothing is granted by a server being reported.
+    - **`~/.npmrc` and `~/.pypirc` are grantable again,** as single files, like any other file in the home folder:
+      they hold a registry's settings as often as its token, and `npm` and `pip` need them. The review had made them
+      credential paths nothing opens.
+    - Calls made without Jared here: the card and the list have **no design**, and are built from the folder and
+      domain cards and the Folders and Domains lists (`docs/design/README.md` says so); the card's line under its
+      title ("It runs outside the sandbox, with whatever access it has. Allowing it covers every tool of the
+      server.", and one each for the other agents); the names in Settings, **Messaging other Claude sessions** and
+      **Cloud agents**; that only the id the SDK gave a subagent counts as the task's own (a `SendMessage` to a
+      subagent by a name it was given, or to `main`, asks: a name can also be another session's, and how Claude Code
+      settles that isn't probed); that a granted server's call gets no "Allowed by … grant" line in the ask mode,
+      where its own card or task rule already says what was decided; that a call waiting on another call's card is
+      withdrawn with it when the turn is stopped; and that a server whose name leaves nothing a tool's name can carry
+      gets the plain card (Allow once · Deny).
   - **A session resumed into the sandbox is told of it once (P15-07, #452).** Claude Code keeps a session's system
     prompt when it resumes it, so a session that started before the sandbox was on knows nothing of it, nor that a
     blocked command is answered with `request_access`. When such a session runs sandboxed, Glade sends it what the
@@ -382,7 +437,7 @@
     relaunch neither loses nor repeats it. A session that still runs outside the sandbox isn't told.
   - **Known friction.** Anything a command needs from the home folder fails until it's granted: toolchains
     installed there (nvm, pyenv, rustup, cargo, go), `~/.gitconfig` (commits lose their author), `~/.npmrc` and
-    package caches. That's what the Glade-wide lists are for. `ssh` git remotes, Docker, localhost databases and some
+    package caches. That's what the Glade-wide lists are for (`~/.npmrc`, a single file, is granted from its card). `ssh` git remotes, Docker, localhost databases and some
     tools that check TLS can't work inside the sandbox at all, and ask to run outside it each time. Denying the home
     folder also hides `~/.zshenv` and Claude Code's own shell snapshot from commands: they run with Glade's `PATH`
     but without the user's aliases and functions. A file granted by itself can be written in place but not replaced:

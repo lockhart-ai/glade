@@ -136,6 +136,29 @@ export enum UsageLevel {
   Limited = 'limited',
 }
 
+/**
+ * What has been spent on extra usage this month, as the usage call says it (#530). The amounts are in the currency's
+ * minor units: cents, for a currency with 2 decimal places.
+ */
+export interface ExtraUsageSpend {
+  /** What's been spent, in minor units. */
+  readonly spent: number
+  /** The monthly cap, in minor units; null when there's none. */
+  readonly cap: number | null
+  /** The currency's ISO 4217 code, in capitals: `CAD`. */
+  readonly currency: string
+  /** How many decimal places the currency's amounts have: 2 for dollars and cents, 0 for yen. */
+  readonly decimalPlaces: number
+}
+
+/** What the usage call last said of extra usage, beyond how much of its cap is spent (#530). */
+export interface ExtraUsageStatus {
+  /** Whether it can take the requests a plan limit turns away (`UsageSnapshot.extraUsageAvailable`). */
+  readonly available: boolean
+  /** What's been spent; null when the call didn't say all of it (the amount, the cap, the currency and its places). */
+  readonly spend: ExtraUsageSpend | null
+}
+
 /** The latest reading of one usage limit, from Claude Code's usage call or its rate limit events. */
 export interface UsageReading {
   readonly limit: UsageLimit
@@ -146,6 +169,11 @@ export interface UsageReading {
   readonly level: UsageLevel
   /** When Glade read it. */
   readonly readAt: EpochMs
+  /**
+   * Extra usage's reading alone: what the last usage call said of it. Left out for every other limit, and for extra
+   * usage until a usage call has told of it (a rate limit event says none of this, and keeps what the last call said).
+   */
+  readonly extraUsage?: ExtraUsageStatus | undefined
 }
 
 /** The level a reading of `utilization` is at: at the limit from 100%, close to it from the threshold. */

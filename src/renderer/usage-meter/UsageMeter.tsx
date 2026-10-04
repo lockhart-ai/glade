@@ -10,6 +10,7 @@ import { useNow } from '../task-list/useNow'
 import styles from './UsageMeter.module.css'
 import {
   currentReadings,
+  usageBar,
   usageFraction,
   UsageMeterKind,
   usageMeterState,
@@ -18,6 +19,7 @@ import {
   usagePercent,
   usageResets,
   usageResetsAt,
+  usageSpend,
   usageUpdated,
   type UsageMeterState,
 } from './usageMeterModel'
@@ -52,6 +54,20 @@ function UsageRow({ state, now }: UsageRowProps): React.JSX.Element {
         </>
       )
     }
+    case UsageMeterKind.ExtraUsage: {
+      // Running on extra usage: the money spent, set against its cap when it has one; the ring is how much of the cap.
+      const { reading } = state
+      const spend = usageSpend(reading)
+      return (
+        <>
+          <MeterRing fraction={usageBar(reading)} near={reading.level === UsageLevel.Warning} />
+          <span className={styles.name}>{usageLimitLabel(reading.limit)}</span>
+          <span className={styles.percent}>{spend === null ? usagePercent(reading) : spend.amount}</span>
+          <span className={styles.spacer} />
+          {spend !== null && <span className={styles.detail}>{spend.rest}</span>}
+        </>
+      )
+    }
     case UsageMeterKind.Limited: {
       const { reading } = state
       return (
@@ -76,7 +92,8 @@ export interface UsageDetailsProps {
 
 /**
  * The meter's popover: every limit Claude Code has told of, each with a bar, how much is used and when it resets, under
- * the plan's name, and how long ago it was read.
+ * the plan's name, and how long ago it was read. Extra usage says the money spent instead of a percentage, when the
+ * usage call gave it (`usageSpend`), and has no bar while it has no cap (`usageBar`).
  */
 export function UsageDetails({ plan, readings, now }: UsageDetailsProps): React.JSX.Element {
   const updated = usageUpdated(readings, now)
@@ -92,6 +109,8 @@ export function UsageDetails({ plan, readings, now }: UsageDetailsProps): React.
       {readings.map((reading) => {
         const label = usageLimitLabel(reading.limit)
         const resets = usageResets(reading, now)
+        const spend = usageSpend(reading)
+        const bar = usageBar(reading)
         return (
           <div
             key={usageLimitKey(reading.limit)}
@@ -101,11 +120,15 @@ export function UsageDetails({ plan, readings, now }: UsageDetailsProps): React.
           >
             <span className={styles.limitHead}>
               <span className={styles.limitName}>{label}</span>
-              <span className={styles.limitPercent}>{usagePercent(reading)}</span>
+              <span className={styles.limitPercent}>
+                {spend === null ? usagePercent(reading) : `${spend.amount} ${spend.rest}`}
+              </span>
             </span>
-            <span className={styles.bar} aria-hidden>
-              <span className={styles.fill} style={{ width: `${String(usageFraction(reading) * 100)}%` }} />
-            </span>
+            {bar !== null && (
+              <span className={styles.bar} aria-hidden>
+                <span className={styles.fill} style={{ width: `${String(bar * 100)}%` }} />
+              </span>
+            )}
             {resets !== null && <span className={styles.resets}>{resets}</span>}
           </div>
         )
@@ -117,7 +140,8 @@ export function UsageDetails({ plan, readings, now }: UsageDetailsProps): React.
 
 /**
  * The usage meter at the foot of the sidebar (`docs/design/html/32-usage-meter.html`): one row with the limit closest
- * to running out, which opens a popover with every limit. Hidden for an account plan limits don't apply to.
+ * to running out, or with extra usage and the money spent on it while the account runs on that, which opens a popover
+ * with every limit. Hidden for an account plan limits don't apply to.
  */
 export function UsageMeter(): React.JSX.Element | null {
   const account = useGladeStore((state) => state.accountStatus.account)
@@ -127,6 +151,10 @@ export function UsageMeter(): React.JSX.Element | null {
   const [open, setOpen] = useState(false)
   const state = usageMeterState(account, readings, now)
   if (state.kind === UsageMeterKind.Hidden) return null
+  // Purple from 70%, of a plan limit or of extra usage's cap.
+  const warning =
+    state.kind === UsageMeterKind.Warning ||
+    (state.kind === UsageMeterKind.ExtraUsage && state.reading.level === UsageLevel.Warning)
   return (
     <div className={styles.footer}>
       <button
@@ -134,7 +162,7 @@ export function UsageMeter(): React.JSX.Element | null {
         type="button"
         className={classNames(
           styles.row,
-          state.kind === UsageMeterKind.Warning && styles.warning,
+          warning && styles.warning,
           state.kind === UsageMeterKind.Limited && styles.limited,
         )}
         aria-label="Usage"

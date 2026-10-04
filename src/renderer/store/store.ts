@@ -482,6 +482,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         set((state) => ({ sandboxGrants: withSandboxGrants(state.sandboxGrants, target, grants) }))
       },
 
+      async listReportedServers(target) {
+        const { servers } = await bridge.invoke(CommandName.SandboxListReportedServers, { target })
+        return servers
+      },
+
       async loadControlStatus() {
         const { status } = await bridge.invoke(CommandName.ControlStatus, {})
         set({ controlStatus: status })

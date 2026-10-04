@@ -598,6 +598,10 @@ it('hooks the tools the sandbox bounds before they run, only for a session that 
       'Read',
       'WebFetch',
       'Write',
+      // What reaches outside the sandbox altogether (#515): every MCP tool, and the two that reach other agents.
+      'mcp__.*',
+      'SendMessage',
+      'RemoteTrigger',
     ].sort(),
   )
   // And never for a session with no hooks at all, or one that isn't sandboxed.
@@ -624,11 +628,66 @@ it('tells the host of a call about to run, and denies it with the host’s messa
     {
       toolName: 'Write',
       input: { file_path: '/Users/me/Library/LaunchAgents/x.plist', content: '<plist/>' },
+      mcpServer: null,
       toolUseId: 'toolu_01start',
       agentId: null,
       signal,
     },
   ])
+})
+
+// #515: an MCP server Glade doesn't build runs outside the sandbox, and `SendMessage` and `RemoteTrigger` reach
+// agents that do. A rule in the user's settings (`permissions.allow: ["mcp__gmail"]`) let its tools through unasked.
+it('tells the host of an MCP tool’s call with the server it’s on, as the hook names it', async () => {
+  const heard: ToolCallStarting[] = []
+  const hear = (call: ToolCallStarting): Promise<null> => {
+    heard.push(call)
+    return Promise.resolve(null)
+  }
+  const connector = { name: 'claude.ai Acme Docs', source: 'claudeai' }
+
+  await guard(hear, starting('mcp__claude_ai_Acme_Docs__search', { query: 'retries' }, { mcp_server: connector }))
+  // Keys the SDK adds to it later are dropped.
+  await guard(hear, starting('mcp__glade__set_title', {}, { mcp_server: { name: 'glade', source: 'sdk', scope: 'x' } }))
+  // A hook that doesn't say, or says it in a shape Glade doesn't know: no server Glade can vouch for.
+  await guard(hear, starting('mcp__github__create_issue', {}))
+  await guard(hear, starting('mcp__github__create_issue', {}, { mcp_server: 'github' }))
+  await guard(hear, starting('mcp__github__create_issue', {}, { mcp_server: { name: 7 } }))
+
+  expect(heard.map(({ toolName, mcpServer }) => [toolName, mcpServer])).toEqual([
+    ['mcp__claude_ai_Acme_Docs__search', connector],
+    ['mcp__glade__set_title', { name: 'glade', source: 'sdk' }],
+    ['mcp__github__create_issue', null],
+    ['mcp__github__create_issue', null],
+    ['mcp__github__create_issue', null],
+  ])
+})
+
+it('tells the host of `SendMessage` and `RemoteTrigger` calls, and denies one it refuses', async () => {
+  const heard: string[] = []
+  const refuse = (call: ToolCallStarting): Promise<ToolStartDecision> => {
+    heard.push(call.toolName)
+    return Promise.resolve({ behavior: ToolPermissionBehavior.Deny, message: 'Denied by the user.', byUser: true })
+  }
+
+  const message = starting('SendMessage', { to: 'release-notes', message: 'Hi' })
+  await expect(guard(refuse, message)).resolves.toEqual(DENIED('Denied by the user.'))
+  await expect(guard(refuse, starting('RemoteTrigger', { action: 'list' }))).resolves.toEqual(
+    DENIED('Denied by the user.'),
+  )
+  expect(heard).toEqual(['SendMessage', 'RemoteTrigger'])
+})
+
+it('fails closed for an MCP tool too: a host that throws denies the call', async () => {
+  const log = createMemoryLog(LogScope.Agent)
+  const output = await guard(
+    () => Promise.reject(new Error('no database')),
+    starting('mcp__gmail__send', { to: 'sam@acme.dev' }, { mcp_server: { name: 'gmail', source: 'user' } }),
+    undefined,
+    log,
+  )
+
+  expect(output).toEqual(DENIED(SANDBOX_CHECK_FAILED))
 })
 
 it('names the subagent whose call it is', async () => {
@@ -683,10 +742,12 @@ it('waits as long as the host takes to decide: the call waits with it', async ()
   await expect(returned).resolves.toEqual(DENIED('Denied by the user.'))
 })
 
-it('leaves alone a tool the matcher caught that isn’t one the sandbox bounds', async () => {
+it('leaves alone a tool the matcher caught that isn’t one the sandbox bounds, or one that reaches outside it', async () => {
   const onToolStarting = vi.fn<NonNullable<SessionHooks['onToolStarting']>>()
 
-  await expect(guard(onToolStarting, starting('mcp__files__Read', { path: '/Users/me/x' }))).resolves.toEqual({})
+  // A matcher is a pattern: `Read` also matches these.
+  await expect(guard(onToolStarting, starting('ReadMcpResource', { uri: 'x' }))).resolves.toEqual({})
+  await expect(guard(onToolStarting, starting('SendMessageLater', {}))).resolves.toEqual({})
   await expect(guard(onToolStarting, starting('TodoWrite', {}))).resolves.toEqual({})
 
   expect(onToolStarting).not.toHaveBeenCalled()
