@@ -77,9 +77,9 @@ function onControl({ target, currentTarget }: MouseEvent<HTMLElement>): boolean 
 /**
  * One child of a todo in the hub (`docs/design/html/46-todo-hub.html`): its icon, its title with a tag, what it says
  * of itself and its age on one line, then what it opens to in place. On `inner` with an `inner-border` outline, lighter
- * under the pointer and ringed while it has the focus; never blue, since nothing under a todo is live. It takes the
- * focus by itself, so every child is reachable with Tab. Each kind's tile (`FileTile`, `LinkTile`, `CommitTile`) fills
- * this in from its own child.
+ * under the pointer and ringed while it has the focus; never on a live tint, since nothing under a todo is live. It
+ * takes the focus by itself, so every child is reachable with Tab. Each kind's tile (`FileTile`, `LinkTile`,
+ * `CommitTile`) fills this in from its own child.
  */
 export function Tile({
   kind,

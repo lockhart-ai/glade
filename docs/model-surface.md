@@ -351,42 +351,53 @@ its last issue (#501). A session has these two tools only when it starts with th
 exists, the prompt says nothing of them, and the app is what it was (`src/main/todo-hub/inert.test.ts`). Names and
 schemas are a draft, as the others are.
 
-In the hub, what a task made (its **children**: the files and links among its artifacts, its subagents, its watchers
-and its commits) sits under its todos, and a child with no todo shows in a placeholder group, "Not under a todo"
+In the hub, what a task produced (its **children**: the files and links among its artifacts, and its commits) sits
+under its todos, and a child with no todo shows in a placeholder group, "Not under a todo"
 ([`decisions.md`](decisions.md), "Todos as the hub"). Only the agent moves a child from one todo to another, with
 these tools: there's no menu for it. It's also how a task from before the hub gets sorted: nothing recorded which todo
 its children belong to, so you ask it to ("file your things under your todos") and it lists them and files them.
 And when Glade asks the agent to file what it just made (#495, [`sdk-notes.md` §16](sdk-notes.md#16-filing-a-child-under-a-todo)),
 the agent answers with one `file_children` call.
 
+**Todos hold produced work only (P16-12, #535).** A subagent and a watcher are what's going on, not what was produced,
+and neither is under a todo. A subagent still has a todo, the one it works on, as plumbing ("A subagent's todo is
+plumbing", below): the tools name a subagent only while it has none, so the agent can say which. A watcher is no
+child at all: the tools never list one and can't file one.
+
 A child is named by a **short id** within its task, `c1`, `c2`, …: given the first time Glade names the child to the
 agent, kept in SQLite, and never given to another child. A todo is named by Claude Code's own id for it, the `N` of
 `Task #N`.
 
-- **`mcp__glade__list_children`** takes `{ todo?: string }` and lists the task's children, giving a short id to any
-  that had none. A group per todo, in the agent's order, then the ones under no todo; each group's children by short
-  id, lowest first:
+- **`mcp__glade__list_children`** takes `{ todo?: string }` and lists what the task produced, giving a short id to
+  any child that had none. A group per todo, in the agent's order, then the ones under no todo; each group's children
+  by short id, lowest first:
 
   ```
-  #1 Review the date helpers (completed), 3 children:
-  - c3: subagent "Review the date helpers"
-  - c4: watcher "Date helper tests" (follows c3)
-  - c6: commit "73ad18a Fix the UTC date test" (follows c3)
+  #1 Review the date helpers (completed), 1 child:
+  - c5: commit "9b0c2de Tidy the date helpers"
   #2 Write up the review (in progress), no children
-  Not under a todo, 2 children:
+  Not under a todo, 4 children:
   - c1: file "Date helpers review"
   - c2: link "Fix the UTC date test"
+  - c3: subagent "Check the date tests"
+  - c4: commit "73ad18a Fix the UTC date test" (follows c3)
   ```
 
   A heading is the todo's id, text and state, in Claude Code's own words (`pending`, `in progress`, `completed`), and
-  how many children it holds. A line is the child's short id, its kind (`file`, `link`, `subagent`, `watcher`,
-  `commit`) and its title: an artifact's title, a subagent's name, a watcher's label (what it runs, when it has none),
-  a commit's short hash and subject. Titles and todos are on one line and cut to 80 characters, so a task with 200
-  children lists in about 200 short lines. **`(follows cN)`** marks a child the subagent `cN` made that has no filing of
-  its own: it goes wherever that subagent goes. With `todo`, the list is that todo's group alone (its id, with or
-  without a `#`), or the ones under no todo alone (`"none"`); a todo that isn't in the task's list is a tool error
-  that lists the todos there are (`There's no todo #9 in this task's list. Your todos: #1 … (completed) · #2 …`).
-  Listing files nothing and tells the windows nothing.
+  how many children it holds. A line is the child's short id, its kind (`file`, `link`, `commit`, or `subagent`) and
+  its title: an artifact's title, a commit's short hash and subject, a subagent's name. Titles and todos are on one
+  line and cut to 80 characters, so a task with 200 children lists in about 200 short lines.
+  - **A subagent is listed only while it has no todo,** with the ones under no todo: one started before the hub, one
+    whose call named no todo and that the agent hasn't filed yet, or one whose todo has been deleted. Filing it says
+    which todo it works on. A subagent that has its todo isn't listed, under that todo or anywhere: its commits are.
+  - **A watcher is never listed,** whoever started it.
+  - **`(follows cN)`** marks a commit the listed subagent `cN` made that has no filing of its own: it goes under
+    whichever todo that subagent is filed under. (A commit of a subagent that has its todo is under that todo, with
+    no mark.)
+
+  With `todo`, the list is that todo's group alone (its id, with or without a `#`), or the ones under no todo alone
+  (`"none"`); a todo that isn't in the task's list is a tool error that lists the todos there are (`There's no todo #9
+  in this task's list. Your todos: #1 … (completed) · #2 …`). Listing files nothing and tells the windows nothing.
 - **`mcp__glade__file_children`** takes `{ filings: { child: string, todo: string }[] }`, at least one: each a
   child's short id and the id of the todo to put it under. One tool files and moves: each child goes from wherever it
   is, the placeholder included.
@@ -395,13 +406,19 @@ agent, kept in SQLite, and never given to another child. A todo is named by Clau
     two todos in one call is a tool error that says which, and nothing is filed: `Nothing was filed. Not a child of
     this task: c12. List the task's children for their ids. There's no todo #9 in this task's list. Your todos: #1 …`
     A task with no todos is told `You have no todos yet: create one with TaskCreate first.`
+  - **A watcher is refused.** Watchers had short ids while the hub was first built with five kinds; one of those ids
+    is a tool error of its own, `Nothing was filed. Watchers aren't filed under todos: c5.`, and nothing else in the
+    call is filed either. Nothing gives a watcher an id any more, so this is only ever an id from then.
   - **How it's recorded.** A child that had a filing of its own is `moved`; one that had none (it was under no todo,
     or only followed its subagent) is `asked`: the agent filed it. A child already filed under that todo keeps its
     filing as it was. A child named twice for the same todo counts once.
-  - **A subagent brings what it made** (its commits, its watchers, its own subagents), apart from anything filed on
-    its own: the resolver follows the subagent, so nothing is written for those.
-  - **The reply** says what it did: `Filed 4 children: c1 under #2; c2, c5 under #3; c3 under #1. Moved with their
-    subagent: c4, c6.`, with `Already there: c1.` for the ones it left, or `Nothing changed. Already there: c1.`
+  - **A subagent is accepted, and filing it sets the todo it works on,** whether or not it had one (by an id Glade
+    gave it when it asked the agent to file it, or from a listing while it had no todo). It still isn't shown under
+    that todo. **Its commits come with it,** apart from any filed on its own: the resolver follows the subagent, so
+    nothing is written for those, and the reply names them. A subagent it started works on the same todo too, unless
+    it has one of its own, which the reply doesn't say.
+  - **The reply** says what it did: `Filed 3 children: c1 under #2; c2 under #3; c3 under #1. Moved with their
+    subagent: c4.`, with `Already there: c1.` for the ones it left, or `Nothing changed. Already there: c1.`
   - **The windows hear it** as they hear any filing: one `filings.changed` with the filings made.
   - It reads ids leniently: `C3` for `c3`, `#2` for `2`. A todo with no id (a `TodoWrite` item) can't hold anything.
 - **Main agent only**, as every Glade tool but `request_access` ("Main agent only", above): a subagent's call to
@@ -616,7 +633,7 @@ Four more parts are added after that, each after a blank line, when they apply:
 
   An artifact goes under a todo too: give add_artifact the todo's id as todo, for a file and for a link.
 
-  What this task has made (its artifacts, subagents, watchers and commits) shows to the user under its todos. list_children lists them, each with a short id and the todo it's under, and file_children files them under a todo or moves them to another, by those ids. When the user asks you to file or sort what you made, list them, then file them all in one call.
+  What this task has produced (its artifacts and commits) shows to the user under its todos. list_children lists them, each with a short id and the todo it's under, and file_children files them under a todo or moves them to another, by those ids. When the user asks you to file or sort what you made, list them, then file them all in one call.
   ```
 - **The sandbox:** in a session that runs sandboxed (Settings › Agent › Sandbox on as it starts), one paragraph
   (`SANDBOX_LINE`): that its commands can read and write the workspace folder and, beyond it, only the folders and

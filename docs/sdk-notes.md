@@ -3271,7 +3271,8 @@ The scripted backend emits these calls: the `files-children` script (`src/main/a
 and makes a background subagent, a real commit, a `Monitor`, a background command, a `ScheduleWakeup` and a
 `CronCreate` job. Its first turn names a todo in the `Agent` call and in the `Bash` call that commits; its second
 names none, and declares a file and a link with `add_artifact`'s `todo`. No call that starts a watcher names a todo, in
-either turn. The marker, where it goes for each tool, and the refusal's text (unused: nothing is refused) are in
+either turn. The marker, where it goes (the description of an `Agent` or a `Bash` call: the two a todo is read off,
+and the only two that file knows since #535), and the refusal's text (unused: nothing is refused) are in
 `src/main/agent/child-calls.ts`.
 
 The scripted session asks the three hooks as Claude Code does (`SessionHooks.onChildStarting`, `onBatchFinished`,
@@ -3288,9 +3289,10 @@ The filing tool the probes stood in for is real since P16-05 (#496), behind the 
 `mcp__glade__file_children`, with the input the probes used (`{ filings: [{ child, todo }] }`, a child's short id and
 a todo's id each), and `mcp__glade__list_children` beside it ([`model-surface.md`](model-surface.md)). Two scripts
 play them through the real handlers: `unsorted-children` makes one of each kind of child with nothing filing them (a
-file, a link, a subagent that commits and leaves its tests running, a `Monitor`), and `sorts-children`, played in that
-task after a relaunch with the setting on, lists them, files each under a todo in one call, moves the subagent, and
-is refused a todo and a child that aren't there.
+file, a link, a subagent that commits), and two watchers besides (the tests that subagent leaves running, a
+`Monitor`), which are no child of a todo (#535); and `sorts-children`, played in that task after a relaunch with the
+setting on, lists what it produced and the subagent (which has no todo yet), files each under a todo in one call,
+gives the subagent another todo, which brings its commit, and is refused a todo and a child that aren't there.
 
 ---
 

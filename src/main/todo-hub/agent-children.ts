@@ -428,9 +428,7 @@ export function fileForAgent(
   // Only what a todo shows: a subagent's own subagent follows it too, but that's plumbing, with nothing to tell.
   const moved = all.filter(
     (ref) =>
-      ref.kind !== ChildKind.Subagent &&
-      !named.has(refKey(ref)) &&
-      before.get(refKey(ref)) !== after.get(refKey(ref)),
+      ref.kind !== ChildKind.Subagent && !named.has(refKey(ref)) && before.get(refKey(ref)) !== after.get(refKey(ref)),
   )
   const brought = identifyChildren(db, taskId, moved)
     .map(({ id }) => id)

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ArtifactKind, ToolCallState, ToolEventKind, type Artifact, type ToolCallEvent } from '../../../shared/domain'
 import { ChildKind, refKey, commitChildKey } from '../../../shared/todoHub'
 import { sampleCommit } from '../../store/test-bridge'
-import { findArtifact, findCommit, subagentsIn } from './childIndex'
+import { findArtifact, findCommit, findSubagent, subagentsIn } from './childIndex'
 
 function file(path: string): Artifact {
   return {
@@ -55,7 +55,20 @@ describe('finding a child among the store’s lists', () => {
 
   it('finds nothing in a list the store hasn’t loaded', () => {
     expect(findArtifact(undefined, fileRef('docs/limits.md'))).toBeUndefined()
+    expect(findSubagent(undefined, 'agent-a')).toBeUndefined()
     expect(findCommit(undefined, 'abc /code/api')).toBeUndefined()
+  })
+
+  it('finds a subagent by its Agent call, for the commit it made, and no other call', () => {
+    const events = [
+      call('agent-a'),
+      call('did-1', { name: 'Bash', parentToolUseId: 'agent-a' }),
+      call('agent-b', { state: ToolCallState.Done, finishedAt: 4_000, parentToolUseId: 'agent-a' }),
+    ]
+    expect(findSubagent(events, 'agent-a')).toBe(events[0])
+    expect(findSubagent(events, 'agent-b')).toBe(events[2])
+    // A subagent's own call isn't a subagent.
+    expect(findSubagent(events, 'did-1')).toBeUndefined()
   })
 
   it('finds a commit by its hash and working tree', () => {
@@ -88,6 +101,8 @@ describe('indexing once per list', () => {
     // Its `Agent` calls, a subagent's own included, and no other call.
     expect(first).toEqual([events[0], events[2]])
     expect(subagentsIn(events)).toBe(first)
+    // The same call each time a tile asks for the subagent that made its commit, so the tile doesn't render.
+    expect(findSubagent(events, 'agent-a')).toBe(first[0])
     expect(subagentsIn([...events])).not.toBe(first)
   })
 

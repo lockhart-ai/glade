@@ -122,9 +122,10 @@ async function typesPromptly(window: Page): Promise<void> {
 }
 
 // The same task with the todo hub open on it (P16, #497): 40 todos, each a card, three of them open, the first over 50
-// tiles, two of them subagents still running, and each todo's title naming a PR the task has as a link, so each is a
-// link to it (#500). Every event of the turn reaches the hub, which works out each todo's children again; a card or a
-// tile renders only when its own data changed, so the keys don't wait on it.
+// tiles (files and links), with 30 subagents working on it, two of them still running, and none of them a tile (#535),
+// and each todo's title naming a PR the task has as a link, so each is a link to it (#500). Every event of the turn
+// reaches the hub, which works out each todo's children again; a card or a tile renders only when its own data
+// changed, so the keys don't wait on it.
 test('typing stays prompt with the todo hub open on a task with a very long history', async ({
   launch,
   tempFolder,
@@ -137,7 +138,7 @@ test('typing stays prompt with the todo hub open on a task with a very long hist
   const hub = todoHub(window)
   await expect(hub.cards).toHaveCount(LONG_HISTORY.todos)
   await expect(hub.tiles(hub.cards.first())).toHaveCount(HUB_CHILDREN_UNDER_FIRST)
-  await expect(hub.liveTiles(hub.cards.first())).toHaveCount(2)
+  await expect(hub.activity).toHaveCount(0)
   await expect(hub.cards.locator('[data-todo-head][aria-expanded="true"]')).toHaveCount(3)
   await expect(hub.links(hub.heads)).toHaveCount(LONG_HISTORY.todos)
 

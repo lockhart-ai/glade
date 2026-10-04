@@ -766,7 +766,12 @@ describe('the todo hub, with 100 todos and 50 children under one (P16, #497)', (
     act(() => {
       fake.emitBatch([
         { type: EventType.ToolEventAppended, toolEvent: hubAgent('agent-new', 'kitten-new', 0) },
-        { type: EventType.FilingsChanged, taskId: 't1', filed: [hubFiling(refOf.subagent('agent-new'), '3')], removed: [] },
+        {
+          type: EventType.FilingsChanged,
+          taskId: 't1',
+          filed: [hubFiling(refOf.subagent('agent-new'), '3')],
+          removed: [],
+        },
       ])
     })
     expect(rendered()).toEqual({ cards: 0, tiles: 0 })

@@ -155,6 +155,17 @@
   margin-left: 22px;
 }
 
+/* A line of what it opens to: a commit's branch. One line, cut short. */
+.line {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  line-height: 1.5;
+  color: var(--color-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* A commit's lines added and removed: teal, and pink for what it took away. */
 .added {
   color: var(--color-teal);

@@ -4,7 +4,14 @@
  * children that filter shows. Pure, so it's tested on its own. Behind the hidden `todoHubEnabled` setting.
  */
 import type { Todo } from '../../shared/domain'
-import { ChildFilter, ChildKind, PRODUCED_KINDS, type Child, type ProducedKind, type TodoPanel } from '../../shared/todoHub'
+import {
+  ChildFilter,
+  ChildKind,
+  PRODUCED_KINDS,
+  type Child,
+  type ProducedKind,
+  type TodoPanel,
+} from '../../shared/todoHub'
 
 /**
  * What the hub says in place of the summary, above the placeholder group, for a task that made things and kept no todo

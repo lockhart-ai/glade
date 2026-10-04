@@ -511,9 +511,11 @@
         sandbox]`, once, ahead of its next message, and not at all while it still runs outside the sandbox. A
         session recorded before this counts as not told, so one that started sandboxed while the sandbox was still
         off by default is told once more.
-- **Todos as the hub (P16, #491).** The Todos tab becomes the one place for everything a task made, ran and is
-  waiting on: a todo is a step of work, and its **children** (files, links, subagents, watchers, commits) sit under
-  it. What's decided so far is the groundwork (P16-03, #494); the rest is in the phase's issues.
+- **Todos as the hub (P16, #491).** The Todos tab becomes the place for what a task produced: a todo is a step of
+  work, and its **children** (files, links and commits) sit under it. The phase first set out to put everything
+  under todos, subagents and watchers too; Jared then split it into activity (the Agents tab) and produced work
+  (Todos), and "Todos hold produced work only", below, is where the hub got there. What's decided so far is the
+  groundwork (P16-03, #494); the rest is in the phase's issues.
   - **Built dark.** The whole phase lands behind a hidden setting, `todoHubEnabled`: a boolean, off by default, with
     nothing in Settings, as P15's `sandboxEnabled` was before its switch was drawn. With it off, nothing of the hub is
     read, written, sent or shown: the tools, the prompt, the hooks and every screen are what they were, and a test
@@ -527,23 +529,23 @@
     (`sdk-notes.md` §16). It reaches the window with each todo, whatever the switch says, and the Todos tab keys its
     rows on it. A `TodoWrite` item has none: nothing can be filed under it, and its row is keyed by its place in the
     list. (Glade keeps Claude Code's task tools on for a session with the hub, #495, so that shouldn't occur.)
-  - **A child is named by its kind and its own key:** a file by its artifact's path, a link by its URL, a subagent
-    and a watcher by the `tool_use` id of the call that started it, a commit by its hash and working tree. It also
-    has a **short id** within its task (`c1`, `c2`, …), which Glade shows the agent and the agent files and moves
-    children by: given the first time Glade names the child, kept in SQLite, the same for the life of the task and
-    never given to another child, even after the first is removed.
+  - **A child is named by its kind and its own key:** a file by its artifact's path, a link by its URL, a commit by
+    its hash and working tree, and a subagent (which has a todo as plumbing, and is no todo's child) by the
+    `tool_use` id of the call that started it. It also has a **short id** within its task (`c1`, `c2`, …), which
+    Glade shows the agent and the agent files and moves children by: given the first time Glade names the child,
+    kept in SQLite, the same for the life of the task and never given to another child, even after the first is
+    removed.
   - **A filing is "this child, this todo, how, when", one per child:** filing a child again replaces its filing. How
     it was filed is one of: named in the call that made it, filed by the agent when Glade asked, inherited from the
     subagent that made it, or moved by the agent.
   - **Where a child shows:** under the todo its filing names. With no filing, or once its todo is no longer in the
     list (deleted), it's under **Not under a todo**, the placeholder group, which has a reserved id (`unfiled`) for
-    its own panel state. What a subagent made (a watcher, a commit, a subagent of its own, however deep) is a child
-    of the todo in its own right and follows the subagent's todo, unless it has a filing of its own; so moving a
-    subagent brings what it made. A deleted todo's filings are kept, since its id is never reused.
-  - **Counts and order.** A todo counts its children by kind, and a kind is live while one of its children is: a
-    running subagent, or a watcher whose process runs (one that's only scheduled isn't). A todo's list is ordered by
-    last update, newest first: a file's last change, a link's last change, a subagent's latest activity, a watcher's
-    last wake (else its end, else its start), a commit's time.
+    its own panel state. What a subagent committed (it, or a subagent of its own, however deep) is a child of the
+    todo in its own right and follows the subagent's todo, unless it has a filing of its own; so giving a subagent
+    another todo brings its commits. A deleted todo's filings are kept, since its id is never reused.
+  - **Counts and order.** A todo counts its children by kind: files, links, changes. Nothing under a todo is live, so
+    a count is never blue. A todo's list is ordered by last update, newest first: a file's last change, a link's
+    last change, a commit's time.
   - **Each todo's panel remembers** whether it's open and its filter, per task in SQLite, for the placeholder group
     too.
   - **Only the agent moves a child** (P16-05, #496), with two Glade tools a session has while the switch is on, for
@@ -551,8 +553,8 @@
     short id, and `file_children`, which takes several filings in one call (a child's short id and a todo's id each)
     and makes all of them or none. There's no menu for it. It's one tool for filing and moving: it's what the agent
     answers with when Glade asks it to file what it just made (#495), and how a task from before the hub gets sorted
-    ("file your things under your todos"). A subagent that moves brings what it made, by the resolver, so no row of
-    those is rewritten ([`model-surface.md`](model-surface.md)).
+    ("file your things under your todos"). A subagent that's given another todo brings its commits, by the resolver,
+    so no row of those is rewritten ([`model-surface.md`](model-surface.md)).
   - **Produced work is filed as it's made** (P16-04, #495), with the rule Jared picked from #492's findings
     (`sdk-notes.md` §16), narrowed when the phase split into Agents (activity) and Todos (produced work). The `Bash`
     call that commits names its todo, `[todo N]` at the start of its description, and Glade files the commit there and
@@ -581,12 +583,42 @@
       reads it from the store through an index made once per list, so one child's update renders that tile alone; and
       every age keeps its own clock. `src/renderer/history-renders.test.tsx` holds it at 100 todos with 50 children
       under one.
-    - **The tile** (`src/renderer/todos/tiles/`) is one shell (`Tile`: icon, title, tag, state, age; at rest, hover,
-      focus, live, outlined) filled in by a component per kind. This issue's are plain: enough to show each child.
-      What a tile does and opens to is #498 (files and links) and #499 (subagents, watchers and commits).
+    - **The tile** (`src/renderer/todos/tiles/`) is one shell (`Tile`: icon, title, tag, what it says of itself,
+      age; at rest, hover, focus, outlined) filled in by a component per kind: a file, a link, a commit. What a tile
+      does and opens to is #498 (files and links) and #499 (commits).
     - **Each todo's panel is as you left it:** the window changes it at once and has main remember it
       (`todoHub.setPanel`). A filter whose kind has no children shows All, and is remembered, for when it has some
       again.
+  - **Todos hold produced work only** (P16-12, #535; the screens as #534 redrew them). Still behind the switch.
+    The hub was built to hold five kinds of thing under a todo (#497); it holds three: files, links and commits.
+    - **No subagent and no watcher is under a todo, or under "Not under a todo":** no tile, no count, no filter
+      pill, no tooltip. They're activity, and live in the Agents tab (#536, #537). Nothing under a todo is ever
+      live, so no count, pill or tile is blue, and the tile's live tint and state colours are gone with the two
+      tiles that used them.
+    - **A subagent's todo stays, as plumbing.** The store still records which todo a subagent was started for (a
+      filing of kind `subagent`, as before). It's what the subagent's commits follow, so they still land under that
+      todo, and what its tab in the Agents tab says. `subagentTodo` and `subagentTodos` in `src/shared/todoHub.ts`
+      read it from the todos, the subagents and the filings alone; `groupChildren` uses the same rule to place
+      commits, and never returns a subagent.
+    - **A watcher is no child at all:** not filed, not grouped, not given a short id. `ChildKind` has no watcher, and
+      the resolver doesn't take a task's watchers.
+    - **"Nothing at all" counts produced work only.** A task with no todos shows the centred "No todos yet." unless
+      it has an artifact or a commit: one with only subagents and watchers has produced nothing. A task whose only
+      unfiled things are subagents or watchers has no "Not under a todo" group.
+    - **The agent's tools.** `list_children` lists files, links and commits, and a subagent only while it has no todo
+      (with the ones under no todo, so the agent can say which todo it's for); never a watcher. `file_children` still
+      takes a subagent, which sets its todo, and refuses a watcher's id with `Watchers aren't filed under todos`. The
+      prompt's line about the tools names artifacts and commits ([`model-surface.md`](model-surface.md)).
+    - **No migration.** The hub's tables keep their `kind` checks as they are, `watcher` included, and
+      `todo_panels.filter` still allows `subagent` and `watcher`. Rows written while the hub had five kinds stay
+      where they are and are read past: a watcher's filing, owed filing and short id are left out of every read
+      (and its id is never given to another child), and a panel left on the Subagents or Watchers filter reads as
+      All, open or closed as it was. Nothing cleans them up; a panel's row is rewritten the next time you open,
+      close or filter it. Nothing writes a row of either kind any more, and the bridge refuses a panel with either
+      filter.
+    - **What the first design left, tidied:** `src/main/agent/child-calls.ts` knew a marker field for each of the
+      five tools that could make a child; it knows the two a todo is read off (`Agent`, `Bash`), both by their
+      description.
   - **Links in a todo's text** (P16-09, #500; the states strip of `design/screens/46-todo-hub.png`;
     `src/renderer/todos/todoLinks.ts`). In a todo's title and its status line, done todos included, a PR, an issue or
     a ticket the todo names is a link to it, when the task has it as a link artifact.
@@ -620,7 +652,7 @@
     3. With the switch off, the hub's bridge commands are refused (`invalid_transition`) rather than answered empty.
     4. A todo's panel state isn't broadcast to other windows, as the Artifacts tab's filter isn't.
     5. A task from before the hub gets its children's short ids the first time Glade names them, oldest first within
-       each kind: artifacts, then subagents, then watchers, then commits.
+       each kind: artifacts, then subagents, then commits (watchers too, until #535).
 
     From the agent's tools (P16-05, #496):
     6. A filing the agent makes is `moved` when the child had a filing of its own, and `asked` when it had none: one
@@ -659,8 +691,7 @@
         state yet.
     20. A link's tile says `#511`, a ticket's key or a page's domain after its title, as the screens draw it, and not
         the Artifacts tab's `#511 · acme/api`. #498 owns the link tile and may change it.
-    21. Until #499, a watcher's tile shows one line under its label (its last report while it's live, how it ended
-        after), from the Watchers tab's own model, and a running subagent's shows its summary.
+    21. (Gone with #535: a watcher's and a subagent's tile, and the line each showed under its name.)
     22. While the hub shows a task, main watches its file artifacts for outside edits, as it does for the Artifacts
         tab, so a file's place in its todo's list is current.
     23. Until its filings have loaded, the hub shows the todos with nothing under them, and no placeholder group,
@@ -722,8 +753,28 @@
         still asks for them), and file, ask and hold nothing; `add_artifact` adds as it did before the hub. A session
         that then starts again has no hooks, while Claude Code keeps the prompt it started with: the markers it
         writes show until the switch is back on. That's only reachable by turning the hidden switch off by hand.
-    42. The store and the agent's tools (#494, #496) still know a watcher as a kind of child, and a subagent still
-        shows in the hub's groups until #535 takes both out: `file_children` can file either, and nothing here does.
+    42. (Settled by #535: the store and the agent's tools no longer know a watcher as a kind of child, and no
+        subagent shows in the hub's groups.)
+
+    From produced work only (P16-12, #535):
+
+    43. A row left from when the hub had five kinds is read past, not cleaned up: no migration deletes a watcher's
+        filing or short id, or rewrites a panel left on a filter that's gone. Such rows only exist where the hidden
+        switch was turned on by hand.
+    44. A subagent is listed by `list_children` whenever it has no todo: one from before the hub, one the agent
+        hasn't filed yet, and one whose todo was deleted. It keeps its short id across all three.
+    45. When a subagent is given another todo, `file_children`'s reply names the commits that moved with it, and not
+        the subagents it started, which work on that todo too: they aren't shown anywhere, and naming one would give
+        it a short id for nothing.
+    46. A commit that follows a subagent is marked `(follows cN)` only while that subagent is listed, that is, while
+        it has no todo. Under a todo, the commit is listed plainly.
+    47. A watcher's old short id is refused with its own words (`Watchers aren't filed under todos: c5.`), told apart
+        from an id that was never given; any other way of naming a watcher is just not a child of the task.
+    48. The bridge refuses `todoHub.setPanel` with the `subagent` or `watcher` filter, as it does any filter it
+        doesn't know: only a stored row is read leniently.
+    49. `groupChildren` no longer takes a task's watchers, and takes its subagents as their `Agent` calls alone: when
+        each last did anything was only for a subagent's place in a todo's list.
+    50. The sample task's subagents in the capture fixture keep their todos (as plumbing); its watchers lose theirs.
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
     `manifest.json`: `id` (the folder's name), `name`, `version`, `entry` (an HTML file in the folder) and an optional

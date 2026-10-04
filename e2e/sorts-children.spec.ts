@@ -46,8 +46,9 @@ test('a task from before the todo hub: asked to, its agent lists what it made an
   launch,
   tempFolder,
 }) => {
-  // Before the hub: the agent keeps three todos, and makes a file, a link, a subagent (which commits, and leaves its
-  // tests running) and a watcher. Nothing says which todo any of them belongs to.
+  // Before the hub: the agent keeps three todos, and makes a file, a link and a subagent, which commits. (It has two
+  // watchers too, the tests its subagent leaves running and a monitor, which are no child of a todo.) Nothing says
+  // which todo any of them belongs to.
   const glade = await launch({ agentScript: 'unsorted-children', chosenFolder: workspaceRoot(tempFolder) })
   const { window } = glade
   await firstRun(window).openFolder.click()
@@ -58,17 +59,14 @@ test('a task from before the todo hub: asked to, its agent lists what it made an
   // Its session started with the hub off: the prompt says nothing of the tools.
   for (const { systemPromptAppend } of await agentSessions(glade)) expect(systemPromptAppend).not.toContain('children')
 
-  // The hub is turned on by hand: there's nothing for it in Settings. Everything the task made is under no todo.
+  // The hub is turned on by hand: there's nothing for it in Settings. Everything the task produced is under no todo;
+  // its subagent and its two watchers are under nothing.
   await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
   const unfiled = async () => (await invoke(window, CommandName.TodoHubGet, { taskId })).children.unfiled
   // Glade reads git for the subagent's commit once its command has run.
-  await expect.poll(async () => (await unfiled()).tallies[ChildKind.Commit].count).toBe(1)
-  expect(await placed(window, taskId)).toEqual([
-    [],
-    [],
-    [],
-    ['commit unfiled', 'file unfiled', 'link unfiled', 'subagent unfiled', 'watcher unfiled', 'watcher unfiled'],
-  ])
+  await expect.poll(async () => (await unfiled()).tallies[ChildKind.Commit]).toBe(1)
+  expect(await placed(window, taskId)).toEqual([[], [], [], ['commit unfiled', 'file unfiled', 'link unfiled']])
+  expect((await invoke(window, CommandName.TasksHistory, { id: taskId })).watchers).toHaveLength(2)
   await glade.close()
 
   // Relaunched, the task's session starts again, with the two tools and the prompt's line about them.
@@ -85,23 +83,16 @@ test('a task from before the todo hub: asked to, its agent lists what it made an
   await panel.tab(/^Tool calls/).click()
   await expect(panel.call(/^Done\s*list_children/)).toBeVisible()
   await expect(panel.call(/^Done\s*file_children/)).toHaveCount(1)
-  // The subagent brought its commit and the tests it left running, and the placeholder is empty.
-  expect(await placed(page, taskId)).toEqual([
-    ['commit inherited', 'subagent asked', 'watcher inherited'],
-    ['file asked'],
-    ['link asked', 'watcher asked'],
-    [],
-  ])
+  // It listed no watcher, and the subagent only because it had no todo yet.
+  await expect(panel.call(/^Done\s*list_children/)).toHaveAccessibleName(/Not under a todo, 4 children:/)
+  await expect(panel.call(/^Done\s*list_children/)).not.toHaveAccessibleName(/watcher/)
+  // The subagent's commit went under the todo it now works on, and the placeholder is empty.
+  expect(await placed(page, taskId)).toEqual([['commit inherited'], ['file asked'], ['link asked'], []])
 
-  // Asked to move the review, it moves the subagent, and what the subagent made goes with it.
+  // Asked to move the review, it gives the subagent another todo, and the subagent's commit goes with it.
   await send(page, SORT.movePrompt)
   await expect(chat(page).agentReplies.last()).toContainText(SORT.moved)
-  const moved = [
-    [],
-    ['commit inherited', 'file asked', 'subagent moved', 'watcher inherited'],
-    ['link asked', 'watcher asked'],
-    [],
-  ]
+  const moved = [[], ['commit inherited', 'file asked'], ['link asked'], []]
   expect(await placed(page, taskId)).toEqual(moved)
 
   // A todo and a child that aren't there: the call fails, saying which, and nothing moves.
@@ -117,6 +108,5 @@ test('a task from before the todo hub: asked to, its agent lists what it made an
     'file 2 asked',
     'link 3 asked',
     'subagent 2 moved',
-    'watcher 3 asked',
   ])
 })

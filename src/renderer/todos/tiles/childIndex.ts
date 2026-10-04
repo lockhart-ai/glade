@@ -41,7 +41,7 @@ const subagentLists = new WeakMap<readonly ToolEvent[], readonly ToolCallEvent[]
 
 /**
  * A tool log's subagents (`subagentsOf`), worked out once per log: the hub groups from them, since a subagent's commits
- * go under the todo it works on.
+ * go under the todo it works on, and a commit's tile finds the one that made it among them.
  */
 export function subagentsIn(events: readonly ToolEvent[]): readonly ToolCallEvent[] {
   let known = subagentLists.get(events)
@@ -55,6 +55,14 @@ export function subagentsIn(events: readonly ToolEvent[]): readonly ToolCallEven
 /** The file or link artifact that is a child, by the child as one string (`refKey`), among a task's artifacts. */
 export const findArtifact = indexedBy((artifacts: readonly Artifact[]) =>
   byKey(artifacts, (artifact) => refKey(childOfArtifact(artifact))),
+)
+
+/**
+ * The subagent a task's tool log has for an `Agent` call's `tool_use` id: its call. For the name of the subagent that
+ * made a commit, on the commit's tile; a subagent has no tile of its own.
+ */
+export const findSubagent = indexedBy((events: readonly ToolEvent[]) =>
+  byKey(subagentsIn(events), ({ toolUseId }) => toolUseId),
 )
 
 /** The commit with a child's key (`commitChildKey`) among a task's commits. */

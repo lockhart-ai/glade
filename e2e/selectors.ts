@@ -205,7 +205,8 @@ export function taskPanel(page: Page) {
 
 /**
  * The Todos tab as the todo hub (P16), which it is while the hidden `todoHubEnabled` setting is on: a card per todo,
- * each with its children under it, then the placeholder group for the children no todo has.
+ * each with what it produced under it (files, links and commits), then the placeholder group for what no todo has.
+ * No subagent or watcher is under either, and nothing there is ever live (#535).
  */
 export function todoHub(page: Page) {
   const panel = regions(page).taskPanel.getByRole('tabpanel')
@@ -232,20 +233,21 @@ export function todoHub(page: Page) {
     links: (head: Locator) => head.getByRole('link'),
     /**
      * A card's row of icons, in order: a count per kind while it's closed, the same as filter pills (`aria-pressed`)
-     * while it's open. Each is named by what it counts (`2 subagents, 1 running`), and has `data-live` while one of
-     * its kind is running.
+     * while it's open. Each is named by what it counts (`2 links`, `1 change`).
      */
     kinds: (card: Locator) => card.locator('button[data-kind]'),
     kind: (card: Locator, name: string) => card.getByRole('button', { name, exact: true }),
-    /** An open card's All pill, named `All 7`. */
+    /** An open card's All pill, named `All 4`. */
     all: (card: Locator) => card.getByRole('button', { name: /^All \d+$/ }),
     /**
-     * An open card's tiles, most recently updated first, each named by its kind and title (`Subagent: fix-501-ci`);
-     * `data-kind` is its kind, and `data-live` is there while it runs.
+     * An open card's tiles, most recently updated first, each named by its kind and title (`Change: Fix the header`);
+     * `data-kind` is its kind: `file`, `link` or `commit`.
      */
     tiles: (card: Locator) => card.locator('[role="group"][data-kind]'),
-    /** The tiles of an open card that are running now. */
-    liveTiles: (card: Locator) => card.locator('[role="group"][data-kind][data-live]'),
+    /**
+     * What the hub must never show: a count, a pill or a tile for a subagent or a watcher, and anything marked live.
+     */
+    activity: panel.locator('[data-kind="subagent"], [data-kind="watcher"], [data-live]'),
     /**
      * One of an open card's tiles, by its kind and title (`File: Rate limits reference`). A file's has `aria-current`
      * while the Files tab shows its file, and `aria-busy` until its file has been looked at.

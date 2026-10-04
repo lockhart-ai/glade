@@ -114,28 +114,22 @@ describe('todoHub.get', () => {
 
     const hub = await glade.invoke(CommandName.TodoHubGet, { taskId: task.id })
 
-    const none = { count: 0, live: false }
-    const tallies = {
-      [ChildKind.File]: none,
-      [ChildKind.Link]: none,
-      [ChildKind.Subagent]: none,
-      [ChildKind.Watcher]: none,
-      [ChildKind.Commit]: none,
-    }
+    // A count for each kind a todo shows: files, links and commits, and nothing for a subagent or a watcher.
+    const tallies = { [ChildKind.File]: 0, [ChildKind.Link]: 0, [ChildKind.Commit]: 0 }
     expect(hub).toEqual({
       children: {
         todos: [
           { todoId: '1', children: [], tallies },
           {
             todoId: '2',
-            children: [{ ...plan, updatedAt: 4_000, live: false, source: FilingSource.Named }],
-            tallies: { ...tallies, [ChildKind.File]: { count: 1, live: false } },
+            children: [{ ...plan, updatedAt: 4_000, source: FilingSource.Named }],
+            tallies: { ...tallies, [ChildKind.File]: 1 },
           },
         ],
         unfiled: {
           todoId: UNFILED_TODO_ID,
-          children: [{ kind: ChildKind.File, key: 'docs/notes.md', updatedAt: 4_100, live: false, source: null }],
-          tallies: { ...tallies, [ChildKind.File]: { count: 1, live: false } },
+          children: [{ kind: ChildKind.File, key: 'docs/notes.md', updatedAt: 4_100, source: null }],
+          tallies: { ...tallies, [ChildKind.File]: 1 },
         },
       },
       filings: [{ taskId: task.id, ...plan, todoId: '2', source: FilingSource.Named, filedAt: 5_000 }],
@@ -168,7 +162,7 @@ describe('todoHub.setPanel', () => {
     await turnOn()
     const panels = [
       { taskId: task.id, todoId: '1', open: true, filter: ChildFilter.All },
-      { taskId: task.id, todoId: '3', open: false, filter: ChildFilter.Subagents },
+      { taskId: task.id, todoId: '3', open: false, filter: ChildFilter.Links },
       { taskId: task.id, todoId: UNFILED_TODO_ID, open: true, filter: ChildFilter.Commits },
     ]
 

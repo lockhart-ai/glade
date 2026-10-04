@@ -822,7 +822,14 @@ describe('subagentsOf', () => {
       note('n1', null, 1_500),
       note('n2', 'agent-a', 1_600),
       call('bash', { name: 'Bash', parentToolUseId: 'agent-b' }),
-      { id: 'd1', taskId: TASK, turn: 1, createdAt: 12_000, kind: ToolEventKind.Divider, dividerKind: DividerKind.Turn },
+      {
+        id: 'd1',
+        taskId: TASK,
+        turn: 1,
+        createdAt: 12_000,
+        kind: ToolEventKind.Divider,
+        dividerKind: DividerKind.Turn,
+      },
     ]
 
     expect(subagentsOf(events)).toEqual([events[1], events[2]])

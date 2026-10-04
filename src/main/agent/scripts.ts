@@ -4231,14 +4231,13 @@ export const SORTS_CHILDREN = {
     { child: 'c1', todo: '2' },
     { child: 'c2', todo: '3' },
     { child: 'c3', todo: '1' },
-    { child: 'c5', todo: '3' },
   ],
   sorted:
-    'Everything is filed: the review and what it made under "Review the date helpers", the write-up under "Write up ' +
-    'the review", and the PR and its CI watch under "Watch CI on PR #42".',
+    'Everything is filed: what the review committed under "Review the date helpers", the write-up under "Write up ' +
+    'the review", and the PR under "Watch CI on PR #42".',
   movePrompt: 'Put the review under the write-up instead.',
   move: [{ child: 'c3', todo: '2' }],
-  moved: 'Moved the review under "Write up the review", with its commit and the tests it left running.',
+  moved: 'The review is for "Write up the review" now, and its commit is under it.',
   /** A todo and a child that aren't there. */
   badPrompt: 'Now put the write-up and the changelog under the release todo.',
   bad: [
@@ -4250,8 +4249,8 @@ export const SORTS_CHILDREN = {
 
 /**
  * A task that makes one of each kind of child with nothing filing them, as every task did before the todo hub: three
- * todos, a subagent that makes a real commit and leaves its tests running, a file and a link declared as artifacts,
- * and a `Monitor`. `sorts-children` then sorts it.
+ * todos, a subagent that makes a real commit, and a file and a link declared as artifacts. It has two watchers too,
+ * the tests its subagent leaves running and a `Monitor`, which are no child of a todo. `sorts-children` then sorts it.
  */
 const unsortedChildren: AgentScript = {
   name: 'unsorted-children',
@@ -4304,9 +4303,10 @@ const unsortedChildren: AgentScript = {
 
 /**
  * Sorts what `unsorted-children` made, with Glade's `list_children` and `file_children` (P16-05, #496), in a session
- * that has them (one started with the todo hub on): asked to file its things, it lists them and files each under a
- * todo in one call; asked to move the review, it moves the subagent, which brings its commit and its tests; asked for
- * a todo and a child that aren't there, its call is refused and it says so. A spec plays it in the task
+ * that has them (one started with the todo hub on): asked to file its things, it lists them (the file, the link, the
+ * commit, and the subagent, which has no todo yet; no watcher) and files each under a todo in one call; asked to move
+ * the review, it gives the subagent another todo, which brings its commit; asked for a todo and a child that aren't
+ * there, its call is refused and it says so. A spec plays it in the task
  * `unsorted-children` made, after a relaunch, so its first turn is the sorting.
  */
 const sortsChildren: AgentScript = {

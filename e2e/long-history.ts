@@ -46,7 +46,7 @@ type SeedToolEvent =
       readonly parentToolUseId?: string
       readonly turn: number
       readonly minutesAgo: number
-      /** For an `Agent` call: the todo its subagent is filed under in the todo hub. */
+      /** For an `Agent` call: the todo its subagent works on in the todo hub. */
       readonly todo?: string
     }
 
@@ -81,19 +81,22 @@ interface SeedTask {
 /** How many children the long task's first todo has in the todo hub: the hub's big case (`CLAUDE.md`, Performance). */
 export const HUB_CHILDREN_UNDER_FIRST = 50
 
-/** The subagents among them, the running ones included; the rest are artifacts. */
-const HUB_SUBAGENTS_UNDER_FIRST = 30
+/** The files among them; the rest are links, which only a task with that many files has. */
+const HUB_FILES_UNDER_FIRST = 20
+
+/** How many subagents work on the first todo, the running ones included: none is one of its children. */
+const HUB_SUBAGENTS_ON_FIRST = 30
 
 /**
- * The todo a child is filed under in the hub, when the seed files them: the first todo has the first of each kind (and
- * the subagents still running), `HUB_CHILDREN_UNDER_FIRST` in all, and the rest go round the other todos.
+ * The todo a file is filed under in the hub, and the one a subagent works on, when the seed files them: the first todo
+ * has the first of each (and the subagents still running), and the rest go round the other todos.
  */
 function hubTodo(scale: HistoryScale, kind: 'subagent' | 'artifact', index: number): string {
   const running = kind === 'subagent' && index > scale.subagents - RUNNING_SUBAGENTS
   const first =
     kind === 'subagent'
-      ? running || index <= HUB_SUBAGENTS_UNDER_FIRST - RUNNING_SUBAGENTS
-      : index <= HUB_CHILDREN_UNDER_FIRST - HUB_SUBAGENTS_UNDER_FIRST
+      ? running || index <= HUB_SUBAGENTS_ON_FIRST - RUNNING_SUBAGENTS
+      : index <= HUB_FILES_UNDER_FIRST
   return first || scale.todos < 2 ? '1' : String(2 + (index % (scale.todos - 1)))
 }
 
@@ -248,6 +251,17 @@ function historyTask(title: string, scale: HistoryScale, selected: boolean, hub 
     minutesAgo: scale.artifacts - index,
     ...(hub ? { todo: hubTodo(scale, 'artifact', index + 1) } : {}),
   }))
+  if (hub && scale.artifacts >= HUB_FILES_UNDER_FIRST) {
+    // The rest of the first todo's `HUB_CHILDREN_UNDER_FIRST`: links no todo's text names.
+    for (let index = 1; index <= HUB_CHILDREN_UNDER_FIRST - HUB_FILES_UNDER_FIRST; index += 1) {
+      artifacts.push({
+        url: `https://github.com/acme/api/issues/${String(9000 + index)}`,
+        title: `The ${area(index)} report, as filed`,
+        minutesAgo: scale.artifacts + index,
+        todo: '1',
+      })
+    }
+  }
   if (hub) {
     for (let named = 1; named <= scale.todos; named += 1) {
       artifacts.push({
@@ -283,8 +297,9 @@ export enum SelectedHistory {
 /**
  * Writes the fixture into `folder` and returns its path: the long task and the small one in one workspace, with
  * `selected` showing and the right panel on `panelTab`. With `hub`, the todo hub is on (the hidden `todoHubEnabled`
- * setting) and the tasks' subagents and artifacts are filed under their todos, `HUB_CHILDREN_UNDER_FIRST` of the long
- * task's under its first; each task also has a link artifact for the PR each of its todos names.
+ * setting), the tasks' artifacts are filed under their todos, `HUB_CHILDREN_UNDER_FIRST` of the long task's under its
+ * first, and each subagent has the todo it works on; each task also has a link artifact for the PR each of its todos
+ * names.
  */
 export function writeLongHistorySeed(
   folder: string,

@@ -64,8 +64,9 @@ stopping at the first and last; → opens it, on the filter it was last on (noth
 under it); ← closes it; ↵ or Space opens or closes it, as a click does; and Context menu (⇧F10) opens a todo's menu
 (Copy · Ask agent about this). Held with ⌘, ⌃, ⌥ or ⇧, those keys are left to whatever command has them, so Next /
 previous task (⌥↓ / ⌥↑) work from a todo too. Tab reaches every todo, then an open todo's filter pills and its tiles,
-in order: ↵ or Space on a pill shows that kind alone, or all of them (All), and what ↵ does on a tile is each kind's
-own (#498, #499). A closed todo's counts are skipped, since → opens the todo and its pills say the same. A link in a
+in order: ↵ or Space on a pill shows that kind alone (files, links or changes: a todo holds what it produced, and no
+subagent or watcher is under one, #535), or all of them (All), and what ↵ does on a tile is each kind's own (#498,
+#499). A closed todo's counts are skipped, since → opens the todo and its pills say the same. A link in a
 todo's title or status line (a URL, or a PR, an issue or a ticket it names that the task has as a link, #500) is a Tab
 stop after its todo, as every link is: ↵ opens it in the browser, and the todo's own keys do nothing while it has the
 focus.

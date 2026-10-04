@@ -8,6 +8,7 @@ import type { Page } from '@playwright/test'
 import { SUBAGENT_BACKGROUND_WORK as WORK } from '../src/main/agent/scripts'
 import { BridgeErrorCode, CommandName } from '../src/shared/bridge'
 import { ChildFilter, ChildKind, UNFILED_TODO_ID } from '../src/shared/todoHub'
+import { ToolEventKind } from '../src/shared/domain'
 import { expect, test } from './fixtures'
 import { chat, firstRun, inputBar, taskList, taskPanel, todoHub } from './selectors'
 import { invoke, refusal } from './task-view'
@@ -66,7 +67,7 @@ test('the todo hub’s switch: off by default, set by hand, kept across a relaun
   expect(await refusal(window, CommandName.TodoHubGet, { taskId })).toMatchObject({
     code: BridgeErrorCode.InvalidTransition,
   })
-  const opened = { taskId, todoId: '4', open: true, filter: ChildFilter.Watchers }
+  const opened = { taskId, todoId: '4', open: true, filter: ChildFilter.Commits }
   expect(await refusal(window, CommandName.TodoHubSetPanel, opened)).toMatchObject({
     code: BridgeErrorCode.InvalidTransition,
   })
@@ -115,6 +116,13 @@ test('the todo hub’s switch: off by default, set by hand, kept across a relaun
   expect(await refusal(window, CommandName.TodoHubSetPanel, bad)).toMatchObject({
     code: BridgeErrorCode.InvalidRequest,
   })
+  // So is a filter the hub once had: a todo holds no watchers and no subagents to show alone.
+  for (const filter of ['watcher', 'subagent']) {
+    const gone = { ...opened, filter } as unknown as typeof opened
+    expect(await refusal(window, CommandName.TodoHubSetPanel, gone)).toMatchObject({
+      code: BridgeErrorCode.InvalidRequest,
+    })
+  }
   expect((await invoke(window, CommandName.TodoHubGet, { taskId })).panels).toEqual([opened, placeholder])
 
   // A relaunch keeps the switch, the todos' ids and the panels.
@@ -130,7 +138,7 @@ test('the todo hub’s switch: off by default, set by hand, kept across a relaun
   expect(kept.children.todos.map(({ todoId }) => todoId)).toEqual(PLAN.map((_, index) => String(index + 1)))
 })
 
-test('the todo hub, turned on: what a task made before it is all under "Not under a todo", counted by kind', async ({
+test('the todo hub, turned on: a task that has only a subagent and watchers has produced nothing, and shows nothing', async ({
   launch,
   tempFolder,
 }) => {
@@ -144,23 +152,32 @@ test('the todo hub, turned on: what a task made before it is all under "Not unde
 
   await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
 
-  // The agent tails the deploy log; its subagent lints (done a moment later) and runs the e2e suite. With no todos
-  // and no filings, they're all in the placeholder group: the subagent, and the three watchers as children of their own.
-  const unfiled = async () => (await invoke(window, CommandName.TodoHubGet, { taskId })).children.unfiled
+  // The agent tails the deploy log; its subagent lints (done a moment later) and runs the e2e suite: a subagent and
+  // three watchers, which are what's going on, and nothing the task has produced.
   await expect
-    .poll(async () => (await unfiled()).children.filter(({ kind, live }) => kind === ChildKind.Watcher && live).length)
-    .toBe(2)
-  const { children, tallies } = await unfiled()
-  expect(tallies).toEqual({
-    [ChildKind.File]: { count: 0, live: false },
-    [ChildKind.Link]: { count: 0, live: false },
-    [ChildKind.Subagent]: { count: 1, live: true },
-    [ChildKind.Watcher]: { count: 3, live: true },
-    [ChildKind.Commit]: { count: 0, live: false },
+    .poll(async () => (await invoke(window, CommandName.TasksHistory, { id: taskId })).watchers.length)
+    .toBe(3)
+  const history = await invoke(window, CommandName.TasksHistory, { id: taskId })
+  expect(
+    history.toolEvents.filter((event) => event.kind === ToolEventKind.ToolCall && event.name === 'Agent'),
+  ).toHaveLength(1)
+
+  // So nothing is under no todo, whatever kind it is, and main has no group for it.
+  const hub = await invoke(window, CommandName.TodoHubGet, { taskId })
+  expect(hub.children.todos).toEqual([])
+  expect(hub.children.unfiled).toEqual({
+    todoId: UNFILED_TODO_ID,
+    children: [],
+    tallies: { [ChildKind.File]: 0, [ChildKind.Link]: 0, [ChildKind.Commit]: 0 },
   })
-  expect(children.every(({ source }) => source === null)).toBe(true)
-  // Most recently updated first.
-  const times = children.map(({ updatedAt }) => updatedAt)
-  expect(times).toEqual([...times].sort((a, b) => b - a))
-  expect((await invoke(window, CommandName.TodoHubGet, { taskId })).children.todos).toEqual([])
+  expect(hub.filings).toEqual([])
+
+  // And the Todos tab says what it says of a task with nothing at all, with no card and no tile.
+  await taskPanel(window)
+    .tab(/^Todos/)
+    .click()
+  await expect(todoHub(window).nothing).toBeVisible()
+  await expect(todoHub(window).noTodos).toHaveCount(0)
+  await expect(todoHub(window).cards).toHaveCount(0)
+  await expect(taskPanel(window).tabPanel.locator('[data-kind]')).toHaveCount(0)
 })

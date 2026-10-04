@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ChildKind, FilingSource, type ChildRef, type NewFiling } from '../../../shared/todoHub'
 import { listFilings, putFilings, removeFilings } from './child-filings'
+import { WATCHER_KIND } from './child-ids'
 import { RowError } from './rows'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 
@@ -22,7 +23,7 @@ afterEach(() => {
 const PLAN: ChildRef = { kind: ChildKind.File, key: 'docs/plan.md' }
 const PR: ChildRef = { kind: ChildKind.Link, key: 'https://example.com/acme/api/pull/511' }
 const REVIEWER: ChildRef = { kind: ChildKind.Subagent, key: 'toolu_agent' }
-const CI: ChildRef = { kind: ChildKind.Watcher, key: 'toolu_monitor' }
+const NOTE: ChildRef = { kind: ChildKind.Commit, key: 'def456 /code/acme-api' }
 const FIX: ChildRef = { kind: ChildKind.Commit, key: 'abc123 /code/acme-api' }
 
 function under(todoId: string, source: FilingSource, ...children: ChildRef[]): NewFiling[] {
@@ -38,7 +39,7 @@ describe('a task’s filings', () => {
     const { db } = database
 
     const filed = putFilings(db, taskId, under('2', FilingSource.Named, PLAN, PR, REVIEWER), 5_000)
-    putFilings(db, taskId, under('3', FilingSource.Inherited, CI, FIX), 6_000)
+    putFilings(db, taskId, under('3', FilingSource.Inherited, NOTE, FIX), 6_000)
     putFilings(db, otherId, under('1', FilingSource.Moved, PLAN), 7_000)
 
     expect(filed).toEqual([
@@ -50,7 +51,7 @@ describe('a task’s filings', () => {
     expect(listFilings(db, taskId)).toEqual([
       ...filed,
       { taskId, ...FIX, todoId: '3', source: FilingSource.Inherited, filedAt: 6_000 },
-      { taskId, ...CI, todoId: '3', source: FilingSource.Inherited, filedAt: 6_000 },
+      { taskId, ...NOTE, todoId: '3', source: FilingSource.Inherited, filedAt: 6_000 },
     ])
     expect(listFilings(db, otherId)).toEqual([
       { taskId: otherId, ...PLAN, todoId: '1', source: FilingSource.Moved, filedAt: 7_000 },
@@ -77,16 +78,37 @@ describe('a task’s filings', () => {
 
   it('tell apart two children with one key and different kinds', () => {
     const { db } = database
-    const call = 'toolu_1'
+    const same = 'docs/plan.md'
     putFilings(db, taskId, [
-      { kind: ChildKind.Subagent, key: call, todoId: '1', source: FilingSource.Named },
-      { kind: ChildKind.Watcher, key: call, todoId: '2', source: FilingSource.Named },
+      { kind: ChildKind.File, key: same, todoId: '1', source: FilingSource.Named },
+      { kind: ChildKind.Link, key: same, todoId: '2', source: FilingSource.Named },
     ])
 
     expect(listFilings(db, taskId).map(({ kind, todoId }) => [kind, todoId])).toEqual([
-      [ChildKind.Subagent, '1'],
-      [ChildKind.Watcher, '2'],
+      [ChildKind.File, '1'],
+      [ChildKind.Link, '2'],
     ])
+  })
+
+  it('leave out a watcher’s, from when watchers were filed (before #535): its row stays, and is never read', () => {
+    const { db } = database
+    putFilings(db, taskId, under('1', FilingSource.Named, PLAN, REVIEWER), 5_000)
+    // As the hub wrote one then: the table's check still allows the kind. One for the call that started the subagent.
+    const insert = db.prepare(
+      'INSERT INTO child_filings (task_id, kind, key, todo_id, source, filed_at) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+    insert.run(taskId, WATCHER_KIND, 'toolu_monitor', '1', FilingSource.Named, 4_000)
+    insert.run(taskId, WATCHER_KIND, REVIEWER.key, '2', FilingSource.Moved, 6_000)
+
+    expect(listFilings(db, taskId).map(({ kind, key, todoId }) => [kind, key, todoId])).toEqual([
+      [PLAN.kind, PLAN.key, '1'],
+      [REVIEWER.kind, REVIEWER.key, '1'],
+    ])
+    // Filing the others again, or taking theirs away, leaves the watchers' rows alone.
+    putFilings(db, taskId, under('3', FilingSource.Moved, REVIEWER), 7_000)
+    removeFilings(db, taskId, [PLAN])
+    expect(listFilings(db, taskId).map(({ kind, todoId }) => [kind, todoId])).toEqual([[ChildKind.Subagent, '3']])
+    expect(db.prepare('SELECT COUNT(*) FROM child_filings WHERE kind = ?').pluck().get(WATCHER_KIND)).toBe(2)
   })
 
   it('file all of a call’s children or none of them', () => {
@@ -124,11 +146,11 @@ describe('a task’s filings', () => {
 
   it('lose the ones taken away, answering with the children that had one', () => {
     const { db } = database
-    putFilings(db, taskId, under('1', FilingSource.Named, PLAN, PR, CI), 5_000)
+    putFilings(db, taskId, under('1', FilingSource.Named, PLAN, PR, NOTE), 5_000)
     putFilings(db, otherId, under('1', FilingSource.Named, PLAN), 5_000)
 
     // The plan twice, and a child that was never filed.
-    expect(removeFilings(db, taskId, [PLAN, FIX, PLAN, CI])).toEqual([PLAN, CI])
+    expect(removeFilings(db, taskId, [PLAN, FIX, PLAN, NOTE])).toEqual([PLAN, NOTE])
 
     expect(listFilings(db, taskId).map(({ key }) => key)).toEqual([PR.key])
     expect(listFilings(db, otherId)).toHaveLength(1)
