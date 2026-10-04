@@ -7,13 +7,15 @@
  * 198k → 41k" dividers (`docs/design/html/19-compaction.html`). The agent's questions (`ask`) show as question cards
  * where they were asked (`docs/design/html/03-rich-question.html`), each led by the narration the agent wrote just
  * before asking, if any. The tool calls that wait on your OK show as permission cards where they asked
- * (`docs/design/html/23-permission-card.html`).
+ * (`docs/design/html/23-permission-card.html`), only while they wait: an answered or withdrawn card leaves the chat,
+ * which holds only your messages and the agent's, and its decision shows on its call's row in the Tool calls list (#459).
  */
 import { formatTokens } from '../context-meter/format'
 import {
   CompactionTrigger,
   DividerKind,
   MessageRole,
+  PermissionRequestState,
   TaskActivity,
   TaskState,
   ToolCallState,
@@ -48,7 +50,7 @@ export enum ChatEntryKind {
   RefusalFallback = 'refusal_fallback',
   /** The questions the agent asked (`ask`): a question card. */
   Question = 'question',
-  /** A tool call that waits, or waited, on your OK: a permission card. */
+  /** A tool call that waits on your OK: a permission card. */
   Permission = 'permission',
 }
 
@@ -108,6 +110,7 @@ export interface QuestionEntry {
 
 export interface PermissionEntry {
   readonly kind: ChatEntryKind.Permission
+  /** An open request: one that's answered or withdrawn isn't in the chat. */
   readonly request: PermissionRequest
 }
 
@@ -295,8 +298,8 @@ export function sameAgentEntry(a: AgentEntry, b: AgentEntry): boolean {
  * The chat's entries for a task: each message in order, with each agent reply's tool-call count, and its
  * dividers in log order: a restart divider for each resumed turn and a reopened divider for each reopening message,
  * each after its turn's message and before its reply, and a marked done divider before each reopening message. Each
- * question set and permission request shows as a card where it was made: after the messages before it, and before the
- * dividers after it, in the order they were made.
+ * question set, and each permission request still open, shows as a card where it was made: after the messages before
+ * it, and before the dividers after it, in the order they were made.
  */
 export function chatEntries(
   task: Task,
@@ -317,7 +320,9 @@ export function chatEntries(
       questionSet,
       lead: questionLead(questionSet, toolEvents),
     })),
-    ...permissionRequests.map((request): CardEntry => ({ kind: ChatEntryKind.Permission, request })),
+    ...permissionRequests
+      .filter(({ state }) => state === PermissionRequestState.Open)
+      .map((request): CardEntry => ({ kind: ChatEntryKind.Permission, request })),
   ].toSorted((a, b) => cardOrigin(a).createdAt - cardOrigin(b).createdAt)
   const entries: ChatEntry[] = []
   /** Adds the cards that go before `message` (all that are left without one) and before `before`, if given. */

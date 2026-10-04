@@ -181,8 +181,14 @@ export function taskPanel(page: Page) {
     tab: (name: string | RegExp) => panel.getByRole('tab', { name }),
     tabPanel: panel.getByRole('tabpanel'),
     log,
-    /** A tool call's row, by its accessible name: its state, name, argument, time and result. */
+    /** A tool call's row, by its accessible name: its state, name, argument, time, permission line and result. */
     call: (name: string | RegExp) => log.getByRole('button', { name }),
+    /**
+     * The permission lines on the calls' rows, top to bottom (#459): what was decided about each call that asked, e.g.
+     * "Allowed once" or "Denied: “a note”", and "Waiting on you" while its card is open. `data-permission` is the
+     * line's state: waiting, allowed, denied, blocked or withdrawn.
+     */
+    permissionLines: log.locator('[data-permission]'),
     dividers: log.getByRole('separator'),
     /** Each compaction's Compact row: its name, the tokens before and after, its time and how it went. */
     compactions: log.getByRole('group', { name: 'Compact' }),
@@ -214,6 +220,8 @@ export function subagentsTab(page: Page) {
     summary: (name: string, text: string) => row(name).getByTitle(text, { exact: true }),
     /** A row's log, while it's open. */
     log: (name: string) => panel.getByRole('log', { name: `${name} log` }),
+    /** The permission lines on the calls in a row's open log, top to bottom, as the Tool calls list shows them. */
+    permissionLines: (name: string) => panel.getByRole('log', { name: `${name} log` }).locator('[data-permission]'),
     /** A row's eye and count of its live background work, named "2 watchers running". */
     watching: (name: string) => row(name).getByRole('img', { name: /watchers? running$/ }),
     /** What a subagent left running or scheduled, under its log while it's open: a watcher row each. */
@@ -464,10 +472,13 @@ export function chat(page: Page) {
     questionCard: log.getByRole('form', { name: 'Questions from the agent' }),
     /** The agent's questions once they're answered or withdrawn: the closed card. */
     closedQuestions: log.getByRole('region', { name: 'Questions from the agent' }),
-    /** The tool calls waiting on your OK: the open permission cards, in the order they asked. */
+    /**
+     * The tool calls waiting on your OK: the permission cards, in the order they asked. A card is in the chat only
+     * while it waits (#459); what was decided is on its call's row (`taskPanel().permissionLines`).
+     */
     permissionCards: log.getByRole('form', { name: 'Permission request' }),
-    /** The permission cards once allowed, denied or withdrawn: one line each. */
-    closedPermissions: log.getByRole('region', { name: 'Permission request' }),
+    /** Anything at all the chat names a permission request: the open cards, and nothing else. */
+    permissionRequests: log.getByLabel('Permission request'),
     /** A pasted block in your message, collapsed to its line count: click it to expand it in place. */
     pastedBlock: (label = /^Pasted text/) => log.getByRole('button', { name: label }),
   }

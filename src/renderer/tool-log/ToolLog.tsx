@@ -7,6 +7,8 @@ import { classNames } from '../components/classNames'
 import { moduleClass } from '../components/moduleClass'
 import { Collapse, Dot } from '../components'
 import { LinkedText } from '../links'
+import type { PermissionLines } from '../permissions/permissionLineModel'
+import { PermissionLineView } from '../permissions/PermissionLine'
 import {
   argumentSummary,
   callIndicator,
@@ -16,7 +18,11 @@ import {
   compactionResult,
   resultSummary,
   parentLogRows,
+  rowIndicator,
+  rowStateLabel,
   sameSubagentRow,
+  showsCallState,
+  showsResult,
   type CallRow,
   type CompactionRow,
   type DividerRow,
@@ -79,17 +85,20 @@ function sameCall(a: CallProps, b: CallProps): boolean {
 
 /**
  * One tool call: its name, argument, time and short result. Click it to see its full output; right-click it, or ⇧F10 on
- * it, for its context menu.
+ * it, for its context menu. A call a permission was decided about shows it on a line of its own under the call, shield
+ * first (`PermissionLineView`). While its card is still open, its dot is the purple of waiting on you, and it has no
+ * result yet to show; one whose request was withdrawn never ran, so its dot is slate, not a failed call's pink
+ * (`docs/design/html/23-permission-card.html`, `24-permissions-picker.html`).
  */
 const Call = memo(function Call({ row, rootPath, turnStart, compact = false }: CallProps): React.JSX.Element {
-  const { call, name, children } = row
+  const { call, name, children, permission } = row
   const [expanded, setExpanded] = useState(false)
   const menuTarget = useToolCallMenuTarget(call)
 
   return (
     <div className={styles.callGroup} {...{ [TURN_START]: turnStart }}>
       <div
-        className={classNames(styles.call, styles[call.state], compact && styles.compact)}
+        className={classNames(styles.call, showsCallState(row) && styles[call.state], compact && styles.compact)}
         data-state={call.state}
         {...menuTarget}
       >
@@ -103,15 +112,16 @@ const Call = memo(function Call({ row, rootPath, turnStart, compact = false }: C
         >
           <span className={styles.callLine}>
             <Dot
-              state={callIndicator(call.state)}
-              label={callStateLabel(call.state)}
+              state={rowIndicator(row)}
+              label={rowStateLabel(row)}
               className={compact ? styles.smallDot : undefined}
             />
             <span className={styles.name}>{name}</span>
             <span className={styles.argument}>{argumentSummary(call, rootPath)}</span>
             <span className={styles.time}>{clockTime(call.createdAt)}</span>
           </span>
-          {!compact && <span className={styles.result}>{resultSummary(call)}</span>}
+          {permission !== null && <PermissionLineView line={permission} className={styles.permission} />}
+          {!compact && showsResult(row) && <span className={styles.result}>{resultSummary(call)}</span>}
         </button>
         <Collapse open={expanded}>
           <pre className={styles.output} aria-label={`${name} output`}>
@@ -251,6 +261,8 @@ export interface ToolLogProps {
   readonly events: readonly ToolEvent[]
   /** The workspace root, so file arguments show relative to it. */
   readonly rootPath?: string | undefined
+  /** Each call's permission line, by its `tool_use` id (`permissionLinesByToolUse`). None by default. */
+  readonly permissions?: PermissionLines | undefined
   /** A turn to scroll to and highlight. */
   readonly focus?: TurnFocus | null | undefined
   /** Called once the log has scrolled to `focus`, so its owner can clear it. */
@@ -260,12 +272,21 @@ export interface ToolLogProps {
 /**
  * A task's tool log: every tool call and working note of the task's own agent in order, with a divider where each turn
  * after the first starts. A subagent's calls and notes are in the Subagents tab instead: its `Agent` call is one row
- * here. It keeps to the bottom as it grows, unless you've scrolled up. Asked to show a turn, it scrolls to the
- * turn's first row (its divider, or turn 1's first row) and highlights it for a moment.
+ * here. A call a permission was decided about says so on its row. It keeps to the bottom as it grows, unless you've
+ * scrolled up. Asked to show a turn, it scrolls to the turn's first row (its divider, or turn 1's first row) and
+ * highlights it for a moment.
  */
-export function ToolLog({ taskId, events, rootPath, focus, onFocusShown }: ToolLogProps): React.JSX.Element {
-  const rows = useMemo(() => parentLogRows(events), [events])
-  const { ref, onScroll } = useStickToBottom(events, taskId)
+export function ToolLog({
+  taskId,
+  events,
+  rootPath,
+  permissions,
+  focus,
+  onFocusShown,
+}: ToolLogProps): React.JSX.Element {
+  const rows = useMemo(() => parentLogRows(events, permissions), [events, permissions])
+  // A permission line coming or going changes a row's height, as a new row changes the log's.
+  const { ref, onScroll } = useStickToBottom(rows, taskId)
 
   const highlighted = useRef<Highlight | null>(null)
 

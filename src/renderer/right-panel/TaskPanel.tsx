@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import type { TaskCommit, ToolEvent, Watcher } from '../../shared/domain'
+import type { PermissionRequest, TaskCommit, ToolEvent, Watcher } from '../../shared/domain'
 import { ArtifactsTab } from '../artifacts'
 import { ChangesTab } from '../changes'
 import { TabPanel, Tabs, type TabItem } from '../components'
@@ -8,6 +8,7 @@ import { FilesTab, type FileLineFocus } from '../files'
 import { RightPanel } from '../layout'
 import { usePresence } from '../motion'
 import { Panel, PanelToggle, usePanel, usePanelSize } from '../panels'
+import { permissionLinesByToolUse } from '../permissions/permissionLines'
 import { selectSelectedTask, selectSelectedWorkspace } from '../store/state'
 import { useGladeStore } from '../store/react'
 import { SubagentsTab, type SubagentShown } from '../subagents'
@@ -24,10 +25,12 @@ const TABS_ID = 'task-panel'
 const NO_TOOL_EVENTS: readonly ToolEvent[] = []
 const NO_WATCHERS: readonly Watcher[] = []
 const NO_COMMITS: readonly TaskCommit[] = []
+const NO_PERMISSION_REQUESTS: readonly PermissionRequest[] = []
 
 /**
  * The right panel of the task card: the tab bar (Tool calls, Files, Todos, Artifacts, Subagents, Watchers, Changes,
- * each with its count) and the selected tab. The selected tab is kept in UI state per workspace (#432): switching
+ * each with its count) and the selected tab. Tool calls and Subagents show, on each call's row, what was decided about
+ * its permission request (#459). The selected tab is kept in UI state per workspace (#432): switching
  * workspace shows that workspace's tab, and a relaunch keeps every workspace's. The width and whether the panel is
  * collapsed are kept in UI state for the whole window; collapsed, the panel shows nothing. It slides open and shut.
  * When the chat asks to show a turn of the selected task (its tool-call chip), the store opens Tool calls and the log
@@ -42,6 +45,12 @@ export function TaskPanel(): React.JSX.Element | null {
   const todos = useGladeStore((state) => (task === undefined ? undefined : state.todos[task.id]))
   const watchers = useGladeStore((state) => (task === undefined ? undefined : state.watchers[task.id])) ?? NO_WATCHERS
   const commits = useGladeStore((state) => (task === undefined ? undefined : state.commits[task.id])) ?? NO_COMMITS
+  const permissionRequests =
+    useGladeStore((state) => (task === undefined ? undefined : state.permissionRequests[task.id])) ??
+    NO_PERMISSION_REQUESTS
+  // Each call's permission line, by its tool_use id: made again only when a request opens or closes, and the rows tell
+  // their own by value, so only the row it changed for renders.
+  const permissions = useMemo(() => permissionLinesByToolUse(permissionRequests), [permissionRequests])
   const counts = useGladeStore(
     useShallow((state) =>
       PANEL_TAB_DEFINITIONS.map(({ count }) => (task === undefined ? undefined : formatCount(count(state, task.id)))),
@@ -128,6 +137,7 @@ export function TaskPanel(): React.JSX.Element | null {
               taskId={task.id}
               events={events}
               rootPath={rootPath}
+              permissions={permissions}
               focus={focus}
               onFocusShown={clearFocus}
             />
@@ -143,6 +153,7 @@ export function TaskPanel(): React.JSX.Element | null {
               taskId={task.id}
               events={events}
               rootPath={rootPath}
+              permissions={permissions}
               watchers={watchers}
               focus={subagentShown?.taskId === task.id ? subagentShown : null}
               onFocusShown={clearSubagentShown}
