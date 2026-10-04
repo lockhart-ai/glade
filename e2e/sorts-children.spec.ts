@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { SORTS_CHILDREN as SORT } from '../src/main/agent/scripts'
 import { CommandName } from '../src/shared/bridge'
+import { ToolEventKind } from '../src/shared/domain'
 import { ChildKind, type TodoChildren } from '../src/shared/todoHub'
 import { agentSessions, expect, test } from './fixtures'
 import { chat, firstRun, inputBar, taskList, taskPanel } from './selectors'
@@ -84,8 +85,13 @@ test('a task from before the todo hub: asked to, its agent lists what it made an
   await expect(panel.call(/^Done\s*list_children/)).toBeVisible()
   await expect(panel.call(/^Done\s*file_children/)).toHaveCount(1)
   // It listed no watcher, and the subagent only because it had no todo yet.
-  await expect(panel.call(/^Done\s*list_children/)).toHaveAccessibleName(/Not under a todo, 4 children:/)
-  await expect(panel.call(/^Done\s*list_children/)).not.toHaveAccessibleName(/watcher/)
+  const listed = (await invoke(page, CommandName.TasksHistory, { id: taskId })).toolEvents.find(
+    (event) => event.kind === ToolEventKind.ToolCall && event.name.endsWith('list_children'),
+  )
+  const listing = listed?.kind === ToolEventKind.ToolCall ? (listed.output ?? '') : ''
+  expect(listing).toContain('Not under a todo, 4 children:')
+  expect(listing).toContain('subagent "Review the date helpers"')
+  expect(listing).not.toMatch(/watcher/)
   // The subagent's commit went under the todo it now works on, and the placeholder is empty.
   expect(await placed(page, taskId)).toEqual([['commit inherited'], ['file asked'], ['link asked'], []])
 
