@@ -3234,6 +3234,7 @@ describe("a task's handoff note", () => {
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: 1_000,
       sandbox: false,
+      todoHub: false,
     })
   })
 
@@ -3304,6 +3305,7 @@ describe("a task's handoff note", () => {
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: 2_000,
       sandbox: false,
+      todoHub: false,
     })
   })
 
@@ -3396,6 +3398,7 @@ describe('instructions added to the prompt since a session started', () => {
         instructionUpdates: 0,
         handoffAt: null,
         sandbox: false,
+        todoHub: false,
       })
   }
 
@@ -3412,6 +3415,7 @@ describe('instructions added to the prompt since a session started', () => {
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: null,
       sandbox: false,
+      todoHub: false,
     })
   })
 
@@ -3441,6 +3445,7 @@ describe('instructions added to the prompt since a session started', () => {
         instructionUpdates: INSTRUCTION_UPDATES.length,
         handoffAt: null,
         sandbox: false,
+        todoHub: false,
       })
     },
   )
@@ -3493,6 +3498,7 @@ describe('instructions added to the prompt since a session started', () => {
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: 5_000,
       sandbox: false,
+      todoHub: false,
     })
   })
 

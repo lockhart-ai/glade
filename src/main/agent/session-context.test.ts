@@ -17,6 +17,10 @@ import {
   INSTRUCTION_UPDATES,
   LINK_ARTIFACTS_LINE,
   SANDBOX_LINE,
+  TODO_HUB_ARTIFACTS_LINE,
+  TODO_HUB_FILING_LINE,
+  TODO_HUB_LINES,
+  TODO_HUB_TOOLS_LINE,
 } from './system-prompt'
 
 const HANDOFF: TaskHandoff = { taskId: 't1', body: '## Next\n\nShip it.', addedAt: 5_000 }
@@ -28,8 +32,8 @@ function check(overrides: Partial<ContextCheck>): ContextCheck {
 }
 
 /** What's recorded for a session that has Glade's prompt, `updates` of the instructions added since, and a note. */
-function has(updates: number, handoffAt: number | null = null, sandbox = false): SessionContext {
-  return { instructions: true, instructionUpdates: updates, handoffAt, sandbox }
+function has(updates: number, handoffAt: number | null = null, sandbox = false, todoHub = false): SessionContext {
+  return { instructions: true, instructionUpdates: updates, handoffAt, sandbox, todoHub }
 }
 
 describe('what a session is missing', () => {
@@ -82,7 +86,9 @@ describe('what a session is missing', () => {
     expect(missingContext(check({ startedElsewhere: true, recorded: has(CURRENT) }))).toEqual([])
     expect(
       missingContext(
-        check({ recorded: { instructions: false, instructionUpdates: 0, handoffAt: null, sandbox: false } }),
+        check({
+          recorded: { instructions: false, instructionUpdates: 0, handoffAt: null, sandbox: false, todoHub: false },
+        }),
       ),
     ).toMatchObject([{ kind: MissingContextKind.Instructions }])
   })
@@ -137,7 +143,13 @@ describe('what a session is missing of the sandbox', () => {
     expect(contextAfter(check({ recorded: has(CURRENT, null, true) }), [])).toEqual(has(CURRENT, null, true))
     // A session told of it stays told when its whole prompt is sent again outside the sandbox.
     const instructions = { kind: MissingContextKind.Instructions, prompt: PROMPT, handoffAt: null } as const
-    const told: SessionContext = { instructions: false, instructionUpdates: 0, handoffAt: null, sandbox: true }
+    const told: SessionContext = {
+      instructions: false,
+      instructionUpdates: 0,
+      handoffAt: null,
+      sandbox: true,
+      todoHub: false,
+    }
     expect(contextAfter(check({ recorded: told, sandboxed: false }), [instructions])).toEqual(has(CURRENT, null, true))
   })
 
@@ -151,6 +163,91 @@ describe('what a session is missing of the sandbox', () => {
       [contextBlock([updates]), block, contextBlock([handoff])].join('\n\n'),
     )
     expect(withContext(contextBlock([sandbox]), 'Carry on.')).toBe(`${block}\n\nCarry on.`)
+  })
+})
+
+describe('what a session is missing of the todo hub', () => {
+  const todoHub = { kind: MissingContextKind.TodoHub } as const
+  const BLOCK = `[Glade: this session now files what it makes under its todos]\n${TODO_HUB_LINES.join('\n\n')}\n[end]`
+
+  it('is nothing for a session that started with it on, or that runs with it off', () => {
+    expect(startedContext(null, false, true)).toEqual(has(CURRENT, null, false, true))
+    // Off unless said: a session Glade starts with the hub off isn't recorded as told.
+    expect(startedContext(null, false)).toEqual(has(CURRENT))
+    expect(missingContext(check({ recorded: startedContext(null, false, true), todoHub: true }))).toEqual([])
+    // With the hub off there's nothing to say of it, whatever the session was told before: nothing is ever sent.
+    expect(missingContext(check({ recorded: startedContext(null, false) }))).toEqual([])
+    expect(missingContext(check({ recorded: startedContext(null, false), todoHub: false }))).toEqual([])
+    expect(missingContext(check({ recorded: startedContext(null, false, true), todoHub: false }))).toEqual([])
+  })
+
+  it('is what the prompt says of it, for a session that started with it off and runs with it on now', () => {
+    expect(missingContext(check({ recorded: startedContext(null, false), todoHub: true }))).toEqual([todoHub])
+    // One from before anything was recorded started without it too.
+    expect(missingContext(check({ todoHub: true }))).toEqual([
+      { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE] },
+      todoHub,
+    ])
+  })
+
+  it('comes after the instructions added since and the sandbox, and before the handoff note', () => {
+    expect(missingContext(check({ recorded: has(1), handoff: HANDOFF, sandboxed: true, todoHub: true }))).toEqual([
+      { kind: MissingContextKind.Updates, updates: [LINK_ARTIFACTS_LINE] },
+      { kind: MissingContextKind.Sandbox },
+      todoHub,
+      { kind: MissingContextKind.Handoff, handoff: HANDOFF },
+    ])
+  })
+
+  it('is recorded as given once sent, without touching how many instructions the session has had', () => {
+    // A session two instructions behind, sent only the hub's lines (say the others went with an earlier message).
+    expect(contextAfter(check({ recorded: has(1, 1_000, true), todoHub: true }), [todoHub])).toEqual(
+      has(1, 1_000, true, true),
+    )
+    // Sent with the instructions added since, each is recorded for itself.
+    const stale = check({ recorded: has(0), todoHub: true })
+    expect(contextAfter(stale, missingContext(stale))).toEqual(has(CURRENT, null, false, true))
+    // Sent once: it isn't missing again, and turning the hub off and on again doesn't send it again.
+    const told = contextAfter(stale, missingContext(stale))
+    expect(missingContext(check({ recorded: told, todoHub: true }))).toEqual([])
+    expect(missingContext(check({ recorded: told, todoHub: false }))).toEqual([])
+    expect(contextAfter(check({ recorded: told, todoHub: false }), [])).toEqual(told)
+  })
+
+  it("is covered by Glade's whole prompt for a session that started elsewhere, as that prompt is now", () => {
+    const instructions = { kind: MissingContextKind.Instructions, prompt: PROMPT, handoffAt: null } as const
+
+    expect(missingContext(check({ startedElsewhere: true, todoHub: true }))).toEqual([instructions])
+    // The prompt it's sent with the hub on says so; the one it's sent with it off doesn't.
+    expect(contextAfter(check({ startedElsewhere: true, todoHub: true }), [instructions])).toEqual(
+      has(CURRENT, null, false, true),
+    )
+    expect(contextAfter(check({ startedElsewhere: true }), [instructions])).toEqual(has(CURRENT))
+    expect(missingContext(check({ startedElsewhere: true, recorded: has(CURRENT), todoHub: true }))).toEqual([todoHub])
+    // A session told of it stays told when its whole prompt is sent again with the hub off.
+    const told: SessionContext = {
+      instructions: false,
+      instructionUpdates: 0,
+      handoffAt: null,
+      sandbox: false,
+      todoHub: true,
+    }
+    expect(contextAfter(check({ recorded: told }), [instructions])).toEqual(has(CURRENT, null, false, true))
+  })
+
+  it('is said in a block of its own: how a child is filed, an artifact’s todo, and the hub’s tools', () => {
+    const updates = { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE] } as const
+    const handoff = { kind: MissingContextKind.Handoff, handoff: HANDOFF } as const
+
+    expect(contextBlock([todoHub])).toBe(BLOCK)
+    expect(BLOCK).toContain(TODO_HUB_FILING_LINE)
+    expect(BLOCK).toContain(TODO_HUB_ARTIFACTS_LINE)
+    // The line #496 left out of what a resumed session is sent comes with them.
+    expect(BLOCK).toContain(TODO_HUB_TOOLS_LINE)
+    expect(contextBlock([updates, todoHub, handoff])).toBe(
+      [contextBlock([updates]), BLOCK, contextBlock([handoff])].join('\n\n'),
+    )
+    expect(withContext(contextBlock([todoHub]), 'Carry on.')).toBe(`${BLOCK}\n\nCarry on.`)
   })
 })
 

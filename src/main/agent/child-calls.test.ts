@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { ChildTool, hookRefusal, isChildTool, namedTodo, nameTodo, TODO_FIELDS, todoMarker } from './child-calls'
+import {
+  ChildTool,
+  hookRefusal,
+  isChildTool,
+  namedTodo,
+  nameTodo,
+  readsTodo,
+  TODO_FIELDS,
+  TODO_TOOLS,
+  todoMarker,
+} from './child-calls'
 
 describe('isChildTool', () => {
   it('knows the five tools that make a child, and no other', () => {
@@ -105,6 +115,38 @@ describe('namedTodo', () => {
     expect(namedTodo('Monitor', { description: 2 })).toBeNull()
     expect(namedTodo('Read', { description: '[todo 2] Read it' })).toBeNull()
     expect(namedTodo('mcp__glade__add_artifact', { description: '[todo 2] Add it' })).toBeNull()
+  })
+})
+
+describe('readsTodo', () => {
+  it('reads an Agent call, whoever makes it, and the agent’s own Bash call in the foreground', () => {
+    const agent = { description: '[todo 2] Review the date helpers', prompt: 'Review.' }
+    expect(readsTodo({ toolName: 'Agent', input: agent, subagent: false })).toBe(true)
+    // A subagent's subagent works on its parent's todo unless its call names another.
+    expect(readsTodo({ toolName: 'Agent', input: agent, subagent: true })).toBe(true)
+    expect(readsTodo({ toolName: 'Agent', input: { ...agent, run_in_background: true }, subagent: false })).toBe(true)
+    const commit = { command: 'git commit -am "Fix"', description: '[todo 2] Commit the fix' }
+    expect(readsTodo({ toolName: 'Bash', input: commit, subagent: false })).toBe(true)
+    expect(readsTodo({ toolName: 'Bash', input: { ...commit, run_in_background: false }, subagent: false })).toBe(true)
+    expect(TODO_TOOLS).toEqual([ChildTool.Agent, ChildTool.Bash])
+  })
+
+  it('reads nothing off a watcher’s call, a subagent’s command, or any other tool', () => {
+    const watchers: [string, Record<string, unknown>][] = [
+      ['Monitor', { description: '[todo 3] CI checks', command: 'gh pr checks 42' }],
+      ['Bash', { description: '[todo 2] Run the tests', command: 'npm test', run_in_background: true }],
+      ['ScheduleWakeup', { delaySeconds: 300, reason: '[todo 3] Check CI again', prompt: 'Check.' }],
+      ['CronCreate', { cron: '0 9 * * *', prompt: '[todo 3] Check the PR.' }],
+    ]
+    for (const [toolName, input] of watchers) {
+      expect(readsTodo({ toolName, input, subagent: false })).toBe(false)
+      expect(readsTodo({ toolName, input, subagent: true })).toBe(false)
+    }
+    // What a subagent commits follows its todo: its command is its own.
+    const commit = { command: 'git commit -am "Fix"', description: '[todo 2] Commit the fix' }
+    expect(readsTodo({ toolName: 'Bash', input: commit, subagent: true })).toBe(false)
+    expect(readsTodo({ toolName: 'Read', input: { description: '[todo 2] Read it' }, subagent: false })).toBe(false)
+    expect(readsTodo({ toolName: 'mcp__shell__Bash', input: commit, subagent: false })).toBe(false)
   })
 })
 

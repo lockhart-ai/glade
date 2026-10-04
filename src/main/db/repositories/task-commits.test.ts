@@ -5,6 +5,7 @@ import {
   CommitSource,
   findTaskCommit,
   getTaskCommit,
+  listCommitCalls,
   listTaskCommits,
   reassignTaskCommit,
   removeTaskCommit,
@@ -83,6 +84,27 @@ describe('the task commits', () => {
       ['Commit a', false, null, 'main'],
     ])
     expect(listTaskCommits(test.db, other.id).map(({ subject }) => subject)).toEqual(['Commit d'])
+  })
+
+  it('list the commits whose call is known with that call, oldest first, those of one second as they were linked', () => {
+    addTaskCommit(test.db, commit('a', { committedAt: 5_000, toolUseId: 'toolu_bash' }))
+    addTaskCommit(test.db, commit('b', { committedAt: 5_000, toolUseId: 'toolu_bash' }))
+    addTaskCommit(test.db, commit('c', { committedAt: 1_000, toolUseId: 'toolu_first' }))
+    // One whose call isn't known, and another task's, aren't listed.
+    addTaskCommit(test.db, commit('d', { toolUseId: null }))
+    addTaskCommit(test.db, commit('e', { taskId: other.id, toolUseId: 'toolu_bash' }))
+
+    expect(listCommitCalls(test.db, task.id).map(({ toolUseId, hash }) => [toolUseId, hash[0]])).toEqual([
+      ['toolu_first', 'c'],
+      ['toolu_bash', 'a'],
+      ['toolu_bash', 'b'],
+    ])
+    expect(listCommitCalls(test.db, task.id)[0]).toEqual({
+      toolUseId: 'toolu_first',
+      hash: commit('c').hash,
+      repoPath: commit('c').repoPath,
+    })
+    expect(listCommitCalls(test.db, 'no-such-task')).toEqual([])
   })
 
   it('move a link to another task, and remove one', () => {

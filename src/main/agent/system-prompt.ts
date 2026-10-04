@@ -5,6 +5,7 @@
  * the workspace's CLAUDE.md, not from here (`docs/model-surface.md`).
  */
 import type { Task, TaskHandoff } from '../../shared/domain'
+import { FILE_CHILDREN_TOOL } from '../../shared/toolName'
 import { CONTROL_SERVER } from '../control/names'
 import { ALL_UPKEEP, GladeTool, type GladeToolSettings } from './glade-tools'
 
@@ -62,9 +63,7 @@ export const SANDBOX_LINE =
 /**
  * What the prompt says of the todo hub's tools (P16-05, #496), in a session that has them: one that started with the
  * hidden `todoHubEnabled` setting on. That they exist and what they're for, which is all a task needs to sort what it
- * made before the hub when asked to ("file your things under your todos"). It isn't in `INSTRUCTION_UPDATES`, being
- * only for sessions with the tools: a session resumed from before the switch has the tools, whose own descriptions
- * say the same. The lines about filing a child as it's made are #495's.
+ * made before the hub when asked to ("file your things under your todos").
  */
 export const TODO_HUB_TOOLS_LINE =
   'What this task has made (its artifacts, subagents, watchers and commits) shows to the user under its todos. ' +
@@ -73,10 +72,37 @@ export const TODO_HUB_TOOLS_LINE =
   'made, list them, then file them all in one call.'
 
 /**
+ * What the prompt says of filing what the agent produces as it's made (P16-04, #495), in a session with the todo hub
+ * on: to name the todo in the `Agent` call that starts a subagent and in the `Bash` call that commits, and what Glade
+ * does when a call names none. The wording is the one #492 probed (`docs/sdk-notes.md` §16), with the filing tool's
+ * real name, cut down to those two calls when the phase split into Agents and Todos: it asks for no marker on a
+ * watcher's call (`Monitor`, background `Bash`, `ScheduleWakeup`, `CronCreate`), which Glade leaves as it is.
+ */
+export const TODO_HUB_FILING_LINE =
+  'Glade files every commit you make under one of your todos, where the user finds it, and each subagent you start ' +
+  'works on one of them. Name the todo in the call: start the description of an Agent call, and of a Bash call that ' +
+  'commits, with the todo\'s id in square brackets, like "[todo 2] Review the date helpers". Create the todo first ' +
+  '(TaskCreate) if none fits. If a call names none, Glade asks you right after it to file what it made, with ' +
+  `${FILE_CHILDREN_TOOL}: do that at once, before your next step. What a subagent commits goes under its todo by ` +
+  'itself: leave those.'
+
+/** What the prompt says of an artifact's todo, in a session with the todo hub on: `add_artifact` needs one. */
+export const TODO_HUB_ARTIFACTS_LINE = `An artifact goes under a todo too: give ${GladeTool.AddArtifact} the todo's id as todo, for a file and for a link.`
+
+/**
+ * Everything the prompt says of the todo hub, in a session with it on, a paragraph each. They aren't in
+ * `INSTRUCTION_UPDATES`, being only for sessions with the hub on: a session that started without them, and resumes
+ * with the hub on, is sent them once, ahead of its next message, and that's tracked by itself, as the sandbox's line
+ * is (`./session-context`).
+ */
+export const TODO_HUB_LINES: readonly string[] = [TODO_HUB_FILING_LINE, TODO_HUB_ARTIFACTS_LINE, TODO_HUB_TOOLS_LINE]
+
+/**
  * The instructions added to the prompt after sessions had started with it, oldest first. Claude Code keeps a session's
  * prompt when it resumes it, so a session that started before one was added is sent it once, ahead of its next message
  * (`./session-context`). Only ever append: a session's place in this list is saved as a count. Only what every session
- * is told goes here: `SANDBOX_LINE` is for sandboxed sessions alone, and is tracked by itself.
+ * is told goes here: `SANDBOX_LINE` is for sandboxed sessions alone, and `TODO_HUB_LINES` for sessions with the todo
+ * hub on, and each is tracked by itself.
  */
 export const INSTRUCTION_UPDATES: readonly string[] = [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE]
 
@@ -102,8 +128,9 @@ export function handoffSection(handoff: TaskHandoff): string {
 
 /**
  * The prompt for `task`'s session. With upkeep turned off in `settings`, it leaves out asking for a title or a status,
- * as the session's Glade tools leave out the tools for them; with the todo hub on in them, it says the session has the
- * hub's tools (`TODO_HUB_TOOLS_LINE`), and otherwise nothing of them. With `control`, the session has the `glade-control`
+ * as the session's Glade tools leave out the tools for them; with the todo hub on in them, it says how what the
+ * session makes is filed under its todos and that it has the hub's tools (`TODO_HUB_LINES`), and otherwise nothing of
+ * either. With `control`, the session has the `glade-control`
  * tools, and the prompt says so in one line. With a `handoff`, the prompt ends with it (`handoffSection`). In a
  * `sandboxed` session it says what the sandbox is and to ask with `request_access` (`SANDBOX_LINE`); with the sandbox
  * off it doesn't mention it.
@@ -156,7 +183,7 @@ export function systemPromptAppend(
     '',
     WATCHERS_LINE,
   )
-  if (settings.todoHubEnabled === true) lines.push('', TODO_HUB_TOOLS_LINE)
+  if (settings.todoHubEnabled === true) lines.push(...TODO_HUB_LINES.flatMap((line) => ['', line]))
   if (sandboxed) lines.push('', SANDBOX_LINE)
   if (control) lines.push('', CONTROL_TOOLS_LINE)
   if (handoff !== null) lines.push('', handoffSection(handoff))

@@ -124,6 +124,30 @@ export function removeTaskCommit(db: Database, id: string): void {
   db.prepare('DELETE FROM task_commits WHERE id = ?').run(id)
 }
 
+/** A commit a task's `Bash` call made: the call, and the commit as the todo hub names one (`commitChildKey`). */
+export interface CommitCall {
+  readonly toolUseId: string
+  readonly hash: string
+  readonly repoPath: string
+}
+
+/**
+ * The commits of a task whose `Bash` call is known, oldest first (of those committed in the same second, the one
+ * linked first), each with that call: which commits a call made, for filing them where the call says (`../../todo-hub/filing`).
+ */
+export function listCommitCalls(db: Database, taskId: string): CommitCall[] {
+  return db
+    .prepare(
+      `SELECT tool_use_id, hash, repo_path FROM task_commits
+      WHERE task_id = ? AND tool_use_id IS NOT NULL ORDER BY committed_at, rowid`,
+    )
+    .all(taskId)
+    .map((raw) => {
+      const row = new Row('task_commits', raw)
+      return { toolUseId: row.text('tool_use_id'), hash: row.text('hash'), repoPath: row.text('repo_path') }
+    })
+}
+
 /**
  * A task's commits, newest first (by when they were committed; of those made in the same second, the one linked last
  * first), as the Changes tab lists them: each with the subagent that made it, from the tool log (the parent of the

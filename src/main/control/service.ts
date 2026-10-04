@@ -31,6 +31,7 @@ import { countTasksByWorkspace, getTasks, listTaskIds, updateTask } from '../db/
 import { listToolEvents } from '../db/repositories/tool-events'
 import { getWorkspace, listWorkspaces } from '../db/repositories/workspaces'
 import { findModel } from '../../shared/models'
+import { childOfArtifact } from '../../shared/todoHub'
 import { listModels } from '../models/models'
 import {
   changeTask,
@@ -42,6 +43,7 @@ import {
   type TaskChange,
   type TaskDates,
 } from '../tasks/service'
+import { refileChild, unfileChildren } from '../todo-hub/todo-hub'
 import {
   createClaudeCodeSessions,
   type ClaudeCodeSession,
@@ -440,6 +442,11 @@ export function createControlService(context: ControlServiceContext): ControlSer
         for (const [index, change] of plan.changes.entries()) changeOne(id, change, files[index] ?? null, at)
         registerArtifacts(id, checked, at)
       })()
+      // With the todo hub on, an artifact's filing under a todo follows it, as it does for the agent's own tools: one
+      // taken off leaves none, and one pointed elsewhere keeps its todo. One added here has no todo: nothing names it.
+      unfileChildren(context, id, plan.removals.map(childOfArtifact))
+      for (const { ref, newRef } of plan.changes)
+        refileChild(context, id, childOfArtifact(ref), childOfArtifact(newRef))
       announceBackfill(id, handoff !== undefined, checked.length + plan.changes.length + plan.removals.length > 0)
       return detail(task)
     },

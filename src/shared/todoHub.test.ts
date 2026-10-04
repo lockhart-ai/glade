@@ -30,6 +30,7 @@ import {
   FilingSource,
   groupChildren,
   subagentsOf,
+  subagentTodo,
   UNFILED_TODO_ID,
   type ChildRef,
   type Filing,
@@ -217,10 +218,79 @@ describe('childrenOf', () => {
     expect(childrenOf({ artifacts: [], subagents: [], watchers: [], commits: [] })).toEqual([])
   })
 
+  it('puts commits made in the same second in the order they were made, not the reverse', () => {
+    // Newest first, as a task lists them: of two made in one second, the one linked last comes first.
+    const commits = [
+      commit('third', { committedAt: 5_000 }),
+      commit('second', { committedAt: 5_000 }),
+      commit('first', { committedAt: 5_000 }),
+      commit('before', { committedAt: 1_000 }),
+    ]
+
+    expect(childrenOf({ artifacts: [], subagents: [], watchers: [], commits })).toEqual([
+      COMMIT('before'),
+      COMMIT('first'),
+      COMMIT('second'),
+      COMMIT('third'),
+    ])
+  })
+
   it('leaves the commits it was given in their order', () => {
     const commits = [commit('newest', { committedAt: 9_000 }), commit('oldest', { committedAt: 1_000 })]
     childrenOf({ artifacts: [], subagents: [], watchers: [], commits })
     expect(commits.map(({ hash }) => hash)).toEqual(['newest', 'oldest'])
+  })
+})
+
+describe('subagentTodo', () => {
+  const all = (children: Partial<TaskChildren>): TaskChildren => ({
+    todos: [],
+    artifacts: [],
+    subagents: [],
+    watchers: [],
+    commits: [],
+    filings: [],
+    ...children,
+  })
+
+  it('is the todo a subagent was started for, and its own subagents’, unless one names another', () => {
+    const children = all({
+      todos: [todo('1'), todo('2')],
+      subagents: [
+        subagent('agent-a'),
+        subagent('agent-b', { madeBy: 'agent-a' }),
+        subagent('agent-c', { madeBy: 'agent-b' }),
+        subagent('agent-d', { madeBy: 'agent-a' }),
+      ],
+      filings: [filing(SUBAGENT('agent-a'), '1'), filing(SUBAGENT('agent-d'), '2')],
+    })
+
+    expect(subagentTodo(children, 'agent-a')).toBe('1')
+    // Started by a subagent, it works on its parent's todo, however deep.
+    expect(subagentTodo(children, 'agent-b')).toBe('1')
+    expect(subagentTodo(children, 'agent-c')).toBe('1')
+    // Unless its own call named another.
+    expect(subagentTodo(children, 'agent-d')).toBe('2')
+  })
+
+  it('is none for a subagent nothing was recorded for, one whose todo is gone, and one that is not there', () => {
+    const children = all({
+      todos: [todo('1')],
+      subagents: [subagent('agent-a'), subagent('agent-b'), subagent('agent-c', { madeBy: 'agent-b' })],
+      filings: [filing(SUBAGENT('agent-b'), '7')],
+    })
+
+    expect(subagentTodo(children, 'agent-a')).toBeNull()
+    expect(subagentTodo(children, 'agent-b')).toBeNull()
+    expect(subagentTodo(children, 'agent-c')).toBeNull()
+    expect(subagentTodo(children, 'agent-z')).toBeNull()
+    // A watcher started by a call with the same id is no subagent.
+    const watching = all({
+      todos: [todo('1')],
+      watchers: [watcher('agent-a')],
+      filings: [filing(WATCHER('agent-a'), '1')],
+    })
+    expect(subagentTodo(watching, 'agent-a')).toBeNull()
   })
 })
 

@@ -10,6 +10,9 @@ import {
   LINK_ARTIFACTS_LINE,
   SANDBOX_LINE,
   systemPromptAppend,
+  TODO_HUB_ARTIFACTS_LINE,
+  TODO_HUB_FILING_LINE,
+  TODO_HUB_LINES,
   TODO_HUB_TOOLS_LINE,
   WATCHERS_LINE,
 } from './system-prompt'
@@ -159,23 +162,48 @@ describe('the sandbox line', () => {
   })
 })
 
-describe("the todo hub's line", () => {
+describe("the todo hub's lines", () => {
   const HUB_ON = { statusSummary: true, taskTitles: true, todoHubEnabled: true }
 
-  it("tells a session that has the hub's tools that they exist, in one line, after the watchers line", () => {
+  it('tells a session with the hub on how what it makes is filed, and of its tools, after the watchers line', () => {
     const prompt = systemPromptAppend(task, HUB_ON)
 
-    expect(prompt).toBe(`${systemPromptAppend(task)}\n\n${TODO_HUB_TOOLS_LINE}`)
-    expect(TODO_HUB_TOOLS_LINE).not.toContain('\n')
+    expect(prompt).toBe(
+      `${systemPromptAppend(task)}\n\n${TODO_HUB_FILING_LINE}\n\n${TODO_HUB_ARTIFACTS_LINE}\n\n${TODO_HUB_TOOLS_LINE}`,
+    )
+    expect(TODO_HUB_LINES).toEqual([TODO_HUB_FILING_LINE, TODO_HUB_ARTIFACTS_LINE, TODO_HUB_TOOLS_LINE])
+    for (const line of TODO_HUB_LINES) expect(line).not.toContain('\n')
     expect(TODO_HUB_TOOLS_LINE).toContain("list_children lists them, each with a short id and the todo it's under")
     expect(TODO_HUB_TOOLS_LINE).toContain('file_children files them under a todo or moves them to another')
     // Ahead of the sandbox's and the control tools' lines and the handoff note, which stay last.
     const all = systemPromptAppend(task, HUB_ON, true, { taskId: task.id, body: 'Notes.', addedAt: 1_000 }, true)
-    const places = [WATCHERS_LINE, TODO_HUB_TOOLS_LINE, SANDBOX_LINE, CONTROL_TOOLS_LINE, HANDOFF_HEADING].map((line) =>
-      all.indexOf(line),
-    )
+    const places = [
+      WATCHERS_LINE,
+      TODO_HUB_FILING_LINE,
+      TODO_HUB_ARTIFACTS_LINE,
+      TODO_HUB_TOOLS_LINE,
+      SANDBOX_LINE,
+      CONTROL_TOOLS_LINE,
+      HANDOFF_HEADING,
+    ].map((line) => all.indexOf(line))
     expect(places).toEqual([...places].sort((a, b) => a - b))
     expect(places[0]).toBeGreaterThan(0)
+  })
+
+  it('says to name the todo in the Agent call and the Bash call that commits, and asks nothing of a watcher’s call', () => {
+    // docs/sdk-notes.md §16, "The prompt lines", cut down to the two calls Glade reads a todo off.
+    expect(TODO_HUB_FILING_LINE).toBe(
+      'Glade files every commit you make under one of your todos, where the user finds it, and each subagent you start ' +
+        'works on one of them. Name the todo in the call: start the description of an Agent call, and of a Bash call ' +
+        'that commits, with the todo\'s id in square brackets, like "[todo 2] Review the date helpers". Create the ' +
+        'todo first (TaskCreate) if none fits. If a call names none, Glade asks you right after it to file what it ' +
+        'made, with mcp__glade__file_children: do that at once, before your next step. What a subagent commits goes ' +
+        'under its todo by itself: leave those.',
+    )
+    expect(TODO_HUB_FILING_LINE).not.toMatch(/Monitor|background|ScheduleWakeup|CronCreate|wakeup|cron|watcher/i)
+    expect(TODO_HUB_ARTIFACTS_LINE).toBe(
+      "An artifact goes under a todo too: give add_artifact the todo's id as todo, for a file and for a link.",
+    )
   })
 
   it("says nothing of the hub or its tools with the switch off, as it's off unless given", () => {
@@ -195,9 +223,12 @@ describe("the todo hub's line", () => {
     for (const prompt of off) {
       expect(prompt).not.toContain('list_children')
       expect(prompt).not.toContain('file_children')
-      expect(prompt).not.toContain(TODO_HUB_TOOLS_LINE)
+      expect(prompt).not.toMatch(/\[todo \d+\]|under one of your todos|as todo/)
+      for (const line of TODO_HUB_LINES) expect(prompt).not.toContain(line)
     }
-    // It's for sessions with the tools alone, so it isn't among the instructions every resumed session is sent.
-    expect(INSTRUCTION_UPDATES).not.toContain(TODO_HUB_TOOLS_LINE)
+    // They're for sessions with the hub alone, so none is among the instructions every resumed session is sent: a
+    // session's count of those stays what it was, hub or no hub.
+    for (const line of TODO_HUB_LINES) expect(INSTRUCTION_UPDATES).not.toContain(line)
+    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE])
   })
 })

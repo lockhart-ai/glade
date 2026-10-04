@@ -19,6 +19,7 @@ import { setArtifactGroupOpen } from './artifact-groups'
 import { setBrowseFolderExpanded } from './browse-folders'
 import { putFilings } from './child-filings'
 import { assignChildIds } from './child-ids'
+import { oweFilings } from './owed-filings'
 import { setTodoPanel } from './todo-panels'
 import { ChildFilter, ChildKind, FilingSource } from '../../../shared/todoHub'
 import { addArtifact, addLinkArtifact, setArtifactFilter } from './artifacts'
@@ -113,6 +114,7 @@ function fillTask(db: Database, task: Task): void {
   assignChildIds(db, taskId, [{ kind: ChildKind.File, key: 'docs/plan.md' }])
   putFilings(db, taskId, [{ kind: ChildKind.File, key: 'docs/plan.md', todoId: '1', source: FilingSource.Named }])
   setTodoPanel(db, { taskId, todoId: '1', open: true, filter: ChildFilter.Files })
+  oweFilings(db, taskId, [{ kind: ChildKind.Watcher, key: `monitor-${taskId}` }])
   setWorkspaceSelection(db, task.workspaceId, taskId)
   appendQuestionSet(db, {
     taskId,
@@ -145,7 +147,13 @@ function fillTask(db: Database, task: Task): void {
   })
   setHandoff(db, taskId, '## Where it got to')
   setExternalId(db, taskId, `notes/${taskId}`)
-  setSessionContext(db, taskId, { instructions: true, instructionUpdates: 1, handoffAt: 1, sandbox: true })
+  setSessionContext(db, taskId, {
+    instructions: true,
+    instructionUpdates: 1,
+    handoffAt: 1,
+    sandbox: true,
+    todoHub: false,
+  })
   setInputDraft(db, { taskId, text: 'And the admin views', images: [PNG], files: [attachedFile(taskId, 'admin.pdf')] })
   recordNotification(db, { taskId, title: 'Add rate limiting', body: 'Which limit should /search use?' })
   addWatcher(db, {
@@ -203,6 +211,8 @@ const FILLED_TABLES = [
   // The notifications sent about it, for the menu bar popover's Recent section.
   'notifications',
   'open_files',
+  // The children its agent made that it still has to file under a todo (P16).
+  'owed_filings',
   // The text pasted into its messages, sent and queued, and into its input draft.
   'pasted_blocks',
   // The calls of its that a rule decided (#450).
