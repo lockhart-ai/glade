@@ -15,25 +15,117 @@ body{margin:0;background:#0A0B0F}
 a{color:#8FB2F5}a:hover{color:#B5CBF8}
 </style>
 <style>
-/* The Artifacts tab (#307), simplified for the dimmed background behind the image viewer overlay. */
-.list{flex-grow:1;min-height:0;overflow:hidden;padding:12px 8px;display:flex;flex-direction:column;gap:2px}
-.gh{flex-shrink:0;display:flex;align-items:center;gap:6px;width:100%;height:28px;padding:0 8px;background:transparent;border:1px solid transparent;border-radius:6px;font:inherit;cursor:pointer;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#999DB0;box-sizing:border-box}
-.gh .chev{display:flex;width:12px}
-.gh .label{flex-grow:1;text-align:left}
-.gap{flex-shrink:0;height:8px}
-.th{flex-shrink:0;display:flex;align-items:center;justify-content:center;box-sizing:border-box;border-radius:5px;overflow:hidden;border:1px solid #373C4F}
-.th.blank{background:#181921}
-.row2{flex-shrink:0;display:flex;align-items:center;gap:10px;height:40px;box-sizing:border-box;padding:0 8px 0 6px;border:1px solid transparent;border-radius:8px;cursor:pointer}
-.row2 .t{flex-grow:1;min-width:0;display:flex;align-items:baseline;gap:8px;white-space:nowrap;overflow:hidden}
-.row2 .t b{font-weight:400;font-size:13.5px;color:#E6E8F0;overflow:hidden;text-overflow:ellipsis;flex-shrink:1;min-width:0}
-.row2 .t i{font-style:normal;flex-shrink:0;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0}
-.row2 .a{flex-shrink:0;min-width:40px;text-align:right;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0}
-.row2.sel{background:#2E3243;border-color:#3D425E}
+/* Left half: the Todos tab (46 · Todo hub), simplified for the dimmed background behind the image viewer
+   overlay. */
+/* The Todos tab (P16, #491): what the work produced, under the todo that made it, in place of the Artifacts and
+   Changes tabs. A todo holds files, links and changes only; what's going on (subagents, watchers) is in the Agents
+   tab (50 to 54). Every colour is a token from tokens.md: inner #222430, inner-hover #282B39, inner-2 #2E3243,
+   inner-border #373C4F, strong #3D425E, text #E6E8F0, muted #AEB3C3, faint #999DB0, slate #5C6378, blue #5B8DEF,
+   blue text #8FB2F5, teal #7FD1C7, pink #E58FA8.
+   Every todo is a card on inner-2: closed or open, active, not started or done, with something under it or with
+   nothing. Nothing inside a card is black: its tiles are on inner with an inner-border outline, and the selected pill
+   is on strong. Nothing under a todo is live, so no count, pill or tile is ever blue: grey throughout, and pink only
+   for a commit's removed lines. */
+/* The todos' cards are space-xs (4px) apart, as the Todos tab's items are today, and so is the Not under a todo card
+   from the last of them, with no hairline between. */
+.hub{flex-grow:1;min-height:0;overflow:hidden;padding:12px 8px;display:flex;flex-direction:column;gap:4px}
+.sum{flex-shrink:0;display:flex;flex-direction:column;gap:8px;padding:0 9px 8px 9px}
+.sum .l{display:flex;justify-content:space-between;align-items:baseline}
+.sum b{font-size:14px;font-weight:600;color:#E6E8F0}
+.sum .u{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0}
+.bar{height:6px;border-radius:3px;background:#2E3243;overflow:hidden;display:flex}
+.bar .d{background:#7FD1C7}
+.bar .p{background:#5B8DEF}
+.empty{flex-shrink:0;padding:0 9px 4px 9px;font-size:13px;line-height:1.5;color:#999DB0}
+
+/* A todo: a card, whatever its state and whether or not anything is under it; its state icon, its status line and
+   its struck-through title say which it is. Three lines, closed or open: its title, its status line, and one row of
+   icons. */
+.todo{flex-shrink:0;display:flex;gap:8px;padding:8px;background:#2E3243;border:1px solid transparent;border-radius:10px}
+.st{flex-shrink:0;width:18px;height:18px;margin-top:1px;display:flex;align-items:center;justify-content:center}
+.ring{width:12px;height:12px;box-sizing:border-box;border:2px solid #5B8DEF;border-radius:7px;display:flex;align-items:center;justify-content:center}
+.ring span{width:4px;height:4px;border-radius:2px;background:#5B8DEF}
+.main{flex-grow:1;min-width:0}
+.tl{display:flex;align-items:baseline;gap:8px}
+.title{flex-grow:1;min-width:0;font-size:14px;line-height:1.4;font-weight:500;color:#E6E8F0}
+.todo.ns .title{font-weight:400}
+.todo.done .title{font-weight:400;color:#999DB0;text-decoration:line-through;text-decoration-color:#5C6378}
+.when{flex-shrink:0;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;white-space:nowrap}
+.chev{flex-shrink:0;align-self:center;display:flex;color:#999DB0}
+.note{margin-top:2px;font-size:12.5px;line-height:1.4;color:#8FB2F5}
+/* A PR, an issue or a ticket the todo names, when the task has it as a link (#500): the app's link, underlined
+   under the pointer. */
+.lk{color:#8FB2F5;text-decoration:none;border-radius:3px}
+.lk.hover{text-decoration:underline}
+.lk.focus{outline:2px solid #8FB2F5;outline-offset:1px}
+
+/* The third line is the same box closed and open, so opening a todo moves nothing above it. Closed: an icon and a
+   count per kind (files, links, changes), kinds with none left out. Open: the same icons as filter pills, with All in
+   front. A count is never blue: nothing under a todo is live. */
+.kinds{display:flex;align-items:center;gap:12px;height:22px;margin-top:6px}
+.kinds[role=group]{gap:4px}
+.cnt{display:flex;align-items:center;gap:4px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11.5px;color:#AEB3C3}
+.cnt svg{color:#999DB0}
+.todo.done .cnt{color:#999DB0}
+.pill{display:flex;align-items:center;gap:4px;height:22px;box-sizing:border-box;padding:0 8px;background:transparent;border:1px solid #373C4F;border-radius:11px;font:inherit;font-size:11.5px;color:#AEB3C3;white-space:nowrap;cursor:pointer}
+.pill i{font-style:normal;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0}
+.pill svg{color:#999DB0}
+.pill.hover{border-color:#5C6378;color:#E6E8F0}
+.pill.focus{outline:2px solid #8FB2F5;outline-offset:2px}
+.pill.on{background:#3D425E;border-color:#3D425E;color:#E6E8F0}
+.pill.on i{color:#AEB3C3}
+.pill.on svg{color:#E6E8F0}
+
+/* Under an open todo: one flat list, a tile per file, link or commit, most recently updated first. */
+.kids{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.tile{display:flex;flex-direction:column;padding:6px 8px;background:#222430;border:1px solid #373C4F;border-radius:7px}
+.tile.hover{background:#282B39}
+.tile.focus{outline:2px solid #8FB2F5;outline-offset:-2px}
+/* The file showing in the Files tab is outlined (#307). */
+.tile.sel{border-color:#5C6378}
+.th{display:flex;gap:8px}
+.ki{flex-shrink:0;width:14px;height:14px;margin-top:2px;display:flex;align-items:center;justify-content:center;color:#999DB0}
+/* An image file's tile has its thumbnail where the icon goes, 40×28, so it's a little
+   taller than the rest. */
+.tile.img .th{align-items:center;gap:10px}
+.tile.img .ki{width:40px;height:28px;margin-top:0}
+.thumb{display:block;width:40px;height:28px;box-sizing:border-box;border:1px solid #373C4F;border-radius:5px;overflow:hidden}
+.kt{flex-grow:1;min-width:0;font-size:12.5px;line-height:1.4;color:#E6E8F0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kt .h{font-family:'Geist Mono',ui-monospace,monospace;font-size:11.5px;color:#8FB2F5;margin-right:6px}
+.kt .tag{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;margin-left:6px}
+.ks{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;line-height:1.5;color:#999DB0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The subagent that made a commit, after its branch, as a tag. It goes to that subagent's tab in
+   Agents. A commit the task's own agent made has no tag. */
+.meta{display:flex;align-items:center;gap:8px;min-width:0}
+.meta span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.by{flex-shrink:0;padding:0 6px;border:1px solid #373C4F;border-radius:5px;font-family:Geist,system-ui,sans-serif;font-size:11px;line-height:15px;color:#AEB3C3;white-space:nowrap}
+.kr{flex-shrink:0;display:flex;align-items:center;gap:6px;height:18px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;white-space:nowrap}
+.add{color:#7FD1C7}
+.del{color:#E58FA8}
+/* A file's actions, in place of its age while the tile is under the pointer or has the focus: icon buttons. */
+.acts{flex-shrink:0;display:flex;gap:2px;height:18px;align-items:center;margin-right:-4px}
+.ib{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;color:#AEB3C3}
+/* Under a commit's first line, in line with its text, once it's opened in place: its branch and the subagent that
+   made it, then its files in a box on inner-2, never black. */
+.tb{margin-left:22px}
+.well{margin:6px 0 2px;padding:4px 8px;background:#2E3243;border-radius:6px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;line-height:1.7;color:#AEB3C3}
+.well div{display:flex;justify-content:space-between;gap:12px;white-space:nowrap}
+.well div span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.well div span:last-child{flex-shrink:0;color:#999DB0}
+.well b{font-weight:500;color:#999DB0;margin-right:8px}
+
+/* Not under a todo: the placeholder for the files, links and commits no todo was recorded for, after the todos. A
+   card as a todo is, closed or open, with its heading where a todo's title is; it opens and filters as a todo does. */
+.loose{flex-shrink:0;padding:8px 8px 8px 34px;background:#2E3243;border:1px solid transparent;border-radius:10px}
+.loose.bare{padding-left:8px}
+.loose.bare .kinds{margin-top:0}
+.lh{display:flex;align-items:center;gap:11px;height:20px;margin-left:-23px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#999DB0}
+.lh+.kinds{margin-top:4px}
 </style>
 </helmet>
 <div style="width: 1920px; height: 1200px; display: flex; background: #0A0B0F; color: #E6E8F0; font-family: Geist, system-ui, sans-serif">
 
-<!-- Left half: an artifact image opened from the Artifacts tab -->
+<!-- Left half: an image file's tile, under its todo in the Todos tab, opened in the viewer -->
 <div style="position: relative; width: 960px; height: 1200px; box-sizing: border-box; overflow: hidden; background: #0A0B0F">
   <div style="position: absolute; inset: 0; box-sizing: border-box; padding: 8px; display: flex; gap: 8px">
     <div aria-label="Window controls" style="position: absolute; left: 16px; top: 16px; display: flex; gap: 9px; z-index: 9"><span style="flex-shrink: 0; width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; background: #FF5F57; border: 0.5px solid #E0443E"></span><span style="flex-shrink: 0; width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; background: #FEBC2E; border: 0.5px solid #DEA123"></span><span style="flex-shrink: 0; width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; background: #28C840; border: 0.5px solid #1AAB29"></span></div>
@@ -45,13 +137,26 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
     </div>
     <aside style="flex-shrink: 0; width: 420px; box-sizing: border-box; background: #222430; border: 1px solid #373C4F; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.25); overflow: hidden; display: flex; flex-direction: column">
       <div style="display: flex; align-items: center; gap: 2px; padding: 8px 8px; border-bottom: 1px solid #373C4F">
-        <button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Tool calls <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">6</span></button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Files</button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Todos <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">3/5</span></button><button type="button" aria-pressed="true" style="height: 28px; padding: 0 8px; background: #2E3243; color: #E6E8F0; border: 1px solid #373C4F; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Artifacts <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">7</span></button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Subagents</button>
+        <button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Agents <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">1</span></button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Files</button><button type="button" aria-pressed="true" style="height: 28px; padding: 0 8px; background: #2E3243; color: #E6E8F0; border: 1px solid #373C4F; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Todos <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">3/5</span></button>
       </div>
-      <div class="list">
-        <button type="button" class="gh" aria-expanded="true"><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span><span class="label">Today</span><span>3</span></button>
-        <div class="row2 sel" role="button" title="out/screens/landing-dark.png"><span class="th" style="width:40px;height:28px"><svg viewBox="0 0 160 100" preserveAspectRatio="xMidYMid slice" style="display:block;width:100%;height:100%"><rect width="160" height="100" fill="#0F1220"/><rect width="160" height="12" fill="#161A2C"/><rect x="8" y="4" width="18" height="4" rx="1" fill="#5B8DEF"/><rect x="104" y="4.5" width="12" height="3" rx="1" fill="#3D425E"/><rect x="120" y="4.5" width="12" height="3" rx="1" fill="#3D425E"/><rect x="136" y="4.5" width="16" height="3" rx="1" fill="#3D425E"/><rect x="12" y="24" width="78" height="8" rx="1.5" fill="#E6E8F0"/><rect x="12" y="36" width="60" height="8" rx="1.5" fill="#E6E8F0"/><rect x="12" y="50" width="70" height="3" rx="1" fill="#5C6378"/><rect x="12" y="56" width="56" height="3" rx="1" fill="#5C6378"/><rect x="12" y="66" width="30" height="9" rx="2" fill="#5B8DEF"/><rect x="46" y="66" width="30" height="9" rx="2" fill="none" stroke="#3D425E"/><rect x="98" y="22" width="52" height="58" rx="3" fill="#181B2B" stroke="#2F3343"/><rect x="104" y="30" width="30" height="2.5" rx="1" fill="#7FD1C7"/><rect x="104" y="36" width="38" height="2.5" rx="1" fill="#C8B2FF"/><rect x="108" y="42" width="26" height="2.5" rx="1" fill="#8FB2F5"/><rect x="108" y="48" width="34" height="2.5" rx="1" fill="#AEB3C3"/><rect x="104" y="54" width="20" height="2.5" rx="1" fill="#7FD1C7"/><rect x="12" y="88" width="136" height="12" fill="#141828"/></svg></span><span class="t"><b>Landing page, dark theme</b><i>PNG</i></span><span class="a">8m</span></div>
-        <div class="row2" role="button" title="docs/site/changelog.md"><span class="th blank" style="width:40px;height:28px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#AEB3C3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span><span class="t"><b>Changelog page draft</b><i>Markdown</i></span><span class="a">14m</span></div>
-        <div class="row2" role="button" title="out/screens/landing-light.png"><span class="th" style="width:40px;height:28px"><svg viewBox="0 0 160 100" preserveAspectRatio="xMidYMid slice" style="display:block;width:100%;height:100%"><rect width="160" height="100" fill="#F6F7FA"/><rect width="160" height="12" fill="#FFFFFF"/><rect x="12" y="24" width="78" height="8" rx="1.5" fill="#1B1D26"/><rect x="12" y="36" width="60" height="8" rx="1.5" fill="#1B1D26"/><rect x="98" y="22" width="52" height="58" rx="3" fill="#E9EBF2" stroke="#D6D9E3"/></svg></span><span class="t"><b>Landing page, light theme</b><i>PNG</i></span><span class="a">22m</span></div>
+      <div class="hub">
+      <div class="sum"><div class="l"><b>3 of 5 done</b><span class="u">updated 8m ago</span></div><div class="bar"><div class="d" style="width: 60%"></div><div class="p" style="width: 20%"></div></div></div>
+      <div class="todo doing open"><span class="st"><span class="ring"><span></span></span></span><div class="main"><div class="tl"><span class="title">Redraw the landing page</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span></div><div class="note">Checking both themes against the brand colours</div>
+      <div class="kinds" role="group" aria-label="Show"><button type="button" class="pill" aria-pressed="false">All<i>3</i></button><button type="button" class="pill on" aria-pressed="true" aria-label="Files"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg><i>3</i></button></div>
+      <div class="kids">
+      <div class="tile img"><div class="th"><span class="ki"><span class="thumb"><svg viewBox="0 0 160 100" preserveAspectRatio="xMidYMid slice" style="display:block;width:100%;height:100%"><rect width="160" height="100" fill="#0F1220"/><rect width="160" height="12" fill="#161A2C"/><rect x="8" y="4" width="18" height="4" rx="1" fill="#5B8DEF"/><rect x="104" y="4.5" width="12" height="3" rx="1" fill="#3D425E"/><rect x="120" y="4.5" width="12" height="3" rx="1" fill="#3D425E"/><rect x="136" y="4.5" width="16" height="3" rx="1" fill="#3D425E"/><rect x="12" y="24" width="78" height="8" rx="1.5" fill="#E6E8F0"/><rect x="12" y="36" width="60" height="8" rx="1.5" fill="#E6E8F0"/><rect x="12" y="50" width="70" height="3" rx="1" fill="#5C6378"/><rect x="12" y="56" width="56" height="3" rx="1" fill="#5C6378"/><rect x="12" y="66" width="30" height="9" rx="2" fill="#5B8DEF"/><rect x="46" y="66" width="30" height="9" rx="2" fill="none" stroke="#3D425E"/><rect x="98" y="22" width="52" height="58" rx="3" fill="#181B2B" stroke="#2F3343"/><rect x="104" y="30" width="30" height="2.5" rx="1" fill="#7FD1C7"/><rect x="104" y="36" width="38" height="2.5" rx="1" fill="#C8B2FF"/><rect x="108" y="42" width="26" height="2.5" rx="1" fill="#8FB2F5"/><rect x="108" y="48" width="34" height="2.5" rx="1" fill="#AEB3C3"/><rect x="104" y="54" width="20" height="2.5" rx="1" fill="#7FD1C7"/><rect x="12" y="88" width="136" height="12" fill="#141828"/></svg></span></span><div class="kt">Landing page, dark theme<span class="tag">PNG</span></div><div class="kr"><span>8m</span></div></div></div>
+      <div class="tile"><div class="th"><span class="ki"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span><div class="kt">Changelog page draft<span class="tag">Markdown</span></div><div class="kr"><span>14m</span></div></div></div>
+      <div class="tile img"><div class="th"><span class="ki"><span class="thumb"><svg viewBox="0 0 160 100" preserveAspectRatio="xMidYMid slice" style="display:block;width:100%;height:100%"><rect width="160" height="100" fill="#F6F7FA"/><rect width="160" height="12" fill="#FFFFFF"/><rect x="12" y="24" width="78" height="8" rx="1.5" fill="#1B1D26"/><rect x="12" y="36" width="60" height="8" rx="1.5" fill="#1B1D26"/><rect x="98" y="22" width="52" height="58" rx="3" fill="#E9EBF2" stroke="#D6D9E3"/></svg></span></span><div class="kt">Landing page, light theme<span class="tag">PNG</span></div><div class="kr"><span>22m</span></div></div></div>
+      </div>
+      </div></div>
+      <div class="todo ns"><span class="st"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#AEB3C3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/></svg></span><div class="main"><div class="tl"><span class="title">Export the illustrations at 2×</span></div></div></div>
+      <div class="todo done"><span class="st"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#7FD1C7"/><path d="m7.5 12.3 3.2 3.2 6.3-6.8" fill="none" stroke="#181921" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="main"><div class="tl"><span class="title">Draw the empty states</span><span class="when">1h ago</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span></div>
+      <div class="kinds"><span class="cnt" title="Files"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>3</span></div>
+      </div></div>
+      <div class="todo done"><span class="st"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#7FD1C7"/><path d="m7.5 12.3 3.2 3.2 6.3-6.8" fill="none" stroke="#181921" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="main"><div class="tl"><span class="title">Pick the palette</span><span class="when">2h ago</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span></div>
+      <div class="kinds"><span class="cnt" title="Files"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>1</span></div>
+      </div></div>
+      <div class="todo done"><span class="st"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#7FD1C7"/><path d="m7.5 12.3 3.2 3.2 6.3-6.8" fill="none" stroke="#181921" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="main"><div class="tl"><span class="title">Audit the current illustrations</span><span class="when">3h ago</span></div></div></div>
       </div>
     </aside>
   </div>
@@ -70,8 +175,8 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
       <button type="button" aria-label="Close image" title="Close image" style="flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; background: transparent; border: 0; border-radius: 7px; color: #999DB0; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
     </div>
     <div role="group" aria-label="Images" style="position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 3px; background: #262935; border: 1px solid #3D425E; border-radius: 10px; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55)">
-      <button type="button" aria-label="Previous image" title="Previous image" style="flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; background: transparent; border: 0; border-radius: 7px; color: #999DB0; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"></path></svg></button>
-      <span aria-live="polite" style="min-width: 52px; padding: 0 4px; text-align: center; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3">2 of 7</span>
+      <button type="button" disabled aria-label="Previous image" title="Previous image" style="opacity: 0.45; flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; background: transparent; border: 0; border-radius: 7px; color: #999DB0; cursor: default"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"></path></svg></button>
+      <span aria-live="polite" style="min-width: 52px; padding: 0 4px; text-align: center; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3">1 of 2</span>
       <button type="button" aria-label="Next image" title="Next image" style="flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; background: transparent; border: 0; border-radius: 7px; color: #999DB0; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg></button>
     </div>
   </div>
@@ -81,7 +186,7 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 <div style="width: 960px; height: 1200px; box-sizing: border-box; padding: 8px; display: flex">
   <aside style="flex-grow: 1; min-width: 0; box-sizing: border-box; background: #222430; border: 1px solid #373C4F; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.25); overflow: hidden; display: flex; flex-direction: column">
     <div style="display: flex; align-items: center; gap: 2px; padding: 8px 8px; border-bottom: 1px solid #373C4F">
-      <button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Tool calls <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">6</span></button><button type="button" aria-pressed="true" style="height: 28px; padding: 0 8px; background: #2E3243; color: #E6E8F0; border: 1px solid #373C4F; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Files <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">4</span></button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Todos <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">3/5</span></button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Artifacts <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">7</span></button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Subagents</button>
+      <button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Agents <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">1</span></button><button type="button" aria-pressed="true" style="height: 28px; padding: 0 8px; background: #2E3243; color: #E6E8F0; border: 1px solid #373C4F; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Files <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">4</span></button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Todos <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">3/5</span></button>
       <span style="flex-grow: 1"></span><button type="button" aria-label="Collapse side panel" title="Collapse side panel" style="flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: transparent; border: 0; border-radius: 7px; color: #999DB0; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"></rect><path d="M15 4.5v15"></path></svg></button>
     </div>
     <div style="display: flex; align-items: center; gap: 4px; padding: 6px 8px; background: #181921; border-bottom: 1px solid #373C4F">
