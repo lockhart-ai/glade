@@ -2566,7 +2566,7 @@ call's `PreToolUse`); the other sources are from the types.
   120), on the card, the lines and Settings.
 - **Both forms are handled, since which a connector's tools carry wasn't probed.** The key is taken from the tool's
   own name: the reported name normalised as above, or that with each run of `_` made one and none at either end
-  (some versions are said to write a connector's that way), whichever the tool's name starts with
+  (in case a version writes a connector's that way: not probed), whichever the tool's name starts with
   (`mcpServerOfTool`, `src/shared/mcpServers.ts`); else, and when the hook names no server at all, the tool's name up
   to its first `__`. So a server whose own name has `__` in it is told from a shorter-named one as long as the hook
   says which. A hook that doesn't say (`mcp_server` missing, or of a shape Glade doesn't know) is a server Glade

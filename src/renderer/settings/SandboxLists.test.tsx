@@ -1179,6 +1179,25 @@ describe('the MCP servers list', () => {
     expect(rows('MCP servers')).toEqual(['acme-tracker', 'claude.ai Acme Docs'])
   })
 
+  it('lists hundreds of servers in order, and removes one without losing the rest', async () => {
+    const servers = Array.from({ length: 150 }, (_, index) => server(`server-${String(index)}`))
+    const { invoke } = await renderSettings({ glade: [...servers, agents(OtherAgents.Cloud)] })
+    // By label, not role: working out every button's role and name among hundreds is slow in jsdom.
+    const labels = (): (string | null)[] =>
+      Array.from(list('Glade-wide MCP servers').children, (item) => item.getAttribute('aria-label'))
+
+    expect(labels()).toEqual([...servers.map(({ server: key }) => key), 'Cloud agents'])
+
+    await click(screen.getByLabelText('Remove server-75'))
+
+    expect(labels()).toHaveLength(150)
+    expect(labels()).not.toContain('server-75')
+    expect(labels().at(-1)).toBe('Cloud agents')
+    expect(requests(invoke, CommandName.SandboxRemoveGrant)).toEqual([
+      { target: GLADE, grant: { kind: SandboxGrantKind.McpServer, server: 'server-75' } },
+    ])
+  }, 30_000)
+
   it('in Settings › Workspace, is the workspace’s own, offering what its own sessions have reported', async () => {
     const { invoke } = await renderSettings({
       section: SettingsSection.Workspace,

@@ -610,16 +610,6 @@ function outsideLabel(grant: OutsideGrant): string {
   }
 }
 
-/** What takes it back from its scope: a server by its key alone, other agents as they were granted. */
-function outsideGrantKey(grant: OutsideGrant): GrantKey {
-  switch (grant.kind) {
-    case SandboxGrantKind.McpServer:
-      return { kind: grant.kind, server: grant.server }
-    case SandboxGrantKind.Agents:
-      return grant
-  }
-}
-
 /** What its row shows on hover: the server as its tools' names carry it, or the tool that reaches the agents. */
 function outsideTitle(grant: OutsideGrant): string {
   switch (grant.kind) {
@@ -660,14 +650,21 @@ export function addableGrants(
   return offered.filter((grant) => !have.has(outsideKey(grant)))
 }
 
-interface OutsideRowProps {
+interface OutsideRowProps<Value extends string> {
   grant: OutsideGrant
+  /** What the grant is taken back by: the server's key, or which other agents. */
+  value: Value
   disabled: boolean
-  onRemove: (grant: OutsideGrant) => void
+  onRemove: (value: Value) => void
 }
 
-/** A granted MCP server, or other agents, and its remove button. Memoised on the grant, as a folder's row is. */
-const OutsideRow = memo(function OutsideRow({ grant, disabled, onRemove }: OutsideRowProps) {
+/** What both kinds of row show: the icon, the name (a server's in mono, the agents' in words) and the remove button. */
+function OutsideRow<Value extends string>({
+  grant,
+  value,
+  disabled,
+  onRemove,
+}: OutsideRowProps<Value>): React.JSX.Element {
   const label = outsideLabel(grant)
   return (
     <GrantRow label={label} icon={outsideIcon(grant)}>
@@ -679,11 +676,41 @@ const OutsideRow = memo(function OutsideRow({ grant, disabled, onRemove }: Outsi
         title={`Remove ${label}`}
         disabled={disabled}
         onClick={() => {
-          onRemove(grant)
+          onRemove(value)
         }}
       />
     </GrantRow>
   )
+}
+
+interface ServerRowProps {
+  /** The server's key, which its grant is kept and taken back by. */
+  server: string
+  /** Its name as reported, which the row shows. */
+  name: string
+  disabled: boolean
+  onRemove: (server: string) => void
+}
+
+/**
+ * A granted MCP server, and its remove button. Memoised on the server's key and name, as a folder's row is on its
+ * path and access, so a change to one row of a long list draws that row alone.
+ */
+const ServerRow = memo(function ServerRow({ server, name, disabled, onRemove }: ServerRowProps) {
+  const grant = { kind: SandboxGrantKind.McpServer, server, name } as const
+  return <OutsideRow grant={grant} value={server} disabled={disabled} onRemove={onRemove} />
+})
+
+interface AgentsRowProps {
+  agents: OtherAgents
+  disabled: boolean
+  onRemove: (agents: OtherAgents) => void
+}
+
+/** Other agents the scope may reach, and their remove button. Memoised on which they are. */
+const AgentsRow = memo(function AgentsRow({ agents, disabled, onRemove }: AgentsRowProps) {
+  const grant = { kind: SandboxGrantKind.Agents, agents } as const
+  return <OutsideRow grant={grant} value={agents} disabled={disabled} onRemove={onRemove} />
 })
 
 /** What Add… is offering, and which of them is chosen: the row under the list's. */
@@ -733,12 +760,25 @@ function ServerList({ target, grants, disabled, text }: GrantListProps<OutsideGr
   }
 
   const remove = useCallback(
-    (grant: OutsideGrant): void => {
+    (key: GrantKey): void => {
       // The row's own button goes with it, so Add… takes the focus.
       addButton.current?.focus()
-      void attempt(() => removeGrant(target, outsideGrantKey(grant)))
+      void attempt(() => removeGrant(target, key))
     },
     [attempt, removeGrant, target],
+  )
+  // A server is taken back by its key alone, other agents as they were granted.
+  const removeServer = useCallback(
+    (server: string): void => {
+      remove({ kind: SandboxGrantKind.McpServer, server })
+    },
+    [remove],
+  )
+  const removeAgents = useCallback(
+    (agents: OtherAgents): void => {
+      remove({ kind: SandboxGrantKind.Agents, agents })
+    },
+    [remove],
   )
 
   return (
@@ -750,9 +790,19 @@ function ServerList({ target, grants, disabled, text }: GrantListProps<OutsideGr
         aria-busy={grants === null}
         className={classNames(styles.grantList, disabled && styles.dimmed)}
       >
-        {grants?.map((grant) => (
-          <OutsideRow key={outsideKey(grant)} grant={grant} disabled={disabled} onRemove={remove} />
-        ))}
+        {grants?.map((grant) =>
+          grant.kind === SandboxGrantKind.McpServer ? (
+            <ServerRow
+              key={outsideKey(grant)}
+              server={grant.server}
+              name={grant.name}
+              disabled={disabled}
+              onRemove={removeServer}
+            />
+          ) : (
+            <AgentsRow key={outsideKey(grant)} agents={grant.agents} disabled={disabled} onRemove={removeAgents} />
+          ),
+        )}
         {adding === null && (grants === null || grants.length === 0) && (
           <EmptyRow>{grants === null ? null : 'No MCP servers yet.'}</EmptyRow>
         )}
