@@ -27,6 +27,7 @@ import {
   setTaskTodos,
   updateTask,
 } from './tasks'
+import { UsageLimitKind, type UsageLimit } from '../../../shared/account'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 import { appendToolCall, updateToolCall } from './tool-events'
 import { addWatcher, updateWatcher, type NewWatcher } from './watchers'
@@ -574,6 +575,37 @@ describe('updateTask', () => {
     const task = sampleTask(test.db, workspace.id)
     test.db.prepare(`UPDATE tasks SET pause = '{"reason":"bored"}' WHERE id = ?`).run(task.id)
     expect(() => getTask(test.db, task.id)).toThrow(/tasks\.pause/)
+  })
+
+  it.each<UsageLimit>([
+    { kind: UsageLimitKind.Session },
+    { kind: UsageLimitKind.Weekly },
+    { kind: UsageLimitKind.WeeklyModel, model: 'Opus' },
+    { kind: UsageLimitKind.ExtraUsage },
+  ])('keeps which limit paused the turn, when the pause says: $kind', (limit) => {
+    const task = sampleTask(test.db, workspace.id)
+
+    updateTask(test.db, task.id, { activity: TaskActivity.Paused, pause: { ...PAUSE, limit } })
+
+    expect(getTask(test.db, task.id)?.pause).toEqual({ ...PAUSE, limit })
+  })
+
+  it('reads a pause from before Glade kept its limit as naming none, and refuses a limit it doesn’t know', () => {
+    const task = sampleTask(test.db, workspace.id)
+    const write = test.db.prepare('UPDATE tasks SET activity = ?, pause = ? WHERE id = ?')
+
+    write.run(TaskActivity.Paused, JSON.stringify(PAUSE), task.id)
+    expect(getTask(test.db, task.id)?.pause).toEqual(PAUSE)
+    expect(getTask(test.db, task.id)?.pause).not.toHaveProperty('limit')
+
+    for (const limit of [
+      { kind: 'monthly' },
+      { kind: UsageLimitKind.WeeklyModel },
+      { kind: 'session', model: 'Opus' },
+    ]) {
+      write.run(TaskActivity.Paused, JSON.stringify({ ...PAUSE, limit }), task.id)
+      expect(() => getTask(test.db, task.id)).toThrow(/tasks\.pause/)
+    }
   })
 
   it('refuses an error that is not what the schema promises', () => {

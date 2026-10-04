@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { PauseReason, TaskActivity, UiStateKey, type Task } from '../../shared/domain'
+import { PauseReason, TaskActivity, UiStateKey, type Task, type TaskPause } from '../../shared/domain'
 import type { ModelChoice } from '../../shared/models'
 import { SDK_MODELS } from '../../shared/test-models'
 import { ToastProvider } from '../components'
@@ -11,6 +11,11 @@ import { fakeBridge, sampleTask, sampleWorkspace } from '../store/test-bridge'
 import { PauseBanner } from './PauseBanner'
 
 const RESUMES_AT = new Date(2099, 8, 23, 11, 42).getTime()
+
+/** A usage limit's pause that resumes at `resumesAt`. */
+function pauseUntil(resumesAt: number): TaskPause {
+  return { reason: PauseReason.UsageLimit, since: 2_000, resumesAt, checks: 0, details: 'Still over the limit.' }
+}
 
 function paused(
   id: string,
@@ -102,6 +107,68 @@ describe('PauseBanner', () => {
 
     fireEvent.click(within(banner()).getByRole('button', { name: 'Hide details' }))
     expect(within(banner()).queryByRole('list')).toBeNull()
+  })
+
+  it('offers Resume now beside Switch model, as a secondary button like it, ahead of Details', async () => {
+    await renderBanner(LIMITED)
+
+    const buttons = within(banner()).getAllByRole('button')
+    expect(buttons.map((button) => button.textContent)).toEqual(['Resume now', 'Switch model', 'Details'])
+    const [resume, switchModel] = buttons
+    expect(resume?.className).toBe(switchModel?.className)
+  })
+
+  it('resumes every task a usage limit paused with one command, whatever their workspace, and they go', async () => {
+    const offline = paused('t9', 'w1', PauseReason.Offline, 'Upgrade Django')
+    const { invoke } = await renderBanner([...LIMITED, offline])
+    invoke.mockClear()
+
+    fireEvent.click(within(banner()).getByRole('button', { name: 'Resume now' }))
+
+    // One command to main for all three, and none per task.
+    expect(invoke.mock.calls).toEqual([[CommandName.TasksResumePaused, {}]])
+    // The fake main resumes them: only the task waiting for the network is left, with nothing to press.
+    expect(await within(banner()).findByText('Can’t reach the API.')).toBeInTheDocument()
+    expect(banner()).toHaveTextContent('1 task is paused and will resume on its own when the network is back.')
+    expect(within(banner()).queryByRole('button', { name: 'Resume now' })).toBeNull()
+  })
+
+  it('keeps the banner, and its Resume now, for a task that pauses again: no error, and it can be pressed again', async () => {
+    const [first] = LIMITED
+    const { invoke, emit } = await renderBanner(LIMITED.slice(0, 1))
+
+    fireEvent.click(within(banner()).getByRole('button', { name: 'Resume now' }))
+    await act(() => Promise.resolve())
+    expect(screen.queryByRole('status')).toBeNull()
+
+    // Still over the limit: main pauses it again, with the reset time it was given.
+    const later = new Date(2099, 8, 23, 12, 5).getTime()
+    act(() => {
+      emit({
+        type: EventType.TaskUpdated,
+        task: { ...paused('t1', 'w1', PauseReason.UsageLimit, first?.title ?? ''), pause: pauseUntil(later) },
+      })
+    })
+
+    expect(banner()).toHaveTextContent(
+      'Usage limit reached. 1 task is paused and will resume on its own at Sep 23 12:05.',
+    )
+    expect(screen.queryByRole('alert')).toBeNull()
+    invoke.mockClear()
+    fireEvent.click(within(banner()).getByRole('button', { name: 'Resume now' }))
+    expect(invoke).toHaveBeenCalledExactlyOnceWith(CommandName.TasksResumePaused, {})
+  })
+
+  it('says so when the tasks could not be resumed, and stays', async () => {
+    const { invoke } = await renderBanner(LIMITED)
+    invoke.mockRejectedValueOnce(bridgeError(BridgeErrorCode.Internal, 'tasks.resumePaused failed: disk full'))
+
+    fireEvent.click(within(banner()).getByRole('button', { name: 'Resume now' }))
+
+    expect(
+      await screen.findByText('Couldn’t resume the paused tasks: tasks.resumePaused failed: disk full'),
+    ).toBeInTheDocument()
+    expect(banner()).toHaveTextContent('3 tasks are paused')
   })
 
   it('moves the tasks a usage limit paused to the model you pick, and resumes them now', async () => {

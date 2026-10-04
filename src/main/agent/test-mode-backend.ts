@@ -65,6 +65,12 @@ export interface TestModeScripts {
    * `onModels` is once a session's agent process has.
    */
   readonly onModels?: (models: unknown) => void
+  /**
+   * Whether the account's extra usage is turned on, asked each time a session's usage call is
+   * (`ScriptedUsage.extraUsage`). E2e mode leaves it off until a spec turns it on (`E2E_AGENT_GLOBAL`); otherwise it's
+   * on from the start.
+   */
+  readonly extraUsageOn?: () => boolean
 }
 
 /**
@@ -172,6 +178,7 @@ export function createTestModeAgentBackend(
           busy += 1
         },
         ...(scripts.onSandboxLog === undefined ? {} : { onSandboxLog: scripts.onSandboxLog }),
+        ...(scripts.extraUsageOn === undefined ? {} : { extraUsageOn: scripts.extraUsageOn }),
       })
       return {
         messages: session.messages,

@@ -304,11 +304,29 @@ export interface ScriptedUsageWindow {
   readonly resetInMs: number
 }
 
+/**
+ * What the usage call says of extra usage once it's turned on (`ScriptedUsage.extraUsage`), as probed on a real login
+ * (`docs/sdk-notes.md`, "Usage limits"): nothing disables it, and its spend limit isn't reached.
+ */
+export interface ScriptedExtraUsage {
+  /** The monthly cap, in cents; null for none. */
+  readonly monthlyLimit: number | null
+  /** What's been spent this month, in cents. */
+  readonly usedCredits: number
+  /** How much of the cap is spent, from 0 to 100; null while nothing has been, as the call gives it. */
+  readonly percent: number | null
+}
+
 /** What the session's usage call answers (`AgentSession.usage`): the plan's name and its windows. */
 export interface ScriptedUsage {
   /** As the call names it, e.g. `max`. */
   readonly subscriptionType: string
   readonly windows: readonly ScriptedUsageWindow[]
+  /**
+   * The account's extra usage, while it's turned on: it is from the start, unless the test mode says when
+   * (`ScriptedSessionOptions.extraUsageOn`, which an e2e spec flips). Without one, the call says extra usage is off.
+   */
+  readonly extraUsage?: ScriptedExtraUsage
 }
 
 export interface AskStep {
@@ -1522,6 +1540,37 @@ const usageLimit: AgentScript = {
 const usageLimitHour: AgentScript = {
   name: 'usage-limit-hour',
   turns: [copyUntil(usageLimitReached(HOUR_RESET_MS)), copyCompletes()],
+}
+
+/**
+ * `usage-limit-hour` on an account still over its limit the first time the task is resumed: that turn is turned away
+ * at once, with the same reset time, so the task pauses again (#519). Resumed a second time, the copy completes.
+ */
+const usageLimitTwice: AgentScript = {
+  name: 'usage-limit-twice',
+  turns: [
+    copyUntil(usageLimitReached(HOUR_RESET_MS)),
+    [...turnStart(), delay(BEAT_MS), ...usageLimitReached(HOUR_RESET_MS)],
+    copyCompletes(),
+  ],
+}
+
+/**
+ * `usage-limit-hour` on a plan whose usage call answers (#519): the session is spent and the week 64% used, and extra
+ * usage, with a monthly cap none of which is spent, takes over once it's turned on. Nothing resumes the task until then
+ * unless you do.
+ */
+const usageLimitExtra: AgentScript = {
+  name: 'usage-limit-extra',
+  turns: [copyUntil(usageLimitReached(HOUR_RESET_MS)), copyCompletes()],
+  usage: {
+    subscriptionType: 'max',
+    windows: [
+      { window: 'five_hour', percent: 100, resetInMs: HOUR_RESET_MS },
+      { window: 'seven_day', percent: 64, resetInMs: 4 * 24 * HOUR_RESET_MS },
+    ],
+    extraUsage: { monthlyLimit: 5000, usedCredits: 0, percent: null },
+  },
 }
 
 /** How much of its session limit the account has used in the usage-warning scripts. */
@@ -4017,6 +4066,151 @@ const filesChildren: AgentScript = {
   ],
 }
 
+/**
+ * What the agent of `unsorted-children` keeps as todos and makes, and how the agent of `sorts-children` then files it,
+ * for the todo hub's filing tools (P16-05, #496; `docs/model-surface.md`). Listed for the first time, the children get
+ * their short ids in this order: `c1` the write-up, `c2` the PR, `c3` the subagent, `c4` the tests the subagent left
+ * running, `c5` the CI watch, `c6` the subagent's commit.
+ */
+export const SORTS_CHILDREN = {
+  prompt: 'Review the date helpers, write up what you find, and watch CI on the PR.',
+  title: 'Review the date helpers',
+  todos: [
+    { subject: 'Review the date helpers', activeForm: 'Reviewing the date helpers' },
+    { subject: 'Write up the review', activeForm: 'Writing up the review' },
+    { subject: 'Watch CI on PR #42', activeForm: 'Watching CI on PR #42' },
+  ],
+  /** Makes the workspace a repository, with no commit of its own, when it isn't one yet. */
+  setup: 'test -d .git || git init -q -b main',
+  subagent: 'Review the date helpers',
+  commitSubject: 'Fix the UTC date test',
+  commitCommand:
+    "mkdir -p src && printf 'export const header = (d: Date) => d.toISOString().slice(0, 10)\\n' > src/date.ts" +
+    ' && git add src/date.ts && git commit -m "Fix the UTC date test"',
+  tests: 'Date helper tests',
+  testsCommand: 'npm test -- src/date --watch',
+  writeup: { path: 'docs/date-review.md', title: 'Date helpers review' },
+  writeupCommand:
+    "mkdir -p docs && printf '# Date helpers review\\n\\nThe header built its date in local time.\\n' > " +
+    'docs/date-review.md',
+  pr: { url: 'https://github.com/acme/api/pull/42', title: 'Fix the UTC date test' },
+  ci: 'CI checks on PR #42',
+  ciCommand: 'gh pr checks 42 --watch --interval 30 | grep --line-buffered -E "pass|fail"',
+  made: 'The date helpers are reviewed and fixed, the review is written up, and CI on PR #42 is being watched.',
+  /** What you ask of `sorts-children`, turn by turn, and what its agent files each time. */
+  sortPrompt: 'File your things under your todos.',
+  sort: [
+    { child: 'c1', todo: '2' },
+    { child: 'c2', todo: '3' },
+    { child: 'c3', todo: '1' },
+    { child: 'c5', todo: '3' },
+  ],
+  sorted:
+    'Everything is filed: the review and what it made under "Review the date helpers", the write-up under "Write up ' +
+    'the review", and the PR and its CI watch under "Watch CI on PR #42".',
+  movePrompt: 'Put the review under the write-up instead.',
+  move: [{ child: 'c3', todo: '2' }],
+  moved: 'Moved the review under "Write up the review", with its commit and the tests it left running.',
+  /** A todo and a child that aren't there. */
+  badPrompt: 'Now put the write-up and the changelog under the release todo.',
+  bad: [
+    { child: 'c1', todo: '9' },
+    { child: 'c12', todo: '1' },
+  ],
+  refused: 'There is no release todo and no changelog here, so nothing moved.',
+} as const
+
+/**
+ * A task that makes one of each kind of child with nothing filing them, as every task did before the todo hub: three
+ * todos, a subagent that makes a real commit and leaves its tests running, a file and a link declared as artifacts,
+ * and a `Monitor`. `sorts-children` then sorts it.
+ */
+const unsortedChildren: AgentScript = {
+  name: 'unsorted-children',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        SORTS_CHILDREN.title,
+        'Review the date helpers, write up the findings and watch CI on the PR.',
+        'Reviewing the date helpers.',
+      ),
+      shell('setup', SORTS_CHILDREN.setup, 'Make the workspace a repository if it isn’t one'),
+      ...SORTS_CHILDREN.todos.flatMap((item, index) => createTodo(item, index + 1)),
+      ...updateTodo(1, 'in_progress'),
+      toolUse('review', 'Agent', {
+        description: SORTS_CHILDREN.subagent,
+        subagent_type: 'general-purpose',
+        prompt: 'Review the date helpers in src/date.ts, fix what you find, commit it, and leave the tests running.',
+      }),
+      say('The header builds its date in local time. Fixing it.', 'review'),
+      shell('fix', SORTS_CHILDREN.commitCommand, 'Fix the date test and commit it', { parent: 'review' }),
+      ...tool(
+        'tests',
+        'Bash',
+        { command: SORTS_CHILDREN.testsCommand, description: SORTS_CHILDREN.tests, run_in_background: true },
+        'Command running in background with ID: b7r2m4q. Output is being written to: tasks/b7r2m4q.output.',
+        'review',
+      ),
+      toolResult('review', 'The header built its date in local time: fixed and committed. The tests are running.'),
+      ...updateTodo(1, 'completed'),
+      ...updateTodo(2, 'in_progress'),
+      shell('writeup', SORTS_CHILDREN.writeupCommand, 'Write up the review'),
+      gladeTool('add-writeup', 'add_artifact', SORTS_CHILDREN.writeup),
+      gladeTool('add-pr', 'add_artifact', SORTS_CHILDREN.pr),
+      ...updateTodo(2, 'completed'),
+      ...updateTodo(3, 'in_progress'),
+      ...tool(
+        'ci',
+        'Monitor',
+        { description: SORTS_CHILDREN.ci, timeout_ms: 1_800_000, command: SORTS_CHILDREN.ciCommand },
+        'Monitor started (task bm4k8w2, expires in 30m unless the source ends first; you get one notice at expiry — ' +
+          're-arm if you still need the watch). You will be notified on each event.',
+      ),
+      say(SORTS_CHILDREN.made),
+      result(),
+    ],
+  ],
+}
+
+/**
+ * Sorts what `unsorted-children` made, with Glade's `list_children` and `file_children` (P16-05, #496), in a session
+ * that has them (one started with the todo hub on): asked to file its things, it lists them and files each under a
+ * todo in one call; asked to move the review, it moves the subagent, which brings its commit and its tests; asked for
+ * a todo and a child that aren't there, its call is refused and it says so. A spec plays it in the task
+ * `unsorted-children` made, after a relaunch, so its first turn is the sorting.
+ */
+const sortsChildren: AgentScript = {
+  name: 'sorts-children',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      gladeTool('list', 'list_children', {}),
+      gladeTool('file', 'file_children', { filings: SORTS_CHILDREN.sort }),
+      gladeTool('status-sorted', 'set_status', { status: 'Filed everything under its todo.' }),
+      say(SORTS_CHILDREN.sorted),
+      result(),
+    ],
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      gladeTool('move', 'file_children', { filings: SORTS_CHILDREN.move }),
+      say(SORTS_CHILDREN.moved),
+      result(),
+    ],
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      gladeTool('bad', 'file_children', { filings: SORTS_CHILDREN.bad }),
+      gladeTool('unfiled', 'list_children', { todo: 'none' }),
+      say(SORTS_CHILDREN.refused),
+      result(),
+    ],
+  ],
+}
+
 /** The reply `shares-links` ends on: a Markdown link, a bare URL, and a URL in code, which stays plain. */
 export const SHARES_LINKS_REPLY =
   'The limits are in [the API docs](https://example.com/docs/limits), and the status page is ' +
@@ -4146,6 +4340,8 @@ export const AGENT_SCRIPT_NAMES = [
   'makes-commits',
   'makes-another-commit',
   'files-children',
+  'unsorted-children',
+  'sorts-children',
   'simple-reply',
   'multi-tool-turn',
   'long-running',
@@ -4171,6 +4367,8 @@ export const AGENT_SCRIPT_NAMES = [
   'curates-artifacts',
   'usage-limit',
   'usage-limit-hour',
+  'usage-limit-twice',
+  'usage-limit-extra',
   'usage-warning',
   'usage-warning-resets',
   'usage-warning-then-limit',
@@ -4214,6 +4412,8 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'makes-commits': makesCommits,
   'makes-another-commit': makesAnotherCommit,
   'files-children': filesChildren,
+  'unsorted-children': unsortedChildren,
+  'sorts-children': sortsChildren,
   'simple-reply': simpleReply,
   'multi-tool-turn': multiToolTurn,
   'long-running': longRunning,
@@ -4239,6 +4439,8 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'curates-artifacts': curatesArtifacts,
   'usage-limit': usageLimit,
   'usage-limit-hour': usageLimitHour,
+  'usage-limit-twice': usageLimitTwice,
+  'usage-limit-extra': usageLimitExtra,
   'usage-warning': usageWarning,
   'usage-warning-resets': usageWarningResets,
   'usage-warning-then-limit': usageWarningThenLimit,

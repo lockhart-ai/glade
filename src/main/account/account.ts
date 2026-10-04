@@ -7,10 +7,12 @@
  *   parse, keeps the one before.
  * - **The usage readings**, one per limit, come from two places (`docs/sdk-notes.md`, "Usage limits"):
  *   - Claude Code's usage call (the SDK's experimental `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`),
- *     asked as each session starts and after each turn. It gives every window with how much is used and when it
- *     resets, so an answer replaces every reading before it. It's parsed loosely: a window it sends malformed is left
- *     out, and an answer that makes no sense, or has no window at all, keeps the readings there are. So does one
- *     saying plan limits don't apply (an API key or a cloud provider), and so does a call that fails.
+ *     asked as each session starts and after each turn, and, while a task is paused on a usage limit, when Glade's
+ *     window gets the focus and every few minutes (`./usage-resume`). It gives every window with how much is used and
+ *     when it resets, so an answer replaces every reading before it. It's parsed loosely: a window it sends malformed
+ *     is left out, and an answer that makes no sense, or has no window at all, keeps the readings there are. So does
+ *     one saying plan limits don't apply (an API key or a cloud provider), and so does a call that fails. Each answer
+ *     that gave readings is handed on (`onUsageRead`), to resume the paused tasks it says can run again.
  *   - The SDK's `rate_limit_event`, which arrives as each turn starts and whenever a limit changes (subscription logins
  *     only). Each names one window; it replaces that window's reading, keeping how much was used when the event
  *     doesn't say. `rejected` is at the limit; a warning is close to it only from `USAGE_WARNING_THRESHOLD`, as Claude
@@ -33,6 +35,7 @@ import {
   type AccountStatus,
   type UsageLimit,
   type UsageReading,
+  type UsageSnapshot,
 } from '../../shared/account'
 import type { EpochMs } from '../../shared/domain'
 import type { Database } from 'better-sqlite3'
@@ -72,6 +75,11 @@ export interface AccountTrackerOptions {
   /** Where reads and readings are logged: never the email or organization. Nothing by default. */
   readonly log?: Logger
   readonly now?: () => EpochMs
+  /**
+   * Hears each answer of the usage call that gave readings, once they're saved and broadcast: what resumes the tasks a
+   * usage limit paused when the account can run again (`./usage-resume`, #519). Nothing by default.
+   */
+  readonly onUsageRead?: (usage: UsageSnapshot) => void
 }
 
 /** A field of `accountInfo()`: a string, or left out. Anything else is as good as left out. */
@@ -115,6 +123,28 @@ const modelWindow = z
   .nullable()
   .catch(null)
 
+/**
+ * An amount of extra usage's credits, in the currency's minor units (cents); null when the call says there's none (no
+ * monthly cap, say). One it leaves out or sends malformed is undefined: not known.
+ */
+const credits = z.number().nonnegative().nullable().optional().catch(undefined)
+
+/**
+ * The usage call's `extra_usage` (`docs/sdk-notes.md`, "Usage limits"), the parts Glade reads. What it leaves out or
+ * sends malformed is undefined, which is never taken for "available" (`extraUsageAvailable`).
+ */
+const extraUsageSchema = z.looseObject({
+  is_enabled: z.boolean().catch(false),
+  utilization: percent,
+  monthly_limit: credits,
+  used_credits: credits,
+  /** Why extra usage can't be used though it's on (out of credits, turned off for the seat, …); null when it can. */
+  disabled_reason: z.string().nullable().optional().catch(undefined),
+  spend_limit_reached: z.boolean().optional().catch(undefined),
+})
+
+type ExtraUsage = z.infer<typeof extraUsageSchema>
+
 /** The SDK's `SDKControlGetUsageResponse`, the parts the meter reads, as loosely as makes sense. */
 const usageResponse = z.looseObject({
   rate_limits_available: z.boolean(),
@@ -125,10 +155,7 @@ const usageResponse = z.looseObject({
       seven_day_opus: callWindow,
       seven_day_sonnet: callWindow,
       model_scoped: z.array(modelWindow).optional().catch(undefined),
-      extra_usage: z
-        .looseObject({ is_enabled: z.boolean().catch(false), utilization: percent })
-        .nullish()
-        .catch(null),
+      extra_usage: extraUsageSchema.nullish().catch(null),
     })
     .nullable(),
 })
@@ -144,8 +171,46 @@ export enum UsageAnswerKind {
 }
 
 export type UsageAnswer =
-  | { readonly kind: UsageAnswerKind.Readings; readonly readings: readonly UsageReading[] }
+  | ({ readonly kind: UsageAnswerKind.Readings } & UsageSnapshot)
   | { readonly kind: UsageAnswerKind.NoPlanLimits | UsageAnswerKind.NotUnderstood }
+
+/**
+ * How much of extra usage's monthly cap is spent, as a fraction: what the call says, or, when it gives no percentage
+ * (it gives none while nothing has been spent, #519), what's been spent of the cap. Null with no cap to be a fraction
+ * of (`monthly_limit` null or 0), and when the call says neither.
+ */
+function extraUsageUtilization(extra: ExtraUsage): number | null {
+  if (extra.utilization != null) return extra.utilization / 100
+  const { monthly_limit: cap, used_credits: used } = extra
+  if (cap == null || cap === 0 || used == null) return null
+  return used / cap
+}
+
+/** The reading of extra usage while it's on, or null while it isn't: with no cap, a reading that gives no amount. */
+function extraUsageReading(extra: ExtraUsage | null | undefined, readAt: EpochMs): UsageReading | null {
+  if (extra?.is_enabled !== true) return null
+  const utilization = extraUsageUtilization(extra)
+  return {
+    limit: { kind: UsageLimitKind.ExtraUsage },
+    utilization,
+    resetsAt: null,
+    level: usageLevel(utilization),
+    readAt,
+  }
+}
+
+/**
+ * Whether extra usage can take the requests a plan limit turns away (`UsageSnapshot.extraUsageAvailable`): it's on, the
+ * call says outright that nothing disables it and its spend limit isn't reached, and it's under its monthly cap. With
+ * no percentage to go by, only a cap the call says there's none of (`monthly_limit: null`) counts as room. Anything
+ * left out or malformed is not known, and never available.
+ */
+function extraUsageAvailable(extra: ExtraUsage | null | undefined): boolean {
+  if (extra?.is_enabled !== true) return false
+  if (extra.spend_limit_reached !== false || extra.disabled_reason !== null) return false
+  const utilization = extraUsageUtilization(extra)
+  return utilization === null ? extra.monthly_limit === null : utilization < 1
+}
 
 /** A reading of `limit` from one of the call's windows, or null for none: it says nothing of how much is used. */
 function callReading(
@@ -168,7 +233,8 @@ function callReading(
 /**
  * What the usage call's answer `raw`, read at `readAt`, says (see the module comment). Its percentages become
  * fractions and its reset times epoch milliseconds; a window that has already reset is left out, and so is a second
- * reading of a limit already read (the per-model windows can name a model the fixed ones do).
+ * reading of a limit already read (the per-model windows can name a model the fixed ones do). Extra usage is read
+ * whenever it's on, whether or not the call gives its percentage (`extraUsageUtilization`).
  */
 export function parseUsage(raw: unknown, readAt: EpochMs): UsageAnswer {
   const parsed = usageResponse.safeParse(raw)
@@ -185,9 +251,7 @@ export function parseUsage(raw: unknown, readAt: EpochMs): UsageAnswer {
         ? null
         : callReading({ kind: UsageLimitKind.WeeklyModel, model: window.display_name }, window, readAt),
     ),
-    limits.extra_usage?.is_enabled === true
-      ? callReading({ kind: UsageLimitKind.ExtraUsage }, limits.extra_usage, readAt)
-      : null,
+    extraUsageReading(limits.extra_usage, readAt),
   ]
   const byKey = new Map<string, UsageReading>()
   for (const reading of read) {
@@ -196,7 +260,11 @@ export function parseUsage(raw: unknown, readAt: EpochMs): UsageAnswer {
     if (!byKey.has(key)) byKey.set(key, reading)
   }
   if (byKey.size === 0) return { kind: UsageAnswerKind.NotUnderstood }
-  return { kind: UsageAnswerKind.Readings, readings: sortUsageReadings([...byKey.values()]) }
+  return {
+    kind: UsageAnswerKind.Readings,
+    readings: sortUsageReadings([...byKey.values()]),
+    extraUsageAvailable: extraUsageAvailable(limits.extra_usage),
+  }
 }
 
 /** The limit a rate limit event's window is, or null for one Glade doesn't know. */
@@ -260,6 +328,7 @@ export function createAccountTracker({
   emit,
   log = SILENT_LOGGER,
   now = () => Date.now(),
+  onUsageRead,
 }: AccountTrackerOptions): AccountTracker {
   const status = (): AccountStatus => ({ account: getAccount(db), usage: listUsageReadings(db) })
   const changed = (): void => {
@@ -347,6 +416,7 @@ export function createAccountTracker({
           replaceUsageReadings(db, answer.readings)
           timeResets()
           changed()
+          onUsageRead?.({ readings: answer.readings, extraUsageAvailable: answer.extraUsageAvailable })
           return
       }
     },

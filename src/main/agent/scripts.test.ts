@@ -38,13 +38,15 @@ import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { listOpenPermissionRequests, listPermissionRequests } from '../db/repositories/permission-requests'
 import { listSandboxGrants } from '../db/repositories/sandbox-grants'
-import { updateSettings } from '../db/repositories/settings'
+import { getSettings, updateSettings } from '../db/repositories/settings'
+import { listTaskCommits } from '../db/repositories/task-commits'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
 import type { NotifyReply } from '../notifications/notifications'
 import { createQuestionBroker } from '../questions/questions'
 import { createdTaskId } from '../todos/schema'
+import { readTodoHub } from '../todo-hub/todo-hub'
 import { todoListFor } from '../todos/todos'
 import { listWatchers } from '../db/repositories/watchers'
 import { ChildTool, namedTodo, TODO_FIELDS } from './child-calls'
@@ -73,6 +75,7 @@ import {
   RELEASE_NOTES_PREAMBLE,
   RELEASE_NOTES_QUESTIONS,
   S3_PLAN,
+  SORTS_CHILDREN,
   SUBAGENT_CALLS_REPLY,
   TRACKS_LINKS_REPLY,
   ASKS_SANDBOX,
@@ -83,7 +86,7 @@ import {
 } from './scripts'
 import { OFFLINE_FIRST_CHECK_MS, USAGE_LIMIT_FALLBACK_MS } from './pauses'
 import { createAccountTracker, type AccountSink, type AccountTracker } from '../account/account'
-import { UsageLevel, UsageLimitKind } from '../../shared/account'
+import { UsageLevel, UsageLimitKind, type UsageSnapshot } from '../../shared/account'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
 import { createMemoryLog } from '../logging/memory-sink'
 import type { Logger } from '../logging/logger'
@@ -101,15 +104,20 @@ interface Listeners {
   readonly log?: Logger
   /** What hears about the account. Nothing by default. */
   readonly account?: AccountSink
+  /** Whether the account's extra usage is turned on, asked with each usage call. On by default. */
+  readonly extraUsageOn?: () => boolean
   /** The Claude Code settings files a session's excluded commands are read from. None by default. */
   readonly claudeSettings?: (root: string) => readonly string[]
 }
 
 function start(
   name: AgentScriptName,
-  { emit = () => undefined, notifyReply, log, account, claudeSettings }: Listeners = {},
+  { emit = () => undefined, notifyReply, log, account, extraUsageOn, claudeSettings }: Listeners = {},
 ): AgentRunner {
-  backend = createTestModeAgentBackend({ script: AGENT_SCRIPTS[name] })
+  backend = createTestModeAgentBackend({
+    script: AGENT_SCRIPTS[name],
+    ...(extraUsageOn === undefined ? {} : { extraUsageOn }),
+  })
   const base = { db: database.db, emit }
   const questions = createQuestionBroker(base)
   const context = { ...base, questions }
@@ -120,8 +128,10 @@ function start(
     ...(log === undefined ? {} : { log }),
     ...(account === undefined ? {} : { account }),
     ...(claudeSettings === undefined ? {} : { claudeSettings }),
-    // The real Glade tools, as the app gives every session.
-    mcpServers: (forTask) => ({ [GLADE_SERVER]: createGladeMcpServer(context, forTask.id) }),
+    // The real Glade tools, as the app gives every session: the ones Settings has on as it starts.
+    mcpServers: (forTask) => ({
+      [GLADE_SERVER]: createGladeMcpServer(context, forTask.id, getSettings(database.db)),
+    }),
   })
   return runner
 }
@@ -361,6 +371,177 @@ describe('AGENT_SCRIPTS', () => {
       // The todo list is the first turn's: the second made nothing a todo.
       expect(todoListFor(database.db, task.id)?.items).toHaveLength(3)
       expect(listMessages(database.db, task.id).at(-1)?.body).toBe(FILES_CHILDREN.unnamed.reply)
+    })
+  })
+
+  describe('unsorted-children, then sorts-children', () => {
+    let root: string
+    const { todos, writeup, pr } = SORTS_CHILDREN
+
+    beforeEach(() => {
+      root = mkdtempSync(join(tmpdir(), 'glade-sorts-children-'))
+      task = sampleTask(database.db, sampleWorkspace(database.db, root).id)
+      // Real timers: its commit and its artifact's file are real, which fake timers would race with.
+      vi.useRealTimers()
+    })
+
+    afterEach(() => {
+      rmSync(root, { recursive: true, force: true })
+    })
+
+    /** Plays `unsorted-children`'s turn, and waits for Glade to have found the commit it made (it reads git). */
+    async function make(): Promise<AgentRunner> {
+      const maker = start('unsorted-children')
+      maker.send(task.id, SORTS_CHILDREN.prompt)
+      await backend.whenIdle()
+      await vi.waitFor(() => {
+        expect(listTaskCommits(database.db, task.id)).toHaveLength(1)
+      })
+      return maker
+    }
+
+    /** Plays `unsorted-children`'s turn, then starts the task's session again on `sorts-children`, as a relaunch. */
+    async function makeThenRelaunch(todoHubEnabled: boolean): Promise<AgentRunner> {
+      const maker = await make()
+      maker.close()
+      updateSettings(database.db, { todoHubEnabled })
+      return start('sorts-children')
+    }
+
+    async function say(agent: AgentRunner, text: string): Promise<void> {
+      agent.send(task.id, text)
+      await backend.whenIdle()
+    }
+
+    /** The agent's calls to one of Glade's tools, as `[state, output]`, in order. */
+    function gladeCalls(tool: string): [ToolCallState, string | null][] {
+      return calls()
+        .filter(({ name }) => name === `mcp__glade__${tool}`)
+        .map(({ state, output }) => [state, output])
+    }
+
+    /** Each todo's children, then the ones under no todo, each as `kind source`, sorted. */
+    function placed(): string[][] {
+      const { children } = readTodoHub(database.db, task.id)
+      return [...children.todos, children.unfiled].map((group) =>
+        group.children.map(({ kind, source }) => `${kind} ${source ?? 'unfiled'}`).sort(),
+      )
+    }
+
+    it('makes one of each kind of child, a subagent’s commit and tests among them, with nothing filed', async () => {
+      await make()
+
+      expect(todoListFor(database.db, task.id)?.items.map(({ id, text }) => [id, text])).toEqual(
+        todos.map(({ subject }, index) => [String(index + 1), subject]),
+      )
+      expect(listArtifacts(database.db, task.id).map(({ kind, title }) => [kind, title])).toEqual([
+        [ArtifactKind.File, writeup.title],
+        [ArtifactKind.Link, pr.title],
+      ])
+      const subagent = calls().find(({ name }) => name === 'Agent')
+      expect(subagent).toMatchObject({ state: ToolCallState.Done, input: { description: SORTS_CHILDREN.subagent } })
+      expect(listWatchers(database.db, task.id).map(({ label, parentToolUseId }) => [label, parentToolUseId])).toEqual([
+        [SORTS_CHILDREN.tests, subagent?.toolUseId],
+        [SORTS_CHILDREN.ci, null],
+      ])
+      expect(
+        listTaskCommits(database.db, task.id).map(({ subject, subagentToolUseId }) => [subject, subagentToolUseId]),
+      ).toEqual([[SORTS_CHILDREN.commitSubject, subagent?.toolUseId]])
+      expect(reply()).toBe(SORTS_CHILDREN.made)
+      // With the hub off, the session has neither tool and nothing of the hub is written.
+      expect(database.db.prepare('SELECT COUNT(*) FROM child_ids').pluck().get()).toBe(0)
+    })
+
+    it('lists what the task made and files each under a todo in one call, once the hub is on', async () => {
+      const agent = await makeThenRelaunch(true)
+      expect(placed()).toEqual([
+        [],
+        [],
+        [],
+        ['commit unfiled', 'file unfiled', 'link unfiled', 'subagent unfiled', 'watcher unfiled', 'watcher unfiled'],
+      ])
+
+      await say(agent, SORTS_CHILDREN.sortPrompt)
+
+      const hash = listTaskCommits(database.db, task.id)[0]?.hash ?? ''
+      expect(hash).toMatch(/^[0-9a-f]{40}$/)
+      expect(gladeCalls('list_children')).toEqual([
+        [
+          ToolCallState.Done,
+          [
+            '#1 Review the date helpers (completed), no children',
+            '#2 Write up the review (completed), no children',
+            '#3 Watch CI on PR #42 (in progress), no children',
+            'Not under a todo, 6 children:',
+            '- c1: file "Date helpers review"',
+            '- c2: link "Fix the UTC date test"',
+            '- c3: subagent "Review the date helpers"',
+            '- c4: watcher "Date helper tests" (follows c3)',
+            '- c5: watcher "CI checks on PR #42"',
+            `- c6: commit "${hash.slice(0, 7)} Fix the UTC date test" (follows c3)`,
+          ].join('\n'),
+        ],
+      ])
+      expect(gladeCalls('file_children')).toEqual([
+        [
+          ToolCallState.Done,
+          'Filed 4 children: c1 under #2; c2, c5 under #3; c3 under #1. Moved with their subagent: c4, c6.',
+        ],
+      ])
+      // The subagent brought its commit and its tests; the placeholder is empty.
+      expect(placed()).toEqual([
+        ['commit inherited', 'subagent asked', 'watcher inherited'],
+        ['file asked'],
+        ['link asked', 'watcher asked'],
+        [],
+      ])
+      expect(listMessages(database.db, task.id).at(-1)?.body).toBe(SORTS_CHILDREN.sorted)
+    })
+
+    it('moves the subagent with what it made, then is refused a todo and a child that aren’t there', async () => {
+      const agent = await makeThenRelaunch(true)
+      await say(agent, SORTS_CHILDREN.sortPrompt)
+
+      await say(agent, SORTS_CHILDREN.movePrompt)
+
+      expect(gladeCalls('file_children').at(-1)).toEqual([
+        ToolCallState.Done,
+        'Filed 1 child: c3 under #2. Moved with their subagent: c4, c6.',
+      ])
+      const moved = [
+        [],
+        ['commit inherited', 'file asked', 'subagent moved', 'watcher inherited'],
+        ['link asked', 'watcher asked'],
+        [],
+      ]
+      expect(placed()).toEqual(moved)
+
+      await say(agent, SORTS_CHILDREN.badPrompt)
+
+      expect(gladeCalls('file_children').at(-1)).toEqual([
+        ToolCallState.Error,
+        "Nothing was filed. Not a child of this task: c12. List the task's children for their ids. There's no " +
+          "todo #9 in this task's list. Your todos: #1 Review the date helpers (completed) · #2 Write up the review " +
+          '(completed) · #3 Watch CI on PR #42 (in progress)',
+      ])
+      expect(gladeCalls('list_children').at(-1)).toEqual([ToolCallState.Done, 'Not under a todo, no children'])
+      expect(placed()).toEqual(moved)
+      expect(listMessages(database.db, task.id).at(-1)?.body).toBe(SORTS_CHILDREN.refused)
+    })
+
+    it('has neither tool in a session that starts with the hub off: its calls fail and nothing is filed', async () => {
+      const agent = await makeThenRelaunch(false)
+
+      await say(agent, SORTS_CHILDREN.sortPrompt)
+
+      expect(gladeCalls('list_children')).toEqual([
+        [ToolCallState.Error, expect.stringContaining('not found') as unknown],
+      ])
+      expect(gladeCalls('file_children')).toEqual([
+        [ToolCallState.Error, expect.stringContaining('not found') as unknown],
+      ])
+      expect(database.db.prepare('SELECT COUNT(*) FROM child_filings').pluck().get()).toBe(0)
+      expect(database.db.prepare('SELECT COUNT(*) FROM child_ids').pluck().get()).toBe(0)
     })
   })
 
@@ -766,15 +947,78 @@ describe('AGENT_SCRIPTS', () => {
     })
   })
 
+  it('usage-limit-twice: is turned away again the first time it’s resumed, and finishes the second', async () => {
+    const agent = start('usage-limit-twice')
+    const first = await pausedBy(agent, 'Move the uploads to S3.')
+
+    agent.resumePaused(task.id)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    const second = getTask(database.db, task.id)
+    expect(second).toMatchObject({ activity: TaskActivity.Paused, error: null })
+    expect(second?.pause).toMatchObject({ reason: PauseReason.UsageLimit, limit: { kind: UsageLimitKind.Session } })
+    expect(second?.pause?.since).toBeGreaterThan(first?.since ?? 0)
+    expect(calls().map((call) => call.name)).not.toContain(API_TOOL_NAME)
+    expect(reply()).toBeUndefined()
+
+    agent.resumePaused(task.id)
+    const idle = backend.whenIdle()
+    await vi.advanceTimersByTimeAsync(10_000)
+    await idle
+    expect(reply()).toBe('The copy finished: all 3,900 files are in the bucket.')
+    expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, pause: null })
+  })
+
   describe('usage warnings', () => {
     let account: AccountTracker
+    /** Each answer of the usage call the account read. */
+    let read: UsageSnapshot[]
 
     beforeEach(() => {
-      account = createAccountTracker({ db: database.db, emit: () => undefined })
+      read = []
+      account = createAccountTracker({
+        db: database.db,
+        emit: () => undefined,
+        onUsageRead: (usage) => read.push(usage),
+      })
     })
 
     afterEach(() => {
       account.close()
+    })
+
+    it('usage-limit-extra: the usage call says the session is spent, and tells of extra usage once it’s on', async () => {
+      let extraUsage = false
+      const agent = start('usage-limit-extra', { account, extraUsageOn: () => extraUsage })
+      await pausedBy(agent, 'Move the uploads to S3.')
+
+      const told = (): unknown[] => account.status().usage.map(({ limit, utilization }) => [limit.kind, utilization])
+      expect(told()).toEqual([
+        [UsageLimitKind.Session, 1],
+        [UsageLimitKind.Weekly, 0.64],
+      ])
+      expect(account.status().usage[0]?.level).toBe(UsageLevel.Limited)
+      expect(read.at(-1)?.extraUsageAvailable).toBe(false)
+
+      // Turned on in the browser; the paused task's session is asked again.
+      extraUsage = true
+      expect(agent.refreshUsage()).toBe(true)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(told()).toEqual([
+        [UsageLimitKind.Session, 1],
+        [UsageLimitKind.Weekly, 0.64],
+        [UsageLimitKind.ExtraUsage, 0],
+      ])
+      expect(read.at(-1)?.extraUsageAvailable).toBe(true)
+      expect(activity()).toBe(TaskActivity.Paused)
+    })
+
+    it('usage-limit-extra: has extra usage on from the start unless the test mode says when', async () => {
+      await pausedBy(start('usage-limit-extra', { account }), 'Move the uploads to S3.')
+
+      expect(account.status().usage.map(({ limit }) => limit.kind)).toContain(UsageLimitKind.ExtraUsage)
+      expect(read.at(-1)?.extraUsageAvailable).toBe(true)
     })
 
     it('usage-meter: the usage call answers once the turn ends, with every window and when each resets', async () => {

@@ -13,11 +13,35 @@
  *
  * The time a pause resumes at is saved on the task (`TaskPause.resumesAt`), so a relaunch arms its timer again, and a
  * time that passed while the app was closed resumes the turn at once.
+ *
+ * A usage limit's pause can end before its reset (#519): the banner's Resume now tries every such turn again at once,
+ * and a reading of the account's usage that says it can run again (`canRunAgain`) does the same by itself
+ * (`../account/usage-resume`, which reads usage again while anything is paused on a limit). Either way a turn still
+ * over the limit just pauses again.
  */
+import {
+  UsageLevel,
+  usageLimitKey,
+  UsageLimitKind,
+  type UsageLimit as AccountLimit,
+  type UsageReading,
+  type UsageSnapshot,
+} from '../../shared/account'
 import { AgentErrorKind, PauseReason, type EpochMs, type TaskError, type TaskPause } from '../../shared/domain'
 
 /** How long Glade waits to try a turn over the usage limit again when the SDK didn't say when the limit resets. */
 export const USAGE_LIMIT_FALLBACK_MS = 15 * 60_000
+
+/**
+ * How often Glade reads the account's usage again while a task is paused on a usage limit (#519): often enough that
+ * extra usage turned on elsewhere resumes the tasks within minutes, though Glade's window never got the focus (which
+ * reads at once); seldom enough that the one request each read costs Claude Code is nothing beside a turn's. Shorter
+ * than `USAGE_LIMIT_FALLBACK_MS`, the blind retry it mostly stands in for.
+ */
+export const USAGE_RECHECK_MS = 5 * 60_000
+
+/** The least time between two such reads, so a window flickering in and out of focus asks once. */
+export const USAGE_RECHECK_MIN_GAP_MS = 10_000
 
 /** How long after going offline Glade first checks whether the network is back. */
 export const OFFLINE_FIRST_CHECK_MS = 5_000
@@ -56,15 +80,19 @@ export interface UsageLimit {
   readonly rejected: boolean
   /** When it resets; null when the SDK didn't say. */
   readonly resetsAt: EpochMs | null
+  /** Which of the account's limits it is; null for a window Glade doesn't know. */
+  readonly limit: AccountLimit | null
 }
 
 /** The pause for a turn stopped by `details`, at `now`: see the module comment for when it resumes. */
 export function pauseFor(reason: PauseReason, details: string, limit: UsageLimit | null, now: EpochMs): TaskPause {
   switch (reason) {
     case PauseReason.UsageLimit: {
-      const resetsAt = limit?.rejected === true ? limit.resetsAt : null
+      const rejecting = limit?.rejected === true ? limit : null
+      const resetsAt = rejecting?.resetsAt ?? null
       const resumesAt = resetsAt !== null && resetsAt > now ? resetsAt : now + USAGE_LIMIT_FALLBACK_MS
-      return { reason, since: now, resumesAt, checks: 0, details }
+      const which = rejecting?.limit ?? null
+      return { reason, since: now, resumesAt, checks: 0, details, ...(which === null ? {} : { limit: which }) }
     }
     case PauseReason.Offline:
       return { reason, since: now, resumesAt: now + offlineCheckDelay(0), checks: 0, details }
@@ -75,6 +103,63 @@ export function pauseFor(reason: PauseReason, details: string, limit: UsageLimit
 export function checkedOffline(pause: TaskPause, now: EpochMs): TaskPause {
   const checks = pause.checks + 1
   return { ...pause, checks, resumesAt: now + offlineCheckDelay(checks) }
+}
+
+/** Why a reading of the account's usage says a turn paused on a usage limit can run again (`canRunAgain`). */
+export enum RunAgainReason {
+  /** The limit that turned the turn away is no longer at its limit. */
+  LimitCleared = 'limit_cleared',
+  /** Extra usage is on, with room left: it takes the requests a plan limit turns away. */
+  ExtraUsage = 'extra_usage',
+}
+
+/** A reading's word that a paused turn can run again. */
+export interface RunAgain {
+  readonly reason: RunAgainReason
+  /**
+   * What the reading said that this rests on, coarsely: which limit cleared and the window it's in (when it resets),
+   * and whether extra usage is available. Never how much is used, which moves with every reading while anything runs.
+   * Glade resumes a paused turn once on it, and again only once a reading says something else: the limit's window
+   * rolled over, or extra usage went and came back. So a reading that's wrong can't have the turn retried over and
+   * over.
+   */
+  readonly evidence: string
+}
+
+/** What `RunAgain.evidence` says while extra usage is available, however much of it is spent. */
+export const EXTRA_USAGE_EVIDENCE = 'extra usage available'
+
+/** What `RunAgain.evidence` says of a limit that cleared: the limit and its window, so it's one retry a window. */
+function clearedEvidence({ limit, resetsAt }: UsageReading): string {
+  return `${usageLimitKey(limit)} cleared, resets ${String(resetsAt)}`
+}
+
+/**
+ * Whether a reading of the account's usage (one answer of Claude Code's usage call) says the turn `pause` holds can run
+ * again, before the limit's own reset. It does when:
+ * - the limit that turned the turn away is no longer at its limit: the plan's limit the pause names has a reading below
+ *   it (a bigger plan, or a limit lifted early). A pause that names no limit, or one the reading doesn't tell of, never
+ *   passes this way: Glade doesn't guess which limit it was;
+ * - or extra usage is on with room left (`UsageSnapshot.extraUsageAvailable`), whichever limit it was.
+ *
+ * Null when neither holds, and for a pause that isn't a usage limit's: offline, the network decides.
+ */
+export function canRunAgain(pause: TaskPause, usage: UsageSnapshot): RunAgain | null {
+  if (pause.reason !== PauseReason.UsageLimit) return null
+  const reading = (limit: AccountLimit): UsageReading | undefined =>
+    usage.readings.find((candidate) => usageLimitKey(candidate.limit) === usageLimitKey(limit))
+  // Extra usage that turned a turn away is back only when the reading says it's available, below.
+  const plan = pause.limit === undefined || pause.limit.kind === UsageLimitKind.ExtraUsage ? undefined : pause.limit
+  const rejected = plan === undefined ? undefined : reading(plan)
+  const cleared = rejected !== undefined && rejected.level !== UsageLevel.Limited ? rejected : undefined
+  const evidence: string[] = []
+  if (cleared !== undefined) evidence.push(clearedEvidence(cleared))
+  if (usage.extraUsageAvailable) evidence.push(EXTRA_USAGE_EVIDENCE)
+  if (evidence.length === 0) return null
+  return {
+    reason: cleared === undefined ? RunAgainReason.ExtraUsage : RunAgainReason.LimitCleared,
+    evidence: evidence.join(', '),
+  }
 }
 
 /** One timer per paused task, calling `onDue` with the task's id when its pause is due. */

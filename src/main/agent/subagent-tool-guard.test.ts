@@ -11,10 +11,14 @@
 import type { HookCallback, HookInput } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
-import { Effort, PermissionMode, type Task } from '../../shared/domain'
+import { Effort, PermissionMode, ToolCallState, type Task } from '../../shared/domain'
+import { addArtifact } from '../db/repositories/artifacts'
+import { listFilings } from '../db/repositories/child-filings'
 import { getOpenQuestionSet } from '../db/repositories/question-sets'
+import { updateSettings } from '../db/repositories/settings'
 import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
+import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
 import { createQuestionBroker } from '../questions/questions'
 import type { AgentSessionOptions } from './backend'
 import { createGladeMcpServer, GLADE_SERVER, type GladeToolContext } from './glade-tools'
@@ -157,5 +161,49 @@ describe.each([
 
     expect(status).toEqual({ dispatched: true, output: 'Status updated.', isError: false })
     expect(getTask(database.db, task.id)?.status).toBe('Done')
+  })
+
+  it("refuses a subagent's list_children and file_children, the todo hub's tools, and runs the main agent's", async () => {
+    // A session that started with the hub on has the two tools (P16-05, #496); the task has a todo and a file.
+    const { db } = database
+    updateSettings(db, { todoHubEnabled: true })
+    const hub = createMcpToolCaller({
+      [GLADE_SERVER]: createGladeMcpServer(context, task.id, {
+        statusSummary: true,
+        taskTitles: true,
+        todoHubEnabled: true,
+      }),
+    })
+    const todo = { taskId: task.id, toolUseId: 'toolu_create_1' }
+    appendToolCall(db, { ...todo, turn: 1, name: 'TaskCreate', input: { subject: 'Plan' }, parentToolUseId: null })
+    updateToolCall(db, { ...todo, state: ToolCallState.Done, output: 'Task #1 created successfully: Plan' })
+    addArtifact(db, { taskId: task.id, path: 'docs/plan.md', title: 'The plan' })
+    const filings = [{ child: 'c1', todo: '1' }]
+    const named = (): unknown => db.prepare('SELECT COUNT(*) FROM child_ids').pluck().get()
+
+    const listed = await dispatch(hub, mode, 'mcp__glade__list_children', {}, 'sub-1')
+    const filed = await dispatch(hub, mode, 'mcp__glade__file_children', { filings }, 'sub-1')
+
+    for (const refused of [listed, filed]) {
+      expect(refused).toMatchObject({ dispatched: false, isError: true })
+      expect(refused.output).toContain("Only the main agent can use Glade's tools.")
+    }
+    // Nothing was named to the subagent, filed, or sent to the windows.
+    expect(named()).toBe(0)
+    expect(listFilings(db, task.id)).toEqual([])
+    expect(events).toEqual([])
+
+    await expect(dispatch(hub, mode, 'mcp__glade__list_children', {}, null)).resolves.toMatchObject({
+      dispatched: true,
+      isError: false,
+      output: expect.stringContaining('- c1: file "The plan"') as unknown,
+    })
+    await expect(dispatch(hub, mode, 'mcp__glade__file_children', { filings }, null)).resolves.toEqual({
+      dispatched: true,
+      isError: false,
+      output: 'Filed 1 child: c1 under #1.',
+    })
+    expect(listFilings(db, task.id)).toHaveLength(1)
+    await hub.close()
   })
 })

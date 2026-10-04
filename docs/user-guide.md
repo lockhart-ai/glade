@@ -224,7 +224,16 @@ scroll: the chat passes under them.
   limits.
 - Hitting your **usage limit**, or losing the network, pauses the affected tasks behind one banner across the top; the
   meter says which limit ran out and when it resets. They resume by themselves when the limit resets or the network is
-  back; **Switch model** resumes them now on another model. Messages you send meanwhile wait in the queue.
+  back. Messages you send meanwhile wait in the queue. For a usage limit you needn't wait for the reset:
+  - **Resume now** tries every paused task again at once, in every workspace, each on its own model. One that's still
+    over the limit just pauses again, with the new reset time; there's no error.
+  - **Switch model** resumes them now on another model.
+  - If you turn on **extra usage** (or move to a bigger plan) while tasks are paused, Glade notices by itself and
+    resumes them: it checks your usage again whenever you come back to its window, and every 5 minutes, and the usage
+    meter gets an "Extra usage" row. It tries once on what it reads; if the tasks are turned away again, they stay
+    paused until extra usage stops being available and comes back, the limit resets, or you press **Resume now**.
+    Just after a relaunch,
+    before any task has run, there's nothing running for it to ask: press **Resume now**.
 - If Glade quit mid-turn, a notice at the next launch says how many tasks resumed.
 
 ## Broadcast: one message to every task
