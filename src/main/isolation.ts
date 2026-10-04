@@ -2,14 +2,28 @@
  * Isolation for the app's test modes (screenshot capture and e2e tests): a throwaway data folder, so the real database
  * is never touched, and no dock icon, so the app never appears or takes focus.
  */
-import { readdirSync } from 'node:fs'
+import { readdirSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 
+/** Whether `path` is an absolute path inside (not at) `folder`. */
+function isInside(folder: string, path: string): boolean {
+  const inside = relative(folder, path)
+  return isAbsolute(path) && inside !== '' && !inside.startsWith('..') && !isAbsolute(inside)
+}
+
 /** Whether `path` is an absolute path inside (not at) the system temp folder. */
 export function isInTempFolder(path: string): boolean {
-  const inside = relative(tmpdir(), path)
-  return isAbsolute(path) && inside !== '' && !inside.startsWith('..') && !isAbsolute(inside)
+  return isInside(tmpdir(), path)
+}
+
+/**
+ * Whether `path` is inside the system temp folder by either of its names: the one the environment gives
+ * (`/var/folders/…/T` on macOS), or where that really is (`/private/var/folders/…/T`), which is the name a folder
+ * there has once its links are followed.
+ */
+export function isInTempFolderForReal(path: string): boolean {
+  return isInTempFolder(path) || isInside(realpathSync(tmpdir()), path)
 }
 
 /** Where a test mode writes its log: in its throwaway data folder, so a test never writes to your logs folder. */

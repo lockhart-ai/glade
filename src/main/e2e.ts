@@ -4,13 +4,15 @@
  * shown (Playwright drives and records it over the DevTools protocol), and native dialogs, which a test can't click,
  * answer with what the test asked for. It never runs in a packaged app.
  */
+import { homedir } from 'node:os'
 import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import type { SandboxFlagSettings } from './agent/backend'
 import { AGENT_SCRIPT_NAMES, type AgentScriptName } from './agent/scripts'
+import { isLoopbackEndpoint, type StandInModel } from './agent/stand-in'
 import type { UserContent } from './agent/user-content'
 import { OpenWith, type OpenPath } from './files/open-path'
-import { isInTempFolder, isolateApp, type IsolatedApp } from './isolation'
+import { isInTempFolder, isInTempFolderForReal, isolateApp, type IsolatedApp } from './isolation'
 import type { Environment } from './login-env'
 
 /** The environment variable that carries the e2e spec, as JSON. */
@@ -279,7 +281,17 @@ export interface E2eSpec {
    * the agents run in the app's own environment, so a run never depends on the machine's shell profile.
    */
   readonly loginShell?: string
+  /**
+   * A stand-in for the model, on this Mac (`./agent/stand-in`): with one, the tasks run on the real agent backend, the
+   * bundled Claude Code and its sandbox included, with the stand-in as its only endpoint, and no script is played. For
+   * the sandbox's escape battery (`docs/escape-battery.md`). Each address must be `http://127.0.0.1:<port>`, and the
+   * app's home folder (`$HOME`) a throwaway one in the system temp folder: the app refuses to start otherwise
+   * (`prepareE2e`). None by default: no e2e run reaches a real agent.
+   */
+  readonly standInModel?: StandInModel
 }
+
+const loopbackEndpoint = z.string().refine(isLoopbackEndpoint, 'must be http://127.0.0.1:<port>')
 
 const e2eSpecSchema: z.ZodType<E2eSpec> = z.strictObject({
   userData: z.string().refine(isInTempFolder, 'must be a folder in the system temp folder'),
@@ -288,6 +300,7 @@ const e2eSpecSchema: z.ZodType<E2eSpec> = z.strictObject({
   agentScriptsByFirstMessage: z.record(z.string(), z.enum(AGENT_SCRIPT_NAMES)).optional(),
   seed: z.string().refine(isAbsolute, 'must be an absolute path').optional(),
   loginShell: z.string().refine(isAbsolute, 'must be an absolute path').optional(),
+  standInModel: z.strictObject({ baseUrl: loopbackEndpoint, deadEndProxy: loopbackEndpoint }).optional(),
 })
 
 /** The e2e spec was set but isn't valid, or its data folder can't be used. */
@@ -316,8 +329,17 @@ export function readE2eSpec(env: NodeJS.ProcessEnv, isPackaged: boolean): E2eSpe
  * Sets the app up for an e2e run. Call before the app is ready. Points the data folder at the spec's temporary folder
  * and hides the dock icon. The folder may hold an earlier run's data, so a test can relaunch the app on it. Throws an
  * `E2eSpecError` unless that folder exists.
+ *
+ * A run on a stand-in model starts the real Claude Code, which reads and writes the home folder it's given (`home`,
+ * the app's own: `$HOME`). So that run is refused unless the home folder is a throwaway one, inside the system temp
+ * folder: it never runs on yours.
  */
-export function prepareE2e(app: IsolatedApp, spec: E2eSpec): void {
+export function prepareE2e(app: IsolatedApp, spec: E2eSpec, home: string = homedir()): void {
+  if (spec.standInModel !== undefined && !isInTempFolderForReal(home)) {
+    throw new E2eSpecError(
+      `${E2E_ENV} names a stand-in model, which needs a throwaway home folder in the system temp folder: HOME is ${home}`,
+    )
+  }
   try {
     isolateApp(app, { mode: 'e2e', userData: spec.userData, reuse: true })
   } catch (error) {
