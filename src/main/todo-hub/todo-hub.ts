@@ -13,7 +13,9 @@ import { BridgeErrorCode, EventType, type TodoHubGetResponse } from '../../share
 import type { EpochMs } from '../../shared/domain'
 import { SUBAGENT_TOOL_NAMES } from '../../shared/subagents'
 import {
+  FilingSource,
   groupChildren,
+  refKey,
   TODO_HUB_OFF,
   type ChildId,
   type ChildRef,
@@ -28,6 +30,7 @@ import type { Emit } from '../bridge/events'
 import { listArtifacts } from '../db/repositories/artifacts'
 import { listFilings, putFilings, removeFilings } from '../db/repositories/child-filings'
 import { assignChildIds, findChildById } from '../db/repositories/child-ids'
+import { settleOwedFilings } from '../db/repositories/owed-filings'
 import { getSettings } from '../db/repositories/settings'
 import { listTaskCommits } from '../db/repositories/task-commits'
 import { listTodoPanels, setTodoPanel } from '../db/repositories/todo-panels'
@@ -114,8 +117,9 @@ export interface FilingContext {
 /**
  * Files children of a task under todos, replacing any filing they had, and tells the windows what changed
  * (`filings.changed`, with these filings alone). All of them or none. It doesn't check that a todo is in the task's
- * list: one that isn't shows its children under "Not under a todo". Answers with the filings made; none, with nothing
- * written or sent, while the hub is off or there's nothing to file.
+ * list: one that isn't shows its children under "Not under a todo". A child filed on its own (any filing but an
+ * inherited one) is no longer one its agent owes a filing for (`./filing`). Answers with the filings made; none, with
+ * nothing written or sent, while the hub is off or there's nothing to file.
  */
 export function fileChildren(
   { db, emit }: FilingContext,
@@ -124,7 +128,14 @@ export function fileChildren(
   now: EpochMs = Date.now(),
 ): Filing[] {
   if (filings.length === 0 || !isTodoHubEnabled(db)) return []
-  const filed = putFilings(db, taskId, filings, now)
+  const filed = db.transaction(() => {
+    settleOwedFilings(
+      db,
+      taskId,
+      filings.filter(({ source }) => source !== FilingSource.Inherited),
+    )
+    return putFilings(db, taskId, filings, now)
+  })()
   emit({ type: EventType.FilingsChanged, taskId, filed, removed: [] })
   return filed
 }
@@ -139,4 +150,20 @@ export function unfileChildren({ db, emit }: FilingContext, taskId: string, chil
   const removed = removeFilings(db, taskId, children)
   if (removed.length > 0) emit({ type: EventType.FilingsChanged, taskId, filed: [], removed })
   return removed
+}
+
+/**
+ * A child of a task is named by another key from now on (an artifact pointed at another file or page): its filing goes
+ * with it, under the same todo, as it was filed, and the windows hear both (`filings.changed`). Nothing is written or
+ * sent while the hub is off, or for a child that had no filing.
+ */
+export function refileChild({ db, emit }: FilingContext, taskId: string, from: ChildRef, to: ChildRef): void {
+  if (!isTodoHubEnabled(db)) return
+  const had = listFilings(db, taskId).find((filing) => refKey(filing) === refKey(from))
+  if (had === undefined) return
+  const filed = db.transaction(() => {
+    removeFilings(db, taskId, [from])
+    return putFilings(db, taskId, [{ kind: to.kind, key: to.key, todoId: had.todoId, source: had.source }], had.filedAt)
+  })()
+  emit({ type: EventType.FilingsChanged, taskId, filed, removed: [{ kind: from.kind, key: from.key }] })
 }

@@ -57,6 +57,7 @@ import { sandboxPermissionRequestsMigration } from './0056-sandbox-permission-re
 import { sandboxFileGrantsMigration } from './0057-sandbox-file-grants'
 import { sessionSandboxContextMigration } from './0058-session-sandbox-context'
 import { todoHubMigration } from './0059-todo-hub'
+import { fileAtCreationMigration } from './0060-file-at-creation'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -118,6 +119,7 @@ export const MIGRATIONS: readonly Migration[] = [
   sandboxFileGrantsMigration,
   sessionSandboxContextMigration,
   todoHubMigration,
+  fileAtCreationMigration,
 ]
 
 /** The version a database is at once every migration has run: the last one's, which can skip versions still in flight. */

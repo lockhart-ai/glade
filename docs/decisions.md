@@ -449,7 +449,7 @@
     same across a compaction, a resume and a relaunch, and never used again once its todo is deleted
     (`sdk-notes.md` §16). It reaches the window with each todo, whatever the switch says, and the Todos tab keys its
     rows on it. A `TodoWrite` item has none: nothing can be filed under it, and its row is keyed by its place in the
-    list. (Glade will keep Claude Code's task tools on for its sessions, in #495, so that shouldn't occur.)
+    list. (Glade keeps Claude Code's task tools on for a session with the hub, #495, so that shouldn't occur.)
   - **A child is named by its kind and its own key:** a file by its artifact's path, a link by its URL, a subagent
     and a watcher by the `tool_use` id of the call that started it, a commit by its hash and working tree. It also
     has a **short id** within its task (`c1`, `c2`, …), which Glade shows the agent and the agent files and moves
@@ -476,6 +476,15 @@
     answers with when Glade asks it to file what it just made (#495), and how a task from before the hub gets sorted
     ("file your things under your todos"). A subagent that moves brings what it made, by the resolver, so no row of
     those is rewritten ([`model-surface.md`](model-surface.md)).
+  - **Every child is filed as it's made** (P16-04, #495), with the rule Jared picked from #492's findings
+    (`sdk-notes.md` §16): the call that makes a subagent, a watcher or a commit names its todo, `[todo N]` at the
+    start of its own text, and Glade files what it makes there and takes the marker off before the tool runs, so it
+    shows nowhere. A call that names none goes ahead, and Glade tells the agent straight after it what it made, which
+    the agent files with one `file_children` call. A turn can't end with a filing owed: Glade holds the end, twice at
+    most, then lets it end, and the next turn's end asks again. Nothing is refused, and nothing is guessed from which
+    todo is in progress. A subagent's calls are left alone: what it makes follows its todo. `add_artifact` takes the
+    todo's id and needs it. An agent with no todos is told to create one first, and Glade keeps Claude Code's task
+    tools on for its sessions, whatever the user's settings say ([`model-surface.md`](model-surface.md)).
   - **Calls made without Jared, for the release notes (P16).** From the groundwork (P16-03, #494):
     1. A child whose own filing names a todo that's gone goes to the placeholder, even when the subagent that made
        it is under a todo that's still there: the agent filed it apart from its subagent, so it doesn't fall back to
@@ -503,10 +512,40 @@
     11. Both tools read ids leniently (`C3`, `#2`) and say a todo's state in Claude Code's own words (`pending`,
         `in progress`, `completed`).
     12. The prompt's one line about the tools is only in a session that starts with the switch on. A session resumed
-        from before the switch isn't sent it: it gets the tools, whose descriptions say the same. #495 decides how
-        resumed sessions get the hub's lines.
+        from before the switch is sent it with the rest of the hub's lines (15, below).
     13. A session keeps the tools it started with: if the switch is turned off under it, both answer with a tool
         error and do nothing.
+
+    From filing as it's made (P16-04, #495):
+    14. A session has the hub for its whole life, or not at all: the switch is read as the session starts, for its
+        tools, its prompt, its hooks and the task tools' switch together, as the sandbox's is. Turned on while a
+        session runs, it changes nothing for that session; the task gets the hub when its session next starts.
+    15. The hub's prompt paragraphs aren't in `INSTRUCTION_UPDATES`: they're tracked by themselves
+        (`session_context.todo_hub`), so how many instructions a session has had is the same with the switch on or
+        off. A session that started without them and resumes with the hub on is sent all three once (#496's line
+        among them), ahead of its next message.
+    16. What an agent owes a filing for is only what it made itself, in a call, with the hub on, that named no todo.
+        Never what the task made before the hub, a link you added, an artifact added through the control API, or a
+        child whose todo was deleted later (it drops to the placeholder, and nothing asks). What's owed is kept in
+        SQLite, so a relaunch doesn't forget it; how often a turn was held isn't, so a turn carried on after a
+        relaunch can be held twice more.
+    17. A marker naming a todo that isn't in the list still comes off the call: it counts as naming none, and the
+        agent is told afterwards.
+    18. When a turn's end is held, the reply the agent had written goes to the tool log, and the chat shows the one
+        it ends on. An agent that ignores both holds ends its turn on the reply it wrote third.
+    19. A turn you stopped is never held, nor is a compaction. What an interrupted message made is taken in at the end
+        of the next turn.
+    20. `add_artifact` declared again with another todo moves the artifact there (`moved`). `update_artifact` takes no
+        todo: moving is `file_children`'s. An artifact that's removed, by the agent or by you, leaves no filing, so one
+        added again starts under no todo. One pointed at another file or page keeps its todo, and gets a new short id
+        the next time Glade names it.
+    21. A named call that made nothing (it failed, or you denied it) leaves no filing behind.
+    22. If the switch is turned off under a session that has the hub, its hooks still take markers off (its prompt
+        still asks for them), and file, ask and hold nothing; `add_artifact` adds as it did before the hub. A session
+        that then starts again has no hooks, while Claude Code keeps the prompt it started with: the markers it
+        writes show until the switch is back on. That's only reachable by turning the hidden switch off by hand.
+    23. A child's kind in what Glade tells the agent is the hub's (`watcher` for a monitor, a background command, a
+        wakeup and a cron job), as `list_children` says it, not the probes' (`background command`, `wakeup`).
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
     `manifest.json`: `id` (the folder's name), `name`, `version`, `entry` (an HTML file in the folder) and an optional

@@ -212,6 +212,23 @@ describe('childrenOf', () => {
     expect(childrenOf({ artifacts: [], subagents: [], watchers: [], commits: [] })).toEqual([])
   })
 
+  it('puts commits made in the same second in the order they were made, not the reverse', () => {
+    // Newest first, as a task lists them: of two made in one second, the one linked last comes first.
+    const commits = [
+      commit('third', { committedAt: 5_000 }),
+      commit('second', { committedAt: 5_000 }),
+      commit('first', { committedAt: 5_000 }),
+      commit('before', { committedAt: 1_000 }),
+    ]
+
+    expect(childrenOf({ artifacts: [], subagents: [], watchers: [], commits })).toEqual([
+      COMMIT('before'),
+      COMMIT('first'),
+      COMMIT('second'),
+      COMMIT('third'),
+    ])
+  })
+
   it('leaves the commits it was given in their order', () => {
     const commits = [commit('newest', { committedAt: 9_000 }), commit('oldest', { committedAt: 1_000 })]
     childrenOf({ artifacts: [], subagents: [], watchers: [], commits })

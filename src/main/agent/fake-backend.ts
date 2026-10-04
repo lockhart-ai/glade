@@ -1,5 +1,6 @@
 // Test helper: an agent backend whose sessions stream whatever SDK messages a test scripts, and record what the runner
 // asks of them. Nothing runs a model.
+import type { ToolInput } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
 import { AsyncQueue } from './async-queue'
 import {
@@ -11,6 +12,8 @@ import {
   type AgentSessionSettings,
   type BashCallFinished,
   type BashFinishedAnswer,
+  type BatchCall,
+  type ChildCallStarting,
   type CompactSummary,
   type BashCallStarting,
   type SandboxFlagSettings,
@@ -198,6 +201,35 @@ export class FakeAgentSession implements AgentSession {
   /** Tells the session's `Stop` hook the jobs it has, as the SDK does as each turn ends. */
   endTurn(jobs: readonly SessionJob[] = []): void {
     this.options.hooks?.onTurnEnded(jobs)
+  }
+
+  /**
+   * Puts a call of the agent's own to the session's `PreToolUse` hook for the tools that make something a todo can
+   * hold, as the SDK does before the tool runs (`docs/sdk-notes.md` §16), and resolves with the input the hook hands
+   * the tool in place of the model's: null when it leaves it, and with no such hook (a session without the todo hub).
+   * Stream the call's `tool_use` first, as the SDK does.
+   */
+  startChild(call: ChildCallStarting): Promise<ToolInput | null> {
+    return this.options.hooks?.onChildStarting?.(call) ?? Promise.resolve(null)
+  }
+
+  /**
+   * Tells the session's `PostToolBatch` hook the calls of one of the agent's own messages, once they've all run, as
+   * the SDK does before the agent's next step, and resolves with what the hook tells the agent: null for nothing, and
+   * with no such hook.
+   */
+  finishBatch(calls: readonly BatchCall[]): Promise<string | null> {
+    return this.options.hooks?.onBatchFinished?.({ calls }) ?? Promise.resolve(null)
+  }
+
+  /**
+   * The agent tries to end its turn: the session's `Stop` hook is told its jobs, as `endTurn` tells them, and resolves
+   * with why the turn can't end yet, or null when it may (and with no hook that can hold it). `held` says whether this
+   * turn's end was held before, as the SDK does (`stop_hook_active`).
+   */
+  tryToEnd(held = false, jobs: readonly SessionJob[] = []): Promise<string | null> {
+    this.endTurn(jobs)
+    return this.options.hooks?.onTurnEnding?.({ held }) ?? Promise.resolve(null)
   }
 
   send(text: string, uuid: string, images: readonly ImageData[] = []): void {

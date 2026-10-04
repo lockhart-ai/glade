@@ -36,6 +36,7 @@ import { listMessages } from '../db/repositories/messages'
 import { getOpenQuestionSet } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { getOpenFiles } from '../db/repositories/open-files'
+import { getSessionContext } from '../db/repositories/session-context'
 import { listOpenPermissionRequests, listPermissionRequests } from '../db/repositories/permission-requests'
 import { listSandboxGrants } from '../db/repositories/sandbox-grants'
 import { getSettings, updateSettings } from '../db/repositories/settings'
@@ -371,6 +372,137 @@ describe('AGENT_SCRIPTS', () => {
       // The todo list is the first turn's: the second made nothing a todo.
       expect(todoListFor(database.db, task.id)?.items).toHaveLength(3)
       expect(listMessages(database.db, task.id).at(-1)?.body).toBe(FILES_CHILDREN.unnamed.reply)
+    })
+
+    it('with the hub off, declares its artifacts with no todo taken, and nothing is asked, held or filed', async () => {
+      const agent = start('files-children')
+      agent.send(task.id, FILES_CHILDREN.prompt)
+      await backend.whenIdle()
+      agent.send(task.id, 'And the order totals.')
+      await backend.whenIdle()
+
+      expect(listArtifacts(database.db, task.id).map(({ kind, title }) => [kind, title])).toEqual([
+        [ArtifactKind.File, FILES_CHILDREN.named.file.title],
+        [ArtifactKind.Link, FILES_CHILDREN.named.link.title],
+      ])
+      // The agent never files: nothing told it to.
+      expect(calls().filter(({ name }) => name === 'mcp__glade__file_children')).toEqual([])
+      expect(database.db.prepare('SELECT COUNT(*) FROM child_filings').pluck().get()).toBe(0)
+      expect(database.db.prepare('SELECT COUNT(*) FROM owed_filings').pluck().get()).toBe(0)
+    })
+
+    describe('with the todo hub on', () => {
+      beforeEach(() => {
+        updateSettings(database.db, { todoHubEnabled: true })
+      })
+
+      /** Each todo's children, then the ones under no todo, each as `kind source`, sorted. */
+      function placed(): string[][] {
+        const { children } = readTodoHub(database.db, task.id)
+        return [...children.todos, children.unfiled].map((group) =>
+          group.children.map(({ kind, source }) => `${kind} ${source ?? 'unfiled'}`).sort(),
+        )
+      }
+
+      /** The agent's `file_children` calls: how each went. */
+      function filingCalls(): ToolCallState[] {
+        return calls()
+          .filter(({ name }) => name === 'mcp__glade__file_children')
+          .map(({ state }) => state)
+      }
+
+      it('files what each call of the first turn makes under the todo it names, and the marker shows nowhere', async () => {
+        const events: GladeEvent[] = []
+        const agent = start('files-children', { emit: (event) => events.push(event) })
+        agent.send(task.id, FILES_CHILDREN.prompt)
+        await backend.whenIdle()
+
+        // An artifact, a subagent, a watcher of each kind and a commit, each under the todo its call named.
+        expect(placed()).toEqual([
+          ['subagent named'],
+          ['commit named', 'file named', 'watcher named'],
+          ['link named', 'watcher named', 'watcher named', 'watcher named'],
+          [],
+        ])
+        // The calls ran, and were logged, with their own text alone.
+        for (const child of CHILDREN) {
+          const { text } = FILES_CHILDREN.named[child]
+          expect(callWith(TOOLS[child], text).input[TODO_FIELDS[TOOLS[child]]]).toBe(text)
+        }
+        const { named } = FILES_CHILDREN
+        expect(listWatchers(database.db, task.id).map(({ label, detail }) => [label, detail])).toEqual([
+          [named.monitor.text, named.monitorCommand],
+          [named.command.text, named.commandCommand],
+          [named.wakeup.text, named.wakeupPrompt],
+          // A cron job fires with its prompt: the marker is in neither its label nor what it runs.
+          [named.cron.text, named.cron.text],
+        ])
+        const shown = JSON.stringify([listToolEvents(database.db, task.id), listWatchers(database.db, task.id), events])
+        expect(shown).not.toMatch(/\[todo/i)
+        // Nothing was left to ask the agent, or to hold its turn for.
+        expect(filingCalls()).toEqual([])
+        expect(database.db.prepare('SELECT COUNT(*) FROM owed_filings').pluck().get()).toBe(0)
+        expect(reply()).toBe(named.reply)
+        expect(listMessages(database.db, task.id).filter(({ role }) => role === MessageRole.Agent)).toHaveLength(1)
+      })
+
+      it('tells the agent what its second turn’s calls made, and it files each message’s in one call', async () => {
+        const agent = start('files-children')
+        agent.send(task.id, FILES_CHILDREN.prompt)
+        await backend.whenIdle()
+        agent.send(task.id, 'And the order totals.')
+        await backend.whenIdle()
+
+        // Six messages that made a child, six filing calls, each right after its message: none was left for the
+        // end of the turn.
+        expect(filingCalls()).toEqual(Array(CHILDREN.length).fill(ToolCallState.Done))
+        expect(placed()).toEqual([
+          ['subagent asked', 'subagent named'],
+          ['commit asked', 'commit named', 'file named', 'watcher asked', 'watcher named'],
+          [
+            'link named',
+            'watcher asked',
+            'watcher asked',
+            'watcher asked',
+            'watcher named',
+            'watcher named',
+            'watcher named',
+          ],
+          [],
+        ])
+        expect(database.db.prepare('SELECT COUNT(*) FROM owed_filings').pluck().get()).toBe(0)
+        expect(commitSubjects()).toEqual([FILES_CHILDREN.unnamed.commitSubject, FILES_CHILDREN.named.commitSubject])
+        // The turn ended once, unheld, on its reply.
+        const replies = listMessages(database.db, task.id).filter(({ role }) => role === MessageRole.Agent)
+        expect(replies.map(({ body }) => body)).toEqual([FILES_CHILDREN.named.reply, FILES_CHILDREN.unnamed.reply])
+      })
+
+      it('keeps every filing across a relaunch, and the resumed session keeps filing', async () => {
+        const first = start('files-children')
+        first.send(task.id, FILES_CHILDREN.prompt)
+        await backend.whenIdle()
+        const before = placed()
+        first.close()
+
+        // Relaunched: what was filed is where it was, and the task's session resumes. A scripted agent starts its
+        // script again, so its next turn names a todo in each call once more, and the one after names none.
+        const resumed = start('files-children')
+        expect(placed()).toEqual(before)
+        resumed.send(task.id, 'Do that again.')
+        await backend.whenIdle()
+        expect(placed()[0]).toEqual(['subagent named', 'subagent named'])
+        expect(placed()[3]).toEqual([])
+        expect(filingCalls()).toEqual([])
+
+        resumed.send(task.id, 'And the order totals.')
+        await backend.whenIdle()
+
+        expect(placed()[0]).toEqual(['subagent asked', 'subagent named', 'subagent named'])
+        expect(placed()[3]).toEqual([])
+        expect(filingCalls()).toEqual(Array(CHILDREN.length).fill(ToolCallState.Done))
+        // It started with the hub's lines in its prompt, so none was sent to it again when it resumed.
+        expect(getSessionContext(database.db, task.id)?.todoHub).toBe(true)
+      })
     })
   })
 

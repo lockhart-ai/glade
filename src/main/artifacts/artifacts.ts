@@ -5,6 +5,10 @@
  * the database with the task, so a done task still has them, and so does a relaunch. So is when each file last changed,
  * which the tab lists them by (#307): looked at as each is declared, and again whenever it may have changed
  * (`./artifact-watch`). A file that's gone keeps its last known time, and shows as missing.
+ *
+ * With the todo hub on (P16, `../todo-hub`), an artifact can be filed under a todo, and its filing is kept in step
+ * here, however the artifact changes: one pointed at another file or page keeps its todo, and one that's removed
+ * leaves no filing behind. With the hub off, none of that does anything.
  */
 import { stat } from 'node:fs/promises'
 import { checkArtifactUrl, defaultLinkTitle } from '../../shared/artifactLinks'
@@ -17,6 +21,7 @@ import {
   type LinkArtifact,
 } from '../../shared/domain'
 import { workspaceRelativePath } from '../../shared/files'
+import { ChildKind } from '../../shared/todoHub'
 import {
   addArtifact,
   addLinkArtifact,
@@ -32,6 +37,7 @@ import {
 import { CommandFailure } from '../bridge/errors'
 import { resolveWorkspaceFile, toolFilePath, workspaceRoot } from '../files/files'
 import { requireTask, type TaskServiceContext } from '../tasks/service'
+import { refileChild, unfileChildren } from '../todo-hub/todo-hub'
 
 /**
  * What an artifact's file (relative to the workspace root) is now: when it last changed, or gone: nothing there, a
@@ -227,6 +233,9 @@ export async function updateTaskArtifact(
   if (target === before.path && nextTitle === before.title) return { before, after: before }
   const changed = changeArtifact(db, { taskId, path: before.path, newPath: target, title: nextTitle }) ?? before
   if (file !== null) setArtifactFile(db, { taskId, path: target, file })
+  if (target !== before.path) {
+    refileChild(context, taskId, { kind: ChildKind.File, key: before.path }, { kind: ChildKind.File, key: target })
+  }
   context.emit({ type: EventType.ArtifactsChanged, taskId, artifacts: listArtifacts(db, taskId) })
   return { before, after: fileArtifact(context, taskId, target) ?? changed }
 }
@@ -261,6 +270,9 @@ export function updateTaskLinkArtifact(
   const nextTitle = title ?? before.title
   if (target === before.url && nextTitle === before.title) return { before, after: before }
   const after = changeLinkArtifact(db, { taskId, url: before.url, newUrl: target, title: nextTitle }) ?? before
+  if (target !== before.url) {
+    refileChild(context, taskId, { kind: ChildKind.Link, key: before.url }, { kind: ChildKind.Link, key: target })
+  }
   context.emit({ type: EventType.ArtifactsChanged, taskId, artifacts: listArtifacts(db, taskId) })
   return { before, after }
 }
@@ -299,11 +311,14 @@ function refName(ref: ArtifactRef): string {
 
 /**
  * `artifacts.remove` (Remove from artifacts): takes a file or a link off the task's artifacts, leaving a file itself
- * alone, and broadcasts `artifacts.changed`. Throws a `CommandFailure` `not_found` when it isn't one of them.
+ * alone, and broadcasts `artifacts.changed`. Its filing under a todo, if it had one, goes with it. Throws a
+ * `CommandFailure` `not_found` when it isn't one of them.
  */
 export function removeTaskArtifact(context: TaskServiceContext, taskId: string, ref: ArtifactRef): void {
   if (!removeArtifact(context.db, taskId, ref)) {
     throw new CommandFailure(BridgeErrorCode.NotFound, `${refName(ref)} isn't one of task ${taskId}'s artifacts`)
   }
+  const kind = ref.kind === ArtifactKind.File ? ChildKind.File : ChildKind.Link
+  unfileChildren(context, taskId, [{ kind, key: refName(ref) }])
   context.emit({ type: EventType.ArtifactsChanged, taskId, artifacts: listArtifacts(context.db, taskId) })
 }

@@ -675,6 +675,29 @@ export interface AgentScript {
    * call would, so the usage meter reads the rate limit events alone.
    */
   readonly usage?: ScriptedUsage
+  /**
+   * What the agent does when Glade tells it of what it made that's under no todo (`docs/sdk-notes.md` §16), in a
+   * session with the todo hub's hooks: it files what it's told of. Without one, it never files anything it's told of,
+   * as an agent that ignores Glade would, and Glade holds the end of its turns for as long as it does.
+   */
+  readonly filing?: ScriptedFiling
+}
+
+/**
+ * How a script's agent files what Glade tells it of (`AgentScript.filing`): with one `file_children` call for
+ * everything a message of Glade's names, as a model does.
+ */
+export interface ScriptedFiling {
+  /**
+   * The id of the todo each child goes under, by a text its title has in it, as Glade names the child to the agent (a
+   * subagent's or a watcher's description, a commit's subject). A child that none of them matches is left unfiled.
+   */
+  readonly todos: Readonly<Record<string, string>>
+  /**
+   * Whether it ignores what Glade tells it right after a call, and files only once Glade holds the end of its turn.
+   * It files at once by default.
+   */
+  readonly onlyWhenHeld?: boolean
 }
 
 /** A cron job a resumed session has from before (`AgentScript.restoredJobs`), as its `Stop` hook lists it. */
@@ -3920,6 +3943,9 @@ export const FILES_CHILDREN = {
     cronSchedule: '0 9 * * *',
     cronHumanSchedule: 'Every day at 9:00 AM',
     cronJob: 'c4f1d02a',
+    /** The file the commit made, and the PR, declared as artifacts: `add_artifact` takes each one's todo. */
+    file: { path: 'src/date.ts', title: 'Date header helper', todo: '2' },
+    link: { url: 'https://github.com/acme/api/pull/42', title: 'Fix the UTC date test', todo: '3' },
     reply:
       'The date helpers are reviewed and the UTC test is fixed and committed. CI on PR #42 is being watched, and ' +
       "I'll check it again in five minutes.",
@@ -3944,6 +3970,8 @@ export const FILES_CHILDREN = {
     cronJob: 'c9b7e31d',
     reply: 'The order totals are reviewed, the review is noted and committed, and the staging deploy is being watched.',
   },
+  /** The todo the agent files each of the second turn's children under, once Glade tells it what it made. */
+  filed: { subagent: '1', commit: '2', monitor: '3', command: '2', wakeup: '3', cron: '3' },
 } as const
 
 /** The children each turn of `files-children` makes, by their key in `FILES_CHILDREN.named` and `.unnamed`. */
@@ -4027,14 +4055,26 @@ function childrenTurn(
 }
 
 /**
- * Makes one of each kind of child a todo can hold, twice (`docs/sdk-notes.md` §16), for P16-04 (#495) to file: the
- * first turn keeps three todos with Claude Code's own todo tools and names one in each call that makes a child (a
- * marker at the start of the call's own text, `[todo 2] …`); the second turn makes the same kinds and names none, as
- * an agent that forgot would. The calls are as the model wrote them: nothing here takes a marker off or files
- * anything.
+ * Makes one of each kind of child a todo can hold, twice (`docs/sdk-notes.md` §16), for Glade to file (P16-04, #495):
+ * the first turn keeps three todos with Claude Code's own todo tools and names one in each call that makes a child (a
+ * marker at the start of the call's own text, `[todo 2] …`), and gives `add_artifact` the todo of a file and of a
+ * link; the second turn makes the same kinds and names none, as an agent that forgot would. The calls are as the model
+ * wrote them. In a session with the todo hub on, Glade takes each marker off and files what the call made, and tells
+ * the agent what its second turn's calls made, which it files as `filing` says (`FILES_CHILDREN.filed`). With the hub
+ * off, nothing reads a marker, `add_artifact` takes no todo, and nothing is asked or filed.
  */
 const filesChildren: AgentScript = {
   name: 'files-children',
+  filing: {
+    todos: {
+      [FILES_CHILDREN.unnamed.subagent]: FILES_CHILDREN.filed.subagent,
+      [FILES_CHILDREN.unnamed.commitSubject]: FILES_CHILDREN.filed.commit,
+      [FILES_CHILDREN.unnamed.monitor]: FILES_CHILDREN.filed.monitor,
+      [FILES_CHILDREN.unnamed.command]: FILES_CHILDREN.filed.command,
+      [FILES_CHILDREN.unnamed.wakeup]: FILES_CHILDREN.filed.wakeup,
+      [FILES_CHILDREN.unnamed.cron]: FILES_CHILDREN.filed.cron,
+    },
+  },
   turns: [
     [
       ...turnStart(),
@@ -4050,6 +4090,8 @@ const filesChildren: AgentScript = {
       ...childrenTurn(FILES_CHILDREN.named, (tool, input, child) =>
         nameTodo(tool, input, FILES_CHILDREN.named[child].todo),
       ),
+      gladeTool('add-file', 'add_artifact', FILES_CHILDREN.named.file),
+      gladeTool('add-link', 'add_artifact', FILES_CHILDREN.named.link),
       ...updateTodo(1, 'completed'),
       ...updateTodo(2, 'completed'),
       ...updateTodo(3, 'in_progress'),

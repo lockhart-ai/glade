@@ -22,6 +22,7 @@ import {
 import { openAppDatabase } from '../db/database'
 import { addArtifact, addLinkArtifact, setArtifactFile } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
+import { listOwedFilings, oweFilings } from '../db/repositories/owed-filings'
 import { getSettings, updateSettings } from '../db/repositories/settings'
 import { addTaskCommit, CommitSource } from '../db/repositories/task-commits'
 import { deleteTask } from '../db/repositories/tasks'
@@ -35,6 +36,7 @@ import {
   identifyChildren,
   isTodoHubEnabled,
   readTodoHub,
+  refileChild,
   rememberTodoPanel,
   taskChildren,
   unfileChildren,
@@ -530,6 +532,51 @@ describe('filing', () => {
     expect(events).toEqual([])
   })
 
+  it('settles what the agent owed a filing for, but for a child that only follows its subagent', () => {
+    turnOn()
+    oweFilings(db, task.id, [CI, FIX, PR], 7_000)
+
+    fileChildren(
+      context(),
+      task.id,
+      [
+        { ...CI, todoId: '3', source: FilingSource.Asked },
+        // Not a filing of its own: the child still goes where its subagent goes.
+        { ...FIX, todoId: '2', source: FilingSource.Inherited },
+      ],
+      8_000,
+    )
+
+    expect(listOwedFilings(db, task.id)).toEqual([FIX, PR])
+    // A filing that can't be kept settles nothing either.
+    expect(() =>
+      fileChildren(context(), task.id, [{ ...PR, todoId: UNFILED_TODO_ID, source: FilingSource.Asked }]),
+    ).toThrow(/CHECK/)
+    expect(listOwedFilings(db, task.id)).toEqual([FIX, PR])
+  })
+
+  it('moves a child’s filing to its new key, as it was filed, telling the windows both', () => {
+    turnOn()
+    fileChildren(context(), task.id, [{ ...PLAN, todoId: '2', source: FilingSource.Named }], 8_000)
+    fileChildren(context(), task.id, [{ ...PR, todoId: '3', source: FilingSource.Asked }], 8_100)
+    events = []
+    const moved: ChildRef = { kind: ChildKind.File, key: 'docs/the-plan.md' }
+
+    refileChild(context(), task.id, PLAN, moved)
+
+    const filing = { taskId: task.id, ...moved, todoId: '2', source: FilingSource.Named, filedAt: 8_000 }
+    expect(events).toEqual([{ type: EventType.FilingsChanged, taskId: task.id, filed: [filing], removed: [PLAN] }])
+    expect(listFilings(db, task.id)).toEqual([
+      filing,
+      { taskId: task.id, ...PR, todoId: '3', source: FilingSource.Asked, filedAt: 8_100 },
+    ])
+    // A child with no filing has none to move.
+    events = []
+    refileChild(context(), task.id, CI, { kind: ChildKind.Watcher, key: 'toolu_other' })
+    expect(events).toEqual([])
+    expect(listFilings(db, task.id)).toHaveLength(2)
+  })
+
   it('goes with the task when it’s deleted', () => {
     turnOn()
     fileChildren(context(), task.id, [{ ...PLAN, todoId: '1', source: FilingSource.Named }])
@@ -610,7 +657,7 @@ describe('with the switch off', () => {
     return run
   }
 
-  const touchesTheHub = (sql: string): boolean => /child_ids|child_filings|todo_panels/.test(sql)
+  const touchesTheHub = (sql: string): boolean => /child_ids|child_filings|todo_panels|owed_filings/.test(sql)
 
   it('gathers a task’s children with no filings, without reading any of the hub’s tables', () => {
     turnOn()
@@ -675,6 +722,7 @@ describe('with the switch off', () => {
 
     expect(fileChildren(context(), task.id, [{ ...PR, todoId: '1', source: FilingSource.Named }])).toEqual([])
     expect(unfileChildren(context(), task.id, [PLAN])).toEqual([])
+    refileChild(context(), task.id, PLAN, { kind: ChildKind.File, key: 'docs/the-plan.md' })
 
     expect(events).toEqual([])
     expect(run.filter(touchesTheHub)).toEqual([])

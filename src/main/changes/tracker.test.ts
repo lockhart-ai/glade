@@ -350,6 +350,106 @@ describe('a call whose start wasn’t seen', () => {
   })
 })
 
+describe('a call told of twice (the todo hub’s hook waits for its commits, #495)', () => {
+  it('is worked out once: whoever asks while it is, waits for the same work', async () => {
+    const git = createGit(TEST_GIT_RUN)
+    const located = vi.fn((dir: string) => git.locate(dir))
+    tracker = tracking({ ...git, locate: located })
+    const command = 'git commit -q --allow-empty -m "Quiet"'
+    const toolUseId = logCall(command)
+    await tracker.bashStarting(task.id, { toolUseId, cwd: api, command })
+    run(command, api)
+    located.mockClear()
+    const end = { toolUseId, command, output: '', cwd: api }
+
+    // The stream's result and the hook, one after the other, before git has answered either.
+    const first = tracker.bashFinished(task.id, end)
+    const second = tracker.bashFinished(task.id, end)
+
+    expect(second).toBe(first)
+    await second
+    // The commit printed nothing: only the first asker's reflog window could have found it, and it's linked once.
+    expect(subjects()).toEqual(['Quiet'])
+    expect(events.filter(({ type }) => type === EventType.CommitsChanged)).toHaveLength(1)
+    expect(located).toHaveBeenCalledTimes(1)
+
+    // Told again once it's done, there's nothing more to find, and nothing changes.
+    await tracker.bashFinished(task.id, end)
+    expect(subjects()).toEqual(['Quiet'])
+    expect(events.filter(({ type }) => type === EventType.CommitsChanged)).toHaveLength(1)
+  })
+
+  it('says which call linked commits to its task, before the windows hear of them, and only when it did', async () => {
+    const linked: string[] = []
+    tracker = createChangeTracker({
+      db,
+      emit: (event) => events.push(event),
+      git: createGit(TEST_GIT_RUN),
+      home: repos.root,
+      log: log.logger,
+      onCommitsLinked: (taskId, toolUseId) => {
+        // The commit is linked, and nothing has been broadcast yet.
+        linked.push(`${taskId === task.id ? 'task' : 'other'} ${toolUseId} ${subjects(taskId).join(', ')}`)
+        expect(events).toEqual([])
+      },
+    })
+
+    await bash('git commit --allow-empty -m "Fix the UTC date test"')
+    expect(linked).toEqual(['task toolu_bash_1 Fix the UTC date test'])
+    expect(broadcast()).toHaveLength(1)
+
+    // A call that committed nothing, and one told of again, link nothing.
+    events = []
+    await bash('git status')
+    await tracker.bashFinished(task.id, {
+      toolUseId: 'toolu_bash_1',
+      command: 'git commit',
+      output: `[main ${head().slice(0, 7)}] Fix the UTC date test`,
+      cwd: api,
+    })
+    expect(linked).toHaveLength(1)
+  })
+
+  it('is told nothing of a commit that went to another task', async () => {
+    const linked: string[] = []
+    tracker = createChangeTracker({
+      db,
+      emit: (event) => events.push(event),
+      git: createGit(TEST_GIT_RUN),
+      home: repos.root,
+      log: log.logger,
+      onCommitsLinked: (taskId) => linked.push(taskId),
+    })
+    // The other task's call saw HEAD move first; this task's call printed the commit, and takes it back.
+    const watching = logCall('npm test', { taskId: other.id })
+    await tracker.bashStarting(other.id, { toolUseId: watching, cwd: api, command: 'npm test' })
+    const output = await bash('git commit --allow-empty -m "Task one’s"', { started: false })
+    expect(output).toContain('Task one’s')
+    await tracker.bashFinished(other.id, { toolUseId: watching, command: 'npm test', output: '', cwd: api })
+
+    expect(subjects()).toEqual(['Task one’s'])
+    expect(linked).toEqual([task.id])
+  })
+
+  it('logs a listener that fails, and carries on', async () => {
+    tracker = createChangeTracker({
+      db,
+      emit: (event) => events.push(event),
+      git: createGit(TEST_GIT_RUN),
+      home: repos.root,
+      log: log.logger,
+      onCommitsLinked: () => {
+        throw new Error('the hub is gone')
+      },
+    })
+
+    await expect(bash('git commit --allow-empty -m "Fix"')).resolves.toContain('Fix')
+
+    expect(subjects()).toEqual(['Fix'])
+    expect(log.withMessage("couldn't work out the commits a call made")).toHaveLength(1)
+  })
+})
+
 describe('when git fails', () => {
   it('logs it, and neither throws into the session nor links anything', async () => {
     const broken: Git = {

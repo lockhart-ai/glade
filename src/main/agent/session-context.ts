@@ -5,16 +5,16 @@
  * Glade tells a session things in its system prompt append (`./system-prompt`): its instructions, and the task's
  * handoff note when it has one. Claude Code applies the append only when a session starts: a resumed session keeps the
  * prompt it started with. So a session that started without them, before instructions added to them since
- * (`INSTRUCTION_UPDATES`), outside the agent sandbox it now runs in (`SANDBOX_LINE`, #452), or from before the handoff
- * note it has now, is sent what it's missing once, in blocks ahead of the next message Glade sends it. The chat log
- * keeps only the message.
+ * (`INSTRUCTION_UPDATES`), outside the agent sandbox it now runs in (`SANDBOX_LINE`, #452), with the todo hub off when
+ * it now runs with it on (`TODO_HUB_LINES`, #495), or from before the handoff note it has now, is sent what it's
+ * missing once, in blocks ahead of the next message Glade sends it. The chat log keeps only the message.
  *
  * What each task's session has been given is kept in SQLite (`../db/repositories/session-context`), so a relaunch
  * neither loses a block still to send nor sends one twice.
  */
 import type { EpochMs, TaskHandoff } from '../../shared/domain'
 import type { SessionContext } from '../db/repositories/session-context'
-import { handoffSection, INSTRUCTION_UPDATES, SANDBOX_LINE } from './system-prompt'
+import { handoffSection, INSTRUCTION_UPDATES, SANDBOX_LINE, TODO_HUB_LINES } from './system-prompt'
 
 /** What a session is missing, to send it ahead of the next message. */
 export enum MissingContextKind {
@@ -27,6 +27,11 @@ export enum MissingContextKind {
    * its prompt says nothing of it or of asking with `request_access`.
    */
   Sandbox = 'sandbox',
+  /**
+   * What the prompt says of the todo hub (`TODO_HUB_LINES`): the session runs with it on now, and started with it off,
+   * so its prompt says nothing of naming a todo in a call, of `add_artifact`'s todo, or of the hub's tools.
+   */
+  TodoHub = 'todo_hub',
   /** The task's handoff note: set or changed since the session started or was last sent it. */
   Handoff = 'handoff',
 }
@@ -35,18 +40,21 @@ export type MissingContext =
   | { readonly kind: MissingContextKind.Instructions; readonly prompt: string; readonly handoffAt: EpochMs | null }
   | { readonly kind: MissingContextKind.Updates; readonly updates: readonly string[] }
   | { readonly kind: MissingContextKind.Sandbox }
+  | { readonly kind: MissingContextKind.TodoHub }
   | { readonly kind: MissingContextKind.Handoff; readonly handoff: TaskHandoff }
 
 /**
  * What a session Glade starts has: everything its prompt says, which is all there is to say. That includes the
- * sandbox only when it starts `sandboxed`: with the sandbox off, the prompt doesn't mention it.
+ * sandbox only when it starts `sandboxed`, and the todo hub only when it starts with it on (`todoHub`): with either
+ * off, the prompt doesn't mention it.
  */
-export function startedContext(handoff: TaskHandoff | null, sandboxed: boolean): SessionContext {
+export function startedContext(handoff: TaskHandoff | null, sandboxed: boolean, todoHub = false): SessionContext {
   return {
     instructions: true,
     instructionUpdates: INSTRUCTION_UPDATES.length,
     handoffAt: handoff?.addedAt ?? null,
     sandbox: sandboxed,
+    todoHub,
   }
 }
 
@@ -65,26 +73,41 @@ export interface ContextCheck {
   readonly prompt: string
   /** Whether its session runs in the agent sandbox now. A session keeps the sandbox it started or resumed with. */
   readonly sandboxed: boolean
+  /**
+   * Whether its session runs with the todo hub on now: it has the hub's tools and hooks, which a session keeps as it
+   * started or resumed with them. Off unless given.
+   */
+  readonly todoHub?: boolean
 }
 
 /** What the task's session has, from what's recorded for it. */
 function given({ recorded, startedElsewhere }: ContextCheck): SessionContext {
-  return recorded ?? { instructions: !startedElsewhere, instructionUpdates: 0, handoffAt: null, sandbox: false }
+  return (
+    recorded ?? {
+      instructions: !startedElsewhere,
+      instructionUpdates: 0,
+      handoffAt: null,
+      sandbox: false,
+      todoHub: false,
+    }
+  )
 }
 
 /**
  * What a task's session is missing; none when it has everything. Glade's whole prompt covers the rest; otherwise it's
- * the instructions added since, then the sandbox it now runs in and wasn't told of, then a new handoff note, any of
- * them. A session that isn't sandboxed is never told of the sandbox, whatever it was told before.
+ * the instructions added since, then the sandbox it now runs in and wasn't told of, then the todo hub it now runs with
+ * and wasn't told of, then a new handoff note, any of them. A session that isn't sandboxed is never told of the
+ * sandbox, nor one without the todo hub of the hub, whatever it was told before.
  */
 export function missingContext(check: ContextCheck): readonly MissingContext[] {
-  const { handoff, prompt, sandboxed } = check
+  const { handoff, prompt, sandboxed, todoHub = false } = check
   const has = given(check)
   if (!has.instructions) return [{ kind: MissingContextKind.Instructions, prompt, handoffAt: handoff?.addedAt ?? null }]
   const missing: MissingContext[] = []
   const updates = INSTRUCTION_UPDATES.slice(has.instructionUpdates)
   if (updates.length > 0) missing.push({ kind: MissingContextKind.Updates, updates })
   if (sandboxed && !has.sandbox) missing.push({ kind: MissingContextKind.Sandbox })
+  if (todoHub && !has.todoHub) missing.push({ kind: MissingContextKind.TodoHub })
   if (handoff !== null && has.handoffAt !== handoff.addedAt) missing.push({ kind: MissingContextKind.Handoff, handoff })
   return missing
 }
@@ -94,17 +117,21 @@ export function contextAfter(check: ContextCheck, missing: readonly MissingConte
   return missing.reduce<SessionContext>((has, item) => {
     switch (item.kind) {
       case MissingContextKind.Instructions:
-        // The prompt it's sent is the one for the session as it runs now, which says of the sandbox what applies.
+        // The prompt it's sent is the one for the session as it runs now, which says of the sandbox and of the todo
+        // hub what applies.
         return {
           instructions: true,
           instructionUpdates: INSTRUCTION_UPDATES.length,
           handoffAt: item.handoffAt,
           sandbox: has.sandbox || check.sandboxed,
+          todoHub: has.todoHub || check.todoHub === true,
         }
       case MissingContextKind.Updates:
         return { ...has, instructionUpdates: INSTRUCTION_UPDATES.length }
       case MissingContextKind.Sandbox:
         return { ...has, sandbox: true }
+      case MissingContextKind.TodoHub:
+        return { ...has, todoHub: true }
       case MissingContextKind.Handoff:
         return { ...has, handoffAt: item.handoff.addedAt }
     }
@@ -120,6 +147,8 @@ function blockFor(missing: MissingContext): string {
       return `[Glade: new instructions for this session]\n${missing.updates.join('\n\n')}\n[end]`
     case MissingContextKind.Sandbox:
       return `[Glade: this session now runs in a sandbox]\n${SANDBOX_LINE}\n[end]`
+    case MissingContextKind.TodoHub:
+      return `[Glade: this session now files what it makes under its todos]\n${TODO_HUB_LINES.join('\n\n')}\n[end]`
     case MissingContextKind.Handoff:
       return `[Glade: handoff for this task]\n${handoffSection(missing.handoff)}\n[end]`
   }

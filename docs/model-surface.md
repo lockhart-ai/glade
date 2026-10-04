@@ -248,7 +248,7 @@ status (open, merged, closed) isn't fetched.
 | `set_objective` | `{ objective: string }` | Distils the objective from the first message. Set once. |
 | `set_status` | `{ status: string }` | Rewrites the status summary shown in the header and the task list. Becomes the outcome on Done. |
 | `ask` | `{ preamble?: string, questions: Question[] }` | Shows a rich question card in the chat, led by the agent's reply to your message, and blocks until answered. See below. |
-| `add_artifact` | `{ path: string, title: string }` or `{ url: string, title: string }` | Declares a file as a deliverable of the task, or a link (a PR, an issue, a ticket) it's about (Artifacts tab). |
+| `add_artifact` | `{ path: string, title: string }` or `{ url: string, title: string }`; behind `todoHubEnabled`, also `todo: string`, which it needs | Declares a file as a deliverable of the task, or a link (a PR, an issue, a ticket) it's about (Artifacts tab). With the todo hub on, files it under the todo it names. See below. |
 | `update_artifact` | `{ path: string, title?: string, newPath?: string }` or `{ url: string, title?: string, newUrl?: string }` | Renames an artifact and/or points it at another file or page, keeping its place. |
 | `remove_artifact` | `{ path: string }` or `{ url: string }` | Takes a file or a link off the task's artifacts; a file stays. |
 | `show_file` | `{ path: string, line?: number }` | Opens a file in the Files tab for the user. |
@@ -404,6 +404,86 @@ The handlers are `listForAgent` and `fileForAgent` in `src/main/todo-hub/agent-c
 (`src/main/todo-hub/todo-hub.ts`) and the resolver (`groupChildren` in `src/shared/todoHub.ts`). The prompt says the
 tools exist in one line ("System prompt", below).
 
+## Implemented, behind the switch: filing a child as it's made (P16-04, #495)
+
+**Only with the todo hub on.** A session that starts with `todoHubEnabled` on files everything its agent makes under
+one of its todos as it's made, so nothing new is left under "Not under a todo". With the setting off, none of this
+exists: `add_artifact` takes no `todo`, the prompt has none of these lines, and no hook reads a call, tells the agent
+anything or holds a turn (`src/main/todo-hub/inert.test.ts`). The code is `src/main/todo-hub/filing.ts`, and the
+evidence for each part is in [`sdk-notes.md` §16](sdk-notes.md#16-filing-a-child-under-a-todo).
+
+**An artifact: `add_artifact` takes `todo`, and needs it.** With the hub on, the tool's input is
+`{ path, title, todo }` or `{ url, title, todo }`: `todo` is the id of the todo the artifact belongs under (the `N` of
+`Task #N`; `#2` reads as `2`). The artifact is filed there as it's added (`named`), and the windows hear its filing
+before they hear of the artifact. The reply ends `It's under todo #2.`
+
+- **Without a `todo`,** or with one that isn't in the task's list (never there, or deleted since), it's a tool error
+  that lists the task's todos, and nothing is added: `Nothing was added: give the id of the todo this artifact belongs
+  under, as todo (the N of Task #N). Your todos: #1 … (pending) · #2 …`, or `Nothing was added. There's no todo #9 in
+  this task's list. Your todos: …`. A task with no todos is told `You have no todos yet: create one with TaskCreate
+  first.` A todo that's done is still a todo: an artifact can go under it.
+- **Declared again,** an artifact is renamed as before, and stays under its todo; given another todo, it moves there
+  (`moved`).
+- **`update_artifact` and `remove_artifact` keep the filing in step:** an artifact pointed at another file or page
+  (`newPath`, `newUrl`) stays under its todo, and one that's removed, by the agent or by you, leaves no filing behind.
+  Neither takes a `todo`: moving an artifact to another todo is `file_children`'s.
+- **No agent call, no todo.** A link you add yourself (Add to artifacts) and an artifact added through the control
+  API have no call to name a todo: they stay under "Not under a todo", and the agent can file them when asked to.
+- If the setting is turned off under a session that has this `add_artifact`, the tool adds the artifact as it did
+  before the hub, and files nothing.
+
+**A subagent, a watcher, a commit: the call that makes it names its todo.** These come from Claude Code's own tools
+(`Agent`, `Monitor`, `Bash` in the background or one that commits, `ScheduleWakeup`, `CronCreate`), which Glade can't
+add a field to. So the todo travels as a marker at the start of the call's own text, `[todo 2] Review the date
+helpers`: the `description` of an `Agent`, `Monitor` or `Bash` call, the `reason` of a `ScheduleWakeup`, the `prompt`
+of a `CronCreate` (`src/main/agent/child-calls.ts`). The rule, which Jared picked from #492's findings:
+
+1. **Named in the call.** Glade files what the call makes under that todo (`named`), from the moment it exists, and
+   takes the marker off before the tool runs and off the call's row in the tool log, so it shows nowhere: not in a
+   subagent's name, a watcher's label, a cron job's prompt or the Tool calls tab. `[todo #2]`, other case and space
+   around it are read too.
+2. **A call that names none goes ahead,** and so does one whose marker names a todo that isn't in the list (the marker
+   still comes off). Once the calls of its message have run, Glade tells the agent, with their results, what they made
+   and which todos it has, each child by its short id, and the agent answers with one `file_children` call (`asked`):
+
+   ```
+   Glade: file what you just made under its todo now, before your next step, with one mcp__glade__file_children call.
+   Made:
+   - c4: subagent "Review the order totals"
+   - c5: watcher "Deploy to staging"
+   - c6: commit "73ad18a Note the date review"
+   Your todos: #1 Review the date helpers (completed) · #2 Fix the UTC date test (in progress)
+   If no todo fits, create it first with TaskCreate.
+   ```
+
+   A commit Glade finds after an unnamed `Bash` call goes the same way: the agent's next step waits until git has
+   been read. An agent with no todos is told `You have no todos yet: create one with TaskCreate first.`
+3. **A turn can't end with a filing owed.** Glade holds the end of the turn, saying what's left, twice a turn at most:
+
+   ```
+   Glade: these aren't filed under a todo yet. File them with one mcp__glade__file_children call, then end your turn.
+   - c5: watcher "Deploy to staging"
+   Your todos: #1 Review the date helpers (completed) · #2 Fix the UTC date test (in progress)
+   ```
+
+   The agent files them and writes its reply again; the reply it had written before the hold goes to the tool log, so
+   the chat shows the one it ended on. **If it ignores both holds, the turn ends anyway:** what's left stays under
+   "Not under a todo", still owed, and the end of its next turn asks again, twice more. What's owed is kept in SQLite
+   (`owed_filings`), so a relaunch doesn't forget it. A turn you stopped is never held, nor is a compaction.
+4. **Nothing is refused, and nothing is guessed** from which todo is in progress.
+5. **A subagent's calls are left alone.** What a subagent makes (its commits, its watchers, its own subagents, at any
+   depth) follows the subagent's todo by itself (`inherited`), a marker in a subagent's own call is left where it is,
+   and a subagent is never told to file anything.
+
+Only what the agent made itself, in a call, with the hub on, is ever owed: never what the task made before the hub, a
+link you added, or an artifact added through the control API. Those wait under "Not under a todo" until you ask the
+agent to sort them.
+
+**The todo tools stay on.** A todo without an id can hold nothing, and Claude Code swaps its task tools for
+`TodoWrite`, whose items have none, when a settings file says `CLAUDE_CODE_ENABLE_TASKS=false`. A session with the hub
+on sets that switch itself, in the SDK's `settings`, which outrank the user's, the project's and the local settings
+files ([`sdk-notes.md` §16](sdk-notes.md#16-filing-a-child-under-a-todo), "`TodoWrite`").
+
 ## Todos: Claude Code's own tools, not a Glade tool (P5-03)
 
 The draft had a `todos` tool. Instead, the Todos tab maps the todo tools Claude Code already gives the model, which it
@@ -494,15 +574,19 @@ prompt leaves out asking for it.
 
 Four more parts are added after that, each after a blank line, when they apply:
 
-- **The todo hub's tools** (behind the hidden `todoHubEnabled` setting, P16-05, #496): in a session that starts with
-  the setting on, one line (`TODO_HUB_TOOLS_LINE`) saying the tools exist and what they're for. With the setting off,
-  the prompt says nothing of them:
+- **The todo hub** (behind the hidden `todoHubEnabled` setting, P16-04 and P16-05, #495 and #496): in a session that
+  starts with the setting on, three paragraphs (`TODO_HUB_LINES`): how what it makes is filed under its todos
+  (`TODO_HUB_FILING_LINE`, word for word what #492 probed, [`sdk-notes.md` §16](sdk-notes.md#16-filing-a-child-under-a-todo)),
+  that an artifact needs a todo too, and that the hub's tools exist and what they're for. With the setting off, the
+  prompt says nothing of any of it:
 
   ```
+  Glade files everything you make (a subagent, a watcher or background command, a scheduled wakeup or cron job, a commit) under one of your todos, where the user finds it. Name the todo in the call that makes it: start the description of an Agent, Monitor or background Bash call, the description of a Bash call that commits, the reason of a ScheduleWakeup and the prompt of a CronCreate with the todo's id in square brackets, like "[todo 2] Review the date helpers". Create the todo first (TaskCreate) if none fits. If a call names none, Glade asks you right after it to file what it made, with mcp__glade__file_children: do that at once, before your next step. What a subagent makes is filed with the subagent: leave those.
+
+  An artifact goes under a todo too: give add_artifact the todo's id as todo, for a file and for a link.
+
   What this task has made (its artifacts, subagents, watchers and commits) shows to the user under its todos. list_children lists them, each with a short id and the todo it's under, and file_children files them under a todo or moves them to another, by those ids. When the user asks you to file or sort what you made, list them, then file them all in one call.
   ```
-
-  The lines about filing a child as it's made are #495's.
 - **The sandbox:** in a session that runs sandboxed (Settings › Agent › Sandbox on as it starts), one paragraph
   (`SANDBOX_LINE`): that its commands can read and write the workspace folder and, beyond it, only the folders and
   domains the user has allowed, and that when a command fails with "Operation not permitted" on a path outside the
@@ -534,7 +618,13 @@ kept in SQLite too (`session_context.sandbox`): one that started sandboxed has i
 one that still runs outside the sandbox isn't told, and one told once isn't told again, whatever the switch does
 later. An imported session gets it in Glade's whole prompt when it runs sandboxed.
 
-The todo hub's line isn't in that list either, being only for sessions that have the hub's tools (#496). A session
-resumed from before the setting was on gets the two tools when it next starts, and their descriptions say what the
-line does, so a task from before the hub can be asked to sort its children without it. Sending resumed sessions the
-hub's lines is #495's.
+The todo hub's paragraphs aren't in that list either, being only for sessions with the hub on (#495), so the count
+of instructions a session has had (`session_context.instruction_updates`) is the same with the hub on or off. They're
+tracked by themselves, as the sandbox's is (`session_context.todo_hub`). A session has the hub for its whole life, or
+not at all: the setting is read as the session starts, with its tools and hooks. So a session that started with the
+switch off isn't touched when the switch is turned on while it runs. When it next starts (a relaunch, or once it has
+ended), it resumes with the hub's tools and hooks, and is sent the three paragraphs once, as a
+`[Glade: this session now files what it makes under its todos] … [end]` block ahead of the next message Glade sends
+it, after the sandbox's block and before a handoff note's. One that started with the hub on has them in its prompt
+and is never sent them, one that runs with the hub off isn't told, and one told once isn't told again, whatever the
+switch does later. An imported session gets them in Glade's whole prompt when it runs with the hub on.

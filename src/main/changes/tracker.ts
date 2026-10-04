@@ -70,12 +70,21 @@ export interface ChangeTrackerOptions {
   /** The home folder, for a `cd ~/…`. The user's by default. */
   readonly home?: string
   readonly log?: Logger
+  /**
+   * Told when commits have been linked to a task by one of its `Bash` calls, before the windows hear of them: the todo
+   * hub files them where the call says (`../todo-hub/filing`). Nothing by default.
+   */
+  readonly onCommitsLinked?: (taskId: string, toolUseId: string) => void
 }
 
 export interface ChangeTracker {
   /** A `Bash` call is about to run: note the repositories it may commit in, and where their `HEAD`s are. */
   bashStarting(taskId: string, call: BashStart): Promise<void>
-  /** A `Bash` call's result is in: link the commits it made to the task, and broadcast them. */
+  /**
+   * A `Bash` call's result is in: link the commits it made to the task, and broadcast them. Resolves once that's done.
+   * Told of a call again while it's still working that call out, it answers with the same work, so whoever asks can
+   * wait for the call's commits to be known.
+   */
   bashFinished(taskId: string, call: BashEnd): Promise<void>
   /** The task's session is gone: its calls that were running will never have results. */
   sessionEnded(taskId: string): void
@@ -118,8 +127,11 @@ export function createChangeTracker({
   now = Date.now,
   home = homedir(),
   log = SILENT_LOGGER,
+  onCommitsLinked,
 }: ChangeTrackerOptions): ChangeTracker {
   const pending = new Map<string, Pending>()
+  /** The calls whose commits are being worked out now, each with that work. */
+  const finishing = new Map<string, Promise<void>>()
 
   const broadcast = (taskId: string): void => {
     emit({ type: EventType.CommitsChanged, taskId, commits: listTaskCommits(db, taskId) })
@@ -284,19 +296,29 @@ export function createChangeTracker({
       }
     },
 
-    async bashFinished(taskId, call) {
+    bashFinished(taskId, call) {
       const key = callKey(taskId, call.toolUseId)
+      const working = finishing.get(key)
+      if (working !== undefined) return working
       const running = pending.get(key)
       pending.delete(key)
-      try {
-        const made = await madeBy(call, running)
-        if (made.length === 0) return
-        const changed = await link(taskId, call.toolUseId, made)
-        if (changed.size > 0) log.info('commits linked', { toolUseId: call.toolUseId, commits: made.length })
-        for (const changedTask of changed) broadcast(changedTask)
-      } catch (error) {
-        log.warn("couldn't work out the commits a call made", { toolUseId: call.toolUseId, error })
+      const work = async (): Promise<void> => {
+        try {
+          const made = await madeBy(call, running)
+          if (made.length === 0) return
+          const changed = await link(taskId, call.toolUseId, made)
+          if (changed.size > 0) log.info('commits linked', { toolUseId: call.toolUseId, commits: made.length })
+          if (changed.has(taskId)) onCommitsLinked?.(taskId, call.toolUseId)
+          for (const changedTask of changed) broadcast(changedTask)
+        } catch (error) {
+          log.warn("couldn't work out the commits a call made", { toolUseId: call.toolUseId, error })
+        } finally {
+          finishing.delete(key)
+        }
       }
+      const done = work()
+      finishing.set(key, done)
+      return done
     },
 
     sessionEnded(taskId) {

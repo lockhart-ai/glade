@@ -194,9 +194,47 @@ export interface BashFinishedAnswer {
 }
 
 /**
+ * A call of the agent's own to one of Claude Code's tools that make something a todo can hold (`./child-calls`) about
+ * to run, as the session's `PreToolUse` hook tells it (`docs/sdk-notes.md` §16). Never a subagent's call.
+ */
+export interface ChildCallStarting {
+  readonly toolName: string
+  /** The call's input, as the model wrote it: a marker naming a todo and all. */
+  readonly input: ToolInput
+  /** The call's `tool_use` id. */
+  readonly toolUseId: string
+}
+
+/** One call of an assistant message whose calls have all run (`ToolBatch`). */
+export interface BatchCall {
+  readonly toolName: string
+  /** The input the tool ran with. */
+  readonly input: ToolInput
+  /** The call's `tool_use` id. */
+  readonly toolUseId: string
+  /** What the agent reads as the call's result, as text; empty when the SDK gave none Glade can read. */
+  readonly output: string
+}
+
+/**
+ * The calls of one of the agent's own assistant messages, once every one has run and before the agent's next step, as
+ * the session's `PostToolBatch` hook tells them (`docs/sdk-notes.md` §16). Never a subagent's message.
+ */
+export interface ToolBatch {
+  readonly calls: readonly BatchCall[]
+}
+
+/** The agent is about to end its turn, as the session's `Stop` hook says (`docs/sdk-notes.md` §16). */
+export interface TurnEnding {
+  /** Whether the turn's end was held before this (`stop_hook_active`): false the first time a turn tries to end. */
+  readonly held: boolean
+}
+
+/**
  * What the session tells the host as it runs, through Claude Code's hooks (`docs/sdk-notes.md` §13 and §14), parsed at
  * the SDK boundary: the prompts that start its turns, the jobs it has scheduled, the summaries its compactions write
- * (§5) and the `Bash` calls about to run and run (§15).
+ * (§5) and the `Bash` calls about to run and run (§15). With the todo hub on, also the calls that make something a
+ * todo can hold, each message's calls once they've run, and each turn about to end (§16).
  */
 export interface SessionHooks {
   /**
@@ -230,6 +268,25 @@ export interface SessionHooks {
   readonly onTurnEnded: (jobs: readonly SessionJob[]) => void
   /** A compaction wrote its summary (`PostCompact`), just before the SDK reports it done (`compact_boundary`). */
   readonly onCompacted: (compaction: CompactSummary) => void
+  /**
+   * A call of the agent's own that makes something a todo can hold is about to run (`PreToolUse`, #495): the call
+   * waits until this resolves. Answers the input the tool runs with in place of the model's (the todo's marker taken
+   * off), or null to leave it as it is. It never decides whether the call runs: Claude Code still asks about it as it
+   * would have. Given only to a session with the todo hub on.
+   */
+  readonly onChildStarting?: (call: ChildCallStarting) => Promise<ToolInput | null>
+  /**
+   * The calls of one of the agent's own messages have all run (`PostToolBatch`, #495): the agent's next step waits
+   * until this resolves. Answers what to tell the agent with their results (`additionalContext`), or null for
+   * nothing. Given only to a session with the todo hub on.
+   */
+  readonly onBatchFinished?: (batch: ToolBatch) => Promise<string | null>
+  /**
+   * The agent is about to end its turn (`Stop`, #495), after `onTurnEnded`. Answers why the turn can't end yet, which
+   * the agent reads before taking another step, or null to let it end. Claude Code holds a turn as often as it's told
+   * to, so whoever answers this must stop holding. Given only to a session with the todo hub on.
+   */
+  readonly onTurnEnding?: (ending: TurnEnding) => Promise<string | null>
 }
 
 /** The folders a sandboxed command may read and write (the SDK's `sandbox.filesystem`), as absolute paths or `~/…`. */
@@ -349,6 +406,13 @@ export interface AgentSessionOptions extends AgentSessionSettings {
   readonly onToolPermission?: ToolPermissionHandler
   /** What the session tells the host as it runs. Nothing is told by default, and every prompt goes ahead. */
   readonly hooks?: SessionHooks
+  /**
+   * Whether the session keeps Claude Code's task tools (`TaskCreate`, `TaskUpdate`, …) whatever the user's own
+   * settings say (#495): a settings file can swap them for `TodoWrite`, whose items have no id, so nothing could be
+   * filed under them (`docs/sdk-notes.md` §16). Left to the user by default. Only a session with the todo hub on sets
+   * it.
+   */
+  readonly keepTaskTools?: boolean
 }
 
 /**

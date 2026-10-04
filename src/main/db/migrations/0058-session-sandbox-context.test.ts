@@ -39,19 +39,33 @@ it('leaves every session recorded before it as not told of the sandbox, and keep
     instructionUpdates: 2,
     handoffAt: 3,
     sandbox: false,
+    todoHub: false,
   })
   expect(getSessionContext(db, 'imported')).toEqual({
     instructions: false,
     instructionUpdates: 0,
     handoffAt: null,
     sandbox: false,
+    todoHub: false,
   })
 
-  setSessionContext(db, 'glade', { instructions: true, instructionUpdates: 2, handoffAt: 3, sandbox: true })
+  setSessionContext(db, 'glade', {
+    instructions: true,
+    instructionUpdates: 2,
+    handoffAt: 3,
+    sandbox: true,
+    todoHub: false,
+  })
   expect(getSessionContext(db, 'glade')?.sandbox).toBe(true)
   expect(getSessionContext(db, 'imported')?.sandbox).toBe(false)
   // Told is told: recording it again as not told is a caller's mistake the column still takes, but only 0 or 1.
-  setSessionContext(db, 'glade', { instructions: true, instructionUpdates: 2, handoffAt: 3, sandbox: false })
+  setSessionContext(db, 'glade', {
+    instructions: true,
+    instructionUpdates: 2,
+    handoffAt: 3,
+    sandbox: false,
+    todoHub: false,
+  })
   expect(getSessionContext(db, 'glade')?.sandbox).toBe(false)
   expect(() => db.prepare("UPDATE session_context SET sandbox = 2 WHERE task_id = 'glade'").run()).toThrow(/CHECK/)
   db.close()

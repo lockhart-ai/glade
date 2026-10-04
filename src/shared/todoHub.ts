@@ -187,8 +187,9 @@ export interface SubagentChild {
 
 /**
  * Every child among a task's artifacts, subagents, watchers and commits, each kind in the order it came, but for the
- * commits, which a task lists newest first and this puts oldest first. So each kind is oldest first as main reads
- * them: the order they get their short ids in when Glade first names them all at once (a task from before the hub).
+ * commits, which a task lists newest first and this puts oldest first: of those committed in the same second, the one
+ * Glade found first. So each kind is oldest first as main reads them: the order they get their short ids in when
+ * Glade first names them all at once (a task from before the hub).
  */
 export function childrenOf({
   artifacts,
@@ -200,7 +201,11 @@ export function childrenOf({
     ...artifacts.map(childOfArtifact),
     ...subagents.map(({ call }) => childOfSubagent(call)),
     ...watchers.map(childOfWatcher),
-    ...[...commits].sort((a, b) => a.committedAt - b.committedAt).map(childOfCommit),
+    // Reversed first: the sort keeps the order of those committed in the same second, which is newest first as given.
+    ...[...commits]
+      .reverse()
+      .sort((a, b) => a.committedAt - b.committedAt)
+      .map(childOfCommit),
   ]
 }
 
