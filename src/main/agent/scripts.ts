@@ -2784,6 +2784,58 @@ const asksSandbox: AgentScript = {
   ],
 }
 
+/**
+ * What the `crosses-sandbox` script's agent tries (#514): each a way past the sandbox the phase's security review
+ * found, which a rule in the user's own Claude Code settings would have let through unasked.
+ */
+export const CROSSES_SANDBOX = {
+  // Under `/Users`, which the sandbox bounds: these folders needn't exist.
+  plist: '/Users/Shared/acme-launch/dev.acme.sample.plist',
+  plistFolder: '/Users/Shared/acme-launch',
+  // The shared notes by macOS's other name for any file, which no check of where a path really is can follow.
+  alias: '/.nofollow/Users/Shared/acme-shared/notes.md',
+  // This Mac, as a command reaches it through the sandbox's own proxy.
+  local: '127.0.0.1',
+  curl: 'curl -x "$HTTP_PROXY" http://127.0.0.1:8787/v1/tools',
+  // A command the workspace's own Claude Code settings keep out of the sandbox (`sandbox.excludedCommands`).
+  excluded: 'docker *',
+  docker: 'docker run --rm -v "$HOME":/h alpine ls /h',
+  // A file that runs code, in a repository outside the workspace.
+  hook: '/Users/Shared/acme-docs/.git/hooks/pre-commit',
+  reply: 'Each of those was stopped at the sandbox until you said otherwise.',
+} as const
+
+/**
+ * A turn that tries the ways past the sandbox the phase's security review found (#514), each with a rule in the user's
+ * own settings that keeps Claude Code from asking about it: a write where a file runs at the next login, a read by
+ * one of macOS's other names for a file, a connection to this Mac, a command the settings keep out of the sandbox, and
+ * a write to a git hook in another repository. Sandboxed, Glade's own hook stops each: a card, or a refusal.
+ */
+const crossesSandbox: AgentScript = {
+  name: 'crosses-sandbox',
+  turns: [
+    [
+      ...turnStart(),
+      say("I'll set up the launch agent and check the shared notes."),
+      {
+        ...outsideWrite('plist', CROSSES_SANDBOX.plist, '<plist version="1.0"/>', 'Wrote the launch agent.'),
+        settingsAllow: true,
+      },
+      { ...outsideRead('alias', CROSSES_SANDBOX.alias, '1\t# Shared notes'), settingsAllow: true },
+      networkAccess('local', CROSSES_SANDBOX.curl, CROSSES_SANDBOX.local, '{ "tools": [] }', {
+        deniedOutput: commandFailure('curl: (56) CONNECT tunnel failed, response 403'),
+      }),
+      sandboxedBash('docker', CROSSES_SANDBOX.docker, 'bin\tetc\thome', { failed: false }),
+      {
+        ...outsideWrite('hook', CROSSES_SANDBOX.hook, '#!/bin/sh\necho sample\n', 'Wrote the hook.'),
+        settingsAllow: true,
+      },
+      say(CROSSES_SANDBOX.reply),
+      result(),
+    ],
+  ],
+}
+
 /** What the `sandbox-fails` script's agent runs, and why its sandbox couldn't start (`docs/sdk-notes.md` §15). */
 export const SANDBOX_FAILS = {
   command: 'npm test',
@@ -3950,6 +4002,7 @@ export const AGENT_SCRIPT_NAMES = [
   'subagent-calls',
   'asks-permission',
   'asks-sandbox',
+  'crosses-sandbox',
   'sandbox-fails',
   'asks-permission-from-a-subagent',
   'allows-for-task',
@@ -4016,6 +4069,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'subagent-calls': subagentCalls,
   'asks-permission': asksPermission,
   'asks-sandbox': asksSandbox,
+  'crosses-sandbox': crossesSandbox,
   'sandbox-fails': sandboxFails,
   'asks-permission-from-a-subagent': asksPermissionFromASubagent,
   'allows-for-task': allowsForTask,

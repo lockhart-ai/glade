@@ -1,7 +1,7 @@
-import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { PNG } from '../src/shared/test-images'
-import { expect, openedInEditor, test } from './fixtures'
+import { expect, openedAsText, openedInEditor, test } from './fixtures'
 import { chooseMenuItem } from './menu'
 import { chat, filesTab, firstRun, imageViewer, inputBar, taskList, taskPanel } from './selectors'
 
@@ -47,6 +47,8 @@ test('files: the list of changed and read files, open-file tabs, the viewer, Ope
   tempFolder,
 }) => {
   const root = workspace(tempFolder, DATE_FILES)
+  // As an agent could leave it: a file macOS would run in Terminal if it were opened the ordinary way.
+  chmodSync(join(root, 'src', 'date.ts'), 0o755)
   const glade = await launch({ agentScript: 'multi-tool-turn', chosenFolder: root })
   const { window } = glade
   await firstRun(window).openFolder.click()
@@ -88,9 +90,10 @@ test('files: the list of changed and read files, open-file tabs, the viewer, Ope
   await files.tab('date.ts').click()
   await expect(files.editorLine(2)).toContainText('toISOString')
 
-  // Open in editor opens the file showing, by its real path.
+  // Open in editor opens the file showing, by its real path: as text, in the text editor, so it's never run.
   await files.openInEditor.click()
   await expect.poll(() => openedInEditor(glade)).toEqual([realpathSync(join(root, 'src', 'date.ts'))])
+  expect(await openedAsText(glade)).toEqual([realpathSync(join(root, 'src', 'date.ts'))])
 
   // The tabs are kept: a relaunch shows the same ones.
   await glade.close()

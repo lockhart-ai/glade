@@ -148,6 +148,8 @@ Bash needs no setup: `GLADE_CONTROL_URL` (the base URL, e.g. `http://127.0.0.1:4
 session gets them as it starts; with the switch off, or the endpoint not listening, they aren't set. A running session
 keeps the values it started with: after **Regenerate token** its old token is refused (`401`) until the task's next
 session, and after the port moves its URL is stale. The log redacts every `*_TOKEN` variable, and nothing logs them.
+**With the agent sandbox on, a sandboxed command doesn't get them** (#514): a script that calls the endpoint has to
+run outside the sandbox, which asks you each time. The agent's own `glade-control` tools need neither.
 
 With `curl`:
 
