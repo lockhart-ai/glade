@@ -26,6 +26,7 @@ import {
   type Artifact,
   type UiStateEntry,
 } from '../../shared/domain'
+import { AppCommandId, CommandScope } from '../../shared/commands'
 import { noOpenFiles } from '../../shared/files'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { GIF, JPEG, PNG } from '../../shared/test-images'
@@ -1360,6 +1361,7 @@ describe("a task's artifacts", () => {
       queuedMessages: [],
       questionSets: [],
       permissionRequests: [],
+      permissionMarks: [],
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [declared],
@@ -1520,5 +1522,133 @@ describe('right panel tab per workspace', () => {
 
     expect(activePanelTab(relaunched.getState().uiState, 'w1')).toBe(PanelTab.Todos)
     expect(activePanelTab(relaunched.getState().uiState, 'w2')).toBe(PanelTab.Artifacts)
+  })
+})
+
+describe('broadcast (#489)', () => {
+  it('opens and closes its modal', async () => {
+    const { store } = await hydrated()
+    expect(store.getState().broadcastOpen).toBe(false)
+
+    store.getState().openBroadcast()
+    expect(store.getState().broadcastOpen).toBe(true)
+
+    store.getState().closeBroadcast()
+    expect(store.getState().broadcastOpen).toBe(false)
+  })
+
+  it('sends the message through main, which decides who gets it, and answers how it went for each task', async () => {
+    const idle = [
+      { ...sampleTask('t1', 'w1'), sessionId: 's1' },
+      { ...sampleTask('t2', 'w2'), sessionId: 's2' },
+    ]
+    const working = { ...sampleTask('t3', 'w2'), activity: TaskActivity.Working }
+    const done = { ...sampleTask('t4', 'w1'), state: TaskState.Done, pinned: true, sessionId: 's4' }
+    // One that has never been given anything gets nothing.
+    const untouched = sampleTask('t5', 'w1')
+    const { store, invoke } = await hydrated({
+      ...main(),
+      tasks: [...idle, working, done, untouched],
+      messages: [],
+    })
+
+    const recipients = await store.getState().broadcast('Is anyone restarting Docker?')
+
+    expect(invoke).toHaveBeenCalledWith(CommandName.TasksBroadcast, { text: 'Is anyone restarting Docker?' })
+    expect(recipients).toEqual([
+      { taskId: 't1', delivery: 'sent' },
+      { taskId: 't2', delivery: 'sent' },
+      { taskId: 't3', delivery: 'queued' },
+    ])
+    const state = store.getState()
+    expect(state.messages.t1).toMatchObject([{ body: 'Is anyone restarting Docker?', broadcast: true }])
+    expect(state.messages.t2).toMatchObject([{ body: 'Is anyone restarting Docker?', broadcast: true }])
+    expect(state.queuedMessages.t3).toMatchObject([{ body: 'Is anyone restarting Docker?', broadcast: true }])
+    expect(state.messages.t4).toBeUndefined()
+    expect(state.messages.t5).toBeUndefined()
+  })
+
+  it("rejects with main's error", async () => {
+    const fake = fakeBridge(main(), {
+      [CommandName.TasksBroadcast]: () => refuse(bridgeError(BridgeErrorCode.Internal, 'tasks.broadcast failed')),
+    })
+    const store = createGladeStore(fake.bridge)
+    await store.getState().hydrate()
+
+    await expect(store.getState().broadcast('Hi')).rejects.toMatchObject({ code: BridgeErrorCode.Internal })
+  })
+})
+
+describe('a batch of events from main (#489)', () => {
+  it('is applied in one change to the store, however many events it holds', async () => {
+    const { store, emitBatch } = await hydrated()
+    const changes = vi.fn()
+    store.subscribe(changes)
+    const message = (taskId: string) => ({ ...sampleMessage(`m-${taskId}`, taskId, 'Hi'), broadcast: true })
+
+    emitBatch([
+      { type: EventType.MessageAppended, message: message('t1') },
+      { type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), activity: TaskActivity.Working } },
+      { type: EventType.MessageAppended, message: message('t2') },
+      { type: EventType.QueueChanged, taskId: 't2', queuedMessages: [sampleQueuedMessage('q1', 't2')] },
+    ])
+
+    expect(changes).toHaveBeenCalledOnce()
+    const state = store.getState()
+    expect(state.messages.t1).toEqual([message('t1')])
+    expect(state.messages.t2).toEqual([message('t2')])
+    expect(state.tasks.t1?.activity).toBe(TaskActivity.Working)
+    expect(state.queuedMessages.t2).toEqual([sampleQueuedMessage('q1', 't2')])
+  })
+
+  it('applies its events in order, the later one winning', async () => {
+    const { store, emitBatch } = await hydrated()
+
+    emitBatch([
+      { type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), status: 'First.' } },
+      { type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), status: 'Second.' } },
+    ])
+
+    expect(store.getState().tasks.t1?.status).toBe('Second.')
+  })
+
+  it('changes nothing for a batch of events the store only passes on', async () => {
+    const { store, emitBatch } = await hydrated()
+    const commands = vi.fn()
+    store.getState().onCommand(commands)
+    const changes = vi.fn()
+    store.subscribe(changes)
+    const command = { scope: CommandScope.App, id: AppCommandId.Broadcast } as const
+
+    emitBatch([{ type: EventType.MenuCommand, command }])
+
+    expect(commands).toHaveBeenCalledWith(command)
+    expect(changes).not.toHaveBeenCalled()
+  })
+
+  it('waits with the rest while the store loads, and lands on top of the snapshot', async () => {
+    const fake = fakeBridge(main())
+    const store = createGladeStore(fake.bridge)
+    const loading = store.getState().hydrate()
+
+    fake.emitBatch([
+      { type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), status: 'Changed while loading.' } },
+    ])
+    await loading
+
+    expect(store.getState().tasks.t1?.status).toBe('Changed while loading.')
+  })
+
+  it('goes back to applying each event as it comes afterwards', async () => {
+    const { store, emit, emitBatch } = await hydrated()
+    emitBatch([{ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), status: 'In the batch.' } }])
+    const changes = vi.fn()
+    store.subscribe(changes)
+
+    emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), status: 'On its own.' } })
+    emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t2', 'w2'), status: 'And another.' } })
+
+    expect(changes).toHaveBeenCalledTimes(2)
+    expect(store.getState().tasks.t1?.status).toBe('On its own.')
   })
 })

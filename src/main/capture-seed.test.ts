@@ -28,7 +28,10 @@ import {
   WatcherState,
   type EpochMs,
   type Question,
+  PermissionMarkKind,
 } from '../shared/domain'
+import { SandboxAskKind } from '../shared/sandbox'
+import { listPermissionMarks } from './db/repositories/permission-marks'
 import { applySeed, readSeed, seedArtifactAt, type CaptureSeed } from './capture-seed'
 import { getArtifactFilter, listArtifacts, listFileArtifacts } from './db/repositories/artifacts'
 import { getHandoff } from './db/repositories/backfills'
@@ -39,6 +42,7 @@ import { listQuestionSets } from './db/repositories/question-sets'
 import { getOpenFiles } from './db/repositories/open-files'
 import { listBrowseFolders } from './db/repositories/browse-folders'
 import { listQueuedMessages } from './db/repositories/queued-messages'
+import { listSandboxGrants } from './db/repositories/sandbox-grants'
 import { listTaskPermissionRules } from './db/repositories/task-permission-rules'
 import { listToolEvents } from './db/repositories/tool-events'
 import { listTasks } from './db/repositories/tasks'
@@ -48,6 +52,14 @@ import { listWatchers } from './db/repositories/watchers'
 import { listWorkspaces } from './db/repositories/workspaces'
 import { readTaskFile, workspaceFilesRoot } from './files/files'
 import { openTestDatabase, type TestDatabase } from './db/repositories/test-database'
+import {
+  FolderAccess,
+  SandboxGrantKind,
+  SandboxGrantScope,
+  type Grant,
+  type SandboxGrantTarget,
+} from '../shared/sandbox'
+import { sandboxFailureReason } from '../shared/sandboxFailure'
 import { DEFAULT_SETTINGS } from '../shared/settings'
 import { DRIVES_GLADE } from './agent/scripts'
 import { getSettings } from './db/repositories/settings'
@@ -109,6 +121,19 @@ describe('readSeed', () => {
 
   it('reads the task workspace fixture', () => {
     expect(readSeed(FIXTURE).workspace.name).toBe('Acme API')
+  })
+
+  it('reads the Broadcast fixtures: tasks across three workspaces, a message that was broadcast, and none active', () => {
+    const seed = readSeed(join(FIXTURES, 'broadcast.json'))
+    const active = seed.tasks.filter((task) => task.state !== TaskState.Done)
+    expect(active).toHaveLength(9)
+    expect(new Set(active.map((task) => task.workspace?.name ?? seed.workspace.name))).toEqual(
+      new Set(['Acme API', 'Storefront', 'Docs site']),
+    )
+    expect(seed.tasks.flatMap((task) => task.messages ?? []).filter((message) => message.broadcast)).toHaveLength(1)
+
+    const none = readSeed(join(FIXTURES, 'broadcast-none.json'))
+    expect(none.tasks.every((task) => task.state === TaskState.Done)).toBe(true)
   })
 
   it('reads the mark done fixture', () => {
@@ -280,6 +305,31 @@ describe('readSeed', () => {
       readSeed(write(JSON.stringify(task({ artifacts: [{ url: 'not a url', title: 'X', minutesAgo: 1 }] })))),
     ).toThrow(/is invalid: /)
     expect(() => readSeed(write(JSON.stringify(task({ artifactFilter: 'images' }))))).toThrow(/is invalid: /)
+  })
+
+  it('reads the sandbox settings fixture: the switch on, and the grants both lists show (#451)', () => {
+    const seed = readSeed(join(FIXTURES, 'settings-sandbox.json'))
+
+    expect(seed.settings).toEqual({ sandboxEnabled: true })
+    expect(seed.sandboxGrants?.glade?.map((grant) => grant.kind)).toEqual([
+      'folder',
+      'folder',
+      'folder',
+      'domain',
+      'domain',
+    ])
+    expect(seed.sandboxGrants?.workspace).toHaveLength(4)
+  })
+
+  it('refuses a sandbox grant of no kind, a folder with no access, or a scope it does not know', () => {
+    const withGrants = (sandboxGrants: unknown): string => write(JSON.stringify({ ...SEED, sandboxGrants }))
+
+    expect(() => readSeed(withGrants({ glade: [{ kind: 'socket', path: '/tmp/x' }] }))).toThrow(/is invalid: /)
+    expect(() => readSeed(withGrants({ glade: [{ kind: 'folder', path: '/Users/sample/.nvm' }] }))).toThrow(
+      /is invalid: /,
+    )
+    expect(() => readSeed(withGrants({ workspace: [{ kind: 'domain', domain: '' }] }))).toThrow(/is invalid: /)
+    expect(() => readSeed(withGrants({ task: [] }))).toThrow(/is invalid: /)
   })
 
   it('refuses settings it does not know, or of the wrong kind', () => {
@@ -735,6 +785,35 @@ describe('applySeed', () => {
     expect(readControlToken(db)).toBeNull()
   })
 
+  it('grants the sandbox folders and domains it gives, Glade-wide and to its workspace, in its order (#451)', () => {
+    const { db } = database
+    const glade: Grant[] = [
+      { kind: SandboxGrantKind.Folder, path: '/Users/sample/.nvm', access: FolderAccess.Read },
+      { kind: SandboxGrantKind.Domain, domain: 'pypi.org' },
+      { kind: SandboxGrantKind.Folder, path: '/Users/sample/.npm', access: FolderAccess.ReadWrite },
+    ]
+    const workspace: Grant[] = [{ kind: SandboxGrantKind.Domain, domain: 'github.com' }]
+
+    applySeed(db, { ...SEED, workspace: { ...SEED.workspace, id: 'workspace-1' }, sandboxGrants: { glade, workspace } })
+
+    const granted = (target: SandboxGrantTarget): Grant[] => listSandboxGrants(db, target).map(({ grant }) => grant)
+    expect(granted({ scope: SandboxGrantScope.Glade })).toEqual(glade)
+    expect(granted({ scope: SandboxGrantScope.Workspace, workspaceId: 'workspace-1' })).toEqual(workspace)
+  })
+
+  it('grants nothing unless given, and only the scope it gives', () => {
+    const { db } = database
+
+    applySeed(db, {
+      ...SEED,
+      workspace: { ...SEED.workspace, id: 'workspace-1' },
+      sandboxGrants: { workspace: [{ kind: SandboxGrantKind.Domain, domain: 'github.com' }] },
+    })
+
+    expect(listSandboxGrants(db, { scope: SandboxGrantScope.Glade })).toEqual([])
+    expect(listSandboxGrants(db, { scope: SandboxGrantScope.Workspace, workspaceId: 'workspace-1' })).toHaveLength(1)
+  })
+
   it('stores the control token it gives, which turning control on then keeps', () => {
     const { db } = database
 
@@ -881,6 +960,7 @@ describe('applySeed', () => {
       instructions: true,
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: null,
+      sandbox: true,
     })
   })
 
@@ -904,6 +984,7 @@ describe('applySeed', () => {
                 minutesAgo: 2,
                 summary: { durationMs: 60_000, filesChanged: 1, linesAdded: 2, linesRemoved: 0 },
               },
+              { role: MessageRole.User, body: 'Is anyone restarting Docker?', turn: 2, minutesAgo: 1, broadcast: true },
             ],
             toolEvents: [
               { kind: ToolEventKind.Narration, text: 'Looking around.', turn: 1, minutesAgo: 29 },
@@ -927,7 +1008,14 @@ describe('applySeed', () => {
     const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
     const taskId = task?.id ?? ''
     expect(listMessages(db, taskId)).toMatchObject([
-      { role: MessageRole.User, body: 'Add rate limiting.', turn: 1, createdAt: NOW - 30 * MINUTE, summary: null },
+      {
+        role: MessageRole.User,
+        body: 'Add rate limiting.',
+        turn: 1,
+        createdAt: NOW - 30 * MINUTE,
+        summary: null,
+        broadcast: false,
+      },
       {
         role: MessageRole.Agent,
         body: 'Done.',
@@ -935,6 +1023,8 @@ describe('applySeed', () => {
         createdAt: NOW - 2 * MINUTE,
         summary: { durationMs: 60_000, filesChanged: 1, linesAdded: 2, linesRemoved: 0 },
       },
+      // One sent with Broadcast, which the chat tags (#489).
+      { role: MessageRole.User, body: 'Is anyone restarting Docker?', turn: 2, broadcast: true },
     ])
     expect(listToolEvents(db, taskId)).toMatchObject([
       { kind: ToolEventKind.Narration, text: 'Looking around.', createdAt: NOW - 29 * MINUTE, parentToolUseId: null },
@@ -1040,6 +1130,107 @@ describe('applySeed', () => {
       { toolName: 'Bash', ruleContent: 'npm test *' },
       { toolName: 'Edit' },
     ])
+  })
+
+  it('writes a task’s sandbox requests: what each asks for, and who an allowed one was granted to', () => {
+    const { db } = database
+    const web = { kind: SandboxAskKind.Folder, path: '/Users/sample/code/acme-web', access: FolderAccess.Read } as const
+    const read = { toolName: 'Read', input: { file_path: `${web.path}/package.json` }, sandbox: web, turn: 1 }
+
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          {
+            title: 'Publish the client',
+            minutesAgo: 0,
+            permissionRequests: [
+              {
+                ...read,
+                toolUseId: 'granted',
+                state: PermissionRequestState.Allowed,
+                grantedScope: SandboxGrantScope.Workspace,
+                minutesAgo: 3,
+              },
+              {
+                toolName: 'Bash',
+                input: { command: 'git push', dangerouslyDisableSandbox: true },
+                toolUseId: 'once',
+                sandbox: { kind: SandboxAskKind.Outside },
+                state: PermissionRequestState.Allowed,
+                turn: 1,
+                minutesAgo: 2,
+              },
+              { ...read, toolUseId: 'open', minutesAgo: 1 },
+            ],
+            permissionMarks: [{ toolUseId: 'blocked', outcome: { kind: PermissionMarkKind.Blocked, ask: null } }],
+          },
+        ],
+      },
+      NOW,
+    )
+
+    const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    expect(task?.awaitingPermission).toBe(true)
+    expect(listPermissionRequests(db, task?.id ?? '')).toMatchObject([
+      { toolUseId: 'granted', sandbox: web, grantedScope: SandboxGrantScope.Workspace, grantedRule: null },
+      { toolUseId: 'once', sandbox: { kind: SandboxAskKind.Outside }, grantedScope: null },
+      { toolUseId: 'open', sandbox: web, state: PermissionRequestState.Open, suppressAlwaysAllowRule: true },
+    ])
+    expect(listTaskPermissionRules(db, task?.id ?? '')).toEqual([])
+    expect(listPermissionMarks(db, task?.id ?? '')).toMatchObject([
+      { toolUseId: 'blocked', outcome: { kind: PermissionMarkKind.Blocked, ask: null }, createdAt: NOW },
+    ])
+  })
+
+  it.each([
+    ['sandbox-folder-card.json', [SandboxAskKind.Folder, SandboxAskKind.Folder], 2],
+    ['sandbox-domain-card.json', [SandboxAskKind.Folder, SandboxAskKind.Domain, SandboxAskKind.Folder], 2],
+    ['sandbox-file-card.json', [SandboxAskKind.Folder], 1],
+    [
+      'sandbox-outside-card.json',
+      [
+        SandboxAskKind.Folder,
+        SandboxAskKind.Folder,
+        SandboxAskKind.Domain,
+        SandboxAskKind.Folder,
+        SandboxAskKind.Outside,
+        SandboxAskKind.Outside,
+      ],
+      1,
+    ],
+  ])('reads the sandbox card fixture %s: its requests of the sandbox, some still open', (name, kinds, open) => {
+    const seed = readSeed(join(FIXTURES, name))
+    const requests = seed.tasks.find((one) => one.selected)?.permissionRequests ?? []
+
+    expect(requests.map((request) => request.sandbox?.kind)).toEqual(kinds)
+    expect(requests.filter((request) => request.state === undefined)).toHaveLength(open)
+    applySeed(database.db, seed, NOW)
+  })
+
+  it('reads the file card fixture as a request for one file, and the failed sandbox fixture as its error', () => {
+    const fileCard = readSeed(join(FIXTURES, 'sandbox-file-card.json'))
+    const [request] = fileCard.tasks.find((one) => one.selected)?.permissionRequests ?? []
+    expect(request?.sandbox).toEqual({
+      kind: SandboxAskKind.Folder,
+      path: '/Users/sample/.gitconfig',
+      access: FolderAccess.Read,
+      file: true,
+    })
+
+    const failed = readSeed(join(FIXTURES, 'sandbox-failed.json'))
+    const stopped = failed.tasks.find((one) => one.selected)
+    expect(stopped?.error).toMatchObject({ kind: AgentErrorKind.Permanent, source: TaskErrorSource.Sandbox })
+    expect(sandboxFailureReason(stopped?.error?.details ?? '')).toBe(
+      'tlsTerminate: caCertPath and caKeyPath must be provided together',
+    )
+    applySeed(database.db, failed, NOW)
+    const tasks = listTasks(database.db, listWorkspaces(database.db)[0]?.id ?? '')
+    const failedTask = tasks.find((one) => one.title === stopped?.title)
+    expect(failedTask?.activity).toBe(TaskActivity.Error)
+    expect(failedTask?.error?.source).toBe(TaskErrorSource.Sandbox)
+    expect(tasks.filter((one) => one.error !== null)).toHaveLength(1)
   })
 
   it('refuses a sample allowed for the task that no rule could be granted for', () => {

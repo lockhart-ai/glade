@@ -8,6 +8,7 @@ import {
   MessageRole,
   PauseReason,
   PermissionMode,
+  PermissionMarkKind,
   PermissionRequestState,
   QuestionKind,
   QuestionReplyKind,
@@ -25,6 +26,7 @@ import {
   type ToolCallEvent,
 } from '../../shared/domain'
 import { ImageMediaType } from '../../shared/images'
+import { FolderAccess, SandboxGrantKind, SandboxGrantScope } from '../../shared/sandbox'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { createEventLog } from './event-log'
@@ -238,6 +240,7 @@ describe('the chat', () => {
         images: [{ id: 'image-1', mediaType: ImageMediaType.Png }],
         pastedBlocks: [],
         files: [],
+        broadcast: false,
       },
     })
 
@@ -283,6 +286,7 @@ describe('the chat', () => {
           images: [],
           pastedBlocks: [],
           files: [],
+          broadcast: false,
         },
       ],
     })
@@ -615,9 +619,32 @@ describe('permission requests', () => {
     state: PermissionRequestState.Open,
     denyNote: null,
     grantedRule: null,
+    sandbox: null,
+    grantedScope: null,
     createdAt: 1_000,
     closedAt: null,
   }
+
+  it('logs a call a rule decided, by what decided it, without the folder or command it names', () => {
+    logEvent({
+      type: EventType.PermissionMarked,
+      mark: {
+        taskId: 'task-1',
+        toolUseId: 'toolu_9',
+        outcome: { kind: PermissionMarkKind.TaskRule, rule: { toolName: 'Bash', ruleContent: 'npm run lint *' } },
+        createdAt: 1_000,
+      },
+    })
+
+    expect(logged()).toEqual([
+      {
+        level: LogLevel.Info,
+        scope: LogScope.Permissions,
+        message: 'permission marked',
+        fields: { taskId: 'task-1', toolUseId: 'toolu_9', outcome: PermissionMarkKind.TaskRule },
+      },
+    ])
+  })
 
   it('logs a request opened, with its input at debug, then allowed, denied with its note at debug, and withdrawn', () => {
     const closed = { ...REQUEST, closedAt: 2_000 }
@@ -741,6 +768,16 @@ describe('the rest of the app', () => {
           recent: [{ seq: 1, taskId: 'task-1', title: 'Add rate limiting', body: 'secret reply', sentAt: 1 }],
         },
       },
+      // A scope's sandbox grants: how many, never which.
+      {
+        type: EventType.SandboxGrantsChanged,
+        target: { scope: SandboxGrantScope.Workspace, workspaceId: 'ws-1' },
+        grants: [
+          { kind: SandboxGrantKind.Folder, path: '/Users/sam/secret-project', access: FolderAccess.Read },
+          { kind: SandboxGrantKind.Domain, domain: 'secret.example.com' },
+        ],
+      },
+      { type: EventType.SandboxGrantsChanged, target: { scope: SandboxGrantScope.Glade }, grants: [] },
     ]
     for (const event of events) logEvent(event)
 
@@ -754,12 +791,20 @@ describe('the rest of the app', () => {
       'info app task open requested',
       'debug terminal terminal tabs changed',
       'debug terminal terminal cleared',
+      'info app sandbox grant list changed',
+      'info app sandbox grant list changed',
     ])
     expect(log.withMessage('workspace updated')[0]?.fields).toEqual({
       workspaceId: 'ws-1',
       name: 'Acme API',
       rootPath: '/code/acme-api',
     })
+    expect(log.withMessage('sandbox grant list changed').map(({ fields }) => fields)).toEqual([
+      { scope: 'workspace', workspaceId: 'ws-1', grants: 2 },
+      { scope: 'glade', workspaceId: null, grants: 0 },
+    ])
+    expect(JSON.stringify(log.records)).not.toContain('secret-project')
+    expect(JSON.stringify(log.records)).not.toContain('secret.example.com')
     expect(JSON.stringify(log.records)).not.toContain('secret typed here')
     expect(JSON.stringify(log.records)).not.toContain('secret reply')
   })

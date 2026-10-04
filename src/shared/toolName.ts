@@ -3,6 +3,9 @@
 // user's own never passes for one of Glade's.
 const GLADE_PREFIX = 'mcp__glade__'
 
+/** Glade's `request_access` tool, as the SDK names it: an agent's own request for a folder the sandbox blocked (#450). */
+export const REQUEST_ACCESS_TOOL = `${GLADE_PREFIX}request_access`
+
 export function toolDisplayName(name: string): string {
   return name.startsWith(GLADE_PREFIX) && name.length > GLADE_PREFIX.length ? name.slice(GLADE_PREFIX.length) : name
 }

@@ -1,0 +1,337 @@
+{
+  "collapsed": {
+    "bottomBar": true
+  },
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "tasks": [
+    {
+      "title": "Publish the API client to acme-web",
+      "objective": "Generate a typed API client from the OpenAPI schema and publish it into acme-web, so the frontend stops hand-writing fetch calls.",
+      "status": "The client is published. Waiting on you to start Postgres outside the sandbox for the integration tests.",
+      "pinned": true,
+      "minutesAgo": 1,
+      "startedMinutesAgo": 31,
+      "selected": true,
+      "contextUsedTokens": 88000,
+      "contextWindowTokens": 200000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Generate a typed client from our OpenAPI schema and publish it into acme-web, so the frontend stops hand-writing fetch calls.",
+          "turn": 1,
+          "minutesAgo": 31
+        },
+        {
+          "role": "agent",
+          "body": "npx needs the npm registry, so it’s waiting on you. uv sync can’t write its download cache, so I’ve asked for ~/.cache/uv.",
+          "turn": 1,
+          "minutesAgo": 12
+        },
+        {
+          "role": "user",
+          "body": "Don’t install anything: use the openapi-typescript in tools/. And skip uv for now, the export doesn’t need it.",
+          "turn": 2,
+          "minutesAgo": 11
+        },
+        {
+          "role": "agent",
+          "body": "Generated the client with tools/openapi-typescript and wrote it into acme-web’s src/api. Pushed the api-client branch so you can look.",
+          "turn": 2,
+          "minutesAgo": 4
+        },
+        {
+          "role": "user",
+          "body": "Looks right. Run the integration tests against it.",
+          "turn": 3,
+          "minutesAgo": 3
+        },
+        {
+          "role": "agent",
+          "body": "The client is in acme-web and its type check passes. The integration tests need the local Postgres, which runs in Docker, and Docker can’t work inside the sandbox.",
+          "turn": 3,
+          "minutesAgo": 1
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": {
+            "file_path": "/Users/sample/code/acme-shared/openapi/common.yaml"
+          },
+          "output": "210 lines",
+          "toolUseId": "read-shared",
+          "turn": 1,
+          "minutesAgo": 16
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": {
+            "file_path": "/Users/sample/code/acme-web/package.json"
+          },
+          "output": "48 lines",
+          "toolUseId": "read-web",
+          "turn": 1,
+          "minutesAgo": 14
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "uv sync --frozen"
+          },
+          "output": "Exit code 1\nerror: failed to create directory `/Users/sample/.cache/uv`: Operation not permitted (os error 1)",
+          "state": "error",
+          "toolUseId": "uv-sync",
+          "turn": 1,
+          "minutesAgo": 13
+        },
+        {
+          "kind": "tool_call",
+          "name": "mcp__glade__request_access",
+          "input": {
+            "path": "/Users/sample/.cache/uv",
+            "access": "write",
+            "reason": "`uv sync --frozen` needs to write its download cache."
+          },
+          "output": "No decision was made: the request was withdrawn before the user answered.",
+          "state": "error",
+          "toolUseId": "access-uv",
+          "turn": 1,
+          "minutesAgo": 13
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "npx openapi-typescript openapi/schema.yaml -o build/client.ts",
+            "description": "Generate the typed client from the schema"
+          },
+          "output": "Exit code 1\nnpm error request to https://registry.npmjs.org/openapi-typescript failed",
+          "state": "error",
+          "toolUseId": "npx",
+          "turn": 1,
+          "minutesAgo": 13
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "node tools/openapi-typescript openapi/schema.yaml -o build/client.ts"
+          },
+          "output": "Wrote 2,140 lines",
+          "turn": 2,
+          "minutesAgo": 9
+        },
+        {
+          "kind": "tool_call",
+          "name": "Write",
+          "input": {
+            "file_path": "/Users/sample/code/acme-web/src/api/client.ts",
+            "content": "export const client = createClient()\n"
+          },
+          "output": "New file, 2,140 lines",
+          "toolUseId": "write-client",
+          "turn": 2,
+          "minutesAgo": 7
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "git push origin api-client",
+            "description": "Push the branch",
+            "dangerouslyDisableSandbox": true
+          },
+          "output": "Pushed api-client",
+          "toolUseId": "push",
+          "turn": 2,
+          "minutesAgo": 5
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "pytest tests/integration -q"
+          },
+          "output": "Exit code 1\nCan’t reach Postgres on localhost:5432",
+          "state": "error",
+          "turn": 3,
+          "minutesAgo": 2
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "docker compose up -d db",
+            "description": "Start the local Postgres for the integration tests",
+            "dangerouslyDisableSandbox": true
+          },
+          "toolUseId": "compose",
+          "turn": 3,
+          "minutesAgo": 1
+        }
+      ],
+      "permissionRequests": [
+        {
+          "toolName": "Read",
+          "input": {
+            "file_path": "/Users/sample/code/acme-web/package.json"
+          },
+          "toolUseId": "read-web",
+          "description": "~/code/acme-web/package.json",
+          "sandbox": {
+            "kind": "folder",
+            "path": "/Users/sample/code/acme-web",
+            "access": "read"
+          },
+          "turn": 1,
+          "minutesAgo": 14,
+          "state": "allowed",
+          "grantedScope": "task"
+        },
+        {
+          "toolName": "mcp__glade__request_access",
+          "input": {
+            "path": "/Users/sample/.cache/uv",
+            "access": "write",
+            "reason": "`uv sync --frozen` needs to write its download cache."
+          },
+          "toolUseId": "access-uv",
+          "description": "`uv sync --frozen` needs to write its download cache.",
+          "sandbox": {
+            "kind": "folder",
+            "path": "/Users/sample/.cache/uv",
+            "access": "read_write"
+          },
+          "turn": 1,
+          "minutesAgo": 13,
+          "state": "withdrawn"
+        },
+        {
+          "toolName": "SandboxNetworkAccess",
+          "input": {
+            "host": "registry.npmjs.org"
+          },
+          "toolUseId": "npx",
+          "description": "Allow network connection to registry.npmjs.org?",
+          "sandbox": {
+            "kind": "domain",
+            "domain": "registry.npmjs.org",
+            "command": "npx openapi-typescript openapi/schema.yaml -o build/client.ts",
+            "commandDescription": "Generate the typed client from the schema"
+          },
+          "turn": 1,
+          "minutesAgo": 13,
+          "state": "denied",
+          "denyNote": "Use the openapi-typescript in tools/, no installs."
+        },
+        {
+          "toolName": "Write",
+          "input": {
+            "file_path": "/Users/sample/code/acme-web/src/api/client.ts",
+            "content": "export const client = createClient()\n"
+          },
+          "toolUseId": "write-client",
+          "sandbox": {
+            "kind": "folder",
+            "path": "/Users/sample/code/acme-web/src/api",
+            "access": "read_write"
+          },
+          "turn": 2,
+          "minutesAgo": 7,
+          "state": "allowed",
+          "grantedScope": "workspace"
+        },
+        {
+          "toolName": "Bash",
+          "input": {
+            "command": "git push origin api-client",
+            "description": "Push the branch",
+            "dangerouslyDisableSandbox": true
+          },
+          "toolUseId": "push",
+          "sandbox": {
+            "kind": "outside"
+          },
+          "state": "allowed",
+          "turn": 2,
+          "minutesAgo": 5
+        },
+        {
+          "toolName": "Bash",
+          "input": {
+            "command": "docker compose up -d db",
+            "description": "Start the local Postgres for the integration tests",
+            "dangerouslyDisableSandbox": true
+          },
+          "toolUseId": "compose",
+          "sandbox": {
+            "kind": "outside"
+          },
+          "turn": 3,
+          "minutesAgo": 1
+        }
+      ],
+      "permissionMarks": [
+        {
+          "toolUseId": "read-shared",
+          "outcome": {
+            "kind": "grant",
+            "scope": "workspace",
+            "ask": {
+              "kind": "folder",
+              "path": "/Users/sample/code/acme-shared",
+              "access": "read"
+            }
+          }
+        },
+        {
+          "toolUseId": "uv-sync",
+          "outcome": {
+            "kind": "blocked",
+            "ask": {
+              "kind": "folder",
+              "path": "/Users/sample/.cache/uv",
+              "access": "read_write"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Investigate slow dashboard query",
+      "status": "Added an index; 2.1s down to 90ms",
+      "state": "done",
+      "pinned": true,
+      "minutesAgo": 7200
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "status": "Waiting on you: pick a limit for /search",
+      "unread": true,
+      "minutesAgo": 4
+    },
+    {
+      "title": "Move image uploads to S3",
+      "status": "Copying existing files, 1,240 of 3,900",
+      "activity": "working",
+      "minutesAgo": 0
+    },
+    {
+      "title": "Fix flaky login test",
+      "status": "Found the race; fix passes 200 local runs",
+      "minutesAgo": 9
+    },
+    {
+      "title": "Upgrade Django to 5.2",
+      "status": "Upgraded; two deprecations fixed",
+      "state": "done",
+      "minutesAgo": 2880
+    }
+  ]
+}

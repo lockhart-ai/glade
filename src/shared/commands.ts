@@ -20,6 +20,8 @@ export enum CommandScope {
 export enum AppCommandId {
   Settings = 'app.settings',
   NewTask = 'app.newTask',
+  /** Opens the Broadcast modal, which sends one message to every active task (#489). */
+  Broadcast = 'app.broadcast',
   /** Closes what has the focus: a file tab, a terminal tab, or else the window (see `src/renderer/commands`). */
   Close = 'app.close',
   NewWorkspace = 'app.newWorkspace',

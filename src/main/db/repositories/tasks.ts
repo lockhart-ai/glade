@@ -27,6 +27,7 @@ import { SUBAGENT_TOOL_NAMES } from '../../../shared/subagents'
 import { guessModelWindow } from './context-windows'
 import { offeredModels } from './sdk-models'
 import type { DoneCounts, DonePage, DonePageRequest } from '../../../shared/doneList'
+import { sandboxAskSchema } from '../../permissions/schema'
 import { Row, RowError } from './rows'
 
 export interface NewTask {
@@ -97,6 +98,9 @@ const SELECTED = `${COLUMNS}, EXISTS (SELECT 1 FROM question_sets WHERE question
   AND question_sets.state = '${QuestionSetState.Open}') AS asking,
   EXISTS (SELECT 1 FROM permission_requests WHERE permission_requests.task_id = tasks.id
   AND permission_requests.state = '${PermissionRequestState.Open}') AS awaiting_permission,
+  (SELECT sandbox FROM permission_requests WHERE permission_requests.task_id = tasks.id
+  AND permission_requests.state = '${PermissionRequestState.Open}'
+  ORDER BY permission_requests.created_at, permission_requests.rowid LIMIT 1) AS permission_ask,
   (EXISTS (SELECT 1 FROM tool_events WHERE tool_events.task_id = tasks.id AND tool_events.kind = 'tool_call'
   AND tool_events.tool_state = 'running' AND tool_events.tool_name IN (${SUBAGENT_NAMES}))
   OR EXISTS (SELECT 1 FROM watchers WHERE watchers.task_id = tasks.id
@@ -206,6 +210,7 @@ function parseTask(db: Database, raw: unknown): Task {
     retrying: jsonColumn(row, 'tasks', 'retrying', apiRetrySchema),
     asking: row.flag('asking'),
     awaitingPermission: row.flag('awaiting_permission'),
+    permissionAsk: jsonColumn(row, 'tasks', 'permission_ask', sandboxAskSchema),
     backgroundWork: row.flag('background_work'),
     pause: jsonColumn(row, 'tasks', 'pause', taskPauseSchema),
     importedAt: row.nullableInteger('imported_at'),
@@ -215,7 +220,7 @@ function parseTask(db: Database, raw: unknown): Task {
 }
 
 /**
- * The named parameters for a task's columns (and `asking`, `awaitingPermission` and `backgroundWork`, which no
+ * The named parameters for a task's columns (and `asking`, `awaitingPermission`, `permissionAsk` and `backgroundWork`, which no
  * statement uses: they're derived from the question sets, permission requests, tool log and watchers).
  */
 function toParams(task: Task): Record<string, string | number | null> {
@@ -223,6 +228,7 @@ function toParams(task: Task): Record<string, string | number | null> {
     ...task,
     asking: task.asking ? 1 : 0,
     awaitingPermission: task.awaitingPermission ? 1 : 0,
+    permissionAsk: null,
     backgroundWork: task.backgroundWork ? 1 : 0,
     pinned: task.pinned ? 1 : 0,
     unread: task.unread ? 1 : 0,
@@ -261,6 +267,7 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     retrying: null,
     asking: false,
     awaitingPermission: false,
+    permissionAsk: null,
     backgroundWork: false,
     pause: null,
     importedAt: input.importedAt ?? null,

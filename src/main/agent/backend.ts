@@ -131,6 +131,19 @@ export interface BashCallStarting {
 }
 
 /**
+ * A call to Glade's `request_access` tool about to run, as the session's `PreToolUse` hook tells it (#450): the tool's
+ * own handler isn't told which call it answers, or whose.
+ */
+export interface AccessCallStarting {
+  /** The call's `tool_use` id. */
+  readonly toolUseId: string
+  /** The SDK's id for the subagent making the call; null for the agent's own. */
+  readonly agentId: string | null
+  /** The call's input, as the model sent it. */
+  readonly input: ToolInput
+}
+
+/**
  * A `Bash` call that has run, as the session's `PostToolUse` hook (it exited 0) or `PostToolUseFailure` hook (it
  * didn't) tells it, before its result goes back to the agent (`docs/sdk-notes.md` §15). A `Monitor` call's command
  * is told the same way: it runs in the sandbox too.
@@ -162,6 +175,11 @@ export interface BashFinishedAnswer {
  * (§5) and the `Bash` calls about to run and run (§15).
  */
 export interface SessionHooks {
+  /**
+   * A call to Glade's `request_access` tool is about to run (`PreToolUse`), the agent's own or a subagent's: which call
+   * it is, and whose, for the card it may open (`docs/model-surface.md`).
+   */
+  readonly onAccessRequested?: (call: AccessCallStarting) => void
   /**
    * A `Bash` call has run, and its result waits until this resolves, however long that takes: the agent's turn holds
    * meanwhile (`docs/sdk-notes.md` §15). What it answers is added to what the agent reads of the result.

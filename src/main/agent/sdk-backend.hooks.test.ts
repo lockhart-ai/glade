@@ -7,7 +7,7 @@ import { LogLevel } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
 import { CONTROL_SERVER_NAME } from '../../shared/control'
 import { PromptVerdict, type AgentSessionOptions, type SessionHooks } from './backend'
-import { GLADE_SERVER } from './glade-tools'
+import { ACCESS_TOOL_NAME, GLADE_SERVER } from './glade-tools'
 import { BLOCKED_PROMPT_REASON, SUBAGENT_TOOL_REFUSAL, sdkHooks, sdkOptions } from './sdk-backend'
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: vi.fn() }))
@@ -343,4 +343,82 @@ it("refuses a subagent's call to any glade or glade-control tool, whatever its n
   await expect(callGuard(hooks, { ...BASE, hook_event_name: 'PreToolUse' } as unknown as HookInput)).resolves.toEqual(
     {},
   )
+})
+
+it("lets a subagent's request_access through, alone of Glade's tools, and tells of each call to it and whose", async () => {
+  const log = createMemoryLog()
+  const onAccessRequested = vi.fn()
+  const hooks = sdkHooks(handlers({ onAccessRequested }), log.logger)
+  const glade = { name: GLADE_SERVER, source: 'sdk' }
+  const input = { path: '/Users/me/.cache/uv', access: 'write', reason: 'uv needs its cache.' }
+
+  // A subagent's call runs, and so does the main agent's: the hook tells of both, with whose each is.
+  await expect(
+    callGuard(
+      hooks,
+      mcpInput(ACCESS_TOOL_NAME, glade, { agent_id: 'sub-1', tool_use_id: 'toolu_a', tool_input: input }),
+    ),
+  ).resolves.toEqual({})
+  await expect(
+    callGuard(hooks, mcpInput(ACCESS_TOOL_NAME, glade, { tool_use_id: 'toolu_b', tool_input: input })),
+  ).resolves.toEqual({})
+  expect(onAccessRequested.mock.calls).toEqual([
+    [{ toolUseId: 'toolu_a', agentId: 'sub-1', input }],
+    [{ toolUseId: 'toolu_b', agentId: null, input }],
+  ])
+
+  // Every other Glade tool is still refused to a subagent, and so is a control tool of the same name.
+  await expect(callGuard(hooks, mcpInput(`mcp__${GLADE_SERVER}__ask`, glade, { agent_id: 'sub-1' }))).resolves.toEqual(
+    DENIED,
+  )
+  await expect(
+    callGuard(
+      hooks,
+      mcpInput(
+        `mcp__${CONTROL_SERVER_NAME}__request_access`,
+        { name: CONTROL_SERVER_NAME, source: 'sdk' },
+        { agent_id: 'sub-1' },
+      ),
+    ),
+  ).resolves.toEqual(DENIED)
+  // A configured server's tool of that name isn't Glade's: nothing is told of it.
+  await expect(
+    callGuard(hooks, mcpInput(ACCESS_TOOL_NAME, { name: GLADE_SERVER, source: 'user' }, { agent_id: 'sub-1' })),
+  ).resolves.toEqual({})
+  expect(onAccessRequested).toHaveBeenCalledTimes(2)
+})
+
+it('lets request_access run whatever the hook can read of the call, or whoever hears of it', async () => {
+  const log = createMemoryLog()
+  const glade = { name: GLADE_SERVER, source: 'sdk' }
+  const onAccessRequested = vi.fn()
+  const hooks = sdkHooks(handlers({ onAccessRequested }), log.logger)
+
+  // No id for the call: nothing to tell. Input that isn't an object is told as none.
+  await expect(
+    callGuard(hooks, mcpInput(ACCESS_TOOL_NAME, glade, { agent_id: 'sub-1', tool_use_id: undefined })),
+  ).resolves.toEqual({})
+  expect(onAccessRequested).not.toHaveBeenCalled()
+  await expect(
+    callGuard(hooks, mcpInput(ACCESS_TOOL_NAME, glade, { tool_use_id: 'toolu_c', tool_input: 'nonsense' })),
+  ).resolves.toEqual({})
+  expect(onAccessRequested).toHaveBeenLastCalledWith({ toolUseId: 'toolu_c', agentId: null, input: {} })
+
+  // A session that doesn't listen (one with the sandbox off), or none, and a listener that throws: the call still runs.
+  await expect(
+    callGuard(sdkHooks(handlers(), log.logger), mcpInput(ACCESS_TOOL_NAME, glade, { agent_id: 'sub-1' })),
+  ).resolves.toEqual({})
+  await expect(
+    callGuard(sdkHooks(undefined, log.logger), mcpInput(ACCESS_TOOL_NAME, glade, { agent_id: 'sub-1' })),
+  ).resolves.toEqual({})
+  const failing = sdkHooks(
+    handlers({
+      onAccessRequested: () => {
+        throw new Error('no session')
+      },
+    }),
+    log.logger,
+  )
+  await expect(callGuard(failing, mcpInput(ACCESS_TOOL_NAME, glade, {}))).resolves.toEqual({})
+  expect(log.withMessage('failed to note a request_access call')).toHaveLength(1)
 })

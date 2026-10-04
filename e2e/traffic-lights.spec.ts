@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import { expect, test, type Glade } from './fixtures'
+import { inMain } from './in-main'
 import { chooseMenuItem } from './menu'
 import {
   firstRun,
@@ -88,9 +89,7 @@ const SLACK = 0.5
 
 /** Where the window's traffic lights are, in CSS pixels from the page's top-left (the window has no title bar). */
 async function trafficLights({ app }: Glade): Promise<Box> {
-  const position = await app.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows()[0]?.getWindowButtonPosition(),
-  )
+  const position = await inMain(app, ({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getWindowButtonPosition())
   if (position === null || position === undefined) throw new Error('The window does not place its traffic lights')
   return { ...position, ...TRAFFIC_LIGHTS_SIZE }
 }

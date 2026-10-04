@@ -28,11 +28,14 @@ export interface NewMessage {
   readonly pastedBlocks?: readonly PastedBlock[] | undefined
   /** The files attached to your message, already copied into the workspace, in order; none unless given. */
   readonly files?: readonly AttachedFile[] | undefined
+  /** Whether you sent it with Broadcast (#489); not unless given. */
+  readonly broadcast?: boolean | undefined
 }
 
 const MESSAGE_ROLES = Object.values(MessageRole)
 
-const COLUMNS = 'id, task_id, role, body, turn, created_at, duration_ms, files_changed, lines_added, lines_removed'
+const COLUMNS =
+  'id, task_id, role, body, turn, created_at, duration_ms, files_changed, lines_added, lines_removed, broadcast'
 
 /** A reply's summary, which it has exactly when `files_changed` is set. */
 function parseSummary(row: Row): TurnSummary | null {
@@ -65,17 +68,18 @@ function parseMessage(
     images: images.get(id) ?? [],
     pastedBlocks: pastedBlocks.get(id) ?? [],
     files: files.get(id) ?? [],
+    broadcast: row.flag('broadcast'),
   }
 }
 
 /** Appends a message to the end of its task's chat log, with its images, pasted blocks and attached files. */
 export function appendMessage(db: Database, input: NewMessage, now: EpochMs = Date.now()): Message {
-  const { summary = null, images = [], pastedBlocks = [], files = [], ...fields } = input
+  const { summary = null, images = [], pastedBlocks = [], files = [], broadcast = false, ...fields } = input
   const id = randomUUID()
   db.prepare(
     `INSERT INTO messages (${COLUMNS}, seq)
     VALUES (@id, @taskId, @role, @body, @turn, @createdAt, @durationMs, @filesChanged, @linesAdded, @linesRemoved,
-      (SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE task_id = @taskId))`,
+      @broadcast, (SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE task_id = @taskId))`,
   ).run({
     id,
     ...fields,
@@ -84,6 +88,7 @@ export function appendMessage(db: Database, input: NewMessage, now: EpochMs = Da
     filesChanged: summary?.filesChanged ?? null,
     linesAdded: summary?.linesAdded ?? null,
     linesRemoved: summary?.linesRemoved ?? null,
+    broadcast: broadcast ? 1 : 0,
   })
   const refs = addImages(db, { taskId: fields.taskId, owner: { kind: ImageOwnerKind.Message, id }, images }, now)
   const blocks = addPastedBlocks(
@@ -96,7 +101,7 @@ export function appendMessage(db: Database, input: NewMessage, now: EpochMs = Da
     { taskId: fields.taskId, owner: { kind: AttachedFileOwnerKind.Message, id }, files },
     now,
   )
-  return { id, ...fields, createdAt: now, summary, images: refs, pastedBlocks: blocks, files: attached }
+  return { id, ...fields, createdAt: now, summary, images: refs, pastedBlocks: blocks, files: attached, broadcast }
 }
 
 /** A task's chat log, in the order it was appended. */

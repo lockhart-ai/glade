@@ -7,14 +7,17 @@ import {
   type FilesWriteRequest,
   type LogRendererErrorRequest,
   type PluginsPlaceViewRequest,
+  type SandboxGrantsResponse,
   EventType,
   type CommandRequest,
   type CommandResponse,
+  type BatchListener,
   type BridgeError,
   type EventListener,
   type GladeBridge,
   type GladeEvent,
 } from '../../shared/bridge'
+import { BroadcastDelivery, receivesBroadcast, type BroadcastOutcome } from '../../shared/broadcast'
 import type { MenuState } from '../../shared/commands'
 import { checkArtifactUrl, defaultLinkTitle } from '../../shared/artifactLinks'
 import { artifactKey } from '../../shared/artifacts'
@@ -53,6 +56,7 @@ import {
   type InputDraft,
   type Message,
   type OpenFiles,
+  type PermissionMark,
   type PermissionRequest,
   type QuestionSet,
   type QueuedMessage,
@@ -74,6 +78,16 @@ import { controlUrl, type ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
 import { IDLE_LOGIN, LoginState, type LoginStatus } from '../../shared/login'
 import { offersSetting, PluginStatus, withGrant, withSetting, type InstalledPlugin } from '../../shared/plugins'
+import {
+  coversAccess,
+  SandboxAskKind,
+  SandboxGrantKind,
+  SandboxGrantScope,
+  SETTINGS_GRANT_REFUSALS,
+  settingsGrantScopeKey,
+  type Grant,
+  type SettingsGrantTarget,
+} from '../../shared/sandbox'
 import { highlightParts, highlightPattern, SearchField, type SearchResult } from '../../shared/search'
 import type { TerminalTab } from '../../shared/terminal'
 import { addDoneCounts, doneCountsOf, isInDoneSection, NO_DONE_TASKS, pageOfDone } from '../../shared/doneList'
@@ -107,6 +121,7 @@ export interface FakeMain {
    * one that isn't open, as main does.
    */
   readonly permissionRequests?: PermissionRequest[]
+  readonly permissionMarks?: PermissionMark[]
   /** Every task's open files; none when left out. `files.open` and `files.close` change them. */
   readonly openFiles?: OpenFiles[]
   /**
@@ -198,6 +213,12 @@ export interface FakeMain {
   /** The status `plugins.placeView` answers with for each plugin, by id; `''` when left out. */
   pluginStatuses?: Record<string, string>
   /**
+   * The sandbox grants `sandbox.listGrants` answers with, by scope (`settingsGrantScopeKey`); none when left out.
+   * `sandbox.addGrant`, `sandbox.setFolderAccess` and `sandbox.removeGrant` change a scope's and broadcast them, and
+   * adding refuses as main does: a domain that isn't one, a duplicate, a workspace's root or a folder inside it.
+   */
+  sandboxGrants?: Record<string, readonly Grant[]>
+  /**
    * The port the control endpoint listens on while it's on, when the chosen one is taken; the chosen one when left out.
    * `control.status` answers as main would: listening while `controlEnabled` is on, with `token-1` from the first time
    * it goes on; `settings.update` of the switch or the port and `control.regenerateToken` (`token-2`, …) broadcast it.
@@ -249,6 +270,8 @@ export interface FakeBridge {
   readonly invoke: ReturnType<typeof vi.fn<GladeBridge['invoke']>>
   /** Sends an event to every subscriber, as main would. */
   readonly emit: (event: GladeEvent) => void
+  /** Sends a burst of events to every subscriber as one batch (`EventBatch`), as main would. */
+  readonly emitBatch: (events: readonly GladeEvent[]) => void
   readonly listenerCount: () => number
 }
 
@@ -258,11 +281,20 @@ export interface FakeBridge {
  * `tasks.stop` only sets the task back to waiting, `tasks.compact` only sets it working, and `tasks.delete` only
  * removes the task and broadcasts it, without deselecting it; main's own tests cover the rest. `workspaces.create` adds a
  * workspace, `workspaces.open` answers with it opened at 5,000 and `workspaces.update` changes it, none broadcasting.
- * `settings.update` changes the settings and broadcasts them.
+ * `settings.update` changes the settings and broadcasts them. `tasks.broadcast` saves the message to every task a
+ * broadcast reaches (to the chat of one waiting on you with nothing open, to the queue of any other) and broadcasts it
+ * all as one batch, through `emitBatch`.
  * workspace and `workspaces.open` answers with it opened at 5,000 and its selection from `workspaceSelections`, neither
  * broadcasting.
  */
-export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void): FakeHandlers {
+/** A domain the fake main grants, as main's rule goes: a bare host, or `*.` and a host of two labels or more. */
+const FAKE_DOMAIN = /^(\*\.[a-z0-9-]+\.)?[a-z0-9-]+(\.[a-z0-9-]+)*$/
+
+export function fakeHandlers(
+  main: FakeMain,
+  emit: (event: GladeEvent) => void,
+  emitBatch: (events: readonly GladeEvent[]) => void,
+): FakeHandlers {
   let sent = 0
   let settings = main.settings ?? DEFAULT_SETTINGS
   let tokens = 0
@@ -279,6 +311,17 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       error: settings.controlEnabled ? (main.controlError ?? null) : null,
     }
   }
+  const sandboxGrants = (target: SettingsGrantTarget): readonly Grant[] =>
+    main.sandboxGrants?.[settingsGrantScopeKey(target)] ?? []
+  /** Saves a scope's grants and broadcasts them, as main does once a change is saved. */
+  const saveSandboxGrants = (target: SettingsGrantTarget, grants: readonly Grant[]): SandboxGrantsResponse => {
+    main.sandboxGrants = { ...main.sandboxGrants, [settingsGrantScopeKey(target)]: grants }
+    emit({ type: EventType.SandboxGrantsChanged, target, grants })
+    return { grants }
+  }
+  /** Refuses a grant as main does: its command, then why. */
+  const refuseGrant = (reason: string): Promise<never> =>
+    refuse(bridgeError(BridgeErrorCode.InvalidRequest, `${CommandName.SandboxAddGrant}: ${reason}`))
   let queued = 0
   const images = main.images ?? {}
   let stored = 0
@@ -422,6 +465,27 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       emit({ type: EventType.MessageAppended, message })
       return { message }
     },
+    // Every task a broadcast reaches gets it, as one batch: saved to the chat of a task waiting on you with nothing
+    // open, and queued for any other.
+    [CommandName.TasksBroadcast]: ({ text }) => {
+      const events: GladeEvent[] = []
+      const recipients = main.tasks.filter(receivesBroadcast).map((task): BroadcastOutcome => {
+        const idle = task.activity === TaskActivity.Waiting && !task.asking && !task.awaitingPermission
+        if (idle) {
+          sent += 1
+          const message = { ...sampleMessage(`sent-${String(sent)}`, task.id, text), broadcast: true }
+          main.messages?.push(message)
+          events.push({ type: EventType.MessageAppended, message })
+          return { taskId: task.id, delivery: BroadcastDelivery.Sent }
+        }
+        queued += 1
+        queue.push({ ...sampleQueuedMessage(`queued-${String(queued)}`, task.id, text), broadcast: true })
+        events.push({ type: EventType.QueueChanged, taskId: task.id, queuedMessages: queueOf(task.id) })
+        return { taskId: task.id, delivery: BroadcastDelivery.Queued }
+      })
+      emitBatch(events)
+      return { recipients }
+    },
     [CommandName.TasksStop]: ({ id }) => writeTask(id, { activity: TaskActivity.Waiting }),
     [CommandName.TasksRetry]: ({ id, model }) =>
       writeTask(id, {
@@ -442,6 +506,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       queuedMessages: queueOf(id),
       questionSets: (main.questionSets ?? []).filter((set) => set.taskId === id),
       permissionRequests: (main.permissionRequests ?? []).filter((request) => request.taskId === id),
+      permissionMarks: (main.permissionMarks ?? []).filter((mark) => mark.taskId === id),
       openFiles: openFilesOf(id),
       todos: main.todos?.[id] ?? null,
       artifacts: artifacts.filter((artifact) => artifact.taskId === id),
@@ -507,17 +572,30 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
         return refuse(bridgeError(BridgeErrorCode.InvalidTransition, `Permission request ${id} isn't open`))
       }
       const denied = decision.kind === PermissionDecisionKind.Deny
-      const grantedRule = decision.kind === PermissionDecisionKind.AllowForTask ? taskPermissionRule(current) : null
-      if (decision.kind === PermissionDecisionKind.AllowForTask && grantedRule === null) {
+      // A folder or domain is granted to the task or the workspace, as main's broker has it; anything else, a rule.
+      const grants = current.sandbox !== null && current.sandbox.kind !== SandboxAskKind.Outside
+      const forTask = decision.kind === PermissionDecisionKind.AllowForTask
+      const forWorkspace = decision.kind === PermissionDecisionKind.AllowForWorkspace
+      const grantedRule = forTask && current.sandbox === null ? taskPermissionRule(current) : null
+      const refused = grants
+        ? decision.kind === PermissionDecisionKind.AllowOnce
+        : forWorkspace || (forTask && grantedRule === null)
+      if (refused) {
         return refuse(
           bridgeError(BridgeErrorCode.InvalidRequest, `Permission request ${id} can't be allowed for the task`),
         )
       }
+      const grantedScope = forWorkspace
+        ? SandboxGrantScope.Workspace
+        : forTask && grants
+          ? SandboxGrantScope.Task
+          : null
       const permissionRequest: PermissionRequest = {
         ...current,
         state: denied ? PermissionRequestState.Denied : PermissionRequestState.Allowed,
         denyNote: denied ? (decision.note ?? null) : null,
         grantedRule,
+        grantedScope,
         closedAt: 3_000,
       }
       requests[index] = permissionRequest
@@ -774,6 +852,57 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       main.reloadedPlugins = [...(main.reloadedPlugins ?? []), id]
       return null
     },
+    [CommandName.SandboxListGrants]: ({ target }) => ({ grants: sandboxGrants(target) }),
+    [CommandName.SandboxAddGrant]: ({ target, grant }) => {
+      const grants = sandboxGrants(target)
+      switch (grant.kind) {
+        case SandboxGrantKind.Folder: {
+          const root =
+            target.scope === SandboxGrantScope.Workspace
+              ? main.workspaces.find(({ id }) => id === target.workspaceId)?.rootPath
+              : undefined
+          if (grant.path === root) return refuseGrant(SETTINGS_GRANT_REFUSALS.workspaceRoot)
+          if (root !== undefined && grant.path.startsWith(`${root}/`)) {
+            return refuseGrant(SETTINGS_GRANT_REFUSALS.insideWorkspaceRoot)
+          }
+          const kept = grants.find((other) => other.kind === grant.kind && other.path === grant.path)
+          if (kept === undefined) return saveSandboxGrants(target, [...grants, grant])
+          if (kept.kind === grant.kind && coversAccess(kept.access, grant.access)) {
+            return refuseGrant(SETTINGS_GRANT_REFUSALS.duplicateFolder)
+          }
+          return saveSandboxGrants(
+            target,
+            grants.map((other) => (other === kept ? grant : other)),
+          )
+        }
+        case SandboxGrantKind.Domain: {
+          const domain = grant.domain.trim().toLowerCase()
+          if (!FAKE_DOMAIN.test(domain)) return refuseGrant(`Can't grant "${grant.domain}": not a domain`)
+          if (grants.some((other) => other.kind === grant.kind && other.domain === domain)) {
+            return refuseGrant(SETTINGS_GRANT_REFUSALS.duplicateDomain)
+          }
+          return saveSandboxGrants(target, [...grants, { kind: grant.kind, domain }])
+        }
+      }
+    },
+    [CommandName.SandboxSetFolderAccess]: ({ target, path, access }) =>
+      saveSandboxGrants(
+        target,
+        sandboxGrants(target).map((grant) =>
+          grant.kind === SandboxGrantKind.Folder && grant.path === path ? { ...grant, access } : grant,
+        ),
+      ),
+    [CommandName.SandboxRemoveGrant]: ({ target, grant: key }) =>
+      saveSandboxGrants(
+        target,
+        sandboxGrants(target).filter(
+          (grant) =>
+            !(
+              (grant.kind === SandboxGrantKind.Folder && key.kind === grant.kind && grant.path === key.path) ||
+              (grant.kind === SandboxGrantKind.Domain && key.kind === grant.kind && grant.domain === key.domain)
+            ),
+        ),
+      ),
     [CommandName.TerminalList]: () => ({ tabs: [...terminalTabs] }),
     [CommandName.TerminalCreate]: ({ workspaceId }) => {
       const workspace = main.workspaces.find(({ id }) => id === workspaceId)
@@ -926,25 +1055,34 @@ export function sampleAttachedFile(taskId: string, path: string, size = 48 * 102
 
 /** A bridge over `main`'s data. Pass `overrides` to change how single commands answer. */
 export function fakeBridge(main: FakeMain, overrides: Partial<FakeHandlers> = {}): FakeBridge {
-  const listeners = new Set<EventListener>()
+  const listeners = new Map<EventListener, BatchListener | undefined>()
   const emit = (event: GladeEvent): void => {
-    for (const listener of listeners) listener(event)
+    for (const listener of listeners.keys()) listener(event)
   }
-  const handlers: FakeHandlers = { ...fakeHandlers(main, emit), ...overrides }
+  // As the preload does: a subscriber with a batch listener hears the batch whole, any other each of its events.
+  const emitBatch = (events: readonly GladeEvent[]): void => {
+    for (const [listener, batchListener] of listeners) {
+      if (batchListener !== undefined) batchListener(events)
+      else for (const event of events) listener(event)
+    }
+  }
+  const handlers: FakeHandlers = { ...fakeHandlers(main, emit, emitBatch), ...overrides }
   const invoke = vi.fn<GladeBridge['invoke']>(async (command, request) => handlers[command](request))
   return {
     bridge: {
       invoke,
-      subscribe(listener) {
-        listeners.add(listener)
+      subscribe(listener, batchListener) {
+        listeners.set(listener, batchListener)
         return () => {
           listeners.delete(listener)
         }
       },
       pathForFile: (file) => FILE_PATHS.get(file) ?? '',
+      homeFolder: null,
     },
     invoke,
     emit,
+    emitBatch,
     listenerCount: () => listeners.size,
   }
 }
@@ -997,6 +1135,7 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
     retrying: null,
     asking: false,
     awaitingPermission: false,
+    permissionAsk: null,
     backgroundWork: false,
     pause: null,
     importedAt: null,
@@ -1064,11 +1203,12 @@ export function sampleMessage(id: string, taskId: string, body = 'Add rate limit
     images: [],
     pastedBlocks: [],
     files: [],
+    broadcast: false,
   }
 }
 
 export function sampleQueuedMessage(id: string, taskId: string, body = 'Keep the original filenames.'): QueuedMessage {
-  return { id, taskId, body, createdAt: 4_000, images: [], pastedBlocks: [], files: [] }
+  return { id, taskId, body, createdAt: 4_000, images: [], pastedBlocks: [], files: [], broadcast: false }
 }
 
 /** An open question set: a choice and a text question. */
@@ -1098,6 +1238,8 @@ export function samplePermissionRequest(id: string, taskId: string): PermissionR
     state: PermissionRequestState.Open,
     denyNote: null,
     grantedRule: null,
+    sandbox: null,
+    grantedScope: null,
     createdAt: 3_000,
     closedAt: null,
   }

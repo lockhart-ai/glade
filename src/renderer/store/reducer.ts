@@ -8,6 +8,7 @@ import {
   type ArtifactGroupFold,
   type TaskHandoff,
   type Message,
+  type PermissionMark,
   type PermissionRequest,
   type QuestionSet,
   type TodoList,
@@ -17,6 +18,7 @@ import {
   type Watcher,
   type Workspace,
 } from '../../shared/domain'
+import { settingsGrantScopeKey, type Grant, type SettingsGrantTarget } from '../../shared/sandbox'
 import { isSubagentTool } from '../../shared/subagents'
 import { withCountedChange, withoutDoneLists } from './doneLists'
 import type { GladeData } from './state'
@@ -79,6 +81,21 @@ function withReplaced<T extends LogEntry>(logs: LogsByTask<T>, entry: T): LogsBy
   return { ...logs, [entry.taskId]: log.map((existing) => (existing.id === entry.id ? entry : existing)) }
 }
 
+/** A task's marks with one call's mark: in place of the call's earlier one, or last. */
+function markedCall(marks: readonly PermissionMark[], mark: PermissionMark): readonly PermissionMark[] {
+  return marks.some(({ toolUseId }) => toolUseId === mark.toolUseId)
+    ? marks.map((existing) => (existing.toolUseId === mark.toolUseId ? mark : existing))
+    : [...marks, mark]
+}
+
+/** A call's mark in its task's marks (`markedCall`), whether or not the task's history is loaded yet. */
+function withMark(
+  marks: Readonly<Record<string, readonly PermissionMark[]>>,
+  mark: PermissionMark,
+): Readonly<Record<string, readonly PermissionMark[]>> {
+  return { ...marks, [mark.taskId]: markedCall(marks[mark.taskId] ?? [], mark) }
+}
+
 /**
  * Replaces an entry in its task's tool log. A subagent woken again (#395) in a log not loaded yet is added, as the
  * running ones loaded on start are (`withRunningSubagents`), so the task list counts it.
@@ -130,6 +147,11 @@ export function withHistory(
     permissionRequests: {
       ...state.permissionRequests,
       [taskId]: merged<PermissionRequest>(history.permissionRequests, state.permissionRequests[taskId]),
+    },
+    permissionMarks: {
+      ...state.permissionMarks,
+      // A mark an event brought while the history loaded is the newer: it stays, in its call's place or last.
+      [taskId]: (state.permissionMarks[taskId] ?? []).reduce(markedCall, history.permissionMarks),
     },
     // Like the queue, open files change in place: the loaded ones are as new as any event before them.
     openFiles: { ...state.openFiles, [taskId]: history.openFiles },
@@ -233,6 +255,7 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     queuedMessages: without(state.queuedMessages, taskId),
     questionSets: without(state.questionSets, taskId),
     permissionRequests: without(state.permissionRequests, taskId),
+    permissionMarks: without(state.permissionMarks, taskId),
     todos: without(state.todos, taskId),
     openFiles: without(state.openFiles, taskId),
     artifacts: without(state.artifacts, taskId),
@@ -306,6 +329,8 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
     case EventType.PermissionAnswered:
     case EventType.PermissionWithdrawn:
       return { ...state, permissionRequests: withReplaced(state.permissionRequests, event.permissionRequest) }
+    case EventType.PermissionMarked:
+      return { ...state, permissionMarks: withMark(state.permissionMarks, event.mark) }
     case EventType.OpenFilesChanged:
       return { ...state, openFiles: { ...state.openFiles, [event.openFiles.taskId]: event.openFiles } }
     case EventType.FileShown: {
@@ -363,5 +388,16 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
     case EventType.MenuBarChanged:
       // Only the menu bar popover's page is sent it (`../menu-bar`); the window keeps its own tasks.
       return state
+    case EventType.SandboxGrantsChanged:
+      return { ...state, sandboxGrants: withSandboxGrants(state.sandboxGrants, event.target, event.grants) }
   }
+}
+
+/** The grants Settings lists, by scope, with one scope's as main now has them: the others keep their lists as they were. */
+export function withSandboxGrants(
+  grantsByScope: GladeData['sandboxGrants'],
+  target: SettingsGrantTarget,
+  grants: readonly Grant[],
+): GladeData['sandboxGrants'] {
+  return { ...grantsByScope, [settingsGrantScopeKey(target)]: grants }
 }

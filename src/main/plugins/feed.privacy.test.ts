@@ -15,6 +15,7 @@ import {
   MessageRole,
   PauseReason,
   PermissionDestination,
+  PermissionMarkKind,
   PermissionRequestState,
   PermissionRuleBehavior,
   PermissionUpdateType,
@@ -44,6 +45,7 @@ import { pluginEventSchema } from '../../shared/plugin-api-schema'
 import { LoginState } from '../../shared/login'
 import { PluginStatus } from '../../shared/plugins'
 import { BUILT_IN_MODELS } from '../../shared/models'
+import { FolderAccess, SandboxGrantKind, SandboxGrantScope } from '../../shared/sandbox'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { appendPermissionRequest } from '../db/repositories/permission-requests'
 import { appendQuestionSet } from '../db/repositories/question-sets'
@@ -265,6 +267,8 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
     state: PermissionRequestState.Open,
     denyNote: null,
     grantedRule: null,
+    sandbox: null,
+    grantedScope: null,
     createdAt: 4_000,
     closedAt: null,
   }
@@ -350,6 +354,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           images: [{ id: secret('image'), mediaType: ImageMediaType.Png }],
           pastedBlocks: [],
           files: [],
+          broadcast: false,
         },
       },
       {
@@ -365,6 +370,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           images: [],
           pastedBlocks: [],
           files: [],
+          broadcast: false,
         },
       },
     ],
@@ -381,6 +387,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
             images: [],
             pastedBlocks: [],
             files: [],
+            broadcast: false,
           },
         ],
       },
@@ -427,6 +434,18 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
       {
         type: EventType.PermissionWithdrawn,
         permissionRequest: { ...request, id: 'request-2', state: PermissionRequestState.Withdrawn },
+      },
+    ],
+    // Which rule decided a call says a folder's path or a command: not a plugin's business.
+    [EventType.PermissionMarked]: [
+      {
+        type: EventType.PermissionMarked,
+        mark: {
+          taskId: task.id,
+          toolUseId: 'toolu_secret',
+          outcome: { kind: PermissionMarkKind.TaskRule, rule: { toolName: 'Bash', ruleContent: secret('mark_rule') } },
+          createdAt: 3,
+        },
       },
     ],
     [EventType.OpenFilesChanged]: [
@@ -595,6 +614,16 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           working: [],
           recent: [{ seq: 1, taskId: created.id, title: secret('recent_title'), body: secret('recent'), sentAt: 1 }],
         },
+      },
+    ],
+    [EventType.SandboxGrantsChanged]: [
+      {
+        type: EventType.SandboxGrantsChanged,
+        target: { scope: SandboxGrantScope.Workspace, workspaceId: secret('grant_workspace') },
+        grants: [
+          { kind: SandboxGrantKind.Folder, path: secret('grant_folder'), access: FolderAccess.Read },
+          { kind: SandboxGrantKind.Domain, domain: secret('grant_domain') },
+        ],
       },
     ],
     [EventType.TerminalTabsChanged]: [

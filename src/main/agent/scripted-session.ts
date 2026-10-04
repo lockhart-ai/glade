@@ -77,6 +77,7 @@ import {
 } from './backend'
 import { CONTROL_SERVER } from '../control/names'
 import { GLADE_SERVER, GladeTool } from './glade-tools'
+import { ruleCovers } from '../../shared/permissions'
 import { createMcpToolCaller, type McpToolCaller, type McpToolOutcome } from './mcp-tool-caller'
 import { runShell } from './scripted-shell'
 import {
@@ -91,6 +92,7 @@ import {
   networkAccessCall,
   networkDenial,
   outsideFileCall,
+  readRuleFolder,
   sandboxOverrideCall,
   sandboxViolations,
   seatbeltLog,
@@ -118,6 +120,7 @@ import {
   type NetworkAccessStep,
   type OutsideFileStep,
   type PermissionStep,
+  type RequestAccessStep,
   type SandboxOverrideStep,
   type SandboxedBashStep,
   type WebFetchStep,
@@ -129,9 +132,6 @@ import {
   WakeCause,
 } from './scripts'
 
-/** What makes a command more than one: Claude Code splits these apart, and asks about the parts a rule doesn't cover. */
-const COMPOUND = /&&|\|\||[;|&\n`]|\$\(/
-
 /**
  * Whether a permission rule lets a call through, as Claude Code decides it, closely enough for scripts: a rule without
  * content covers every call to its tool; a `Bash` rule's content covers the command itself, or, ending in ` *` or `:*`,
@@ -139,14 +139,7 @@ const COMPOUND = /&&|\|\||[;|&\n`]|\$\(/
  * Claude Code would ask about its parts, and the scripts don't split it.
  */
 export function scriptedRuleCovers(rule: PermissionRule, toolName: string, input: ToolInput): boolean {
-  if (rule.toolName !== toolName) return false
-  const content = rule.ruleContent ?? ''
-  if (content === '') return true
-  const command = input.command
-  if (toolName !== 'Bash' || typeof command !== 'string' || COMPOUND.test(command)) return false
-  const prefix = /^(.*?)(?: \*|:\*)$/.exec(content)?.[1]
-  if (prefix === undefined) return command === content
-  return command === prefix || command.startsWith(`${prefix} `)
+  return ruleCovers(rule, toolName, input)
 }
 
 /** Picks the script a session plays from the first message sent to it. Throws when it has none for that message. */
@@ -236,12 +229,6 @@ async function settlesAtOnce(promise: Promise<unknown>): Promise<boolean> {
   const isSettled = (): boolean => settled
   for (let tick = 0; tick < 10 && !isSettled(); tick += 1) await Promise.resolve()
   return settled
-}
-
-/** The folder a `Read` rule's content covers (`//<folder>/**`), or null for one that names no folder like that. */
-function readRuleFolder(content: string | undefined): string | null {
-  const match = /^\/(\/.+?)\/\*\*$/.exec(content ?? '')
-  return match?.[1] ?? null
 }
 
 /** The host a `WebFetch(domain:<host>)` rule string names, or null for any other rule. */
@@ -835,6 +822,9 @@ export class ScriptedSession implements AgentSession {
         return
       case ScriptStepKind.SandboxedBash:
         await this.sandboxedBash(turn, step, uuid)
+        return
+      case ScriptStepKind.RequestAccess:
+        await this.requestAccess(turn, step, uuid)
         return
       case ScriptStepKind.LimitReached:
         this.push({
@@ -1490,13 +1480,75 @@ export class ScriptedSession implements AgentSession {
     const input = { command, ...(step.description === undefined ? {} : { description: step.description }) }
     this.toolUse(turn, id, 'Bash', input, step.parent ?? null, uuid)
     const toolUseId = this.sdkToolId(turn, id)
-    for (const denial of step.denials ?? []) this.options.onSandboxLog?.(seatbeltLog(toolUseId, denial))
-    const answer = await this.finishBash(turn, id, command, step.output, step.failed ?? true)
+    const { needs } = step
+    // A command that says what it needs is blocked, or not, by the sandbox as it stands: the denials are only then.
+    const blocked = needs !== undefined && this.sandboxed() && !this.commandMayUse(needs.path, needs.access)
+    if (needs === undefined || blocked) {
+      for (const denial of step.denials ?? []) this.options.onSandboxLog?.(seatbeltLog(toolUseId, denial))
+    }
+    const output = blocked ? needs.blockedOutput : step.output
+    const answer = await this.finishBash(turn, id, command, output, blocked || (step.failed ?? true))
     if (answer === null) return
-    for (const next of (answer.context === null ? step.gaveUp : step.retried) ?? []) {
+    const next = blocked
+      ? step.blocked
+      : needs !== undefined
+        ? []
+        : answer.context === null
+          ? step.gaveUp
+          : step.retried
+    await this.steps(turn, next, uuid)
+  }
+
+  /** Plays the steps an earlier step's outcome leads to, until an interrupt. */
+  private async steps(turn: TurnState, steps: readonly ScriptStep[] | undefined, uuid: string | null): Promise<void> {
+    for (const next of steps ?? []) {
       if (turn.isInterrupted) return
       await this.step(turn, next, uuid)
     }
+  }
+
+  /**
+   * Whether a sandboxed command may read or write `path`, by the session's sandbox as it stands: a write in a folder
+   * it may write; a read in a folder it may read, or outside every folder it's denied.
+   */
+  private commandMayUse(path: string, access: FileAccess): boolean {
+    const within = (folders: readonly string[]): boolean => folders.some((folder) => isInside(path, folder))
+    if (access === FileAccess.Write) return within(this.sandboxList((sandbox) => sandbox.filesystem?.allowWrite))
+    return (
+      within(this.sandboxList((sandbox) => sandbox.filesystem?.allowRead)) ||
+      !within(this.sandboxList((sandbox) => sandbox.filesystem?.denyRead))
+    )
+  }
+
+  /**
+   * Calls Glade's `request_access` tool (see `ScriptStepKind.RequestAccess`): the session's hook hears of the call,
+   * then the tool's real handler runs, the session idle while it waits on a card. An interrupt cancels the call.
+   */
+  private async requestAccess(turn: TurnState, step: RequestAccessStep, uuid: string | null): Promise<void> {
+    const name = gladeToolName(GladeTool.RequestAccess)
+    const input = { path: step.path, access: step.access, reason: step.reason }
+    this.toolUse(turn, step.id, name, input, step.parent ?? null, uuid)
+    const toolUseId = this.sdkToolId(turn, step.id)
+    const agentId = step.parent === undefined ? null : `a${this.idPrefix}${step.parent}`
+    this.options.session.hooks?.onAccessRequested?.({ toolUseId, agentId, input })
+    const cancel = new AbortController()
+    void turn.interrupted.then(() => {
+      cancel.abort()
+    })
+    const calling = this.tools.call(name, input, cancel.signal, step.namesCall === false ? undefined : toolUseId)
+    // One that answers at once (nothing to decide) never leaves the turn waiting.
+    if (!(await settlesAtOnce(calling))) this.idle(turn)
+    let outcome: McpToolOutcome
+    try {
+      outcome = await calling
+    } catch (error) {
+      // Cancelled by the interrupt: the turn ends as an interrupted one, with the call rejected.
+      if (turn.isInterrupted) return
+      throw error
+    }
+    if (turn.isInterrupted) return
+    this.toolResult(turn, step.id, outcome.output, outcome.isError)
+    await this.steps(turn, outcome.isError ? step.denied : step.allowed, uuid)
   }
 
   /** A call's result once answered: its output when allowed, its denial when not; nothing when interrupted. */

@@ -181,8 +181,14 @@ export function taskPanel(page: Page) {
     tab: (name: string | RegExp) => panel.getByRole('tab', { name }),
     tabPanel: panel.getByRole('tabpanel'),
     log,
-    /** A tool call's row, by its accessible name: its state, name, argument, time and result. */
+    /** A tool call's row, by its accessible name: its state, name, argument, time, permission line and result. */
     call: (name: string | RegExp) => log.getByRole('button', { name }),
+    /**
+     * The permission lines on the calls' rows, top to bottom (#459): what was decided about each call that asked, e.g.
+     * "Allowed once" or "Denied: “a note”", and "Waiting on you" while its card is open. `data-permission` is the
+     * line's state: waiting, allowed, denied, blocked or withdrawn.
+     */
+    permissionLines: log.locator('[data-permission]'),
     dividers: log.getByRole('separator'),
     /** Each compaction's Compact row: its name, the tokens before and after, its time and how it went. */
     compactions: log.getByRole('group', { name: 'Compact' }),
@@ -214,6 +220,8 @@ export function subagentsTab(page: Page) {
     summary: (name: string, text: string) => row(name).getByTitle(text, { exact: true }),
     /** A row's log, while it's open. */
     log: (name: string) => panel.getByRole('log', { name: `${name} log` }),
+    /** The permission lines on the calls in a row's open log, top to bottom, as the Tool calls list shows them. */
+    permissionLines: (name: string) => panel.getByRole('log', { name: `${name} log` }).locator('[data-permission]'),
     /** A row's eye and count of its live background work, named "2 watchers running". */
     watching: (name: string) => row(name).getByRole('img', { name: /watchers? running$/ }),
     /** What a subagent left running or scheduled, under its log while it's open: a watcher row each. */
@@ -416,6 +424,8 @@ export function chat(page: Page) {
     userMessages: log.getByRole('article', { name: 'You' }),
     /** The thumbnails of the images pasted into your messages, which open the image viewer: all of them, in order. */
     thumbnails: log.getByRole('article', { name: 'You' }).getByRole('button', { name: /^View pasted image/ }),
+    /** Your messages that were sent with Broadcast: the ones tagged `BROADCAST` beside their time. */
+    broadcasts: log.getByRole('article', { name: 'You' }).filter({ hasText: /Broadcastyou · / }),
     agentReplies: log.getByRole('article', { name: 'Agent' }),
     /** The chips of the files attached to your messages (#396): all of them, in order. */
     fileChips: log
@@ -464,10 +474,13 @@ export function chat(page: Page) {
     questionCard: log.getByRole('form', { name: 'Questions from the agent' }),
     /** The agent's questions once they're answered or withdrawn: the closed card. */
     closedQuestions: log.getByRole('region', { name: 'Questions from the agent' }),
-    /** The tool calls waiting on your OK: the open permission cards, in the order they asked. */
+    /**
+     * The tool calls waiting on your OK: the permission cards, in the order they asked. A card is in the chat only
+     * while it waits (#459); what was decided is on its call's row (`taskPanel().permissionLines`).
+     */
     permissionCards: log.getByRole('form', { name: 'Permission request' }),
-    /** The permission cards once allowed, denied or withdrawn: one line each. */
-    closedPermissions: log.getByRole('region', { name: 'Permission request' }),
+    /** Anything at all the chat names a permission request: the open cards, and nothing else. */
+    permissionRequests: log.getByLabel('Permission request'),
     /** A pasted block in your message, collapsed to its line count: click it to expand it in place. */
     pastedBlock: (label = /^Pasted text/) => log.getByRole('button', { name: label }),
   }
@@ -693,6 +706,29 @@ export function settings(page: Page) {
     account: dialog.getByRole('region', { name: 'Account' }),
     /** What Control says of the port in use: that it isn't the one chosen, or why there's none. */
     portNotice: dialog.getByRole('status'),
+    /** The Sandbox group, in Agent (the switch and the Glade-wide lists) or in the workspace's section (its lists). */
+    sandbox: dialog.getByRole('region', { name: 'Sandbox' }),
+    /**
+     * One of the sandbox's lists, by its name: "Glade-wide folders" and "Glade-wide domains" in Agent, "Folders" and
+     * "Domains" in the workspace's section.
+     */
+    grantList: (list: string) => dialog.getByRole('list', { name: list, exact: true }),
+    /** The rows of one of the sandbox's lists: each a folder or domain, by its name, and the one being added. */
+    grantRows: (list: string) => dialog.getByRole('list', { name: list, exact: true }).getByRole('listitem'),
+    /** A folder's or domain's row in one of the sandbox's lists. */
+    grantRow: (list: string, name: string) =>
+      dialog.getByRole('list', { name: list, exact: true }).getByRole('listitem', { name, exact: true }),
+    /**
+     * A list's Add…: "Add a Glade-wide folder" and "Add a Glade-wide domain" in Agent, "Add a folder" and "Add a
+     * domain" in the workspace's section.
+     */
+    addGrant: (name: string) => dialog.getByRole('button', { name, exact: true }),
+    /** A granted folder's access select, whatever is chosen: its name ends in it ("Access to ~/.nvm: Read-only"). */
+    grantAccess: (folder: string) => dialog.getByRole('button', { name: `Access to ${folder}: `, exact: false }),
+    /** The field of the domain being added. */
+    newDomain: dialog.getByRole('textbox', { name: 'Domain' }),
+    /** Why a list's last change didn't happen, under the list. */
+    grantError: dialog.getByRole('region', { name: 'Sandbox' }).getByRole('alert'),
   }
 }
 
@@ -772,6 +808,27 @@ export function unsavedDialog(page: Page) {
     discard: dialog.getByRole('button', { name: 'Discard' }),
     cancel: dialog.getByRole('button', { name: 'Cancel' }),
     save: dialog.getByRole('button', { name: 'Save' }),
+  }
+}
+
+/**
+ * The Broadcast modal (File › Broadcast…, `docs/design/html/45-broadcast.html`): its message field, the line saying
+ * who the message goes to, the recipients by workspace, and Send.
+ */
+export function broadcastDialog(page: Page) {
+  const dialog = page.getByRole('dialog', { name: 'Broadcast' })
+  const recipients = dialog.getByRole('list', { name: 'Recipients' })
+  return {
+    dialog,
+    field: dialog.getByRole('textbox', { name: 'Broadcast message' }),
+    send: dialog.getByRole('button', { name: 'Send', exact: true }),
+    /** "Goes to 4 active tasks in 2 workspaces. …", or "No active tasks to send to." */
+    reach: dialog.getByRole('paragraph'),
+    recipients,
+    /** A workspace's tasks the message goes to, top to bottom: each one's title and where it stands with you. */
+    tasksIn: (workspace: string) => recipients.getByRole('list', { name: workspace }).getByRole('listitem'),
+    /** Every task the message goes to, in every workspace. */
+    tasks: recipients.locator('[data-attention]'),
   }
 }
 

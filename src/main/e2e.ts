@@ -24,20 +24,20 @@ export const E2E_CHOSEN_FOLDER_ENV = 'GLADE_E2E_CHOSEN_FOLDER'
 /**
  * Where e2e mode puts its notifier on the main process's global object: a `RecordingNotifier`
  * (`./notifications/recording-notifier`), which records the notifications the app would show, and clicks them, since
- * an e2e run never shows a real one. A spec reads and clicks it through Playwright's `app.evaluate`.
+ * an e2e run never shows a real one. A spec reads and clicks it through `inMain` (`e2e/in-main.ts`).
  */
 export const E2E_NOTIFIER_GLOBAL = '__gladeE2eNotifier'
 
 /**
  * Where e2e mode puts the network's state on the main process's global object: an `E2eNetwork`, online until a spec
- * says otherwise. A spec sets it through Playwright's `app.evaluate`, to take the app offline and back, since an e2e
+ * says otherwise. A spec sets it through `inMain` (`e2e/in-main.ts`), to take the app offline and back, since an e2e
  * run can't unplug the machine. The app reads it in place of Electron's `net.isOnline()`.
  */
 export const E2E_NETWORK_GLOBAL = '__gladeE2eNetwork'
 
 /**
  * Where e2e mode puts the files Open in editor opened on the main process's global object: an `E2eEditor`, since an e2e
- * run never opens a real editor. A spec reads it through Playwright's `app.evaluate`.
+ * run never opens a real editor. A spec reads it through `inMain` (`e2e/in-main.ts`).
  */
 export const E2E_EDITOR_GLOBAL = '__gladeE2eEditor'
 
@@ -62,7 +62,7 @@ export function createE2eEditor(): (path: string) => Promise<string> {
 /**
  * Where e2e mode puts what an artifact's Reveal in folder, the menus' Copy items and a clicked link did on the main
  * process's global object: an `E2eDesktop`, since an e2e run never opens Finder or a browser, or touches the
- * clipboard. A spec reads it through Playwright's `app.evaluate`.
+ * clipboard. A spec reads it through `inMain` (`e2e/in-main.ts`).
  */
 export const E2E_DESKTOP_GLOBAL = '__gladeE2eDesktop'
 
@@ -108,7 +108,7 @@ export function createE2eDesktop(): E2eDesktopActions {
 
 /**
  * Where e2e mode puts what the scripted agent was sent on the main process's global object: an `E2eAgent`. A spec
- * reads it through Playwright's `app.evaluate`, to check what reached the agent, such as a pasted image's content block.
+ * reads it through `inMain` (`e2e/in-main.ts`), to check what reached the agent, such as a pasted image's content block.
  */
 export const E2E_AGENT_GLOBAL = '__gladeE2eAgent'
 
@@ -170,7 +170,7 @@ export function createE2eAgent(): E2eAgentRecorder {
 
 /**
  * Where e2e mode puts the environments its agent sessions would have run in on the main process's global object: an
- * `E2eAgentEnvs`, since its agents play scripts and spawn nothing. A spec reads it through Playwright's `app.evaluate`.
+ * `E2eAgentEnvs`, since its agents play scripts and spawn nothing. A spec reads it through `inMain` (`e2e/in-main.ts`).
  */
 export const E2E_AGENT_ENVS_GLOBAL = '__gladeE2eAgentEnvs'
 
@@ -209,7 +209,7 @@ export function createE2eNetwork(): () => boolean {
 /**
  * Where e2e mode puts its stand-in for Claude Code's login on the main process's global object: an `E2eLogin`
  * (`./account/e2e-login`), since an e2e run never logs anyone in or out. Log in starts a run of it that waits until a
- * spec ends it, through Playwright's `app.evaluate`.
+ * spec ends it, through `inMain` (`e2e/in-main.ts`).
  */
 export const E2E_LOGIN_GLOBAL = '__gladeE2eLogin'
 
@@ -228,8 +228,8 @@ export interface E2eLogin {
 
 /**
  * Where e2e mode puts the menu bar icon on the main process's global object: an `E2eMenuBar`, since an e2e run never
- * puts a real icon in the menu bar (`./menu-bar/recording`). A spec reads and clicks it through Playwright's
- * `app.evaluate`; clicking it opens the popover's window, hidden, for the spec to drive.
+ * puts a real icon in the menu bar (`./menu-bar/recording`). A spec reads and clicks it through `inMain`
+ * (`e2e/in-main.ts`); clicking it opens the popover's window, hidden, for the spec to drive.
  */
 export const E2E_MENU_BAR_GLOBAL = '__gladeE2eMenuBar'
 

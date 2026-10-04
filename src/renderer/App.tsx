@@ -19,6 +19,7 @@ import { useCompactShortcut } from './shortcuts/useCompactShortcut'
 import { useRightPanelShortcuts } from './shortcuts/useRightPanelShortcuts'
 import { SettingsDialog } from './settings/SettingsDialog'
 import { useSearchShortcut } from './shortcuts/useSearchShortcut'
+import { BroadcastDialog } from './broadcast'
 import { MenuBar } from './commands/MenuBar'
 import { RemoveWorkspaceDialog } from './commands/RemoveWorkspaceDialog'
 import { WorkspaceSwitcher } from './workspace-switcher/WorkspaceSwitcher'
@@ -186,6 +187,7 @@ export function App(): React.JSX.Element {
         <ToastProvider>
           <MenuBar />
           <UnsavedChangesDialog />
+          <BroadcastDialog />
           {hasWorkspace ? <Layout /> : <FirstRunLayout />}
         </ToastProvider>
       )

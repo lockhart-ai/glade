@@ -3,6 +3,8 @@
  * window's tool log and the control API's chat (`get_chat`, `docs/control-api.md`), so both say the same.
  */
 import type { ToolCallEvent, ToolInput } from './domain'
+import { shortenHomePath } from './homeFolder'
+import { REQUEST_ACCESS_TOOL } from './toolName'
 
 /** How long the short JSON of an MCP tool's input may be before it's cut; the row's ellipsis shows the rest. */
 const MAX_JSON_SUMMARY = 200
@@ -52,17 +54,20 @@ function shortJson(input: ToolInput): string {
 }
 
 /**
- * The one-line argument after a tool call's name: the file for Read, Write and Edit (relative to the workspace root),
- * the pattern for Grep, the command for Bash, and so on. An MCP tool's is its input as short JSON; any other tool's is
- * its first string input, or its input as short JSON when it has none.
+ * The one-line argument after a tool call's name: the file for Read, Write and Edit (relative to the workspace root,
+ * or from `~` for one outside it under the home folder, as the sandbox's cards name folders), the pattern for Grep,
+ * the command for Bash, and so on. Glade's `request_access` shows the path it asks for. Any other MCP tool's is its
+ * input as short JSON; any other tool's is its first string input, or its input as short JSON when it has none.
  */
 export function argumentSummary(call: Pick<ToolCallEvent, 'name' | 'input'>, rootPath?: string): string {
   const { name, input } = call
+  const asked = name === REQUEST_ACCESS_TOOL ? stringField(input, 'path') : undefined
+  if (asked !== undefined) return shortenHomePath(asked)
   if (name.startsWith('mcp__')) return Object.keys(input).length === 0 ? '' : shortJson(input)
 
   const fileField = FILE_FIELDS[name]
   const file = fileField === undefined ? undefined : stringField(input, fileField)
-  if (file !== undefined) return relativePath(file, rootPath)
+  if (file !== undefined) return shortenHomePath(relativePath(file, rootPath))
 
   const field = ARGUMENT_FIELDS[name]
   const argument = field === undefined ? undefined : stringField(input, field)

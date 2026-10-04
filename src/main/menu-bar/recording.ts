@@ -2,7 +2,7 @@
  * The menu bar icon e2e mode uses in place of Electron's `Tray`, which would put a real icon in the menu bar: it shows
  * nothing, only records what it was asked to show, and can be clicked as the icon would. The app puts it on the main
  * process's global object (`E2E_MENU_BAR_GLOBAL`), with the menu bar's state, for a spec to read and click through
- * Playwright's `app.evaluate`.
+ * `inMain` (`e2e/in-main.ts`).
  */
 import type { E2eMenuBar } from '../e2e'
 import type { CreateTray, MenuBar } from './menu-bar'

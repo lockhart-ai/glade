@@ -12,6 +12,10 @@ import { fakeBridge, refuse, sampleWorkspace, type FakeBridge, type FakeHandlers
 import { SettingsSection } from './sections'
 import { SettingsDialog } from './SettingsDialog'
 import { Permission, permissionModeOf } from './SettingsSections'
+import { setHomeFolder } from '../../shared/homeFolder'
+
+// The sample data's home folder, which paths under it are shown from as `~`.
+setHomeFolder('/Users/sam')
 
 interface Rendered extends FakeBridge {
   readonly store: GladeStore
@@ -346,7 +350,10 @@ describe('SettingsDialog', () => {
       expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Acme API')
       expect(screen.getByRole('button', { name: 'Acme API' })).toHaveAttribute('aria-current', 'page')
       expect(screen.getByRole('textbox', { name: 'Workspace name' })).toHaveValue('Acme API')
-      expect(screen.getByText('~/code/api')).toHaveAttribute('title', '/Users/sam/code/api')
+      // Under Root folder, and first in the sandbox's Folders.
+      const roots = screen.getAllByText('~/code/api')
+      expect(roots).toHaveLength(2)
+      for (const root of roots) expect(root).toHaveAttribute('title', '/Users/sam/code/api')
     })
 
     it('renames the workspace, trimmed, on Enter or when the field loses focus, and ignores a blank or same name', async () => {

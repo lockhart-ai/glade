@@ -68,6 +68,31 @@ There are no follow-up tasks. One task can refer to another through its folder o
   and the keys still step back from an end a click on one reached — under a "2 of 3"; Esc, a click on the backdrop or
   × closes it, and the focus goes to the task's input (#415).
   ![Image viewer](design/screens/30-image-viewer.png)
+- **Broadcast** (#489) — one message to every Active task that has an agent, at once, in every workspace, for when
+  something is happening on the machine and you don't know which agent is doing it ("Is anyone restarting Docker?").
+  **Broadcast…** in the
+  File menu, or ⌘⇧B, opens a modal over the window, whatever it shows: a message field, a line saying who it goes to
+  ("Goes to 9 active tasks in 3 workspaces. Busy agents get it when their turn ends."), and under it the recipients,
+  grouped by workspace, each task with its dot and where it stands with you (needs you, working or idle, by the one
+  rule under Attention). The list is only there to read: there's nothing to pick. The modal grows with it, and past
+  twelve tasks in three workspaces the list scrolls. ↵ or **Send** sends it and ⇧↵ adds a line, as in the input bar;
+  Esc or a click outside closes the modal, and what was typed goes with it. With no task to send to it says "No
+  active tasks to send to." and can't send.
+  ![Broadcast](design/screens/45-broadcast.png)
+  Each task takes the broadcast as it takes a message from its own input bar. An idle one starts a turn with it, after
+  anything it already had queued; one whose agent is busy (mid-turn, paused, or waiting on a question or permission
+  card) gets it at the end of its queue, where it goes when any queued message does. Unlike a message typed into the
+  task's own input bar, it never answers a question card: it went to everyone, so it waits behind the question. Done
+  tasks get nothing, and aren't reopened. Neither does a task that has never been sent anything: it has no agent, so
+  it can't be the one doing something on the machine, and a broadcast would only start a session for nothing; it isn't
+  listed or counted. (A task whose first turn is under way has an agent, and gets it; so does one an error stopped.)
+  One rule decides this for the list and for the sending (`receivesBroadcast` in `src/shared/broadcast.ts`), and Glade
+  decides who gets it as it sends, so the modal's count is the number of tasks that receive it. A task that can't take it (its session won't start) doesn't hold up the rest: it shows its
+  error as it does when any send fails, and a toast names it.
+  In each task's chat it's your own message, with a small `BROADCAST` tag beside "you" and its time, and on its row
+  while it waits in a queue; the tag is kept with the message, so it's there after a relaunch. Each agent answers in
+  its own chat, and a task that answers needs you by the usual rule: nothing gathers the replies anywhere else.
+  ![Broadcast, in a task](design/screens/45-broadcast-message.png)
   The same viewer opens an image artifact from the Artifacts tab, and the one file showing in the Files tab (#372): for
   an artifact, it also shows the artifact's title, just above the image's left edge (it appears with the image, once
   that has loaded, never before it: #478), and two actions, Open in Files and Reveal in Finder, and steps
@@ -239,6 +264,53 @@ hidden while empty, or "Nothing in flight". It updates live while open; a row op
 workspace if needed, and its footer has **Open Glade** and **Quit**. It hides on Esc or when it loses focus
 (`design/html/29-menu-bar.html`).
 
+## Permissions and the sandbox
+
+**Two permission modes,** per task, from the input bar's picker: **Allow all**, where the agent edits files and runs
+commands without asking, and **Ask before edits and commands**, where each edit, command and other tool with side
+effects waits on a **permission card** in the chat (Allow once · Allow for this task · Deny, with an optional note).
+A card is in the chat only while it waits; what was decided then shows on the call's row in the Tool calls list, on a
+line that starts with a filled shield (`design/README.md`, screens 23 and 24).
+
+**The sandbox** is what an agent can touch at all, in either mode. Settings › Agent › **Sandbox** turns it on for
+every workspace and task; it's off to begin with while the phase's security review is open (#452), and a task takes
+the switch the next time its agent's session starts. With it on:
+
+- **What an agent can use without asking:** its workspace root, to read and write. Folders outside your home folder
+  (`/usr`, `/opt/homebrew`, `/Applications`) to read, so system and Homebrew tools work. Claude Code's own temporary
+  folders. And whatever you've granted. Nothing else: not the rest of your home folder, not other users' folders or
+  other volumes, and no network domain at all.
+- **Nothing is granted to begin with.** There's no starter list of folders or domains.
+- **A grant** is a folder (read-only or read-write), one file by itself, or a domain. It has one of three scopes:
+  - **This task**, from a card. It ends with the task and is listed nowhere.
+  - **This workspace**, from a card or Settings › Workspace. Every task in the workspace has it.
+  - **Glade-wide**, only from Settings › Agent, for what every workspace needs: a toolchain or package cache in your
+    home folder, the registry it downloads from.
+- **What asks.** Reaching past the grants shows a card with the shield: "The agent wants to read `~/code/acme-web`",
+  "…write to…" or "…reach `registry.npmjs.org`", answered **Allow for this task** · **Allow for this workspace** ·
+  **Deny**. Reading asks for read-only access and writing for read-write. There's no Allow once for a folder or a
+  domain. A card never offers your home folder or anything above it: a file directly in it is asked for by itself.
+- **A blocked command asks afterwards.** A command can't ask before the sandbox blocks it: it fails with "Operation
+  not permitted". The agent then asks for the folder itself (Glade's `request_access` tool, `model-surface.md`), with
+  its reason, on the same card, and runs the command again once you allow it. Subagents ask the same way.
+- **Running a command outside the sandbox** always asks, in Allow all too, shows the command, and is only ever
+  **Allow once** or **Deny**.
+- **Credential files** (`~/.ssh`, `~/.aws`, `~/.netrc` and the like) are never opened, even inside a folder you
+  granted.
+- **Changes apply at once.** A grant added, removed or made read-only reaches the running tasks it covers from their
+  next call, without restarting them. One exception: a domain a running task was already allowed to reach on a card
+  stays reachable until its session restarts.
+- **Nothing is written to your files.** Grants live in Glade's database, never in your project or `~/.claude`.
+- **If the sandbox can't start,** nothing runs outside it instead: every command fails, the task stops on an error
+  card that says why, and Retry starts a new session.
+- **With the switch off,** agents can use any folder and reach any domain, as before the sandbox; the grants are
+  kept for when it's back on.
+
+The sandbox covers the agent's commands and file tools. The terminal tabs, Glade's own reading of your repository and
+Glade's own tools run as you, as before. Your own Claude Code settings (`~/.claude/settings.json`) still apply to a
+task's session, and an allow rule or sandbox setting there can widen what Glade grants. How it's built on the Claude
+Agent SDK's sandbox is in `decisions.md` and `sdk-notes.md` §15; how to use it is in the user guide.
+
 ## Settings
 
 Settings (⌘,) opens on Agent. Changes save as you make them.
@@ -252,7 +324,8 @@ Settings (⌘,) opens on Agent. Changes save as you make them.
 - **Agent:** the defaults for new tasks (model, effort and permissions: Ask first or Allow all; **Allow edits** is shown
   but disabled, as it isn't a mode yet), and two switches for what the agent keeps current: **Status summary**
   (`set_status` every turn) and **Task titles** (`set_title` from your first message). A session started with one off
-  gets neither the tool nor the system prompt's ask for it.
+  gets neither the tool nor the system prompt's ask for it. Then **Sandbox**: the **Run agents in a sandbox** switch
+  and the Glade-wide Folders and Domains (see Permissions and the sandbox).
 - **Notifications:** notifications on or off, and their sound.
 - **Appearance:** nothing to set yet; Glade has one theme, dark.
 - **Keyboard:** every shortcut, rebindable (`keymap.md`).
@@ -263,7 +336,8 @@ Settings (⌘,) opens on Agent. Changes save as you make them.
   each there too: its label and a select of its options, starting at the plugin's default. The choice is saved per
   plugin (SQLite), survives restarts and plugin updates, and reaches the running plugin at once, without reloading it.
 - **Control:** whether other agents and scripts may drive Glade, and how to connect them (`control-api.md`).
-- **Workspace** (under its own heading, by the workspace's name): its name and root folder.
+- **Workspace** (under its own heading, by the workspace's name): its name and root folder, then its **Sandbox**:
+  the folders its agents may use (the workspace root first, read-write and fixed) and the domains they may reach.
 
 ## Everything else
 

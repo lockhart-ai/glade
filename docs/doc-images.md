@@ -1,6 +1,6 @@
 # Doc images
 
-The 16 screenshots in [README.md](../README.md) and [the user guide](user-guide.md) (everything under
+The 24 screenshots in [README.md](../README.md) and [the user guide](user-guide.md) (everything under
 `docs/images/`, `docs/images/glade-icon.png` aside) are each captured from the current app, on made-up data, from a
 recorded recipe: a seed fixture in `scripts/fixtures/` (`src/main/capture-seed.ts` has the format) and
 `npm run screenshot` (`scripts/screenshot.mjs`), or, for three of them, a small script that needs more than that.
@@ -26,7 +26,7 @@ node scripts/fixtures/doc-images.mjs nekomata -- <nekomata>/dist/glade/nekomata
 NEKOMATA_PLUGIN=<nekomata>/dist/glade/nekomata node scripts/fixtures/doc-images.mjs
 ```
 
-Without one, `nekomata` is skipped (with a message saying why); the other 15 still regenerate. Its own page is much
+Without one, `nekomata` is skipped (with a message saying why); the other 23 still regenerate. Its own page is much
 bigger than the sample plugins in `scripts/fixtures/plugins/`, and draws its cat cafe onto a canvas it redraws from a
 `resize` its page gets once Glade places it at its slot's real size, not from the window's: a single shot is still
 mid-load when the app quits (logging a load failure that's really just that race), and even once it's loaded, a
@@ -51,25 +51,42 @@ above 0 clears it (`APPEAR_WINDOW_MS` in `src/renderer/questions/QuestionCard.ts
 | `hero.png` | The app with a workspace open: the task list, a task's chat, its tool calls. | `--seed task-workspace.json --size 1600x1000` |
 | `subagents.png` | A task working with three subagents running and one done. | `--seed subagents.json --size 1600x1000` |
 | `question.png` | A question card: the agent's reply, four questions, Anything else. | `--seed question.json --size 1600x1100` |
-| `permission.png` | A permission card for a Bash command, and another for a file edit's diff. | `--seed permission-card.json --size 1600x1000` |
+| `permission.png` | A permission card for a Bash command, and another for a file edit's diff; in the Tool calls list, what was decided about the calls answered before them. | `--seed permission-card.json --size 1600x1000` |
 | `nekomata.png` | The Nekomata plugin beside the terminal: a cat per task, a question bubble over the one waiting on you. | `nekomata.mjs` (needs the built plugin) |
 | `control.png` | Settings › Control, turned on, with the endpoint and the connect command. | `--seed settings-control.json --size 1600x1000`, clicked to Control |
 | `guide/window.png` | The whole window: task list, chat and header, right panel, terminal. | `--seed task-workspace.json --size 1440x960` |
 | `guide/welcome.png` | The first-run welcome screen. | no seed, `--size 1280x800` |
 | `guide/working.png` | A working task: the queue above the input bar, Stop beside Send. | `--seed agent-working.json --size 1280x800` |
+| `guide/broadcast.png` | The Broadcast modal over the window: the message field, who it goes to, and the recipients by workspace. | `--seed broadcast.json --size 1280x800 --command app.broadcast` |
 | `guide/menu-bar.png` | The menu bar popover: needs you, working, recent. | `menu-bar.mjs` (the popover's own 360px-wide box) |
 | `guide/files-browse.png` | The Files tab's Browse tree, folders open, a file selected. | `files-browse.mjs` (builds a sample workspace under `/tmp`) |
 | `guide/artifacts.png` | The Artifacts tab: files and links under Today and Yesterday, the All · Files · Links filter. | `--seed artifacts.json --size 1280x880` |
-| `guide/permission-card.png` | A single open permission card, for a Bash command. | `--seed permission-card-bash.json --size 1280x800` |
+| `guide/permission-card.png` | A single open permission card, for a Bash command; in the Tool calls list, an allowed call, a denied one and the one waiting. | `--seed permission-card-bash.json --size 1280x800` |
 | `guide/settings-general.png` | Settings › General, with the account. | `--seed settings-general.json --size 1280x800`, clicked to General |
 | `guide/settings-control.png` | Settings › Control, turned on. | `--seed settings-control.json --size 1280x800`, clicked to Control |
 | `guide/backfilled.png` | A backfilled task: its handoff note, its notes files as artifacts. | `--seed backfilled.json --size 1280x880` |
+| `guide/sandbox-folder-card.png` | Two sandbox cards: a folder to read, and a subagent's folder to write; in the Tool calls list, a read a workspace grant let through and the one waiting. | `--seed sandbox-folder-card.json --size 1280x800`, clicked to settle |
+| `guide/sandbox-file-card.png` | The card for one file (`~/.gitconfig`), raised by the agent after its commit was blocked; the blocked command in the Tool calls list. | `--seed sandbox-file-card.json --size 1280x800`, clicked to settle |
+| `guide/sandbox-domain-card.png` | A domain card for a command's connection, and the folder card the agent raised with `request_access` after a blocked command, with its reason. | `--seed sandbox-domain-card.json --size 1280x980`, clicked to settle |
+| `guide/sandbox-outside-card.png` | The card for running a command outside the sandbox: Allow once or Deny; the earlier decisions on their rows. | `--seed sandbox-outside-card.json --size 1280x800`, clicked to settle |
+| `guide/sandbox-failed.png` | A task stopped on the error card because its sandbox couldn't start. | `--seed sandbox-failed.json --size 1280x800`, clicked to settle |
+| `guide/settings-sandbox.png` | Settings › Agent: the Sandbox group's switch and the start of the Glade-wide folders. | `--seed settings-sandbox.json --size 1280x800`, clicked to Agent |
+| `guide/settings-workspace-sandbox.png` | Settings › Workspace: the root, the granted folders and the domains. | `--seed settings-sandbox.json --size 1280x800`, clicked to the workspace's section |
+
+`--command <id>` runs an app command in the window as choosing its menu bar item would (`app.broadcast` opens the
+Broadcast modal, which no button does), since capture mode can't send menu accelerators.
 
 A "clicked to `<section>`" recipe opens Settings by clicking, not ⌘, (capture mode can't send menu accelerators,
 `scripts/screenshot.mjs`'s header): the workspace switcher
 (`button[aria-label="Switch workspace"]`), then **Workspace settings…** (the switcher menu's 4th button), landing on
-the Workspace section; then the wanted section in the nav, General 1st and Control 7th
+the Workspace section; then the wanted section in the nav, General 1st, Agent 2nd and Control 7th
 (`APP_SECTIONS` in `src/renderer/settings/sections.ts`). `scripts/fixtures/doc-images.mjs` has the exact selectors.
+
+A "clicked to settle" recipe clicks the right panel's selected tab (`[role="tab"][aria-selected="true"]`), which
+changes nothing: a click waits for its element, so the capture waits until the task is on screen. Without it, a
+capture at the window's own starting size (1280×800) can be taken while the app still shows "Loading…", as it was
+for two of the sandbox card seeds, every time. The Settings › Agent page is taller than its dialog, so its image
+shows the Sandbox group's switch and the top of its lists; the workspace's image shows whole lists.
 
 ## Keeping a sample task's dot honest
 

@@ -62,7 +62,7 @@
           "input": {
             "command": "rm -rf dist"
           },
-          "output": "Keep dist, the smoke test reads it.",
+          "output": "The user denied permission for this tool call, so it did not run. They said: Keep dist, the smoke test reads it.",
           "state": "error",
           "toolUseId": "clean",
           "turn": 1,

@@ -116,6 +116,12 @@ export function readRuleContent(folder: string): string {
   return `/${folder}/**`
 }
 
+/** The folder a `Read` rule's content covers (`//<folder>/**`), or null for one that names no folder like that. */
+export function readRuleFolder(content: string | undefined): string | null {
+  const match = /^\/(\/.+?)\/\*\*$/.exec(content ?? '')
+  return match?.[1] ?? null
+}
+
 /**
  * What Claude Code suggests for a file outside the folders a file tool may use: a `Read` rule for its folder, or the
  * folder as an additional directory for a write, for the session.

@@ -4,6 +4,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { expect, type Glade } from './fixtures'
+import { inMain } from './in-main'
 import { chooseMenuItem } from './menu'
 import { settings } from './selectors'
 import { boxOf } from './window-layout'
@@ -24,7 +25,7 @@ export interface ViewState {
 }
 
 export async function pluginView({ app }: Glade): Promise<ViewState | null> {
-  return app.evaluate(({ app: electronApp, BrowserWindow, WebContentsView }) => {
+  return inMain(app, ({ app: electronApp, BrowserWindow, WebContentsView }) => {
     const view = BrowserWindow.getAllWindows()[0]?.contentView.children.find(
       (child): child is Electron.WebContentsView => child instanceof WebContentsView,
     )

@@ -1,3 +1,4 @@
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
   app,
@@ -18,7 +19,9 @@ import {
   type WebPreferences,
 } from 'electron'
 import { CloseKind, EventType, type GladeEvent } from '../shared/bridge'
+import { appCommand } from '../shared/commands'
 import { UiStateKey } from '../shared/domain'
+import { homeArgument, SAMPLE_HOME, setHomeFolder } from '../shared/homeFolder'
 import { PLUGINS_FOLDER_NAME } from '../shared/plugins'
 import type { AgentBackend } from './agent/backend'
 import { claudeCodeBinary, createSdkBackend, type SdkBackendOptions } from './agent/sdk-backend'
@@ -129,6 +132,22 @@ export const WINDOW_WEB_PREFERENCES: WebPreferences = {
   sandbox: true,
 }
 
+/**
+ * The home folder paths are shown from, as `~` (`../shared/homeFolder`): yours, or in a capture or an e2e run, the
+ * made-up one their sample data lives under.
+ */
+function shownHome(testMode: TestMode): string {
+  return testMode === null ? homedir() : SAMPLE_HOME
+}
+
+/**
+ * The webPreferences a window is created with: the security settings every window has (`WINDOW_WEB_PREFERENCES`), and
+ * the home folder for its page to show paths from, which the sandboxed page can't ask for itself.
+ */
+function windowPreferences(testMode: TestMode): WebPreferences {
+  return { ...WINDOW_WEB_PREFERENCES, additionalArguments: [homeArgument(shownHome(testMode))] }
+}
+
 /** Why the app can't start, for the log and for the dialog the user sees. */
 interface StartFailure {
   readonly logSummary: string
@@ -226,7 +245,7 @@ function createWindow(testMode: TestMode, db: AppDatabase['db'], log: Logger): B
     titleBarStyle: 'hidden',
     trafficLightPosition: trafficLightPositionFor(sidebarCollapsed),
     backgroundColor: WINDOW_BACKGROUND,
-    webPreferences: WINDOW_WEB_PREFERENCES,
+    webPreferences: windowPreferences(testMode),
   })
 
   // The renderer only ever shows the app's own page: no popups, no navigating away. A link opens in the browser, from
@@ -291,6 +310,10 @@ async function capture(spec: CaptureSpec, { database, bridge, agent, log }: Capt
       },
       webContents: window.webContents,
       nativeViews,
+      // As the menu bar's item does: its command goes to the window.
+      runCommand: (id) => {
+        bridge.emit({ type: EventType.MenuCommand, command: appCommand(id) })
+      },
     },
     spec,
     ({ data, width, height }) => nativeImage.createFromBitmap(data, { width, height }),
@@ -639,6 +662,8 @@ export function startApp({
     app.exit(1)
   }
   const stopLoggingCrashes = logCrashes(process, log, testMode === null ? undefined : fatal)
+  // Paths are shown from the home folder as `~`, in main's own words (a notification's) as in the windows'.
+  setHomeFolder(shownHome(testMode))
   // Before the app is ready, as Electron requires: a plugin's page is served under its own scheme.
   registerPluginScheme(protocol)
   log.info('app starting', {
@@ -720,7 +745,7 @@ export function startApp({
             createTray: drawing.createTray,
             createPopover: createElectronPopover({
               BrowserWindow,
-              webPreferences: WINDOW_WEB_PREFERENCES,
+              webPreferences: windowPreferences(testMode),
               load: (window) => {
                 loadPage(window, MENU_BAR_ROUTE)
               },

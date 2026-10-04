@@ -243,6 +243,8 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.PermissionAnswered:
       case EventType.PermissionWithdrawn:
         return [event.type, event.permissionRequest.state]
+      case EventType.PermissionMarked:
+        return [event.type, event.mark.outcome.kind]
       case EventType.TaskDeleted:
         return [event.type, event.taskId]
       case EventType.UiStateChanged:
@@ -265,6 +267,7 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.AccountChanged:
       case EventType.LoginChanged:
       case EventType.MenuBarChanged:
+      case EventType.SandboxGrantsChanged:
         return [event.type]
     }
   })
@@ -430,6 +433,7 @@ describe('a turn', () => {
       queuedMessages: [],
       questionSets: [],
       permissionRequests: [],
+      permissionMarks: [],
       openFiles: { taskId: task.id, paths: [], activePath: null },
       todos: null,
       artifacts: [],
@@ -3228,6 +3232,7 @@ describe("a task's handoff note", () => {
       instructions: true,
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: 1_000,
+      sandbox: false,
     })
   })
 
@@ -3297,6 +3302,7 @@ describe("a task's handoff note", () => {
       instructions: true,
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: 2_000,
+      sandbox: false,
     })
   })
 
@@ -3384,7 +3390,12 @@ describe('instructions added to the prompt since a session started', () => {
   function startedBeforeTheRule(recorded: boolean): void {
     database.db.prepare('UPDATE tasks SET session_id = ? WHERE id = ?').run('old-session', task.id)
     if (recorded)
-      setSessionContext(database.db, task.id, { instructions: true, instructionUpdates: 0, handoffAt: null })
+      setSessionContext(database.db, task.id, {
+        instructions: true,
+        instructionUpdates: 0,
+        handoffAt: null,
+        sandbox: false,
+      })
   }
 
   it('are in the prompt of a session Glade starts, which is sent none of them', async () => {
@@ -3399,6 +3410,7 @@ describe('instructions added to the prompt since a session started', () => {
       instructions: true,
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: null,
+      sandbox: false,
     })
   })
 
@@ -3427,6 +3439,7 @@ describe('instructions added to the prompt since a session started', () => {
         instructions: true,
         instructionUpdates: INSTRUCTION_UPDATES.length,
         handoffAt: null,
+        sandbox: false,
       })
     },
   )
@@ -3478,6 +3491,7 @@ describe('instructions added to the prompt since a session started', () => {
       instructions: true,
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: 5_000,
+      sandbox: false,
     })
   })
 
@@ -3658,6 +3672,8 @@ describe('several tasks at once', () => {
       case EventType.PermissionAnswered:
       case EventType.PermissionWithdrawn:
         return event.permissionRequest.taskId
+      case EventType.PermissionMarked:
+        return event.mark.taskId
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
       case EventType.TerminalTabsChanged:
@@ -3674,6 +3690,7 @@ describe('several tasks at once', () => {
       case EventType.AccountChanged:
       case EventType.LoginChanged:
       case EventType.MenuBarChanged:
+      case EventType.SandboxGrantsChanged:
         return null
     }
   }
@@ -3700,6 +3717,8 @@ describe('several tasks at once', () => {
       case EventType.PermissionAnswered:
       case EventType.PermissionWithdrawn:
         return [event.type, event.permissionRequest.state]
+      case EventType.PermissionMarked:
+        return [event.type, event.mark.outcome.kind]
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
       case EventType.WorkspaceRemoved:
@@ -3726,6 +3745,7 @@ describe('several tasks at once', () => {
       case EventType.AccountChanged:
       case EventType.LoginChanged:
       case EventType.MenuBarChanged:
+      case EventType.SandboxGrantsChanged:
         return [event.type]
     }
   }

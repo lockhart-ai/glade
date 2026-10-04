@@ -1,6 +1,7 @@
 import { act, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it } from 'vitest'
 import { CommandName } from '../shared/bridge'
+import { shortenHomePath } from '../shared/homeFolder'
 import { READY_ATTRIBUTE } from '../shared/ready'
 import { EMPTY_MENU_BAR_SNAPSHOT } from '../shared/menuBar'
 import { appPage, MENU_BAR_HASH, mountApp, pageFor } from './mount'
@@ -56,6 +57,18 @@ it("renders the menu bar popover's page in its window, asking main what's in fli
     expect(document.documentElement).toHaveAttribute(READY_ATTRIBUTE)
   })
   document.documentElement.removeAttribute(READY_ATTRIBUTE)
+})
+
+it('shows paths from the home folder the window was told, and from none when it wasn’t', () => {
+  const { bridge } = fakeBridge({ workspaces: [], tasks: [], uiState: [], menuBar: EMPTY_MENU_BAR_SNAPSHOT })
+
+  pageFor(MENU_BAR_HASH, { ...bridge, homeFolder: '/Users/sample' })
+  expect(shortenHomePath('/Users/sample/code/api')).toBe('~/code/api')
+  // Another user's folder is not yours.
+  expect(shortenHomePath('/Users/someone/code/api')).toBe('/Users/someone/code/api')
+
+  pageFor(MENU_BAR_HASH, bridge)
+  expect(shortenHomePath('/Users/sample/code/api')).toBe('/Users/sample/code/api')
 })
 
 it('renders the app for any other route', async () => {

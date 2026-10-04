@@ -1,21 +1,20 @@
-import { useEffect, useRef, useState } from 'react'
+import { faShield } from '@fortawesome/free-solid-svg-icons'
+import { memo, useEffect, useRef, useState } from 'react'
 import { TaskState, UNTITLED_TASK_TITLE, type EpochMs, type Task } from '../../shared/domain'
 import type { TextPart } from '../../shared/search'
-import { TaskIndicator, taskIndicator } from '../../shared/taskIndicator'
-import { errorStatusLine } from '../../shared/taskError'
+import { taskIndicator } from '../../shared/taskIndicator'
 import { classNames } from '../components/classNames'
 import type { ContextMenuTargetProps } from '../context-menus'
-import { Dot } from '../components'
-import { isPaused, pausedStatusLine } from '../pause/pauseModel'
+import { Dot, Icon, IconSize } from '../components'
 import { Highlighted, Marked } from '../search/Highlight'
 import { formatRelativeTime } from './relativeTime'
 import { RowIndicators } from './RowIndicators'
+import { rowStatus, sameRowStatus, type RowStatusSource } from './rowStatus'
 import styles from './TaskRow.module.css'
 
 /** What a task without a title yet is called. */
 export const UNTITLED = UNTITLED_TASK_TITLE
-/** What an active task without a status yet says. */
-export const NO_STATUS = 'Waiting for instructions'
+export { NO_STATUS, WAITING_ON_YOU } from './rowStatus'
 
 export interface TaskRowProps {
   task: Task
@@ -110,15 +109,27 @@ function RenameField({ task, onRename, onCancel }: RenameFieldProps): React.JSX.
   )
 }
 
+/** What a screen reader calls the shield on a row that waits on a permission. */
+export const PERMISSION_SHIELD_LABEL = 'Permission'
+
 /**
- * The row's line of status: what stopped the agent, while an error has; why its turn is paused and until when, while
- * it's paused; otherwise the task's status.
+ * The row's line of status (`./rowStatus`), led by the shield while the task waits on a permission card: filled and
+ * purple, as on the card it stands for (`docs/design/README.md`). It renders again only when the line itself changed,
+ * whatever else of the task did, or however the clock ticked.
  */
-function statusLine(task: Task, now: EpochMs): string {
-  if (taskIndicator(task) === TaskIndicator.Error) return errorStatusLine(task.error)
-  if (isPaused(task)) return pausedStatusLine(task.pause, now)
-  return task.status === '' && task.state === TaskState.Active ? NO_STATUS : task.status
-}
+const StatusLine = memo(function StatusLine(source: RowStatusSource): React.JSX.Element {
+  const { text, permission } = rowStatus(source)
+  return (
+    <span className={styles.status}>
+      {permission && (
+        <span role="img" aria-label={PERMISSION_SHIELD_LABEL} className={styles.shield}>
+          <Icon icon={faShield} size={IconSize.Small} />
+        </span>
+      )}
+      {text}
+    </span>
+  )
+}, sameRowStatus)
 
 /**
  * One task in the list: its state dot, title and relative time, then one line of status ("Error: API overloaded ·
@@ -163,7 +174,7 @@ export function TaskRow({
           <RenameField task={task} onRename={onRename} onCancel={onCancelRename} />
           {time}
         </span>
-        <span className={styles.status}>{statusLine(task, now)}</span>
+        <StatusLine task={task} now={now} />
         {indicators}
       </div>
     )
@@ -186,7 +197,7 @@ export function TaskRow({
         {time}
       </span>
       {snippet === null ? (
-        <span className={styles.status}>{statusLine(task, now)}</span>
+        <StatusLine task={task} now={now} />
       ) : (
         <span className={styles.snippet}>
           <Marked parts={snippet} />

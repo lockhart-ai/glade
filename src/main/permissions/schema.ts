@@ -8,12 +8,15 @@ import { z } from 'zod'
 import {
   PermissionDecisionKind,
   PermissionDestination,
+  PermissionMarkKind,
   PermissionRuleBehavior,
   PermissionUpdateType,
   type PermissionDecision,
+  type PermissionMarkOutcome,
   type PermissionRule,
   type PermissionSuggestion,
 } from '../../shared/domain'
+import { FolderAccess, SandboxAskKind, SandboxGrantScope, type SandboxAsk } from '../../shared/sandbox'
 
 /** A permission rule: a tool, and optionally what of it. */
 export const permissionRuleSchema = z.object({
@@ -42,9 +45,52 @@ export const permissionSuggestionSchema = z.discriminatedUnion('type', [
 /** The suggestions stored with a request. */
 export const permissionSuggestionsSchema = z.array(permissionSuggestionSchema).readonly()
 
-/** How you answer a permission request: Allow once, Allow for this task, or Deny with an optional note. */
+/** A folder, or one file (`file`), a request or a mark names. */
+const folderAskSchema = z.object({
+  kind: z.literal(SandboxAskKind.Folder),
+  path: z.string(),
+  access: z.enum(FolderAccess),
+  file: z.literal(true).optional(),
+})
+
+/** What a request asks of the agent sandbox, as stored with it (`SandboxAsk`). */
+export const sandboxAskSchema = z.discriminatedUnion('kind', [
+  folderAskSchema,
+  z.object({
+    kind: z.literal(SandboxAskKind.Domain),
+    domain: z.string(),
+    command: z.string().nullable(),
+    commandDescription: z.string().nullable(),
+  }),
+  z.object({ kind: z.literal(SandboxAskKind.Outside) }),
+]) satisfies z.ZodType<SandboxAsk>
+
+/** What a rule decided of a tool call, as stored with its mark (`PermissionMarkOutcome`). */
+export const permissionMarkOutcomeSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal(PermissionMarkKind.Grant),
+    scope: z.enum(SandboxGrantScope),
+    ask: z.discriminatedUnion('kind', [
+      folderAskSchema,
+      z.object({
+        kind: z.literal(SandboxAskKind.Domain),
+        domain: z.string(),
+        command: z.string().nullable(),
+        commandDescription: z.string().nullable(),
+      }),
+    ]),
+  }),
+  z.object({ kind: z.literal(PermissionMarkKind.TaskRule), rule: permissionRuleSchema }),
+  z.object({ kind: z.literal(PermissionMarkKind.Blocked), ask: folderAskSchema.nullable() }),
+]) satisfies z.ZodType<PermissionMarkOutcome>
+
+/**
+ * How you answer a permission request: Allow once, Allow for this task, Allow for this workspace, or Deny with an
+ * optional note.
+ */
 export const permissionDecisionSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal(PermissionDecisionKind.AllowOnce) }),
   z.strictObject({ kind: z.literal(PermissionDecisionKind.AllowForTask) }),
+  z.strictObject({ kind: z.literal(PermissionDecisionKind.AllowForWorkspace) }),
   z.strictObject({ kind: z.literal(PermissionDecisionKind.Deny), note: z.string().optional() }),
 ]) satisfies z.ZodType<PermissionDecision>

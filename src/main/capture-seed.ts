@@ -36,8 +36,12 @@ import {
   type TaskError,
   type ToolInput,
   type TurnSummary,
+  type PermissionMarkOutcome,
 } from '../shared/domain'
 import { taskPermissionRule } from '../shared/permissions'
+import type { CardGrantScope, SandboxAsk } from '../shared/sandbox'
+import { permissionMarkOutcomeSchema, sandboxAskSchema } from './permissions/schema'
+import { setPermissionMark } from './db/repositories/permission-marks'
 import { preambleSchema, questionsSchema } from './questions/schema'
 import { appendQuestionSet } from './db/repositories/question-sets'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
@@ -76,6 +80,14 @@ import { SETTING_SCHEMAS, updateSettings } from './db/repositories/settings'
 import { replaceUsageReadings, saveAccount } from './db/repositories/account'
 import { usageLevel, UsageLevel, UsageLimitKind, type UsageLimit } from '../shared/account'
 import { storeControlToken, storedToken } from './control/token'
+import { addSandboxGrant } from './db/repositories/sandbox-grants'
+import {
+  FolderAccess,
+  SandboxGrantKind,
+  SandboxGrantScope,
+  type Grant,
+  type SandboxGrantTarget,
+} from '../shared/sandbox'
 import { refreshTodos } from './todos/todos'
 
 const MINUTE = 60_000
@@ -90,6 +102,8 @@ export interface SeedMessage {
   readonly minutesAgo: number
   /** An agent reply's turn summary; none unless given. */
   readonly summary?: TurnSummary | undefined
+  /** Whether you sent it with Broadcast (#489), so the chat tags it; not unless given. */
+  readonly broadcast?: boolean | undefined
 }
 
 /** A sample note from the agent in the tool log. */
@@ -165,8 +179,19 @@ export interface SeedPermissionRequest {
   readonly denyNote?: string | undefined
   /** Whether it was allowed for the task (Allow for this task), which grants the task its rule; allowed once if not. */
   readonly forTask?: boolean | undefined
+  /** What it asks of the agent sandbox (the sandbox's cards, #450); nothing unless given. */
+  readonly sandbox?: SandboxAsk | undefined
+  /** Who a folder or domain it was allowed was granted to: the task, or its workspace. */
+  readonly grantedScope?: CardGrantScope | undefined
   readonly turn: number
   readonly minutesAgo: number
+}
+
+/** A sample mark on a tool call a rule decided (`PermissionMark`). */
+export interface SeedPermissionMark {
+  /** The `toolUseId` of the sample tool call it's on. */
+  readonly toolUseId: string
+  readonly outcome: PermissionMarkOutcome
 }
 
 /** One sample tool log entry. */
@@ -231,6 +256,8 @@ export interface SeedTask {
   readonly permissionMode?: PermissionMode | undefined
   /** Its agent's tool calls that wait, or waited, on your OK, in the order they asked. */
   readonly permissionRequests?: readonly SeedPermissionRequest[] | undefined
+  /** Its tool calls a rule decided (a grant or task rule let through, or the sandbox blocked), by their `toolUseId`. */
+  readonly permissionMarks?: readonly SeedPermissionMark[] | undefined
   /** An open question set (the question card) its agent asked; none unless given. */
   readonly questionSet?: SeedQuestionSet | undefined
   /** What its agent left running or scheduled (the Watchers tab), in the order it started them. */
@@ -395,6 +422,17 @@ export interface CaptureSeed {
   readonly usage?: readonly SeedUsageReading[] | undefined
   /** The models the SDK offers, as a session reported them (`ModelChoice`); the built-in list unless given. */
   readonly models?: readonly ModelChoice[] | undefined
+  /** The sandbox grants Settings lists (#451); none unless given. */
+  readonly sandboxGrants?: SeedSandboxGrants | undefined
+}
+
+/**
+ * Sample sandbox grants, in the order they were granted: the Glade-wide ones (Settings › Agent) and the fixture's
+ * workspace's (Settings › Workspace). Saved as written: a fixture's folders are made up, so nothing is resolved.
+ */
+export interface SeedSandboxGrants {
+  readonly glade?: readonly Grant[] | undefined
+  readonly workspace?: readonly Grant[] | undefined
 }
 
 /** Which panels a seed collapses. */
@@ -478,6 +516,11 @@ const seedAccountSchema = z.strictObject({
   readMinutesAgo: minutesAgo,
 }) satisfies z.ZodType<SeedAccount>
 
+const seedGrant = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal(SandboxGrantKind.Folder), path: z.string().min(1), access: z.enum(FolderAccess) }),
+  z.strictObject({ kind: z.literal(SandboxGrantKind.Domain), domain: z.string().min(1) }),
+]) satisfies z.ZodType<Grant>
+
 const seedUsageReadingSchema = z
   .strictObject({
     kind: z.enum(UsageLimitKind),
@@ -517,6 +560,9 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
     )
     .optional(),
   settings: z.strictObject(SETTING_SCHEMAS).partial().optional(),
+  sandboxGrants: z
+    .strictObject({ glade: z.array(seedGrant).optional(), workspace: z.array(seedGrant).optional() })
+    .optional(),
   controlToken: storedToken.optional(),
   panelTab: z.string().optional(),
   panelWidth: z.int().positive().optional(),
@@ -558,6 +604,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
             turn,
             minutesAgo,
             summary: seedSummarySchema.optional(),
+            broadcast: z.boolean().optional(),
           }),
         )
         .optional(),
@@ -585,6 +632,9 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       permissionMode: z.enum(PermissionMode).optional(),
       workspace: z.strictObject({ name: z.string(), rootPath: z.string() }).optional(),
       notifications: z.array(z.strictObject({ body: z.string(), minutesAgo })).optional(),
+      permissionMarks: z
+        .array(z.strictObject({ toolUseId: z.string(), outcome: permissionMarkOutcomeSchema }))
+        .optional(),
       permissionRequests: z
         .array(
           z.strictObject({
@@ -599,6 +649,8 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
             state: z.enum(PermissionRequestState).optional(),
             denyNote: z.string().optional(),
             forTask: z.boolean().optional(),
+            sandbox: sandboxAskSchema.optional(),
+            grantedScope: z.enum([SandboxGrantScope.Task, SandboxGrantScope.Workspace]).optional(),
             turn,
             minutesAgo,
           }),
@@ -726,6 +778,9 @@ function seedClosing(request: SeedPermissionRequest): PermissionRequestClosing |
     case PermissionRequestState.Open:
       return null
     case PermissionRequestState.Allowed: {
+      if (request.grantedScope !== undefined) {
+        return { state: PermissionRequestState.Allowed, grantedScope: request.grantedScope }
+      }
       const rule =
         request.forTask === true
           ? taskPermissionRule({
@@ -763,7 +818,9 @@ function seedPermissionRequest(db: Database, taskId: string, request: SeedPermis
       description: request.description ?? null,
       suggestions: seedSuggestions(request),
       defaultToNo: request.defaultToNo ?? false,
-      suppressAlwaysAllowRule: false,
+      // Nothing that asks of the sandbox is remembered as a rule.
+      suppressAlwaysAllowRule: request.sandbox !== undefined,
+      sandbox: request.sandbox ?? null,
     },
     at,
   )
@@ -809,6 +866,14 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
     if (files !== undefined) standInForWorkspaceRoot(shown.rootPath, files)
     const workspace = createWorkspace(db, shown, now)
     setUiState(db, { key: UiStateKey.ActiveWorkspaceId, value: workspace.id })
+    const granted: readonly [SandboxGrantTarget, readonly Grant[] | undefined][] = [
+      [{ scope: SandboxGrantScope.Glade }, seed.sandboxGrants?.glade],
+      [{ scope: SandboxGrantScope.Workspace, workspaceId: workspace.id }, seed.sandboxGrants?.workspace],
+    ]
+    for (const [target, grants] of granted) {
+      // A millisecond apart, so each list keeps the fixture's order.
+      for (const [index, grant] of (grants ?? []).entries()) addSandboxGrant(db, { target, grant }, now + index)
+    }
     if (seed.panelTab !== undefined) setUiState(db, { key: UiStateKey.RightPanelTab, value: seed.panelTab })
     if (seed.panelWidth !== undefined) {
       setUiState(db, { key: UiStateKey.RightPanelWidth, value: String(seed.panelWidth) })
@@ -872,22 +937,20 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         at,
       )
       // Its session started with Glade's prompt as it is now, so it isn't sent the lines added since
-      // (`INSTRUCTION_UPDATES`). A handoff note is as it was: one set by the seed goes to the session once.
+      // (`INSTRUCTION_UPDATES`), nor what the prompt says of the sandbox. A handoff note is as it was: one set by the
+      // seed goes to the session once.
       if (sample.title !== '') {
         setSessionContext(db, task.id, {
           instructions: true,
           instructionUpdates: INSTRUCTION_UPDATES.length,
           handoffAt: null,
+          sandbox: true,
         })
       }
       if (sample.selected === true) setUiState(db, { key: UiStateKey.SelectedTaskId, value: task.id })
       const ago = (minutes: number): EpochMs => now - minutes * MINUTE
-      for (const message of sample.messages ?? []) {
-        appendMessage(
-          db,
-          { taskId: task.id, role: message.role, body: message.body, turn: message.turn, summary: message.summary },
-          ago(message.minutesAgo),
-        )
+      for (const { role, body, turn, summary, broadcast, minutesAgo } of sample.messages ?? []) {
+        appendMessage(db, { taskId: task.id, role, body, turn, summary, broadcast }, ago(minutesAgo))
       }
       for (const [index, event] of (sample.toolEvents ?? []).entries()) {
         seedToolEvent(db, task.id, event, now, `seed-${String(index)}`)
@@ -927,6 +990,9 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       if (sample.handoff !== undefined) setHandoff(db, task.id, sample.handoff.body, ago(sample.handoff.minutesAgo))
       for (const request of sample.permissionRequests ?? []) {
         seedPermissionRequest(db, task.id, request, ago(request.minutesAgo))
+      }
+      for (const { toolUseId, outcome } of sample.permissionMarks ?? []) {
+        setPermissionMark(db, { taskId: task.id, toolUseId, outcome }, now)
       }
       if (sample.questionSet !== undefined) {
         const { preamble, questions, turn, minutesAgo } = sample.questionSet

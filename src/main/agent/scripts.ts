@@ -178,9 +178,19 @@ export enum ScriptStepKind {
    * that failed because the sandbox couldn't start. The `tool_use`; then what Seatbelt logs of its `denials`, each
    * naming the call (`onSandboxLog`); then the session's `Bash` hook hears the result and the turn waits for its
    * answer, going idle, however long; then the result. If the hook answered with something to tell the agent, the
-   * agent plays `retried` (such as the same command, run again); otherwise `gaveUp`. Stop cuts the wait short.
+   * agent plays `retried` (such as the same command, run again); otherwise `gaveUp`. Stop cuts the wait short. A step
+   * that says what its command `needs` is blocked or not by the session's sandbox as it stands: blocked, its result is
+   * the need's `blockedOutput`, it fails, and the agent plays `blocked` (such as asking with `RequestAccess`).
    */
   SandboxedBash = 'sandboxed_bash',
+  /**
+   * A call to Glade's `request_access` tool (`docs/model-surface.md`, #450), as an agent makes after the sandbox
+   * blocked its command: the `tool_use`; the session's `PreToolUse` hook hears of the call (`onAccessRequested`); then
+   * the tool's real handler runs, waiting on its card however long, the session idle meanwhile; then its result. The
+   * agent then plays `allowed` (such as the command, run again), or, when the result is an error (denied, refused,
+   * withdrawn), `denied`. A subagent's call (`parent`) names it.
+   */
+  RequestAccess = 'request_access',
 }
 
 export interface InitStep {
@@ -538,7 +548,37 @@ export interface SandboxedBashStep {
   readonly retried?: ScriptTurn
   /** What the agent does when it didn't. */
   readonly gaveUp?: ScriptTurn
+  /** A path the command reads or writes: the session's sandbox blocks the command while it may not. */
+  readonly needs?: SandboxNeed
+  /** What the agent does when the sandbox blocked the command (`needs`), in place of `retried` and `gaveUp`. */
+  readonly blocked?: ScriptTurn
   readonly parent?: string
+}
+
+/** A path a scripted command reads or writes, and what the command prints when the sandbox won't let it. */
+export interface SandboxNeed {
+  /** An absolute path. */
+  readonly path: string
+  readonly access: FileAccess
+  /** The call's result when it's blocked, e.g. `Exit code 1` and `cat: <path>: Operation not permitted`. */
+  readonly blockedOutput: string
+}
+
+export interface RequestAccessStep {
+  readonly kind: ScriptStepKind.RequestAccess
+  readonly id: string
+  /** The path the agent asks for, as it would write it. */
+  readonly path: string
+  readonly access: FileAccess
+  readonly reason: string
+  /** What the agent does once the tool says it may: such as the blocked command, run again. */
+  readonly allowed?: ScriptTurn
+  /** What the agent does when the tool's result is an error: denied, refused or withdrawn. */
+  readonly denied?: ScriptTurn
+  /** The `Agent` call's id when a subagent makes the call. */
+  readonly parent?: string
+  /** Whether the call's `tool_use` id goes with the tool's request, as Claude Code sends it: true by default. */
+  readonly namesCall?: boolean
 }
 
 export type ScriptStep =
@@ -547,6 +587,7 @@ export type ScriptStep =
   | OutsideFileStep
   | SandboxOverrideStep
   | SandboxedBashStep
+  | RequestAccessStep
   | ShellStep
   | InitStep
   | TextStep
@@ -816,6 +857,15 @@ export const sandboxedBash = (
   output: string,
   options: Omit<SandboxedBashStep, 'kind' | 'id' | 'command' | 'output'> = {},
 ): SandboxedBashStep => ({ kind: ScriptStepKind.SandboxedBash, id, command, output, ...options })
+
+/** A call to Glade's `request_access` tool (see `ScriptStepKind.RequestAccess`). */
+export const requestAccess = (
+  id: string,
+  path: string,
+  access: FileAccess,
+  reason: string,
+  options: Omit<RequestAccessStep, 'kind' | 'id' | 'path' | 'access' | 'reason'> = {},
+): RequestAccessStep => ({ kind: ScriptStepKind.RequestAccess, id, path, access, reason, ...options })
 
 /** What Claude Code suggests for a `Bash` call that asks: an exact rule for the command (as probed, §9). */
 export const bashSuggestions = (command: string): readonly PermissionSuggestion[] => [
@@ -2649,21 +2699,34 @@ export const ASKS_SANDBOX = {
   host: 'registry.npmjs.org',
   install: 'npm install',
   docs: 'https://docs.acme.dev/api/retries',
-  notes: '/code/acme-shared/notes.md',
-  changelog: '/code/acme-shared/CHANGELOG.md',
-  config: '/code/acme-shared/config.json',
+  // Under `/Users`, which the sandbox denies reads of, so each asks: these folders needn't exist.
+  notes: '/Users/Shared/acme-shared/notes.md',
+  changelog: '/Users/Shared/acme-docs/CHANGELOG.md',
+  config: '/Users/Shared/acme-config/config.json',
+  configFolder: '/Users/Shared/acme-config',
+  configReason: '`cat` needs to read the shared config.',
   compose: 'docker compose up -d',
+  push: 'git push origin api-client',
   reply: 'Installed the dependencies, read the shared notes and config, and started the database.',
+  gaveUp: "I couldn't read the shared config, so I'll use the defaults.",
 } as const
 
 /** What Seatbelt denies the `asks-sandbox` script's command. */
 const CONFIG_DENIAL: SandboxDenial = { process: 'cat', operation: SandboxOperation.ReadData, path: ASKS_SANDBOX.config }
 
+/** What the `asks-sandbox` script's command needs of the sandbox, and what it prints when blocked. */
+const CONFIG_NEED: SandboxNeed = {
+  path: ASKS_SANDBOX.config,
+  access: FileAccess.Read,
+  blockedOutput: commandFailure(`cat: ${ASKS_SANDBOX.config}: Operation not permitted`),
+}
+
 /**
  * A turn that reaches past its workspace every way the sandbox asks about, in the order a task might: a command
  * connecting to a host, `WebFetch` to a domain, a file read and a file write outside the workspace, a command the
- * sandbox blocks (then, once the hook says it may, run again), and one that asks to run outside the sandbox. Run
- * sandboxed, each asks; unsandboxed, only the file tools and the override ask, and only in the ask mode.
+ * sandbox blocks (the agent then asks for its folder with `request_access`, and once allowed runs it again), and two
+ * that ask to run outside the sandbox. Run sandboxed, each asks; unsandboxed, only the file tools and the overrides
+ * ask, and only in the ask mode.
  */
 const asksSandbox: AgentScript = {
   name: 'asks-sandbox',
@@ -2682,20 +2745,27 @@ const asksSandbox: AgentScript = {
         '## Unreleased\n\n- Retries back off.',
         `The file ${ASKS_SANDBOX.changelog} has been updated.`,
       ),
-      sandboxedBash(
-        'config',
-        `cat ${ASKS_SANDBOX.config}`,
-        commandFailure(`cat: ${ASKS_SANDBOX.config}: Operation not permitted`),
-        {
-          denials: [CONFIG_DENIAL],
-          retried: [
-            sandboxedBash('config-again', `cat ${ASKS_SANDBOX.config}`, '{ "db": "staging" }', { failed: false }),
-          ],
-          gaveUp: [say("I couldn't read the shared config, so I'll use the defaults.")],
-        },
-      ),
+      sandboxedBash('config', `cat ${ASKS_SANDBOX.config}`, '{ "db": "staging" }', {
+        failed: false,
+        needs: CONFIG_NEED,
+        denials: [CONFIG_DENIAL],
+        blocked: [
+          requestAccess('config-access', ASKS_SANDBOX.configFolder, FileAccess.Read, ASKS_SANDBOX.configReason, {
+            allowed: [
+              sandboxedBash('config-again', `cat ${ASKS_SANDBOX.config}`, '{ "db": "staging" }', {
+                failed: false,
+                needs: CONFIG_NEED,
+              }),
+            ],
+            denied: [say(ASKS_SANDBOX.gaveUp)],
+          }),
+        ],
+      }),
       sandboxOverride('compose', ASKS_SANDBOX.compose, 'Container acme-db  Started', {
         description: 'Start the database',
+      }),
+      sandboxOverride('push', ASKS_SANDBOX.push, 'To github.com:acme/api.git\n * [new branch]      api-client', {
+        description: 'Push the branch',
       }),
       say(ASKS_SANDBOX.reply),
       result(),

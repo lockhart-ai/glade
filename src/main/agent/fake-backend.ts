@@ -19,6 +19,7 @@ import {
   type ToolPermissionCall,
 } from './backend'
 import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
+import { REQUEST_ACCESS_TOOL } from '../../shared/toolName'
 import { toolResult, toolUse } from './test-sdk-messages'
 
 /** What a test says of a tool call it asks the runner about: the rest is a plain top-level call, suggesting nothing. */
@@ -33,6 +34,16 @@ export interface AskedPermission {
 }
 
 /** A message the runner sent a session. */
+/** Who makes a tool call (`FakeAgentSession.callTool`): the agent itself by default. */
+export interface ToolCaller {
+  /** The SDK's id for the subagent making the call. */
+  readonly agentId?: string
+  /** The subagent's `Agent` call. */
+  readonly parent?: string
+  /** Whether the call's `tool_use` id goes with the tool's request: true by default. */
+  readonly namesCall?: boolean
+}
+
 export interface SentMessage {
   readonly text: string
   readonly uuid: string
@@ -229,11 +240,23 @@ export class FakeAgentSession implements AgentSession {
    * Calls one of the session's in-process MCP tools, as the agent would: streams the `tool_use`, runs the tool's real
    * handler through its MCP server, then streams the `tool_result` it gave. Resolves once the result is streamed; a
    * blocking tool (`ask`) waits until it returns. Aborting `signal` cancels the call, as the SDK does on an interrupt,
-   * and this rejects without streaming a result.
+   * and this rejects without streaming a result. A call to `request_access` tells the session's `PreToolUse` hook
+   * first, as the SDK does, and `caller` says whose it is: a subagent's (`agentId`, under its `Agent` call `parent`),
+   * and whether the call's id goes with the tool's request, as Claude Code sends it (`namesCall`, true by default).
    */
-  async callTool(toolUseId: string, name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<void> {
-    this.emit(toolUse(toolUseId, name, input))
-    const { output, isError } = await this.tools.call(name, input, signal)
+  async callTool(
+    toolUseId: string,
+    name: string,
+    input: Record<string, unknown>,
+    signal?: AbortSignal,
+    caller: ToolCaller = {},
+  ): Promise<void> {
+    this.emit(toolUse(toolUseId, name, input, caller.parent ?? null))
+    if (name === REQUEST_ACCESS_TOOL) {
+      this.options.hooks?.onAccessRequested?.({ toolUseId, agentId: caller.agentId ?? null, input })
+    }
+    const named = caller.namesCall === false ? undefined : toolUseId
+    const { output, isError } = await this.tools.call(name, input, signal, named)
     this.emit(toolResult(toolUseId, [{ type: 'text', text: output }], isError))
   }
 

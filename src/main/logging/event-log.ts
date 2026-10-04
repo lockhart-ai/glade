@@ -21,6 +21,7 @@ import {
 } from '../../shared/domain'
 import { permissionRuleString } from '../../shared/permissions'
 import { answersResult } from '../../shared/questions'
+import { SandboxGrantScope } from '../../shared/sandbox'
 import { excerpt } from './format'
 import { LogScope, type LogFields, type Logger } from './logger'
 
@@ -258,6 +259,13 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
       case EventType.PermissionWithdrawn:
         permissionRequest(event.permissionRequest)
         return
+      case EventType.PermissionMarked:
+        permissions.info('permission marked', {
+          taskId: event.mark.taskId,
+          toolUseId: event.mark.toolUseId,
+          outcome: event.mark.outcome.kind,
+        })
+        return
       case EventType.TodosChanged:
         tools.info('todos changed', { taskId: event.taskId, todos: event.todos?.items.length ?? 0 })
         return
@@ -317,6 +325,14 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
         return
       case EventType.MenuBarChanged:
         // Sent to the menu bar popover alone, never through here: what's in it is logged as the tasks change.
+        return
+      case EventType.SandboxGrantsChanged:
+        // How many, never which: a granted folder's path may name a project.
+        app.info('sandbox grant list changed', {
+          scope: event.target.scope,
+          workspaceId: event.target.scope === SandboxGrantScope.Workspace ? event.target.workspaceId : null,
+          grants: event.grants.length,
+        })
         return
       case EventType.ModelsChanged:
         // Logged as the SDK reports them (`recordSdkModels`).

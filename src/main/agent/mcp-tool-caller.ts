@@ -8,6 +8,12 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { z } from 'zod'
 import type { AgentMcpServers } from './backend'
 
+/**
+ * The key Claude Code sends a call's `tool_use` id under, in the MCP request's `_meta` (from the bundled binary,
+ * 2.1.283; not probed live, so nothing depends on it alone: `docs/sdk-notes.md` §15).
+ */
+export const TOOL_USE_ID_META = 'claudecode/toolUseId'
+
 // A tool's result, as far as a caller reads it: its text blocks, and whether it failed.
 const toolResult = z.looseObject({
   content: z.array(z.looseObject({ type: z.string(), text: z.string().optional() })).default([]),
@@ -56,9 +62,15 @@ export interface McpToolCaller {
    * Calls a tool by its SDK name, e.g. `mcp__glade__set_title`, and waits for its result as long as Claude Code would
    * (`toolTimeoutMs`); past that, the call is cancelled and this rejects. Aborting `signal` cancels the call, as the
    * SDK does when a turn is interrupted: the tool's handler sees its own signal abort, and this rejects. Throws if
-   * there's no in-process server of that name.
+   * there's no in-process server of that name. Given `toolUseId`, the call's `tool_use` id goes with the request, as
+   * Claude Code sends it (`TOOL_USE_ID_META`).
    */
-  call(name: string, input: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<McpToolOutcome>
+  call(
+    name: string,
+    input: Readonly<Record<string, unknown>>,
+    signal?: AbortSignal,
+    toolUseId?: string,
+  ): Promise<McpToolOutcome>
   /** Disconnects from every server it has called. */
   close(): Promise<void>
 }
@@ -96,12 +108,13 @@ export function createMcpToolCaller(servers: AgentMcpServers): McpToolCaller {
   }
 
   return {
-    async call(name, input, signal) {
+    async call(name, input, signal, toolUseId) {
       const parsed = parseMcpToolName(name)
       if (parsed === null) throw new Error(`${name} isn't an MCP tool`)
       const { client, timeoutMs } = await clientFor(parsed.server)
       const options = { timeout: timeoutMs, ...(signal === undefined ? {} : { signal }) }
-      const called = await client.callTool({ name: parsed.tool, arguments: { ...input } }, undefined, options)
+      const meta = toolUseId === undefined ? {} : { _meta: { [TOOL_USE_ID_META]: toolUseId } }
+      const called = await client.callTool({ name: parsed.tool, arguments: { ...input }, ...meta }, undefined, options)
       const result = toolResult.parse(called)
       const output = result.content.flatMap((block) => (block.text === undefined ? [] : [block.text])).join('\n')
       return { output, isError: result.isError ?? false }

@@ -20,6 +20,15 @@ configured server whose author names it `glade` too). This can't be `canUseTool`
 `allowedTools`, so Claude Code never asks about them, and Allow all (`bypassPermissions`) skips `canUseTool` for every
 tool, `glade-control`'s included; a `PreToolUse` hook fires regardless of permission mode, and is asked first.
 
+**One exception: `request_access` (#450).** A subagent's commands run in the sandbox as the main agent's do, so a
+subagent the sandbox blocked asks for the folder itself, with `glade`'s `request_access` ("Implemented:
+`request_access`", below). The guard lets that one tool through, and nothing else: every other tool of `glade`, and
+all of `glade-control`, is still refused to a subagent. The card it opens names the subagent, as a subagent's
+permission card does. The same hook tells the runner which call each `request_access` is and whose (its `tool_use_id`
+and `agent_id`), the main agent's too: an MCP tool's handler is given its call's `tool_use` id (`_meta`'s
+`claudecode/toolUseId`, [`sdk-notes.md` §15](sdk-notes.md#15-sandbox)), which is how it finds its call, but never
+whose call it is.
+
 ## What a user message contains
 
 A message's content (`src/main/agent/user-content.ts`'s `userContent`, called from the runner's `hand`): an image
@@ -145,7 +154,9 @@ question.
   or `{}` for a card skipped outright. The tool's description tells the model that any question may come back
   unanswered, and to read `anythingElse` first, since it may hold the real answer.
 - **Answering in words:** a message sent (`tasks.send`) while a question is open answers it. It's saved to the chat as
-  your reply, in the turn that asked; it isn't queued and starts no turn. The tool returns `{"freeText":"…"}`.
+  your reply, in the turn that asked; it isn't queued and starts no turn. The tool returns `{"freeText":"…"}`. A
+  broadcast (`tasks.broadcast`, #489) is the one message that doesn't: it went to every task, so it waits in the queue
+  until the question is answered.
 - **Stopped or failed:** a turn that ends while its question is open withdraws it; Stop withdraws it first. The tool
   returns an error saying the questions were withdrawn.
 - **Relaunch:** a question the app quit on stays open, and its task waits on you; its `ask` call ends as an error. When
@@ -240,6 +251,7 @@ status (open, merged, closed) isn't fetched.
 | `update_artifact` | `{ path: string, title?: string, newPath?: string }` or `{ url: string, title?: string, newUrl?: string }` | Renames an artifact and/or points it at another file or page, keeping its place. |
 | `remove_artifact` | `{ path: string }` or `{ url: string }` | Takes a file or a link off the task's artifacts; a file stays. |
 | `show_file` | `{ path: string, line?: number }` | Opens a file in the Files tab for the user. |
+| `request_access` | `{ path: string, access: "read" \| "write", reason: string }` | Asks the user for the folder a sandboxed command was blocked from, on a permission card, and blocks until answered. See below. |
 
 `Question` (draft):
 
@@ -253,6 +265,68 @@ type Question =
 Answers return as JSON keyed by question index, for the questions answered (any may be skipped), plus `anythingElse`
 when the user typed in the card's "Anything else?" box. The user can ignore the card and reply in words instead; that
 answers it too.
+
+## Implemented: `request_access` (P15-05, #450)
+
+The agent sandbox (#445, [`sdk-notes.md` §15](sdk-notes.md#15-sandbox)) blocks a command's read or write outside the
+folders the task has been granted, and the command just fails with `Operation not permitted`: Glade can't see which
+path was blocked, or whether it was a read or a write. So the agent says, with `mcp__glade__request_access`, and then
+runs the command again. The system prompt tells it to (below), and so does the tool's own description. A session
+resumed from before the sandbox was on has neither in its prompt, so it's told once, ahead of its next message
+("Resumed sessions", below).
+
+- **Input:** `{ path, access, reason }`, checked at the boundary. `path` is the absolute path that was blocked, a file
+  or a folder (`~` and `~/…` are taken as the home folder); `access` is `"read"` or `"write"`; `reason` is a short
+  sentence the user reads on the card. A missing or empty field, or another `access`, is a tool error from the SDK's
+  check, and so is a `path` over 4096 characters, a `reason` over 500, or either with a control character (a line
+  break, an escape) or a text-direction character (the bidirectional overrides, embeddings and isolates) in it, which
+  could make the card read as something it isn't. A relative path is a tool error from the handler (`Give the absolute
+  path the command was blocked from…`). None of these opens a card.
+- **The card:** the sandbox's folder card, "The agent wants to read `<folder>`" or "…write to `<folder>`", with the
+  reason under it (backticks in it are set as code) and **Allow for this task** · **Allow for this workspace** ·
+  **Deny**, with Deny's optional note. The folder is the path itself if it's a folder or doesn't exist yet, and
+  otherwise the folder the file is in. Both the folder and what kind of thing the path is are taken where the path
+  really is (links followed): a link to a file asks for the real file's folder, never the link's. **A file whose
+  folder is too much to offer** (the home folder, `/Users`, `/Volumes`, `/System/Volumes`, or a folder above one) is
+  asked for by itself, "The agent wants to read `~/.gitconfig`", and the grant is that file alone. A read asks for
+  read-only access and a write for read-write. A subagent's call names the subagent at the card's top right. The call waits for the answer,
+  however long (the `glade` server's timeout, as for `ask`); meanwhile the task needs you, as with any permission card.
+- **Allowed:** the grant is saved for the task or the workspace (`sandbox_grants`) and applied to the running sessions
+  it covers; the call returns only once its own session has it, so the retry works:
+  `Allowed for this task: you can now read /Users/me/code/acme-shared. Run the command that was blocked again.` (or
+  `Allowed for this workspace: you can now read and write …`).
+- **Denied:** a tool error, `Denied: the user didn't allow <path>, so nothing was granted. Don't retry outside the
+  sandbox.`, then `The user said: <note>` when you left one. Nothing is granted. Allowing a folder that was swapped
+  for a link while its card was open is a denial too, with Glade's note in place of yours (`Glade didn’t grant this:
+  the folder changed while the request was open…`).
+- **Denied earlier in the turn:** the same folder (or a write to a folder whose read was denied) asked for again
+  before the user's next message opens no card: a tool error at once, `Denied: the user already denied <path> earlier
+  in this turn, so they weren't asked again and nothing was granted…`, with the note they gave then. It holds for a
+  subagent repeating the agent's request and the other way round.
+- **Withdrawn** (Stop, the turn ending, the session closing): a tool error, `No decision was made: the request was
+  withdrawn before the user answered.`
+- **No card when there's nothing to decide,** each answered at once:
+  - the session isn't sandboxed: `The sandbox is off in this session, so it didn't block anything and there's nothing
+    to grant.`
+  - the path is in the workspace root, which is always read-write: `<path> is inside the workspace, which you can
+    already read and write, so there's nothing to grant…`
+  - the sandbox already lets commands use it as asked: `<path> is already granted for this task` (or `this workspace`,
+    or `every workspace`) `with that access: nothing more to grant.`, or, for a read outside the home folder, `/Users`
+    and `/Volumes`, which the sandbox doesn't deny, `You can already use <path> that way: nothing needs granting.` A
+    write to a folder granted read-only does ask, for read-write.
+  - the path is a credential file or folder (`~/.ssh`, `~/.aws`, …), which no grant opens: a tool error, `Refused:
+    <path> is one of the credential files and folders the sandbox never opens…`
+  - the path is a folder that's too much to grant from a request (the home folder, `/Users`, `/Volumes`,
+    `/System/Volumes`, or a folder above one, the whole disk included): a tool error, `Refused: <path> is too much to
+    grant from a request… Ask for the folder inside it that the command needs. If the task really needs all of it,
+    tell the user: they can add it under Sandbox in Settings.`
+  - the path can't be granted (a path with a glob character, one that can't be resolved): a tool error saying why.
+- **After a relaunch:** a card open when Glade quit is still there. Answering it saves the grant, resumes the session
+  (which starts with the grant) and tells the agent what was decided, as for any permission request the app quit on.
+- **Subagents may call it,** the one Glade tool they may ("Main agent only", above).
+
+The handler is `requestAccess` in `src/main/agent/runner.ts`, reached through `GladeToolContext.requestAccess`; what
+it asks for and what it answers are in `src/main/permissions/sandbox-ask.ts`.
 
 ## Todos: Claude Code's own tools, not a Glade tool (P5-03)
 
@@ -341,8 +415,15 @@ The "after the user's first message" line asks only for what isn't set yet, so a
 the user has renamed; with both set, the line goes. With Status summary or Task titles off in Settings › Agent, the
 prompt leaves out asking for it.
 
-Two more parts are added after that, each after a blank line, when they apply:
+Three more parts are added after that, each after a blank line, when they apply:
 
+- **The sandbox:** in a session that runs sandboxed (Settings › Agent › Sandbox on as it starts), one paragraph
+  (`SANDBOX_LINE`): that its commands can read and write the workspace folder and, beyond it, only the folders and
+  domains the user has allowed, and that when a command fails with "Operation not permitted" on a path outside the
+  workspace it should call `request_access` (the absolute path, read or write, a short reason) instead of retrying
+  outside the sandbox, and run the command again once it's allowed. With the sandbox off, the prompt doesn't mention
+  it. A session resumed from before the sandbox was on keeps its old prompt, and is sent this paragraph once instead
+  ("Resumed sessions", below).
 - **The control tools:** while the session has them, one line: that it has Glade's control tools (the `glade-control`
   MCP server; find them with tool search), which list, read, create, change, message and delete Glade's tasks, and to
   use them only when the user asks to work with Glade or its other tasks.
@@ -358,3 +439,11 @@ had once, as a `[Glade: new instructions for this session] … [end]` block ahea
 the chat shows only your message. How many each session has had is kept in SQLite
 (`session_context.instruction_updates`), so a relaunch neither loses nor repeats the block. An imported session gets
 Glade's whole prompt instead ([`control-api.md`](control-api.md)), these lines and all.
+
+The sandbox paragraph isn't in that list, since it's only for a session that runs sandboxed (#452). A session that
+started outside the sandbox (before the switch was on, or before the sandbox existed) and resumes in it is sent
+`SANDBOX_LINE` once, as a `[Glade: this session now runs in a sandbox] … [end]` block ahead of the next message
+Glade sends it, after the block of new instructions and before a handoff note's. Whether a session has been told is
+kept in SQLite too (`session_context.sandbox`): one that started sandboxed has it in its prompt and is never sent it,
+one that still runs outside the sandbox isn't told, and one told once isn't told again, whatever the switch does
+later. An imported session gets it in Glade's whole prompt when it runs sandboxed.

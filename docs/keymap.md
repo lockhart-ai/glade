@@ -8,6 +8,7 @@ current binding. The menu bar answers the keys of its items; the window listens 
 | Global | New task | ⌘N |
 | | Jump to task: focuses the task search, as Search tasks does; type a task's name and choose it | ⌘P |
 | | Search tasks | ⌘F |
+| | Broadcast to every active task: opens the Broadcast modal, which sends one message to them all | ⌘⇧B |
 | | Settings | ⌘, |
 | | New workspace | ⌘⇧N |
 | | Open folder as workspace | ⌘O |

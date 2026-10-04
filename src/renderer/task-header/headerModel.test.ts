@@ -111,6 +111,7 @@ const ATTENTION = {
   sessionId: 'session-1',
   asking: false,
   awaitingPermission: false,
+  permissionAsk: null,
   unread: false,
   backgroundWork: false,
 }

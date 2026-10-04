@@ -3,7 +3,7 @@
 // whole overlay (`../agent/sandbox`'s real builder) without restarting. A fake agent session behind the real bridge,
 // saving to a database in a temporary folder. The home folder is a temporary one too, so the paths the sandbox
 // resolves are never the machine's own.
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -40,6 +40,7 @@ import { NO_GRANTS, sandboxOverlay, sandboxStartSettings, usableGrants } from '.
 import * as sdk from '../agent/test-sdk-messages'
 import { registerBridge } from '../bridge'
 import { CommandFailure } from '../bridge/errors'
+import type { Emit } from '../bridge/events'
 import { fakeIpcPair } from '../bridge/fake-ipc'
 import { listPermissionRequests } from '../db/repositories/permission-requests'
 import { addSandboxGrant, listSandboxGrants, SandboxGrantChange } from '../db/repositories/sandbox-grants'
@@ -51,15 +52,22 @@ import { setUiState } from '../db/repositories/ui-state'
 import { createWorkspace } from '../db/repositories/workspaces'
 import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
 import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
+import { pathKey } from '../permissions/canonical-path'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
 import {
   changeSandboxFolderAccess,
   grantedDomain,
   grantedFolder,
+  grantingGrant,
+  heldGrants,
   grantSandboxAccess,
+  hasMoved,
   revokeSandboxGrant,
+  saveCardGrant,
+  saveSandboxGrant,
   sandboxGrantsOf,
   taskSandboxGrants,
+  type GrantedUse,
   type SandboxGrantsContext,
 } from './grants'
 
@@ -108,6 +116,7 @@ let workspace: Workspace
 let task: Task
 let backend: FakeAgentBackend
 let runner: AgentRunner
+let emit: Emit
 let glade: GladeBridge
 let log: MemoryLog
 let grants: SandboxGrantsContext
@@ -117,7 +126,7 @@ function launch(): void {
   backend = new FakeAgentBackend()
   log = createMemoryLog()
   const ipc = fakeIpcPair()
-  ;({ runner } = registerBridge({
+  ;({ runner, emit } = registerBridge({
     ipc: ipc.main,
     db: database.db,
     targets: () => [ipc.window],
@@ -131,7 +140,7 @@ function launch(): void {
     log: log.logger,
   }))
   glade = createBridge(ipc.renderer)
-  grants = { db: database.db, runner }
+  grants = { db: database.db, runner, emit }
 }
 
 beforeEach(() => {
@@ -1130,21 +1139,27 @@ describe('one folder, however it’s spelt', () => {
     expect(kept()).toEqual([])
   })
 
-  it('still finds a folder that was replaced by a link since it was granted, to change it or take it back', async () => {
+  it('keeps a grant to the path it was given for when its folder is replaced by a link, and still finds it by that', async () => {
     const moved = join(scratch, 'disk', 'moved')
     const granted = join(scratch, 'granted')
     mkdirSync(moved)
-    // Granted before it was there, then made as a link to somewhere else: kept as written, and the same folder still.
+    // Granted before it was there, then made as a link to somewhere else: kept as written.
     await grantSandboxAccess(grants, { target: GLADE, grant: readWrite(granted) })
     symlinkSync(moved, granted)
 
-    expect(await grantSandboxAccess(grants, { target: GLADE, grant: readWrite(moved) })).toMatchObject({
-      change: SandboxGrantChange.Unchanged,
+    // Where the link leads was never granted (#510's review: it was taken for the same folder, and so opened).
+    expect(await grantSandboxAccess(grants, { target: GLADE, grant: read(moved) })).toMatchObject({
+      change: SandboxGrantChange.Added,
     })
-    expect(kept()).toEqual([readWrite(granted)])
-    expect(await changeSandboxFolderAccess(grants, GLADE, moved, FolderAccess.Read)).toMatchObject({
+    expect(kept()).toEqual([readWrite(granted), read(moved)])
+    // Each is changed by its own name, and the one that was granted is still taken back by it.
+    expect(await changeSandboxFolderAccess(grants, GLADE, granted, FolderAccess.Read)).toMatchObject({
       change: SandboxGrantChange.Changed,
     })
+    expect(kept()).toEqual([read(granted), read(moved)])
+    expect(await revokeSandboxGrant(grants, GLADE, folderKey(granted))).toMatchObject({ removed: true })
+    expect(kept()).toEqual([read(moved)])
+    // With nothing kept by the link's name any more, it's another way to where it leads.
     expect(await revokeSandboxGrant(grants, GLADE, folderKey(granted))).toMatchObject({ removed: true })
     expect(kept()).toEqual([])
   })
@@ -1201,6 +1216,120 @@ describe('what a task’s session reads', () => {
   })
 })
 
+describe('a permission card’s grant', () => {
+  let scratch: string
+
+  beforeEach(() => {
+    scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'glade-card-')))
+    mkdirSync(join(scratch, 'disk', 'cache'), { recursive: true })
+    mkdirSync(join(scratch, 'Documents'))
+  })
+
+  afterEach(() => {
+    rmSync(scratch, { recursive: true, force: true })
+  })
+
+  const kept = (): Grant[] => listSandboxGrants(database.db, taskTarget()).map(({ grant }) => grant)
+
+  it('is saved as the card showed it, and never resolved again', () => {
+    const cache = join(scratch, 'disk', 'cache')
+    expect(hasMoved(cache)).toBe(false)
+    // Swapped for a link since the card opened: whoever answers the card refuses it (`hasMoved`). And even saved, it's
+    // the path the card showed that is kept, never where it leads now.
+    renameSync(cache, `${cache}.was`)
+    symlinkSync(join(scratch, 'Documents'), cache)
+    expect(hasMoved(cache)).toBe(true)
+
+    expect(saveCardGrant(database.db, { target: taskTarget(), grant: readWrite(cache) })).toBe(SandboxGrantChange.Added)
+    expect(kept()).toEqual([readWrite(cache)])
+    // `saveSandboxGrant`, for a folder added in Settings, keeps it by where it is now instead.
+    saveSandboxGrant(database.db, { target: workspaceTarget(), grant: readWrite(cache) })
+    expect(listSandboxGrants(database.db, workspaceTarget()).map(({ grant }) => grant)).toEqual([
+      readWrite(join(scratch, 'Documents')),
+    ])
+  })
+
+  it('says a folder has moved when it, or a folder above it, is now a link, or can’t be resolved', () => {
+    const cache = join(scratch, 'disk', 'cache')
+    expect(hasMoved(join(cache, 'not', 'made', 'yet'))).toBe(false)
+    expect(hasMoved(join(scratch, 'link', 'cache'))).toBe(false)
+    symlinkSync(join(scratch, 'disk'), join(scratch, 'link'))
+    expect(hasMoved(join(scratch, 'link', 'cache'))).toBe(true)
+    symlinkSync(join(scratch, 'b'), join(scratch, 'a'))
+    symlinkSync(join(scratch, 'a'), join(scratch, 'b'))
+    expect(hasMoved(join(scratch, 'a'))).toBe(true)
+    // Written another way than it's kept, it isn't the path a card would show.
+    expect(hasMoved(`${cache}/`)).toBe(true)
+  })
+
+  it('upgrades the folder it already has, keeps a domain lower-case, and refuses what the sandbox can’t take', () => {
+    const cache = join(scratch, 'disk', 'cache')
+    saveCardGrant(database.db, { target: taskTarget(), grant: read(cache) })
+    expect(saveCardGrant(database.db, { target: taskTarget(), grant: read(cache) })).toBe(SandboxGrantChange.Unchanged)
+    expect(saveCardGrant(database.db, { target: taskTarget(), grant: readWrite(cache) })).toBe(
+      SandboxGrantChange.Changed,
+    )
+    expect(saveCardGrant(database.db, { target: taskTarget(), grant: domain('Registry.NPMjs.org') })).toBe(
+      SandboxGrantChange.Added,
+    )
+    expect(kept()).toEqual([readWrite(cache), domain('registry.npmjs.org')])
+
+    expect(refusalOf(() => saveCardGrant(database.db, { target: taskTarget(), grant: read('/') }))).toMatch(/disk/)
+    expect(refusalOf(() => saveCardGrant(database.db, { target: taskTarget(), grant: read(`${scratch}/*`) }))).toMatch(
+      /pattern/,
+    )
+    expect(() => saveCardGrant(database.db, { target: taskTarget('no-such-task'), grant: read(cache) })).toThrow(
+      expect.objectContaining({ code: BridgeErrorCode.NotFound }),
+    )
+  })
+
+  it('keeps a single file a single file: to the sandbox, and to whoever asks which grant gives a path', async () => {
+    const gitconfig = join(scratch, '.gitconfig')
+    const file: Grant = { kind: SandboxGrantKind.Folder, path: gitconfig, access: FolderAccess.Read, file: true }
+    saveCardGrant(database.db, { target: taskTarget(), grant: file })
+    await grantSandboxAccess(grants, { target: GLADE, grant: readWrite(join(scratch, 'disk')) })
+
+    expect(kept()).toEqual([file])
+    expect(taskSandboxGrants(database.db, task)).toEqual({
+      folders: [
+        { path: gitconfig, access: FolderAccess.Read, file: true },
+        { path: join(scratch, 'disk'), access: FolderAccess.ReadWrite },
+      ],
+      domains: [],
+    })
+    const held = heldGrants(database.db, task)
+    expect(held).toEqual([
+      { scope: SandboxGrantScope.Task, grant: file },
+      { scope: SandboxGrantScope.Glade, grant: readWrite(join(scratch, 'disk')) },
+    ])
+    const gives = (path: string, access = FolderAccess.Read): SandboxGrantScope | null =>
+      grantingGrant(held, { kind: SandboxGrantKind.Folder, key: pathKey(path), access })?.scope ?? null
+    // The file's grant gives that path, and nothing that only starts like it or is beside it.
+    expect(gives(gitconfig)).toBe(SandboxGrantScope.Task)
+    expect(gives(gitconfig, FolderAccess.ReadWrite)).toBeNull()
+    expect(gives(`${gitconfig}.bak`)).toBeNull()
+    expect(gives(join(gitconfig, 'inside'))).toBeNull()
+    expect(gives(join(scratch, '.zshrc'))).toBeNull()
+    expect(gives(scratch)).toBeNull()
+    // A folder's gives everything in it.
+    expect(gives(join(scratch, 'disk', 'cache', 'a.json'), FolderAccess.ReadWrite)).toBe(SandboxGrantScope.Glade)
+  })
+
+  it('says whose grant gives a path by the grant as kept, never by where its folder leads now', async () => {
+    const cache = join(scratch, 'disk', 'cache')
+    await grantSandboxAccess(grants, { target: taskTarget(), grant: read(cache) })
+    renameSync(cache, `${cache}.was`)
+    symlinkSync(join(scratch, 'Documents'), cache)
+
+    const held = heldGrants(database.db, task)
+    const gives = (path: string): boolean =>
+      grantingGrant(held, { kind: SandboxGrantKind.Folder, key: pathKey(path), access: FolderAccess.Read }) !== null
+    // Before #510's review, the grant was taken for the folder its link now leads to.
+    expect(gives(join(scratch, 'Documents', 'taxes.txt'))).toBe(false)
+    expect(gives(join(cache, 'index.json'))).toBe(true)
+  })
+})
+
 describe('grants going with what they belong to', () => {
   it('deletes a task’s grants with the task, and keeps the workspace’s and Glade’s', async () => {
     const sibling = anotherTask()
@@ -1238,5 +1367,69 @@ describe('grants going with what they belong to', () => {
     expect(listSandboxGrants(database.db, workspaceTarget(web.id))).toHaveLength(1)
     expect(listSandboxGrants(database.db, taskTarget(webTask.id))).toHaveLength(1)
     expect(listSandboxGrants(database.db, GLADE)).toHaveLength(1)
+  })
+})
+
+describe('a card’s grant', () => {
+  it('is saved without telling any session, for whoever answered the card to apply', async () => {
+    const session = await startTask()
+    const overlays = session.flagSettings.length
+    const target: SandboxGrantTarget = { scope: SandboxGrantScope.Task, taskId: task.id }
+
+    expect(saveSandboxGrant(database.db, { target, grant: read(`${NOTES}/`) })).toBe(SandboxGrantChange.Added)
+    expect(saveSandboxGrant(database.db, { target, grant: read(NOTES) })).toBe(SandboxGrantChange.Unchanged)
+    expect(saveSandboxGrant(database.db, { target, grant: readWrite(NOTES) })).toBe(SandboxGrantChange.Changed)
+    expect(saveSandboxGrant(database.db, { target, grant: domain('Registry.NPMjs.org') })).toBe(
+      SandboxGrantChange.Added,
+    )
+
+    expect(listSandboxGrants(database.db, target).map(({ grant }) => grant)).toEqual([
+      readWrite(NOTES),
+      domain('registry.npmjs.org'),
+    ])
+    expect(session.flagSettings).toHaveLength(overlays)
+    expect(() => saveSandboxGrant(database.db, { target, grant: read('/') })).toThrow(CommandFailure)
+    expect(() =>
+      saveSandboxGrant(database.db, {
+        target: { scope: SandboxGrantScope.Task, taskId: 'gone' },
+        grant: read(NOTES),
+      }),
+    ).toThrow(CommandFailure)
+  })
+
+  it('says whose grant gives a task a folder or a domain: the narrowest scope that does', () => {
+    const other = anotherTask()
+    const workspaceTarget: SandboxGrantTarget = { scope: SandboxGrantScope.Workspace, workspaceId: workspace.id }
+    saveSandboxGrant(database.db, { target: GLADE, grant: read(TOOLCHAIN) })
+    saveSandboxGrant(database.db, { target: GLADE, grant: domain('*.acme.dev') })
+    saveSandboxGrant(database.db, { target: workspaceTarget, grant: read(SHARED) })
+    saveSandboxGrant(database.db, { target: workspaceTarget, grant: readWrite(DOCS) })
+    saveSandboxGrant(database.db, {
+      target: { scope: SandboxGrantScope.Task, taskId: task.id },
+      grant: readWrite(SHARED),
+    })
+
+    const scope = (grant: Grant, of = task): SandboxGrantScope | null => {
+      const use: GrantedUse =
+        grant.kind === SandboxGrantKind.Folder
+          ? { kind: grant.kind, key: pathKey(grant.path), access: grant.access }
+          : grant
+      return grantingGrant(heldGrants(database.db, of), use)?.scope ?? null
+    }
+    // A file inside a granted folder is covered by it; a wider access than granted isn't.
+    expect(scope(read(`${TOOLCHAIN}/bin/node`))).toBe(SandboxGrantScope.Glade)
+    expect(scope(readWrite(TOOLCHAIN))).toBeNull()
+    expect(scope(read(`${DOCS}/guide.md`))).toBe(SandboxGrantScope.Workspace)
+    expect(scope(readWrite(DOCS))).toBe(SandboxGrantScope.Workspace)
+    // The task's own grant comes before the workspace's, and is no other task's.
+    expect(scope(read(SHARED))).toBe(SandboxGrantScope.Task)
+    expect(scope(readWrite(SHARED))).toBe(SandboxGrantScope.Task)
+    expect(scope(read(SHARED), other)).toBe(SandboxGrantScope.Workspace)
+    expect(scope(readWrite(SHARED), other)).toBeNull()
+    expect(scope(read(NOTES))).toBeNull()
+    expect(scope(domain('docs.acme.dev'))).toBe(SandboxGrantScope.Glade)
+    expect(scope(domain('registry.npmjs.org'))).toBeNull()
+    // A folder isn't a domain, whatever its name.
+    expect(scope(domain(TOOLCHAIN))).toBeNull()
   })
 })

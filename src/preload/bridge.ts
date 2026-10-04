@@ -1,10 +1,12 @@
 import {
   COMMAND_CHANNEL,
+  EVENT_BATCH,
   EVENT_CHANNEL,
+  type BatchListener,
   type BridgeResult,
   type EventListener,
   type GladeBridge,
-  type GladeEvent,
+  type WindowEvent,
 } from '../shared/bridge'
 
 /** The part of Electron's `ipcRenderer` the bridge uses, so tests can stand in a fake. */
@@ -28,10 +30,16 @@ export const NO_FILE_PATHS: PathForFile = () => ''
 /**
  * Builds `window.glade` on top of `ipcRenderer`. Commands go out on one channel and events come in on another; the
  * renderer never sees the IPC event object, only the typed payloads. `pathForFile` names a dropped or pasted file's path
- * on disk (`webUtils.getPathForFile` in the window).
+ * on disk (`webUtils.getPathForFile` in the window), and `homeFolder` is the home folder main named to the window.
  */
-export function createBridge(ipc: RendererIpc, pathForFile: PathForFile = NO_FILE_PATHS): GladeBridge {
+export function createBridge(
+  ipc: RendererIpc,
+  pathForFile: PathForFile = NO_FILE_PATHS,
+  homeFolder: string | null = null,
+): GladeBridge {
   return {
+    homeFolder,
+
     async invoke(command, request) {
       // Main answers every command on this channel with a `BridgeResult` for that command's response.
       const result = (await ipc.invoke(COMMAND_CHANNEL, command, request)) as BridgeResult<never>
@@ -41,10 +49,13 @@ export function createBridge(ipc: RendererIpc, pathForFile: PathForFile = NO_FIL
       throw result.error
     },
 
-    subscribe(listener: EventListener) {
+    subscribe(listener: EventListener, batchListener?: BatchListener) {
       const onEvent: IpcListener = (_event, payload) => {
-        // Main only sends `GladeEvent`s on this channel.
-        listener(payload as GladeEvent)
+        // Main only sends `GladeEvent`s, and batches of them, on this channel.
+        const event = payload as WindowEvent
+        if (event.type !== EVENT_BATCH) listener(event)
+        else if (batchListener !== undefined) batchListener(event.events)
+        else for (const batched of event.events) listener(batched)
       }
       ipc.on(EVENT_CHANNEL, onEvent)
       return () => {

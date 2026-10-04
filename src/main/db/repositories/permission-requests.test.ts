@@ -20,6 +20,7 @@ import {
   setRestartDelivery,
   type NewPermissionRequest,
 } from './permission-requests'
+import { FolderAccess, SandboxAskKind, SandboxGrantScope, type SandboxAsk } from '../../../shared/sandbox'
 import { RowError } from './rows'
 import { getTask } from './tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
@@ -76,6 +77,8 @@ describe('permission requests', () => {
       state: PermissionRequestState.Open,
       denyNote: null,
       grantedRule: null,
+      sandbox: null,
+      grantedScope: null,
       createdAt: 3_000,
       closedAt: null,
     })
@@ -160,6 +163,45 @@ describe('permission requests', () => {
       grantedRule: { toolName: 'Edit' },
     })
     expect(getPermissionRequest(test.db, edit.id)?.grantedRule).toEqual({ toolName: 'Edit' })
+  })
+
+  it('keeps what a request asks of the sandbox, and who its folder or domain was granted to', () => {
+    const asks: SandboxAsk[] = [
+      { kind: SandboxAskKind.Folder, path: '/Users/me/code/acme-web', access: FolderAccess.ReadWrite },
+      { kind: SandboxAskKind.Domain, domain: 'registry.npmjs.org', command: 'npm install', commandDescription: null },
+      { kind: SandboxAskKind.Outside },
+    ]
+    const [folder, domain, outside] = asks.map((sandbox) =>
+      appendPermissionRequest(test.db, { ...subagentBash(), sandbox }),
+    )
+    if (folder === undefined || domain === undefined || outside === undefined) throw new Error('No requests')
+
+    expect(listPermissionRequests(test.db, task.id).map(({ sandbox }) => sandbox)).toEqual(asks)
+    expect(folder.grantedScope).toBeNull()
+    const allowed = { state: PermissionRequestState.Allowed } as const
+    expect(
+      closePermissionRequest(test.db, folder.id, { ...allowed, grantedScope: SandboxGrantScope.Task }),
+    ).toMatchObject({ grantedScope: SandboxGrantScope.Task, grantedRule: null, sandbox: asks[0] })
+    expect(
+      closePermissionRequest(test.db, domain.id, { ...allowed, grantedScope: SandboxGrantScope.Workspace })
+        ?.grantedScope,
+    ).toBe(SandboxGrantScope.Workspace)
+    // Allowed once, denied or withdrawn, it's granted to nobody.
+    expect(closePermissionRequest(test.db, outside.id, allowed)?.grantedScope).toBeNull()
+    const denied = appendPermissionRequest(test.db, { ...subagentBash(), sandbox: asks[0] ?? null })
+    expect(
+      closePermissionRequest(test.db, denied.id, { state: PermissionRequestState.Denied, note: null })?.grantedScope,
+    ).toBeNull()
+  })
+
+  it('refuses a row whose sandbox ask or granted scope is not one it knows', () => {
+    const request = appendPermissionRequest(test.db, subagentBash())
+    test.db.prepare(`UPDATE permission_requests SET sandbox = '{"kind":"moon"}' WHERE id = ?`).run(request.id)
+
+    expect(() => getPermissionRequest(test.db, request.id)).toThrow(RowError)
+    expect(() =>
+      test.db.prepare(`UPDATE permission_requests SET granted_scope = 'glade' WHERE id = ?`).run(request.id),
+    ).toThrow(/CHECK/)
   })
 
   it('refuses a row whose granted rule is not a rule', () => {

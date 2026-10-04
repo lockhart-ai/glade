@@ -7,7 +7,6 @@ import {
   DividerKind,
   MessageRole,
   PauseReason,
-  PermissionRequestState,
   QuestionSetState,
   RefusalScope,
   TaskErrorSource,
@@ -45,8 +44,13 @@ import {
   sampleWorkspace,
   type FakeBridge,
 } from '../store/test-bridge'
+import { BROADCAST_TAG } from './BroadcastTag'
 import { clockTime } from './chatModel'
 import { Chat } from './Chat'
+import { setHomeFolder } from '../../shared/homeFolder'
+
+// The sample data's home folder, which paths under it are shown from as `~`.
+setHomeFolder('/Users/sam')
 
 const ASKED_AT = new Date(2026, 8, 23, 10, 42).getTime()
 const REPLIED_AT = new Date(2026, 8, 23, 11, 6).getTime()
@@ -62,6 +66,7 @@ const ASK: Message = {
   images: [],
   pastedBlocks: [],
   files: [],
+  broadcast: false,
 }
 const REPLY: Message = {
   id: 'm2',
@@ -74,6 +79,7 @@ const REPLY: Message = {
   images: [],
   pastedBlocks: [],
   files: [],
+  broadcast: false,
 }
 
 const PREAMBLE = 'Looking at how the API views are set up.'
@@ -258,6 +264,27 @@ describe('Chat', () => {
     await renderChat({ selected: false, messages: [ASK] })
 
     expect(conversation()).toHaveTextContent(/^$/)
+  })
+
+  it('tags a message you broadcast, to the left of "you" and its time, and no other', async () => {
+    const broadcast: Message = {
+      ...ASK,
+      id: 'm3',
+      body: 'Is anyone restarting Docker?',
+      turn: 2,
+      createdAt: REPLIED_AT + 60_000,
+      broadcast: true,
+    }
+    await renderChat({ messages: [ASK, REPLY, broadcast] })
+
+    const [own, sent] = screen.getAllByRole('article', { name: 'You' })
+    expect(own).toHaveTextContent(`${ASK.body}you · ${clockTime(ASKED_AT)}`)
+    expect(own).not.toHaveTextContent(BROADCAST_TAG)
+    expect(sent).toHaveTextContent(
+      `Is anyone restarting Docker?${BROADCAST_TAG}you · ${clockTime(broadcast.createdAt)}`,
+    )
+    // The agent's replies are never tagged.
+    expect(within(screen.getByRole('article', { name: 'Agent' })).queryByText(BROADCAST_TAG)).not.toBeInTheDocument()
   })
 
   it('shows your message on the right and the agent’s reply as Markdown, each with its time', async () => {
@@ -1332,12 +1359,7 @@ describe('every agent reply is on the purple card', () => {
 
   it('replies split around a question card and a permission card, and an empty reply', async () => {
     const set = { ...sampleQuestionSet('q1', 't1'), createdAt: at(10), state: QuestionSetState.Answered }
-    const request = {
-      ...samplePermissionRequest('p1', 't1'),
-      turn: 2,
-      createdAt: at(12),
-      state: PermissionRequestState.Allowed,
-    }
+    const request = { ...samplePermissionRequest('p1', 't1'), turn: 2, createdAt: at(12) }
     await renderChat({
       task: { state: TaskState.Done },
       messages: [user('u1', 1, at(9)), agent('a1', 1, at(11)), user('u2', 2, at(11, 30)), agent('a2', 2, at(13), '')],

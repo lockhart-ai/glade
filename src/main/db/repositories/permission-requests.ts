@@ -9,7 +9,8 @@ import {
   type PermissionSuggestion,
   type ToolInput,
 } from '../../../shared/domain'
-import { permissionRuleSchema, permissionSuggestionsSchema } from '../../permissions/schema'
+import { SandboxGrantScope, type CardGrantScope, type SandboxAsk } from '../../../shared/sandbox'
+import { permissionRuleSchema, permissionSuggestionsSchema, sandboxAskSchema } from '../../permissions/schema'
 import { Row, RowError } from './rows'
 
 /** A tool call to open a permission request for. */
@@ -26,21 +27,29 @@ export interface NewPermissionRequest {
   readonly suggestions: readonly PermissionSuggestion[]
   readonly defaultToNo: boolean
   readonly suppressAlwaysAllowRule: boolean
+  /** What it asks of the agent sandbox (`PermissionRequest.sandbox`); nothing by default. */
+  readonly sandbox?: SandboxAsk | null
 }
 
 /**
- * How a permission request closes: allowed (with the rule it was allowed for the task with, if it was), denied (with
- * your note, if any), or withdrawn without an answer.
+ * How a permission request closes: allowed (with the rule it was allowed for the task with, or who its folder or domain
+ * was granted to, if either), denied (with your note, if any), or withdrawn without an answer.
  */
 export type PermissionRequestClosing =
-  | { readonly state: PermissionRequestState.Allowed; readonly grantedRule?: PermissionRule }
+  | {
+      readonly state: PermissionRequestState.Allowed
+      readonly grantedRule?: PermissionRule
+      readonly grantedScope?: CardGrantScope
+    }
   | { readonly state: PermissionRequestState.Denied; readonly note: string | null }
   | { readonly state: PermissionRequestState.Withdrawn }
 
 const TABLE = 'permission_requests'
 const COLUMNS = `id, task_id, turn, tool_use_id, agent_id, tool_name, input, title, display_name, description,
-  suggestions, default_to_no, suppress_always_allow_rule, state, deny_note, granted_rule, created_at, closed_at`
+  suggestions, default_to_no, suppress_always_allow_rule, state, deny_note, granted_rule, created_at, closed_at,
+  sandbox, granted_scope`
 const STATES = Object.values(PermissionRequestState)
+const CARD_SCOPES: readonly CardGrantScope[] = [SandboxGrantScope.Task, SandboxGrantScope.Workspace]
 
 function parsePermissionRequest(raw: unknown): PermissionRequest {
   const row = new Row(TABLE, raw)
@@ -50,7 +59,16 @@ function parsePermissionRequest(raw: unknown): PermissionRequest {
     ...parsedRow(row),
     suggestions: suggestions.data,
     grantedRule: grantedRule(row),
+    sandbox: sandboxAsk(row),
   }
+}
+
+/** What a request asks of the sandbox, or null. */
+function sandboxAsk(row: Row): SandboxAsk | null {
+  if (row.nullableText('sandbox') === null) return null
+  const ask = sandboxAskSchema.safeParse(row.json('sandbox'))
+  if (!ask.success) throw new RowError(TABLE, 'sandbox', z.prettifyError(ask.error))
+  return ask.data
 }
 
 /** The rule a request was allowed for the task with, or null. */
@@ -62,7 +80,7 @@ function grantedRule(row: Row): PermissionRule | null {
 }
 
 /** A request's columns but its JSON ones. */
-function parsedRow(row: Row): Omit<PermissionRequest, 'suggestions' | 'grantedRule'> {
+function parsedRow(row: Row): Omit<PermissionRequest, 'suggestions' | 'grantedRule' | 'sandbox'> {
   return {
     id: row.text('id'),
     taskId: row.text('task_id'),
@@ -80,6 +98,7 @@ function parsedRow(row: Row): Omit<PermissionRequest, 'suggestions' | 'grantedRu
     denyNote: row.nullableText('deny_note'),
     createdAt: row.integer('created_at'),
     closedAt: row.nullableInteger('closed_at'),
+    grantedScope: row.nullableText('granted_scope') === null ? null : row.oneOf('granted_scope', CARD_SCOPES),
   }
 }
 
@@ -92,20 +111,23 @@ export function appendPermissionRequest(
   const request: PermissionRequest = {
     id: randomUUID(),
     ...input,
+    sandbox: input.sandbox ?? null,
     state: PermissionRequestState.Open,
     denyNote: null,
     grantedRule: null,
+    grantedScope: null,
     createdAt: now,
     closedAt: null,
   }
   db.prepare(
     `INSERT INTO ${TABLE} (${COLUMNS})
     VALUES (@id, @taskId, @turn, @toolUseId, @agentId, @toolName, @input, @title, @displayName, @description,
-      @suggestions, @defaultToNo, @suppressAlwaysAllowRule, @state, NULL, NULL, @createdAt, NULL)`,
+      @suggestions, @defaultToNo, @suppressAlwaysAllowRule, @state, NULL, NULL, @createdAt, NULL, @sandbox, NULL)`,
   ).run({
     ...request,
     input: JSON.stringify(request.input),
     suggestions: JSON.stringify(request.suggestions),
+    sandbox: request.sandbox === null ? null : JSON.stringify(request.sandbox),
     defaultToNo: request.defaultToNo ? 1 : 0,
     suppressAlwaysAllowRule: request.suppressAlwaysAllowRule ? 1 : 0,
   })
@@ -145,9 +167,13 @@ export function closePermissionRequest(
 ): PermissionRequest | undefined {
   const note = closing.state === PermissionRequestState.Denied ? closing.note : null
   const rule = closing.state === PermissionRequestState.Allowed ? (closing.grantedRule ?? null) : null
+  const scope = closing.state === PermissionRequestState.Allowed ? (closing.grantedScope ?? null) : null
   const { changes } = db
-    .prepare(`UPDATE ${TABLE} SET state = ?, deny_note = ?, granted_rule = ?, closed_at = ? WHERE id = ? AND state = ?`)
-    .run(closing.state, note, rule === null ? null : JSON.stringify(rule), now, id, PermissionRequestState.Open)
+    .prepare(
+      `UPDATE ${TABLE} SET state = ?, deny_note = ?, granted_rule = ?, granted_scope = ?, closed_at = ?
+      WHERE id = ? AND state = ?`,
+    )
+    .run(closing.state, note, rule === null ? null : JSON.stringify(rule), scope, now, id, PermissionRequestState.Open)
   return changes === 0 ? undefined : getPermissionRequest(db, id)
 }
 

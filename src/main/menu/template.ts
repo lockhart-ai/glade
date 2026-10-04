@@ -100,6 +100,8 @@ function fileMenu(state: MenuState, build: Build): MenuItemConstructorOptions {
     label: 'File',
     submenu: [
       commandItem('New task', AppCommandId.NewTask, shown ? appCommand(AppCommandId.NewTask) : null, build),
+      // One message to every active task, in every workspace (#489): there whichever workspace shows, or none.
+      commandItem('Broadcast…', AppCommandId.Broadcast, appCommand(AppCommandId.Broadcast), build),
       SEPARATOR,
       // ⌘W: the window closes the file or terminal tab that has the focus, or else itself.
       commandItem('Close', AppCommandId.Close, appCommand(AppCommandId.Close), build),

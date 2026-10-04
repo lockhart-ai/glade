@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { clickNotification, expect, notifications, replyToNotification, sendAndOpenNewTask, test } from './fixtures'
+import { inMain } from './in-main'
 import { chat, firstRun, inputBar, taskHeader, taskList } from './selectors'
 
 /** Task A's first message: it plays `multi-tool-turn`, which titles the task and replies after a dozen tool calls. */
@@ -71,7 +72,7 @@ test("a reply in a task you aren't viewing sends a notification you can reply to
   await expect(replies.last()).toContainText('The report header already goes through formatDate')
 
   // The window stays hidden throughout: an e2e run never shows it.
-  const visible = await glade.app.evaluate(({ BrowserWindow }) =>
+  const visible = await inMain(glade.app, ({ BrowserWindow }) =>
     BrowserWindow.getAllWindows().map((w) => w.isVisible()),
   )
   expect(visible).toEqual([false])

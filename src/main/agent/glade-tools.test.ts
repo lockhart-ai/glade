@@ -24,6 +24,9 @@ import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from
 import { createQuestionBroker } from '../questions/questions'
 import { PREAMBLE_MAX_LENGTH } from '../questions/schema'
 import {
+  ACCESS_PATH_MAX,
+  ACCESS_REASON_MAX,
+  ACCESS_TOOL_NAME,
   createGladeMcpServer,
   createGladeToolHandlers,
   GLADE_SERVER,
@@ -31,7 +34,11 @@ import {
   GladeTool,
   QUESTIONS_WITHDRAWN,
   type GladeToolContext,
+  type RequestAccess,
 } from './glade-tools'
+import { FolderAccess, SandboxGrantScope } from '../../shared/sandbox'
+import { ACCESS_PATH_NOT_ABSOLUTE, AccessOutcomeKind, type AccessOutcome } from '../permissions/sandbox-ask'
+import { FileAccess } from './sandbox-requests'
 import {
   createMcpToolCaller,
   DEFAULT_TOOL_TIMEOUT_MS,
@@ -713,5 +720,140 @@ describe('add_artifact', () => {
 
     expect(listFileArtifacts(database.db, taskId)).toEqual([])
     expect(changes()).toEqual([])
+  })
+})
+
+describe('request_access', () => {
+  const REQUEST = { path: '/Users/me/.cache/uv', access: FileAccess.Write, reason: 'uv needs its cache.' }
+
+  /** A caller for a server that asks `requestAccess`, which records what it was asked. */
+  function asking(outcome: AccessOutcome | Error) {
+    const requestAccess = vi.fn<RequestAccess>(() =>
+      outcome instanceof Error ? Promise.reject(outcome) : Promise.resolve(outcome),
+    )
+    const server = createGladeMcpServer({ ...context, requestAccess }, task.id)
+    return { requestAccess, server, tools: createMcpToolCaller({ [GLADE_SERVER]: server }) }
+  }
+
+  it('is a tool of the server only when there’s someone to ask, taking a path, an access and a reason', async () => {
+    const { server } = asking({ kind: AccessOutcomeKind.SandboxOff })
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
+    await server.instance.connect(serverSide)
+    const client = new Client({ name: 'test', version: '1.0.0' })
+    await client.connect(clientSide)
+
+    const { tools } = await client.listTools()
+
+    const listed = tools.at(-1)
+    expect(listed).toMatchObject({ name: GladeTool.RequestAccess, _meta: { 'anthropic/alwaysLoad': true } })
+    expect(listed?.inputSchema.required).toEqual(['path', 'access', 'reason'])
+    expect(listed?.description).toContain('"Operation not permitted"')
+    expect(listed?.description).toContain('instead of retrying the command outside the sandbox')
+    expect(ACCESS_TOOL_NAME).toBe(`mcp__${GLADE_SERVER}__${GladeTool.RequestAccess}`)
+    await client.close()
+    // The server of a context with no one to ask (the tests', above) has no such tool.
+    await expect(caller.call(ACCESS_TOOL_NAME, REQUEST)).resolves.toMatchObject({ isError: true })
+  })
+
+  it('asks for its task, with the call’s id when Claude Code sends one, and says how it ended', async () => {
+    const { requestAccess, tools } = asking({
+      kind: AccessOutcomeKind.Allowed,
+      folder: '/Users/me/.cache/uv',
+      access: FolderAccess.ReadWrite,
+      scope: SandboxGrantScope.Task,
+    })
+
+    const named = await tools.call(
+      ACCESS_TOOL_NAME,
+      { ...REQUEST, reason: '  uv needs its cache. ' },
+      undefined,
+      'toolu_1',
+    )
+    await tools.call(ACCESS_TOOL_NAME, { ...REQUEST, path: '~/.cache/uv' })
+
+    expect(named).toEqual({
+      output:
+        'Allowed for this task: you can now read and write /Users/me/.cache/uv. Run the command that was blocked again.',
+      isError: false,
+    })
+    expect(requestAccess.mock.calls).toEqual([
+      [task.id, REQUEST, { toolUseId: 'toolu_1', signal: expect.any(AbortSignal) as unknown }],
+      [task.id, { ...REQUEST, path: '~/.cache/uv' }, { toolUseId: null, signal: expect.any(AbortSignal) as unknown }],
+    ])
+    await tools.close()
+  })
+
+  it('answers a denial, and a failure to ask, as a tool error', async () => {
+    const denied = asking({ kind: AccessOutcomeKind.Denied, note: 'Use ./cache.' })
+    const failed = asking(new Error('No task t'))
+
+    await expect(denied.tools.call(ACCESS_TOOL_NAME, REQUEST)).resolves.toEqual({
+      output:
+        "Denied: the user didn't allow /Users/me/.cache/uv, so nothing was granted. Don't retry outside the sandbox. " +
+        'The user said: Use ./cache.',
+      isError: true,
+    })
+    await expect(failed.tools.call(ACCESS_TOOL_NAME, REQUEST)).resolves.toEqual({ output: 'No task t', isError: true })
+    await denied.tools.close()
+    await failed.tools.close()
+  })
+
+  it.each([
+    ['a relative path', { ...REQUEST, path: 'cache/uv' }, ACCESS_PATH_NOT_ABSOLUTE],
+    ['an empty path', { ...REQUEST, path: ' ' }, 'The path is empty.'],
+    ['no reason', { path: REQUEST.path, access: 'write' }, 'reason'],
+    ['another access', { ...REQUEST, access: 'execute' }, 'access'],
+    // What the card would show as if it were plain text: nothing that hides, breaks or reorders it.
+    [
+      'a path longer than any path',
+      { ...REQUEST, path: `/${'a'.repeat(ACCESS_PATH_MAX)}` },
+      'The path is too long: 4096 characters at most.',
+    ],
+    [
+      'a reason longer than a sentence or two',
+      { ...REQUEST, reason: 'x'.repeat(ACCESS_REASON_MAX + 1) },
+      'The reason is too long: 500 characters at most.',
+    ],
+    ['a line break in the path', { ...REQUEST, path: '/Users/me/.cache\n/Users/me' }, 'The path has a control'],
+    ['a NUL in the path', { ...REQUEST, path: '/Users/me/.cache\u0000/uv' }, 'The path has a control'],
+    ['an escape in the reason', { ...REQUEST, reason: 'uv\u001b[2K needs it' }, 'The reason has a control'],
+    ['a line break in the reason', { ...REQUEST, reason: 'uv needs it.\nAllow for this workspace.' }, 'The reason has'],
+    // A right-to-left override makes `/Users/me/\u202Etxt.cod` read as `/Users/me/doc.txt`.
+    ['a text-direction override in the path', { ...REQUEST, path: '/Users/me/\u202Etxt.cod' }, 'text-direction'],
+    ['a text-direction isolate in the reason', { ...REQUEST, reason: 'uv \u2067needs\u2069 it' }, 'text-direction'],
+  ])('is a tool error for %s, with nobody asked', async (_name, input, problem) => {
+    const { requestAccess, tools } = asking({ kind: AccessOutcomeKind.SandboxOff })
+
+    const outcome = await tools.call(ACCESS_TOOL_NAME, input)
+
+    expect(outcome.isError).toBe(true)
+    expect(outcome.output).toContain(problem)
+    expect(requestAccess).not.toHaveBeenCalled()
+    await tools.close()
+  })
+
+  it('takes a path and a reason as long as it allows, in any script', async () => {
+    const { requestAccess, tools } = asking({ kind: AccessOutcomeKind.SandboxOff })
+    const path = `/${'a'.repeat(ACCESS_PATH_MAX - 1)}`
+    const reason = `${'é'.repeat(ACCESS_REASON_MAX - 12)} 日本語 עברית`
+
+    const outcome = await tools.call(ACCESS_TOOL_NAME, { path, access: 'read', reason })
+
+    expect(outcome.isError).toBe(false)
+    expect(requestAccess.mock.calls[0]?.[1]).toEqual({ path, access: 'read', reason })
+    await tools.close()
+  })
+
+  it('says the sandbox is off when there’s no one to ask', async () => {
+    const handlers = createGladeToolHandlers(context, task.id)
+
+    await expect(handlers.requestAccess(REQUEST, { toolUseId: null })).resolves.toEqual({
+      content: [
+        {
+          type: 'text',
+          text: "The sandbox is off in this session, so it didn't block anything and there's nothing to grant.",
+        },
+      ],
+    })
   })
 })

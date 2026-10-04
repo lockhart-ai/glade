@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test'
 import { CommandName } from '../src/shared/bridge'
 import { UiStateKey } from '../src/shared/domain'
 import { expect, test, type Glade } from './fixtures'
+import { inMain } from './in-main'
 import { chat, filesTab, firstRun, inputBar, taskList, taskPanel, toasts, unsavedDialog } from './selectors'
 import { chooseMenuItem } from './menu'
 import { invoke } from './task-view'
@@ -182,14 +183,14 @@ test('editor: unsaved edits ask before the tab closes, the task switches, or Gla
   // Quitting asks. Cancel keeps Glade open; Discard quits.
   await taskList(window).taskRow('Document the rate limits').click()
   await typeAtEndOf(window, 1, '!')
-  await glade.app.evaluate(({ app }) => {
+  await inMain(glade.app, ({ app }) => {
     app.quit()
   })
   await expect(prompt.dialog).toContainText('Save your edits before quitting?')
   await prompt.cancel.click()
   await expect(files.editorLine(1)).toHaveText('# Rate limits (saved on the way out)!')
   const quit = glade.app.waitForEvent('close')
-  await glade.app.evaluate(({ app }) => {
+  await inMain(glade.app, ({ app }) => {
     app.quit()
   })
   await prompt.discard.click()
