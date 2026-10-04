@@ -59,12 +59,12 @@ No attack names anything outside the dummy home folder, the workspace, Glade's t
 loopback address. "Somewhere else" is a name under `.invalid`, which never resolves. No real path, domain or
 credential is ever named. The spec checks that before anything runs (`e2e/battery/isolation.ts`): every absolute path
 in a call's input must be in the dummy world, and every URL's host the loopback address or under
-`glade-battery.invalid`. The only real paths named are the two the floor reads (`/usr/bin/true`, `/etc/shells`) and
-`/dev/null`.
+`glade-battery.invalid`. The only real paths named are the two the floor reads (`/usr/bin/true`, `/etc/shells`),
+`/dev/null`, and Claude Code's own temp folder, which the floor writes one file to, by `$TMPDIR`, and removes.
 
 ## What it covers
 
-About 300 calls (`e2e/battery/attacks.ts`), in these groups:
+About 320 calls (`e2e/battery/attacks.ts`), in these groups:
 
 | Group | What it tries |
 | --- | --- |
@@ -135,7 +135,8 @@ another sandbox (an agent's command sandbox, say) it can't work, since Seatbelt 
 A new finding from a review gets an entry in the PR that fixes it.
 
 1. Add the attack to its group in `e2e/battery/attacks.ts` (or a new group to `attackGroups`), with an id of its own.
-   Use the helpers there (`bash`, `read`, `write`, `webFetch`, `requestAccess`), and name only the world's paths and
+   Use the helpers there (`bash`, `read`, `write`, `webFetch`, `requestAccess`, `mcp`, `sendMessage`), and name only
+   the world's paths and
    the listeners' ports: the spec fails, before any attack runs, on an entry that names anything else.
 2. Make getting out leave evidence. A read prints a canary. A write writes `markerOf(id)`. A connection carries the id
    (`/x/<id>` in a URL, the id as the first line on a raw socket, `<id>.glade-battery.invalid` as a host). Where only
@@ -151,8 +152,8 @@ A new finding from a review gets an entry in the PR that fixes it.
   wait for the live red-team run in a disposable macOS VM, which is deferred (#516).
 - **Real paths and real domains,** by rule: `/Users`, `/Volumes`, another user's folder, a real host. `WebFetch`'s
   hosts that Claude Code approves by itself (documentation sites) are real domains, so they aren't tried.
-- **`Monitor` and `RemoteTrigger`:** Claude Code doesn't offer either to a session on the stand-in (`RemoteTrigger`
-  needs a claude.ai login). Their entries are sent, and run if it ever does.
+- **`Monitor` and `RemoteTrigger`:** Claude Code doesn't offer either to a session on the stand-in (each is "disabled
+  for this session"; why wasn't looked into). Their entries are sent, and run if it ever does.
 - **A claude.ai connector, and a configured MCP server that calls itself `glade`:** the first needs a login, and the
   second would merge with Glade's own server and make its tools ask too. `src/main/permissions/sandbox-classify.test.ts`
   covers both.

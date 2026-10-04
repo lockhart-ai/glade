@@ -987,7 +987,7 @@ function sendMessage(id: string, title: string, to: (results: Results) => unknow
 }
 
 function remoteTrigger(id: string, title: string, input: Readonly<Record<string, unknown>>): Attack {
-  // Claude Code offers `RemoteTrigger` only to a session with a claude.ai login.
+  // Claude Code does not offer `RemoteTrigger` to a session on the stand-in: it is "disabled for this session".
   return { id, title, tool: 'RemoteTrigger', input, stoppedBy: STOPPED, mayBeRejected: true }
 }
 
