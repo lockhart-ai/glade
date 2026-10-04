@@ -361,6 +361,41 @@ export function parentLogRows(events: readonly ToolEvent[], permissions?: Permis
   return toolLogRows(events.filter(isParentEvent), permissions)
 }
 
+/**
+ * Whether one agent of the task logged an event: a subagent, by the `Agent` call that started it (its `tool_use` id),
+ * or the task's own agent (null; `isParentEvent`). A subagent's are the calls and notes that name its call as their
+ * parent: what a subagent it started itself does is that subagent's, not its own.
+ */
+export function isAgentEvent(event: ToolEvent, agentId: string | null): boolean {
+  if (agentId === null) return isParentEvent(event)
+  switch (event.kind) {
+    case ToolEventKind.ToolCall:
+    case ToolEventKind.Narration:
+      return event.parentToolUseId === agentId
+    case ToolEventKind.Divider:
+    case ToolEventKind.Compaction:
+    case ToolEventKind.RefusalFallback:
+      return false
+  }
+}
+
+/**
+ * The tool log's rows for one agent of the task (`isAgentEvent`), in order: the Agents tab's list for that agent (P16,
+ * #536). The task's own agent's are `parentLogRows`; a subagent's are its calls and notes, the ones the Subagents tab
+ * nests under its row. Either way an `Agent` call is a single row, with nothing under it: its subagent has a tab of
+ * its own.
+ */
+export function agentLogRows(
+  events: readonly ToolEvent[],
+  agentId: string | null,
+  permissions?: PermissionLines,
+): ToolLogRow[] {
+  return toolLogRows(
+    events.filter((event) => isAgentEvent(event, agentId)),
+    permissions,
+  )
+}
+
 /** How many tool calls the task's own agent has made, not its subagents: the Tool calls tab's count. */
 export function toolCallCount(events: readonly ToolEvent[]): number {
   return events.filter((event) => event.kind === ToolEventKind.ToolCall && isParentEvent(event)).length

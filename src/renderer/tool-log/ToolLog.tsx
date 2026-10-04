@@ -1,5 +1,8 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import { ToolCallState, ToolEventKind, type ToolEvent } from '../../shared/domain'
+import { ToolCallState, ToolEventKind, type ToolCallEvent, type ToolEvent } from '../../shared/domain'
+import { isSubagentTool } from '../../shared/subagents'
+import { agentCallResult, isRunning } from '../agents/agentsModel'
+import { useElapsedNow } from '../agents/useElapsedNow'
 import { clockTime } from '../chat/chatModel'
 import { InlineMarkdown } from '../chat/Markdown'
 import { useStickToBottom } from '../chat/useStickToBottom'
@@ -10,6 +13,7 @@ import { LinkedText } from '../links'
 import type { PermissionLines } from '../permissions/permissionLineModel'
 import { PermissionLineView } from '../permissions/PermissionLine'
 import {
+  agentLogRows,
   argumentSummary,
   callIndicator,
   callStateLabel,
@@ -17,7 +21,6 @@ import {
   compactionArgument,
   compactionResult,
   resultSummary,
-  parentLogRows,
   rowIndicator,
   rowStateLabel,
   sameSubagentRow,
@@ -83,6 +86,19 @@ function sameCall(a: CallProps, b: CallProps): boolean {
   )
 }
 
+/** A call's first line: its dot, the tool's name, its argument and when it was made. */
+function CallLine({ row, rootPath, compact = false }: Pick<CallProps, 'row' | 'rootPath' | 'compact'>): React.JSX.Element {
+  const { call, name } = row
+  return (
+    <span className={styles.callLine}>
+      <Dot state={rowIndicator(row)} label={rowStateLabel(row)} className={compact ? styles.smallDot : undefined} />
+      <span className={styles.name}>{name}</span>
+      <span className={styles.argument}>{argumentSummary(call, rootPath)}</span>
+      <span className={styles.time}>{clockTime(call.createdAt)}</span>
+    </span>
+  )
+}
+
 /**
  * One tool call: its name, argument, time and short result. Click it to see its full output; right-click it, or ⇧F10 on
  * it, for its context menu. A call a permission was decided about shows it on a line of its own under the call, shield
@@ -110,16 +126,7 @@ const Call = memo(function Call({ row, rootPath, turnStart, compact = false }: C
             setExpanded((open) => !open)
           }}
         >
-          <span className={styles.callLine}>
-            <Dot
-              state={rowIndicator(row)}
-              label={rowStateLabel(row)}
-              className={compact ? styles.smallDot : undefined}
-            />
-            <span className={styles.name}>{name}</span>
-            <span className={styles.argument}>{argumentSummary(call, rootPath)}</span>
-            <span className={styles.time}>{clockTime(call.createdAt)}</span>
-          </span>
+          <CallLine row={row} rootPath={rootPath} compact={compact} />
           {permission !== null && <PermissionLineView line={permission} className={styles.permission} />}
           {!compact && showsResult(row) && <span className={styles.result}>{resultSummary(call)}</span>}
         </button>
@@ -141,6 +148,66 @@ const Call = memo(function Call({ row, rootPath, turnStart, compact = false }: C
     </div>
   )
 }, sameCall)
+
+/**
+ * How a subagent's call reads under its first line: its state and how long it has run, then what it came to
+ * (`agentCallResult`). It keeps its own clock while the subagent runs, so as time passes it renders again by itself,
+ * and the row around it doesn't.
+ */
+function AgentCallResult({ call }: { readonly call: ToolCallEvent }): string {
+  const now = useElapsedNow(isRunning(call) ? call.createdAt : null)
+  return agentCallResult(call, now)
+}
+
+interface AgentCallProps extends TurnStartProps {
+  readonly row: CallRow
+  readonly rootPath: string | undefined
+  /** Shows the subagent the call started, by the call's `tool_use` id. */
+  readonly onOpen: (agentId: string) => void
+}
+
+function sameAgentCall(a: AgentCallProps, b: AgentCallProps): boolean {
+  return (
+    sameSubagentRow(a.row, b.row) && a.rootPath === b.rootPath && a.turnStart === b.turnStart && a.onOpen === b.onOpen
+  )
+}
+
+/**
+ * A call that started a subagent, in the Agents tab (P16, #536; `docs/design/html/50-agents.html`): a tool call's row,
+ * live while the subagent runs ("Running · 29m" on the running call's highlight), then how it ended, how long it ran
+ * and the first line of what it came to ("Done · 28m · Opened PR #511"). Clicking it goes to the subagent's own tab,
+ * where what it did is, rather than opening the call's output; its context menu is a tool call's.
+ */
+const AgentCall = memo(function AgentCall({ row, rootPath, turnStart, onOpen }: AgentCallProps): React.JSX.Element {
+  const { call, permission } = row
+  const menuTarget = useToolCallMenuTarget(call)
+  return (
+    <div className={styles.callGroup} {...{ [TURN_START]: turnStart }}>
+      <div
+        className={classNames(styles.call, showsCallState(row) && styles[call.state])}
+        data-state={call.state}
+        data-agent-call={call.toolUseId}
+        {...menuTarget}
+      >
+        <button
+          type="button"
+          className={styles.callButton}
+          onClick={() => {
+            onOpen(call.toolUseId)
+          }}
+        >
+          <CallLine row={row} rootPath={rootPath} />
+          {permission !== null && <PermissionLineView line={permission} className={styles.permission} />}
+          {showsResult(row) && (
+            <span className={styles.result}>
+              <AgentCallResult call={call} />
+            </span>
+          )}
+        </button>
+      </div>
+    </div>
+  )
+}, sameAgentCall)
 
 /**
  * A compaction of the context, laid out like a tool call: "Compact  198k → 41k tokens". Once it has the summary it
@@ -267,6 +334,16 @@ export interface ToolLogProps {
   readonly focus?: TurnFocus | null | undefined
   /** Called once the log has scrolled to `focus`, so its owner can clear it. */
   readonly onFocusShown?: (() => void) | undefined
+  /**
+   * Whose log it is, in the Agents tab (P16, #536): a subagent's, by its `Agent` call's `tool_use` id. The task's own
+   * agent's by default.
+   */
+  readonly agentId?: string | null | undefined
+  /**
+   * In the Agents tab: shows a subagent, by its `Agent` call's `tool_use` id. With it, a call that started a subagent
+   * is a row that goes to that subagent (`AgentCall`); without it, it's a call like any other.
+   */
+  readonly onOpenAgent?: ((agentId: string) => void) | undefined
 }
 
 /**
@@ -275,6 +352,9 @@ export interface ToolLogProps {
  * here. A call a permission was decided about says so on its row. It keeps to the bottom as it grows, unless you've
  * scrolled up. Asked to show a turn, it scrolls to the turn's first row (its divider, or turn 1's first row) and
  * highlights it for a moment.
+ *
+ * In the Agents tab it's the list under an agent's tab, the same rows for a subagent's own calls and notes (`agentId`),
+ * with the whole panel to itself.
  */
 export function ToolLog({
   taskId,
@@ -283,8 +363,10 @@ export function ToolLog({
   permissions,
   focus,
   onFocusShown,
+  agentId = null,
+  onOpenAgent,
 }: ToolLogProps): React.JSX.Element {
-  const rows = useMemo(() => parentLogRows(events, permissions), [events, permissions])
+  const rows = useMemo(() => agentLogRows(events, agentId, permissions), [events, agentId, permissions])
   // A permission line coming or going changes a row's height, as a new row changes the log's.
   const { ref, onScroll } = useStickToBottom(rows, taskId)
 
@@ -327,7 +409,11 @@ export function ToolLog({
             seen.add(event.turn)
             switch (row.kind) {
               case ToolEventKind.ToolCall:
-                return <Call key={event.id} row={row} rootPath={rootPath} turnStart={turnStart} />
+                return onOpenAgent !== undefined && isSubagentTool(row.call.name) ? (
+                  <AgentCall key={event.id} row={row} rootPath={rootPath} turnStart={turnStart} onOpen={onOpenAgent} />
+                ) : (
+                  <Call key={event.id} row={row} rootPath={rootPath} turnStart={turnStart} />
+                )
               case ToolEventKind.Narration:
                 return <Narration key={event.id} {...row} turnStart={turnStart} />
               case ToolEventKind.Divider:

@@ -1,7 +1,7 @@
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import { faEye, faFile } from '@fortawesome/free-regular-svg-icons'
 import { faChevronDown, faChevronRight, faCodeCommit, faLink, faSitemap } from '@fortawesome/free-solid-svg-icons'
-import { memo, useEffect, useMemo, type KeyboardEvent, type MouseEvent } from 'react'
+import { memo, useEffect, useMemo, useRef, type KeyboardEvent, type MouseEvent } from 'react'
 import {
   TodoState,
   type Artifact,
@@ -63,6 +63,9 @@ const NO_LINKS: ReadonlyMap<string, LinkReferences> = new Map<string, LinkRefere
 
 /** What marks a todo's head (and the placeholder group's) on the page: ↑ and ↓ move the focus between them. */
 const HEAD_ATTRIBUTE = 'data-todo-head'
+
+/** What marks a todo's card on the page, holding the todo's id: what a request to show a todo looks for. */
+const TODO_ATTRIBUTE = 'data-todo'
 
 /** The icon of each kind of child, on its count and its filter pill. */
 const KIND_ICONS: Readonly<Record<ChildKind, IconDefinition>> = {
@@ -323,7 +326,11 @@ const TodoCard = memo(function TodoCard({
     if (opensTodo(event)) toggle()
   }
   return (
-    <li className={classNames(styles.card, STATE_CLASSES[todo.state])} data-open={open ? '' : undefined}>
+    <li
+      className={classNames(styles.card, STATE_CLASSES[todo.state])}
+      data-open={open ? '' : undefined}
+      {...{ [TODO_ATTRIBUTE]: todo.id ?? undefined }}
+    >
       <div
         className={classNames(styles.head, parent && styles.opens)}
         tabIndex={0}
@@ -466,6 +473,17 @@ export interface TodoHubProps {
   readonly taskId: string
   /** The task's todo list; null or undefined while the agent has kept none. */
   readonly list: TodoList | null | undefined
+  /** A todo to show: it scrolls into view and its head takes the focus (the todo a subagent's tab names, #536). */
+  readonly focus?: TodoShown | null | undefined
+  /** Called once the hub has shown `focus`, so its owner can clear it. */
+  readonly onFocusShown?: (() => void) | undefined
+}
+
+/** A request to show one todo in the hub. */
+export interface TodoShown {
+  readonly todoId: TodoId
+  /** Goes up by one with every request, so asking for the same todo again is still a new request. */
+  readonly request: number
 }
 
 /**
@@ -480,8 +498,11 @@ export interface TodoHubProps {
  * other tabs and the task's filings, so a child filed, moved or changed shows at once, with no reload. Every change to
  * the task lands here; a card renders again only when its own todo, children or panel changed, or a link its text
  * names (`sameCard`), and a tile only when its own child did (`ChildTile`).
+ *
+ * Asked to show a todo (the line under a subagent's tab in the Agents tab, #536), it scrolls that todo's card into
+ * view and puts the focus on its head, once it's in the list.
  */
-export const TodoHub = memo(function TodoHub({ taskId, list }: TodoHubProps): React.JSX.Element {
+export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown }: TodoHubProps): React.JSX.Element {
   const artifacts = useGladeStore((state) => state.artifacts[taskId]) ?? NO_ARTIFACTS
   const events = useGladeStore((state) => state.toolEvents[taskId]) ?? NO_TOOL_EVENTS
   const watchers = useGladeStore((state) => state.watchers[taskId]) ?? NO_WATCHERS
@@ -512,6 +533,21 @@ export const TodoHub = memo(function TodoHub({ taskId, list }: TodoHubProps): Re
   }, [taskId, watchArtifacts, unwatchArtifacts])
 
   const ordered = useMemo(() => orderTodos(todos), [todos])
+
+  // Shows the todo asked for: its card scrolls into view and its head takes the focus, as ↑ and ↓ move it. Until the
+  // todo is in the list (the task's logs still loading), the request waits.
+  const hub = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (focus === null || focus === undefined) return
+    const card = [...(hub.current?.querySelectorAll<HTMLElement>(`[${TODO_ATTRIBUTE}]`) ?? [])].find(
+      (element) => element.getAttribute(TODO_ATTRIBUTE) === focus.todoId,
+    )
+    if (card === undefined) return
+    card.scrollIntoView({ block: 'nearest' })
+    card.querySelector<HTMLElement>(`[${HEAD_ATTRIBUTE}]`)?.focus()
+    onFocusShown?.()
+  }, [focus, onFocusShown, ordered])
+
   // Until the filings are read, nothing is grouped: every child would show under no todo for a moment.
   const grouped = useMemo(
     () =>
@@ -564,7 +600,7 @@ export const TodoHub = memo(function TodoHub({ taskId, list }: TodoHubProps): Re
   if (nothing) return <NoTodos />
 
   return (
-    <div className={styles.hub}>
+    <div ref={hub} className={styles.hub}>
       {list === null || list === undefined || todos.length === 0 ? (
         <p className={styles.empty}>{NO_HUB_TODOS}</p>
       ) : (
