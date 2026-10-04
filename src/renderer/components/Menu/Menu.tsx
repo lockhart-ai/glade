@@ -193,6 +193,9 @@ export function Menu({ label, entries, anchor, open, onClose, className }: MenuP
           className={classNames(styles.menu, className)}
           style={floatingStyles}
           {...getFloatingProps()}
+          // Its name is its label, whatever it's anchored to: Floating UI would name it after an anchor that has an
+          // id (an agent's tab, whose menu the keyboard opens from the tab itself), over the label.
+          aria-labelledby={undefined}
         >
           {entries.map((entry, entryIndex) => {
             switch (entry.kind) {

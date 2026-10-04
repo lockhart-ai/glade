@@ -14,6 +14,7 @@ items are in pink and sit last, bar the terminal tab's Close. ![Context menus](d
 | Artifact | Open ↵ · Open in editor ⌘⇧E · — · Copy contents · Copy path · Reveal in Finder · — · Remove from artifacts |
 | Link artifact | Open link ↵ · — · Copy link · — · Remove from artifacts |
 | Subagent | Expand log ↵ · Copy log · — · Stop subagent |
+| Subagent’s tab (Agents tab) | Copy log · — · Stop subagent |
 | Terminal tab | Rename… · Duplicate · Clear ⌘K · — · Kill process ⌃C · Close ⌘W |
 | Todo | Copy · Ask agent about this |
 | Link | Open link · — · Copy link · — · Add to artifacts |
@@ -43,11 +44,14 @@ a commit's, since no subagent or watcher is under a todo (#535). A PR, an issue 
 ticket a todo names, which is a link while the task has it as one (#500), has the link's menu, not the todo's: Open
 link and Copy link, with no Add to artifacts, since it's one already.
 
-**The Agents tab** (#536, behind the same hidden `todoHubEnabled` setting until #501): a tool call in an agent's list
-has the tool call's menu, as in the Tool calls tab, a subagent's `Agent` call included. An agent's tab in the strip
-has no menu. The Subagents tab isn't shown with the setting on, so its **Subagent** menu (Copy log, Stop subagent)
-isn't reachable there; whether the Agents tab takes those over is open ([`decisions.md`](decisions.md), "From the
-Agents tab").
+**The Agents tab** (#536, #537, behind the same hidden `todoHubEnabled` setting until #501): a tool call in an
+agent's list has the tool call's menu, as in the Tool calls tab, a subagent's `Agent` call included. **A subagent's
+tab** in the strip has the menu its row in the Subagents tab has, which isn't shown with the setting on: Copy log
+copies what the subagent did (its calls, its notes and, once it has finished, what it came to), and Stop subagent
+shows while it runs. It has no Expand log: picking the tab shows the log. The menu opens from a right-click on the
+tab, and from Context menu (⇧F10) or the keyboard's menu key while the tab has the focus; it doesn't pick the tab.
+Main's tab has no menu. A watcher has none either, pinned under an agent's tool calls or as a row among them: a
+pinned one's only action is its Stop button.
 
 A **commit's tile** has no menu, as a commit in the Changes tab has none: it only shows what the agent did.
 

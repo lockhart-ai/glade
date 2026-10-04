@@ -19,7 +19,8 @@
 }
 
 /* The Changes tab's tag (../../changes/SubagentTag.module.css), as a tile's line holds it. */
-span.by {
+span.by,
+button.by {
   flex-shrink: 0;
   max-width: 60%;
   padding: 0 var(--space-sm);

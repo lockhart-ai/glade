@@ -672,8 +672,47 @@
       ticks is its own element with its own clock. With the switch on the panel itself no longer reads the task's
       tool log, so it doesn't render with every event. `src/renderer/history-renders.test.tsx` holds it at 50
       subagents and a 2,000-call list.
-    - **Left for #537:** the eye on a tab, what an agent is watching pinned under its list, and a finished watcher's
-      row in the list. A `Monitor` or background `Bash` call shows as the plain call it is until then.
+  - **Watchers in the tool calls** (P16-14, #537; `design/screens/52-agents-watcher.png`,
+    `53-agents-watcher-done.png` and the states under `50-agents.png`; `src/renderer/agents/PinnedWatchers.tsx`,
+    `agentWatchersModel.ts`). With the switch on, a watcher is in the Agents tab, under the agent that started it,
+    and the Watchers tab isn't shown; with it off, the Watchers and Subagents tabs are exactly as they were.
+    - **Whose it is:** the agent whose call started it (`Watcher.parentToolUseId`): Main's, or a subagent's, which
+      stays on that subagent's tab after the subagent has finished.
+    - **Pinned while live.** A watcher whose process runs (a `Monitor` watch, a background command) is a card under
+      its agent's tool calls, outside their scroll, under a **Watching** label: the eye, what the agent called it,
+      "Running · 5m" in blue and **Stop**; then its kind and what it runs, the last line it reported, and how many
+      times it woke the agent, when it last did and since when it has run. It's on the `live` tint. A wakeup or a cron
+      job that's only scheduled is pinned the same way in grey, with when it's due ("Due in 12m", "at 13:50 · 0 wakes ·
+      set 13:36"; "next" for a job that comes round again). Several stack, in the order they started.
+    - **In the history once it has ended.** When it finishes, fails or is stopped it leaves the bottom and is a row
+      of its agent's list at the time it ended, with the eye where a call's dot goes: its kind and label, when it
+      ended, "Finished · ran 8m · woke the agent once", and its last line. It reads in order with the rows around it:
+      everything logged up to then is before it, and what the agent did on being woken is after it. A watcher that
+      ended at the very time of an event is before that event, since a wake ends its watcher and then starts the turn.
+    - **The call that started a watcher isn't a row,** while it's live or after: the card, then the watcher's own
+      row, stands for it. Until the SDK says the call started a watcher (and for a call that failed to start one), it's
+      the plain call it is.
+    - **The eye on an agent's tab,** with a count, while the agent has anything pinned, scheduled ones included: blue
+      while a watcher's process runs, grey when all it has is scheduled.
+    - **Colour:** running is blue; scheduled, finished and stopped are grey; a watcher whose own command failed is
+      pink (its eye, "Failed" and how it failed). One that finished after seeing a failure is grey: it did its job.
+    - **After a relaunch** it's what the Watchers tab shows: the monitors, commands and wakeups ended with the
+      session ("Stopped by the relaunch."), so they're rows at the time of the relaunch; a cron job waits for its
+      session, pinned in grey as "Suspended · back when the session resumes", and is scheduled again when it does.
+    - **What the Subagents tab did, which #536 left out:** a subagent's tab has a menu, on a right-click and the
+      keyboard's menu key, with Copy log and, while it runs, Stop subagent (`context-menus.md`); a running subagent's
+      `Agent` call says what it's doing now, the SDK's one-line summary, under "Running · 6m" (#278); and the name of
+      the subagent on an opened commit tile goes to that subagent's tab.
+    - **Shared, not copied:** what a watcher is called, what it runs, what it last reported and its state are the
+      Watchers tab's own (`watchersModel`), and Stop is the same store command.
+    - **Performance:** main sends a task's whole list of watchers with every change to one. The store keeps the
+      object of each watcher that's as it was (`withWatchers`), so a pinned card reads its own watcher and renders
+      alone when it reports a line or wakes the agent; its state is its own element with its own clock. The list above
+      reads only the agent's ended watchers and which calls started one (`logWatchersSelector`), so it doesn't render
+      for a live watcher at all, and a watcher that ends adds one row and renders none of the others. The eye is read
+      by its own tab. A watcher leaving the bottom gives the list its room back without moving it: someone reading back
+      stays where they are, and a list at its end follows it. `src/renderer/history-renders.test.tsx` holds it at five
+      pinned over a 2,000-call list with twenty ended watchers through it.
   - **Calls made without Jared, for the release notes (P16).** From the groundwork (P16-03, #494):
     1. A child whose own filing names a todo that's gone goes to the placeholder, even when the subagent that made
        it is under a todo that's still there: the agent filed it apart from its subagent, so it doesn't fall back to
@@ -799,10 +838,9 @@
         It ticks every second while it reads in seconds, and as often as other ages (30s) after.
     47. Clicking an `Agent` call goes to its subagent's tab and no longer opens the call's output. What the subagent
         came to is on the call's line (its first line) and in the call's menu (Copy output).
-    48. The Agents tab has no Stop for a subagent and no Copy log: the Subagents tab's row menu had both, and the
-        screens draw neither. Until that's decided, a subagent is stopped by turning the switch off, or by Stop on
-        the task. Nor does it show the SDK's one-line summary of what a running subagent is doing now, or the
-        Subagents tab's tally and call counts: the screens draw none of them.
+    48. (Settled by #537: a subagent's tab has a menu with Copy log and Stop subagent, and a running subagent's
+        `Agent` call says what it's doing now.) The Subagents tab's tally and call counts are still not shown: the
+        screens draw neither.
     49. With the switch on, a workspace left on a tab the panel no longer shows opens on Agents; what's stored is
         left alone, so turning the switch off shows the tab it was on. One left on Agents shows Tool calls with it off.
     50. ⌘⌥4 – ⌘⌥7 pick nothing with the switch on. The binding, its name in Settings ▸ Keyboard and the menu bar are
@@ -833,6 +871,33 @@
     60. `groupChildren` no longer takes a task's watchers, and takes its subagents as their `Agent` calls alone: when
         each last did anything was only for a subagent's place in a todo's list.
     61. The sample task's subagents in the capture fixture keep their todos (as plumbing); its watchers lose theirs.
+
+    From watchers in the tool calls (P16-14, #537):
+
+    62. The call that started a watcher stays out of the list once the watcher has ended too, as screen 53 draws it:
+        the watcher's row stands for it. What it ran is the tooltip of the row's label; the row doesn't open, and has
+        no menu. So a permission line on that call, and its Copy command, aren't reachable in the Agents tab.
+    63. An ended watcher's last line is what it last reported when it finished ("last …"), and how it ended when it
+        failed or was stopped ("end You stopped it."), as the three rows under screen 50 have it; each falls back to
+        the other, and a watcher with neither has no third line.
+    64. A watcher that never woke the agent says "didn’t wake the agent"; then "once", then "4 times".
+    65. A pinned watcher that has woken the agent says when it last did, between the count and "since": "3 wakes · last
+        13:18 · since 13:02". The screens only draw one with no wakes.
+    66. A cron job waiting on its session after a relaunch is pinned like a scheduled one, in grey: "Suspended", and
+        "back when the session resumes" where its due time goes. It counts on the tab's eye.
+    67. Pinned cards take half the panel's height at most, and scroll among themselves past that, so five watchers
+        can't push the tool calls out of a short panel.
+    68. Stop's accessible name says which watcher ("Stop CI checks on PR #511"), as the Watchers tab's does; the
+        screens' markup names it "Stop".
+    69. An agent whose only calls so far started watchers says "No tool calls yet." above what's pinned.
+    70. The eye and the Stop glyph are the app's own icons (Font Awesome's, as the sidebar's eye and the Watchers
+        tab's Stop), not the outlines the screens draw.
+    71. A subagent's tab menu has no Expand log: picking the tab shows its log. Opening the menu doesn't pick the tab,
+        and Main's tab has none.
+    72. What a running subagent is doing is the Subagents tab's summary line (the body face, in the text colour) under
+        "Running · 6m", on one line with the whole of it in its tooltip. The screens don't draw it.
+    73. A commit tile's subagent name is a button only when the task's log has that subagent; one it hasn't got
+        ("Subagent") stays plain text.
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
     `manifest.json`: `id` (the folder's name), `name`, `version`, `entry` (an HTML file in the folder) and an optional

@@ -272,6 +272,20 @@ export function subagentMenu(subagent: SubagentMenuTarget, actions: SubagentMenu
   )
 }
 
+/** What the menu of a subagent's tab in the Agents tab can do; `stop` is null once it has finished. */
+export interface AgentTabMenuActions {
+  readonly copyLog: MenuAction
+  readonly stop: MenuAction | null
+}
+
+/**
+ * The menu of a subagent's tab in the Agents tab's strip (P16, #537): what its row's menu in the Subagents tab has,
+ * but for opening its log, which picking the tab does. Stop subagent is there only while it runs.
+ */
+export function agentTabMenu({ copyLog, stop }: AgentTabMenuActions): MenuEntry[] {
+  return groups([item('Copy log', copyLog)], stop === null ? [] : [destructive('Stop subagent', stop)])
+}
+
 /** What a terminal tab's menu can do. */
 export interface TerminalTabMenuActions {
   readonly rename: MenuAction

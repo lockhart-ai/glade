@@ -58,7 +58,8 @@ test('the Agents tab: a tab for every agent with its tool calls, a subagent’s 
   // Main's tab is the Tool calls tab's list: its calls and notes, each subagent it started an Agent call, live while
   // the subagent runs. It has no line about a todo.
   await expect(agents.list).toContainText('Three issues, so three subagents, one for each todo.')
-  await expect(agents.agentCall('notes-25')).toContainText(/Running · \d+m$/)
+  // While it runs, its call says what it's doing now under its state (#537).
+  await expect(agents.agentCall('notes-25')).toContainText(/Running · \d+mReading what each PR changed$/)
   await expect(agents.agentCall('fix-501')).toContainText('Done · 28m · Opened PR #511.')
   await expect(agents.list).not.toContainText('tests/test_burst.py')
   await expect(agents.line).toHaveCount(0)

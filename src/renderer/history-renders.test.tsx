@@ -17,6 +17,7 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  WatcherKind,
   WatcherState,
   type Message,
   type NarrationEvent,
@@ -24,10 +25,12 @@ import {
   type Task,
   type ToolCallEvent,
   type ToolEvent,
+  type Watcher,
 } from '../shared/domain'
 import { FolderAccess, SandboxAskKind } from '../shared/sandbox'
 import { AgentsTab } from './agents'
 import { agentCallResult, agentDotLabel, agentStateLine } from './agents/agentsModel'
+import { endedSummary, pinnedMetaLine, pinnedStatus, watchingTitle } from './agents/agentWatchersModel'
 import { BroadcastDialog } from './broadcast'
 import { attentionLabel, reachText } from './broadcast/broadcastModel'
 import { Chat } from './chat'
@@ -59,6 +62,7 @@ import { ChildFilter } from '../shared/todoHub'
 import { rowStatus } from './task-list/rowStatus'
 import { NOW_REFRESH_MS } from './task-list/useNow'
 import { ToolLog } from './tool-log'
+import { resultSummary } from './tool-log/toolLogModel'
 import { UsageMeter } from './usage-meter'
 import { usageMeterState } from './usage-meter/usageMeterModel'
 import { setHomeFolder } from '../shared/homeFolder'
@@ -104,6 +108,27 @@ vi.mock('./agents/agentsModel', async (importOriginal) => {
     agentCallResult: vi.fn(original.agentCallResult),
     agentStateLine: vi.fn(original.agentStateLine),
   }
+})
+
+// Watchers in the Agents tab (#537): every pinned card says how often it woke the agent (one `pinnedMetaLine` call per
+// render of one) and its state, which ticks by itself (one `pinnedStatus` call per render of it); every ended watcher's
+// row says how it went (one `endedSummary` call per render of one); and an agent's tab with an eye names it (one
+// `watchingTitle` call per render of one).
+vi.mock('./agents/agentWatchersModel', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./agents/agentWatchersModel')>()
+  return {
+    ...original,
+    pinnedMetaLine: vi.fn(original.pinnedMetaLine),
+    pinnedStatus: vi.fn(original.pinnedStatus),
+    endedSummary: vi.fn(original.endedSummary),
+    watchingTitle: vi.fn(original.watchingTitle),
+  }
+})
+// Every tool call's row says what it came to: one `resultSummary` call per render of one. (The clock's `clockTime`
+// counts a pinned watcher's times too, so it can't count the rows above one.)
+vi.mock('./tool-log/toolLogModel', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./tool-log/toolLogModel')>()
+  return { ...original, resultSummary: vi.fn(original.resultSummary) }
 })
 
 // Every card of the todo hub counts its children by kind (one `kindCounts` call per render of one), and every tile
@@ -1208,6 +1233,19 @@ describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', 
     expect(rendered()).toEqual({ tabs: 0, rows: 1, times: 0, line: 0 })
   })
 
+  it('renders only its Agent call’s row when a running subagent says what it’s doing now (#537)', async () => {
+    const { fake } = await renderAgents()
+
+    act(() => {
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: { ...agent(48), progressSummary: 'Reading the diff' },
+      })
+    })
+    expect(rendered()).toEqual({ tabs: 0, rows: 1, times: 1, line: 0 })
+    expect(screen.getByText('Reading the diff')).toBeInTheDocument()
+  })
+
   it('renders the two tabs that changed when another agent is picked, and the new list: not the strip', async () => {
     await renderAgents()
 
@@ -1263,5 +1301,241 @@ describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', 
       vi.advanceTimersByTime(NOW_REFRESH_MS)
     })
     expect(rendered()).toEqual({ tabs: 0, rows: 0, times: 0, line: 1 })
+  })
+})
+
+describe('watchers in the Agents tab, five pinned under a 2,000-call list (P16, #537)', () => {
+  const MAIN_CALLS = 2000
+  const ENDED = 20
+  const MINUTE = 60_000
+
+  const FINISHED = hubAgent('agent-done', 'review-done', 50, {
+    state: ToolCallState.Done,
+    output: 'Looks good.',
+    finishedAt: HUB_NOW,
+  })
+  const RUNNING = hubAgent('agent-running', 'review-running', 40)
+
+  function watcher(id: string, minutes: number, fields: Partial<Watcher> = {}): Watcher {
+    return sampleWatcher(id, 't1', {
+      toolUseId: `use-start-${id}`,
+      label: `Watch ${id}`,
+      startedAt: HUB_NOW - minutes * MINUTE,
+      ...fields,
+    })
+  }
+
+  /** What Main has pinned: three watches whose process runs, a wakeup and a cron job. */
+  const PINNED: Watcher[] = [
+    watcher('ci', 30, { lastOutput: 'lint pass' }),
+    watcher('tests', 28, { kind: WatcherKind.Command, recurring: false }),
+    watcher('deploy', 26),
+    watcher('preview', 10, {
+      kind: WatcherKind.Wakeup,
+      state: WatcherState.Scheduled,
+      recurring: false,
+      nextDueAt: HUB_NOW + 20 * MINUTE,
+    }),
+    watcher('queue', 90, { kind: WatcherKind.Cron, state: WatcherState.Scheduled, nextDueAt: HUB_NOW + 30 * MINUTE }),
+  ]
+  /** Twenty that ended, through Main's history. */
+  const OLD: Watcher[] = Array.from({ length: ENDED }, (_, index) =>
+    watcher(`old-${String(index)}`, 300 - index, {
+      state: WatcherState.Finished,
+      outcome: 'It ended.',
+      endedAt: HUB_NOW - (290 - index) * MINUTE,
+    }),
+  )
+  /** One a running subagent started. */
+  const THEIRS = watcher('theirs', 12, { parentToolUseId: RUNNING.toolUseId })
+  const WATCHERS = [...OLD, ...PINNED, THEIRS]
+
+  const EVENTS: ToolEvent[] = [
+    ...Array.from({ length: MAIN_CALLS }, (_, index) => call(`main-${String(index)}`, 1)),
+    // The calls that started Main's watchers: none is a row.
+    ...[...OLD, ...PINNED].map(({ id }) => call(`start-${id}`, 1, { name: 'Monitor' })),
+    FINISHED,
+    RUNNING,
+    call('theirs-read', 1, { parentToolUseId: RUNNING.toolUseId }),
+    call(`start-${THEIRS.id}`, 1, { name: 'Monitor', parentToolUseId: RUNNING.toolUseId }),
+  ]
+
+  const COUNTERS = [resultSummary, endedSummary, pinnedMetaLine, pinnedStatus, watchingTitle, agentDotLabel]
+
+  interface Rendered {
+    /** Tool calls' rows. */
+    readonly calls: number
+    /** Ended watchers' rows. */
+    readonly ended: number
+    /** Pinned cards. */
+    readonly cards: number
+    /** Pinned cards' states, which tick. */
+    readonly states: number
+    /** Tabs with an eye. */
+    readonly eyes: number
+    /** Subagents' tabs. */
+    readonly tabs: number
+  }
+
+  const NOTHING: Rendered = { calls: 0, ended: 0, cards: 0, states: 0, eyes: 0, tabs: 0 }
+
+  /** What rendered since the last look, which starts the count again. */
+  function rendered(): Rendered {
+    const counts = {
+      calls: renders(resultSummary),
+      ended: renders(endedSummary),
+      cards: renders(pinnedMetaLine),
+      states: renders(pinnedStatus),
+      eyes: renders(watchingTitle),
+      tabs: renders(agentDotLabel),
+    }
+    for (const counter of COUNTERS) vi.mocked(counter).mockClear()
+    return counts
+  }
+
+  async function renderAgents(): Promise<HubStore> {
+    const wrapper = await hubStore({ toolEvents: EVENTS, watchers: WATCHERS })
+    render(<AgentsTab taskId="t1" />, { wrapper: wrapper.wrapper })
+    await act(() => Promise.resolve())
+    expect(screen.getByRole('group', { name: 'Watching' }).querySelectorAll('[data-kind]')).toHaveLength(PINNED.length)
+    expect(rendered()).toEqual({
+      calls: MAIN_CALLS,
+      ended: ENDED,
+      cards: PINNED.length,
+      states: PINNED.length,
+      // Main's, and the running subagent's.
+      eyes: 2,
+      tabs: 2,
+    })
+    return wrapper
+  }
+
+  /** Main sends the task's watchers anew, each made again, as it does with every change to one of them. */
+  function send(fake: HubStore['fake'], change: (watcher: Watcher) => Watcher = (watcher) => watcher): void {
+    act(() => {
+      fake.emit({
+        type: EventType.WatchersChanged,
+        taskId: 't1',
+        watchers: WATCHERS.map((each) => ({ ...change(each) })),
+      })
+    })
+  }
+
+  const only = (id: string, fields: Partial<Watcher>) => (each: Watcher) =>
+    each.id === id ? { ...each, ...fields } : each
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(HUB_NOW)
+    for (const counter of COUNTERS) vi.mocked(counter).mockClear()
+  })
+
+  it('renders only the card of the watcher that reported a line or woke the agent: no row above it, and no tab', async () => {
+    const { fake } = await renderAgents()
+
+    send(fake, only('ci', { lastOutput: 'unit-tests running' }))
+    expect(rendered()).toEqual({ ...NOTHING, cards: 1, states: 1 })
+    expect(screen.getByText('unit-tests running')).toBeInTheDocument()
+
+    send(fake, only('ci', { lastOutput: 'unit-tests running', wakes: 1, lastWokeAt: HUB_NOW }))
+    expect(rendered()).toEqual({ ...NOTHING, cards: 1, states: 1 })
+
+    // A job fires: its count and when it's next due, on its own card.
+    send(fake, (each) =>
+      each.id === 'ci'
+        ? { ...each, lastOutput: 'unit-tests running', wakes: 1, lastWokeAt: HUB_NOW }
+        : each.id === 'queue'
+          ? { ...each, wakes: 1, lastWokeAt: HUB_NOW, nextDueAt: HUB_NOW + 60 * MINUTE }
+          : each,
+    )
+    expect(rendered()).toEqual({ ...NOTHING, cards: 1, states: 1 })
+  })
+
+  it('renders nothing when main sends the watchers again as they were', async () => {
+    const { fake } = await renderAgents()
+
+    send(fake)
+    send(fake)
+    expect(rendered()).toEqual(NOTHING)
+  })
+
+  it('renders only each card’s state as the clock ticks: no card, no row and no tab', async () => {
+    await renderAgents()
+
+    act(() => {
+      vi.advanceTimersByTime(NOW_REFRESH_MS)
+    })
+    expect(rendered()).toEqual({ ...NOTHING, states: PINNED.length })
+  })
+
+  it('renders the row of a watcher that ended and its tab’s eye: not the rows around it, and not the other cards', async () => {
+    const { fake } = await renderAgents()
+
+    send(fake, only('ci', { state: WatcherState.Finished, outcome: 'It ended.', endedAt: HUB_NOW }))
+
+    expect(rendered()).toEqual({ ...NOTHING, ended: 1, eyes: 1 })
+    expect(screen.getByRole('group', { name: 'Watching' }).querySelectorAll('[data-kind]')).toHaveLength(4)
+    expect(document.querySelectorAll('[data-watcher]')).toHaveLength(ENDED + 1)
+  })
+
+  it('renders the card of a watcher that started and its tab’s eye, with the row of its call gone and no other', async () => {
+    const { fake } = await renderAgents()
+    const started = call('start-late', 1, { name: 'Monitor', state: ToolCallState.Running, output: null })
+
+    // Its call is a row until the SDK says it started a watcher.
+    act(() => {
+      fake.emit({ type: EventType.ToolEventAppended, toolEvent: started })
+    })
+    expect(rendered()).toEqual({ ...NOTHING, calls: 1 })
+
+    act(() => {
+      fake.emit({
+        type: EventType.WatchersChanged,
+        taskId: 't1',
+        watchers: [...WATCHERS, watcher('late', 0)].map((each) => ({ ...each })),
+      })
+    })
+    expect(rendered()).toEqual({ ...NOTHING, cards: 1, states: 1, eyes: 1 })
+    expect(screen.getByTitle('6 watching')).toBeInTheDocument()
+  })
+
+  it('renders only the tab of an agent you aren’t looking at when its watcher starts or ends, and nothing as it reports', async () => {
+    const { fake } = await renderAgents()
+
+    send(fake, only('theirs', { lastOutput: 'tick', wakes: 3, lastWokeAt: HUB_NOW }))
+    expect(rendered()).toEqual(NOTHING)
+
+    // It ends: the eye leaves its tab, and Main's list and cards are as they were.
+    const ended = only('theirs', {
+      state: WatcherState.Stopped,
+      outcome: 'Ended with its subagent.',
+      endedAt: HUB_NOW,
+    })
+    send(fake, ended)
+    expect(rendered()).toEqual({ ...NOTHING, tabs: 1 })
+
+    // On its tab, Main's watchers changing renders nothing but Main's eye, when what it counts changes.
+    fireEvent.click(screen.getByTitle('review-running'))
+    rendered()
+    send(fake, (each) => only('ci', { lastOutput: 'unit-tests running', wakes: 2 })(ended(each)))
+    expect(rendered()).toEqual(NOTHING)
+    send(fake, (each) =>
+      only('ci', { state: WatcherState.Finished, outcome: 'It ended.', endedAt: HUB_NOW })(ended(each)),
+    )
+    expect(rendered()).toEqual({ ...NOTHING, eyes: 1 })
+  })
+
+  it('renders nothing of the watchers when an agent works or the task changes', async () => {
+    const { fake } = await renderAgents()
+
+    act(() => {
+      fake.emit({ type: EventType.ToolEventAppended, toolEvent: call('late-main', 1) })
+      fake.emit({
+        type: EventType.ToolEventAppended,
+        toolEvent: call('late-theirs', 1, { parentToolUseId: RUNNING.toolUseId }),
+      })
+      fake.emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), status: 'Watching the checks.' } })
+    })
+    expect(rendered()).toEqual({ ...NOTHING, calls: 1 })
   })
 })

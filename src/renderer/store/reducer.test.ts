@@ -746,6 +746,54 @@ describe("a task's watchers", () => {
   })
 })
 
+describe("a task's watchers, as main sends the whole list with each change (#537)", () => {
+  const ci = sampleWatcher('ci', 't1')
+  const docs = sampleWatcher('docs', 't1', { state: WatcherState.Finished, outcome: 'It ended.' })
+  const sent = (...watchers: readonly Watcher[]) => ({
+    type: EventType.WatchersChanged as const,
+    taskId: 't1',
+    // Each made anew, as it comes over the bridge.
+    watchers: watchers.map((watcher) => ({ ...watcher })),
+  })
+  const loaded = applyEvent(state, sent(ci, docs))
+
+  it('keeps the object of each watcher that’s as it was, and takes the one that changed', () => {
+    const reported = { ...ci, lastOutput: 'lint pass', wakes: 1 }
+    const changed = applyEvent(loaded, sent(reported, docs))
+
+    expect(changed.watchers.t1).toEqual([reported, docs])
+    expect(changed.watchers.t1?.[0]).not.toBe(loaded.watchers.t1?.[0])
+    expect(changed.watchers.t1?.[1]).toBe(loaded.watchers.t1?.[1])
+  })
+
+  it('keeps the whole list when nothing in it changed', () => {
+    expect(applyEvent(loaded, sent(ci, docs)).watchers).toBe(loaded.watchers)
+    expect(applyEvent(loaded, sent(ci, docs)).watchers.t1).toBe(loaded.watchers.t1)
+  })
+
+  it('takes a list with one more, one fewer or in another order, keeping the ones that are as they were', () => {
+    const queue = sampleWatcher('queue', 't1', { state: WatcherState.Scheduled })
+    const more = applyEvent(loaded, sent(ci, docs, queue))
+    expect(more.watchers.t1).toEqual([ci, docs, queue])
+    expect(more.watchers.t1?.[0]).toBe(loaded.watchers.t1?.[0])
+
+    const fewer = applyEvent(more, sent(ci, queue))
+    expect(fewer.watchers.t1).toEqual([ci, queue])
+    expect(fewer.watchers.t1?.[1]).toBe(more.watchers.t1?.[2])
+
+    const reordered = applyEvent(fewer, sent(queue, ci))
+    expect(reordered.watchers.t1).toEqual([queue, ci])
+    expect(reordered.watchers.t1).not.toBe(fewer.watchers.t1)
+    expect(reordered.watchers.t1?.[1]).toBe(fewer.watchers.t1?.[0])
+  })
+
+  it('leaves another task’s list alone', () => {
+    const other = applyEvent(loaded, { ...sent(sampleWatcher('x', 't2')), taskId: 't2' })
+    expect(other.watchers.t1).toBe(loaded.watchers.t1)
+    expect(other.watchers.t2?.map(({ id }) => id)).toEqual(['x'])
+  })
+})
+
 describe("every task's running subagents", () => {
   const agent = (id: string, taskId: string): ToolCallEvent => ({
     ...call,

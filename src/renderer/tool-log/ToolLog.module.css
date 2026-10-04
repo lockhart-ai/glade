@@ -135,6 +135,70 @@
   text-overflow: ellipsis;
 }
 
+/* What a running subagent is doing now, under its Agent call's "Running · 6m" in the Agents tab: the Subagents tab's
+   summary line, on one line with the rest in its tooltip. */
+.doing {
+  padding-left: 18px;
+  margin-top: 3px;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.45;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A watcher that has ended, in its agent's list (docs/design/html/53-agents-watcher-done.html): a call's row, with the
+   eye where a call's dot goes. Grey for one that finished or was stopped; pink for one whose own command failed. */
+.watcher {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The eye takes a dot's 8px, so the row's text lines up with the calls' around it. */
+.eye {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-faint);
+}
+
+.failedWatcher .eye,
+.failedWatcher .ended,
+.failedWatcher .reportText {
+  color: var(--color-pink);
+}
+
+/* What it last reported, or how it ended, after the line's label ("last", "end"). */
+.report {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding-left: 18px;
+  margin-top: 3px;
+}
+
+.reportLabel {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-faint);
+}
+
+.reportText {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* A call's permission line (../permissions/PermissionLine.module.css), under the call and above its result. */
 .permission {
   padding-left: 18px;

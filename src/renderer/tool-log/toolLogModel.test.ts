@@ -10,10 +10,16 @@ import {
   type NarrationEvent,
   type RefusalFallbackEvent,
   type ToolCallEvent,
+  type ToolEvent,
+  type Watcher,
+  WatcherState,
 } from '../../shared/domain'
+import { sampleWatcher } from '../store/test-bridge'
 import { TaskIndicator } from '../../shared/taskIndicator'
 import { PermissionLineScope, PermissionLineState, type PermissionLine } from '../permissions/permissionLineModel'
 import {
+  AgentLogRowKind,
+  agentLogRows,
   argumentSummary,
   awaitsPermission,
   callIndicator,
@@ -27,6 +33,7 @@ import {
   parentLogRows,
   relativePath,
   resultSummary,
+  rowEvent,
   rowIndicator,
   rowStateLabel,
   sameSubagentRow,
@@ -36,7 +43,9 @@ import {
   withdrawnUnrun,
   toolCallCount,
   toolLogRows,
+  type AgentLogRow,
   type CallRow,
+  type LogWatchers,
   type ToolLogRow,
 } from './toolLogModel'
 import { setHomeFolder } from '../../shared/homeFolder'
@@ -541,5 +550,160 @@ describe('permission lines', () => {
     expect(showsResult({ permission: WAITING })).toBe(false)
     expect(showsResult({ permission: DENIED })).toBe(false)
     expect(showsResult({ permission: WITHDRAWN })).toBe(false)
+  })
+})
+
+describe('an agent’s list with its watchers (#537)', () => {
+  const MINUTE = 60_000
+  const minute = (minutes: number): number => AT + minutes * MINUTE
+
+  function ended(id: string, endedAt: number | null, overrides: Partial<Watcher> = {}): Watcher {
+    return sampleWatcher(id, 't1', { state: WatcherState.Finished, startedAt: AT, endedAt, ...overrides })
+  }
+
+  function watchers(list: readonly Watcher[], live: readonly string[] = []): LogWatchers {
+    return { ended: list, startedBy: new Set([...list.map(({ toolUseId }) => toolUseId), ...live]) }
+  }
+
+  /** Each row as a word: a call's `tool_use` id, a note's or a divider's id, or a watcher's id after an eye. */
+  function names(rows: readonly AgentLogRow[]): string[] {
+    return rows.map((row) => {
+      if (row.kind === AgentLogRowKind.Watcher) return `watcher ${row.watcher.id}`
+      return row.kind === ToolEventKind.ToolCall ? row.call.toolUseId : rowEvent(row).id
+    })
+  }
+
+  const events: ToolEvent[] = [
+    narration('n1', 1, minute(0)),
+    call({ id: 'c-monitor', name: 'Monitor', toolUseId: 'toolu-ci', createdAt: minute(1) }),
+    call({ id: 'c-read', toolUseId: 'read', createdAt: minute(2) }),
+    divider('d2', 2, DividerKind.Turn, minute(8)),
+    narration('n2', 2, minute(8)),
+    call({ id: 'c-agent', name: 'Agent', toolUseId: 'fixer', createdAt: minute(9) }),
+    call({ id: 'c-inner', toolUseId: 'inner', parentToolUseId: 'fixer', createdAt: minute(10) }),
+    call({ id: 'c-lint', name: 'Bash', toolUseId: 'toolu-lint', parentToolUseId: 'fixer', createdAt: minute(11) }),
+  ]
+
+  it('is the tool log’s rows with no watchers', () => {
+    expect(agentLogRows(events, null)).toEqual(toolLogRows(events.filter(isParentEvent)))
+    expect(names(agentLogRows(events, null, undefined, watchers([])))).toEqual([
+      'n1',
+      'toolu-ci',
+      'read',
+      'd2',
+      'n2',
+      'fixer',
+    ])
+  })
+
+  it('leaves out the call that started a watcher while it’s live', () => {
+    expect(names(agentLogRows(events, null, undefined, watchers([], ['toolu-ci'])))).toEqual([
+      'n1',
+      'read',
+      'd2',
+      'n2',
+      'fixer',
+    ])
+  })
+
+  it('puts an ended watcher at the time it ended, with what the agent did next after it', () => {
+    const ci = ended('ci', minute(7))
+    const rows = agentLogRows(events, null, undefined, watchers([ci]))
+
+    expect(names(rows)).toEqual(['n1', 'read', 'watcher ci', 'd2', 'n2', 'fixer'])
+    expect(rows[2]).toEqual({ kind: AgentLogRowKind.Watcher, watcher: ci })
+  })
+
+  it('puts one that ended at the very time of an event before it: a wake ends it, then starts the turn', () => {
+    expect(names(agentLogRows(events, null, undefined, watchers([ended('ci', minute(8))])))).toEqual([
+      'n1',
+      'read',
+      'watcher ci',
+      'd2',
+      'n2',
+      'fixer',
+    ])
+  })
+
+  it('puts one that ended after everything last, and one that ended before everything first', () => {
+    const late = ended('late', minute(30))
+    const early = ended('early', minute(-5), { toolUseId: 'toolu-early' })
+    expect(names(agentLogRows(events, null, undefined, watchers([early, ended('ci', minute(7)), late])))).toEqual([
+      'watcher early',
+      'n1',
+      'read',
+      'watcher ci',
+      'd2',
+      'n2',
+      'fixer',
+      'watcher late',
+    ])
+  })
+
+  it('keeps several that ended between the same two events in the order they ended', () => {
+    const list = [1, 2, 3, 4, 5].map((n) => ended(`w${String(n)}`, minute(2) + n * 1000))
+    expect(names(agentLogRows(events, null, undefined, watchers(list)))).toEqual([
+      'n1',
+      'toolu-ci',
+      'read',
+      'watcher w1',
+      'watcher w2',
+      'watcher w3',
+      'watcher w4',
+      'watcher w5',
+      'd2',
+      'n2',
+      'fixer',
+    ])
+  })
+
+  it('counts one whose end wasn’t recorded as ending when it started', () => {
+    const lost = ended('lost', null, { state: WatcherState.Stopped, startedAt: minute(1) })
+    expect(names(agentLogRows(events, null, undefined, watchers([lost], ['toolu-ci'])))).toEqual([
+      'n1',
+      'watcher lost',
+      'read',
+      'd2',
+      'n2',
+      'fixer',
+    ])
+  })
+
+  it('is the whole list for an agent with watchers and no calls left', () => {
+    const only = [call({ id: 'c-monitor', name: 'Monitor', toolUseId: 'toolu-ci' })]
+    expect(names(agentLogRows(only, null, undefined, watchers([ended('ci', minute(7))])))).toEqual(['watcher ci'])
+    expect(agentLogRows(only, null, undefined, watchers([], ['toolu-ci']))).toEqual([])
+  })
+
+  it('shows a subagent’s own on its list: its calls, without the one that started its watcher', () => {
+    const lint = ended('lint', minute(12), { toolUseId: 'toolu-lint', parentToolUseId: 'fixer' })
+    expect(names(agentLogRows(events, 'fixer', undefined, watchers([lint])))).toEqual(['inner', 'watcher lint'])
+    // Main's list doesn't hide a call for a watcher that isn't its own.
+    expect(names(agentLogRows(events, 'fixer', undefined, watchers([])))).toEqual(['inner', 'toolu-lint'])
+  })
+
+  it('names the event each of the tool log’s rows shows', () => {
+    const compaction: CompactionEvent = {
+      id: 'k1',
+      taskId: 't1',
+      turn: 2,
+      createdAt: minute(9),
+      kind: ToolEventKind.Compaction,
+      state: ToolCallState.Done,
+      trigger: CompactionTrigger.Auto,
+      preTokens: 1000,
+      postTokens: 100,
+      windowTokens: 200_000,
+      summary: null,
+    }
+    expect(toolLogRows([...events, compaction]).map((row) => rowEvent(row).id)).toEqual([
+      'n1',
+      'c-monitor',
+      'c-read',
+      'd2',
+      'n2',
+      'c-agent',
+      'k1',
+    ])
   })
 })

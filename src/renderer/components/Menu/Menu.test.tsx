@@ -35,10 +35,12 @@ function makeActions(): Actions {
 interface HarnessProps {
   actions: Actions
   placement?: Placement
+  /** An id for the dropdown button, as a tab that labels its panel has. */
+  triggerId?: string
 }
 
 /** A dropdown button and a right-click target, each opening the same menu. */
-function Harness({ actions, placement }: HarnessProps): React.JSX.Element {
+function Harness({ actions, placement, triggerId }: HarnessProps): React.JSX.Element {
   const trigger = useRef<HTMLButtonElement>(null)
   const [anchor, setAnchor] = useState<MenuAnchor | null>(null)
 
@@ -46,6 +48,7 @@ function Harness({ actions, placement }: HarnessProps): React.JSX.Element {
     <>
       <button
         type="button"
+        id={triggerId}
         ref={trigger}
         onClick={() => {
           setAnchor({ kind: MenuAnchorKind.Element, element: trigger.current, placement })
@@ -95,6 +98,15 @@ function key(name: string): void {
 }
 
 describe('Menu', () => {
+  it('is named by its label, not by what it’s anchored to, even when that has an id (#537)', async () => {
+    render(<Harness actions={makeActions()} triggerId="agent-tab-fix-501" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Actions' }))
+    await settleFloating()
+
+    expect(menu()).toHaveAccessibleName('Task actions')
+    expect(menu()).not.toHaveAttribute('aria-labelledby')
+  })
+
   it('renders nothing while closed', () => {
     render(<Harness actions={makeActions()} />)
 

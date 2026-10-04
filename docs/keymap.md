@@ -67,7 +67,11 @@ with the tab picked; ↵ or Space on a tab picks it, as a click does. Held with 
 whatever command has them. These keys are fixed. Tab then reaches, in order: on a subagent's tab, the todo's title in
 the line under the strip (↵ or Space shows that todo in the Todos tab, with the focus on it); then each tool call of
 the agent showing, where ↵ or Space opens a call's output, and on a subagent's `Agent` call goes to that subagent's
-tab; Context menu (⇧F10) on a call opens the tool call's menu.
+tab; Context menu (⇧F10) on a call opens the tool call's menu. Under the calls, each pinned watcher's **Stop** (#537)
+is a Tab stop: ↵ or Space stops that watcher. A watcher's row in the list isn't one: it does nothing.
+
+Context menu (⇧F10), or the keyboard's menu key, on a subagent's tab in the strip opens that subagent's menu (#537):
+Copy log, and Stop subagent while it runs. Main's tab has none.
 
 ## The Todos tab as the todo hub
 

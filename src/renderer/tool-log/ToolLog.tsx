@@ -1,18 +1,29 @@
+import { faEye } from '@fortawesome/free-regular-svg-icons'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import { ToolCallState, ToolEventKind, type ToolCallEvent, type ToolEvent } from '../../shared/domain'
+import {
+  ToolCallState,
+  ToolEventKind,
+  WatcherState,
+  type ToolCallEvent,
+  type ToolEvent,
+  type Watcher,
+} from '../../shared/domain'
 import { isSubagentTool } from '../../shared/subagents'
 import { agentCallResult, isRunning } from '../agents/agentsModel'
+import { endedLabel, endedOutputLine, endedSummary, endedTime } from '../agents/agentWatchersModel'
 import { useElapsedNow } from '../agents/useElapsedNow'
 import { clockTime } from '../chat/chatModel'
 import { InlineMarkdown } from '../chat/Markdown'
 import { useStickToBottom } from '../chat/useStickToBottom'
 import { classNames } from '../components/classNames'
 import { moduleClass } from '../components/moduleClass'
-import { Collapse, Dot } from '../components'
+import { Collapse, Dot, Icon } from '../components'
 import { LinkedText } from '../links'
 import type { PermissionLines } from '../permissions/permissionLineModel'
 import { PermissionLineView } from '../permissions/PermissionLine'
+import { kindLabel, whatLine } from '../watchers/watchersModel'
 import {
+  AgentLogRowKind,
   agentLogRows,
   argumentSummary,
   callIndicator,
@@ -21,6 +32,7 @@ import {
   compactionArgument,
   compactionResult,
   resultSummary,
+  rowEvent,
   rowIndicator,
   rowStateLabel,
   sameSubagentRow,
@@ -29,9 +41,9 @@ import {
   type CallRow,
   type CompactionRow,
   type DividerRow,
+  type LogWatchers,
   type NarrationRow,
   type SubagentRow,
-  type ToolLogRow,
 } from './toolLogModel'
 import { ToolCallMenu, useToolCallMenuTarget } from './ToolCallMenu'
 import styles from './ToolLog.module.css'
@@ -179,12 +191,15 @@ function sameAgentCall(a: AgentCallProps, b: AgentCallProps): boolean {
 /**
  * A call that started a subagent, in the Agents tab (P16, #536; `docs/design/html/50-agents.html`): a tool call's row,
  * live while the subagent runs ("Running · 29m" on the running call's highlight), then how it ended, how long it ran
- * and the first line of what it came to ("Done · 28m · Opened PR #511"). Clicking it goes to the subagent's own tab,
- * where what it did is, rather than opening the call's output; its context menu is a tool call's.
+ * and the first line of what it came to ("Done · 28m · Opened PR #511"). While it runs, the SDK's summary of what it's
+ * doing now is under that, on one line with the whole of it in its tooltip, as its row in the Subagents tab has it
+ * (#278, #537). Clicking it goes to the subagent's own tab, where what it did is, rather than opening the call's
+ * output; its context menu is a tool call's.
  */
 const AgentCall = memo(function AgentCall({ row, rootPath, turnStart, onOpen }: AgentCallProps): React.JSX.Element {
   const { call, permission } = row
   const menuTarget = useToolCallMenuTarget(call)
+  const doing = isRunning(call) ? call.progressSummary : null
   return (
     <div className={styles.callGroup} {...{ [TURN_START]: turnStart }}>
       <div
@@ -207,11 +222,65 @@ const AgentCall = memo(function AgentCall({ row, rootPath, turnStart, onOpen }: 
               <AgentCallResult call={call} />
             </span>
           )}
+          {doing !== null && showsResult(row) && (
+            <span className={styles.doing} title={doing}>
+              {doing}
+            </span>
+          )}
         </button>
       </div>
     </div>
   )
 }, sameAgentCall)
+
+/**
+ * A watcher that has ended, in its agent's list at the time it ended (P16, #537;
+ * `docs/design/html/53-agents-watcher-done.html`): a tool call's row with the eye where a call's dot goes. Its first
+ * line is what kind it was, what the agent called it (what it ran is its tooltip) and when it ended; under it, how it
+ * ended, how long it ran and how often it woke the agent; then what it last reported, or how it ended. One that
+ * finished or was stopped is grey, whatever it found; one whose own command failed is pink.
+ */
+const EndedWatcher = memo(function EndedWatcher({ watcher }: { readonly watcher: Watcher }): React.JSX.Element {
+  const kind = kindLabel(watcher.kind)
+  const output = endedOutputLine(watcher)
+  return (
+    <div className={styles.callGroup}>
+      <div
+        role="group"
+        aria-label={`${kind} ${watcher.label}`}
+        className={classNames(
+          styles.call,
+          styles.watcher,
+          watcher.state === WatcherState.Failed && styles.failedWatcher,
+        )}
+        data-state={watcher.state}
+        data-watcher={watcher.id}
+      >
+        <span className={styles.callLine}>
+          <span className={styles.eye} role="img" aria-label="Watcher">
+            <Icon icon={faEye} />
+          </span>
+          <span className={styles.name}>{kind}</span>
+          <span className={styles.argument} title={whatLine(watcher)}>
+            {watcher.label}
+          </span>
+          <span className={styles.time}>{clockTime(endedTime(watcher))}</span>
+        </span>
+        <span className={styles.result}>
+          <span className={styles.ended}>{endedLabel(watcher)}</span> · {endedSummary(watcher)}
+        </span>
+        {output !== null && (
+          <span className={styles.report}>
+            <span className={styles.reportLabel}>{output.kind}</span>
+            <span className={styles.reportText} title={output.text}>
+              <LinkedText text={output.text} />
+            </span>
+          </span>
+        )}
+      </div>
+    </div>
+  )
+})
 
 /**
  * A compaction of the context, laid out like a tool call: "Compact  198k → 41k tokens". Once it has the summary it
@@ -314,19 +383,6 @@ export function SubagentRows({ rows, rootPath, compact }: SubagentRowsProps): Re
   )
 }
 
-function rowEvent(row: ToolLogRow): ToolEvent {
-  switch (row.kind) {
-    case ToolEventKind.ToolCall:
-      return row.call
-    case ToolEventKind.Narration:
-      return row.narration
-    case ToolEventKind.Divider:
-      return row.divider
-    case ToolEventKind.Compaction:
-      return row.compaction
-  }
-}
-
 export interface ToolLogProps {
   readonly taskId: string
   readonly events: readonly ToolEvent[]
@@ -348,6 +404,11 @@ export interface ToolLogProps {
    * is a row that goes to that subagent (`AgentCall`); without it, it's a call like any other.
    */
   readonly onOpenAgent?: ((agentId: string) => void) | undefined
+  /**
+   * In the Agents tab: the agent's watchers (P16, #537). Each one that has ended is a row at the time it ended, and
+   * the call that started one isn't a row. None by default.
+   */
+  readonly watchers?: LogWatchers | undefined
 }
 
 /**
@@ -358,7 +419,8 @@ export interface ToolLogProps {
  * highlights it for a moment.
  *
  * In the Agents tab it's the list under an agent's tab, the same rows for a subagent's own calls and notes (`agentId`),
- * with the whole panel to itself.
+ * with the whole panel to itself, and with a row for each of the agent's watchers that has ended, at the time it ended
+ * (`watchers`).
  */
 export function ToolLog({
   taskId,
@@ -369,8 +431,12 @@ export function ToolLog({
   onFocusShown,
   agentId = null,
   onOpenAgent,
+  watchers,
 }: ToolLogProps): React.JSX.Element {
-  const rows = useMemo(() => agentLogRows(events, agentId, permissions), [events, agentId, permissions])
+  const rows = useMemo(
+    () => agentLogRows(events, agentId, permissions, watchers),
+    [events, agentId, permissions, watchers],
+  )
   // A permission line coming or going changes a row's height, as a new row changes the log's.
   const { ref, onScroll } = useStickToBottom(rows, taskId)
 
@@ -408,6 +474,8 @@ export function ToolLog({
       <div ref={ref} onScroll={onScroll} role="log" aria-label="Tool log" className={styles.scroller}>
         <div className={styles.log}>
           {rows.map((row) => {
+            // A watcher is no part of a turn: the row after it may still be its turn's first.
+            if (row.kind === AgentLogRowKind.Watcher) return <EndedWatcher key={row.watcher.id} watcher={row.watcher} />
             const event = rowEvent(row)
             const turnStart = seen.has(event.turn) ? undefined : event.turn
             seen.add(event.turn)
