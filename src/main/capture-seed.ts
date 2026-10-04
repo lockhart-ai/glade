@@ -38,6 +38,8 @@ import {
   type TurnSummary,
 } from '../shared/domain'
 import { taskPermissionRule } from '../shared/permissions'
+import { SandboxGrantScope, type CardGrantScope, type SandboxAsk } from '../shared/sandbox'
+import { sandboxAskSchema } from './permissions/schema'
 import { preambleSchema, questionsSchema } from './questions/schema'
 import { appendQuestionSet } from './db/repositories/question-sets'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
@@ -165,6 +167,10 @@ export interface SeedPermissionRequest {
   readonly denyNote?: string | undefined
   /** Whether it was allowed for the task (Allow for this task), which grants the task its rule; allowed once if not. */
   readonly forTask?: boolean | undefined
+  /** What it asks of the agent sandbox (the sandbox's cards, #450); nothing unless given. */
+  readonly sandbox?: SandboxAsk | undefined
+  /** Who a folder or domain it was allowed was granted to: the task, or its workspace. */
+  readonly grantedScope?: CardGrantScope | undefined
   readonly turn: number
   readonly minutesAgo: number
 }
@@ -599,6 +605,8 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
             state: z.enum(PermissionRequestState).optional(),
             denyNote: z.string().optional(),
             forTask: z.boolean().optional(),
+            sandbox: sandboxAskSchema.optional(),
+            grantedScope: z.enum([SandboxGrantScope.Task, SandboxGrantScope.Workspace]).optional(),
             turn,
             minutesAgo,
           }),
@@ -726,6 +734,9 @@ function seedClosing(request: SeedPermissionRequest): PermissionRequestClosing |
     case PermissionRequestState.Open:
       return null
     case PermissionRequestState.Allowed: {
+      if (request.grantedScope !== undefined) {
+        return { state: PermissionRequestState.Allowed, grantedScope: request.grantedScope }
+      }
       const rule =
         request.forTask === true
           ? taskPermissionRule({
@@ -763,7 +774,9 @@ function seedPermissionRequest(db: Database, taskId: string, request: SeedPermis
       description: request.description ?? null,
       suggestions: seedSuggestions(request),
       defaultToNo: request.defaultToNo ?? false,
-      suppressAlwaysAllowRule: false,
+      // Nothing that asks of the sandbox is remembered as a rule.
+      suppressAlwaysAllowRule: request.sandbox !== undefined,
+      sandbox: request.sandbox ?? null,
     },
     at,
   )

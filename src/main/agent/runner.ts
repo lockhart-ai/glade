@@ -973,6 +973,12 @@ interface DecidedRequest {
 /** The tools whose calls run a command in the sandbox: a connection's request belongs to one of them. */
 const COMMAND_TOOL_NAMES: readonly string[] = ['Bash', 'Monitor']
 
+/**
+ * How many turns of the microtask queue a connection's request waits for its command's `tool_use` to be logged, when
+ * none is running yet: enough for a message already streamed to reach the log, and no time at all.
+ */
+const COMMAND_TICKS = 20
+
 /** What a request asks a grant for: its folder or domain; null for any other request. */
 function grantAskOf(request: Pick<PermissionRequest, 'sandbox'>): SandboxGrantAsk | null {
   const { sandbox } = request
@@ -2237,7 +2243,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       })
     }
     // A connection's request names no call: it goes with the command running now, on its row, as its subagent's.
-    const command = sandbox !== null && toolName === SANDBOX_NETWORK_TOOL ? runningCommand(taskId) : null
+    const command = sandbox !== null && toolName === SANDBOX_NETWORK_TOOL ? await commandBehind(taskId) : null
+    // The session may have closed while the command was looked for.
+    if (sessions.get(taskId) !== live) return WITHDRAWN
     const { request, decision } = await requested(
       taskId,
       live,
@@ -2325,6 +2333,15 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       description: typeof description === 'string' ? description : null,
       parentToolUseId: call.parentToolUseId,
     }
+  }
+
+  /**
+   * The command a connection's request is put on (`runningCommand`). The request can reach Glade ahead of the
+   * command's own `tool_use`, which comes through the session's stream: one not logged yet is given a moment to be.
+   */
+  const commandBehind = async (taskId: string): Promise<RunningCommand | null> => {
+    for (let tick = 0; tick < COMMAND_TICKS && runningCommand(taskId) === null; tick += 1) await Promise.resolve()
+    return runningCommand(taskId)
   }
 
   /**

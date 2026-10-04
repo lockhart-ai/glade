@@ -163,12 +163,13 @@ export type SandboxGrantAsk = SandboxFolderAsk | SandboxDomainAsk
 /** The scopes a permission card can grant a folder or domain to: Glade-wide grants are made in Settings only. */
 export type CardGrantScope = SandboxGrantScope.Task | SandboxGrantScope.Workspace
 
-/** A macOS home folder, `/Users/<name>`, at the start of a path. */
-const HOME_PREFIX = /^\/Users\/[^/]+(?=\/|$)/
+/** A macOS home folder, `/Users/<name>`, at the start of a path: any but `/Users/Shared`, which is nobody's. */
+const HOME_PREFIX = /^\/Users\/(?!Shared(?:\/|$))[^/]+(?=\/|$)/
 
 /**
  * Shortens a path under the user's home folder to start with `~`, as the designs show folders (`~/code/api`). The
- * sandboxed renderer can't ask for the home folder, so this recognises the macOS `/Users/<name>` layout.
+ * sandboxed renderer can't ask for the home folder, so this recognises the macOS `/Users/<name>` layout; the shared
+ * folder beside the home folders, `/Users/Shared`, is left as it is.
  */
 export function shortenHomePath(path: string): string {
   return path.replace(HOME_PREFIX, '~')

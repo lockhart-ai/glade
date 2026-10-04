@@ -29,6 +29,7 @@ import {
   type EpochMs,
   type Question,
 } from '../shared/domain'
+import { FolderAccess, SandboxAskKind, SandboxGrantScope } from '../shared/sandbox'
 import { applySeed, readSeed, seedArtifactAt, type CaptureSeed } from './capture-seed'
 import { getArtifactFilter, listArtifacts, listFileArtifacts } from './db/repositories/artifacts'
 import { getHandoff } from './db/repositories/backfills'
@@ -1040,6 +1041,78 @@ describe('applySeed', () => {
       { toolName: 'Bash', ruleContent: 'npm test *' },
       { toolName: 'Edit' },
     ])
+  })
+
+  it('writes a task’s sandbox requests: what each asks for, and who an allowed one was granted to', () => {
+    const { db } = database
+    const web = { kind: SandboxAskKind.Folder, path: '/Users/sample/code/acme-web', access: FolderAccess.Read } as const
+    const read = { toolName: 'Read', input: { file_path: `${web.path}/package.json` }, sandbox: web, turn: 1 }
+
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          {
+            title: 'Publish the client',
+            minutesAgo: 0,
+            permissionRequests: [
+              {
+                ...read,
+                toolUseId: 'granted',
+                state: PermissionRequestState.Allowed,
+                grantedScope: SandboxGrantScope.Workspace,
+                minutesAgo: 3,
+              },
+              {
+                toolName: 'Bash',
+                input: { command: 'git push', dangerouslyDisableSandbox: true },
+                toolUseId: 'once',
+                sandbox: { kind: SandboxAskKind.Outside },
+                state: PermissionRequestState.Allowed,
+                turn: 1,
+                minutesAgo: 2,
+              },
+              { ...read, toolUseId: 'open', minutesAgo: 1 },
+            ],
+          },
+        ],
+      },
+      NOW,
+    )
+
+    const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    expect(task?.awaitingPermission).toBe(true)
+    expect(listPermissionRequests(db, task?.id ?? '')).toMatchObject([
+      { toolUseId: 'granted', sandbox: web, grantedScope: SandboxGrantScope.Workspace, grantedRule: null },
+      { toolUseId: 'once', sandbox: { kind: SandboxAskKind.Outside }, grantedScope: null },
+      { toolUseId: 'open', sandbox: web, state: PermissionRequestState.Open, suppressAlwaysAllowRule: true },
+    ])
+    expect(listTaskPermissionRules(db, task?.id ?? '')).toEqual([])
+  })
+
+  it.each([
+    ['sandbox-folder-card.json', [SandboxAskKind.Folder, SandboxAskKind.Folder], 2],
+    ['sandbox-domain-card.json', [SandboxAskKind.Folder, SandboxAskKind.Domain, SandboxAskKind.Folder], 2],
+    [
+      'sandbox-outside-card.json',
+      [
+        SandboxAskKind.Folder,
+        SandboxAskKind.Folder,
+        SandboxAskKind.Domain,
+        SandboxAskKind.Folder,
+        SandboxAskKind.Outside,
+        SandboxAskKind.Outside,
+      ],
+      1,
+    ],
+  ])('reads the sandbox card fixture %s: its requests of the sandbox, some still open', (name, kinds, open) => {
+    const seed = readSeed(join(FIXTURES, name))
+    const requests = seed.tasks.find((one) => one.selected)?.permissionRequests ?? []
+
+    expect(requests.map((request) => request.sandbox?.kind)).toEqual(kinds)
+    expect(requests.filter((request) => request.state === undefined)).toHaveLength(open)
+    applySeed(database.db, seed, NOW)
   })
 
   it('refuses a sample allowed for the task that no rule could be granted for', () => {

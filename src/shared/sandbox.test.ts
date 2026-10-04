@@ -106,6 +106,10 @@ describe('what a sandbox request is about', () => {
     expect(shortenHomePath('/Users/me')).toBe('~')
     expect(shortenHomePath('/Users/me/code/api')).toBe('~/code/api')
     expect(shortenHomePath('/Users')).toBe('/Users')
+    // The shared folder beside the home folders is nobody's home.
+    expect(shortenHomePath('/Users/Shared/acme-shared')).toBe('/Users/Shared/acme-shared')
+    expect(shortenHomePath('/Users/Shared')).toBe('/Users/Shared')
+    expect(shortenHomePath('/Users/Sharedrive/x')).toBe('~/x')
     expect(shortenHomePath('/tmp/Users/me')).toBe('/tmp/Users/me')
   })
 

@@ -415,6 +415,27 @@ describe('what each crossing asks for', () => {
     })
   })
 
+  it('finds the command even when its connection asks before its tool_use has come through the stream', async () => {
+    const session = await startTurn()
+
+    // Streamed and asked about in the same breath: the request is in before the runner has read the message.
+    session.emit(sdk.toolUse('toolu_install', 'Bash', { command: 'npm install' }))
+    session.requestPermission(networkAccessCall(HOST, 'fresh-0'))
+    await settle()
+
+    expect(only('toolu_install').sandbox).toMatchObject({ kind: SandboxAskKind.Domain, command: 'npm install' })
+  })
+
+  it('withdraws a connection’s request whose session closed while it looked for the command', async () => {
+    const session = await startTurn()
+
+    const asked = session.requestPermission(networkAccessCall(HOST, 'fresh-0'))
+    runner.close()
+
+    await expect(asked.answer).resolves.toEqual(WITHDRAWN)
+    expect(requests()).toEqual([])
+  })
+
   it('a connection with no command running keeps the SDK’s own id, and shows no command', async () => {
     const session = await startTurn()
     session.emit(sdk.toolUse('toolu_done', 'Bash', { command: 'ls' }), sdk.toolResult('toolu_done', 'a.txt'))
