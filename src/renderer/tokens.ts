@@ -28,6 +28,10 @@ export const colors = {
   '--color-user-bubble': '#22304d',
   '--color-question-bg': '#1e1b33',
   '--color-question-border': '#3b3366',
+  '--color-question-surface': '#2e2748',
+  '--color-question-surface-border': '#3b3366',
+  '--color-question-surface-border-hover': '#5e538c',
+  '--color-question-outline': '#8c7bd9',
 } as const
 
 export type ColorToken = keyof typeof colors

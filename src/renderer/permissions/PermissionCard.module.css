@@ -1,14 +1,16 @@
 /*
  * The permission card, from docs/design/html/23-permission-card.html: the question card's shape and highlight
- * (../questions/QuestionCard.module.css). The removed and added lines' tints are the design's own mixes of --color-pink
- * and --color-teal.
+ * (../questions/QuestionCard.module.css), on the fill and border of every agent reply (Chat.module.css .question).
+ * Nothing of its own sits on the window's black: its blocks, code chips and note field are on
+ * --color-question-surface, as the question card's tiles are (#538). The removed and added lines' tints are the
+ * design's own mixes of --color-pink and --color-teal.
  */
 .card {
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 16px;
-  background: var(--color-inner);
+  background: var(--color-question-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-nested);
   box-shadow: var(--shadow-nested);
@@ -63,8 +65,8 @@
 .titleSubject {
   min-width: 0;
   padding: 1px 5px;
-  background: var(--color-bg);
-  border: 1px solid var(--color-inner-border);
+  background: var(--color-question-surface);
+  border: 1px solid var(--color-question-surface-border);
   border-radius: 4px;
   font-weight: 500;
   overflow-wrap: anywhere;
@@ -124,8 +126,8 @@
   flex-direction: column;
   margin: 0;
   padding: 10px 0;
-  background: var(--color-bg);
-  border: 1px solid var(--color-inner-border);
+  background: var(--color-question-surface);
+  border: 1px solid var(--color-question-surface-border);
   border-radius: var(--radius-button);
   font-family: var(--font-mono);
   font-size: var(--font-size-secondary-sm);
@@ -194,8 +196,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   padding: 1px 5px;
-  background: var(--color-bg);
-  border: 1px solid var(--color-inner-border);
+  background: var(--color-question-surface);
+  border: 1px solid var(--color-question-surface-border);
   border-radius: 4px;
   font-family: var(--font-mono);
   font-size: var(--font-size-secondary-sm);
@@ -204,4 +206,18 @@
 .note {
   flex-grow: 1;
   min-width: 0;
+}
+
+/* The note field sits on what the blocks do, not on the inset colour a field has elsewhere. */
+.card .note {
+  background: var(--color-question-surface);
+  border-color: var(--color-question-surface-border);
+}
+
+.card .note:hover {
+  border-color: var(--color-question-surface-border-hover);
+}
+
+.card .note:focus-within {
+  border-color: var(--color-question-outline);
 }

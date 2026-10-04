@@ -106,7 +106,7 @@ const UserMessage = memo(function UserMessage({ message, highlight }: UserEntry 
 /**
  * The purple card every agent reply sits on, always: it never changes colour when a newer message arrives (#410),
  * and neither does what the agent said just before asking a question with no preamble (#464): it leads the question
- * card below it, which keeps its own style.
+ * card below it, which is on the same fill and border (#538, QuestionCard.module.css).
  */
 const replyCard = classNames(styles.card, styles.question)
 
