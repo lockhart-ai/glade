@@ -76,7 +76,13 @@ describe('activePanelTab', () => {
     })
 
     it('shows Agents for a workspace left on a tab the hub replaced, leaving what’s stored as it is', () => {
-      for (const tab of [PanelTab.ToolCalls, PanelTab.Subagents, PanelTab.Watchers, PanelTab.Artifacts, PanelTab.Changes]) {
+      for (const tab of [
+        PanelTab.ToolCalls,
+        PanelTab.Subagents,
+        PanelTab.Watchers,
+        PanelTab.Artifacts,
+        PanelTab.Changes,
+      ]) {
         const uiState = stored(tab)
         expect(activePanelTab(uiState, 'w1', true)).toBe(PanelTab.Agents)
         // The switch turned off again: the tab it was on.

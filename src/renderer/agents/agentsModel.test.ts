@@ -14,11 +14,13 @@ import { agentLogRows, isAgentEvent } from '../tool-log/toolLogModel'
 import {
   agentCallResult,
   agentCount,
+  agentDotLabel,
   agentEventsSelector,
   agentName,
   agentsOf,
   agentStateLine,
   agentTodo,
+  agentTodoSelector,
   formatDuration,
   isRunning,
   MAIN_AGENT_NAME,
@@ -109,7 +111,11 @@ describe('agentsOf', () => {
   })
 
   it('gives a subagent of a subagent a tab of its own, among the rest', () => {
-    const events = [agent('outer'), agent('inner', { parentToolUseId: 'outer' }), call('c1', { parentToolUseId: 'inner' })]
+    const events = [
+      agent('outer'),
+      agent('inner', { parentToolUseId: 'outer' }),
+      call('c1', { parentToolUseId: 'inner' }),
+    ]
 
     expect(agentsOf(events).ids).toEqual(['inner', 'outer'])
   })
@@ -173,9 +179,16 @@ describe('shownAgent', () => {
 describe('agentName', () => {
   it('is Main for the task’s own agent, and a subagent’s description, else its type', () => {
     expect(agentName(undefined)).toBe(MAIN_AGENT_NAME)
-    expect(agentName(agent('a', { input: { description: 'fix-501', subagent_type: 'general-purpose' } }))).toBe('fix-501')
+    expect(agentName(agent('a', { input: { description: 'fix-501', subagent_type: 'general-purpose' } }))).toBe(
+      'fix-501',
+    )
     expect(agentName(agent('a', { input: { subagent_type: 'Explore' } }))).toBe('Explore')
     expect(agentName(agent('a', { input: {} }))).toBe('Subagent')
+  })
+
+  it('names its tab’s dot by whether it runs', () => {
+    expect(agentDotLabel(true)).toBe('Running')
+    expect(agentDotLabel(false)).toBe('Finished')
   })
 })
 
@@ -206,7 +219,11 @@ describe('an agent’s events', () => {
   it('make its list’s rows, an Agent call a single row with nothing under it', () => {
     const rows = agentLogRows(events, 'outer')
 
-    expect(rows.map((row) => row.kind)).toEqual([ToolEventKind.Narration, ToolEventKind.ToolCall, ToolEventKind.ToolCall])
+    expect(rows.map((row) => row.kind)).toEqual([
+      ToolEventKind.Narration,
+      ToolEventKind.ToolCall,
+      ToolEventKind.ToolCall,
+    ])
     expect(rows.every((row) => row.kind !== ToolEventKind.ToolCall || row.children.length === 0)).toBe(true)
     // Main's are the Tool calls tab's: the second turn's divider, and the subagent's call alone.
     expect(agentLogRows(events, null).map((row) => row.kind)).toEqual([
@@ -328,30 +345,82 @@ describe('agentTodo', () => {
     { id: '1', text: '#501 Return Retry-After on 429s', state: TodoState.Doing, note: null, completedAt: null },
     { id: '2', text: '#502 Per-key limits for /search', state: TodoState.Todo, note: null, completedAt: null },
   ]
-  const filing = (key: string, todoId: string, kind = ChildKind.Subagent): Filing => ({
+  const filing = (key: string, todoId: string, kind = ChildKind.Subagent, source = FilingSource.Named): Filing => ({
     taskId: 't1',
     kind,
     key,
     todoId,
-    source: FilingSource.Named,
+    source,
     filedAt: AT,
   })
   const filings = [filing('fix-501', '1'), filing('fix-501-ci', '1'), filing('limits-502', '2'), filing('old', '9')]
+  const events = [
+    agent('fix-501'),
+    agent('fix-501-ci'),
+    agent('limits-502'),
+    agent('docs-503'),
+    agent('old'),
+    agent('helper', { parentToolUseId: 'limits-502' }),
+    agent('deeper', { parentToolUseId: 'helper' }),
+    agent('stray', { parentToolUseId: 'docs-503' }),
+  ]
+  const agents = agentsOf(events)
 
-  it('is the todo its Agent call is filed under: one subagent, one todo', () => {
-    expect(agentTodo(filings, todos, 'fix-501')).toBe(todos[0])
-    expect(agentTodo(filings, todos, 'fix-501-ci')).toBe(todos[0])
-    expect(agentTodo(filings, todos, 'limits-502')).toBe(todos[1])
+  it('is the todo its Agent call was started for: one subagent, one todo', () => {
+    expect(agentTodo(filings, todos, agents, 'fix-501')).toBe(todos[0])
+    expect(agentTodo(filings, todos, agents, 'fix-501-ci')).toBe(todos[0])
+    expect(agentTodo(filings, todos, agents, 'limits-502')).toBe(todos[1])
+  })
+
+  it('is its parent’s todo for a subagent of a subagent, however deep, unless it named another', () => {
+    expect(agentTodo(filings, todos, agents, 'helper')).toBe(todos[1])
+    expect(agentTodo(filings, todos, agents, 'deeper')).toBe(todos[1])
+    expect(agentTodo([...filings, filing('deeper', '1')], todos, agents, 'deeper')).toBe(todos[0])
+    // One whose parent has no todo has none either.
+    expect(agentTodo(filings, todos, agents, 'stray')).toBeNull()
   })
 
   it('is none for a subagent with no todo, one whose todo was deleted, and until the filings are read', () => {
-    expect(agentTodo(filings, todos, 'docs-503')).toBeNull()
-    expect(agentTodo(filings, todos, 'old')).toBeNull()
-    expect(agentTodo(undefined, todos, 'fix-501')).toBeNull()
-    expect(agentTodo(filings, undefined, 'fix-501')).toBeNull()
+    expect(agentTodo(filings, todos, agents, 'docs-503')).toBeNull()
+    expect(agentTodo(filings, todos, agents, 'old')).toBeNull()
+    expect(agentTodo(filings, todos.slice(1), agents, 'fix-501')).toBeNull()
+    expect(agentTodo(undefined, todos, agents, 'fix-501')).toBeNull()
+    expect(agentTodo(filings, undefined, agents, 'fix-501')).toBeNull()
+    expect(agentTodo(filings, todos, agentsOf(undefined), 'fix-501')).toBeNull()
   })
 
   it('is none for something else filed under the same key', () => {
-    expect(agentTodo([filing('fix-501', '1', ChildKind.Watcher)], todos, 'fix-501')).toBeNull()
+    expect(agentTodo([filing('fix-501', '1', ChildKind.Watcher)], todos, agents, 'fix-501')).toBeNull()
+  })
+
+  describe('read from the store', () => {
+    const state = {
+      filings: { t1: filings },
+      todos: { t1: { items: todos, updatedAt: AT } },
+      toolEvents: { t1: events },
+    }
+
+    it('is worked out once, until the task’s filings, todos or log change', () => {
+      const select = agentTodoSelector('t1', 'limits-502')
+      expect(select(state)).toBe(todos[1])
+      expect(select({ ...state })).toBe(todos[1])
+
+      // Moved to another todo.
+      const moved = [
+        ...filings,
+        { ...filing('limits-502', '1', ChildKind.Subagent, FilingSource.Moved), filedAt: AT + 1 },
+      ]
+      expect(select({ ...state, filings: { t1: moved } })).toBe(todos[0])
+      // Its todo deleted.
+      expect(select({ ...state, todos: { t1: { items: todos.slice(0, 1), updatedAt: AT } } })).toBeNull()
+      // The log grows: the same answer, from the new log.
+      expect(select({ ...state, toolEvents: { t1: [...events, call('late')] } })).toBe(todos[1])
+    })
+
+    it('is none for a task with nothing read, or no todo list', () => {
+      const select = agentTodoSelector('t9', 'limits-502')
+      expect(select({ filings: {}, todos: {}, toolEvents: {} })).toBeNull()
+      expect(select({ filings: { t9: filings }, todos: { t9: null }, toolEvents: { t9: events } })).toBeNull()
+    })
   })
 })

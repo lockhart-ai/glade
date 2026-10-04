@@ -611,6 +611,37 @@
       once per change of the todos or the links, and gives each card only its own. So a link added or removed renders
       the cards that name it and no other, and a card reads its text again only when its text or what it names
       changed. A task with no PR, issue or ticket among its links reads no todo for what it names.
+  - **The Agents tab** (P16-13, #536; `design/screens/50-agents.png`, `51-agents-subagent.png`,
+    `54-agents-overflow.png`; `src/renderer/agents/`). With the switch on the right panel has three tabs, **Agents ·
+    Files · Todos** (⌘⌥1 – ⌘⌥3); with it off, today's seven. Both paths exist until #501.
+    - **A tab for every agent.** Main, the task's own agent, is pinned first and stays put; then the subagents that
+      are running, then the finished ones, the newest first within each (the order they started, reversed), nested
+      ones among the rest. The subagents' part scrolls sideways when they don't fit, as the panel's own tabs do (one
+      shared row, `ScrollRow`): no scroll bar, a chevron over a fade at an end with more past it. A subagent's tab has
+      a dot, blue while it runs and slate once it has ended; the panel's Agents tab counts the agents, Main included.
+    - **A tab's content is that agent's tool calls,** drawn by the Tool calls tab's own list and rows (`ToolLog`): the
+      calls, the notes between them, their output. Main's is exactly the Tool calls tab's; a subagent's is its own
+      calls and notes, with the panel to itself. A subagent an agent started is an `Agent` call in that agent's list,
+      live while it runs ("Running · 29m", on the running call's highlight) and then how it ended, how long it ran and
+      the first line of what it came to ("Done · 28m · Opened PR #511."); clicking it goes to the subagent's tab.
+    - **The line under the strip,** on a subagent's tab: "Working on <its todo's title>" and "Running · 6m", then
+      "Worked on …" and "Done · 28m" once it has ended. The todo is the one it was started for (`subagentTodo`, #495):
+      a subagent's own subagent works on its parent's unless it named another. The title is a link: it shows the Todos
+      tab with that todo's card scrolled into view and the focus on it. A subagent with no todo, or whose todo was
+      deleted, has no line.
+    - **Which agent a task is on is remembered** per task, in SQLite (`agent_tabs`, `agents.setTab`), across tasks and
+      relaunches, and comes with the task's history. One that's no longer in the task's log shows Main.
+    - **What pointed at the old tabs points here:** the chat's tool-calls chip shows Main's tab, scrolled to its turn,
+      and a plugin's `openTask` with a subagent shows that subagent's tab.
+    - **Performance:** only the list of the agent showing is mounted. The strip reads the order of the task's
+      subagents and each tab its own name and state, so picking an agent renders the two tabs that changed and the new
+      list, and an event of an agent that isn't showing renders nothing but, at most, that agent's tab. A list reads
+      only its own agent's events (`agentEventsSelector`), so it doesn't render when another agent works. A time that
+      ticks is its own element with its own clock. With the switch on the panel itself no longer reads the task's
+      tool log, so it doesn't render with every event. `src/renderer/history-renders.test.tsx` holds it at 50
+      subagents and a 2,000-call list.
+    - **Left for #537:** the eye on a tab, what an agent is watching pinned under its list, and a finished watcher's
+      row in the list. A `Monitor` or background `Bash` call shows as the plain call it is until then.
   - **Calls made without Jared, for the release notes (P16).** From the groundwork (P16-03, #494):
     1. A child whose own filing names a todo that's gone goes to the placeholder, even when the subagent that made
        it is under a todo that's still there: the agent filed it apart from its subagent, so it doesn't fall back to
@@ -724,6 +755,32 @@
         writes show until the switch is back on. That's only reachable by turning the hidden switch off by hand.
     42. The store and the agent's tools (#494, #496) still know a watcher as a kind of child, and a subagent still
         shows in the hub's groups until #535 takes both out: `file_children` can file either, and nothing here does.
+
+    From the Agents tab (P16-13, #536):
+
+    43. A subagent's tab has two colours, as the screens draw it: blue while it runs, slate for everything else. A
+        subagent that failed, was interrupted or is paused has the slate dot and is among the finished ones; its line
+        and its `Agent` call say which ("Failed · 3m", "Interrupted", "Paused"). A paused one still reads "Working on".
+    44. A subagent's name on its tab is what Glade calls it everywhere (its call's description, else its type). A
+        long one is cut short at 200px, with the whole of it as the tab's tooltip, so one agent can't take the strip.
+    45. Main's pin is the sidebar's own (the Pinned section's), not the outline the screens draw.
+    46. A time reads in seconds through the first minute ("42s"), then as the task header's ages do ("6m", "1h 49m").
+        It ticks every second while it reads in seconds, and as often as other ages (30s) after.
+    47. Clicking an `Agent` call goes to its subagent's tab and no longer opens the call's output. What the subagent
+        came to is on the call's line (its first line) and in the call's menu (Copy output).
+    48. The Agents tab has no Stop for a subagent and no Copy log: the Subagents tab's row menu had both, and the
+        screens draw neither. Until that's decided, a subagent is stopped by turning the switch off, or by Stop on
+        the task.
+    49. With the switch on, a workspace left on a tab the panel no longer shows opens on Agents; what's stored is
+        left alone, so turning the switch off shows the tab it was on. One left on Agents shows Tool calls with it off.
+    50. ⌘⌥4 – ⌘⌥7 pick nothing with the switch on. The binding, its name in Settings ▸ Keyboard and the menu bar are
+        left for #501.
+    51. A remembered agent that isn't in the task's log is kept, not cleared: if it shows up again (its log loads
+        late), the task is back on it.
+    52. The todo's link shows the Todos tab with the todo scrolled into view and the focus on its head; it doesn't
+        open the todo.
+    53. The agent a task is on isn't broadcast to other windows, as a todo's panel state isn't; with the switch off
+        the command is refused and a task's history carries nothing of it.
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
     `manifest.json`: `id` (the folder's name), `name`, `version`, `entry` (an HTML file in the folder) and an optional
@@ -735,7 +792,8 @@
   - Glade sends it typed task and agent events with `postMessage`, in a versioned schema (`plugin-api.md`). The plugin
     sends back only `ready`, a short header status and `openTask`. It can't change anything in Glade.
   - A plugin can navigate, only when you ask it to (#466): `openTask` selects a task, as clicking its row does
-    (switching workspace if it has to), and with a subagent opens the Subagents tab on it, as picking it there does.
+    (switching workspace if it has to), and with a subagent opens the Subagents tab on it, as picking it there does
+    (with the hidden `todoHubEnabled` setting on, that subagent's tab in the Agents tab, #536).
     Glade honours it only within a second of a click or key press in the plugin's own view, as main hears the input
     the OS routes to that view (never anything the page says, which can't prove a click), one `openTask` per click,
     and only for a task the plugin has been told of and that's still active, or a subagent of it it was told of.

@@ -82,7 +82,7 @@ test('a task from before the todo hub: asked to, its agent lists what it made an
   expect(session?.systemPromptAppend).toContain('list_children lists them')
 
   // It listed them, then filed them all in one call: both show in the tool log like any other call.
-  await panel.tab(/^Tool calls/).click()
+  await panel.tab(/^Agents/).click()
   await expect(panel.call(/^Done\s*list_children/)).toBeVisible()
   await expect(panel.call(/^Done\s*file_children/)).toHaveCount(1)
   // The subagent brought its commit and the tests it left running, and the placeholder is empty.

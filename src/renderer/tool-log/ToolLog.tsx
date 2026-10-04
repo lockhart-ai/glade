@@ -87,7 +87,11 @@ function sameCall(a: CallProps, b: CallProps): boolean {
 }
 
 /** A call's first line: its dot, the tool's name, its argument and when it was made. */
-function CallLine({ row, rootPath, compact = false }: Pick<CallProps, 'row' | 'rootPath' | 'compact'>): React.JSX.Element {
+function CallLine({
+  row,
+  rootPath,
+  compact = false,
+}: Pick<CallProps, 'row' | 'rootPath' | 'compact'>): React.JSX.Element {
   const { call, name } = row
   return (
     <span className={styles.callLine}>

@@ -314,6 +314,8 @@ describe('an agent’s tool calls', () => {
 
     expect(shown()).toBe('check-links')
     expect(rows()).toEqual(['Bashpytest tests/test_links.py14:2814 passed'])
+    // It named no todo of its own, so it works on the one its parent was started for (#495).
+    expect(line()).toHaveTextContent(/^Working on #503 Document the rate limitsRunning · 4m$/)
   })
 
   it('grow as the agent showing works, and not as another does', async () => {
@@ -322,7 +324,10 @@ describe('an agent’s tool calls', () => {
     const list = within(panel()).getByRole('log')
 
     act(() => {
-      fake.emit({ type: EventType.ToolEventAppended, toolEvent: call('test_keys', 0, { parentToolUseId: 'limits-502' }) })
+      fake.emit({
+        type: EventType.ToolEventAppended,
+        toolEvent: call('test_keys', 0, { parentToolUseId: 'limits-502' }),
+      })
       fake.emit({ type: EventType.ToolEventAppended, toolEvent: call('main-late', 0) })
       fake.emit({ type: EventType.ToolEventAppended, toolEvent: call('fix-late', 0, { parentToolUseId: 'fix-501' }) })
     })
@@ -611,7 +616,11 @@ describe('a strip with more agents than fit', () => {
     await renderAgents(MANY)
 
     expect(tabs()).toHaveLength(51)
-    expect(tabs().slice(0, 4).map((each) => each.title)).toEqual(['Main', 'agent-49', 'agent-48', 'agent-47'])
+    expect(
+      tabs()
+        .slice(0, 4)
+        .map((each) => each.title),
+    ).toEqual(['Main', 'agent-49', 'agent-48', 'agent-47'])
     expect(tabs().at(-1)?.title).toBe('agent-0')
     expect(tabs().filter((each) => each.hasAttribute('data-running'))).toHaveLength(10)
     expect(screen.getByRole('button', { name: 'Scroll agents right' })).toBeInTheDocument()
@@ -659,7 +668,11 @@ describe('a strip with more agents than fit', () => {
     act(() => {
       fake.emit({ type: EventType.ToolEventUpdated, toolEvent: { ...running, ...finished(0, 'Done.') } })
     })
-    expect(tabs().map((each) => each.title).indexOf('agent-49')).toBe(9)
+    expect(
+      tabs()
+        .map((each) => each.title)
+        .indexOf('agent-49'),
+    ).toBe(9)
     expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ left: 9 * TAB_WIDTH - layout.clientWidth, behavior: 'instant' })
   })
 

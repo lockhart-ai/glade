@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { UiStateKey, type UiStateEntry } from '../../shared/domain'
+import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { activePanelTab } from '../right-panel/panelModel'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore } from '../store/store'
@@ -12,7 +13,7 @@ function Harness(): React.JSX.Element {
   return <textarea aria-label="Message" />
 }
 
-async function renderShortcuts(uiState: UiStateEntry[] = []) {
+async function renderShortcuts(uiState: UiStateEntry[] = [], todoHubEnabled = false) {
   const fake = fakeBridge({
     workspaces: [sampleWorkspace('w1')],
     tasks: [sampleTask('t1', 'w1')],
@@ -21,6 +22,7 @@ async function renderShortcuts(uiState: UiStateEntry[] = []) {
       { key: UiStateKey.SelectedTaskId, value: 't1' },
       ...uiState,
     ],
+    settings: { ...DEFAULT_SETTINGS, todoHubEnabled },
   })
   const store = createGladeStore(fake.bridge)
   await act(() => store.getState().hydrate())
@@ -30,7 +32,7 @@ async function renderShortcuts(uiState: UiStateEntry[] = []) {
     </GladeStoreProvider>,
   )
   const panel = () => ({
-    tab: activePanelTab(store.getState().uiState, 'w1'),
+    tab: activePanelTab(store.getState().uiState, 'w1', todoHubEnabled),
     collapsed: store.getState().uiState[UiStateKey.RightPanelCollapsed],
   })
   return { ...fake, store, view, panel }
@@ -94,6 +96,40 @@ describe('useRightPanelShortcuts', () => {
     press('Digit2', '™')
 
     expect(store.getState().uiState[UiStateKey.RightPanelTabs]).toBeUndefined()
+  })
+
+  describe('with the todo hub on (P16, #536)', () => {
+    it('picks Agents, Files and Todos with ⌘⌥1–3, opening a collapsed panel', async () => {
+      const { panel } = await renderShortcuts([{ key: UiStateKey.RightPanelCollapsed, value: 'true' }], true)
+      expect(panel().tab).toBe('agents')
+
+      press('Digit3', '£')
+      expect(panel()).toEqual({ tab: 'todos', collapsed: 'false' })
+      press('Digit2', '™')
+      expect(panel().tab).toBe('files')
+      press('Digit1', '¡')
+      expect(panel().tab).toBe('agents')
+    })
+
+    it('picks nothing with ⌘⌥4–7: the panel has three tabs', async () => {
+      const { invoke, panel } = await renderShortcuts(
+        [{ key: UiStateKey.RightPanelTabs, value: '{"w1":"files"}' }],
+        true,
+      )
+      invoke.mockClear()
+
+      for (const [code, key] of [
+        ['Digit4', '¢'],
+        ['Digit5', '∞'],
+        ['Digit6', '§'],
+        ['Digit7', '¶'],
+      ] as const) {
+        press(code, key)
+      }
+
+      expect(invoke).not.toHaveBeenCalled()
+      expect(panel().tab).toBe('files')
+    })
   })
 
   it('does nothing with no workspace shown', async () => {

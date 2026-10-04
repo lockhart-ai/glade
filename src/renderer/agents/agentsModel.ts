@@ -6,9 +6,16 @@
  * An agent is named by its `AgentId`: a subagent by the `tool_use` id of the `Agent` call that started it, and Main by
  * null.
  */
-import { ToolCallState, ToolEventKind, type EpochMs, type Todo, type ToolCallEvent, type ToolEvent } from '../../shared/domain'
+import {
+  ToolCallState,
+  ToolEventKind,
+  type EpochMs,
+  type Todo,
+  type ToolCallEvent,
+  type ToolEvent,
+} from '../../shared/domain'
 import { isSubagentTool, subagentName } from '../../shared/subagents'
-import { ChildKind, type Filing } from '../../shared/todoHub'
+import { subagentTodo, type Filing } from '../../shared/todoHub'
 import { firstLine } from '../../shared/toolSummary'
 import type { GladeData } from '../store/state'
 import { elapsedMs, statusLabel, subagentStatus } from '../subagents/subagentsModel'
@@ -91,6 +98,11 @@ export function agentName(call: ToolCallEvent | undefined): string {
   return call === undefined ? MAIN_AGENT_NAME : subagentName(call)
 }
 
+/** What a screen reader calls the dot on a subagent's tab: blue while it runs, slate once it has finished. */
+export function agentDotLabel(running: boolean): string {
+  return running ? 'Running' : 'Finished'
+}
+
 function sameItems<T>(a: readonly T[], b: readonly T[]): boolean {
   return a.length === b.length && a.every((item, index) => item === b[index])
 }
@@ -156,16 +168,48 @@ export function todoLineVerb(call: Pick<ToolCallEvent, 'state'>): string {
   }
 }
 
+const NO_CHILDREN: readonly never[] = []
+
 /**
- * The todo a subagent works on: the one its `Agent` call is filed under, while that todo is in the task's list. Null
- * for a subagent with no todo, one whose todo was deleted, and until the task's filings are read.
+ * The todo a subagent works on (`subagentTodo`, #495): the one its `Agent` call named or was filed under since, else
+ * the one the subagent that started it works on, however deep. Null for a subagent with no todo, one whose todo was
+ * deleted, and until the task's filings are read.
  */
 export function agentTodo(
   filings: readonly Filing[] | undefined,
   todos: readonly Todo[] | undefined,
+  agents: TaskAgents,
   agentId: string,
 ): Todo | null {
-  const filing = filings?.find(({ kind, key }) => kind === ChildKind.Subagent && key === agentId)
-  if (filing === undefined) return null
-  return todos?.find(({ id }) => id === filing.todoId) ?? null
+  if (filings === undefined || todos === undefined) return null
+  // Only the subagents and their filings say which todo a subagent is under; when each last did anything doesn't.
+  const subagents = [...agents.calls.values()].map((call) => ({ call, lastActivityAt: call.createdAt }))
+  const todoId = subagentTodo(
+    { todos, artifacts: NO_CHILDREN, subagents, watchers: NO_CHILDREN, commits: NO_CHILDREN, filings },
+    agentId,
+  )
+  return todoId === null ? null : (todos.find(({ id }) => id === todoId) ?? null)
+}
+
+/**
+ * Reads the todo a subagent works on from the store (`agentTodo`), working it out again only when the task's filings,
+ * its todos or its tool log changed. One per line shown; it remembers what it last read.
+ */
+export function agentTodoSelector(
+  taskId: string,
+  agentId: string,
+): (state: Pick<GladeData, 'filings' | 'todos' | 'toolEvents'>) => Todo | null {
+  let read: readonly unknown[] = []
+  let last: Todo | null = null
+  return (state) => {
+    const filings = state.filings[taskId]
+    const todos = state.todos[taskId]?.items
+    const agents = agentsOf(state.toolEvents[taskId])
+    const inputs = [filings, todos, agents]
+    if (!sameItems(inputs, read)) {
+      read = inputs
+      last = agentTodo(filings, todos, agents, agentId)
+    }
+    return last
+  }
 }

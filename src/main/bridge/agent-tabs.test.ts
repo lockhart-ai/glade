@@ -81,9 +81,9 @@ describe('agents.setTab', () => {
   it('fails for a task that isn’t there', async () => {
     await turnOn()
 
-    await expect(glade.invoke(CommandName.AgentsSetTab, { taskId: 'gone', agentId: 'toolu_fix_501' })).rejects.toMatchObject(
-      { code: BridgeErrorCode.NotFound },
-    )
+    await expect(
+      glade.invoke(CommandName.AgentsSetTab, { taskId: 'gone', agentId: 'toolu_fix_501' }),
+    ).rejects.toMatchObject({ code: BridgeErrorCode.NotFound })
     expect(rows()).toBe(0)
   })
 
@@ -115,11 +115,13 @@ describe('agents.setTab', () => {
 
 describe('with the switch off', () => {
   it('refuses the command, leaving the table empty, and a task’s history carries no agent', async () => {
-    await expect(glade.invoke(CommandName.AgentsSetTab, { taskId: task.id, agentId: 'toolu_fix_501' })).rejects.toEqual({
-      name: 'BridgeError',
-      code: BridgeErrorCode.InvalidTransition,
-      message: `agents.setTab: ${TODO_HUB_OFF}`,
-    })
+    await expect(glade.invoke(CommandName.AgentsSetTab, { taskId: task.id, agentId: 'toolu_fix_501' })).rejects.toEqual(
+      {
+        name: 'BridgeError',
+        code: BridgeErrorCode.InvalidTransition,
+        message: `agents.setTab: ${TODO_HUB_OFF}`,
+      },
+    )
     // A task that isn't there is refused the same way: the switch comes first.
     await expect(glade.invoke(CommandName.AgentsSetTab, { taskId: 'gone', agentId: null })).rejects.toMatchObject({
       code: BridgeErrorCode.InvalidTransition,

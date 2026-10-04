@@ -4,7 +4,15 @@ import { useShallow } from 'zustand/react/shallow'
 import { Icon, revealScroll, ScrollRow } from '../components'
 import { classNames } from '../components/classNames'
 import { useGladeStore } from '../store/react'
-import { agentName, agentsOf, isRunning, MAIN_AGENT_NAME, selectShownAgent, type AgentId } from './agentsModel'
+import {
+  agentDotLabel,
+  agentName,
+  agentsOf,
+  isRunning,
+  MAIN_AGENT_NAME,
+  selectShownAgent,
+  type AgentId,
+} from './agentsModel'
 import styles from './AgentsTab.module.css'
 
 /** The id of an agent's tab on the page, which its list is labelled by. */
@@ -94,7 +102,7 @@ const AgentTab = memo(function AgentTab({ taskId, agentId, onSelect }: AgentTabP
         <span
           className={classNames(styles.dot, running && styles.running)}
           role="img"
-          aria-label={running ? 'Running' : 'Finished'}
+          aria-label={agentDotLabel(running)}
         />
       )}
       <span className={styles.name}>{name}</span>
