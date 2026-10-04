@@ -128,6 +128,7 @@ import {
   type WebFetchStep,
   type ProgressStep,
   type ScriptStep,
+  type ScriptedExtraUsage,
   type ShellStep,
   type ScriptTurn,
   type WakeStep,
@@ -203,6 +204,34 @@ export interface ScriptedSessionOptions {
    * `log stream` prints it (`seatbeltLog`, `docs/sdk-notes.md` §15), as the call runs. Nothing hears it by default.
    */
   readonly onSandboxLog?: (text: string) => void
+  /**
+   * Whether the account's extra usage is turned on when the usage call is asked (`ScriptedUsage.extraUsage`), so a test
+   * can turn it on while a task is paused on a usage limit (#519). On by default.
+   */
+  readonly extraUsageOn?: () => boolean
+}
+
+/**
+ * The usage call's `extra_usage` (`docs/sdk-notes.md`, "Usage limits"): turned on and usable as `extra` says, in the
+ * shape probed on a real login with it on; or, with none, turned off, in the shape of the SDK's types (what the call
+ * says of it turned off hasn't been seen). The values are made up.
+ */
+function extraUsageAnswer(extra: ScriptedExtraUsage | undefined): Record<string, unknown> {
+  if (extra === undefined) return { is_enabled: false, monthly_limit: null, used_credits: null, utilization: null }
+  return {
+    is_enabled: true,
+    monthly_limit: extra.monthlyLimit,
+    used_credits: extra.usedCredits,
+    utilization: extra.percent,
+    currency: 'USD',
+    disabled_reason: null,
+    decimal_places: 2,
+    user_disabled: false,
+    spend_limit_reached: false,
+    credits_ever_enabled: true,
+    daily: null,
+    weekly: null,
+  }
 }
 
 /** A script step that can't be played as written: the session dies with this, naming the step and what's wrong. */
@@ -636,8 +665,9 @@ export class ScriptedSession implements AgentSession {
   }
 
   /**
-   * What the SDK's experimental usage call answers: the script's `usage`, each window resetting that long from now.
-   * Without one, or before a script is picked, it rejects, as an SDK without the call would.
+   * What the SDK's experimental usage call answers: the script's `usage`, each window resetting that long from now,
+   * and its extra usage, once that's turned on (`ScriptedSessionOptions.extraUsageOn`). Without one, or before a script
+   * is picked, it rejects, as an SDK without the call would.
    */
   usage(): Promise<unknown> {
     const usage = this.script?.usage
@@ -647,10 +677,14 @@ export class ScriptedSession implements AgentSession {
       window,
       { utilization: percent, resets_at: new Date(now + resetInMs).toISOString() },
     ])
+    const extra = (this.options.extraUsageOn?.() ?? true) ? usage.extraUsage : undefined
     return Promise.resolve({
       subscription_type: usage.subscriptionType,
       rate_limits_available: true,
-      rate_limits: Object.fromEntries(windows) as unknown,
+      rate_limits: {
+        ...(Object.fromEntries(windows) as Record<string, unknown>),
+        extra_usage: extraUsageAnswer(extra),
+      },
       behaviors: null,
     })
   }

@@ -73,6 +73,7 @@ import type { Emit } from './events'
 import type { ControlEndpoint } from '../control/endpoint'
 import type { AccountTracker } from '../account/account'
 import { retryLoggedOutTasks, type LoginService } from '../account/login'
+import { resumeUsageLimitPauses } from '../account/usage-resume'
 import type { MenuBarCommands } from '../menu-bar/menu-bar'
 import { readMenuBarSnapshot } from '../menu-bar/snapshot'
 import {
@@ -224,6 +225,10 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.TasksStop]: async ({ id }) => ({ task: await runner.stop(id) }),
     [CommandName.TasksRetry]: ({ id, model }) => ({ task: runner.retry(id, model) }),
     [CommandName.TasksRetryLoggedOut]: () => ({ tasks: retryLoggedOutTasks({ db, runner, log: ipcLog }) }),
+    // However many tasks a usage limit paused, their changes reach the windows as one batch.
+    [CommandName.TasksResumePaused]: () => ({
+      tasks: batch(() => resumeUsageLimitPauses({ db, runner, log: ipcLog })),
+    }),
     [CommandName.TasksCompact]: ({ id }) => ({ task: runner.compact(id) }),
     [CommandName.SubagentsStop]: async ({ taskId, toolUseId }) => {
       await runner.stopSubagent(taskId, toolUseId)

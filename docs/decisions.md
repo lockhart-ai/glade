@@ -44,6 +44,18 @@
   there's still no mid-turn delivery. It's stored with each task as its own message, tagged `BROADCAST` in the chat;
   each agent answers in its own chat, and nothing collects the replies. Main decides the recipients as it sends, and
   the windows hear of it all as one batch of events.
+- **A usage limit's pause can end early (#519):** the banner's **Resume now** retries every task a usage limit
+  paused, in every workspace, each on its own model, with one command and one batch of events. And Glade resumes them
+  by itself when a reading of the account's usage says it can run again: the limit that turned the task away is no
+  longer spent, or extra usage is on with room left (on, nothing disabling it, its spend limit not reached, under its
+  monthly cap). While any task is paused on a usage limit it reads usage again when its window gets the focus and
+  every 5 minutes, on one timer for the app, through a session that's already live: it never starts one to ask, so
+  after a relaunch nothing is read until a task runs. A task still over the limit pauses again, with no error card. A
+  task is resumed once on what a reading says: once on extra usage being available, and once a window on its limit
+  having cleared, never on how much is used, which moves with every reading. It's tried again only when availability
+  itself changes (extra usage goes and comes back, or the limit's window rolls over), so a reading that's wrong costs
+  one refused request a task, not a loop. Which readings count is one pure rule
+  (`canRunAgain`, `src/main/agent/pauses.ts`). Offline pauses are untouched.
 - **Notifications:** native OS notifications for any agent message in a task you're not viewing, even while Glade is
   focused. Task name + start of the message. Sound off. Focus/DND handled by the OS.
 - **Needs you (#430, corrected by #461):** a task needs you when it's blocked on you or has a reply you haven't read:

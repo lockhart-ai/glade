@@ -19,6 +19,7 @@ import { useGladeStore } from '../store/react'
 import { useNow } from '../task-list/useNow'
 import {
   bannerText,
+  offersResumeNow,
   offersSwitchModel,
   pausedStatusLine,
   pausedTasks,
@@ -30,6 +31,11 @@ import styles from './PauseBanner.module.css'
 /** What the toast says when a paused task couldn't be moved to another model. */
 export function switchFailureMessage(error: unknown): string {
   return `Couldn’t switch the model: ${describeFailure(error)}`
+}
+
+/** What the toast says when the tasks a usage limit paused couldn't be resumed. */
+export function resumeFailureMessage(error: unknown): string {
+  return `Couldn’t resume the paused tasks: ${describeFailure(error)}`
 }
 
 interface DetailsProps {
@@ -59,13 +65,15 @@ function Details({ paused, now }: DetailsProps): React.JSX.Element {
 
 /**
  * The one app-wide banner across the top of the window while tasks are paused, by a usage limit or the network
- * (`docs/design/html/17-usage-limit.html`): how many, and when they resume on their own. Switch model moves the tasks a
- * usage limit paused to another model and resumes them now; Details lists the paused tasks and what the API said.
- * Nothing shows while no task is paused.
+ * (`docs/design/html/17-usage-limit.html`): how many, and when they resume on their own. Resume now tries the tasks a
+ * usage limit paused again at once, each on its own model (one still over the limit pauses again); Switch model moves
+ * them to another model and resumes them now; Details lists the paused tasks and what the API said. Nothing shows
+ * while no task is paused.
  */
 export function PauseBanner(): React.JSX.Element | null {
   const tasks = useGladeStore((state) => state.tasks)
   const retryTask = useGladeStore((state) => state.retryTask)
+  const resumePausedTasks = useGladeStore((state) => state.resumePausedTasks)
   const toast = useToast()
   const now = useNow()
   const offered = useGladeStore((state) => state.models)
@@ -76,6 +84,11 @@ export function PauseBanner(): React.JSX.Element | null {
   const text = bannerText(paused, now)
   if (text === null) return null
 
+  const resumeNow = (): void => {
+    resumePausedTasks().catch((error: unknown) => {
+      toast.show({ message: resumeFailureMessage(error) })
+    })
+  }
   const switchable = switchableTasks(paused)
   const switchTo = (model: string): void => {
     for (const task of switchable) {
@@ -103,6 +116,11 @@ export function PauseBanner(): React.JSX.Element | null {
           <strong className={styles.title}>{text.title}</strong> {text.text}
         </span>
         <span className={styles.spacer} />
+        {offersResumeNow(paused) && (
+          <Button variant={ButtonVariant.Dark} size={ButtonSize.Small} onClick={resumeNow}>
+            Resume now
+          </Button>
+        )}
         {offersSwitchModel(paused) && (
           <Button
             variant={ButtonVariant.Dark}

@@ -204,7 +204,17 @@ describe('createE2eAgent', () => {
       ],
       flagSettings: [{ permissions: { allow: ['WebFetch(domain:registry.npmjs.org)'] } }, { sandbox: null }],
       sandboxLog: ['… Sandbox: cat(4242) deny(1) file-read-data /code/acme-shared/notes.txt'],
+      extraUsage: false,
     })
+  })
+
+  it('says the account’s extra usage is off until a spec turns it on, on the global object', () => {
+    const { extraUsageOn } = createE2eAgent()
+    expect(extraUsageOn()).toBe(false)
+
+    ;(Reflect.get(globalThis, E2E_AGENT_GLOBAL) as E2eAgent).extraUsage = true
+
+    expect(extraUsageOn()).toBe(true)
   })
 })
 

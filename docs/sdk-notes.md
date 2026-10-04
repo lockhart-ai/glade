@@ -707,7 +707,52 @@ receives `compact_summary`. See §5.
     loosely at the boundary (a malformed window is left out; an answer of another shape, or with no window in it, is
     ignored), and anything that goes wrong (the method missing, a rejection, an unexpected answer) falls back to the
     rate limit events. Glade leaves out `seven_day_oauth_apps` and `seven_day_overage_included` (not shown by the
-    meter: unclear what they count), and shows extra usage only as a percentage, not in money. Not yet probed live.
+    meter: unclear what they count), and shows extra usage only as a percentage, not in money.
+  - **[verified] The usage call, probed once on Oct 4, 2026 (#519)**, on a subscription login with extra usage on,
+    through a session that had been sent no message: **the call answers on a session with no turn**, so a paused
+    task's session can be asked. Invented values; the answer has more than the SDK's types say:
+    - `rate_limits.extra_usage`: `{ "is_enabled": true, "monthly_limit": 5000, "used_credits": 0, "utilization": null,
+      "currency": "USD", "disabled_reason": null, "decimal_places": 2, "user_disabled": false,
+      "spend_limit_reached": false, "credits_ever_enabled": true, "daily": null, "weekly": null }`. `monthly_limit` and
+      `used_credits` are in the currency's minor units (cents). **`utilization` is null while nothing has been
+      spent**, though extra usage is on.
+    - `five_hour` and `seven_day` keep `utilization` (0–100) and `resets_at`, and add `limit_dollars`, `used_dollars`,
+      `remaining_dollars` and `locked_reason` (all null in the probe).
+    - New beside them: `rate_limits.limits`, an array of `{ kind: "session" | "weekly_all" | "weekly_scoped", group,
+      percent, resets_at, severity: "normal" | "critical", is_active, scope }`; `rate_limits.spend`
+      (`{ used: { amount_minor, currency, exponent }, limit: {…}, percent, severity, enabled, disabled_reason, cap,
+      balance, auto_reload, can_purchase_credits, can_toggle }`); and `subscription_type`. Several other windows came
+      back null, or under names that say nothing of what they count. **Glade reads none of these**: only the windows
+      above and `extra_usage`.
+  - **What Glade makes of `extra_usage` (#519):**
+    - **The meter's row.** While `is_enabled` is true there's an Extra usage reading, whether or not the call gives a
+      percentage. (Before #519 a null `utilization` dropped the reading, so extra usage that was on with nothing spent
+      had no row.) How much is used is `utilization` / 100 when the call gives it, else `used_credits` /
+      `monthly_limit`. With no cap to be a fraction of (`monthly_limit` null or 0), or with either amount missing or
+      malformed, the reading has no amount and the row reads "within limits": Glade doesn't call uncapped spending 0%.
+    - **Whether it's available**, for resuming the tasks a usage limit paused (`canRunAgain`,
+      `src/main/agent/pauses.ts`): `is_enabled` is true, `spend_limit_reached` is false, `disabled_reason` is null,
+      and it's under 100% as read above; with no percentage, only `monthly_limit: null` (no cap, said outright)
+      counts as room. Each field must say so itself: one that's missing or malformed is "not known", which is never
+      "available". So an answer in the older shape of the SDK's types (`is_enabled`, `monthly_limit`, `used_credits`,
+      `utilization` alone) shows its row but resumes nothing.
+    - **Assumed, not seen live:** what the call says once a limit has actually turned requests away with extra usage
+      on, or with extra usage on but unusable. Glade assumes `disabled_reason` is then a reason (the rate limit
+      event's `overageDisabledReason` names `out_of_credits`, `org_level_disabled` and others) or `spend_limit_reached`
+      is true, and that both clear once credits are bought or the cap is raised. Also unseen: the call's answer with
+      extra usage off (tests use the SDK's types for that), whether the rate limit event's `isUsingOverage`,
+      `overageStatus` and the `overage` window then say the same (Glade doesn't read the first two), and how fresh the
+      call's answer is (the SDK's types mention "an answer served from cached data"). If any of this is wrong, the
+      cost is bounded: a task is resumed once on extra usage being available, and once a window on its limit having
+      cleared (the limit and its `resets_at`, never a percentage, which moves with every reading), and a task still
+      over the limit pauses again; Resume now always retries. This takes a window's `resets_at` to be the same in
+      every answer until the window rolls over, which hasn't been checked across two live answers.
+  - **Reading usage while every task is paused (#519).** The call needs a live session. A task's session outlives its
+    turn, so a task paused since Glade started still has one, and one of them is asked: when Glade's window gets the
+    focus, and every 5 minutes, while anything is paused on a usage limit. After a relaunch no session is live until
+    a task runs. Glade starts none just to ask: nothing is read until then, and the pauses wait for their reset time
+    or Resume now. (Starting a paused task's session with no message would work, since the call answers with no
+    turn, at the cost of a Claude Code process. Not built.)
   - `resetsAt` is **Unix epoch seconds** (the `anthropic-ratelimit-unified-reset` header; the bundled binary's schema
     says so). `status: "rejected"` means the limit is refusing requests until then. Only subscription logins get the
     event; an API key gets none.
@@ -716,6 +761,8 @@ receives `compact_summary`. See §5.
   - P3-04: a turn that ends on a usage limit (the error prefixes above, `billing_error`, or a 429 after a rejected
     `rate_limit_event`) or on a connection error pauses its task instead of stopping it, and resumes it at `resetsAt`
     (15 minutes later without one), or once the network is back. See `src/main/agent/pauses.ts`. Not yet seen live.
+    The pause keeps which limit the rejected event named (`rateLimitType`), when it's one Glade reads, so a later
+    reading of that limit can end the pause early (#519, above); Resume now ends it whenever you say.
 - **[verified] Process failure:** if the binary can't start (e.g. a missing `cwd`), the iterator **throws** and no
   `result` arrives. Glade must catch it and mark the task errored.
 - **[docs] Startup failures with a reason (#280):** with `CLAUDE_CODE_STARTUP_FAILURE_RESULTS=1` in the session's

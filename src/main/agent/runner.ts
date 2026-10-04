@@ -115,7 +115,9 @@
  * the tool log gets no failed API row. Messages sent meanwhile wait in the queue. The pause resumes on its own: at the
  * limit's reset time (from the SDK's `rate_limit_event`), or once the network is back (`isOnline`), with a timer that a
  * relaunch arms again. Resuming is a retry (below), and the queue follows once the turn ends. Retrying a paused task
- * yourself, e.g. on another model, resumes it at once.
+ * yourself, e.g. on another model, resumes it at once. So does `resumePaused`, for a usage limit's pause ended early
+ * (#519, `../account/usage-resume`): the banner's Resume now, and a usage reading (`refreshUsage` asks for one) that
+ * says the account can run again. A turn still over the limit pauses again, with the reset time it's given.
  *
  * **Retry** runs the stopped turn again: the turn's last message goes to the session once more (started again with
  * `resume` if it's gone), optionally on another model, which becomes the task's. The chat log gets nothing new, and the
@@ -449,7 +451,7 @@ import { gatedSession } from './gated-session'
 import { FileAccess, SANDBOX_NETWORK_TOOL } from './sandbox-requests'
 import { NO_GRANTS, sandboxOverlay, sandboxStartSettings, usableGrants, type SandboxGrants } from './sandbox'
 import { CONTROL_SERVER } from '../control/names'
-import type { AccountSink } from '../account/account'
+import { limitOfWindow, type AccountSink } from '../account/account'
 import { autoCompactFrom, carriedOver, sameAutoCompact } from './compaction'
 import { classifyAgentError } from './error-classification'
 import { ACCESS_TOOL_NAME, gladeOwnServers, type AccessCall } from './glade-tools'
@@ -662,6 +664,16 @@ export interface AgentRunner {
    * while a turn is running, and `invalid_transition` for a task whose agent isn't stopped by an error or paused.
    */
   retry(taskId: string, model?: string): Task
+  /**
+   * Resumes the task's paused turn now, as when its pause comes due (see the module comment): Resume now, and a usage
+   * reading that says the account can run again (#519). A task that isn't paused is left alone.
+   */
+  resumePaused(taskId: string): void
+  /**
+   * Asks a live session how much of the account's usage limits is used, as each does after its turns: a paused task's
+   * session answers with no turn running. Answers false when no session is live, when there's nothing to ask.
+   */
+  refreshUsage(): boolean
   /**
    * Compacts the task's context now: sends its session `/compact` (see the module comment), and answers with the task,
    * now working. Throws a `CommandFailure`: `not_found` for no such task, `busy` while a turn is running, and
@@ -2245,7 +2257,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         utilization: event.utilization,
         window: event.window,
       })
-      live.limit = { rejected: event.status === RateLimitStatus.Rejected, resetsAt: event.resetsAt }
+      const rejected = event.status === RateLimitStatus.Rejected
+      live.limit = { rejected, resetsAt: event.resetsAt, limit: limitOfWindow(event.window) }
       options.account?.rateLimit(event)
       return
     }
@@ -3639,6 +3652,17 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       live.turn.awaiting.add(uuid)
       hand(live, last, uuid)
       return getTask(db, taskId) ?? current
+    },
+
+    resumePaused(taskId) {
+      onPauseDue(taskId)
+    },
+
+    refreshUsage() {
+      const [asked] = sessions
+      if (asked === undefined) return false
+      readUsage(...asked)
+      return true
     },
 
     compact(taskId) {
