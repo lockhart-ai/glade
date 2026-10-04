@@ -2,7 +2,8 @@
 // Subagents tab render again with every change to the task, its logs or the clock, so each of their rows must render
 // only when its own data changed. Rows are counted by a function each calls exactly once per render. The Broadcast
 // modal's recipients (#489) are held to the same: one row per active task, in every workspace. So is the todo hub
-// (P16, #497): a card per todo, and a tile per child of an open one.
+// (P16, #497): a card per todo, and a tile per child of an open one. The links a todo's text names (#500) are worked
+// out when the task's links or its todos change, and at no other time.
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsageLevel, UsageLimitKind, type UsageReading } from '../shared/account'
@@ -42,6 +43,7 @@ import {
   hubCommit,
   hubFile,
   hubFiling,
+  hubLink,
   hubStore,
   hubTodo,
   hubWatcher,
@@ -49,6 +51,7 @@ import {
   type HubStore,
 } from './todos/test-hub'
 import { kindCounts, tileLabel } from './todos/todoHubModel'
+import { linkReferences, namedBy, todoSegments } from './todos/todoLinks'
 import { ChildFilter } from '../shared/todoHub'
 import { rowStatus } from './task-list/rowStatus'
 import { NOW_REFRESH_MS } from './task-list/useNow'
@@ -92,6 +95,19 @@ vi.mock('./subagents/subagentsModel', async (importOriginal) => {
 vi.mock('./todos/todoHubModel', async (importOriginal) => {
   const original = await importOriginal<typeof import('./todos/todoHubModel')>()
   return { ...original, kindCounts: vi.fn(original.kindCounts), tileLabel: vi.fn(original.tileLabel) }
+})
+
+// What a todo's text names (#500): the hub works out what the task's todos may name (one `linkReferences` call per
+// time), then which of it each todo names (one `namedBy` call per todo), and a card reads its title and its status
+// line for their links (one `todoSegments` call per line).
+vi.mock('./todos/todoLinks', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./todos/todoLinks')>()
+  return {
+    ...original,
+    linkReferences: vi.fn(original.linkReferences),
+    namedBy: vi.fn(original.namedBy),
+    todoSegments: vi.fn(original.todoSegments),
+  }
 })
 
 const AT = new Date(2026, 8, 23, 13, 8).getTime()
@@ -878,5 +894,126 @@ describe('the todo hub, with 100 todos and 50 children under one (P16, #497)', (
     await act(() => Promise.resolve())
     expect(screen.queryByRole('menu')).toBeNull()
     expect(rendered()).toEqual({ cards: 0, tiles: 1 })
+  })
+
+  describe('the links a todo’s text names (#500)', () => {
+    const PR_511 = hubLink('https://github.com/acme/api/pull/511', 'Return Retry-After on 429s', 1)
+    /** The todos, with the third's status line naming PR #511. */
+    const NAMING = TODOS.map((todo, index) => (index === 2 ? { ...todo, note: 'Watching CI on PR #511' } : todo))
+
+    /**
+     * How often the hub worked out what the task's todos may name (`lookups`) and which of it a todo names (`todos`),
+     * and how many titles and status lines were read for their links (`lines`), since the last look.
+     */
+    function read(): { lookups: number; todos: number; lines: number } {
+      const counts = { lookups: renders(linkReferences), todos: renders(namedBy), lines: renders(todoSegments) }
+      vi.mocked(linkReferences).mockClear()
+      vi.mocked(namedBy).mockClear()
+      vi.mocked(todoSegments).mockClear()
+      return counts
+    }
+
+    /** The hub, with the third todo naming a PR the task doesn't have as a link yet. */
+    async function renderNaming(): Promise<HubStore> {
+      const wrapper = await renderHub()
+      // As it first showed: what the task may name worked out once, and each todo's title read once.
+      expect(read()).toEqual({ lookups: 1, todos: 0, lines: 100 })
+      act(() => {
+        wrapper.fake.emit({ type: EventType.TodosChanged, taskId: 't1', todos: { items: NAMING, updatedAt: HUB_NOW } })
+      })
+      // Its card alone, and its new status line alone: a task with nothing to name reads no todo for what it names.
+      expect(rendered()).toEqual({ cards: 1, tiles: 0 })
+      expect(read()).toEqual({ lookups: 0, todos: 0, lines: 1 })
+      expect(screen.queryByRole('link', { name: 'PR #511' })).toBeNull()
+      return wrapper
+    }
+
+    it('renders only the card that names a link when it’s added, and when it’s removed', async () => {
+      const { fake } = await renderNaming()
+
+      // The task gets the PR, filed under the second todo: that card for its new child, and the third for its link.
+      act(() => {
+        fake.emitBatch([
+          { type: EventType.ArtifactsChanged, taskId: 't1', artifacts: [...FILES, PR_511] },
+          {
+            type: EventType.FilingsChanged,
+            taskId: 't1',
+            filed: [hubFiling(refOf.link(PR_511.url), '2')],
+            removed: [],
+          },
+        ])
+      })
+      expect(rendered()).toEqual({ cards: 2, tiles: 0 })
+      // What the task may name once, each todo once, and the two lines of the one card that names it.
+      expect(read()).toEqual({ lookups: 1, todos: 100, lines: 2 })
+      expect(screen.getByRole('link', { name: 'PR #511' })).toHaveAttribute('href', PR_511.url)
+
+      // And loses it: the same two cards.
+      act(() => {
+        fake.emit({ type: EventType.ArtifactsChanged, taskId: 't1', artifacts: FILES })
+      })
+      expect(rendered()).toEqual({ cards: 2, tiles: 0 })
+      expect(read()).toEqual({ lookups: 1, todos: 0, lines: 2 })
+      expect(screen.queryByRole('link', { name: 'PR #511' })).toBeNull()
+    })
+
+    it('reads nothing again when the task changes in a way that leaves its links and its todos as they were', async () => {
+      const { fake } = await renderNaming()
+      act(() => {
+        fake.emit({ type: EventType.ArtifactsChanged, taskId: 't1', artifacts: [...FILES, PR_511] })
+      })
+      // (Filed under no todo, the PR is the placeholder group's first child: its card, and the third's.)
+      expect(rendered()).toEqual({ cards: 2, tiles: 0 })
+      expect(read()).toEqual({ lookups: 1, todos: 100, lines: 2 })
+
+      // The log grows, a subagent and a watcher report, the task's status changes, and a minute passes.
+      const [running] = AGENTS
+      if (running === undefined) throw new Error('No subagent')
+      act(() => {
+        fake.emit({ type: EventType.ToolEventAppended, toolEvent: note('late-note', TURNS) })
+        fake.emit({ type: EventType.ToolEventUpdated, toolEvent: { ...running, progressSummary: 'Reading the diff' } })
+        fake.emit({
+          type: EventType.WatchersChanged,
+          taskId: 't1',
+          watchers: [...WATCHERS, ELSEWHERE].map((each) => ({ ...each })),
+        })
+        fake.emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), status: 'Running the tests.' } })
+        vi.setSystemTime(HUB_NOW + 60_000)
+        vi.advanceTimersByTime(NOW_REFRESH_MS)
+      })
+      expect(rendered()).toEqual({ cards: 0, tiles: 1 })
+      expect(read()).toEqual({ lookups: 0, todos: 0, lines: 0 })
+
+      // A file is renamed, so main sends every artifact again, each made anew: the links are the ones they were.
+      const [file, ...files] = FILES
+      act(() => {
+        fake.emit({
+          type: EventType.ArtifactsChanged,
+          taskId: 't1',
+          artifacts: [{ ...file, title: 'Part one' } as never, ...files.map((each) => ({ ...each })), { ...PR_511 }],
+        })
+      })
+      expect(rendered()).toEqual({ cards: 0, tiles: 1 })
+      expect(read()).toEqual({ lookups: 0, todos: 0, lines: 0 })
+
+      // A todo is opened, and one is filtered: neither reads its text again.
+      fireEvent.click(document.querySelectorAll('[data-todo-head]')[1] as HTMLElement)
+      fireEvent.click(screen.getByRole('button', { name: '10 files' }))
+      expect(rendered()).toEqual({ cards: 2, tiles: 1 })
+      expect(read()).toEqual({ lookups: 0, todos: 0, lines: 0 })
+
+      // The todo list arrives again, every item made anew and none changed: each is read for what it names, by the
+      // hub, and no card renders.
+      act(() => {
+        fake.emit({
+          type: EventType.TodosChanged,
+          taskId: 't1',
+          todos: { items: NAMING.map((each) => ({ ...each })), updatedAt: HUB_NOW },
+        })
+      })
+      expect(rendered()).toEqual({ cards: 0, tiles: 0 })
+      expect(read()).toEqual({ lookups: 0, todos: 100, lines: 0 })
+      expect(screen.getByRole('link', { name: 'PR #511' })).toBeInTheDocument()
+    })
   })
 })

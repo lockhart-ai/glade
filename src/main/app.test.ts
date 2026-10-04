@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
@@ -46,6 +46,7 @@ import { sampleTask, sampleWorkspace } from './db/repositories/test-database'
 import { CHOOSE_FOLDER_OPTIONS } from './dialogs'
 import type { RecordingNotifier } from './notifications/recording-notifier'
 import type { SdkBackendOptions } from './agent/sdk-backend'
+import { STAND_IN_API_KEY } from './agent/stand-in'
 import type { LoginChild, SpawnLogin } from './account/login'
 import type { LoginEnvOptions } from './login-env'
 import { markRunning } from './relaunch'
@@ -1869,6 +1870,126 @@ describe('startApp in e2e mode', () => {
     expect(createAgentBackend).not.toHaveBeenCalled()
     expect(createSdkBackend).not.toHaveBeenCalled()
     expect(backend.sessions).toHaveLength(0)
+  })
+
+  describe('on a stand-in model', () => {
+    const STAND_IN = { baseUrl: 'http://127.0.0.1:41001', deadEndProxy: 'http://127.0.0.1:41002' } as const
+    let home: string
+
+    beforeEach(() => {
+      home = mkdtempSync(join(tmpdir(), 'glade-app-test-home-'))
+      vi.stubEnv('HOME', home)
+    })
+
+    afterEach(() => {
+      rmSync(home, { recursive: true, force: true })
+    })
+
+    it('runs the real backend with the stand-in as its only endpoint, a key that is no key, and no script', async () => {
+      // What the environment the run was started from may hold: none of it reaches the agent's process.
+      vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-sample-secret')
+      vi.stubEnv('ANTHROPIC_BASE_URL', 'https://api.anthropic.com')
+      vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'sample-oauth-token')
+      vi.stubEnv('HTTPS_PROXY', 'http://proxy.example.invalid:3128')
+      askForE2e({ standInModel: STAND_IN })
+      const createAgentBackend = vi.fn<(options: SdkBackendOptions) => FakeAgentBackend>(() => new FakeAgentBackend())
+
+      startApp({ createAgentBackend })
+      await vi.waitFor(() => {
+        expect(createAgentBackend).toHaveBeenCalledOnce()
+      })
+
+      const env = await createAgentBackend.mock.calls[0]?.[0].env
+      expect(env).toMatchObject({
+        HOME: home,
+        ANTHROPIC_BASE_URL: STAND_IN.baseUrl,
+        ANTHROPIC_API_KEY: STAND_IN_API_KEY,
+        HTTP_PROXY: STAND_IN.deadEndProxy,
+        HTTPS_PROXY: STAND_IN.deadEndProxy,
+        NO_PROXY: '127.0.0.1',
+      })
+      expect(env).not.toHaveProperty('CLAUDE_CODE_OAUTH_TOKEN')
+      expect(Object.values(env ?? {}).filter((value) => /sample|anthropic\.com|example\.invalid/.test(value))).toEqual(
+        [],
+      )
+      expect(logged('app starting', testModeLogs())).toEqual([
+        expect.objectContaining({ testMode: 'e2e', agentBackend: 'stand-in' }),
+      ])
+      expect(logged('no agent script for a session', testModeLogs())).toEqual([])
+    })
+
+    it("holds a command the throwaway home folder's Claude Code settings keep out of the sandbox", async () => {
+      mkdirSync(join(home, '.claude'))
+      writeFileSync(
+        join(home, '.claude', 'settings.json'),
+        JSON.stringify({ sandbox: { excludedCommands: ['docker *'] } }),
+      )
+      askForE2e({ standInModel: STAND_IN })
+      const backend = new FakeAgentBackend()
+      startApp({ createAgentBackend: () => backend })
+      await Promise.resolve()
+      await Promise.resolve()
+      const db = new Database(join(electron.app.userData, 'glade.db'))
+      const task = sampleTask(db, sampleWorkspace(db).id)
+      db.close()
+      const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+      await handler?.(fromWindow(), CommandName.SettingsUpdate, { patch: { sandboxEnabled: true } })
+      await handler?.(fromWindow(), CommandName.TasksSend, { id: task.id, text: 'Hi' })
+      await vi.waitFor(() => {
+        expect(backend.sessions).toHaveLength(1)
+      })
+      const [session] = backend.sessions
+
+      // Nothing the settings name: the command runs in the sandbox, and Glade has nothing to decide.
+      const ls = session?.startTool({ toolName: 'Bash', input: { command: 'ls' }, toolUseId: 'toolu_ls' })
+      await expect(ls?.decision).resolves.toBeNull()
+      // The command the user's settings keep out of the sandbox waits on its card.
+      const docker = session?.startTool({
+        toolName: 'Bash',
+        input: { command: 'docker ps' },
+        toolUseId: 'toolu_docker',
+      })
+      await vi.waitFor(async () => {
+        await expect(handler?.(fromWindow(), CommandName.TasksHistory, { id: task.id })).resolves.toMatchObject({
+          ok: true,
+          value: { permissionRequests: [{ toolUseId: 'toolu_docker', sandbox: { kind: 'outside' } }] },
+        })
+      })
+      docker?.abort()
+    })
+
+    it('refuses to start on your own home folder: the real Claude Code would run on it', () => {
+      vi.stubEnv('HOME', '/Users/someone')
+      askForE2e({ standInModel: STAND_IN })
+      const createAgentBackend = vi.fn(() => new FakeAgentBackend())
+
+      startApp({ createAgentBackend })
+
+      expect(console.error).toHaveBeenCalledWith('[test-mode] test mode failed', {
+        error: expect.objectContaining({
+          message: expect.stringMatching(/^GLADE_E2E names a stand-in model, which needs a throwaway home/) as unknown,
+        }) as unknown,
+      })
+      expect(electron.app.exit).toHaveBeenCalledWith(1)
+      expect(electron.app.whenReady).not.toHaveBeenCalled()
+      expect(createAgentBackend).not.toHaveBeenCalled()
+    })
+
+    it('refuses a stand-in model that is anywhere but this Mac', () => {
+      askForE2e({ standInModel: { ...STAND_IN, baseUrl: 'https://api.anthropic.com' } })
+      const createAgentBackend = vi.fn(() => new FakeAgentBackend())
+
+      startApp({ createAgentBackend })
+
+      expect(console.error).toHaveBeenCalledWith('[test-mode] test mode failed', {
+        error: expect.objectContaining({
+          message: expect.stringMatching(/^GLADE_E2E is invalid/) as unknown,
+        }) as unknown,
+      })
+      expect(electron.app.exit).toHaveBeenCalledWith(1)
+      expect(electron.app.whenReady).not.toHaveBeenCalled()
+      expect(createAgentBackend).not.toHaveBeenCalled()
+    })
   })
 
   it('runs the agent script the spec names', async () => {

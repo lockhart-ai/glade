@@ -127,7 +127,10 @@ There are no follow-up tasks. One task can refer to another through its folder o
   and status, todos, watchers and queued messages. Markdown links and bare URLs and email addresses are links; URLs in
   code aren't. A link underlines on hover, shows its address as a tooltip when its text says something else, takes the
   focus with Tab and opens with ↵; ⌘-click opens it too. Right-click it for Open link, Copy link and Add to artifacts
-  (a web link only, #407). Only web and mail links open: any other kind shows as its text.
+  (a web link only, #407). Only web and mail links open: any other kind shows as its text. With the todo hub on (the
+  hidden `todoHubEnabled` setting, off until #501), a PR, an issue or a ticket a todo's title or status line names
+  (`PR #511`, `#511`, `API-123`) is a link too, when the task has it as a link artifact: an exact match only, with
+  nothing fetched ([`decisions.md`](decisions.md), "Links in a todo's text", #500).
 - **Click code to copy** (#352) — a code span clicks to copy its exact text, with a small "Copied" tooltip for about a
   second; dragging a selection in it, or a click that ends with one, is left as ordinary text selection instead. It's
   focusable, and Enter copies it. A fenced code block, and a permission card's command or change, get a copy icon in

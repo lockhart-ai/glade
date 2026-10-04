@@ -59,7 +59,7 @@
   background: var(--color-blue);
 }
 
-/* A task with no todos: the line in the summary's place. */
+/* A task that made things and kept no todos: the line in the summary's place, above the placeholder group. */
 .empty {
   flex-shrink: 0;
   margin: 0;

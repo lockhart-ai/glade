@@ -25,7 +25,6 @@ import {
 import { Icon, IconSize } from '../components'
 import { classNames } from '../components/classNames'
 import { ContextMenu, todoMenu, useContextMenu, useMenuCommands, type ContextMenuTargetProps } from '../context-menus'
-import { LinkedText } from '../links'
 import { useGladeStore } from '../store/react'
 import type { TodoPanels } from '../store/state'
 import { formatAgo, formatFullDate } from '../task-header/headerModel'
@@ -33,7 +32,7 @@ import { useNow } from '../task-list/useNow'
 import { ArtifactTiles } from './tiles/ArtifactTiles'
 import { ChildTile } from './tiles/ChildTile'
 import { subagentsIn } from './tiles/childIndex'
-import { askAboutTodo, STATE_LABELS, StateIcon } from './Todos'
+import { askAboutTodo, NoTodos, STATE_LABELS, StateIcon } from './Todos'
 import {
   filterChildren,
   filterOfKind,
@@ -49,7 +48,9 @@ import {
   type KindCount,
   type PanelView,
 } from './todoHubModel'
+import { linkAddresses, linkReferences, namedBy, NO_REFERENCES, sameReferences, type LinkReferences } from './todoLinks'
 import { orderTodos, progressBar, progressHeading, todoProgress } from './todosModel'
+import { TodoText } from './TodoText'
 import styles from './TodoHub.module.css'
 
 const NO_TODOS: readonly Todo[] = []
@@ -59,6 +60,7 @@ const NO_WATCHERS: readonly Watcher[] = []
 const NO_COMMITS: readonly TaskCommit[] = []
 const NO_CHILDREN: readonly Child[] = []
 const NO_PANELS: TodoPanels = {}
+const NO_LINKS: ReadonlyMap<string, LinkReferences> = new Map<string, LinkReferences>()
 
 /** What marks a todo's head (and the placeholder group's) on the page: ↑ and ↓ move the focus between them. */
 const HEAD_ATTRIBUTE = 'data-todo-head'
@@ -257,9 +259,14 @@ function usePanelControls(
   }
 }
 
-/** Whether a click landed on a link in a todo's text, which opens the link and leaves the todo as it is. */
-function onLink(event: MouseEvent<HTMLElement>): boolean {
-  return event.target instanceof Element && event.target.closest('a') !== null
+/**
+ * Whether a click on a todo's head is one that opens or closes the todo. A click on a link in its text opens the link
+ * and leaves the todo as it is, and so does a choice from that link's menu: the menu is over the page, not in the
+ * head, but React passes its clicks up through the link that opened it.
+ */
+function opensTodo(event: MouseEvent<HTMLElement>): boolean {
+  const { target, currentTarget } = event
+  return target instanceof Element && currentTarget.contains(target) && target.closest('a') === null
 }
 
 interface TodoCardProps {
@@ -269,6 +276,11 @@ interface TodoCardProps {
   readonly childList: readonly Child[]
   /** How you left its panel; undefined when you never opened or filtered it. */
   readonly panel: TodoPanel | undefined
+  /**
+   * The PRs, issues and tickets its title and status line name, of those the task has as links (`namedBy`): those
+   * words are links to them (#500). None for most todos.
+   */
+  readonly links: LinkReferences
   /** What its context menu is opened for: its row's key (`OrderedTodo.key`). */
   readonly menuKey: string
   /**
@@ -287,6 +299,7 @@ function sameCard(a: TodoCardProps, b: TodoCardProps): boolean {
     a.menuTargetProps === b.menuTargetProps &&
     sameTodo(a.todo, b.todo) &&
     samePanel(a.panel, b.panel) &&
+    sameReferences(a.links, b.links) &&
     sameChildren(a.childList, b.childList)
   )
 }
@@ -294,13 +307,15 @@ function sameCard(a: TodoCardProps, b: TodoCardProps): boolean {
 /**
  * One todo, as a card on `inner-2`, whatever its state and whether or not anything is under it. Three lines: its
  * title, its status line, and one row of icons (`Kinds`). Clicking its head opens it to one flat list of its children
- * (`Tiles`), which a closed todo never builds. A todo with nothing under it is its title alone, and doesn't open.
+ * (`Tiles`), which a closed todo never builds. A todo with nothing under it is its title alone, and doesn't open. A PR,
+ * an issue or a ticket its title or status line names is a link, when the task has it as one (`TodoText`).
  */
 const TodoCard = memo(function TodoCard({
   taskId,
   todo,
   childList,
   panel,
+  links,
   menuKey,
   menuTargetProps,
 }: TodoCardProps): React.JSX.Element {
@@ -312,7 +327,7 @@ const TodoCard = memo(function TodoCard({
     if (!event.defaultPrevented) onKey(event)
   }
   const onClick = (event: MouseEvent<HTMLElement>): void => {
-    if (!onLink(event)) toggle()
+    if (opensTodo(event)) toggle()
   }
   return (
     <li className={classNames(styles.card, STATE_CLASSES[todo.state])} data-open={open ? '' : undefined}>
@@ -331,7 +346,7 @@ const TodoCard = memo(function TodoCard({
           <div className={styles.titleRow}>
             <div className={styles.title}>
               <span className={styles.hidden}>{`${STATE_LABELS[todo.state]}: `}</span>
-              <LinkedText text={todo.text} />
+              <TodoText text={todo.text} links={links} />
             </div>
             {todo.state === TodoState.Done && todo.completedAt !== null && (
               <Ago at={todo.completedAt} prefix="Finished " prefixHidden className={styles.when} />
@@ -344,7 +359,7 @@ const TodoCard = memo(function TodoCard({
           </div>
           {todo.note !== null && (
             <div className={styles.note}>
-              <LinkedText text={todo.note} />
+              <TodoText text={todo.note} links={links} />
             </div>
           )}
         </div>
@@ -464,12 +479,14 @@ export interface TodoHubProps {
  * The Todos tab as the hub (P16, #491; `docs/design/html/46-todo-hub.html` to `49-todo-hub-unfiled.html`), shown in
  * place of `Todos` while the hidden `todoHubEnabled` setting is on: everything a task made, ran and is waiting on,
  * under the todo it belongs to. Every todo is a card (`TodoCard`), in the tab's order (`orderTodos`), then the
- * placeholder group for what no todo has (`UnfiledCard`), hidden while it's empty.
+ * placeholder group for what no todo has (`UnfiledCard`), hidden while it's empty. A task with no todos that made
+ * something says so in a line above that group; one with nothing at all has the Todos tab's own empty state
+ * (`NoTodos`).
  *
  * It works out which todo each child is under itself (`groupChildren`), from the lists the store already keeps for the
  * other tabs and the task's filings, so a child filed, moved or changed shows at once, with no reload. Every change to
- * the task lands here; a card renders again only when its own todo, children or panel changed (`sameCard`), and a tile
- * only when its own child did (`ChildTile`).
+ * the task lands here; a card renders again only when its own todo, children or panel changed, or a link its text
+ * names (`sameCard`), and a tile only when its own child did (`ChildTile`).
  */
 export const TodoHub = memo(function TodoHub({ taskId, list }: TodoHubProps): React.JSX.Element {
   const artifacts = useGladeStore((state) => state.artifacts[taskId]) ?? NO_ARTIFACTS
@@ -517,6 +534,17 @@ export const TodoHub = memo(function TodoHub({ taskId, list }: TodoHubProps): Re
   )
   const unfiled = grouped?.unfiled.children ?? NO_CHILDREN
 
+  // What a todo's text may name (#500), worked out when the task's links change and not when anything else of its
+  // artifacts does; then, per todo, the ones its own text names, read again only when the todos or the links change.
+  const addresses = useMemo(() => linkAddresses(artifacts), [artifacts])
+  const references = useMemo(() => linkReferences(addresses), [addresses])
+  /** By a todo's row's key. A task with no PR, issue or ticket among its links reads no todo's text. */
+  const links = useMemo(
+    () =>
+      references.size === 0 ? NO_LINKS : new Map(ordered.map(({ todo, key }) => [key, namedBy(todo, references)])),
+    [ordered, references],
+  )
+
   // The menu is opened for a row's key, and finds its todo as it is by then.
   const { targetProps } = menu
   const entries = (key: string) => {
@@ -531,6 +559,16 @@ export const TodoHub = memo(function TodoHub({ taskId, list }: TodoHubProps): Re
       },
     })
   }
+
+  // Nothing at all, neither a todo nor anything made: with no todos, whatever the task made is under no todo,
+  // whatever its filings say, so this is known before they're read.
+  const nothing =
+    todos.length === 0 &&
+    artifacts.length === 0 &&
+    watchers.length === 0 &&
+    commits.length === 0 &&
+    subagentsIn(events).length === 0
+  if (nothing) return <NoTodos />
 
   return (
     <div className={styles.hub}>
@@ -547,6 +585,7 @@ export const TodoHub = memo(function TodoHub({ taskId, list }: TodoHubProps): Re
             todo={todo}
             childList={childLists.get(key) ?? NO_CHILDREN}
             panel={todo.id === null ? undefined : panels[todo.id]}
+            links={links.get(key) ?? NO_REFERENCES}
             menuKey={key}
             menuTargetProps={targetProps}
           />

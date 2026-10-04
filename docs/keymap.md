@@ -65,7 +65,10 @@ under it); ← closes it; ↵ or Space opens or closes it, as a click does; and 
 (Copy · Ask agent about this). Held with ⌘, ⌃, ⌥ or ⇧, those keys are left to whatever command has them, so Next /
 previous task (⌥↓ / ⌥↑) work from a todo too. Tab reaches every todo, then an open todo's filter pills and its tiles,
 in order: ↵ or Space on a pill shows that kind alone, or all of them (All), and what ↵ does on a tile is each kind's
-own (#498, #499). A closed todo's counts are skipped, since → opens the todo and its pills say the same.
+own (#498, #499). A closed todo's counts are skipped, since → opens the todo and its pills say the same. A link in a
+todo's title or status line (a URL, or a PR, an issue or a ticket it names that the task has as a link, #500) is a Tab
+stop after its todo, as every link is: ↵ opens it in the browser, and the todo's own keys do nothing while it has the
+focus.
 
 On a file's tile (#498), ↵ or Space opens the file in the Files tab, as a click does, or the image viewer for an
 image: there ← and → (Previous / next image) step through the images of that todo alone, in its list's order,

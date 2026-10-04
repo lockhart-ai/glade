@@ -107,6 +107,12 @@ export interface LaunchOptions {
    * profile). None by default: the agents run in the app's own environment.
    */
   readonly loginShell?: string
+  /**
+   * A stand-in for the model, on this Mac (`src/main/agent/stand-in.ts`): the tasks then run on the real agent backend,
+   * the bundled Claude Code and its sandbox included, against it, and no script is played. Only the sandbox's escape
+   * battery uses it (`e2e/escape-battery.spec.ts`); the app refuses it unless `env` gives it a throwaway `HOME`.
+   */
+  readonly standInModel?: E2eSpec['standInModel']
   /** Environment variables to launch the app with, over the test runner's own, e.g. launchd's bare `PATH`. */
   readonly env?: Readonly<Record<string, string>>
   /**
@@ -250,6 +256,7 @@ export const test = base.extend<Fixtures>({
         agentScriptsByFirstMessage,
         seed,
         loginShell,
+        standInModel,
         env = {},
         motion = false,
         classicScrollbars = false,
@@ -261,6 +268,7 @@ export const test = base.extend<Fixtures>({
         ...(agentScriptsByFirstMessage === undefined ? {} : { agentScriptsByFirstMessage }),
         ...(seed === undefined ? {} : { seed }),
         ...(loginShell === undefined ? {} : { loginShell }),
+        ...(standInModel === undefined ? {} : { standInModel }),
       }
       // Electron on a missing script opens no window, and the launch would wait out the test's timeout. Playwright's
       // global setup builds it (scripts/e2e-setup.mjs); say so if it's gone anyway.
