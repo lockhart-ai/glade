@@ -425,8 +425,8 @@ before they hear of the artifact. The reply ends `It's under todo #2.`
 - **Declared again,** an artifact is renamed as before, and stays under its todo; given another todo, it moves there
   (`moved`).
 - **`update_artifact` and `remove_artifact` keep the filing in step:** an artifact pointed at another file or page
-  (`newPath`, `newUrl`) stays under its todo, and one that's removed, by the agent or by you, leaves no filing behind.
-  Neither takes a `todo`: moving an artifact to another todo is `file_children`'s.
+  (`newPath`, `newUrl`) stays under its todo, and one that's removed, by the agent, by you or through the control
+  API, leaves no filing behind. Neither takes a `todo`: moving an artifact to another todo is `file_children`'s.
 - **No agent call, no todo.** A link you add yourself (Add to artifacts) and an artifact added through the control
   API have no call to name a todo: they stay under "Not under a todo", and the agent can file them when asked to.
 - If the setting is turned off under a session that has this `add_artifact`, the tool adds the artifact as it did
@@ -467,7 +467,7 @@ of a `CronCreate` (`src/main/agent/child-calls.ts`). The rule, which Jared picke
    ```
 
    The agent files them and writes its reply again; the reply it had written before the hold goes to the tool log, so
-   the chat shows the one it ended on. **If it ignores both holds, the turn ends anyway:** what's left stays under
+   the chat shows the one it ended on (or, if it writes none after filing, the one it had written). **If it ignores both holds, the turn ends anyway:** what's left stays under
    "Not under a todo", still owed, and the end of its next turn asks again, twice more. What's owed is kept in SQLite
    (`owed_filings`), so a relaunch doesn't forget it. A turn you stopped is never held, nor is a compaction.
 4. **Nothing is refused, and nothing is guessed** from which todo is in progress.

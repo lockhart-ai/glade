@@ -532,7 +532,8 @@
     17. A marker naming a todo that isn't in the list still comes off the call: it counts as naming none, and the
         agent is told afterwards.
     18. When a turn's end is held, the reply the agent had written goes to the tool log, and the chat shows the one
-        it ends on. An agent that ignores both holds ends its turn on the reply it wrote third.
+        it ends on; if it files and writes no reply again, the one it had written is the turn's. An agent that
+        ignores both holds ends its turn on the reply it wrote third.
     19. A turn you stopped is never held, nor is a compaction. What an interrupted message made is taken in at the end
         of the next turn.
     20. `add_artifact` declared again with another todo moves the artifact there (`moved`). `update_artifact` takes no

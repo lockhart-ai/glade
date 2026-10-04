@@ -570,9 +570,10 @@ describe('filing', () => {
       filing,
       { taskId: task.id, ...PR, todoId: '3', source: FilingSource.Asked, filedAt: 8_100 },
     ])
-    // A child with no filing has none to move.
+    // A child with no filing has none to move, and one that keeps its key (a new title) isn't touched.
     events = []
     refileChild(context(), task.id, CI, { kind: ChildKind.Watcher, key: 'toolu_other' })
+    refileChild(context(), task.id, PR, PR)
     expect(events).toEqual([])
     expect(listFilings(db, task.id)).toHaveLength(2)
   })

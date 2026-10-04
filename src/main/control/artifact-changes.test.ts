@@ -16,7 +16,11 @@ import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { EventType } from '../../shared/bridge'
 import { ArtifactKind, type Task, type Workspace } from '../../shared/domain'
+import { ChildKind, FilingSource } from '../../shared/todoHub'
 import { listArtifacts, listFileArtifacts } from '../db/repositories/artifacts'
+import { listFilings } from '../db/repositories/child-filings'
+import { updateSettings } from '../db/repositories/settings'
+import { fileChildren } from '../todo-hub/todo-hub'
 import { getTask } from '../db/repositories/tasks'
 import { createWorkspace } from '../db/repositories/workspaces'
 import { checkArtifactUpdates } from './backfill'
@@ -96,6 +100,43 @@ function listed(): string[][] {
 function patch(changes: Readonly<Record<string, unknown>>): Promise<ToolReply> {
   return client.call(ControlToolName.UpdateTask, { id, patch: changes })
 }
+
+describe('update_task with the todo hub on (#495)', () => {
+  it('keeps an artifact’s filing in step: repointed, it keeps its todo; taken off, it leaves none; added, it has none', async () => {
+    const { db } = app.database
+    updateSettings(db, { todoHubEnabled: true })
+    const filed = ['notes/plan.md', 'screens/landing.png', 'notes/draft.md'].map((key) => ({
+      kind: ChildKind.File,
+      key,
+      todoId: '2',
+      source: FilingSource.Asked,
+    }))
+    fileChildren({ db, emit: () => undefined }, id, filed, 5_000)
+    renameSync(join(root, 'screens', 'landing.png'), join(root, 'screens', 'landing-dark.png'))
+    const events = app.events.length
+
+    const reply = await patch({
+      updateArtifacts: [
+        { path: join(root, 'notes', 'plan.md'), title: 'Plan, final' },
+        { path: join(root, 'screens', 'landing.png'), newPath: join(root, 'screens', 'landing-dark.png') },
+      ],
+      removeArtifacts: [join(root, 'notes', 'draft.md')],
+      artifacts: [{ path: file('notes/summary.md'), title: 'Summary' }],
+    })
+
+    expect(reply.isError).toBe(false)
+    expect(listFilings(db, id).map(({ key, todoId, source, filedAt }) => [key, todoId, source, filedAt])).toEqual([
+      ['notes/plan.md', '2', FilingSource.Asked, 5_000],
+      ['screens/landing-dark.png', '2', FilingSource.Asked, 5_000],
+    ])
+    // The windows hear the filings change with the artifacts: nothing names a todo for the one added.
+    expect(app.events.slice(events).map(({ type }) => type)).toEqual([
+      EventType.FilingsChanged,
+      EventType.FilingsChanged,
+      EventType.ArtifactsChanged,
+    ])
+  })
+})
 
 describe('update_task: updateArtifacts and removeArtifacts', () => {
   it('renames, repoints and takes off artifacts, keeping their places and the task’s, in one broadcast', async () => {

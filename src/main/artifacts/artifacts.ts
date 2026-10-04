@@ -21,7 +21,7 @@ import {
   type LinkArtifact,
 } from '../../shared/domain'
 import { workspaceRelativePath } from '../../shared/files'
-import { ChildKind } from '../../shared/todoHub'
+import { ChildKind, childOfArtifact } from '../../shared/todoHub'
 import {
   addArtifact,
   addLinkArtifact,
@@ -233,9 +233,7 @@ export async function updateTaskArtifact(
   if (target === before.path && nextTitle === before.title) return { before, after: before }
   const changed = changeArtifact(db, { taskId, path: before.path, newPath: target, title: nextTitle }) ?? before
   if (file !== null) setArtifactFile(db, { taskId, path: target, file })
-  if (target !== before.path) {
-    refileChild(context, taskId, { kind: ChildKind.File, key: before.path }, { kind: ChildKind.File, key: target })
-  }
+  refileChild(context, taskId, { kind: ChildKind.File, key: before.path }, { kind: ChildKind.File, key: target })
   context.emit({ type: EventType.ArtifactsChanged, taskId, artifacts: listArtifacts(db, taskId) })
   return { before, after: fileArtifact(context, taskId, target) ?? changed }
 }
@@ -270,9 +268,7 @@ export function updateTaskLinkArtifact(
   const nextTitle = title ?? before.title
   if (target === before.url && nextTitle === before.title) return { before, after: before }
   const after = changeLinkArtifact(db, { taskId, url: before.url, newUrl: target, title: nextTitle }) ?? before
-  if (target !== before.url) {
-    refileChild(context, taskId, { kind: ChildKind.Link, key: before.url }, { kind: ChildKind.Link, key: target })
-  }
+  refileChild(context, taskId, { kind: ChildKind.Link, key: before.url }, { kind: ChildKind.Link, key: target })
   context.emit({ type: EventType.ArtifactsChanged, taskId, artifacts: listArtifacts(db, taskId) })
   return { before, after }
 }
@@ -318,7 +314,6 @@ export function removeTaskArtifact(context: TaskServiceContext, taskId: string, 
   if (!removeArtifact(context.db, taskId, ref)) {
     throw new CommandFailure(BridgeErrorCode.NotFound, `${refName(ref)} isn't one of task ${taskId}'s artifacts`)
   }
-  const kind = ref.kind === ArtifactKind.File ? ChildKind.File : ChildKind.Link
-  unfileChildren(context, taskId, [{ kind, key: refName(ref) }])
+  unfileChildren(context, taskId, [childOfArtifact(ref)])
   context.emit({ type: EventType.ArtifactsChanged, taskId, artifacts: listArtifacts(context.db, taskId) })
 }

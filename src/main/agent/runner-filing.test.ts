@@ -632,6 +632,22 @@ describe('a call that names no todo', () => {
     expect(reply()).toBe('Nothing else.')
   })
 
+  it('keeps the reply written before a hold as the turn’s, when the agent files and writes nothing more', async () => {
+    await monitor('toolu_deploy', { description: 'Deploy to staging', command: './deploy-status.sh' })
+    await session().finishBatch(batch(['toolu_deploy', 'Monitor']))
+    session().emit(sdk.text('The deploy is being watched.', null, 'msg_02'))
+    await expect(session().tryToEnd()).resolves.toContain('- c1: watcher "Deploy to staging"')
+
+    // Held, it files, and ends its turn there, with no reply of its own after the call.
+    await session().callTool('toolu_file', FILE_CHILDREN_TOOL, { filings: [{ child: 'c1', todo: '3' }] })
+    await expect(session().tryToEnd(true)).resolves.toBeNull()
+    session().emit(sdk.result(''))
+    await settle()
+
+    expect(reply()).toBe('The deploy is being watched.')
+    expect(placed()).toEqual([[], [], ['watcher asked'], []])
+  })
+
   it('never holds a turn you stopped, and takes in what its unfinished message made at the end of the next', async () => {
     await monitor('toolu_deploy', { description: 'Deploy to staging', command: './deploy-status.sh' })
     // You press Stop before the message's calls have all run: nothing tells the agent, and the turn isn't held.

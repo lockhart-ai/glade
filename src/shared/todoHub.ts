@@ -11,6 +11,7 @@ import {
   ToolCallState,
   WatcherState,
   type Artifact,
+  type ArtifactRef,
   type EpochMs,
   type TaskCommit,
   type Todo,
@@ -152,8 +153,8 @@ export function commitChildKey({ hash, repoPath }: Pick<TaskCommit, 'hash' | 're
   return `${hash} ${repoPath}`
 }
 
-/** Which child an artifact is. */
-export function childOfArtifact(artifact: Artifact): ChildRef {
+/** Which child an artifact is, by what names it: a file's path, relative to the workspace root, or a link's URL. */
+export function childOfArtifact(artifact: ArtifactRef): ChildRef {
   switch (artifact.kind) {
     case ArtifactKind.File:
       return { kind: ChildKind.File, key: artifact.path }

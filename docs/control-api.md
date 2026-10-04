@@ -445,6 +445,11 @@ takes artifacts off by absolute path, leaving their files. Anything it can't do 
 nothing`, and nothing changes, the task's other fields included. The windows get one `artifacts.changed` with the
 task's whole list.
 
+**Todos (behind the hidden `todoHubEnabled` setting, P16, #495).** With the todo hub on, an artifact can be filed under
+one of its task's todos ([`model-surface.md`](model-surface.md)). The control API names no todo: an artifact added
+through it is under no todo ("Not under a todo") until the task's agent files it. One it takes off leaves no filing,
+and one it points at another file or page keeps its todo, as with the agent's own tools.
+
 **Links (#407).** Each of the three takes links too, as the agent's tools do: `artifacts` an item with a `url` in
 place of a `path` (one or the other: both, or neither, is `give a path (a file) or a url (a link), not both`), its
 title `#412` for a GitHub PR or issue, `API-123` for a Jira ticket, or the address without its scheme when left out;

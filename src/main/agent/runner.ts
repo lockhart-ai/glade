@@ -244,7 +244,8 @@
  * runs with, so it shows nowhere. Once a message's calls have run (`batchFinished`), the agent is told of what they
  * made that's under no todo, with their results, and files it with one `file_children` call. And a turn about to end
  * with a filing owed is held (`turnEnding`), twice at most; the reply it had written goes to the tool log as
- * narration, since the agent writes it again. A turn you stopped, and a compaction, are never held. A subagent's calls
+ * narration, since the agent writes it again (if it doesn't, that reply is the turn's after all). A turn you stopped,
+ * and a compaction, are never held. A subagent's calls
  * reach none of the three: what it makes follows its own todo. With the setting off, a session has none of this.
  *
  * **Resume on launch.** A turn the app quit or crashed in is left working in the database: a turn's user messages and
@@ -758,6 +759,12 @@ interface Turn {
   compaction: string | null
   /** Whether the turn is a compaction you asked for (`compact`), not a turn of the agent's: its end is never held. */
   compactOnly: boolean
+  /**
+   * The reply the agent had written when the turn's end was last held for filings owed (#495), which went to the tool
+   * log: the turn's reply after all, if the agent writes none once it has filed. Null while the turn was never held
+   * with a reply written.
+   */
+  heldReply: string | null
   /**
    * The turn's own rows a refusal-fallback retry may still supersede, by the SDK message uuid that made each: the
    * turn's narration and tool call rows logged so far (`./events.ts`, `TextEvent.sdkUuid`).
@@ -1293,6 +1300,7 @@ function newTurn(number: number): Turn {
     apiError: null,
     compaction: null,
     compactOnly: false,
+    heldReply: null,
     sdkRows: new Map(),
     refusal: null,
     sandboxFailure: null,
@@ -1859,7 +1867,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       .map((part) => part.text)
       .join('\n\n')
       .trim()
-    const reply = held === '' ? event.result.trim() : held
+    // A turn held at its end for filings owed, whose agent wrote no reply again: the one it had written stands.
+    const reply = held === '' ? event.result.trim() || (turn.heldReply ?? '') : held
     if (reply !== '') {
       const turnEvents = listToolEvents(db, taskId).filter((toolEvent) => toolEvent.turn === turn.number)
       const finishedAt = Date.now()
@@ -2887,8 +2896,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   /**
    * The agent is about to end its turn, in a session with the todo hub: with a filing owed, the end is held, and the
-   * reply it had written goes to the tool log, since it writes its reply again once it has filed. A turn you stopped
-   * ends, and so does a compaction, which is no turn of the agent's.
+   * reply it had written goes to the tool log, since it writes its reply again once it has filed; it's kept too, for
+   * a turn whose agent files and writes nothing more. A turn you stopped ends, and so does a compaction, which is no
+   * turn of the agent's.
    */
   const turnEnding = async (taskId: string, live: LiveSession, ending: TurnEnding): Promise<string | null> => {
     await caughtUp()
@@ -2897,6 +2907,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const reason = filer.turnEnding(taskId, ending.held)
     if (reason === null) return null
     taskLog(taskId).info('turn end held: filings owed', { turn: turn.number, heldBefore: ending.held })
+    const written = turn.pending
+      .map((part) => part.text)
+      .join('\n\n')
+      .trim()
+    if (written !== '') turn.heldReply = written
     flushPreamble(taskId, turn)
     return reason
   }

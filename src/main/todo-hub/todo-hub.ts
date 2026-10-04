@@ -155,10 +155,10 @@ export function unfileChildren({ db, emit }: FilingContext, taskId: string, chil
 /**
  * A child of a task is named by another key from now on (an artifact pointed at another file or page): its filing goes
  * with it, under the same todo, as it was filed, and the windows hear both (`filings.changed`). Nothing is written or
- * sent while the hub is off, or for a child that had no filing.
+ * sent while the hub is off, for a child that had no filing, or when the key is the one it had.
  */
 export function refileChild({ db, emit }: FilingContext, taskId: string, from: ChildRef, to: ChildRef): void {
-  if (!isTodoHubEnabled(db)) return
+  if (refKey(from) === refKey(to) || !isTodoHubEnabled(db)) return
   const had = listFilings(db, taskId).find((filing) => refKey(filing) === refKey(from))
   if (had === undefined) return
   const filed = db.transaction(() => {
