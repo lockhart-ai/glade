@@ -4,7 +4,7 @@
 // you aren't viewing notify and mark it unread.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { RELEASE_NOTES_PREAMBLE, RELEASE_NOTES_QUESTIONS } from '../src/main/agent/scripts'
 import { BridgeErrorCode, CommandName } from '../src/shared/bridge'
 import { QuestionSetState, TaskActivity, type QuestionSet, type Task } from '../src/shared/domain'
@@ -43,6 +43,26 @@ async function askForReleaseNotes(glade: Glade): Promise<QuestionSet> {
 function onSend(window: Page): Promise<boolean> {
   return window.evaluate(() => document.activeElement?.hasAttribute('data-send') === true)
 }
+
+/** An element's fill and border colours, as the app draws them. */
+interface Drawn {
+  readonly background: string
+  readonly border: string
+}
+
+function drawn(locator: Locator): Promise<Drawn> {
+  return locator.evaluate((el) => {
+    const style = getComputedStyle(el)
+    return { background: style.backgroundColor, border: style.borderTopColor }
+  })
+}
+
+/** The purple every agent reply sits on (`--color-question-bg`, `--color-question-border`). */
+const REPLY_PURPLE: Drawn = { background: 'rgb(30, 27, 51)', border: 'rgb(59, 51, 102)' }
+/** What sits inside a question card (`--color-question-surface` and its border). */
+const CARD_SURFACE: Drawn = { background: 'rgb(46, 39, 72)', border: 'rgb(59, 51, 102)' }
+/** A picked option: the card's border colour as its fill, under `--color-question-outline`. */
+const PICKED: Drawn = { background: 'rgb(59, 51, 102)', border: 'rgb(140, 123, 217)' }
 
 function workspaceRoot(tempFolder: () => string): string {
   const root = join(tempFolder(), 'acme-api')
@@ -321,7 +341,7 @@ test('ask: a card asked without a preamble leads with what the agent said just b
   await bar.field.fill('Add per-endpoint rate limits.')
   await bar.field.press('Enter')
 
-  const { log, questionCard } = chat(window)
+  const { log, questionCard, closedQuestions } = chat(window)
   await expect(questionCard).toBeVisible()
   expect((await questionSets(window))[0]?.preamble).toBeNull()
   await expect(log).toContainText(
@@ -332,10 +352,22 @@ test('ask: a card asked without a preamble leads with what the agent said just b
   // It's on the same purple card as every other reply (#464), not a neutral one of its own.
   const lead = questionCard.locator('xpath=preceding-sibling::*[1]')
   await expect(lead).toContainText('The limiter is in.')
-  expect(
-    await lead.evaluate((el) => {
-      const style = getComputedStyle(el)
-      return { background: style.backgroundColor, border: style.borderTopColor }
-    }),
-  ).toEqual({ background: 'rgb(30, 27, 51)', border: 'rgb(59, 51, 102)' })
+  expect(await drawn(lead)).toEqual(REPLY_PURPLE)
+
+  // So is the card itself (#538): it was left grey, with only the purple border, when the replies turned purple.
+  expect(await drawn(questionCard)).toEqual(REPLY_PURPLE)
+  // Nothing of its own inside it sits on the window's black: tiles, pills and the field are a step lighter than it.
+  const tile = questionCard.getByRole('radio', { name: '30 a minute' })
+  const note = questionCard.getByRole('textbox', { name: 'Anything else?' })
+  for (const inside of [tile, questionCard.getByRole('checkbox').first(), questionCard.getByRole('radio').last(), note])
+    expect(await drawn(inside)).toEqual(CARD_SURFACE)
+  // A picked tile is a step lighter again and outlined, and keeps its outline with the pointer still on it.
+  await tile.click()
+  await expect(tile).toBeChecked()
+  expect(await drawn(tile)).toEqual(PICKED)
+
+  // Answered, the card stays on the reply's purple.
+  await questionCard.getByRole('button', { name: 'Send answers' }).click()
+  await expect(closedQuestions).toContainText('5 questions · answered')
+  expect(await drawn(closedQuestions)).toEqual(REPLY_PURPLE)
 })

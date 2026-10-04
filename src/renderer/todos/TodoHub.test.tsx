@@ -1,11 +1,12 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import { WindowCommandId } from '../../shared/commands'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
-import { CommitFileStatus, TodoState, ToolCallState, WatcherState, type Todo } from '../../shared/domain'
+import { CommitFileStatus, TodoState, ToolCallState, WatcherState, type Artifact, type Todo } from '../../shared/domain'
 import { commitFileKey } from '../../shared/files'
 import { ChildFilter, FilingSource, UNFILED_TODO_ID } from '../../shared/todoHub'
+import linkStyles from '../links/Link.module.css'
 import { refuse } from '../store/test-bridge'
 import { storeWrapper } from '../store/test-wrapper'
 import { NOW_REFRESH_MS } from '../task-list/useNow'
@@ -28,6 +29,8 @@ import {
 import { TodoHub } from './TodoHub'
 import styles from './TodoHub.module.css'
 import { NO_HUB_TODOS, UNFILED_HEADING } from './todoHubModel'
+import { NO_TODOS } from './Todos'
+import todosStyles from './Todos.module.css'
 
 const PR_511 = 'https://github.com/acme/api/pull/511'
 const ISSUE_501 = 'https://github.com/acme/api/issues/501'
@@ -739,6 +742,7 @@ describe('Not under a todo', () => {
     await renderHub({ ...BEFORE, todos: undefined })
 
     expect(screen.getByText(NO_HUB_TODOS)).toBeInTheDocument()
+    expect(screen.queryByText(NO_TODOS)).toBeNull()
     expect(screen.queryByRole('progressbar')).toBeNull()
     expect(screen.queryByText(UNFILED_HEADING)).toBeNull()
     expect(cards()).toHaveLength(1)
@@ -757,18 +761,96 @@ describe('Not under a todo', () => {
     expect(screen.getByRole('button', { name: '1 link' })).toHaveAttribute('aria-pressed', 'true')
   })
 
-  it('says a task with no todos and nothing made has no todos, and shows no group', async () => {
+  it('shows the Todos tab’s own centred empty state for a task with nothing at all: no todos, and nothing made', async () => {
     await renderHub({})
-    expect(screen.getByText(NO_HUB_TODOS)).toBeInTheDocument()
-    expect(cards()).toEqual([])
-    // An empty list reads the same.
+    const empty = screen.getByText(NO_TODOS)
+    expect(empty).toHaveClass(todosStyles.empty ?? '')
+    expect(screen.queryByText(NO_HUB_TODOS)).toBeNull()
+    expect(screen.queryByRole('list', { name: 'Todos' })).toBeNull()
+    // An empty list reads the same, and so does none.
     const { unmount } = render(<TodoHub taskId="t9" list={{ items: [], updatedAt: 1 }} />, {
       wrapper: storeWrapper().wrapper,
     })
-    expect(screen.getAllByText(NO_HUB_TODOS)).toHaveLength(2)
+    expect(screen.getAllByText(NO_TODOS)).toHaveLength(2)
     unmount()
     render(<TodoHub taskId="t9" list={null} />, { wrapper: storeWrapper().wrapper })
-    expect(screen.getAllByText(NO_HUB_TODOS)).toHaveLength(2)
+    expect(screen.getAllByText(NO_TODOS)).toHaveLength(2)
+    expect(screen.queryByText(NO_HUB_TODOS)).toBeNull()
+  })
+
+  it('says “No todos for this task.” only for a task that made something and kept no todos, whatever it made', async () => {
+    const made: HubTask[] = [
+      { artifacts: [hubFile('docs/rate-limits.md', 'Rate limits reference')] },
+      { artifacts: [hubLink(PR_511, 'Return Retry-After on 429s')] },
+      { toolEvents: [hubAgent('fix-501', 'fix-501')] },
+      { watchers: [hubWatcher('watch-511')] },
+      { commits: [C1] },
+    ]
+    for (const task of made) {
+      await renderHub(task)
+      expect(screen.getByText(NO_HUB_TODOS)).toBeInTheDocument()
+      expect(screen.queryByText(NO_TODOS)).toBeNull()
+      expect(cards()).toHaveLength(1)
+      cleanup()
+    }
+  })
+
+  it('goes from one empty state to the other as the task makes its first thing, and to the summary with its first todo', async () => {
+    const { fake } = await renderHub({})
+    expect(screen.getByText(NO_TODOS)).toBeInTheDocument()
+
+    // It makes something, with no todo list: the line, and the group alone.
+    act(() => {
+      fake.emit({ type: EventType.CommitsChanged, taskId: 't1', commits: [C1] })
+    })
+    expect(screen.queryByText(NO_TODOS)).toBeNull()
+    expect(screen.getByText(NO_HUB_TODOS)).toBeInTheDocument()
+    expect(cards()).toHaveLength(1)
+
+    // It writes a todo: the summary, with neither line.
+    act(() => {
+      fake.emit({
+        type: EventType.TodosChanged,
+        taskId: 't1',
+        todos: { items: [hubTodo('1', 'Fix the date formatting')], updatedAt: HUB_NOW },
+      })
+    })
+    expect(screen.getByText('0 of 1 done')).toBeInTheDocument()
+    expect(screen.queryByText(NO_HUB_TODOS)).toBeNull()
+    expect(screen.queryByText(NO_TODOS)).toBeNull()
+
+    // And back, as each goes: the todo list, then the commit.
+    act(() => {
+      fake.emit({ type: EventType.TodosChanged, taskId: 't1', todos: { items: [], updatedAt: HUB_NOW } })
+    })
+    expect(screen.getByText(NO_HUB_TODOS)).toBeInTheDocument()
+    act(() => {
+      fake.emit({ type: EventType.CommitsChanged, taskId: 't1', commits: [] })
+    })
+    expect(screen.getByText(NO_TODOS)).toBeInTheDocument()
+    expect(screen.queryByText(NO_HUB_TODOS)).toBeNull()
+  })
+
+  it('knows which empty state to show before the filings are read, and when they can’t be', async () => {
+    const failing = (): never => refuse(bridgeError(BridgeErrorCode.Internal, 'The database is locked')) as never
+    // Nothing at all: the centred line, at once and for good.
+    const nothing = storeWrapper(hubMain({}), { [CommandName.TodoHubGet]: failing })
+    await act(() => nothing.store.getState().hydrate())
+    const first = render(<HubForTask />, { wrapper: nothing.wrapper })
+    expect(screen.getByText(NO_TODOS)).toBeInTheDocument()
+    await act(() => Promise.resolve())
+    expect(screen.getByText(NO_TODOS)).toBeInTheDocument()
+    first.unmount()
+
+    // Something made: the line at the top, never the centred one, though no group shows without the filings.
+    const made = storeWrapper(hubMain({ commits: [C1] }), { [CommandName.TodoHubGet]: failing })
+    await act(() => made.store.getState().hydrate())
+    render(<HubForTask />, { wrapper: made.wrapper })
+    expect(screen.getByText(NO_HUB_TODOS)).toBeInTheDocument()
+    await act(() => Promise.resolve())
+    expect(screen.getByText(NO_HUB_TODOS)).toBeInTheDocument()
+    expect(screen.queryByText(NO_TODOS)).toBeNull()
+    expect(cards()).toEqual([])
   })
 
   it('shows a child filed under a todo that isn’t in the list', async () => {
@@ -1051,6 +1133,232 @@ describe('todos nothing can be filed under', () => {
     expect(tiles(/The first of them/)).toEqual(['Change: Return Retry-After on 429 responses'])
     expect(kinds(/The second of them/)).toEqual([])
     expect(tiles(/The second of them/)).toEqual([])
+  })
+})
+
+describe('the PRs, issues and tickets a todo names (#500)', () => {
+  const TICKET = 'https://acme.atlassian.net/browse/API-123'
+  const ISSUE_503 = 'https://github.com/acme/api/issues/503'
+
+  /** The links in a card's head, each as its words and the address it opens. */
+  function linksIn(text: string | RegExp): [string, string][] {
+    return within(head(text))
+      .queryAllByRole('link')
+      .map((link) => [link.textContent, link.getAttribute('href') ?? ''])
+  }
+
+  /** Main sends the task's artifacts again: these. */
+  function artifactsAre(fake: HubStore['fake'], artifacts: readonly Artifact[]): void {
+    act(() => {
+      fake.emit({ type: EventType.ArtifactsChanged, taskId: 't1', artifacts: [...artifacts] })
+    })
+  }
+
+  it('links what a title and a status line name to the task’s own link, and leaves the rest of the text as it was', async () => {
+    await renderHub(SHIP)
+
+    expect(linksIn(/Return Retry-After/)).toEqual([
+      ['#501', ISSUE_501],
+      ['PR #511', PR_511],
+    ])
+    expect(head(/Return Retry-After/)).toHaveTextContent(
+      'Doing: #501 Return Retry-After on 429sCI failed on PR #511 · fixing',
+    )
+    // The title's is in the title, and the status line's in the status line.
+    const [issue, pr] = within(head(/Return Retry-After/)).getAllByRole('link')
+    expect(issue?.parentElement).toHaveClass(styles.title ?? '')
+    expect(pr?.parentElement).toHaveClass(styles.note ?? '')
+    // The task has the PR the second todo's status line names, and no link for the issue its title names.
+    expect(linksIn(/Per-key limits/)).toEqual([['PR #513', PR_513]])
+    // Nothing it has is named by the third, and it has no link for the fourth's.
+    expect(linksIn(/Draft the 2.5/)).toEqual([])
+    expect(linksIn(/Document the rate limits/)).toEqual([])
+  })
+
+  it('is the app’s link: its address as its tooltip, in the Tab order, and in the app’s link style', async () => {
+    await renderHub(SHIP)
+    const link = screen.getByRole('link', { name: 'PR #511' })
+
+    expect(link).toHaveAttribute('title', PR_511)
+    expect(link).toHaveAttribute('href', PR_511)
+    expect(link).toHaveClass(linkStyles.link ?? '')
+    expect(link).not.toHaveAttribute('tabindex')
+    link.focus()
+    expect(link).toHaveFocus()
+  })
+
+  it('opens in the browser on a click, and neither opens nor closes the todo', async () => {
+    const { main } = await renderHub(SHIP)
+    expect(head(/#501/)).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(screen.getByRole('link', { name: '#501' }))
+    await act(() => Promise.resolve())
+    expect(main.opened).toEqual([ISSUE_501])
+    expect(head(/#501/)).toHaveAttribute('aria-expanded', 'false')
+
+    // Nor an open one, from its status line, with ⌘ held or not.
+    fireEvent.click(head(/#501/))
+    expect(head(/#501/)).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(screen.getByRole('link', { name: 'PR #511' }), { metaKey: true })
+    await act(() => Promise.resolve())
+    expect(main.opened).toEqual([ISSUE_501, PR_511])
+    expect(head(/#501/)).toHaveAttribute('aria-expanded', 'true')
+    // ↵ and Space on it are the link's, not the todo's.
+    fireEvent.keyDown(screen.getByRole('link', { name: 'PR #511' }), { key: 'Enter' })
+    fireEvent.keyDown(screen.getByRole('link', { name: 'PR #511' }), { key: ' ' })
+    fireEvent.keyDown(screen.getByRole('link', { name: 'PR #511' }), { key: 'ArrowLeft' })
+    expect(head(/#501/)).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('has the link’s menu, not the todo’s: Open link and Copy link, and nothing to add, as the task has it already', async () => {
+    const { main } = await renderHub(SHIP)
+    const link = screen.getByRole('link', { name: 'PR #511' })
+
+    fireEvent.contextMenu(link)
+    await act(() => Promise.resolve())
+    expect(screen.queryByRole('menu', { name: 'Todo actions' })).toBeNull()
+    const menu = screen.getByRole('menu', { name: 'Link actions' })
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Open link', 'Copy link'])
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Copy link' }))
+    await act(() => Promise.resolve())
+    expect(main.copied).toEqual([PR_511])
+    // Choosing from it leaves the todo as it is, closed here: the menu's clicks aren't clicks on the todo.
+    expect(head(/#501/)).toHaveAttribute('aria-expanded', 'false')
+
+    // ⇧F10 on it opens the same menu, and an open todo stays open.
+    fireEvent.click(head(/#501/))
+    expect(head(/#501/)).toHaveAttribute('aria-expanded', 'true')
+    link.focus()
+    fireEvent.keyDown(link, { key: 'F10', shiftKey: true })
+    await act(() => Promise.resolve())
+    expect(screen.queryByRole('menu', { name: 'Todo actions' })).toBeNull()
+    const again = screen.getByRole('menu', { name: 'Link actions' })
+    fireEvent.keyDown(within(again).getByRole('menuitem', { name: 'Open link' }), { key: 'ArrowLeft' })
+    fireEvent.click(within(again).getByRole('menuitem', { name: 'Open link' }))
+    await act(() => Promise.resolve())
+    expect(main.opened).toEqual([PR_511])
+    expect(head(/#501/)).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('turns the words into a link when the link is added later, and back when it’s removed', async () => {
+    const todos = [hubTodo('1', 'Watch CI on PR #42 until it’s green', TodoState.Doing, { note: 'Watching #42' })]
+    const { fake } = await renderHub({ todos })
+    expect(linksIn(/Watch CI/)).toEqual([])
+    expect(head(/Watch CI/)).toHaveTextContent('Doing: Watch CI on PR #42 until it’s greenWatching #42')
+
+    const pr = hubLink('https://github.com/acme/api/pull/42', 'Fix the UTC date test')
+    artifactsAre(fake, [pr])
+    expect(linksIn(/Watch CI/)).toEqual([
+      ['PR #42', pr.url],
+      ['#42', pr.url],
+    ])
+    expect(head(/Watch CI/)).toHaveTextContent('Doing: Watch CI on PR #42 until it’s greenWatching #42')
+
+    artifactsAre(fake, [])
+    expect(linksIn(/Watch CI/)).toEqual([])
+    expect(head(/Watch CI/)).toHaveTextContent('Doing: Watch CI on PR #42 until it’s greenWatching #42')
+  })
+
+  it('follows the todo as its text changes: a status line that now names the PR, and one that no longer does', async () => {
+    const { fake } = await renderHub(SHIP)
+    const [first, ...rest] = SHIP.todos ?? []
+    const noteIs = (note: string | null): void => {
+      act(() => {
+        fake.emit({
+          type: EventType.TodosChanged,
+          taskId: 't1',
+          todos: { items: [{ ...first, note } as Todo, ...rest], updatedAt: HUB_NOW },
+        })
+      })
+    }
+
+    noteIs('Waiting on review')
+    expect(linksIn(/Return Retry-After/)).toEqual([['#501', ISSUE_501]])
+    noteIs('PR #511 is green; see also PR #513')
+    expect(linksIn(/Return Retry-After/)).toEqual([
+      ['#501', ISSUE_501],
+      ['PR #511', PR_511],
+      ['PR #513', PR_513],
+    ])
+    noteIs(null)
+    expect(linksIn(/Return Retry-After/)).toEqual([['#501', ISSUE_501]])
+  })
+
+  it('leaves a number two of the task’s links share as text, and links it again once only one has it', async () => {
+    const todos = [hubTodo('1', 'Watch CI on PR #42')]
+    const api = hubLink('https://github.com/acme/api/pull/42', 'Fix the UTC date test')
+    const web = hubLink('https://github.com/acme/web/pull/42', 'Show dates in UTC')
+    const { fake } = await renderHub({ todos, artifacts: [api, web] })
+    expect(linksIn(/Watch CI/)).toEqual([])
+
+    artifactsAre(fake, [web])
+    expect(linksIn(/Watch CI/)).toEqual([['PR #42', web.url]])
+    artifactsAre(fake, [api])
+    expect(linksIn(/Watch CI/)).toEqual([['PR #42', api.url]])
+    artifactsAre(fake, [api, web])
+    expect(linksIn(/Watch CI/)).toEqual([])
+  })
+
+  it('links a ticket by its key in capitals, and never a number inside a word or an address', async () => {
+    await renderHub({
+      todos: [
+        hubTodo('1', 'Close API-123 once PR #511 lands', TodoState.Doing, { note: 'api-123 is waiting on fix#511' }),
+        hubTodo('2', `Review ${PR_511} and example.com/#511`),
+      ],
+      artifacts: [hubLink(TICKET, 'Rate limits are too strict'), hubLink(PR_511, 'Return Retry-After on 429s')],
+    })
+
+    expect(linksIn(/Close/)).toEqual([
+      ['API-123', TICKET],
+      ['PR #511', PR_511],
+    ])
+    // The bare URL is the link it always was, whole; the number after the other address is text.
+    expect(linksIn(/Review/)).toEqual([[PR_511, PR_511]])
+    expect(within(head(/Review/)).getByRole('link')).not.toHaveAttribute('title')
+  })
+
+  it('links in a done todo’s title too, struck through as the title is', async () => {
+    await renderHub({ ...SHIP, artifacts: [...(SHIP.artifacts ?? []), hubLink(ISSUE_503, 'Document the limits')] })
+
+    expect(card(/Document the rate limits/)).toHaveClass(styles.done ?? '')
+    expect(linksIn(/Document the rate limits/)).toEqual([['#503', ISSUE_503]])
+  })
+
+  it('links every reference of a todo that names five', async () => {
+    const prs = [601, 602, 603, 604].map((number) =>
+      hubLink(`https://github.com/acme/api/pull/${String(number)}`, 'A fix'),
+    )
+    await renderHub({
+      todos: [hubTodo('1', 'Merge #601, #602, PR #603 and PR #604', TodoState.Doing, { note: 'For API-123' })],
+      artifacts: [...prs, hubLink(TICKET, 'Rate limits are too strict')],
+    })
+
+    expect(linksIn(/Merge/).map(([words]) => words)).toEqual(['#601', '#602', 'PR #603', 'PR #604', 'API-123'])
+    expect(head(/Merge/)).toHaveTextContent('Doing: Merge #601, #602, PR #603 and PR #604For API-123')
+  })
+
+  it('links each of 100 todos to its own PR, of 100 the task has', async () => {
+    const prs = Array.from({ length: 100 }, (_, index) =>
+      hubLink(`https://github.com/acme/api/pull/${String(index + 1)}`, `Fix ${String(index + 1)}`),
+    )
+    const todos = prs.map((_, index) => hubTodo(String(index + 1), `Review PR #${String(index + 1)}`))
+    const { fake } = await renderHub({ todos, artifacts: prs })
+
+    const links = screen.getAllByRole('link')
+    expect(links).toHaveLength(100)
+    expect(new Set(links.map((link) => link.getAttribute('href'))).size).toBe(100)
+    expect(linksIn(/Review PR #5$/)).toEqual([['PR #5', prs[4]?.url]])
+    expect(linksIn(/Review PR #51$/)).toEqual([['PR #51', prs[50]?.url]])
+
+    // Half of them go: those todos are text again, and the others keep their links.
+    artifactsAre(fake, prs.slice(0, 50))
+    expect(screen.getAllByRole('link')).toHaveLength(50)
+    expect(linksIn(/Review PR #51$/)).toEqual([])
+    expect(linksIn(/Review PR #50$/)).toEqual([['PR #50', prs[49]?.url]])
   })
 })
 

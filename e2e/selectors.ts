@@ -215,14 +215,21 @@ export function todoHub(page: Page) {
   return {
     /** `2 of 3 done`. */
     heading: panel.getByText(/^\d+ of \d+ done$/),
-    /** What a task with no todos says in the summary's place. */
+    /** What a task that made things and kept no todos says in the summary's place, above the placeholder group. */
     noTodos: panel.getByText('No todos for this task.'),
+    /** What a task with nothing at all says, centred: no todos, and nothing made. As the Todos tab says it. */
+    nothing: panel.getByText('No todos yet.'),
     /** Every card, top to bottom: the todos, then the placeholder group. `data-open` while it shows its children. */
     cards,
     /** The card whose head says `text`: a todo's title, or `Not under a todo`. */
     card: (text: string | RegExp) => cards.filter({ has: page.locator('[data-todo-head]', { hasText: text }) }),
     heads,
     head: (text: string | RegExp) => heads.filter({ hasText: text }),
+    /**
+     * The links in a todo's head, in order: its title's, then its status line's. A PR, an issue or a ticket it names
+     * is one while the task has it as a link (#500), named by its words (`PR #511`), with its address as its tooltip.
+     */
+    links: (head: Locator) => head.getByRole('link'),
     /**
      * A card's row of icons, in order: a count per kind while it's closed, the same as filter pills (`aria-pressed`)
      * while it's open. Each is named by what it counts (`2 subagents, 1 running`), and has `data-live` while one of
@@ -239,6 +246,20 @@ export function todoHub(page: Page) {
     tiles: (card: Locator) => card.locator('[role="group"][data-kind]'),
     /** The tiles of an open card that are running now. */
     liveTiles: (card: Locator) => card.locator('[role="group"][data-kind][data-live]'),
+    /**
+     * One of an open card's tiles, by its kind and title (`File: Rate limits reference`). A file's has `aria-current`
+     * while the Files tab shows its file, and `aria-busy` until its file has been looked at.
+     */
+    tile: (card: Locator, name: string) => card.getByRole('group', { name, exact: true }),
+    /**
+     * One of a file's or a link's icon buttons, which show in its age's place under the pointer or with the focus:
+     * Open, Reveal in folder and More; Open link, Copy link and More.
+     */
+    tileAction: (tile: Locator, name: string) => tile.getByRole('button', { name, exact: true }),
+    /** An image file's thumbnail on its tile, once main has made it. */
+    tileThumbnail: (tile: Locator) => tile.locator('img'),
+    /** A tile's title, with its tag: what's cut short when it's too long. Its tooltip is the title, whole. */
+    tileTitle: (tile: Locator, title: string) => tile.getByTitle(title, { exact: true }),
   }
 }
 

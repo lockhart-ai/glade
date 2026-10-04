@@ -26,10 +26,14 @@ can nest one level (header and right panel float inside the task card).
 | `slate` | `#5C6378` | Done, an active task that's idle (#430), finished tool calls, a withdrawn permission's shield |
 | `pink` | `#E58FA8` | Errors, destructive menu items, deleted lines, a denied or blocked permission |
 | `teal` | `#7FD1C7` | Added lines, strings in code, done todos, a granted permission |
-| `live` | `#273049` | A live tile under a todo: a running subagent, a watcher whose process runs (P16, behind `todoHubEnabled` until #501) |
+| `live` | `#273049` | A live tile (P16, behind `todoHubEnabled` until #501): a watcher whose process runs, pinned under its agent's tool calls in the Agents tab (52); and, as built until #535, a running subagent or watcher under a todo |
 | `live-border` | `#40568C` | The live tile's outline |
 | user bubble | `#22304D` | Your messages |
-| question highlight | `#1E1B33` / `#3B3366` | Background / border of the agent's question card, and of every agent reply (#410) |
+| question highlight | `#1E1B33` / `#3B3366` | Background / border of every agent reply (#410), and of the question card and the permission card (#538) |
+| `question-surface` | `#2E2748` | What sits inside a question or permission card: option tiles, pills, fields, command and diff blocks, code chips (#538). Nothing of a card's own is on `bg` |
+| `question-surface-border` | `#3B3366` | Their border |
+| `question-surface-border-hover` | `#5E538C` | Their border under the pointer |
+| `question-outline` | `#8C7BD9` | A picked option's outline, and a focused field's border, inside those cards |
 
 ### Contrast
 
@@ -54,13 +58,26 @@ quietly slip back:
 | `strong` on `inner` | 1.56 |
 | `live-border` on `live` | 1.8 |
 | `live-border` on `inner-2` | 1.75 |
+| `question-border` on `question-bg` | 1.45 |
+| `question-surface` on `question-bg` | 1.18 |
+| `question-surface-border` on `question-surface` | 1.2 |
+| `question-surface-border-hover` on `question-surface` | 2 |
+| `question-outline` on `question-surface` | 3.9 |
+| `question-outline` on `question-border` | 3.2 |
 
 `live` is the one surface that doesn't step up from what it sits on: a live tile is no lighter than the `inner-2` card
 around it, and stands off it by its blue and by its outline, which the last two rows hold.
 
 `text`, `muted` and `faint` each meet 4.5:1 on every surface: `bg`, `panel`, `raised`, `inner`, `inner-hover`,
-`inner-2`, `menu` and `live` (the lowest is `faint` on `inner-2`, 4.72:1). So does the blue for text on `live`, where
-a live tile says it's running.
+`inner-2`, `menu`, `live`, `question-bg` and `question-surface` (the lowest is `faint` on `inner-2`, 4.72:1). So does
+the blue for text on `live`, where a live tile says it's running.
+
+Inside a question or permission card (#538), a picked option is filled with `question-border`, a step lighter than
+the tiles around it, under the `question-outline`: its label (`text`, 9.27:1) and detail (`muted`, 5.42:1) keep
+4.5:1 on it. An option's sketch frame is a third of the way from `question-surface` to that fill (`#322B52`), so it
+reads as a surface in a tile picked or not and is never darker than the card; its lines are `muted` (6.26:1) and its
+headings the blue for text (6.15:1). An empty radio or checkbox has a `slate` ring. On `question-surface`, a
+permission card's removed lines (`pink`), added lines (`teal`) and paths (the blue for text) keep 4.5:1 too.
 
 ## Type
 

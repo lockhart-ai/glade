@@ -410,13 +410,60 @@ describe('TaskPanel', () => {
         })
         expect(document.querySelectorAll('[data-todo-head]')).toHaveLength(4)
 
+        // A task with nothing at all reads as it does with the switch off.
         await act(() => store.getState().selectTask('t2'))
-        expect(screen.getByRole('tabpanel')).toHaveTextContent('No todos for this task.')
+        expect(screen.getByRole('tabpanel')).toHaveTextContent(/^No todos yet\.$/)
 
         act(() => {
           emit({ type: EventType.SettingsChanged, settings: DEFAULT_SETTINGS })
         })
-        expect(screen.getByRole('tabpanel')).toHaveTextContent('No todos yet.')
+        expect(screen.getByRole('tabpanel')).toHaveTextContent(/^No todos yet\.$/)
+        await act(() => store.getState().selectTask('t1'))
+        expect(screen.getByRole('tabpanel')).toHaveTextContent('The agent writes this list')
+        expect(document.querySelector('[data-todo-head]')).toBeNull()
+      })
+
+      it('links the PR a todo names only while the switch is on (#500)', async () => {
+        const url = 'https://github.com/acme/api/pull/511'
+        const naming: TodoList = {
+          items: [
+            {
+              id: '1',
+              text: 'Watch CI on PR #511',
+              state: TodoState.Doing,
+              note: 'Waiting on #511',
+              completedAt: null,
+            },
+          ],
+          updatedAt: Date.now(),
+        }
+        const { emit } = await renderPanel({
+          todos: { t1: naming },
+          artifacts: [
+            { kind: ArtifactKind.Link, taskId: 't1', url, title: 'Return Retry-After', addedAt: 1, updatedAt: 1 },
+          ],
+          uiState: ON_TODOS,
+        })
+        const todos = (): HTMLElement => screen.getByRole('list', { name: 'Todos' })
+        expect(todos()).toHaveTextContent('Watch CI on PR #511')
+        expect(within(todos()).queryAllByRole('link')).toEqual([])
+
+        act(() => {
+          emit({ type: EventType.SettingsChanged, settings: HUB_ON })
+        })
+        expect(
+          within(todos())
+            .getAllByRole('link')
+            .map((link) => [link.textContent, link.getAttribute('href')]),
+        ).toEqual([
+          ['PR #511', url],
+          ['#511', url],
+        ])
+
+        act(() => {
+          emit({ type: EventType.SettingsChanged, settings: DEFAULT_SETTINGS })
+        })
+        expect(within(todos()).queryAllByRole('link')).toEqual([])
       })
 
       it('shows nothing without a task, as before', async () => {

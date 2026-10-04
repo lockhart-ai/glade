@@ -45,7 +45,8 @@ instead (step 6, below), never through Glade's own tools.
    CI itself (`.github/workflows/ci.yml`) splits that work into parallel jobs, balanced to land around the same
    wall-clock time: `static` (typecheck, lint, format, build) and `unit` (`npm test`) on `ubuntu-latest`, and
    `check-design` and `e2e` (three `playwright test --shard` jobs, each building its own `out/testing`) on
-   `macos-latest`, since pixel comparisons and the real app's behaviour need macOS. A final `ci` job needs all of them
+   `macos-latest`, since pixel comparisons and the real app's behaviour need macOS. The sandbox's escape battery is
+   one of the e2e specs, so an attack that gets out fails its shard, and `ci` with it. A final `ci` job needs all of them
    and fails if any failed or was cancelled, so branch protection and the merge queue still gate on one check.
    `unit` runs the perf tests (`*.perf.test.ts`) apart from the rest, with `npm run test:perf`: one file at a time
    with nothing alongside, since their timings swing too far among the other test files on a runner. `npm test` on
@@ -70,7 +71,13 @@ outside, ask the supervisor.
 - **Features get stressed, not just covered.** A feature PR adds tests that push on it: edge cases, failure paths and
   interactions with the rest of the app. 100% line coverage alone isn't enough.
 - **No real Claude API.** Unit and integration tests use the fake backend; e2e uses the scripted fake agent
-  (`launch({ agentScript })`, scripts in `src/main/agent/scripts.ts`).
+  (`launch({ agentScript })`, scripts in `src/main/agent/scripts.ts`). One spec is the exception, and still makes no
+  real API call: the sandbox's escape battery (`e2e/escape-battery.spec.ts`, `docs/escape-battery.md`) runs the real
+  backend and the bundled Claude Code against a stand-in for the model on the same Mac
+  (`launch({ standInModel })`), with a dummy home folder. Don't use the stand-in for anything else.
+- **A sandbox finding gets a battery entry.** A PR that fixes a way past the agent sandbox adds the attack to the
+  escape battery, and says in its description that the entry is reported `ESCAPED` with the fix reverted
+  (`docs/escape-battery.md`, "Adding an entry").
 - **UI changes need an e2e spec.** A PR that changes the UI adds or extends a Playwright spec in `e2e/` that drives the
   real app through the workflow. Use the fixtures in `e2e/fixtures.ts` (`launch`, `tempFolder`, `chooseFolder`) and the
   locators in `e2e/selectors.ts`, and wait on locators, never on timers.

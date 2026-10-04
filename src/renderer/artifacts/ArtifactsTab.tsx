@@ -1,36 +1,26 @@
-import { faCopy, faFolder } from '@fortawesome/free-regular-svg-icons'
-import { faArrowUpRightFromSquare, faChevronDown, faChevronRight, faEllipsis } from '@fortawesome/free-solid-svg-icons'
+import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
-import { artifactKey, artifactRef } from '../../shared/artifacts'
+import { artifactKey } from '../../shared/artifacts'
 import {
   ArtifactFilter,
   ArtifactKind,
-  FileThumbnailKind,
   type Artifact,
   type ArtifactDateGroup,
   type ArtifactGroupFold,
   type EpochMs,
   type FileArtifact,
-  type FileThumbnail,
   type LinkArtifact,
 } from '../../shared/domain'
-import { Button, ButtonVariant, Collapse, Icon, IconSize } from '../components'
+import { Collapse, Icon, IconSize } from '../components'
 import { classNames } from '../components/classNames'
-import {
-  artifactMenu,
-  ContextMenu,
-  linkArtifactMenu,
-  useContextMenu,
-  useMenuCommands,
-  type ContextMenuTargetProps,
-} from '../context-menus'
-import { absolutePath } from '../files/FilesTab'
-import { ImageViewer, type ImageViewerHeader } from '../images/ImageViewer'
-import { ImageSourceKind, workspaceImageSource, type ImageViewerSource } from '../images/imageSources'
+import { ContextMenu, useContextMenu, type ContextMenuTargetProps } from '../context-menus'
 import { useGladeStore } from '../store/react'
 import { formatFullDate } from '../task-header/headerModel'
+import { FileActions, LinkActions } from './ArtifactActions'
+import { useArtifactMenu, useFileArtifact, useLinkArtifact } from './artifactHooks'
 import { linkIcon, tileIcon } from './artifactIcons'
+import { ArtifactImageViewer, useViewedImage } from './ArtifactImageViewer'
 import {
   artifactTime,
   artifactTypeName,
@@ -42,6 +32,7 @@ import {
   shownFilter,
   type ArtifactCounts,
 } from './artifactsModel'
+import { ArtifactThumb } from './ArtifactThumb'
 import { dateGroupTitle, isGroupOpen } from './dateGroups'
 import styles from './ArtifactsTab.module.css'
 
@@ -100,45 +91,17 @@ const ArtifactRow = memo(function ArtifactRow({
   onMore,
   onOpenImage,
 }: ArtifactRowProps): React.JSX.Element {
-  const { taskId, path, title, modifiedAt, missing: gone } = artifact
-  const fileThumbnail = useGladeStore((state) => state.fileThumbnail)
-  const showFile = useGladeStore((state) => state.showFile)
-  const revealFile = useGladeStore((state) => state.revealFile)
-  const isImage = isImageArtifact(artifact)
-  const [thumbnail, setThumbnail] = useState<FileThumbnail>()
-  // The thumbnail that has loaded, which shows.
-  const [loaded, setLoaded] = useState<string | null>(null)
-  const [looks, setLooks] = useState(0)
-
-  // Look at the file (again) when the row shows, when it changes, and after an action on it failed.
-  useEffect(() => {
-    let current = true
-    void fileThumbnail(taskId, path).then(
-      (next) => {
-        if (current) setThumbnail(next)
-      },
-      () => {
-        if (current) setThumbnail({ kind: FileThumbnailKind.None })
-      },
-    )
-    return () => {
-      current = false
-    }
-  }, [fileThumbnail, taskId, path, modifiedAt, gone, looks])
-
-  const lookAgain = useCallback(() => {
-    setLooks((count) => count + 1)
-  }, [])
-
-  const missing = gone || thumbnail?.kind === FileThumbnailKind.Missing
-  const image = thumbnail?.kind === FileThumbnailKind.Image ? thumbnail.dataUrl : null
-  const time = artifactTime(artifact)
+  const { path, title } = artifact
+  // How its file looks (again when the row shows, when it changes, and after an action on it failed), and what Open
+  // and Reveal do: one with its tile in the todo hub (#498).
+  const file = useFileArtifact(artifact)
+  const { missing, time } = file
   const open = (event: MouseEvent<HTMLButtonElement>): void => {
-    if (isImage) {
+    if (file.isImage) {
       onOpenImage(artifact, event.currentTarget)
       return
     }
-    void showFile(taskId, path).catch(lookAgain)
+    file.showInFiles()
   }
 
   return (
@@ -147,70 +110,36 @@ const ArtifactRow = memo(function ArtifactRow({
       aria-label={title}
       aria-current={selected || undefined}
       // Busy until its file has been looked at, and its thumbnail has loaded: a capture waits for it.
-      aria-busy={thumbnail === undefined || (image !== null && loaded !== image)}
+      aria-busy={file.busy}
       role="listitem"
       {...menuTarget}
     >
       <button type="button" className={styles.open} title={path} disabled={missing} onClick={open}>
-        {image !== null ? (
-          <span className={styles.tile}>
-            <img
-              className={styles.thumbnail}
-              src={image}
-              alt=""
-              draggable={false}
-              onLoad={() => {
-                setLoaded(image)
-              }}
-              // One the window can't draw shows the type's tile.
-              onError={() => {
-                setThumbnail({ kind: FileThumbnailKind.None })
-              }}
-            />
-          </span>
-        ) : (
-          <span className={classNames(styles.tile, styles.blank)}>
-            <Icon icon={tileIcon(path)} size={IconSize.Medium} />
-          </span>
-        )}
+        <ArtifactThumb
+          image={file.image}
+          icon={tileIcon(path)}
+          onLoad={file.onThumbnailLoad}
+          // One the window can't draw shows the type's tile.
+          onError={file.onThumbnailError}
+          className={styles.tile}
+          blankClassName={styles.blank}
+        />
         <span className={styles.text}>
           <span className={styles.title}>{title}</span>
-          <span className={styles.type}>
-            {missing ? `${artifactTypeName(artifact)} · missing` : artifactTypeName(artifact)}
-          </span>
+          <span className={styles.type}>{file.typeLabel}</span>
         </span>
         <span className={styles.age} title={formatFullDate(time)}>
           {formatArtifactAge(time, now)}
         </span>
       </button>
       <span className={styles.actions}>
-        <Button
-          variant={ButtonVariant.Icon}
-          className={styles.action}
-          icon={faArrowUpRightFromSquare}
-          aria-label="Open"
-          title="Open"
-          disabled={missing}
-          onClick={open}
-        />
-        <Button
-          variant={ButtonVariant.Icon}
-          className={styles.action}
-          icon={faFolder}
-          aria-label="Reveal in folder"
-          title="Reveal in folder"
-          disabled={missing}
-          onClick={() => void revealFile(taskId, path).catch(lookAgain)}
-        />
-        <Button
-          variant={ButtonVariant.Icon}
-          className={styles.action}
-          icon={faEllipsis}
-          aria-label="More"
-          aria-haspopup="menu"
-          title="More"
-          onClick={(event) => {
-            onMore(artifactKey(artifact), event.currentTarget)
+        <FileActions
+          missing={missing}
+          buttonClassName={styles.action}
+          onOpen={open}
+          onReveal={file.reveal}
+          onMore={(button) => {
+            onMore(artifactKey(artifact), button)
           }}
         />
       </span>
@@ -239,18 +168,12 @@ const LinkArtifactRow = memo(function LinkArtifactRow({
   onMore,
 }: LinkArtifactRowProps): React.JSX.Element {
   const { url, title } = artifact
-  const openLink = useGladeStore((state) => state.openLink)
-  const { run, copy } = useMenuCommands()
+  const { open, copy } = useLinkArtifact(artifact)
   const time = artifactTime(artifact)
-  const open = (): void => {
-    run(() => openLink(url))
-  }
   return (
     <div className={styles.row} aria-label={title} role="listitem" {...menuTarget}>
       <button type="button" className={styles.open} title={url} onClick={open}>
-        <span className={classNames(styles.tile, styles.blank)}>
-          <Icon icon={linkIcon(url)} size={IconSize.Medium} />
-        </span>
+        <ArtifactThumb image={null} icon={linkIcon(url)} className={styles.tile} blankClassName={styles.blank} />
         <span className={styles.text}>
           <span className={styles.title}>{title}</span>
           <span className={styles.type}>{artifactTypeName(artifact)}</span>
@@ -260,33 +183,12 @@ const LinkArtifactRow = memo(function LinkArtifactRow({
         </span>
       </button>
       <span className={styles.actions}>
-        <Button
-          variant={ButtonVariant.Icon}
-          className={styles.action}
-          icon={faArrowUpRightFromSquare}
-          aria-label="Open link"
-          title="Open link"
-          onClick={open}
-        />
-        <Button
-          variant={ButtonVariant.Icon}
-          className={styles.action}
-          icon={faCopy}
-          aria-label="Copy link"
-          title="Copy link"
-          onClick={() => {
-            copy(url)
-          }}
-        />
-        <Button
-          variant={ButtonVariant.Icon}
-          className={styles.action}
-          icon={faEllipsis}
-          aria-label="More"
-          aria-haspopup="menu"
-          title="More"
-          onClick={(event) => {
-            onMore(artifactKey(artifact), event.currentTarget)
+        <LinkActions
+          buttonClassName={styles.action}
+          onOpen={open}
+          onCopy={copy}
+          onMore={(button) => {
+            onMore(artifactKey(artifact), button)
           }}
         />
       </span>
@@ -467,21 +369,13 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
   const folds = useGladeStore((state) => state.artifactGroups[taskId]) ?? NO_FOLDS
   const chosen = useGladeStore((state) => state.artifactFilters[taskId]) ?? ArtifactFilter.All
   const selectedPath = useGladeStore((state) => state.openFiles[taskId]?.activePath ?? null)
-  const rootPath = useGladeStore(
-    (state) => state.workspaces.find((workspace) => workspace.id === state.tasks[taskId]?.workspaceId)?.rootPath,
-  )
-  const showFile = useGladeStore((state) => state.showFile)
-  const openInEditor = useGladeStore((state) => state.openInEditor)
-  const copyFile = useGladeStore((state) => state.copyFile)
-  const revealFile = useGladeStore((state) => state.revealFile)
-  const removeArtifact = useGladeStore((state) => state.removeArtifact)
   const setArtifactGroupOpen = useGladeStore((state) => state.setArtifactGroupOpen)
   const setArtifactFilter = useGladeStore((state) => state.setArtifactFilter)
-  const openLink = useGladeStore((state) => state.openLink)
   const watchArtifacts = useGladeStore((state) => state.watchArtifacts)
   const unwatchArtifacts = useGladeStore((state) => state.unwatchArtifacts)
   const menu = useContextMenu<string>()
-  const { run, copy, hints } = useMenuCommands()
+  // An artifact's menu, and the image viewer over the list's images, are one with the todo hub's tiles (#498).
+  const menuEntries = useArtifactMenu(taskId)
   // The scroller, as state rather than a ref: the groups' rows can only lay out once it's mounted.
   const [scroller, setScroller] = useState<HTMLElement | null>(null)
 
@@ -511,45 +405,14 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
         .filter(isImageArtifact),
     [groups, folds, topmostGroup],
   )
-  const [viewingPath, setViewingPath] = useState<string | null>(null)
-  const viewerReturnFocus = useRef<HTMLElement | null>(null)
-  const viewingIndex = viewingPath === null ? -1 : imageArtifacts.findIndex((artifact) => artifact.path === viewingPath)
-  // The artifact it showed is no longer one of the task's images (removed, or its file changed kind): it closes.
-  if (viewingPath !== null && viewingIndex === -1) setViewingPath(null)
-
-  const onOpenImage = useCallback((artifact: FileArtifact, trigger: HTMLElement) => {
-    viewerReturnFocus.current = trigger
-    setViewingPath(artifact.path)
-  }, [])
-  const closeViewer = useCallback(() => {
-    setViewingPath(null)
-  }, [])
-  const viewerHeader = useCallback(
-    (source: ImageViewerSource): ImageViewerHeader | undefined => {
-      if (source.kind !== ImageSourceKind.Workspace) return undefined
-      const { taskId: sourceTaskId, path } = source
-      return {
-        title: source.title,
-        actions: [
-          {
-            icon: faArrowUpRightFromSquare,
-            label: 'Open in Files',
-            onClick: () => {
-              closeViewer()
-              run(() => showFile(sourceTaskId, path))
-            },
-          },
-          {
-            icon: faFolder,
-            label: 'Reveal in Finder',
-            onClick: () => {
-              run(() => revealFile(sourceTaskId, path))
-            },
-          },
-        ],
-      }
+  // Once the artifact it shows is no longer one of them (removed, or its file changed kind), it closes.
+  const viewed = useViewedImage(imageArtifacts.map(({ path }) => path))
+  const openViewer = viewed.open
+  const onOpenImage = useCallback(
+    (artifact: FileArtifact, trigger: HTMLElement) => {
+      openViewer(artifact.path, trigger)
     },
-    [closeViewer, run, showFile, revealFile],
+    [openViewer],
   )
 
   const row = useCallback(
@@ -599,47 +462,7 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
   const entries = (key: string) => {
     const artifact = artifacts.find((each) => artifactKey(each) === key)
     // The artifact went while its menu was open: there's nothing left to act on.
-    if (artifact === undefined) return []
-    const remove = (): void => {
-      run(() => removeArtifact(taskId, artifactRef(artifact)))
-    }
-    if (artifact.kind === ArtifactKind.Link) {
-      const { url } = artifact
-      return linkArtifactMenu(
-        {
-          open: () => {
-            run(() => openLink(url))
-          },
-          copy: () => {
-            copy(url)
-          },
-          remove,
-        },
-        hints,
-      )
-    }
-    const { path } = artifact
-    return artifactMenu(
-      {
-        open: () => {
-          run(() => showFile(taskId, path))
-        },
-        openInEditor: () => {
-          run(() => openInEditor(taskId, path))
-        },
-        copyContents: () => {
-          run(() => copyFile(taskId, path))
-        },
-        copyPath: () => {
-          copy(rootPath === undefined ? path : absolutePath(rootPath, path))
-        },
-        reveal: () => {
-          run(() => revealFile(taskId, path))
-        },
-        remove,
-      },
-      hints,
-    )
+    return artifact === undefined ? [] : menuEntries(artifact)
   }
 
   return (
@@ -657,19 +480,7 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
         />
       ))}
       <ContextMenu label="Artifact actions" state={menu} entries={entries} />
-      {viewingIndex !== -1 && (
-        <ImageViewer
-          images={imageArtifacts.map((artifact) => workspaceImageSource(taskId, artifact.path, artifact.title))}
-          index={viewingIndex}
-          onIndexChange={(next) => {
-            const artifact = imageArtifacts[next]
-            if (artifact !== undefined) setViewingPath(artifact.path)
-          }}
-          onClose={closeViewer}
-          returnFocus={viewerReturnFocus}
-          header={viewerHeader}
-        />
-      )}
+      <ArtifactImageViewer taskId={taskId} images={imageArtifacts} viewed={viewed} />
     </div>
   )
 }
