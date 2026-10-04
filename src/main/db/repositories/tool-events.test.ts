@@ -29,6 +29,7 @@ import {
   setSubagentProgress,
   updateCompaction,
   updateToolCall,
+  previousToolCall,
 } from './tool-events'
 
 let test: TestDatabase
@@ -581,6 +582,36 @@ describe('listToolCallsNamed', () => {
     expect(done.id).toBe(create.id)
     expect(listToolCallsNamed(test.db, task.id, ['Grep'])).toEqual([])
     expect(listToolCallsNamed(test.db, task.id, [])).toEqual([])
+  })
+})
+
+describe('previousToolCall', () => {
+  it('is the call the same agent made just before, whatever the others did in between', () => {
+    appendToolCall(test.db, bashCall('toolu_1'), 3_000)
+    const agent = appendToolCall(test.db, { ...bashCall('toolu_agent'), name: 'Agent', input: {} }, 3_100)
+    const inside = appendToolCall(test.db, bashCall('toolu_sub_1', 'toolu_agent'), 3_200)
+    appendNarration(test.db, { taskId: task.id, turn: 1, text: 'Next.' }, 3_250)
+    appendToolCall(test.db, bashCall('toolu_2'), 3_300)
+    appendToolCall(test.db, bashCall('toolu_sub_2', 'toolu_agent'), 3_400)
+    appendToolCall(test.db, bashCall('toolu_other_sub', 'toolu_agent_2'), 3_500)
+
+    // The agent's own call before `toolu_2` is the `Agent` call, not the subagent's command logged after it.
+    expect(previousToolCall(test.db, task.id, 'toolu_2')).toEqual(agent)
+    // And the subagent's before its second is its first, not the agent's call in between.
+    expect(previousToolCall(test.db, task.id, 'toolu_sub_2')).toEqual(inside)
+  })
+
+  it('is undefined for an agent’s first call, a call that isn’t logged, and another task’s', () => {
+    appendToolCall(test.db, bashCall('toolu_1'), 3_000)
+    appendToolCall(test.db, bashCall('toolu_sub_1', 'toolu_agent'), 3_100)
+    const other = sampleTask(test.db, task.workspaceId)
+    appendToolCall(test.db, { ...bashCall('toolu_theirs'), taskId: other.id }, 3_200)
+
+    expect(previousToolCall(test.db, task.id, 'toolu_1')).toBeUndefined()
+    expect(previousToolCall(test.db, task.id, 'toolu_sub_1')).toBeUndefined()
+    expect(previousToolCall(test.db, task.id, 'toolu_missing')).toBeUndefined()
+    expect(previousToolCall(test.db, other.id, 'toolu_theirs')).toBeUndefined()
+    expect(previousToolCall(test.db, other.id, 'toolu_1')).toBeUndefined()
   })
 })
 

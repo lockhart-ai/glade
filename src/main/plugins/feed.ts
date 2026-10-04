@@ -7,6 +7,11 @@
  * **Subscribing** (a plugin's `ready`) reads a snapshot from SQLite: every active task in every workspace, their running
  * subagents, and their open questions and permission requests. Then each change follows, in order.
  *
+ * **Watchers** reach a plugin as a count on their task and nothing else (`PluginTask.watchers`, #490): how many of them
+ * are running. It's counted from what the Watchers tab is told (`watchers.changed`, which carries the task's watchers,
+ * so nothing is read for it) and, for a snapshot, from the live watchers the task list's marks are loaded from. A
+ * change that leaves the count as it was (a watcher waking the agent, a job being scheduled) sends nothing.
+ *
  * **Nothing lost, nothing twice.** The snapshot is read in one go on main's thread, where every event is emitted, so
  * normally no event can land while it's read. Should one (an event emitted from inside a read), it's held until the
  * snapshot is sent, then applied against it: the feed keeps what it last told each subscriber of each task, subagent,
@@ -21,6 +26,7 @@ import {
   type Task,
   type ToolCallEvent,
   type ToolEvent,
+  type Watcher,
   type Workspace,
 } from '../../shared/domain'
 import {
@@ -35,6 +41,7 @@ import {
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
 import {
   cutText,
+  isRunningWatcher,
   latestLine,
   permissionOutcome,
   pluginPermissionRequest,
@@ -58,6 +65,8 @@ export interface PluginFeedSource {
   openQuestionSets(): readonly QuestionSet[]
   /** A task's open permission requests. */
   openPermissionRequests(taskId: string): readonly PermissionRequest[]
+  /** Every task's live watchers (running, scheduled or suspended). */
+  liveWatchers(): readonly Watcher[]
 }
 
 /** Where a subscriber's events go: the plugin's view, which wraps each in its envelope. */
@@ -111,6 +120,8 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
   const workspaces = new Map<string, Workspace>(source.workspaces().map((workspace) => [workspace.id, workspace]))
   /** Every task, as a plugin sees it: what's sent is what differs from this. */
   const tasks = new Map<string, PluginTask>()
+  /** How many watchers each task has running, for the tasks that have any: what their `watchers` says. */
+  const watching = new Map<string, number>()
   /** The subagent each call made inside one belongs to, by the call's tool_use id: for its permission requests. */
   const parents = new Map<string, string>()
   const subscribers = new Set<Subscriber>()
@@ -123,12 +134,21 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
     for (const workspace of source.workspaces()) workspaces.set(workspace.id, workspace)
     return workspaces.get(workspaceId)
   }
-  const project = (task: Task): PluginTask => pluginTask(task, workspaceOf(task.workspaceId)?.name ?? '')
+  const project = (task: Task): PluginTask =>
+    pluginTask(task, workspaceOf(task.workspaceId)?.name ?? '', watching.get(task.id) ?? 0)
   const rootOf = (taskId: string): string | undefined => {
     const task = tasks.get(taskId)
     return task === undefined ? undefined : workspaces.get(task.workspaceId)?.rootPath
   }
 
+  /** Counts every task's running watchers again, from the database. Should they not be read, the counts stay. */
+  const countWatchers = (): void => {
+    const running = source.liveWatchers().filter(isRunningWatcher)
+    watching.clear()
+    for (const { taskId } of running) watching.set(taskId, (watching.get(taskId) ?? 0) + 1)
+  }
+
+  countWatchers()
   for (const task of initial) tasks.set(task.id, project(task))
 
   const broadcast = (event: PluginChangeEvent): void => {
@@ -145,6 +165,7 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
 
   const taskDeleted = (taskId: string): void => {
     tasks.delete(taskId)
+    watching.delete(taskId)
     for (const subscriber of subscribers) {
       for (const [id, subagent] of subscriber.subagents) if (subagent.taskId === taskId) subscriber.subagents.delete(id)
       for (const [id, owner] of subscriber.questions) if (owner === taskId) subscriber.questions.delete(id)
@@ -163,6 +184,23 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       tasks.set(task.id, renamed)
       broadcast({ type: PluginEventType.TaskUpdated, task: renamed })
     }
+  }
+
+  /**
+   * A task's watchers changed: its count of running ones, when that differs from what plugins were told. Only the
+   * count goes on: nothing else of a watcher reaches a plugin.
+   */
+  const watchersChanged = (taskId: string, watchers: readonly Watcher[]): void => {
+    const count = watchers.filter(isRunningWatcher).length
+    if (count === (watching.get(taskId) ?? 0)) return
+    if (count === 0) watching.delete(taskId)
+    else watching.set(taskId, count)
+    const known = tasks.get(taskId)
+    // A task the feed hasn't heard of yet gets its count when it does.
+    if (known === undefined) return
+    const counted = { ...known, watchers: count }
+    tasks.set(taskId, counted)
+    broadcast({ type: PluginEventType.TaskUpdated, task: counted })
   }
 
   /**
@@ -282,6 +320,9 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       case EventType.WorkspaceUpdated:
         workspaceUpdated(event.workspace)
         return
+      case EventType.WatchersChanged:
+        watchersChanged(event.taskId, event.watchers)
+        return
       case EventType.ToolEventAppended:
         toolEvent(event.toolEvent, true)
         return
@@ -298,10 +339,12 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       case EventType.PermissionWithdrawn:
         permissionRequest(event.permissionRequest)
         return
-      // Not a plugin's business: what's said in the chat and queued for it, the Files, Todos, Artifacts, Watchers and
+      // Not a plugin's business: what's said in the chat and queued for it, the Files, Todos, Artifacts and
       // Changes tabs, the handoff note, the terminal, the window's own state, settings, the models the pickers offer,
       // plugins and the control endpoint (whose token no plugin may see). A removed workspace's tasks are deleted one by one.
       // A refusal-fallback eviction is rare and best-effort here: a plugin keeps whatever it already showed for it.
+      // Nor which rule decided a call: its mark names a folder or a command.
+      case EventType.PermissionMarked:
       case EventType.ToolEventRemoved:
       case EventType.WorkspaceRemoved:
       case EventType.MessageAppended:
@@ -309,7 +352,6 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       case EventType.TodosChanged:
       case EventType.ArtifactsChanged:
       case EventType.HandoffChanged:
-      case EventType.WatchersChanged:
       case EventType.CommitsChanged:
       case EventType.FileShown:
       case EventType.FolderChanged:
@@ -326,6 +368,7 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       case EventType.AccountChanged:
       case EventType.LoginChanged:
       case EventType.MenuBarChanged:
+      case EventType.SandboxGrantsChanged:
       case EventType.TerminalTabsChanged:
       case EventType.TerminalCleared:
       case EventType.TerminalOutput:
@@ -353,6 +396,7 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
   const snapshot = (subscriber: Subscriber): PluginSnapshotEvent => {
     for (const workspace of source.workspaces()) workspaces.set(workspace.id, workspace)
     const active = source.activeTasks()
+    countWatchers()
     const running: PluginSubagent[] = []
     const permissions: PluginPermissionRequest[] = []
     for (const task of active) {

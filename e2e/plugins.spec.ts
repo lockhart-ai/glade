@@ -2,6 +2,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { join, resolve } from 'node:path'
 import { inPlugin, installFixture } from './fixture-plugin'
 import { expect, openedInEditor, pluginsFolder, test, type Glade } from './fixtures'
+import { inMain } from './in-main'
 import { chooseMenuItem } from './menu'
 import { pluginCard } from './plugin-view'
 import { settings } from './selectors'
@@ -26,7 +27,8 @@ async function openPlugins(glade: Glade): Promise<ReturnType<typeof settings>> {
 
 /** How many plugin pages are running, in any window or none: 0 while a reloaded view is being remade. */
 async function pluginPages({ app }: Glade): Promise<number> {
-  return app.evaluate(
+  return inMain(
+    app,
     ({ webContents }) =>
       webContents.getAllWebContents().filter((page) => page.getURL().startsWith('glade-plugin:')).length,
   )

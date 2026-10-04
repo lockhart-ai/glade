@@ -41,6 +41,7 @@ describe('appendQueuedMessage', () => {
       images: [],
       pastedBlocks: [],
       files: [],
+      broadcast: false,
     })
     const second = queue('When the copy finishes, tell me how many files failed.')
     expect(listQueuedMessages(test.db, task.id)).toEqual([first, second])
@@ -150,6 +151,7 @@ describe('takeQueuedMessages', () => {
       images: [],
       pastedBlocks: [],
       files: [],
+      broadcast: false,
     })
     expect(delivered).toEqual([expected('One'), expected('Two')])
     expect(listMessages(test.db, task.id)).toEqual(delivered)
@@ -170,6 +172,46 @@ describe('takeQueuedMessages', () => {
     const owner = (id: string) => ({ kind: ImageOwnerKind.Message, id })
     expect(imagesOf(test.db, owner(one?.id ?? ''))).toEqual([PNG, JPEG])
     expect(imagesOf(test.db, owner(two?.id ?? ''))).toEqual([GIF])
+  })
+})
+
+describe('queued broadcasts', () => {
+  it('keeps a broadcast a broadcast as it’s listed, found and edited', () => {
+    const own = queue('Keep the original filenames.')
+    const broadcast = appendQueuedMessage(test.db, {
+      taskId: task.id,
+      body: 'Is anyone restarting Docker?',
+      broadcast: true,
+    })
+
+    expect(own.broadcast).toBe(false)
+    expect(broadcast.broadcast).toBe(true)
+    expect(listQueuedMessages(test.db, task.id)).toEqual([own, broadcast])
+    expect(getQueuedMessage(test.db, broadcast.id)).toEqual(broadcast)
+    expect(updateQueuedMessage(test.db, broadcast.id, 'Who is restarting Docker?')).toEqual({
+      ...broadcast,
+      body: 'Who is restarting Docker?',
+    })
+  })
+
+  it('delivers a broadcast to the chat log still marked as one, in its place among the rest', () => {
+    queue('One')
+    appendQueuedMessage(test.db, { taskId: task.id, body: 'Is anyone restarting Docker?', broadcast: true })
+    queue('Three')
+
+    const delivered = takeQueuedMessages(test.db, task.id, 2)
+
+    expect(delivered.map(({ body, broadcast }) => [body, broadcast])).toEqual([
+      ['One', false],
+      ['Is anyone restarting Docker?', true],
+      ['Three', false],
+    ])
+    expect(listMessages(test.db, task.id)).toEqual(delivered)
+  })
+
+  it('refuses a broadcast flag that is neither on nor off', () => {
+    const { id } = queue('One')
+    expect(() => test.db.prepare('UPDATE queued_messages SET broadcast = 2 WHERE id = ?').run(id)).toThrow(/CHECK/)
   })
 })
 

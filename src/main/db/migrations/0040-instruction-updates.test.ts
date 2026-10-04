@@ -28,10 +28,25 @@ it('leaves every session recorded before it with none of the instructions added 
 
   migrate(db, MIGRATIONS)
 
-  expect(getSessionContext(db, 'glade')).toEqual({ instructions: true, instructionUpdates: 0, handoffAt: 2 })
-  expect(getSessionContext(db, 'imported')).toEqual({ instructions: false, instructionUpdates: 0, handoffAt: null })
-  setSessionContext(db, 'glade', { instructions: true, instructionUpdates: 1, handoffAt: 2 })
-  expect(getSessionContext(db, 'glade')).toEqual({ instructions: true, instructionUpdates: 1, handoffAt: 2 })
+  expect(getSessionContext(db, 'glade')).toEqual({
+    instructions: true,
+    instructionUpdates: 0,
+    handoffAt: 2,
+    sandbox: false,
+  })
+  expect(getSessionContext(db, 'imported')).toEqual({
+    instructions: false,
+    instructionUpdates: 0,
+    handoffAt: null,
+    sandbox: false,
+  })
+  setSessionContext(db, 'glade', { instructions: true, instructionUpdates: 1, handoffAt: 2, sandbox: false })
+  expect(getSessionContext(db, 'glade')).toEqual({
+    instructions: true,
+    instructionUpdates: 1,
+    handoffAt: 2,
+    sandbox: false,
+  })
   expect(() => db.prepare("UPDATE session_context SET instruction_updates = -1 WHERE task_id = 'glade'").run()).toThrow(
     /CHECK/,
   )

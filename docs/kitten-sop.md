@@ -74,6 +74,10 @@ outside, ask the supervisor.
 - **UI changes need an e2e spec.** A PR that changes the UI adds or extends a Playwright spec in `e2e/` that drives the
   real app through the workflow. Use the fixtures in `e2e/fixtures.ts` (`launch`, `tempFolder`, `chooseFolder`) and the
   locators in `e2e/selectors.ts`, and wait on locators, never on timers.
+- **A spec runs a function in the main process with `inMain`** (`e2e/in-main.ts`, #486), never Playwright's
+  `app.evaluate`: that runs it inside whatever main is doing, even in the middle of one of its queries, where a read
+  throws "This database connection is busy executing a query". `inMain` has main run it on a turn of its own, and the
+  lint fails a spec that calls `app.evaluate`.
 - **A failed e2e test keeps its evidence** (#483, `e2e/evidence.ts`). Read it before guessing at a cause, and before
   running the test again: a rare failure may not come back. It's in the test's folder under `out/e2e-results/`, and
   the list reporter prints each path under the failure:
@@ -112,7 +116,9 @@ outside, ask the supervisor.
 - **Screenshots:** `npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <name>]`, with
   `--seed` fixtures from `scripts/fixtures/` or `--agent-script`. Compare them with the design screens.
 - **`--press` can't reach menu accelerators** in capture mode (⌘, for Settings, ⌘J or ⌘B for panels). Collapse panels
-  with the seed's `collapsed` field, and open Settings by clicks (`scripts/screenshot.mjs` has the path).
+  with the seed's `collapsed` field, and open Settings by clicks (`scripts/screenshot.mjs` has the path). An app
+  command with no button to click runs with `--command <id>` instead, as choosing its menu bar item would:
+  `--command app.broadcast` opens the Broadcast modal.
 - **`--classic-scrollbars`** captures macOS's always-on scroll bars, as a Mac with a mouse or "Show scroll bars:
   Always" draws them; e2e specs get the same with `launch({ classicScrollbars: true })`.
 - **Interactive changes need a recording:** `npm run record -- --out <dir> [-g <test title>]` writes a `.webm`, `.mp4`

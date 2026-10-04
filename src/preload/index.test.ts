@@ -14,6 +14,7 @@ vi.mock('electron', () => ({
 }))
 
 it('exposes the bridge to the renderer as window.glade', async () => {
+  vi.spyOn(process, 'argv', 'get').mockReturnValue(['/Applications/Glade.app', '--glade-home=/Users/sample'])
   await import('./index')
 
   expect(electron.exposeInMainWorld).toHaveBeenCalledOnce()
@@ -23,6 +24,8 @@ it('exposes the bridge to the renderer as window.glade', async () => {
     invoke: expect.any(Function) as unknown,
     subscribe: expect.any(Function) as unknown,
     pathForFile: expect.any(Function) as unknown,
+    // The home folder main named in the window's arguments.
+    homeFolder: '/Users/sample',
   })
 
   // A dropped or pasted file is named by its path on disk, through Electron's webUtils.

@@ -189,6 +189,13 @@
   color: var(--color-muted);
 }
 
+/* The shield on a row that waits on a permission card: filled and purple, as the card's (04, 23, 42-sandbox…). */
+.shield {
+  margin-right: 5px;
+  color: var(--color-purple);
+  vertical-align: -1px;
+}
+
 .unreadDot {
   flex-shrink: 0;
   width: 7px;

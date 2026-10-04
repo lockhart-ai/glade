@@ -95,6 +95,43 @@ describe('REQUEST_SCHEMAS', () => {
     expect(REQUEST_SCHEMAS[CommandName.LinksOpen].parse(link)).toEqual(link)
   })
 
+  it('takes the sandbox lists’ scopes, Glade-wide or a workspace’s, and never a task’s (#451)', () => {
+    const glade = { scope: 'glade' }
+    const workspace = { scope: 'workspace', workspaceId: 'w1' }
+    const folder = { kind: 'folder', path: '/Users/sam/.nvm', access: 'read' }
+    const domain = { kind: 'domain', domain: '*.example.com' }
+
+    for (const target of [glade, workspace]) {
+      expect(REQUEST_SCHEMAS[CommandName.SandboxListGrants].parse({ target })).toEqual({ target })
+      for (const grant of [folder, domain]) {
+        expect(REQUEST_SCHEMAS[CommandName.SandboxAddGrant].parse({ target, grant })).toEqual({ target, grant })
+      }
+      const access = { target, path: '/Users/sam/.nvm', access: 'read_write' }
+      expect(REQUEST_SCHEMAS[CommandName.SandboxSetFolderAccess].parse(access)).toEqual(access)
+      // A folder is removed by its path alone, whatever its access.
+      const removal = { target, grant: { kind: 'folder', path: '/Users/sam/.nvm' } }
+      expect(REQUEST_SCHEMAS[CommandName.SandboxRemoveGrant].parse(removal)).toEqual(removal)
+      expect(REQUEST_SCHEMAS[CommandName.SandboxRemoveGrant].safeParse({ target, grant: folder }).success).toBe(false)
+    }
+    const task = { scope: 'task', taskId: 't1' }
+    for (const command of [
+      CommandName.SandboxListGrants,
+      CommandName.SandboxAddGrant,
+      CommandName.SandboxSetFolderAccess,
+      CommandName.SandboxRemoveGrant,
+    ] as const) {
+      const request = { target: task, grant: domain, path: '/Users/sam/.nvm', access: 'read' }
+      expect(REQUEST_SCHEMAS[command].safeParse(request).success).toBe(false)
+    }
+    // A Glade-wide scope names no workspace, and a workspace's names one.
+    expect(
+      REQUEST_SCHEMAS[CommandName.SandboxListGrants].safeParse({ target: { ...glade, workspaceId: 'w1' } }).success,
+    ).toBe(false)
+    expect(REQUEST_SCHEMAS[CommandName.SandboxListGrants].safeParse({ target: { scope: 'workspace' } }).success).toBe(
+      false,
+    )
+  })
+
   it('takes a link to open as a string alone, leaving its scheme for main to check as it opens it', () => {
     const schema = REQUEST_SCHEMAS[CommandName.LinksOpen]
     expect(schema.safeParse({ url: 'javascript:alert(1)' }).success).toBe(true)
@@ -423,7 +460,7 @@ describe('REQUEST_SCHEMAS', () => {
       'a permission decision it doesn’t know',
       CommandName.PermissionsAnswer,
       { id: 'p', decision: { kind: 'allow_forever' } },
-      "decision.kind: Invalid discriminator value. Expected 'allow_once' | 'allow_for_task' | 'deny'",
+      "decision.kind: Invalid discriminator value. Expected 'allow_once' | 'allow_for_task' | 'allow_for_workspace' | 'deny'",
     ],
     [
       'a note on Allow once',

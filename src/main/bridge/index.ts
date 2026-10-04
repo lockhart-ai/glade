@@ -208,7 +208,7 @@ export function registerBridge({
   log = SILENT_LOGGER,
   claudeProjectsDir,
 }: BridgeOptions): RegisteredBridge {
-  const broadcast = createBroadcast(EVENT_CHANNEL, targets)
+  const windows = createBroadcast(EVENT_CHANNEL, targets)
   // Tasks that kept a todo list before Glade kept its summary get theirs before any window lists them.
   const refreshed = refreshStaleTodos(db)
   if (refreshed > 0) log.info('worked out todo summaries', { tasks: refreshed })
@@ -251,7 +251,7 @@ export function registerBridge({
     logEvent(event)
     feed.observe(event)
     artifactWatch.observe(event)
-    broadcast(event)
+    windows.emit(event)
     observe?.(event)
     backgroundWork.observe(event)
   }
@@ -281,7 +281,17 @@ export function registerBridge({
     mcpServers: (task) => {
       const settings = getSettings(db)
       return {
-        [GLADE_SERVER]: createGladeMcpServer({ db, emit, questions }, task.id, settings),
+        [GLADE_SERVER]: createGladeMcpServer(
+          // `request_access` asks through the runner, which knows the session's sandbox and applies the grant.
+          {
+            db,
+            emit,
+            questions,
+            requestAccess: (taskId, request, call) => runner.requestAccess(taskId, request, call),
+          },
+          task.id,
+          settings,
+        ),
         ...(settings.controlEnabled ? { [CONTROL_SERVER]: control.sdkServer(task.id) } : {}),
       }
     },
@@ -343,6 +353,7 @@ export function registerBridge({
     createHandlers({
       db,
       emit,
+      batch: windows.batch,
       chooseFolder,
       openPath,
       revealPath,

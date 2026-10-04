@@ -11,7 +11,9 @@
  *   the grants change: the same fixed parts, `autoAllowBashIfSandboxed` for the mode, and the grants: every granted
  *   folder readable by commands, the read-write ones writable; for the file tools, read-only folders as `Read` rules and
  *   read-write ones as additional directories; and domains as `WebFetch(domain:…)` rules in `permissions.allow`, which
- *   is the only place they reach commands too (never `allowedTools`).
+ *   is the only place they reach commands too (never `allowedTools`). A grant of a single file (`file`) names that
+ *   file alone everywhere: its own path for commands, and for the file tools a `Read` rule for exactly it, with an
+ *   `Edit` rule beside it when it's read-write. It's never an additional directory, which is a folder and all in it.
  *
  * `autoAllowBashIfSandboxed` is in the overlay only, never the start: left out at start, the SDK's default (on) applies
  * until the overlay lands, and the overlay's value then holds either way (probed, §15: in `default` mode a command
@@ -30,10 +32,12 @@ import { FolderAccess } from '../../shared/sandbox'
 import type { SandboxCredentialFile, SandboxFlagSettings, SandboxSettings, SettingsPermissions } from './backend'
 import { domainRuleString, isBareHost, readRuleContent, SANDBOX_OVERRIDE_ASK_RULE } from './sandbox-requests'
 
-/** A folder the agent was granted, by absolute path. */
+/** A folder the agent was granted, by absolute path; or one file, and nothing beside it (`file`). */
 export interface SandboxFolderGrant {
   readonly path: string
   readonly access: FolderAccess
+  /** Set when the grant is for that one file. Left out for a folder. */
+  readonly file?: true
 }
 
 /** Everything granted to a task beyond its workspace root: folders, and domains (`registry.npmjs.org`, `*.acme.dev`). */
@@ -91,9 +95,9 @@ function isGrantableDomain(domain: string): boolean {
  */
 export function usableGrants(grants: SandboxGrants): CheckedGrants {
   const rejected: RejectedGrant[] = []
-  const folders = grants.folders.flatMap(({ path, access }) => {
+  const folders = grants.folders.flatMap(({ path, access, file }): SandboxFolderGrant[] => {
     const problem = folderProblem(path)
-    if (problem === null) return [{ path: sandboxFolder(path), access }]
+    if (problem === null) return [{ path: sandboxFolder(path), access, ...(file === true ? { file } : {}) }]
     rejected.push({ value: path, problem })
     return []
   })
@@ -214,7 +218,9 @@ export function sandboxStartSettings(root: string, home: string = homedir()): Sa
  * The whole overlay a sandboxed session's `applyFlagSettings` takes (`docs/sdk-notes.md` §15): the fixed parts again,
  * `autoAllowBashIfSandboxed` for `mode`, and `grants`. Commands may read the root and every granted folder, and write
  * the root and the read-write ones. The file tools may read the read-only folders (`Read(//<folder>/**)` rules) and use
- * the read-write ones (`additionalDirectories`). Domains are `WebFetch(domain:…)` rules in `permissions.allow`, which
+ * the read-write ones (`additionalDirectories`). A single file is its own path for commands, a `Read(//<file>)` rule
+ * for the file tools, and an `Edit(//<file>)` rule too when it's read-write: never an additional directory, and never
+ * a rule with `/**`, so nothing beside it opens. Domains are `WebFetch(domain:…)` rules in `permissions.allow`, which
  * Claude Code merges into the sandbox's network allowlist too. The credential paths stay denied whatever is granted.
  * A grant the settings can't take is left out (`usableGrants`).
  */
@@ -226,16 +232,24 @@ export function sandboxOverlay(
 ): SandboxFlagSettings {
   const folder = sandboxFolder(root)
   const { folders: granted, domains } = usableGrants(grants).grants
-  const readOnly = unique(granted.filter(({ access }) => access === FolderAccess.Read).map(({ path }) => path))
-  const readWrite = unique(granted.filter(({ access }) => access === FolderAccess.ReadWrite).map(({ path }) => path))
+  const paths = (grants: readonly SandboxFolderGrant[]): string[] => unique(grants.map(({ path }) => path))
+  const writable = granted.filter(({ access }) => access === FolderAccess.ReadWrite)
+  const folders = granted.filter(({ file }) => file !== true)
+  const files = granted.filter(({ file }) => file === true)
+  const readOnly = paths(folders.filter(({ access }) => access === FolderAccess.Read))
+  const readWrite = paths(writable)
+  const fileRule = (toolName: string, path: string): string =>
+    permissionRuleString({ toolName, ruleContent: `/${path}` })
   const permissions: SettingsPermissions = {
     allow: [
       ...readOnly.map((path) => permissionRuleString({ toolName: 'Read', ruleContent: readRuleContent(path) })),
+      ...paths(files).map((path) => fileRule('Read', path)),
+      ...paths(writable.filter(({ file }) => file === true)).map((path) => fileRule('Edit', path)),
       ...unique(domains).map(domainRuleString),
     ],
     ask: [SANDBOX_OVERRIDE_ASK_RULE],
     deny: credentialDenyRules(home),
-    additionalDirectories: readWrite,
+    additionalDirectories: paths(writable.filter(({ file }) => file !== true)),
   }
   return {
     sandbox: {

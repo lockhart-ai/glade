@@ -102,6 +102,7 @@ describe('createTask', () => {
       retrying: null,
       asking: false,
       awaitingPermission: false,
+      permissionAsk: null,
       backgroundWork: false,
       pause: null,
       importedAt: null,

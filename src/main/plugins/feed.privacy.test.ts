@@ -15,6 +15,7 @@ import {
   MessageRole,
   PauseReason,
   PermissionDestination,
+  PermissionMarkKind,
   PermissionRequestState,
   PermissionRuleBehavior,
   PermissionUpdateType,
@@ -44,11 +45,13 @@ import { pluginEventSchema } from '../../shared/plugin-api-schema'
 import { LoginState } from '../../shared/login'
 import { PluginStatus } from '../../shared/plugins'
 import { BUILT_IN_MODELS } from '../../shared/models'
+import { FolderAccess, SandboxGrantKind, SandboxGrantScope } from '../../shared/sandbox'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { appendPermissionRequest } from '../db/repositories/permission-requests'
 import { appendQuestionSet } from '../db/repositories/question-sets'
 import { createTask, updateTask } from '../db/repositories/tasks'
 import { appendNarration, appendToolCall, setSubagentProgress, updateToolCall } from '../db/repositories/tool-events'
+import { addWatcher, updateWatcher } from '../db/repositories/watchers'
 import { createWorkspace } from '../db/repositories/workspaces'
 import { openTestDatabase, type TestDatabase } from '../db/repositories/test-database'
 import { createPluginFeed } from './feed'
@@ -219,6 +222,23 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
   writeTurn(task, root, 'snap')
   appendQuestionSet(database.db, { taskId: task.id, turn: 1, questions: QUESTIONS })
   appendPermissionRequest(database.db, permission(task, 'snap_0', 'agent-1'))
+  // A watcher it left running: a plugin is told how many, and nothing of what they are (#490).
+  const watching = addWatcher(database.db, {
+    taskId: task.id,
+    kind: WatcherKind.Command,
+    toolUseId: secret('watcher_tool_use'),
+    parentToolUseId: null,
+    sdkId: secret('watcher_sdk_id'),
+    label: secret('snapshot_watcher_label'),
+    detail: secret('snapshot_watcher_command'),
+    cron: secret('watcher_cron'),
+    schedule: secret('watcher_schedule'),
+    recurring: false,
+    state: WatcherState.Running,
+    nextDueAt: null,
+    expiresAt: null,
+  })
+  updateWatcher(database.db, watching.id, { lastOutput: secret('snapshot_watcher_output') })
 
   const feed = createPluginFeed({ source: databaseFeedSource(database.db), tasks: [task] })
   const sent: PluginEvent[] = []
@@ -247,6 +267,8 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
     state: PermissionRequestState.Open,
     denyNote: null,
     grantedRule: null,
+    sandbox: null,
+    grantedScope: null,
     createdAt: 4_000,
     closedAt: null,
   }
@@ -332,6 +354,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           images: [{ id: secret('image'), mediaType: ImageMediaType.Png }],
           pastedBlocks: [],
           files: [],
+          broadcast: false,
         },
       },
       {
@@ -347,6 +370,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           images: [],
           pastedBlocks: [],
           files: [],
+          broadcast: false,
         },
       },
     ],
@@ -363,6 +387,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
             images: [],
             pastedBlocks: [],
             files: [],
+            broadcast: false,
           },
         ],
       },
@@ -409,6 +434,18 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
       {
         type: EventType.PermissionWithdrawn,
         permissionRequest: { ...request, id: 'request-2', state: PermissionRequestState.Withdrawn },
+      },
+    ],
+    // Which rule decided a call says a folder's path or a command: not a plugin's business.
+    [EventType.PermissionMarked]: [
+      {
+        type: EventType.PermissionMarked,
+        mark: {
+          taskId: task.id,
+          toolUseId: 'toolu_secret',
+          outcome: { kind: PermissionMarkKind.TaskRule, rule: { toolName: 'Bash', ruleContent: secret('mark_rule') } },
+          createdAt: 3,
+        },
       },
     ],
     [EventType.OpenFilesChanged]: [
@@ -579,6 +616,16 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
         },
       },
     ],
+    [EventType.SandboxGrantsChanged]: [
+      {
+        type: EventType.SandboxGrantsChanged,
+        target: { scope: SandboxGrantScope.Workspace, workspaceId: secret('grant_workspace') },
+        grants: [
+          { kind: SandboxGrantKind.Folder, path: secret('grant_folder'), access: FolderAccess.Read },
+          { kind: SandboxGrantKind.Domain, domain: secret('grant_domain') },
+        ],
+      },
+    ],
     [EventType.TerminalTabsChanged]: [
       {
         type: EventType.TerminalTabsChanged,
@@ -632,6 +679,14 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
       .map(allowed)
       .sort(),
   )
+  // The watchers came out as a count on their task, in the snapshot and in the event, and as nothing else.
+  expect(sent[0]).toMatchObject({ type: 'snapshot', tasks: [{ id: task.id, watchers: 1 }] })
+  expect(sent).toContainEqual({
+    type: 'task.updated',
+    task: expect.objectContaining({ id: created.id, watchers: 1 }) as unknown,
+  })
+  expect(json).not.toContain(watching.id)
+  expect(json).not.toContain('watcher-1')
   // Every kind of plugin event but hello (which the view sends) came out of this.
   expect(new Set(sent.map(({ type }) => type)).size).toBe(12)
 })

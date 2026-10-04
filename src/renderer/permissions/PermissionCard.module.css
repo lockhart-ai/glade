@@ -23,21 +23,10 @@
   animation: card-in var(--motion-duration) var(--motion-ease);
 }
 
-/* Answered or withdrawn while you're looking, it fades to its line. */
-.justClosed {
-  animation: card-fade var(--motion-duration) var(--motion-ease);
-}
-
 @keyframes card-in {
   from {
     opacity: 0;
     translate: 0 8px;
-  }
-}
-
-@keyframes card-fade {
-  from {
-    opacity: 0;
   }
 }
 
@@ -54,6 +43,45 @@
 .titleText {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* A sandbox card's title: what the agent wants, then the folder or domain as code (42-sandbox-folder-card.html). */
+.sandboxTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.titleSubject,
+.reasonCode {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-text);
+}
+
+.titleSubject {
+  min-width: 0;
+  padding: 1px 5px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-inner-border);
+  border-radius: 4px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+/* What the tool acts on, under a sandbox card's title: the tool, then its file or URL. */
+.target {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-secondary-sm);
+}
+
+.targetTool {
+  flex-shrink: 0;
+  color: var(--color-faint);
 }
 
 .subagent {
@@ -176,59 +204,4 @@
 .note {
   flex-grow: 1;
   min-width: 0;
-}
-
-/* Closed: one line, what the call was and what happened to it. */
-.closed {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 10px 14px;
-  background: var(--color-inner);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-nested);
-  font-size: var(--font-size-secondary);
-  color: var(--color-muted);
-  white-space: nowrap;
-}
-
-.closedIcon {
-  flex-shrink: 0;
-}
-
-.allowed .closedIcon {
-  color: var(--color-teal);
-}
-
-.denied .closedIcon {
-  color: var(--color-pink);
-}
-
-.withdrawn {
-  opacity: 0.6;
-}
-
-.withdrawn .closedIcon {
-  color: var(--color-faint);
-}
-
-.summary {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-secondary-sm);
-  color: var(--color-text);
-}
-
-.dot {
-  flex-shrink: 0;
-  color: var(--color-faint);
-}
-
-.outcome {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }

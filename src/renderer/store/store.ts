@@ -19,7 +19,7 @@ import type { ImageData } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import { describeFailure, lastOpenedWorkspace, loadSnapshot } from './hydrate'
 import { isLoaded, withDoneCounts, withDonePage, withLoadedTasks } from './doneLists'
-import { applyEvent, withGroupFold, withHistory, withOpenedWorkspace } from './reducer'
+import { applyEvent, withGroupFold, withHistory, withOpenedWorkspace, withSandboxGrants } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState, type TerminalEvent } from './state'
 import {
   UnsavedChoice,
@@ -48,6 +48,9 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     let subscribed = false
     // While a snapshot loads, events wait here and are applied on top of it, so none is lost or overwritten.
     let pending: GladeEvent[] | null = null
+
+    // While a batch of events is handled, what they change in the store waits here, to be applied in one change.
+    let batched: GladeEvent[] | null = null
 
     // A task main asked to open while a snapshot loaded, opened once it has.
     let openWhenLoaded: OpenRequest | null = null
@@ -163,9 +166,23 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       }
       const unseenDone =
         event.type === EventType.TaskUpdated && !(event.task.id in get().tasks) && isInDoneSection(event.task)
-      set((state) => applyEvent(state, event))
+      if (batched === null) set((state) => applyEvent(state, event))
+      else batched.push(event)
       if (unseenDone) void refreshDoneCounts(event.task.workspaceId)
       if (event.type === EventType.FileShown) showPanelTab(event.taskId, PanelTab.Files)
+    }
+
+    // A burst of events main sent as one (a broadcast to every active task, #489): each is handled as it would be on
+    // its own, but what they change in the store is applied in one change, so each subscriber hears of it once.
+    const onBatch = (events: readonly GladeEvent[]): void => {
+      const changes: GladeEvent[] = []
+      batched = changes
+      try {
+        for (const event of events) onEvent(event)
+      } finally {
+        batched = null
+      }
+      if (changes.length > 0) set((state) => changes.reduce(applyEvent, state))
     }
 
     const setUiState = async (entry: UiStateEntry): Promise<void> => {
@@ -361,6 +378,19 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         set({ settingsSection: null })
       },
 
+      openBroadcast() {
+        set({ broadcastOpen: true })
+      },
+
+      closeBroadcast() {
+        set({ broadcastOpen: false })
+      },
+
+      async broadcast(text) {
+        const { recipients } = await bridge.invoke(CommandName.TasksBroadcast, { text })
+        return recipients
+      },
+
       async loadPlugins() {
         const { plugins } = await bridge.invoke(CommandName.PluginsList, {})
         set({ plugins })
@@ -430,6 +460,28 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.PluginsReload, { id })
       },
 
+      async loadSandboxGrants(target) {
+        const { grants } = await bridge.invoke(CommandName.SandboxListGrants, { target })
+        set((state) => ({ sandboxGrants: withSandboxGrants(state.sandboxGrants, target, grants) }))
+      },
+
+      // Each change shows as main broadcasts it, once it's saved, and again as main answers, once the running tasks
+      // have it: the lists never show what isn't saved.
+      async addSandboxGrant(target, grant) {
+        const { grants } = await bridge.invoke(CommandName.SandboxAddGrant, { target, grant })
+        set((state) => ({ sandboxGrants: withSandboxGrants(state.sandboxGrants, target, grants) }))
+      },
+
+      async setSandboxFolderAccess(target, path, access) {
+        const { grants } = await bridge.invoke(CommandName.SandboxSetFolderAccess, { target, path, access })
+        set((state) => ({ sandboxGrants: withSandboxGrants(state.sandboxGrants, target, grants) }))
+      },
+
+      async removeSandboxGrant(target, grant) {
+        const { grants } = await bridge.invoke(CommandName.SandboxRemoveGrant, { target, grant })
+        set((state) => ({ sandboxGrants: withSandboxGrants(state.sandboxGrants, target, grants) }))
+      },
+
       async loadControlStatus() {
         const { status } = await bridge.invoke(CommandName.ControlStatus, {})
         set({ controlStatus: status })
@@ -497,7 +549,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
 
       async hydrate() {
         if (!subscribed) {
-          bridge.subscribe(onEvent)
+          bridge.subscribe(onEvent, onBatch)
           subscribed = true
         }
         const buffered: GladeEvent[] = []

@@ -4,6 +4,7 @@ import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shar
 import {
   PermissionDecisionKind,
   PermissionDestination,
+  PermissionMarkKind,
   PermissionRequestState,
   PermissionRuleBehavior,
   PermissionUpdateType,
@@ -11,12 +12,15 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  type PermissionMark,
+  type PermissionMarkOutcome,
   type PermissionRequest,
   type ToolCallEvent,
   type ToolEvent,
 } from '../../shared/domain'
 import { Chat } from '../chat/Chat'
 import { ToastProvider } from '../components'
+import { TaskPanel } from '../right-panel'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore } from '../store/store'
 import {
@@ -28,11 +32,19 @@ import {
   sampleWorkspace,
   type FakeHandlers,
 } from '../store/test-bridge'
-import { TRIMMED_LINES } from './permissionCardModel'
+import { FolderAccess, SandboxAskKind, SandboxGrantScope } from '../../shared/sandbox'
+import { REQUEST_ACCESS_TOOL } from '../../shared/toolName'
+import { OUTSIDE_SANDBOX_NOTE, TRIMMED_LINES } from './permissionCardModel'
 import { moduleClass } from '../components/moduleClass'
 import { APPEAR_WINDOW_MS } from '../questions/QuestionCard'
 import { NOTE_PLACEHOLDER } from './PermissionCard'
+import { PERMISSION_LINE_STATE } from './PermissionLine'
 import styles from './PermissionCard.module.css'
+import toolLogStyles from '../tool-log/ToolLog.module.css'
+import { setHomeFolder } from '../../shared/homeFolder'
+
+// The sample data's home folder, which paths under it are shown from as `~`.
+setHomeFolder('/Users/me')
 
 /** The sample workspace's root, which paths show relative to. */
 const ROOT = '/code/w1'
@@ -90,14 +102,20 @@ function subagentCall(toolUseId: string, parentToolUseId: string): ToolCallEvent
   return { ...agentCall(toolUseId, {}), id: `e-${toolUseId}`, name: 'Write', parentToolUseId }
 }
 
+/** The tool call a request is about, as the tool log has it while the request waits: running. */
+function callOf(request: PermissionRequest): ToolCallEvent {
+  return { ...agentCall(request.toolUseId, request.input), name: request.toolName }
+}
+
 interface Rendered {
   readonly fake: ReturnType<typeof fakeBridge>
   readonly requests: PermissionRequest[]
 }
 
+/** The chat, with the task panel's Tool calls beside it: each request's call is in the tool log, unless given. */
 async function renderChat(
   requests: PermissionRequest[],
-  toolEvents: ToolEvent[] = [],
+  toolEvents: ToolEvent[] = requests.map(callOf),
   overrides: Partial<FakeHandlers> = {},
   copied?: string[],
 ): Promise<Rendered> {
@@ -122,6 +140,7 @@ async function renderChat(
       <ToastProvider>
         <button type="button">Elsewhere</button>
         <Chat />
+        <TaskPanel />
       </ToastProvider>
     </GladeStoreProvider>,
   )
@@ -139,8 +158,17 @@ function card(index = 0): HTMLElement {
   return found
 }
 
-function closedCards(): HTMLElement[] {
-  return screen.queryAllByRole('region', { name: 'Permission request' })
+/** Everything the chat names a permission request: only open cards, since a closed one leaves the chat (#459). */
+function inTheChat(): HTMLElement[] {
+  return within(screen.getByRole('log', { name: 'Conversation' })).queryAllByLabelText('Permission request')
+}
+
+/** The Tool calls list's permission lines, top to bottom: each one's state and what it says. */
+function decisions(): string[] {
+  const log = screen.getByRole('log', { name: 'Tool log' })
+  return [...log.querySelectorAll(`[${PERMISSION_LINE_STATE}]`)].map(
+    (line) => `${line.getAttribute(PERMISSION_LINE_STATE) ?? ''}: ${line.textContent}`,
+  )
 }
 
 function button(name: string, index = 0): HTMLElement {
@@ -277,17 +305,16 @@ describe('the permission card', () => {
     expect(within(card()).getByText('subagent')).toBeInTheDocument()
   })
 
-  it('allows the call once, and collapses to a line saying so', async () => {
+  it("allows the call once: the card leaves the chat, and its call's row says so", async () => {
     const { fake } = await renderChat([request('p1')])
+    expect(decisions()).toEqual(['waiting: Waiting on you'])
 
     fireEvent.click(button('Allow once'))
     await settle()
 
     expect(answers(fake)).toEqual([{ id: 'p1', decision: { kind: PermissionDecisionKind.AllowOnce } }])
-    expect(openCards()).toHaveLength(0)
-    const [line] = closedCards()
-    expect(line).toHaveTextContent('Bash: npm test·allowed once')
-    expect(line).toHaveAttribute('title', 'Bash: npm test · allowed once')
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['allowed: Allowed once'])
   })
 
   it('denies without a note when the note is left empty', async () => {
@@ -302,7 +329,8 @@ describe('the permission card', () => {
     await settle()
 
     expect(answers(fake)).toEqual([{ id: 'p1', decision: { kind: PermissionDecisionKind.Deny } }])
-    expect(closedCards()[0]).toHaveTextContent('Bash: npm test·denied')
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['denied: Denied'])
   })
 
   it('denies with the note, trimmed, on ↵ in the note field', async () => {
@@ -321,7 +349,8 @@ describe('the permission card', () => {
     expect(answers(fake)).toEqual([
       { id: 'p1', decision: { kind: PermissionDecisionKind.Deny, note: 'Run only the date tests' } },
     ])
-    expect(closedCards()[0]).toHaveTextContent('denied: “Run only the date tests”')
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['denied: Denied: “Run only the date tests”'])
   })
 
   it('closes the note field with Esc or Cancel, back on Deny, keeping what you wrote', async () => {
@@ -341,7 +370,7 @@ describe('the permission card', () => {
     expect(answers(fake)).toEqual([])
   })
 
-  it('says it was withdrawn when the turn ends under it', async () => {
+  it('leaves the chat when the turn ends under it, and its row says it was withdrawn', async () => {
     const { fake } = await renderChat([request('p1')])
 
     act(() => {
@@ -351,8 +380,8 @@ describe('the permission card', () => {
       })
     })
 
-    expect(openCards()).toHaveLength(0)
-    expect(closedCards()[0]).toHaveTextContent('Bash: npm test·withdrawn')
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['withdrawn: Withdrawn'])
   })
 
   it("toasts when the answer doesn't reach main, and can be answered again", async () => {
@@ -469,15 +498,15 @@ describe('Allow for this task', () => {
     expect(grant).toHaveAttribute('tabindex', '-1')
   })
 
-  it('grants the call for the task, and collapses to a line saying so', async () => {
+  it('grants the call for the task: the card leaves the chat, and its row names the rule it granted', async () => {
     const { fake } = await renderChat([request('p1')])
 
     fireEvent.click(button('Allow npm test commands for this task'))
     await settle()
 
     expect(answers(fake)).toEqual([{ id: 'p1', decision: { kind: PermissionDecisionKind.AllowForTask } }])
-    expect(openCards()).toHaveLength(0)
-    expect(closedCards().map((line) => line.textContent)).toEqual(['Bash: npm test·allowed for this task'])
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['allowed: Allowed for this task: npm test commands'])
   })
 
   it('names the whole tool for an Edit, and the command itself for a rule without a prefix', async () => {
@@ -614,7 +643,8 @@ describe('stress', () => {
     fireEvent.click(button('Deny', 1))
     await settle()
     expect(openCards()).toHaveLength(1)
-    expect(closedCards()[0]).toHaveTextContent('Edit: docs/upgrade.md·denied: “Keep the old wording”')
+    expect(inTheChat()).toHaveLength(1)
+    expect(decisions()).toEqual(['waiting: Waiting on you', 'denied: Denied: “Keep the old wording”'])
 
     // Answering the one left, from the keyboard's focus.
     fireEvent.click(button('Allow once'))
@@ -624,10 +654,8 @@ describe('stress', () => {
       { id: 'edit', decision: { kind: PermissionDecisionKind.Deny, note: 'Keep the old wording' } },
       { id: 'p1', decision: { kind: PermissionDecisionKind.AllowOnce } },
     ])
-    expect(closedCards().map((line) => line.textContent)).toEqual([
-      'Bash: npm test·allowed once',
-      'Edit: docs/upgrade.md·denied: “Keep the old wording”',
-    ])
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['allowed: Allowed once', 'denied: Denied: “Keep the old wording”'])
   })
 
   it('moves the focus to the next open card once the first is answered', async () => {
@@ -641,7 +669,7 @@ describe('stress', () => {
     expect(button('Allow once')).toHaveFocus()
   })
 
-  it('collapses to withdrawn while you type a note, sending nothing', async () => {
+  it('leaves the chat, withdrawn, while you type a note, sending nothing', async () => {
     const { fake } = await renderChat([request('p1')])
 
     fireEvent.click(button('Deny'))
@@ -654,13 +682,13 @@ describe('stress', () => {
       })
     })
 
-    expect(openCards()).toHaveLength(0)
+    expect(inTheChat()).toHaveLength(0)
     expect(note).not.toBeInTheDocument()
-    expect(closedCards()[0]).toHaveTextContent('withdrawn')
+    expect(decisions()).toEqual(['withdrawn: Withdrawn'])
     expect(answers(fake)).toEqual([])
   })
 
-  it('refuses an answer to a card already closed elsewhere, and shows it closed once main says so', async () => {
+  it('refuses an answer to a card already closed elsewhere, and takes it out of the chat once main says so', async () => {
     const { fake, requests } = await renderChat([request('p1')])
     const closed = { ...request('p1'), state: PermissionRequestState.Allowed, closedAt: 4_000 }
     requests[0] = closed
@@ -673,7 +701,8 @@ describe('stress', () => {
     act(() => {
       fake.emit({ type: EventType.PermissionAnswered, permissionRequest: closed })
     })
-    expect(closedCards()[0]).toHaveTextContent('allowed once')
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['allowed: Allowed once'])
   })
 })
 
@@ -689,18 +718,544 @@ describe('motion', () => {
     expect(card(0)).not.toHaveClass(cls('appearing'))
     expect(card(1)).toHaveClass(cls('appearing'))
   })
+})
 
-  it('fades to its line when it closes while showing, but not when it was already closed', async () => {
-    const { fake } = await renderChat([request('p1'), request('p2', { state: PermissionRequestState.Allowed })])
+describe("the decision on its call's row (#459)", () => {
+  const toolLog = (): HTMLElement => screen.getByRole('log', { name: 'Tool log' })
+  const rows = (): HTMLElement[] => within(toolLog()).getAllByRole('button')
+  const closed = (id: string, state: PermissionRequestState, patch: Partial<PermissionRequest> = {}) =>
+    request(id, { state, closedAt: 4_000, ...patch })
+
+  it('shows a waiting call with the purple dot and no result yet, then the answer above its result', async () => {
+    const waiting = request('p1')
+    const { fake } = await renderChat([waiting])
+    const [row] = rows()
+
+    // Waiting on you, not running: the purple dot, no "Running…", and none of a running row's highlight.
+    expect(row).toHaveAccessibleName(/^Waiting\s*Bash\s*npm test.*Permission\s*Waiting on you$/)
+    expect(row?.querySelector('[data-state]')).toHaveAttribute('data-state', 'waiting')
+    expect(row).not.toHaveTextContent('Running…')
+    expect(row?.parentElement).not.toHaveClass(moduleClass(toolLogStyles, 'running'))
+
+    fireEvent.click(button('Allow once'))
+    await settle()
+    // Allowed, the call runs: it's a running row again, saying it was allowed.
+    expect(rows()[0]).toHaveAccessibleName(/^Running\s*Bash\s*npm test.*Permission\s*Allowed once\s*Running…$/)
+    expect(rows()[0]?.parentElement).toHaveClass(moduleClass(toolLogStyles, 'running'))
+
     act(() => {
       fake.emit({
-        type: EventType.PermissionWithdrawn,
-        permissionRequest: { ...request('p1'), state: PermissionRequestState.Withdrawn, closedAt: 4_000 },
+        type: EventType.ToolEventUpdated,
+        toolEvent: {
+          ...callOf(waiting),
+          state: ToolCallState.Done,
+          output: 'Tests  148 passed (148)',
+          finishedAt: 5_000,
+        },
+      })
+    })
+    expect(rows()[0]).toHaveAccessibleName(
+      /^Done\s*Bash\s*npm test.*Permission\s*Allowed once\s*Tests\s+148 passed \(148\)$/,
+    )
+    expect(decisions()).toEqual(['allowed: Allowed once'])
+  })
+
+  it('says a denied call was denied in place of its result, which is only the refusal the agent was told', async () => {
+    const waiting = request('p1')
+    const { fake } = await renderChat([waiting])
+
+    fireEvent.click(button('Deny'))
+    fireEvent.change(within(card()).getByRole('textbox', { name: 'Note for the agent' }), {
+      target: { value: 'Keep dist.' },
+    })
+    fireEvent.click(button('Deny'))
+    await settle()
+    act(() => {
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: {
+          ...callOf(waiting),
+          state: ToolCallState.Error,
+          output: 'The user denied permission for this tool call, so it did not run. They said: Keep dist.',
+          finishedAt: 5_000,
+        },
       })
     })
 
-    const [withdrawn, allowed] = closedCards()
-    expect(withdrawn).toHaveClass(cls('justClosed'), cls('withdrawn'))
-    expect(allowed).not.toHaveClass(cls('justClosed'))
+    const [row] = rows()
+    if (row === undefined) throw new Error('No row')
+    expect(row).toHaveAccessibleName(/^Failed\s*Bash\s*npm test.*Permission\s*Denied: “Keep dist.”$/)
+    expect(row).not.toHaveTextContent('The user denied permission')
+    // The refusal is still there to read, in the call's output.
+    fireEvent.click(row)
+    expect(within(toolLog()).getByLabelText('Bash output')).toHaveTextContent('The user denied permission')
+  })
+
+  it('shows no closed card after a relaunch: each decision is on its row, and only granted calls keep a result', async () => {
+    const requests = [
+      closed('once', PermissionRequestState.Allowed),
+      closed('task', PermissionRequestState.Allowed, {
+        createdAt: 3_100,
+        grantedRule: { toolName: 'Bash', ruleContent: 'npm test *' },
+      }),
+      closed('denied', PermissionRequestState.Denied, { createdAt: 3_200, denyNote: 'Not on main' }),
+      closed('bare', PermissionRequestState.Denied, { createdAt: 3_300 }),
+      closed('gone', PermissionRequestState.Withdrawn, { createdAt: 3_400 }),
+      request('open', { createdAt: 3_500 }),
+    ]
+    const done = (each: PermissionRequest): ToolCallEvent => ({
+      ...callOf(each),
+      state: each.state === PermissionRequestState.Open ? ToolCallState.Running : ToolCallState.Done,
+      output: each.state === PermissionRequestState.Open ? null : 'ok',
+    })
+    const untouched: ToolCallEvent = { ...callOf(request('untouched')), state: ToolCallState.Done, output: 'ok' }
+    await renderChat(requests, [...requests.map(done), untouched])
+
+    // Only the open one is a card.
+    expect(inTheChat()).toHaveLength(1)
+    expect(openCards()).toHaveLength(1)
+    expect(decisions()).toEqual([
+      'allowed: Allowed once',
+      'allowed: Allowed for this task: npm test commands',
+      'denied: Denied: “Not on main”',
+      'denied: Denied',
+      'withdrawn: Withdrawn',
+      'waiting: Waiting on you',
+    ])
+    // A call no permission was involved in has no shield.
+    expect(rows()).toHaveLength(7)
+    expect(rows()[6]?.querySelector(`[${PERMISSION_LINE_STATE}]`)).toBeNull()
+    // Granted calls keep their results, and so does the untouched one; denied, withdrawn and waiting ones show none.
+    expect(rows().map((row) => row.textContent.endsWith('ok'))).toEqual([true, true, false, false, false, false, true])
+  })
+
+  it('keeps the dot of a call the app quit on, while its card still waits, and answers it', async () => {
+    const waiting = request('p1')
+    const interrupted: ToolCallEvent = {
+      ...callOf(waiting),
+      state: ToolCallState.Interrupted,
+      output: 'Glade quit while this tool call waited on permission, so it did not run.',
+    }
+    await renderChat([waiting], [interrupted])
+
+    expect(openCards()).toHaveLength(1)
+    expect(rows()[0]).toHaveAccessibleName(/^Interrupted\s*Bash\s*npm test.*Permission\s*Waiting on you$/)
+
+    fireEvent.click(button('Allow once'))
+    await settle()
+
+    expect(inTheChat()).toHaveLength(0)
+    expect(rows()[0]).toHaveAccessibleName(/^Interrupted\s*Bash\s*npm test.*Permission\s*Allowed once\s*Interrupted$/)
+  })
+
+  it("shows a subagent's decision on its call's row in the subagent's log, as its card names the subagent", async () => {
+    const write = request('guide', {
+      ...WRITE,
+      id: 'guide',
+      toolUseId: 'guide-write',
+      agentId: 'a1b2c3',
+    })
+    const events = [
+      agentCall('guide-agent', { description: 'Upgrade guide' }),
+      subagentCall('guide-write', 'guide-agent'),
+    ]
+    await renderChat([write], events)
+    expect(within(card()).getByText('subagent · Upgrade guide')).toBeInTheDocument()
+    // The Tool calls list has the Agent call alone, which no permission was asked about.
+    expect(decisions()).toEqual([])
+
+    fireEvent.click(screen.getByRole('tab', { name: /^Subagents/ }))
+    await settle()
+    fireEvent.click(
+      within(screen.getByRole('group', { name: 'Upgrade guide' })).getByRole('button', { expanded: false }),
+    )
+    const subagentLog = (): HTMLElement => screen.getByRole('log', { name: 'Upgrade guide log' })
+    const line = (): Element | null => subagentLog().querySelector(`[${PERMISSION_LINE_STATE}]`)
+    expect(line()).toHaveTextContent(/^Waiting on you$/)
+    expect(within(subagentLog()).getByRole('img', { name: 'Waiting' })).toHaveAttribute('data-state', 'waiting')
+
+    fireEvent.click(button('Deny'))
+    fireEvent.change(within(card()).getByRole('textbox', { name: 'Note for the agent' }), {
+      target: { value: 'Not in out/' },
+    })
+    fireEvent.click(button('Deny'))
+    await settle()
+
+    expect(inTheChat()).toHaveLength(0)
+    expect(line()).toHaveTextContent(/^Denied: “Not in out\/”$/)
+    expect(line()).toHaveAttribute(PERMISSION_LINE_STATE, 'denied')
+  })
+
+  it('shows a call that never ran, its request withdrawn by Stop, in slate rather than as a failed call', async () => {
+    const waiting = request('p1')
+    const { fake } = await renderChat([waiting])
+
+    act(() => {
+      fake.emit({
+        type: EventType.PermissionWithdrawn,
+        permissionRequest: { ...waiting, state: PermissionRequestState.Withdrawn, closedAt: 4_000 },
+      })
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: {
+          ...callOf(waiting),
+          state: ToolCallState.Error,
+          output: 'You stopped the agent.',
+          finishedAt: 4_000,
+        },
+      })
+    })
+
+    const [row] = rows()
+    expect(inTheChat()).toHaveLength(0)
+    expect(row).toHaveAccessibleName(/^Withdrawn\s*Bash\s*npm test.*Permission\s*Withdrawn$/)
+    expect(row?.querySelector('[data-state]')).toHaveAttribute('data-state', 'done')
+    expect(row?.parentElement).not.toHaveClass(moduleClass(toolLogStyles, 'error'))
+    expect(row).not.toHaveTextContent('You stopped the agent.')
+  })
+
+  it('answers a card whose call never reached the tool log: it just leaves the chat', async () => {
+    const { fake } = await renderChat([request('p1')], [])
+
+    fireEvent.click(button('Allow once'))
+    await settle()
+
+    expect(answers(fake)).toHaveLength(1)
+    expect(inTheChat()).toHaveLength(0)
+    expect(screen.getByText('No tool calls yet.')).toBeInTheDocument()
+  })
+})
+
+describe('the sandbox’s cards', () => {
+  const WEB = '/Users/me/code/acme-web'
+  const FOLDER_READ = request('read', {
+    toolName: 'Read',
+    toolUseId: 'read-call',
+    input: { file_path: `${WEB}/package.json` },
+    description: '~/code/acme-web/package.json',
+    suggestions: [],
+    suppressAlwaysAllowRule: true,
+    sandbox: { kind: SandboxAskKind.Folder, path: WEB, access: FolderAccess.Read },
+  })
+  const FOLDER_WRITE = request('write-out', {
+    toolName: 'Write',
+    toolUseId: 'client-write',
+    agentId: 'a1b2c3',
+    input: { file_path: `${WEB}/src/api/client.ts`, content: 'export const client = {}' },
+    suggestions: [],
+    suppressAlwaysAllowRule: true,
+    sandbox: { kind: SandboxAskKind.Folder, path: `${WEB}/src/api`, access: FolderAccess.ReadWrite },
+  })
+  const DOMAIN = request('reach', {
+    toolName: 'SandboxNetworkAccess',
+    toolUseId: 'npx-call',
+    input: { host: 'registry.npmjs.org' },
+    description: 'Allow network connection to registry.npmjs.org?',
+    suppressAlwaysAllowRule: true,
+    sandbox: {
+      kind: SandboxAskKind.Domain,
+      domain: 'registry.npmjs.org',
+      command: 'npx openapi-typescript openapi/schema.yaml -o build/client.ts',
+      commandDescription: 'Generate the typed client from the schema',
+    },
+  })
+  const FETCH = request('fetch', {
+    toolName: 'WebFetch',
+    input: { url: 'https://docs.acme.dev/api/retries', prompt: 'Summarize the page.' },
+    suppressAlwaysAllowRule: true,
+    sandbox: { kind: SandboxAskKind.Domain, domain: 'docs.acme.dev', command: null, commandDescription: null },
+  })
+  const ACCESS = request('access', {
+    toolName: REQUEST_ACCESS_TOOL,
+    input: {
+      path: '/Users/me/.cache/uv',
+      access: 'write',
+      reason: '`uv sync --frozen` needs to write its download cache.',
+    },
+    description: '`uv sync --frozen` needs to write its download cache.',
+    suggestions: [],
+    suppressAlwaysAllowRule: true,
+    sandbox: { kind: SandboxAskKind.Folder, path: '/Users/me/.cache/uv', access: FolderAccess.ReadWrite },
+  })
+  const OUTSIDE = request('outside', {
+    input: {
+      command: 'docker compose up -d db',
+      description: 'Start the local Postgres for the integration tests',
+      dangerouslyDisableSandbox: true,
+    },
+    description: null,
+    suggestions: [],
+    suppressAlwaysAllowRule: true,
+    sandbox: { kind: SandboxAskKind.Outside },
+  })
+
+  /** The names of the card's answers, in order. */
+  function answerNames(index = 0): (string | null)[] {
+    const group = within(card(index)).getByRole('group', { name: 'Answer' })
+    return within(group)
+      .getAllByRole('button')
+      .map((answer) => answer.textContent)
+  }
+
+  it('asks to read a folder: the folder as code, the file the tool touched, and task · workspace · deny', async () => {
+    await renderChat([FOLDER_READ])
+
+    const title = card().firstElementChild
+    expect(title).toHaveTextContent('The agent wants to read~/code/acme-web')
+    expect(within(card()).getByText('~/code/acme-web').tagName).toBe('CODE')
+    expect(within(card()).getByText('Read')).toHaveClass(moduleClass(styles, 'targetTool'))
+    expect(within(card()).getByText('~/code/acme-web/package.json')).toBeInTheDocument()
+    // Just the file: no input block to read through.
+    expect(within(card()).queryByLabelText('Content')).not.toBeInTheDocument()
+    expect(answerNames()).toEqual(['Allow for this task', 'Allow for this workspace', 'Deny'])
+    expect(within(card()).queryByRole('button', { name: 'Allow once' })).not.toBeInTheDocument()
+    expect(button('Allow for this task')).toHaveFocus()
+  })
+
+  it('asks to write to a folder, naming the subagent that asked', async () => {
+    const events = [
+      agentCall('generator', { description: 'Client generator' }),
+      subagentCall('client-write', 'generator'),
+    ]
+    await renderChat([FOLDER_WRITE], events)
+
+    expect(card().firstElementChild).toHaveTextContent('The agent wants to write to~/code/acme-web/src/api')
+    expect(within(card()).getByText('subagent · Client generator')).toBeInTheDocument()
+    expect(within(card()).getByText('~/code/acme-web/src/api/client.ts')).toBeInTheDocument()
+    expect(within(card()).queryByText(/export const client/)).not.toBeInTheDocument()
+  })
+
+  it('asks to reach a domain, with the command waiting on the connection and what it’s for', async () => {
+    await renderChat([DOMAIN, FETCH])
+
+    expect(card().firstElementChild).toHaveTextContent('The agent wants to reachregistry.npmjs.org')
+    expect(lines(within(card()).getByLabelText('Command'))).toEqual([
+      'npx openapi-typescript openapi/schema.yaml -o build/client.ts',
+    ])
+    expect(within(card()).getByText('Generate the typed client from the schema')).toBeInTheDocument()
+    expect(answerNames()).toEqual(['Allow for this task', 'Allow for this workspace', 'Deny'])
+    // WebFetch has no command: the tool and its URL instead.
+    expect(card(1).firstElementChild).toHaveTextContent('The agent wants to reachdocs.acme.dev')
+    expect(within(card(1)).getByText('https://docs.acme.dev/api/retries')).toBeInTheDocument()
+    expect(within(card(1)).queryByLabelText('Command')).not.toBeInTheDocument()
+  })
+
+  it('shows the agent’s own reason for a request_access call, its backticks as code', async () => {
+    await renderChat([ACCESS])
+
+    expect(card().firstElementChild).toHaveTextContent('The agent wants to write to~/.cache/uv')
+    expect(within(card()).getByText('uv sync --frozen').tagName).toBe('CODE')
+    expect(card()).toHaveTextContent('uv sync --frozen needs to write its download cache.')
+    expect(answerNames()).toEqual(['Allow for this task', 'Allow for this workspace', 'Deny'])
+  })
+
+  it('asks for a single file by its own name, with the same answers, and its row says the file', async () => {
+    const gitconfig = request('gitconfig', {
+      toolName: REQUEST_ACCESS_TOOL,
+      toolUseId: 'gitconfig-call',
+      input: { path: '~/.gitconfig', access: 'read', reason: '`git log` needs your git settings.' },
+      description: '`git log` needs your git settings.',
+      suggestions: [],
+      suppressAlwaysAllowRule: true,
+      // A file in the home folder: the card asks for it alone, never for the home folder.
+      sandbox: { kind: SandboxAskKind.Folder, path: '/Users/me/.gitconfig', access: FolderAccess.Read, file: true },
+    })
+    const { fake } = await renderChat([gitconfig])
+
+    expect(card().firstElementChild).toHaveTextContent('The agent wants to read~/.gitconfig')
+    expect(within(card()).getByText('~/.gitconfig').tagName).toBe('CODE')
+    expect(card()).toHaveTextContent('git log needs your git settings.')
+    expect(answerNames()).toEqual(['Allow for this task', 'Allow for this workspace', 'Deny'])
+
+    fireEvent.click(button('Allow for this workspace'))
+    await settle()
+
+    expect(answers(fake)).toEqual([{ id: 'gitconfig', decision: { kind: PermissionDecisionKind.AllowForWorkspace } }])
+  })
+
+  it('names another user’s folder in full: only your own home folder is ~', async () => {
+    const theirs = request('theirs', {
+      ...FOLDER_READ,
+      input: { file_path: '/Users/someone/Documents/taxes.txt' },
+      sandbox: { kind: SandboxAskKind.Folder, path: '/Users/someone/Documents', access: FolderAccess.Read },
+    })
+    await renderChat([theirs])
+
+    // Before #510's review, this card read "The agent wants to read ~/Documents".
+    expect(card().firstElementChild).toHaveTextContent('The agent wants to read/Users/someone/Documents')
+    expect(card()).toHaveTextContent('/Users/someone/Documents/taxes.txt')
+    expect(card()).not.toHaveTextContent('~')
+  })
+
+  it('asks to run a command outside the sandbox: what that means, the command, and only Allow once · Deny', async () => {
+    await renderChat([OUTSIDE])
+
+    expect(card().firstElementChild).toHaveTextContent('The agent wants to run a command outside the sandbox')
+    expect(within(card()).getByText(OUTSIDE_SANDBOX_NOTE)).toBeInTheDocument()
+    expect(lines(within(card()).getByLabelText('Command'))).toEqual(['docker compose up -d db'])
+    expect(within(card()).getByText('Start the local Postgres for the integration tests')).toBeInTheDocument()
+    expect(answerNames()).toEqual(['Allow once', 'Deny'])
+    expect(button('Allow once')).toHaveFocus()
+  })
+
+  it('grants the folder to the task: the card leaves the chat, and its call’s row says so', async () => {
+    const { fake } = await renderChat([FOLDER_READ])
+    expect(decisions()).toEqual(['waiting: Waiting on you: read ~/code/acme-web'])
+
+    fireEvent.click(button('Allow for this task'))
+    await settle()
+
+    expect(answers(fake)).toEqual([{ id: 'read', decision: { kind: PermissionDecisionKind.AllowForTask } }])
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['allowed: Allowed for this task: read ~/code/acme-web'])
+  })
+
+  it('grants the domain to the workspace, and its command’s row says so', async () => {
+    const { fake } = await renderChat([DOMAIN])
+
+    fireEvent.click(button('Allow for this workspace'))
+    await settle()
+
+    expect(answers(fake)).toEqual([{ id: 'reach', decision: { kind: PermissionDecisionKind.AllowForWorkspace } }])
+    expect(inTheChat()).toHaveLength(0)
+    expect(decisions()).toEqual(['allowed: Allowed for this workspace: reach registry.npmjs.org'])
+  })
+
+  it('denies with a note, and allows running outside the sandbox once, each on its own call’s row', async () => {
+    const { fake } = await renderChat([ACCESS, OUTSIDE])
+
+    fireEvent.click(button('Deny'))
+    const note = within(card()).getByRole('textbox', { name: 'Note for the agent' })
+    fireEvent.change(note, { target: { value: 'Skip uv for now.' } })
+    fireEvent.keyDown(note, { key: 'Enter' })
+    await settle()
+    fireEvent.click(button('Allow once'))
+    await settle()
+
+    expect(answers(fake)).toEqual([
+      { id: 'access', decision: { kind: PermissionDecisionKind.Deny, note: 'Skip uv for now.' } },
+      { id: 'outside', decision: { kind: PermissionDecisionKind.AllowOnce } },
+    ])
+    expect(decisions()).toEqual([
+      'denied: Denied: write to ~/.cache/uv · “Skip uv for now.”',
+      'allowed: Allowed once: run outside the sandbox',
+    ])
+  })
+
+  it('moves ← → through its three answers, wrapping round, and ↵ on one gives it', async () => {
+    const { fake } = await renderChat([FOLDER_READ])
+
+    fireEvent.keyDown(button('Allow for this task'), { key: 'ArrowRight' })
+    expect(button('Allow for this workspace')).toHaveFocus()
+    fireEvent.keyDown(button('Allow for this workspace'), { key: 'ArrowRight' })
+    expect(button('Deny')).toHaveFocus()
+    fireEvent.keyDown(button('Deny'), { key: 'ArrowRight' })
+    expect(button('Allow for this task')).toHaveFocus()
+    fireEvent.keyDown(button('Allow for this task'), { key: 'ArrowLeft' })
+    fireEvent.keyDown(button('Deny'), { key: 'ArrowLeft' })
+    expect(button('Allow for this workspace')).toHaveFocus()
+    fireEvent.keyDown(button('Allow for this workspace'), { key: 'Enter' })
+    await settle()
+
+    expect(answers(fake)).toEqual([{ id: 'read', decision: { kind: PermissionDecisionKind.AllowForWorkspace } }])
+  })
+
+  it('leaves the chat, withdrawn, while you type a note on a folder card, sending nothing', async () => {
+    const { fake } = await renderChat([FOLDER_WRITE])
+
+    fireEvent.click(button('Deny'))
+    const note = within(card()).getByRole('textbox', { name: 'Note for the agent' })
+    fireEvent.change(note, { target: { value: 'Write it to bui' } })
+    act(() => {
+      fake.emit({
+        type: EventType.PermissionWithdrawn,
+        permissionRequest: { ...FOLDER_WRITE, state: PermissionRequestState.Withdrawn, closedAt: 4_000 },
+      })
+    })
+
+    expect(openCards()).toHaveLength(0)
+    expect(note).not.toBeInTheDocument()
+    expect(decisions()).toEqual(['withdrawn: Withdrawn: write to ~/code/acme-web/src/api'])
+    expect(answers(fake)).toEqual([])
+  })
+
+  it('two cards for one folder: granting it from one leaves the other open, and it can still be answered', async () => {
+    const second = { ...FOLDER_READ, id: 'read-2', toolUseId: 'read-call-2' }
+    const { fake } = await renderChat([FOLDER_READ, second])
+
+    fireEvent.click(button('Allow for this task'))
+    await settle()
+
+    expect(openCards()).toHaveLength(1)
+    expect(button('Allow for this task')).toHaveFocus()
+    fireEvent.click(button('Deny'))
+    fireEvent.submit(card())
+    await settle()
+    expect(answers(fake)).toEqual([
+      { id: 'read', decision: { kind: PermissionDecisionKind.AllowForTask } },
+      { id: 'read-2', decision: { kind: PermissionDecisionKind.Deny } },
+    ])
+    expect(decisions()).toEqual([
+      'allowed: Allowed for this task: read ~/code/acme-web',
+      'denied: Denied: read ~/code/acme-web',
+    ])
+  })
+
+  it('shows the title alone when there’s nothing more to show', async () => {
+    const bare = [
+      { ...OUTSIDE, id: 'o', input: {} },
+      { ...ACCESS, id: 'a', input: {}, description: null },
+      { ...FETCH, id: 'f', input: {} },
+      { ...FOLDER_READ, id: 'r', toolName: 'LS', input: { path: WEB } },
+    ]
+    await renderChat(bare)
+
+    for (const [index] of bare.entries()) expect(card(index).children).toHaveLength(2)
+  })
+})
+
+describe('a call a rule decided', () => {
+  const SHARED = { kind: SandboxAskKind.Folder, path: '/Users/me/code/acme-shared', access: FolderAccess.Read } as const
+  const UV = { kind: SandboxAskKind.Folder, path: '/Users/me/.cache/uv', access: FolderAccess.ReadWrite } as const
+  const mark = (toolUseId: string, outcome: PermissionMarkOutcome): PermissionMark => ({
+    taskId: 't1',
+    toolUseId,
+    outcome,
+    createdAt: 2_000,
+  })
+
+  it('says so on its row as main marks it, and what the sandbox blocked once that’s known, with no card', async () => {
+    const read = { ...agentCall('read-shared', { file_path: `${SHARED.path}/common.yaml` }), name: 'Read' }
+    const sync = { ...agentCall('uv-sync', { command: 'uv sync --frozen' }), name: 'Bash' }
+    const { fake } = await renderChat([], [read, sync])
+    expect(decisions()).toEqual([])
+
+    act(() => {
+      fake.emit({
+        type: EventType.PermissionMarked,
+        mark: mark('read-shared', { kind: PermissionMarkKind.Grant, scope: SandboxGrantScope.Workspace, ask: SHARED }),
+      })
+      fake.emit({
+        type: EventType.PermissionMarked,
+        mark: mark('uv-sync', { kind: PermissionMarkKind.Blocked, ask: null }),
+      })
+    })
+    expect(decisions()).toEqual([
+      'allowed: Allowed by workspace grant: read ~/code/acme-shared',
+      'blocked: Blocked by the sandbox',
+    ])
+
+    // The agent's request_access names what the command was blocked from: that row's line alone changes.
+    act(() => {
+      fake.emit({
+        type: EventType.PermissionMarked,
+        mark: mark('uv-sync', { kind: PermissionMarkKind.Blocked, ask: UV }),
+      })
+    })
+    expect(decisions()).toEqual([
+      'allowed: Allowed by workspace grant: read ~/code/acme-shared',
+      'blocked: Blocked by the sandbox: write to ~/.cache/uv',
+    ])
+    expect(inTheChat()).toHaveLength(0)
   })
 })

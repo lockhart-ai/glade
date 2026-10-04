@@ -31,8 +31,15 @@ import {
 } from '../store/test-bridge'
 import { WindowCommandId } from '../../shared/commands'
 import { InputBar } from '../input-bar'
+import { FolderAccess, SandboxAskKind } from '../../shared/sandbox'
 import { TaskList, TaskListToolbar } from '.'
+import { rowStatus } from './rowStatus'
+import { PERMISSION_SHIELD_LABEL } from './TaskRow'
 import { NOW_REFRESH_MS } from './useNow'
+import { setHomeFolder } from '../../shared/homeFolder'
+
+// The sample data's home folder, which paths under it are shown from as `~`.
+setHomeFolder('/Users/me')
 
 const NOW = Date.UTC(2026, 8, 23, 11, 30)
 const MINUTE = 60_000
@@ -238,6 +245,59 @@ describe('TaskList', () => {
 
     expect(row('Fix flaky login test')).toHaveTextContent('Fix flaky login testnowError: API overloaded · retry?')
     expect(row('Fix flaky login test').querySelector('[data-state]')).toHaveAttribute('data-state', 'error')
+  })
+
+  it('says what a task waits on you for while a permission card is open, led by the shield', async () => {
+    const waiting = { activity: TaskActivity.Waiting, awaitingPermission: true, status: 'Reading acme-web' }
+    const web = { kind: SandboxAskKind.Folder, path: '/Users/me/code/acme-web', access: FolderAccess.Read } as const
+    const publishing = task('s1', 'Publish the client', 0, { ...waiting, permissionAsk: web })
+    const { fake } = await renderList([
+      publishing,
+      task('s2', 'Run the migrations', 0, waiting),
+      task('s3', 'Start Postgres', 0, { ...waiting, permissionAsk: { kind: SandboxAskKind.Outside } }),
+      task('s4', 'Copy the files', 0, { status: 'Copying', activity: TaskActivity.Working }),
+    ])
+
+    expect(row('Publish the client')).toHaveTextContent('Publish the clientnowWaiting on you: read ~/code/acme-web')
+    expect(row('Run the migrations')).toHaveTextContent('Run the migrationsnowWaiting on you')
+    expect(row('Start Postgres')).toHaveTextContent('Waiting on you: run outside the sandbox')
+    for (const title of ['Publish the client', 'Run the migrations', 'Start Postgres']) {
+      expect(within(row(title)).getByRole('img', { name: PERMISSION_SHIELD_LABEL })).toBeInTheDocument()
+    }
+    expect(within(row('Copy the files')).queryByRole('img', { name: PERMISSION_SHIELD_LABEL })).toBeNull()
+    // A done task's line isn't about a card, whatever it left open.
+    expect(rowStatus({ task: { ...publishing, state: TaskState.Done }, now: NOW })).toEqual({
+      text: 'Reading acme-web',
+      permission: false,
+    })
+
+    // Answered, the row goes back to the task's own status, without the shield.
+    act(() => {
+      fake.emit({
+        type: EventType.TaskUpdated,
+        task: { ...publishing, activity: TaskActivity.Working, awaitingPermission: false, permissionAsk: null },
+      })
+    })
+    expect(row('Publish the client')).toHaveTextContent('Publish the clientnowReading acme-web')
+    expect(within(row('Publish the client')).queryByRole('img', { name: PERMISSION_SHIELD_LABEL })).toBeNull()
+  })
+
+  it('says what stopped a task over what it waits on, when an error stopped it with a card still open', async () => {
+    const error = {
+      kind: AgentErrorKind.Transient,
+      source: TaskErrorSource.Api,
+      status: 529,
+      code: 'overloaded',
+      details: 'API Error: 529 Overloaded',
+      retries: 3,
+      retryingMs: 120_000,
+    }
+    await renderList([
+      task('e2', 'Run the tests', 0, { activity: TaskActivity.Error, error, awaitingPermission: true }),
+    ])
+
+    expect(row('Run the tests')).toHaveTextContent('Error:')
+    expect(within(row('Run the tests')).queryByRole('img', { name: PERMISSION_SHIELD_LABEL })).toBeNull()
   })
 
   it('says why a paused task is paused and when it resumes in place of the status, with a blue dot', async () => {

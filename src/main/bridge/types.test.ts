@@ -13,6 +13,7 @@ import {
   type GladeEvent,
 } from '../../shared/bridge'
 import { EMPTY_MENU_BAR_SNAPSHOT, type MenuBarSnapshot } from '../../shared/menuBar'
+import type { Grant, SettingsGrantTarget } from '../../shared/sandbox'
 import type { Command } from '../../shared/commands'
 import {
   ArtifactFilter,
@@ -26,6 +27,7 @@ import {
   type ArtifactGroupFold,
   type Message,
   type OpenFiles,
+  type PermissionMark,
   type PermissionRequest,
   type QuestionSet,
   type QueuedMessage,
@@ -64,6 +66,7 @@ const glade: GladeBridge = {
   invoke: () => Promise.resolve({} as never),
   subscribe: () => noop,
   pathForFile: () => '',
+  homeFolder: null,
 }
 const WORKSPACE: Workspace = { id: 'w', name: 'Acme API', rootPath: '/code/acme-api', createdAt: 1, lastOpenedAt: 1 }
 
@@ -78,6 +81,7 @@ const TASK_HANDLERS = {
   [CommandName.TasksUpdate]: () => ({ task: {} as Task }),
   [CommandName.TasksDelete]: () => null,
   [CommandName.TasksSend]: () => ({ message: {} as Message }),
+  [CommandName.TasksBroadcast]: () => ({ recipients: [] }),
   [CommandName.TasksStop]: () => ({ task: {} as Task }),
   [CommandName.TasksRetry]: () => ({ task: {} as Task }),
   [CommandName.TasksRetryLoggedOut]: () => ({ tasks: [] }),
@@ -88,6 +92,7 @@ const TASK_HANDLERS = {
     queuedMessages: [],
     questionSets: [],
     permissionRequests: [],
+    permissionMarks: [],
     openFiles: { taskId: 't', paths: [], activePath: null },
     todos: null,
     artifacts: [],
@@ -173,6 +178,10 @@ const TASK_HANDLERS = {
   [CommandName.PluginsOpenFolder]: () => null,
   [CommandName.PluginsPlaceView]: () => ({ status: '' }),
   [CommandName.PluginsReload]: () => null,
+  [CommandName.SandboxListGrants]: () => ({ grants: [] }),
+  [CommandName.SandboxAddGrant]: () => ({ grants: [] }),
+  [CommandName.SandboxSetFolderAccess]: () => ({ grants: [] }),
+  [CommandName.SandboxRemoveGrant]: () => ({ grants: [] }),
   [CommandName.ControlStatus]: () => ({ status: CONTROL_STATUS }),
   [CommandName.AccountStatus]: () => ({ status: { account: null, usage: [] } }),
   [CommandName.LoginStatus]: () => ({ status: IDLE_LOGIN }),
@@ -186,6 +195,7 @@ const TASK_SCHEMAS = {
   [CommandName.TasksReopen]: REQUEST_SCHEMAS[CommandName.TasksReopen],
   [CommandName.TasksUpdate]: REQUEST_SCHEMAS[CommandName.TasksUpdate],
   [CommandName.TasksSend]: REQUEST_SCHEMAS[CommandName.TasksSend],
+  [CommandName.TasksBroadcast]: REQUEST_SCHEMAS[CommandName.TasksBroadcast],
   [CommandName.TasksStop]: REQUEST_SCHEMAS[CommandName.TasksStop],
   [CommandName.TasksRetry]: REQUEST_SCHEMAS[CommandName.TasksRetry],
   [CommandName.TasksCompact]: REQUEST_SCHEMAS[CommandName.TasksCompact],
@@ -291,6 +301,7 @@ describe('the command map', () => {
       readonly queuedMessages: readonly QueuedMessage[]
       readonly questionSets: readonly QuestionSet[]
       readonly permissionRequests: readonly PermissionRequest[]
+      readonly permissionMarks: readonly PermissionMark[]
       readonly openFiles: OpenFiles
       readonly todos: TodoList | null
       readonly artifacts: readonly Artifact[]
@@ -493,6 +504,9 @@ describe('events', () => {
         case EventType.PermissionWithdrawn:
           expectTypeOf(event.permissionRequest).toEqualTypeOf<PermissionRequest>()
           break
+        case EventType.PermissionMarked:
+          expectTypeOf(event.mark).toEqualTypeOf<PermissionMark>()
+          break
         case EventType.OpenFilesChanged:
           expectTypeOf(event.openFiles).toEqualTypeOf<OpenFiles>()
           break
@@ -558,6 +572,11 @@ describe('events', () => {
           break
         case EventType.MenuBarChanged:
           expectTypeOf(event.snapshot).toEqualTypeOf<MenuBarSnapshot>()
+          break
+        case EventType.SandboxGrantsChanged:
+          // A scope Settings lists, never a task's.
+          expectTypeOf(event.target).toEqualTypeOf<SettingsGrantTarget>()
+          expectTypeOf(event.grants).toEqualTypeOf<readonly Grant[]>()
           break
       }
     })

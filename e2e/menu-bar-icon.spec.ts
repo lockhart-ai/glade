@@ -1,4 +1,5 @@
 import { clickMenuBarIcon, expect, menuBarIcon, seedPath, test } from './fixtures'
+import { inMain } from './in-main'
 import { chooseMenuItem } from './menu'
 import { menuBarPopover, regions, settings, taskHeader, taskList } from './selectors'
 
@@ -63,7 +64,7 @@ test("Glade's icon in the menu bar counts what needs you, and its popover opens 
   await expect(regions(window).workspace).toContainText('Acme API')
 
   // The window stays hidden throughout, and so does the popover: an e2e run never shows either.
-  const visible = await glade.app.evaluate(({ BrowserWindow }) =>
+  const visible = await inMain(glade.app, ({ BrowserWindow }) =>
     BrowserWindow.getAllWindows().map((w) => w.isVisible()),
   )
   expect(visible).toEqual([false, false])
@@ -81,9 +82,13 @@ test("the popover's window closing by itself leaves the menu bar working: a chan
   await expect(menuBarPopover(page).rows('Needs you')).toHaveCount(1)
 
   const closed = page.waitForEvent('close')
-  await glade.app.evaluate(({ BrowserWindow }, route) => {
-    for (const each of BrowserWindow.getAllWindows()) if (each.webContents.getURL().endsWith(route)) each.close()
-  }, '#menu-bar')
+  await inMain(
+    glade.app,
+    ({ BrowserWindow }, route) => {
+      for (const each of BrowserWindow.getAllWindows()) if (each.webContents.getURL().endsWith(route)) each.close()
+    },
+    '#menu-bar',
+  )
   await closed
   await expect.poll(() => menuBarIcon(glade)).toMatchObject({ shown: true, open: false })
 

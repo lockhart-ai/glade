@@ -6,9 +6,8 @@ import {
   mergeGrants,
   SandboxGrantKind,
   SandboxGrantScope,
-  type DomainGrant,
-  type FolderGrant,
   type Grant,
+  type GrantKey,
   type GrantedTask,
   type SandboxGrant,
   type SandboxGrantTarget,
@@ -22,7 +21,7 @@ export interface NewSandboxGrant {
 }
 
 /** Which grant of a scope: a folder by its path (whatever its access), or a domain. */
-export type SandboxGrantKey = Pick<FolderGrant, 'kind' | 'path'> | DomainGrant
+export type SandboxGrantKey = GrantKey
 
 /** What adding or changing a grant did to the scope's grants. */
 export enum SandboxGrantChange {
@@ -42,7 +41,7 @@ interface GrantOwner {
 }
 
 const TABLE = 'sandbox_grants'
-const COLUMNS = 'scope, workspace_id, task_id, kind, value, access, created_at'
+const COLUMNS = 'scope, workspace_id, task_id, kind, value, access, is_file, created_at'
 const SCOPES = Object.values(SandboxGrantScope)
 const KINDS = Object.values(SandboxGrantKind)
 const ACCESSES = Object.values(FolderAccess)
@@ -85,8 +84,10 @@ function parseTarget(row: Row): SandboxGrantTarget {
 function parseGrant(row: Row): Grant {
   const kind = row.oneOf('kind', KINDS)
   switch (kind) {
-    case SandboxGrantKind.Folder:
-      return { kind, path: row.text('value'), access: row.oneOf('access', ACCESSES) }
+    case SandboxGrantKind.Folder: {
+      const folder = { kind, path: row.text('value'), access: row.oneOf('access', ACCESSES) } as const
+      return row.integer('is_file') === 1 ? { ...folder, file: true } : folder
+    }
     case SandboxGrantKind.Domain:
       return { kind, domain: row.text('value') }
   }
@@ -107,9 +108,9 @@ function folderAccess(db: Database, owner: GrantOwner, path: string): FolderAcce
 }
 
 /**
- * Grants a folder or domain to a scope. One the scope already has stays as it was, granted when it first was, except
- * that a folder granted read-only and now read-write is upgraded: adding never narrows a folder's access (see
- * `setSandboxFolderAccess`). Answers with what changed.
+ * Grants a folder (or a single file) or domain to a scope. One the scope already has stays as it was, granted when it
+ * first was, and a folder or a file as it first was, except that a folder granted read-only and now read-write is
+ * upgraded: adding never narrows a folder's access (see `setSandboxFolderAccess`). Answers with what changed.
  */
 export function addSandboxGrant(
   db: Database,
@@ -128,7 +129,8 @@ export function addSandboxGrant(
     }
     const { changes } = db
       .prepare(
-        `INSERT INTO ${TABLE} (${COLUMNS}) VALUES (@scope, @workspaceId, @taskId, @kind, @value, @access, @createdAt)
+        `INSERT INTO ${TABLE} (${COLUMNS})
+         VALUES (@scope, @workspaceId, @taskId, @kind, @value, @access, @isFile, @createdAt)
          ON CONFLICT DO NOTHING`,
       )
       .run({
@@ -136,6 +138,7 @@ export function addSandboxGrant(
         kind: grant.kind,
         value: valueOf(grant),
         access: grant.kind === SandboxGrantKind.Folder ? grant.access : null,
+        isFile: grant.kind === SandboxGrantKind.Folder && grant.file === true ? 1 : 0,
         createdAt: now,
       })
     return changes > 0 ? SandboxGrantChange.Added : SandboxGrantChange.Unchanged

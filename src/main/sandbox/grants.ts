@@ -17,17 +17,30 @@
  * - A session that won't take an overlay is closed, its task stopping on the sandbox's error, as at start: it's never
  *   left running on other bounds than the grants say. The grant stays saved, and the task's next session starts with it.
  *   Every call applies the scope's grants again, changed or not.
- * - **One folder, one grant.** A folder is kept by where it really is (`canonicalPath`: links followed and the disk's
- *   own case as far as the path exists, the rest as written), and found again by that, however it's spelt.
+ * - **One folder, one grant.** A folder is kept by where it really is when it's granted (`canonicalPath`: links
+ *   followed and the disk's own case as far as the path exists, the rest as written), and found again by that, however
+ *   it's spelt.
+ * - **A grant is the path it was given for, and stays that.** Once kept, a grant's path is never resolved again: it's
+ *   compared, and handed to the sandbox, as kept. What the path leads to later (the folder swapped for a link to
+ *   another, say) was never granted, and a call through it resolves to somewhere the grant doesn't name. A permission
+ *   card's grant is the very path its card showed (`saveCardGrant`), and is refused if that has since moved
+ *   (`hasMoved`).
+ * - **A single file** (`FolderGrant.file`) is what a card grants when the file's folder is too much to offer: that path
+ *   alone, and nothing beside it. Settings lists it with the folders, by its path.
  * - **Only what the sandbox can take is saved.** A grant is checked here by the sandbox's own rules (`usableGrants`), so
  *   nothing saved is later left out of a session's settings: a folder is absolute, never the whole disk, and has no
  *   glob character; a domain is a bare host, or `*.` and a host of two labels or more (never a whole top-level domain).
  * - Grants live only in Glade's database and the session's flag settings: nothing is written to the user's files.
+ * - **Settings hears each change** (#451). A change to the Glade-wide grants or a workspace's is broadcast as it's
+ *   saved (`sandbox.grantsChanged`, with the scope's grants as they now are), whoever made it: Settings, or Allow for
+ *   this workspace on a card. So the lists in Settings stay current while it's open, without waiting on the sessions.
  */
 import type { Database } from 'better-sqlite3'
-import { BridgeErrorCode } from '../../shared/bridge'
+import { BridgeErrorCode, EventType } from '../../shared/bridge'
 import {
+  coversAccess,
   FolderAccess,
+  isSettingsGrantTarget,
   SandboxGrantKind,
   SandboxGrantScope,
   type Grant,
@@ -44,6 +57,7 @@ import {
   type SandboxGrants,
 } from '../agent/sandbox'
 import { CommandFailure } from '../bridge/errors'
+import type { Emit } from '../bridge/events'
 import {
   addSandboxGrant,
   listGrantsCovering,
@@ -56,12 +70,15 @@ import {
 } from '../db/repositories/sandbox-grants'
 import { getTask } from '../db/repositories/tasks'
 import { getWorkspace } from '../db/repositories/workspaces'
-import { canonicalKey, canonicalPath, pathKey } from '../permissions/canonical-path'
+import { hostMatches } from '../agent/sandbox-requests'
+import { canonicalPath, keyInside, pathKey } from '../permissions/canonical-path'
 
-/** What changing grants needs: the database, and the runner whose sessions get the change. */
+/** What changing grants needs: the database, the runner whose sessions get the change, and the windows to tell. */
 export interface SandboxGrantsContext {
   readonly db: Database
   readonly runner: Pick<AgentRunner, 'applySandboxGrants'>
+  /** Tells every window a scope Settings lists changed (`sandbox.grantsChanged`). */
+  readonly emit: Emit
 }
 
 /** What granting, or changing a folder's access, did: to the scope's grants, and to the running sessions. */
@@ -85,7 +102,7 @@ export function sandboxGrantsOf(grants: readonly Grant[]): SandboxGrants {
   for (const grant of grants) {
     switch (grant.kind) {
       case SandboxGrantKind.Folder:
-        folders.push({ path: grant.path, access: grant.access })
+        folders.push({ path: grant.path, access: grant.access, ...(grant.file === true ? { file: grant.file } : {}) })
         break
       case SandboxGrantKind.Domain:
         domains.push(grant.domain)
@@ -102,6 +119,23 @@ export function sandboxGrantsOf(grants: readonly Grant[]): SandboxGrants {
  */
 export function taskSandboxGrants(db: Database, task: GrantedTask): SandboxGrants {
   return sandboxGrantsOf(listGrantsCovering(db, task))
+}
+
+/** A scope's grants as Settings lists them: what each allows, in the order they were first granted. */
+export function scopeGrants(db: Database, target: SandboxGrantTarget): Grant[] {
+  return listSandboxGrants(db, target).map(({ grant }) => grant)
+}
+
+/**
+ * Tells every window a scope's grants changed, with them as they now are, if it's one Settings lists (Glade-wide, or a
+ * workspace's): a task's grants show nowhere.
+ */
+export function broadcastGrants(
+  { db, emit }: Pick<SandboxGrantsContext, 'db' | 'emit'>,
+  target: SandboxGrantTarget,
+): void {
+  if (!isSettingsGrantTarget(target)) return
+  emit({ type: EventType.SandboxGrantsChanged, target, grants: scopeGrants(db, target) })
 }
 
 /** Checks the task or workspace a grant is for exists. @throws CommandFailure `not_found` when it doesn't. */
@@ -190,28 +224,29 @@ export function normalizedGrant(grant: Grant): Grant {
   }
 }
 
-/** What two spellings of one folder share (`canonicalKey`); a path that can't be resolved, as written. */
-function folderKey(path: string): string {
-  return canonicalKey(path) ?? pathKey(path)
-}
-
 /**
- * The folders a scope has been granted that are the folder `path` is, as each is kept: usually one, kept as `path`
- * itself; another spelling when the folder has moved under its name since (made, in another case, after it was
- * granted, or replaced by a link).
+ * The folders a scope has been granted that `path` names, as each is kept. A kept grant is only ever compared as kept
+ * (`pathKey`), never by where its path leads now. So `path` is looked for as it's written first: usually one grant,
+ * kept as `path` itself or in another case, and still found by that name when its folder has since been swapped for a
+ * link. Only when the scope keeps nothing by that name is `path` taken for another way to a folder (a link to it), and
+ * looked for by where it really is (`grantedFolder`).
+ *
+ * @throws CommandFailure `invalid_request` for a path the sandbox can't take.
  */
 function keptFolders(db: Database, target: SandboxGrantTarget, path: string): string[] {
-  const key = folderKey(path)
-  return listSandboxGrants(db, target).flatMap(({ grant }) =>
-    grant.kind === SandboxGrantKind.Folder && folderKey(grant.path) === key ? [grant.path] : [],
+  const folders = listSandboxGrants(db, target).flatMap(({ grant }) =>
+    grant.kind === SandboxGrantKind.Folder ? [grant.path] : [],
   )
+  const named = (key: string): string[] => folders.filter((folder) => pathKey(folder) === key)
+  const written = named(pathKey(usableFolder(path)))
+  return written.length > 0 ? written : named(pathKey(grantedFolder(path)))
 }
 
 /** The keys a scope keeps a grant under (`keptFolders`, `grantedDomain`): none for a folder it doesn't have. */
 function keptKeys(db: Database, target: SandboxGrantTarget, key: SandboxGrantKey): SandboxGrantKey[] {
   switch (key.kind) {
     case SandboxGrantKind.Folder:
-      return keptFolders(db, target, grantedFolder(key.path)).map((path) => ({ kind: key.kind, path }))
+      return keptFolders(db, target, key.path).map((path) => ({ kind: key.kind, path }))
     case SandboxGrantKind.Domain:
       return [{ kind: key.kind, domain: grantedDomain(key.domain) }]
   }
@@ -226,22 +261,108 @@ function grantToSave(db: Database, target: SandboxGrantTarget, grant: Grant): Gr
 }
 
 /**
- * Grants a folder or domain to a scope (`addSandboxGrant`: no duplicates, and a read-only folder granted read-write is
- * upgraded), then applies the scope's grants to the running sessions they cover: always, even when the scope already
- * had the grant. Resolves with what changed and which sessions have it, once they've answered (or, given
- * `awaitTaskId`, once that task's has).
+ * Whether a folder a permission card showed has moved since: its path no longer is where it really is (it, or a folder
+ * above it, was swapped for a link, or can't be resolved any more). A card's path is where the folder really was when
+ * the card opened, so granting it now would grant somewhere the card never showed.
+ */
+export function hasMoved(path: string): boolean {
+  return canonicalPath(path) !== path
+}
+
+/**
+ * Saves a permission card's grant: the very folder (or file) or domain its card showed, as shown, never resolved again
+ * (see the module comment). Whoever answers the card checks first that the folder hasn't moved (`hasMoved`). Like
+ * `saveSandboxGrant`, it applies nothing and tells nobody: the card's answer does both.
+ *
+ * @throws CommandFailure `not_found` for no such task or workspace, `invalid_request` for a folder or domain the
+ * sandbox can't take.
+ */
+export function saveCardGrant(db: Database, { target, grant }: NewSandboxGrant): SandboxGrantChange {
+  requireTarget(db, target)
+  switch (grant.kind) {
+    case SandboxGrantKind.Folder:
+      return addSandboxGrant(db, { target, grant: { ...grant, path: usableFolder(grant.path) } })
+    case SandboxGrantKind.Domain:
+      return addSandboxGrant(db, { target, grant: { ...grant, domain: grantedDomain(grant.domain) } })
+  }
+}
+
+/**
+ * Saves a grant of a folder or domain to a scope (`addSandboxGrant`: no duplicates, and a read-only folder granted
+ * read-write is upgraded), kept by where the folder really is now, without applying it to any session or telling
+ * Settings. Answers with what changed.
+ *
+ * @throws CommandFailure `not_found` for no such task or workspace, `invalid_request` for a folder or domain the
+ * sandbox can't take.
+ */
+export function saveSandboxGrant(db: Database, { target, grant }: NewSandboxGrant): SandboxGrantChange {
+  requireTarget(db, target)
+  return addSandboxGrant(db, { target, grant: grantToSave(db, target, grant) })
+}
+
+/**
+ * Grants a folder or domain to a scope (`saveSandboxGrant`), then applies the scope's grants to the running sessions
+ * they cover: always, even when the scope already had the grant. Resolves with what changed and which sessions have
+ * it, once they've answered (or, given `awaitTaskId`, once that task's has).
  *
  * @throws CommandFailure `not_found` for no such task or workspace, `invalid_request` for a folder or domain the
  * sandbox can't take.
  */
 export async function grantSandboxAccess(
-  { db, runner }: SandboxGrantsContext,
-  { target, grant }: NewSandboxGrant,
+  context: SandboxGrantsContext,
+  grant: NewSandboxGrant,
   options?: SandboxApplyOptions,
 ): Promise<SandboxGrantOutcome> {
-  requireTarget(db, target)
-  const change = addSandboxGrant(db, { target, grant: grantToSave(db, target, grant) })
-  return { change, sessions: await runner.applySandboxGrants(target, options) }
+  const change = saveSandboxGrant(context.db, grant)
+  if (change !== SandboxGrantChange.Unchanged) broadcastGrants(context, grant.target)
+  return { change, sessions: await context.runner.applySandboxGrants(grant.target, options) }
+}
+
+/** A grant that gives a task what it uses, and whose it is. */
+export interface GrantingGrant {
+  readonly scope: SandboxGrantScope
+  /** The grant as its scope keeps it: the folder granted, which may hold the path asked about, or the domain. */
+  readonly grant: Grant
+}
+
+/** What a call uses that a grant may give: a path, by its key (where it really is), with an access; or a host. */
+export type GrantedUse =
+  | { readonly kind: SandboxGrantKind.Folder; readonly key: string; readonly access: FolderAccess }
+  | { readonly kind: SandboxGrantKind.Domain; readonly domain: string }
+
+/**
+ * Every grant that covers a task, each with its scope, the narrowest scope first: the task's own, then its workspace's,
+ * then the Glade-wide ones. What `grantingGrant` picks from; a session keeps it between changes to its grants.
+ */
+export function heldGrants(db: Database, task: GrantedTask): GrantingGrant[] {
+  const targets: readonly SandboxGrantTarget[] = [
+    { scope: SandboxGrantScope.Task, taskId: task.id },
+    { scope: SandboxGrantScope.Workspace, workspaceId: task.workspaceId },
+    { scope: SandboxGrantScope.Glade },
+  ]
+  return targets.flatMap((target) => listSandboxGrants(db, target).map(({ grant }) => ({ scope: target.scope, grant })))
+}
+
+/** Whether a grant, as kept, gives a use: the folder that holds the path (or the very file), or the host's domain. */
+function gives(held: Grant, use: GrantedUse): boolean {
+  switch (use.kind) {
+    case SandboxGrantKind.Folder: {
+      if (held.kind !== SandboxGrantKind.Folder || !coversAccess(held.access, use.access)) return false
+      const kept = pathKey(held.path)
+      return held.file === true ? use.key === kept : keyInside(use.key, kept)
+    }
+    case SandboxGrantKind.Domain:
+      return held.kind === SandboxGrantKind.Domain && hostMatches(use.domain, held.domain)
+  }
+}
+
+/**
+ * The grant that gives a task a path (the folder that holds it, or the very file) with at least an access, or a host's
+ * domain: the narrowest scope's that does (`heldGrants`' order). Null when none does. The path is given by its key,
+ * resolved by whoever asks; a kept grant is compared as kept.
+ */
+export function grantingGrant(held: readonly GrantingGrant[], use: GrantedUse): GrantingGrant | null {
+  return held.find(({ grant }) => gives(grant, use)) ?? null
 }
 
 /**
@@ -253,17 +374,17 @@ export async function grantSandboxAccess(
  * take.
  */
 export async function changeSandboxFolderAccess(
-  { db, runner }: SandboxGrantsContext,
+  context: SandboxGrantsContext,
   target: SandboxGrantTarget,
   path: string,
   access: FolderAccess,
   options?: SandboxApplyOptions,
 ): Promise<SandboxGrantOutcome> {
+  const { db, runner } = context
   requireTarget(db, target)
-  const changes = keptFolders(db, target, grantedFolder(path)).map((kept) =>
-    setSandboxFolderAccess(db, target, kept, access),
-  )
+  const changes = keptFolders(db, target, path).map((kept) => setSandboxFolderAccess(db, target, kept, access))
   const changed = changes.includes(SandboxGrantChange.Changed)
+  if (changed) broadcastGrants(context, target)
   return {
     change: changed ? SandboxGrantChange.Changed : SandboxGrantChange.Unchanged,
     sessions: await runner.applySandboxGrants(target, options),
@@ -278,12 +399,16 @@ export async function changeSandboxFolderAccess(
  * sandbox can't take.
  */
 export async function revokeSandboxGrant(
-  { db, runner }: SandboxGrantsContext,
+  context: SandboxGrantsContext,
   target: SandboxGrantTarget,
   key: SandboxGrantKey,
   options?: SandboxApplyOptions,
 ): Promise<SandboxRevokeOutcome> {
+  const { db, runner } = context
   requireTarget(db, target)
-  const removed = keptKeys(db, target, key).map((kept) => removeSandboxGrant(db, target, kept))
-  return { removed: removed.includes(true), sessions: await runner.applySandboxGrants(target, options) }
+  const removed = keptKeys(db, target, key)
+    .map((kept) => removeSandboxGrant(db, target, kept))
+    .includes(true)
+  if (removed) broadcastGrants(context, target)
+  return { removed, sessions: await runner.applySandboxGrants(target, options) }
 }

@@ -41,6 +41,7 @@ import { UiStateKey } from '../src/shared/domain'
 import { PLUGINS_FOLDER_NAME } from '../src/shared/plugins'
 import { READY_ATTRIBUTE } from '../src/shared/ready'
 import { attachEvidence, readTasksEvidence } from './evidence'
+import { inMain } from './in-main'
 import { chat, firstRun, inputBar, taskList } from './selectors'
 import { invoke } from './task-view'
 
@@ -312,7 +313,8 @@ export const test = base.extend<Fixtures>({
  * dialog: a folder's path, or `null` for "cancelled".
  */
 export async function chooseFolder({ app }: Glade, path: string | null): Promise<void> {
-  await app.evaluate(
+  await inMain(
+    app,
     (_, { name, value }) => {
       if (value === null) Reflect.deleteProperty(process.env, name)
       else process.env[name] = value
@@ -354,7 +356,8 @@ const COMMAND_HOLD_GLOBAL = '__gladeE2eCommandHold'
  * running. Electron keeps that handler in `ipcMain`'s `_invokeHandlers`; this fails loudly if it ever stops doing so.
  */
 export async function holdCommand({ app }: Glade, command: CommandName): Promise<HeldCommand> {
-  await app.evaluate(
+  await inMain(
+    app,
     ({ ipcMain }, { channel, command, global }) => {
       type Handler = (event: unknown, name: unknown, request: unknown) => unknown
       const handlers = Reflect.get(ipcMain, '_invokeHandlers') as unknown
@@ -386,14 +389,18 @@ export async function holdCommand({ app }: Glade, command: CommandName): Promise
     reached: async () => {
       await expect
         .poll(() =>
-          app.evaluate((_, global) => (Reflect.get(globalThis, global) as CommandHold).reached, COMMAND_HOLD_GLOBAL),
+          inMain(app, (_, global) => (Reflect.get(globalThis, global) as CommandHold).reached, COMMAND_HOLD_GLOBAL),
         )
         .toBe(true)
     },
     release: async () => {
-      await app.evaluate((_, global) => {
-        ;(Reflect.get(globalThis, global) as CommandHold).release()
-      }, COMMAND_HOLD_GLOBAL)
+      await inMain(
+        app,
+        (_, global) => {
+          ;(Reflect.get(globalThis, global) as CommandHold).release()
+        },
+        COMMAND_HOLD_GLOBAL,
+      )
     },
   }
 }
@@ -433,10 +440,14 @@ export type MenuBarIconState = Omit<E2eMenuBar, 'click'>
 
 /** Glade's icon in the menu bar as it is now: whether it's there, its count, and its popover. */
 export async function menuBarIcon({ app }: Glade): Promise<MenuBarIconState> {
-  return app.evaluate((_, name) => {
-    const { shown, title, open } = Reflect.get(globalThis, name) as E2eMenuBar
-    return { shown, title, open }
-  }, E2E_MENU_BAR_GLOBAL)
+  return inMain(
+    app,
+    (_, name) => {
+      const { shown, title, open } = Reflect.get(globalThis, name) as E2eMenuBar
+      return { shown, title, open }
+    },
+    E2E_MENU_BAR_GLOBAL,
+  )
 }
 
 /** The route the menu bar popover's page is at. */
@@ -449,9 +460,13 @@ const MENU_BAR_ROUTE = '#menu-bar'
 export async function clickMenuBarIcon({ app }: Glade): Promise<Page> {
   const existing = app.windows().find((page) => page.url().endsWith(MENU_BAR_ROUTE))
   const opened = existing === undefined ? app.waitForEvent('window') : Promise.resolve(existing)
-  await app.evaluate((_, name) => {
-    ;(Reflect.get(globalThis, name) as E2eMenuBar).click()
-  }, E2E_MENU_BAR_GLOBAL)
+  await inMain(
+    app,
+    (_, name) => {
+      ;(Reflect.get(globalThis, name) as E2eMenuBar).click()
+    },
+    E2E_MENU_BAR_GLOBAL,
+  )
   const popover = await opened
   await popover.locator(`html[${READY_ATTRIBUTE}]`).waitFor({ state: 'attached' })
   return popover
@@ -462,12 +477,13 @@ export async function clickMenuBarIcon({ app }: Glade): Promise<Page> {
  * its place (`E2E_NOTIFIER_GLOBAL`).
  */
 export async function notifications({ app }: Glade): Promise<TaskNotification[]> {
-  return app.evaluate((_, name) => [...(Reflect.get(globalThis, name) as RecordingNotifier).shown], E2E_NOTIFIER_GLOBAL)
+  return inMain(app, (_, name) => [...(Reflect.get(globalThis, name) as RecordingNotifier).shown], E2E_NOTIFIER_GLOBAL)
 }
 
 /** Clicks the `index`th notification the app has shown, as the OS would when you click it. */
 export async function clickNotification({ app }: Glade, index: number): Promise<void> {
-  await app.evaluate(
+  await inMain(
+    app,
     (_, { name, index }) => {
       ;(Reflect.get(globalThis, name) as RecordingNotifier).click(index)
     },
@@ -477,7 +493,8 @@ export async function clickNotification({ app }: Glade, index: number): Promise<
 
 /** Sends `text` from the `index`th notification's inline reply, as the OS would when you reply to it. */
 export async function replyToNotification({ app }: Glade, index: number, text: string): Promise<void> {
-  await app.evaluate(
+  await inMain(
+    app,
     (_, { name, index, text }) => {
       ;(Reflect.get(globalThis, name) as RecordingNotifier).reply(index, text)
     },
@@ -490,7 +507,7 @@ export async function replyToNotification({ app }: Glade, index: number, text: s
  * records them in its place (`E2E_EDITOR_GLOBAL`).
  */
 export async function openedInEditor({ app }: Glade): Promise<string[]> {
-  return app.evaluate((_, name) => [...(Reflect.get(globalThis, name) as E2eEditor).opened], E2E_EDITOR_GLOBAL)
+  return inMain(app, (_, name) => [...(Reflect.get(globalThis, name) as E2eEditor).opened], E2E_EDITOR_GLOBAL)
 }
 
 /**
@@ -499,10 +516,14 @@ export async function openedInEditor({ app }: Glade): Promise<string[]> {
  * Finder or a browser, or touches the clipboard: main records them in their place (`E2E_DESKTOP_GLOBAL`).
  */
 export async function desktop({ app }: Glade): Promise<E2eDesktop> {
-  return app.evaluate((_, name) => {
-    const { revealed, copied, opened } = Reflect.get(globalThis, name) as E2eDesktop
-    return { revealed: [...revealed], copied: [...copied], opened: [...opened] }
-  }, E2E_DESKTOP_GLOBAL)
+  return inMain(
+    app,
+    (_, name) => {
+      const { revealed, copied, opened } = Reflect.get(globalThis, name) as E2eDesktop
+      return { revealed: [...revealed], copied: [...copied], opened: [...opened] }
+    },
+    E2E_DESKTOP_GLOBAL,
+  )
 }
 
 /**
@@ -510,7 +531,7 @@ export async function desktop({ app }: Glade): Promise<E2eDesktop> {
  * agent, its text or its image content blocks then its text (`E2E_AGENT_GLOBAL`).
  */
 export async function agentReceived({ app }: Glade): Promise<E2eAgent['received']> {
-  return app.evaluate((_, name) => [...(Reflect.get(globalThis, name) as E2eAgent).received], E2E_AGENT_GLOBAL)
+  return inMain(app, (_, name) => [...(Reflect.get(globalThis, name) as E2eAgent).received], E2E_AGENT_GLOBAL)
 }
 
 /**
@@ -518,7 +539,15 @@ export async function agentReceived({ app }: Glade): Promise<E2eAgent['received'
  * session it resumed (`E2E_AGENT_GLOBAL`).
  */
 export async function agentSessions({ app }: Glade): Promise<E2eAgent['sessions']> {
-  return app.evaluate((_, name) => [...(Reflect.get(globalThis, name) as E2eAgent).sessions], E2E_AGENT_GLOBAL)
+  return inMain(app, (_, name) => [...(Reflect.get(globalThis, name) as E2eAgent).sessions], E2E_AGENT_GLOBAL)
+}
+
+/**
+ * Each change to a running session's sandbox so far, oldest first, across every session: the sandbox and permission
+ * rules the session was handed with `applyFlagSettings`, its grants among them (`E2E_AGENT_GLOBAL`).
+ */
+export async function agentFlagSettings({ app }: Glade): Promise<E2eAgent['flagSettings']> {
+  return inMain(app, (_, name) => [...(Reflect.get(globalThis, name) as E2eAgent).flagSettings], E2E_AGENT_GLOBAL)
 }
 
 /**
@@ -526,7 +555,8 @@ export async function agentSessions({ app }: Glade): Promise<E2eAgent['sessions'
  * (`E2E_NETWORK_GLOBAL`): an e2e run can't unplug the machine. The app starts online.
  */
 export async function setOnline({ app }: Glade, online: boolean): Promise<void> {
-  await app.evaluate(
+  await inMain(
+    app,
     (_, { name, value }) => {
       ;(Reflect.get(globalThis, name) as E2eNetwork).online = value
     },
@@ -539,7 +569,8 @@ export async function setOnline({ app }: Glade, online: boolean): Promise<void> 
  * its login is a stand-in that waits for the spec.
  */
 export async function finishLogin({ app }: Glade, outcome: E2eLoginOutcome): Promise<void> {
-  await app.evaluate(
+  await inMain(
+    app,
     (_, { name, value }) => {
       ;(Reflect.get(globalThis, name) as E2eLogin).finish(value)
     },
@@ -549,10 +580,14 @@ export async function finishLogin({ app }: Glade, outcome: E2eLoginOutcome): Pro
 
 /** How many logins Log in has started, and whether one is waiting now (`E2E_LOGIN_GLOBAL`). */
 export async function loginRuns({ app }: Glade): Promise<{ runs: number; waiting: boolean }> {
-  return app.evaluate((_, name) => {
-    const login = Reflect.get(globalThis, name) as E2eLogin
-    return { runs: login.runs, waiting: login.waiting }
-  }, E2E_LOGIN_GLOBAL)
+  return inMain(
+    app,
+    (_, name) => {
+      const login = Reflect.get(globalThis, name) as E2eLogin
+      return { runs: login.runs, waiting: login.waiting }
+    },
+    E2E_LOGIN_GLOBAL,
+  )
 }
 
 /**
@@ -560,7 +595,7 @@ export async function loginRuns({ app }: Glade): Promise<{ runs: number; waiting
  * spawn nothing, so they record it instead.
  */
 export async function agentEnvs({ app }: Glade): Promise<E2eAgentEnvs> {
-  return app.evaluate((_, name) => Reflect.get(globalThis, name) as E2eAgentEnvs, E2E_AGENT_ENVS_GLOBAL)
+  return inMain(app, (_, name) => Reflect.get(globalThis, name) as E2eAgentEnvs, E2E_AGENT_ENVS_GLOBAL)
 }
 
 /** The plugins folder in a test's data folder (`userData`), where Glade looks for plugins. */

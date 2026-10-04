@@ -9,6 +9,7 @@ import { NO_GRANTS, type SandboxGrants } from '../agent/sandbox'
 import type { PathFs } from './canonical-path'
 import { PermissionVerdict } from './classify'
 import {
+  callStanding,
   isSandboxOverride,
   isUnboundedRule,
   isWriteTool,
@@ -82,6 +83,156 @@ describe('sandboxBounds', () => {
 
   it('uses the real file system unless given another', () => {
     expect(sandboxBounds({ root: '/', home: '/', grants: NO_GRANTS }).readable).toEqual(['/'])
+  })
+})
+
+describe('a granted folder is the path that was granted', () => {
+  const NOTES = '/Users/me/notes'
+  const SHARED = '/Users/me/src/shared-lib'
+  // Each granted folder has been swapped for a link since: to Documents, and to the home folder's Library.
+  const swapped = fsWith({ [NOTES]: '/Users/me/Documents', [SHARED]: '/Users/me/Library' })
+
+  it('never follows a link in a kept grant: what it leads to now was never granted', () => {
+    const made = bounds({ fs: swapped })
+
+    // Before #510's review, the bounds named where each link led, and Documents and Library opened.
+    expect(made.readable).toEqual(['/users/me/src/acme-api', '/users/me/notes', '/users/me/src/shared-lib'])
+    expect(made.writable).toEqual(['/users/me/src/acme-api', '/users/me/src/shared-lib'])
+    for (const path of ['/Users/me/Documents/taxes.txt', `${NOTES}/taxes.txt`]) {
+      expect(crossing('Read', { file_path: path }, made)).toBe(SandboxCrossing.Boundary)
+    }
+    for (const path of ['/Users/me/Library/LaunchAgents/x.plist', `${SHARED}/LaunchAgents/x.plist`]) {
+      expect(crossing('Write', { file_path: path }, made)).toBe(SandboxCrossing.Boundary)
+    }
+  })
+
+  it('still takes a call’s own path for where it really is', () => {
+    // A link in the root to the granted folder leads into it; the grants are as they were kept.
+    const linked = bounds({ fs: fsWith({ [`${ROOT}/notes-link`]: NOTES }) })
+
+    expect(crossing('Read', { file_path: 'notes-link/today.md' }, linked)).toBe(SandboxCrossing.None)
+    expect(crossing('Write', { file_path: 'notes-link/today.md' }, linked)).toBe(SandboxCrossing.Boundary)
+  })
+
+  it('finds a kept grant in whatever case, Unicode form or volume alias it was kept', () => {
+    const kept = bounds({
+      grants: {
+        folders: [
+          { path: '/System/Volumes/Data/Users/me/Notes', access: FolderAccess.Read },
+          { path: '/Users/me/Cafe\u0301', access: FolderAccess.ReadWrite },
+        ],
+        domains: [],
+      },
+    })
+
+    expect(kept.readable).toEqual(['/users/me/src/acme-api', '/users/me/notes', '/users/me/caf\u00e9'])
+    expect(crossing('Read', { file_path: '/users/ME/notes/a.md' }, kept)).toBe(SandboxCrossing.None)
+    expect(crossing('Write', { file_path: '/Users/me/Caf\u00e9/menu.md' }, kept)).toBe(SandboxCrossing.None)
+  })
+})
+
+describe('a single file’s grant', () => {
+  const files: SandboxGrants = {
+    folders: [
+      { path: '/Users/me/todo.txt', access: FolderAccess.Read, file: true },
+      { path: '/Users/me/notes.txt', access: FolderAccess.ReadWrite, file: true },
+    ],
+    domains: [],
+  }
+  const within = bounds({ grants: files })
+
+  it('is kept apart from the folders: that path alone', () => {
+    expect(within.readable).toEqual(['/users/me/src/acme-api'])
+    expect(within.writable).toEqual(['/users/me/src/acme-api'])
+    expect(within.readableFiles).toEqual(['/users/me/todo.txt', '/users/me/notes.txt'])
+    expect(within.writableFiles).toEqual(['/users/me/notes.txt'])
+  })
+
+  it('lets its file be read, and written when it’s read-write', () => {
+    expect(crossing('Read', { file_path: '~/todo.txt' }, within)).toBe(SandboxCrossing.None)
+    expect(crossing('Read', { file_path: '/Users/me/notes.txt' }, within)).toBe(SandboxCrossing.None)
+    expect(crossing('Edit', { file_path: '/Users/ME/Notes.txt' }, within)).toBe(SandboxCrossing.None)
+    expect(crossing('Write', { file_path: '~/todo.txt' }, within)).toBe(SandboxCrossing.Boundary)
+  })
+
+  it.each([
+    ['its folder', '/Users/me'],
+    ['a file beside it', '/Users/me/.zshrc'],
+    ['a file whose name starts with its name', '/Users/me/notes.txt.bak'],
+    ['another whose name starts with its name', '/Users/me/notes.txt2'],
+    ['a path under it, as if it were a folder', '/Users/me/notes.txt/inside.md'],
+    ['a folder beside it', '/Users/me/Documents/taxes.txt'],
+  ])('opens nothing else: %s asks, to read or to write', (_what, path) => {
+    expect(crossing('Read', { file_path: path }, within)).toBe(SandboxCrossing.Boundary)
+    expect(crossing('LS', { path }, within)).toBe(SandboxCrossing.Boundary)
+    expect(crossing('Write', { file_path: path }, within)).toBe(SandboxCrossing.Boundary)
+  })
+
+  it('opens nothing through a link put where the file was, and never a credential file', () => {
+    const swapped = bounds({ grants: files, fs: fsWith({ '/Users/me/notes.txt': '/Users/me/Documents/taxes.txt' }) })
+    expect(crossing('Read', { file_path: '/Users/me/notes.txt' }, swapped)).toBe(SandboxCrossing.Boundary)
+    expect(crossing('Write', { file_path: '/Users/me/notes.txt' }, swapped)).toBe(SandboxCrossing.Boundary)
+
+    const credential: SandboxGrants = {
+      folders: [{ path: '/Users/me/.netrc', access: FolderAccess.ReadWrite, file: true }],
+      domains: [],
+    }
+    expect(crossing('Read', { file_path: '~/.netrc' }, bounds({ grants: credential }))).toBe(SandboxCrossing.Credential)
+  })
+
+  it('holds a write to a granted file that runs code back, as inside any granted folder', () => {
+    const zshrc: SandboxGrants = {
+      folders: [{ path: '/Users/me/.zshrc', access: FolderAccess.ReadWrite, file: true }],
+      domains: [],
+    }
+    expect(crossing('Edit', { file_path: '~/.zshrc' }, bounds({ grants: zshrc }))).toBe(SandboxCrossing.Protected)
+  })
+})
+
+describe('callStanding', () => {
+  it('gives the key of the path a file tool’s call was decided by, resolved once', () => {
+    let resolved = 0
+    const counting: PathFs = {
+      realpath: () => {
+        resolved += 1
+        return null
+      },
+      readlink: () => null,
+    }
+    const within = bounds({ fs: counting })
+    resolved = 0
+
+    expect(callStanding({ toolName: 'Read', input: { file_path: '/Users/me/Notes/a.md' } }, within)).toEqual({
+      crossing: SandboxCrossing.None,
+      key: '/users/me/notes/a.md',
+    })
+    // One walk up the path, and no more for the grants or the bounds: /Users/me/Notes/a.md and its four parents.
+    expect(resolved).toBe(5)
+    expect(callStanding({ toolName: 'Write', input: { file_path: '~/x.md' } }, within)).toEqual({
+      crossing: SandboxCrossing.Boundary,
+      key: '/users/me/x.md',
+    })
+    expect(callStanding({ toolName: 'Read', input: { file_path: '~/.ssh/id' } }, within)).toEqual({
+      crossing: SandboxCrossing.Credential,
+      key: '/users/me/.ssh/id',
+    })
+  })
+
+  it('has no key for a call that names no file, or whose path can’t be resolved', () => {
+    const within = bounds()
+    const none = (toolName: string, input: ToolInput) => callStanding({ toolName, input }, within).key
+
+    expect(none('Bash', { command: 'ls' })).toBeNull()
+    expect(none('Bash', { command: 'ls', dangerouslyDisableSandbox: true })).toBeNull()
+    expect(none('WebFetch', { url: 'https://docs.acme.dev/x' })).toBeNull()
+    expect(none('SandboxNetworkAccess', { host: 'registry.npmjs.org' })).toBeNull()
+    expect(none('Grep', { pattern: 'retry' })).toBeNull()
+    const loop = bounds({ fs: fsWith({}, { '/Users/me/a': '/Users/me/b', '/Users/me/b': '/Users/me/a' }) })
+    expect(callStanding({ toolName: 'Read', input: { file_path: '/Users/me/a/x' } }, loop)).toEqual({
+      crossing: SandboxCrossing.Boundary,
+      key: null,
+    })
+    expect(callStanding({ toolName: 'Write', input: { file_path: '/Users/me/a/x' } }, loop).key).toBeNull()
   })
 })
 

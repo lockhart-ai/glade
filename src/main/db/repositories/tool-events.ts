@@ -516,6 +516,26 @@ export function getToolCall(db: Database, taskId: string, toolUseId: string): To
   return raw === undefined ? undefined : parseToolCall(new Row('tool_events', raw))
 }
 
+/**
+ * The tool call an agent made just before another of its calls: the latest of the task's calls logged before
+ * `toolUseId`'s by the same agent (the task's own, or the same subagent: the same `parentToolUseId`). Undefined when
+ * that call isn't logged, or is its agent's first.
+ */
+export function previousToolCall(db: Database, taskId: string, toolUseId: string): ToolCallEvent | undefined {
+  const raw: unknown = db
+    .prepare(
+      `SELECT ${COLUMNS} FROM tool_events
+      WHERE task_id = @taskId AND kind = 'tool_call'
+        AND seq < (SELECT seq FROM tool_events WHERE task_id = @taskId AND tool_use_id = @toolUseId AND kind = 'tool_call')
+        AND parent_tool_use_id IS
+          (SELECT parent_tool_use_id FROM tool_events
+          WHERE task_id = @taskId AND tool_use_id = @toolUseId AND kind = 'tool_call')
+      ORDER BY seq DESC LIMIT 1`,
+    )
+    .get({ taskId, toolUseId })
+  return raw === undefined ? undefined : parseToolCall(new Row('tool_events', raw))
+}
+
 /** A subagent's latest progress summary, for its `Agent` call. */
 export interface SubagentProgress {
   readonly taskId: string

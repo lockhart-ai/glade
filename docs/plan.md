@@ -69,6 +69,26 @@ Tasks as an MCP API (`glade-control`, `control-api.md`) for Glade's own agents a
 other: create, read, change and delete tasks, and import past Claude Code sessions.
 [Meta issue #219](https://github.com/lockhart-ai/glade/issues/219)
 
+## P15 · Agent sandbox
+
+Agents run in a sandbox: a task's agent can use only its workspace root and the folders and domains you grant it, for
+the task, the workspace or Glade-wide (`decisions.md`, "Agent sandbox"; `sdk-notes.md` §15).
+[Meta issue #445](https://github.com/lockhart-ai/glade/issues/445)
+
+| Issue | What it builds |
+| --- | --- |
+| P15-01 (#446) | Probe the SDK's sandbox and model it in the test backends. |
+| P15-02 (#447) | The designs: the Sandbox groups in Settings and the sandbox's permission cards (screens 39 to 44). |
+| P15-03 (#448) | The sandbox in the agent session: the `sandboxEnabled` setting, what a session starts with, Allow all as `acceptEdits`, what asks, and a sandbox that can't start. |
+| P15-04 (#449) | Grants: `sandbox_grants`, resolving a task's grants, and applying them live with `applyFlagSettings`. |
+| P15-05 (#450) | The permission cards for a folder, a domain and running outside the sandbox, and the `request_access` tool. |
+| P15-06 (#451) | Settings › Agent › Sandbox and Settings › Workspace's lists. |
+| P15-07 (#452) | The docs pass, the probes before launch, telling a resumed session of the sandbox, and turning the sandbox on by default once the phase's security review is done. |
+| P15-08 (#459) | Answered permission cards leave the chat; the decision shows on the tool call's row. |
+| P15-09 (#487) | Glade's own git calls hardened against config the agent can write. |
+
+Order: 01 → 02 → (03, 04) → (05, 06, 08, 09) → 07.
+
 ## Later
 
 Signing, notarisation and auto-update (L-04, #69).

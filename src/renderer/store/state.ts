@@ -12,9 +12,11 @@ import type {
   Unsubscribe,
   WorkspaceUserPatch,
 } from '../../shared/bridge'
+import type { BroadcastOutcome } from '../../shared/broadcast'
 import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../shared/settings'
 import type { InstalledPlugin, PluginCapability } from '../../shared/plugins'
+import type { FolderAccess, Grant, GrantKey, SettingsGrantTarget } from '../../shared/sandbox'
 import type { ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
 import type { FileSearchResult, FolderEntry } from '../../shared/browse'
@@ -39,6 +41,7 @@ import type {
   OpenFiles,
   PastedBlock,
   PermissionDecision,
+  PermissionMark,
   PermissionRequest,
   QuestionAnswers,
   QuestionSet,
@@ -192,6 +195,8 @@ export interface GladeData {
    * loaded with its logs, then kept current by events.
    */
   readonly permissionRequests: Readonly<Record<string, readonly PermissionRequest[]>>
+  /** Each loaded task's tool calls a rule decided (`PermissionMark`), in the order they were first marked. */
+  readonly permissionMarks: Readonly<Record<string, readonly PermissionMark[]>>
   /** The files open in each task's Files tab, by task id: loaded with its logs, then kept current by events. */
   readonly openFiles: Readonly<Record<string, OpenFiles>>
   /** Each task's artifacts (the Artifacts tab), by task id: loaded with its logs, then kept current by events. */
@@ -267,11 +272,20 @@ export interface GladeData {
   readonly models: readonly ModelChoice[]
   /** The section the Settings modal shows; null while it's closed. A one-off UI intent. */
   readonly settingsSection: SettingsSection | null
+  /** Whether the Broadcast modal is open (#489). A one-off UI intent. */
+  readonly broadcastOpen: boolean
   /**
    * The plugins in the plugins folder, as main last read it (`plugins.list`, which Settings › Plugins asks for each time
    * it opens) or broadcast them; null until it's first read.
    */
   readonly plugins: readonly InstalledPlugin[] | null
+  /**
+   * The sandbox grants Settings lists, by scope (`settingsGrantScopeKey`: the Glade-wide ones, and each workspace's),
+   * as main last answered with them (`sandbox.listGrants`, which a list asks for as it opens) or broadcast them
+   * (`sandbox.grantsChanged`: a change in Settings, or Allow for this workspace on a card). A scope not read yet has
+   * no entry.
+   */
+  readonly sandboxGrants: Readonly<Record<string, readonly Grant[]>>
   /**
    * The status each plugin last set for its panel header, by id (`status`, cut to 40 characters), as main broadcast it
    * or answered when its view was placed; none until it sets one. Not saved: a plugin sets it again after `ready`.
@@ -368,6 +382,16 @@ export interface GladeActions {
   openSettings: (section?: SettingsSection) => void
   /** Closes the Settings modal. */
   closeSettings: () => void
+  /** Opens the Broadcast modal (⌘⇧B), which sends one message to every active task. */
+  openBroadcast: () => void
+  /** Closes the Broadcast modal. */
+  closeBroadcast: () => void
+  /**
+   * Sends a message to every active task, in every workspace (`tasks.broadcast`): main decides who gets it. Resolves
+   * with how it went for each task once main has saved it; the messages, queues and turns arrive as one batch of
+   * events.
+   */
+  broadcast: (text: string) => Promise<readonly BroadcastOutcome[]>
   /** Reads the plugins folder again (`plugins.list`), finding plugins added, removed or changed since. */
   loadPlugins: () => Promise<void>
   /** Turns a plugin on or off (`plugins.setEnabled`); the change saves at once. */
@@ -383,6 +407,17 @@ export interface GladeActions {
    * otherwise. Doesn't rescan the plugins folder.
    */
   reloadPlugin: (id: string) => Promise<void>
+  /** Reads a scope's sandbox grants (`sandbox.listGrants`), for its lists in Settings. */
+  loadSandboxGrants: (target: SettingsGrantTarget) => Promise<void>
+  /**
+   * Adds a folder or domain to a scope's list (`sandbox.addGrant`). Rejects with the `BridgeError` whose message says
+   * why it can't be added: not a folder or domain the sandbox can take, already in the list, or inside the workspace.
+   */
+  addSandboxGrant: (target: SettingsGrantTarget, grant: Grant) => Promise<void>
+  /** Sets a listed folder's access (`sandbox.setFolderAccess`); running tasks have it from their next call. */
+  setSandboxFolderAccess: (target: SettingsGrantTarget, path: string, access: FolderAccess) => Promise<void>
+  /** Removes a folder or domain from a scope's list (`sandbox.removeGrant`). */
+  removeSandboxGrant: (target: SettingsGrantTarget, grant: GrantKey) => Promise<void>
   /** Reads the control endpoint's status (`control.status`). */
   loadControlStatus: () => Promise<void>
   /** Replaces the control endpoint's token (Regenerate token, `control.regenerateToken`); the old one stops working. */
@@ -746,6 +781,7 @@ export const INITIAL_DATA: GladeData = {
   queuedMessages: {},
   questionSets: {},
   permissionRequests: {},
+  permissionMarks: {},
   openFiles: {},
   artifacts: {},
   artifactsVersion: {},
@@ -766,7 +802,9 @@ export const INITIAL_DATA: GladeData = {
   settings: DEFAULT_SETTINGS,
   models: BUILT_IN_MODELS,
   settingsSection: null,
+  broadcastOpen: false,
   plugins: null,
+  sandboxGrants: {},
   pluginStatuses: {},
   controlStatus: null,
   accountStatus: { account: null, usage: [] },

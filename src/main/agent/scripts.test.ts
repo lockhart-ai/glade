@@ -988,16 +988,18 @@ describe('AGENT_SCRIPTS', () => {
     expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, awaitingPermission: false })
   })
 
-  it('asks-sandbox: runs straight through unsandboxed in Allow all, giving up on the blocked read', async () => {
+  it('asks-sandbox: runs straight through unsandboxed in Allow all, nothing blocked and nothing asked for', async () => {
     await send(start('asks-sandbox'), 'Set things up.')
 
     expect(listPermissionRequests(database.db, task.id)).toEqual([])
+    // The command that reads the shared config runs: with no sandbox to block it, the agent never asks for the folder.
     expect(calls().map(({ name, state }) => [name, state])).toEqual([
       ['Bash', ToolCallState.Done],
       ['WebFetch', ToolCallState.Done],
       ['Read', ToolCallState.Done],
       ['Write', ToolCallState.Done],
-      ['Bash', ToolCallState.Error],
+      ['Bash', ToolCallState.Done],
+      ['Bash', ToolCallState.Done],
       ['Bash', ToolCallState.Done],
     ])
     expect(
