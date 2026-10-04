@@ -196,6 +196,18 @@ describe('sandboxAskFor', () => {
     for (const path of ['~', HOME, dirname(HOME), '/Users', '/Volumes', '/System/Volumes', '/']) {
       expect(ask('LS', { path })).toBeNull()
     }
+    // Even one that isn't there (a home folder on a disk that isn't mounted, say) is no file to ask for.
+    const away = sandboxBounds({ root: ROOT, home: '/Volumes/Away/me', grants: { folders: [], domains: [] } })
+    const asked = (path: string) =>
+      sandboxAskFor(
+        { toolName: 'Write', input: { file_path: path }, suggestions: [] },
+        SandboxCrossing.Boundary,
+        away,
+        null,
+      )
+    expect(asked('/Volumes/Away/me')).toBeNull()
+    expect(asked('/Volumes/Away')).toBeNull()
+    expect(asked('/Volumes/Away/me/notes.txt')).toMatchObject({ path: '/Volumes/Away/me/notes.txt', file: true })
     // A suggestion for such a folder is passed over for the file's own.
     expect(ask('Read', { file_path: `${WEB}/package.json` }, folderSuggestions(HOME, FileAccess.Read))).toMatchObject({
       path: WEB,

@@ -171,7 +171,9 @@ function fileToolAsk(call: AskingCall, bounds: SandboxBounds): SandboxFolderAsk 
   const own = real.kind === PathKind.Folder ? real.path : posix.dirname(real.path)
   const folder = folderHolding(pathKey(real.path), [...suggestedFolders(call.suggestions), own], bounds)
   if (folder !== null) return { kind: SandboxAskKind.Folder, path: folder, access }
-  if (real.kind === PathKind.Folder || !isBroadFolder(pathKey(own), bounds)) return null
+  // Only a file in a folder that's too much is asked for by itself: never such a folder, there or not.
+  const tooMuch = real.kind === PathKind.Folder || isBroadFolder(pathKey(real.path), bounds)
+  if (tooMuch || !isBroadFolder(pathKey(own), bounds)) return null
   const file = grantable(real.path, grantedFolder)
   return file === null ? null : { kind: SandboxAskKind.Folder, path: file, access, file: true }
 }
