@@ -53,8 +53,14 @@ export function todoGroup(state: TodoState): TodoGroup {
 /** An item where the tab shows it, with its place in the agent's list. */
 export interface OrderedTodo {
   readonly todo: Todo
-  /** Its index in the agent's order, which keys it in the tab. */
+  /** Its index in the agent's order. */
   readonly position: number
+  /**
+   * What keys its row in the tab: its id (`Todo.id`, Claude Code's own), so a row stays the same row as the list around
+   * it changes. An item with no id (`TodoWrite`'s) is keyed by its place in the list instead, and so is one whose id an
+   * earlier item already has, which Claude Code never gives, so no two rows ever share a key.
+   */
+  readonly key: string
 }
 
 /**
@@ -65,8 +71,14 @@ export interface OrderedTodo {
  */
 export function orderTodos(items: readonly Todo[]): readonly OrderedTodo[] {
   const rank = (todo: Todo) => GROUP_ORDER.indexOf(todoGroup(todo.state))
+  const taken = new Set<string>()
+  const keyOf = ({ id }: Todo, position: number): string => {
+    if (id === null || taken.has(id)) return `at:${String(position)}`
+    taken.add(id)
+    return `id:${id}`
+  }
   return items
-    .map((todo, position) => ({ todo, position }))
+    .map((todo, position) => ({ todo, position, key: keyOf(todo, position) }))
     .sort((a, b) => {
       const byGroup = rank(a.todo) - rank(b.todo)
       if (byGroup !== 0) return byGroup

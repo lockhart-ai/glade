@@ -52,6 +52,7 @@
     "src/shared/sandboxFailure.ts",
     "src/shared/search.ts",
     "src/shared/terminal.ts",
+    "src/shared/todoHub.ts",
     "src/renderer/tokens.ts"
   ]
 }

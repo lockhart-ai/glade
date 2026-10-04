@@ -8,6 +8,9 @@
  * - `TodoWrite` is the older tool, still there when Claude Code's task tools are turned off
  *   (`CLAUDE_CODE_ENABLE_TASKS=false`): each call replaces the whole list.
  *
+ * Each item keeps the id `TaskCreate` gave it (`Todo.id`, the `N` of `Task #N`), which the Todos tab keys its row on and
+ * the todo hub files children under (P16, `src/shared/todoHub.ts`). A `TodoWrite` item has none.
+ *
  * Only the main agent's calls that succeeded count: a subagent's are its own business, and a call that failed changed
  * nothing. `pending`, `in_progress` and `completed` map to todo, doing and done, and a doing item's `activeForm` ("Copying
  * the files") is its note. Nothing maps to waiting yet. The tool calls stay in the tool log like any others.
@@ -71,10 +74,10 @@ export function changesTodos(call: ToolCallEvent): boolean {
   return call.parentToolUseId === null && call.state === ToolCallState.Done && TODO_TOOLS.includes(call.name)
 }
 
-function toTodo({ text, status, activeForm, completedAt }: Item): Todo {
+function toTodo({ id, text, status, activeForm, completedAt }: Item): Todo {
   const state = STATES[status]
   const note = state === TodoState.Doing && activeForm !== undefined && activeForm.trim() !== '' ? activeForm : null
-  return { text, state, note, completedAt }
+  return { id, text, state, note, completedAt }
 }
 
 /**

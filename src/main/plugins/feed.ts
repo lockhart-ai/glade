@@ -353,6 +353,7 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       case EventType.ArtifactsChanged:
       case EventType.HandoffChanged:
       case EventType.CommitsChanged:
+      case EventType.FilingsChanged:
       case EventType.FileShown:
       case EventType.FolderChanged:
       case EventType.OpenFilesChanged:

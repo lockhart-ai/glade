@@ -51,6 +51,16 @@ import { DEFAULT_CONTROL_PORT, type ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
 import { IDLE_LOGIN, type LoginStatus } from '../../shared/login'
 import { REQUEST_SCHEMAS, type RequestSchemas } from './requests'
+import { groupChildren, type ChildRef, type Filing, type GroupedChildren } from '../../shared/todoHub'
+
+const NO_CHILDREN: GroupedChildren = groupChildren({
+  todos: [],
+  artifacts: [],
+  subagents: [],
+  watchers: [],
+  commits: [],
+  filings: [],
+})
 
 const CONTROL_STATUS: ControlStatus = {
   enabled: false,
@@ -148,6 +158,8 @@ const TASK_HANDLERS = {
   [CommandName.ArtifactsSetGroupOpen]: () => null,
   [CommandName.ArtifactsWatch]: () => null,
   [CommandName.ArtifactsUnwatch]: () => null,
+  [CommandName.TodoHubGet]: () => ({ children: NO_CHILDREN, filings: [], panels: [] }),
+  [CommandName.TodoHubSetPanel]: () => null,
   [CommandName.WorkspacesRemove]: () => null,
   [CommandName.MenuUpdate]: () => null,
   [CommandName.WindowClose]: () => null,
@@ -243,6 +255,8 @@ const TASK_SCHEMAS = {
   [CommandName.ArtifactsSetGroupOpen]: REQUEST_SCHEMAS[CommandName.ArtifactsSetGroupOpen],
   [CommandName.ArtifactsWatch]: REQUEST_SCHEMAS[CommandName.ArtifactsWatch],
   [CommandName.ArtifactsUnwatch]: REQUEST_SCHEMAS[CommandName.ArtifactsUnwatch],
+  [CommandName.TodoHubGet]: REQUEST_SCHEMAS[CommandName.TodoHubGet],
+  [CommandName.TodoHubSetPanel]: REQUEST_SCHEMAS[CommandName.TodoHubSetPanel],
   [CommandName.SearchQuery]: REQUEST_SCHEMAS[CommandName.SearchQuery],
   [CommandName.WorkspacesRemove]: REQUEST_SCHEMAS[CommandName.WorkspacesRemove],
   [CommandName.MenuUpdate]: REQUEST_SCHEMAS[CommandName.MenuUpdate],
@@ -525,6 +539,10 @@ describe('events', () => {
           break
         case EventType.HandoffChanged:
           expectTypeOf(event.handoff).toEqualTypeOf<TaskHandoff | null>()
+          break
+        case EventType.FilingsChanged:
+          expectTypeOf(event.filed).toEqualTypeOf<readonly Filing[]>()
+          expectTypeOf(event.removed).toEqualTypeOf<readonly ChildRef[]>()
           break
         case EventType.WatchersChanged:
           expectTypeOf(event.watchers).toEqualTypeOf<readonly Watcher[]>()

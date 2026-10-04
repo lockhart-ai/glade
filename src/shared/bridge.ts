@@ -58,6 +58,7 @@ import type { LoginStatus } from './login'
 import type { MenuBarSnapshot } from './menuBar'
 import type { FileSearchResult, FolderEntry } from './browse'
 import type { FolderAccess, Grant, GrantKey, SettingsGrantTarget } from './sandbox'
+import type { ChildRef, Filing, GroupedChildren, TodoPanel } from './todoHub'
 
 /** The name the bridge is exposed under on `window`. */
 export const BRIDGE_KEY = 'glade'
@@ -134,6 +135,8 @@ export enum CommandName {
   ArtifactsSetGroupOpen = 'artifacts.setGroupOpen',
   ArtifactsWatch = 'artifacts.watch',
   ArtifactsUnwatch = 'artifacts.unwatch',
+  TodoHubGet = 'todoHub.get',
+  TodoHubSetPanel = 'todoHub.setPanel',
   UiStateGet = 'uiState.get',
   UiStateGetAll = 'uiState.getAll',
   UiStateSet = 'uiState.set',
@@ -958,6 +961,35 @@ export interface ArtifactsSetGroupOpenRequest {
   readonly open: boolean
 }
 
+/**
+ * Reads a task's todo hub (P16, #491; `./todoHub`): its children grouped by todo, as main works them out, with what
+ * the window needs to keep them current itself. What changes after arrives as `filings.changed`, and as the events
+ * the children already have (`artifacts.changed`, `watchers.changed`, `commits.changed`, the tool log's).
+ *
+ * Fails with `invalid_transition` while the hub is off (the hidden `todoHubEnabled` setting), reading nothing, and
+ * `not_found` when there's no such task.
+ */
+export interface TodoHubGetRequest {
+  readonly taskId: string
+}
+
+export interface TodoHubGetResponse {
+  /** Each todo's children, and the ones under no todo (`groupChildren`). */
+  readonly children: GroupedChildren
+  /** The task's filings, oldest first: which todo each filed child is under, and how it got there. */
+  readonly filings: readonly Filing[]
+  /** The panels of its todos you changed from how they start; a todo without one is closed, showing all. */
+  readonly panels: readonly TodoPanel[]
+}
+
+/**
+ * Remembers how you left a todo's panel in the hub, for the task: whether it's open, and which of its children it
+ * shows. `UNFILED_TODO_ID` names the placeholder group's. The todo needn't be in the task's list. Nothing is
+ * broadcast. Fails with `invalid_transition` while the hub is off, writing nothing, and `not_found` when there's no
+ * such task.
+ */
+export type TodoHubSetPanelRequest = TodoPanel
+
 /** Puts text on the clipboard (the context menus' Copy items). */
 export interface ClipboardWriteTextRequest {
   readonly text: string
@@ -1415,6 +1447,8 @@ export interface CommandMap {
   [CommandName.ArtifactsSetGroupOpen]: CommandSpec<ArtifactsSetGroupOpenRequest, null>
   [CommandName.ArtifactsWatch]: CommandSpec<ArtifactsWatchRequest, null>
   [CommandName.ArtifactsUnwatch]: CommandSpec<ArtifactsWatchRequest, null>
+  [CommandName.TodoHubGet]: CommandSpec<TodoHubGetRequest, TodoHubGetResponse>
+  [CommandName.TodoHubSetPanel]: CommandSpec<TodoHubSetPanelRequest, null>
   [CommandName.UiStateGet]: CommandSpec<UiStateGetRequest, UiStateGetResponse>
   [CommandName.UiStateGetAll]: CommandSpec<EmptyRequest, UiStateGetAllResponse>
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>
@@ -1504,6 +1538,7 @@ export enum EventType {
   HandoffChanged = 'handoff.changed',
   WatchersChanged = 'watchers.changed',
   CommitsChanged = 'commits.changed',
+  FilingsChanged = 'filings.changed',
   TerminalTabsChanged = 'terminal.tabsChanged',
   TerminalOutput = 'terminal.output',
   TerminalCleared = 'terminal.cleared',
@@ -1725,6 +1760,18 @@ export interface CommitsChangedEvent {
 }
 
 /**
+ * Children of a task were filed under todos, moved between them, or lost their filing (the todo hub, `./todoHub`).
+ * Carries the change alone, never the task's whole list: the filings made, each as it now is (one for a child that
+ * already had a filing replaces it), and the children whose filing was taken away. Never sent while the hub is off.
+ */
+export interface FilingsChangedEvent {
+  readonly type: EventType.FilingsChanged
+  readonly taskId: string
+  readonly filed: readonly Filing[]
+  readonly removed: readonly ChildRef[]
+}
+
+/**
  * The terminal tabs changed: one was added, closed or renamed, or what's running in one changed (its running dot and
  * default name). Carries every tab as it now is, in order. A tab whose shell exits closes.
  */
@@ -1871,6 +1918,7 @@ export type GladeEvent =
   | HandoffChangedEvent
   | WatchersChangedEvent
   | CommitsChangedEvent
+  | FilingsChangedEvent
   | TerminalTabsChangedEvent
   | TerminalOutputEvent
   | TerminalClearedEvent

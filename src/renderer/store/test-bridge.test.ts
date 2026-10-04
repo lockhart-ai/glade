@@ -9,6 +9,7 @@ import {
   UiStateKey,
   type PermissionMark,
 } from '../../shared/domain'
+import { ChildFilter, TODO_HUB_OFF } from '../../shared/todoHub'
 import { fakeBridge, samplePermissionRequest, sampleTask } from './test-bridge'
 
 it('answers uiState.get from its data, and stops delivering events once unsubscribed', async () => {
@@ -151,4 +152,16 @@ it("gives a task's history its own marks of the calls a rule decided", async () 
   const history = await fake.bridge.invoke(CommandName.TasksHistory, { id: 't1' })
 
   expect(history.permissionMarks.map(({ toolUseId }) => toolUseId)).toEqual(['a', 'c'])
+})
+
+it('refuses the todo hub’s commands, as main does while the hub is off', async () => {
+  const fake = fakeBridge({ workspaces: [], tasks: [sampleTask('t1', 'w1')], uiState: [] })
+
+  await expect(fake.bridge.invoke(CommandName.TodoHubGet, { taskId: 't1' })).rejects.toMatchObject({
+    code: BridgeErrorCode.InvalidTransition,
+    message: TODO_HUB_OFF,
+  })
+  await expect(
+    fake.bridge.invoke(CommandName.TodoHubSetPanel, { taskId: 't1', todoId: '1', open: true, filter: ChildFilter.All }),
+  ).rejects.toMatchObject({ code: BridgeErrorCode.InvalidTransition, message: TODO_HUB_OFF })
 })

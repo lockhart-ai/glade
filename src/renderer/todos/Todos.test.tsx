@@ -22,18 +22,38 @@ const MINUTE = 60_000
 /** The list in 09-todos.html. */
 const LIST: TodoList = {
   items: [
-    { text: 'Find how uploads are stored today', state: TodoState.Done, note: null, completedAt: NOW - 19 * MINUTE },
-    { text: 'Add an S3 backend for media files', state: TodoState.Done, note: null, completedAt: NOW - 17 * MINUTE },
-    { text: 'Check new uploads land in the bucket', state: TodoState.Done, note: null, completedAt: NOW - 9 * MINUTE },
     {
+      id: '1',
+      text: 'Find how uploads are stored today',
+      state: TodoState.Done,
+      note: null,
+      completedAt: NOW - 19 * MINUTE,
+    },
+    {
+      id: '2',
+      text: 'Add an S3 backend for media files',
+      state: TodoState.Done,
+      note: null,
+      completedAt: NOW - 17 * MINUTE,
+    },
+    {
+      id: '3',
+      text: 'Check new uploads land in the bucket',
+      state: TodoState.Done,
+      note: null,
+      completedAt: NOW - 9 * MINUTE,
+    },
+    {
+      id: '11',
       text: 'Copy the 3,900 existing files',
       state: TodoState.Doing,
       note: 'In progress · 1,240 of 3,900',
       completedAt: null,
     },
-    { text: 'Spot-check a sample of copied files', state: TodoState.Todo, note: null, completedAt: null },
-    { text: 'Update stored paths in the database', state: TodoState.Todo, note: null, completedAt: null },
+    { id: '4', text: 'Spot-check a sample of copied files', state: TodoState.Todo, note: null, completedAt: null },
+    { id: '5', text: 'Update stored paths in the database', state: TodoState.Todo, note: null, completedAt: null },
     {
+      id: '12',
       text: 'Delete local copies',
       state: TodoState.Waiting,
       note: 'Will ask you before deleting anything',
@@ -117,7 +137,7 @@ describe('Todos', () => {
 
   it('switches an item from the hollow ring to the filled check as it gets done, and back when reopened', () => {
     const list = (state: TodoState): TodoList => ({
-      items: [{ text: 'Fix the race', state, note: null, completedAt: state === TodoState.Done ? NOW : null }],
+      items: [{ id: '6', text: 'Fix the race', state, note: null, completedAt: state === TodoState.Done ? NOW : null }],
       updatedAt: NOW,
     })
     const { rerender } = render(<Todos taskId="t1" list={list(TodoState.Todo)} now={NOW} />)
@@ -150,7 +170,7 @@ describe('Todos', () => {
 
   it('keeps the finish times current as the clock moves', () => {
     const list: TodoList = {
-      items: [{ text: 'Fix the race', state: TodoState.Done, note: null, completedAt: NOW - 5_000 }],
+      items: [{ id: '7', text: 'Fix the race', state: TodoState.Done, note: null, completedAt: NOW - 5_000 }],
       updatedAt: NOW - 5_000,
     }
     const { rerender } = render(<Todos taskId="t1" list={list} now={NOW} />)
@@ -212,6 +232,7 @@ describe('Todos', () => {
   it("shows a list with only one group in the agent's order, or newest first when all are done", () => {
     const only = (state: TodoState, completedAt: (index: number) => number | null): TodoList => ({
       items: ['Reproduce the flake', 'Fix the race', 'Run the test 200 times'].map((text, index) => ({
+        id: String(index + 1),
         text,
         state,
         note: null,
@@ -233,9 +254,60 @@ describe('Todos', () => {
     expect(screen.getAllByText('just now')).toHaveLength(3)
   })
 
+  it('keys each row on its todo’s id: a row stays the same element when one above it is deleted', () => {
+    const todo = (id: string | null, text: string) => ({
+      id,
+      text,
+      state: TodoState.Todo,
+      note: null,
+      completedAt: null,
+    })
+    const list: TodoList = {
+      items: [todo('1', 'Reproduce the flake'), todo('2', 'Fix the race'), todo('3', 'Run the test 200 times')],
+      updatedAt: NOW,
+    }
+    const { rerender } = render(<Todos taskId="t1" list={list} now={NOW} />)
+    const [, fix, run] = items()
+
+    // The agent deletes the first todo, and adds one: the others move up a place, and keep their ids.
+    const next: TodoList = { items: [...list.items.slice(1), todo('4', 'Open the PR')], updatedAt: NOW }
+    rerender(<Todos taskId="t1" list={next} now={NOW} />)
+
+    expect(items().map((item) => item.textContent)).toEqual([
+      'To do: Fix the race',
+      'To do: Run the test 200 times',
+      'To do: Open the PR',
+    ])
+    expect(items()[0]).toBe(fix)
+    expect(items()[1]).toBe(run)
+  })
+
+  it('shows every item of a list whose todos have no id (TodoWrite’s), or share one, each on its own row', () => {
+    const todo = (id: string | null, text: string) => ({
+      id,
+      text,
+      state: TodoState.Todo,
+      note: null,
+      completedAt: null,
+    })
+    const list: TodoList = {
+      items: [todo(null, 'Reproduce the flake'), todo('7', 'Fix the race'), todo('7', 'Run it'), todo(null, 'Ship')],
+      updatedAt: NOW,
+    }
+
+    render(<Todos taskId="t1" list={list} now={NOW} />)
+
+    expect(items().map((item) => item.textContent)).toEqual([
+      'To do: Reproduce the flake',
+      'To do: Fix the race',
+      'To do: Run it',
+      'To do: Ship',
+    ])
+  })
+
   it('shows a done item without a finish time with none', () => {
     const list: TodoList = {
-      items: [{ text: 'Fix the race', state: TodoState.Done, note: null, completedAt: null }],
+      items: [{ id: '8', text: 'Fix the race', state: TodoState.Done, note: null, completedAt: null }],
       updatedAt: NOW,
     }
     render(<Todos taskId="t1" list={list} now={NOW} />)
@@ -292,12 +364,19 @@ describe('a todo’s context menu', () => {
     const list: TodoList = {
       items: [
         {
+          id: '13',
           text: 'Follow the migration guide at https://example.com/docs/s3',
           state: TodoState.Doing,
           note: 'Asked in support@example.com',
           completedAt: null,
         },
-        { text: 'Check `https://example.com/api` still answers', state: TodoState.Todo, note: null, completedAt: null },
+        {
+          id: '9',
+          text: 'Check `https://example.com/api` still answers',
+          state: TodoState.Todo,
+          note: null,
+          completedAt: null,
+        },
       ],
       updatedAt: NOW,
     }
@@ -322,9 +401,9 @@ describe('a todo’s context menu', () => {
 
 describe('askAboutTodo', () => {
   it('names the todo, for you to finish with your question', () => {
-    expect(askAboutTodo({ text: 'Run the tests', state: TodoState.Todo, note: null, completedAt: null })).toBe(
-      'About the todo “Run the tests”: ',
-    )
+    expect(
+      askAboutTodo({ id: '10', text: 'Run the tests', state: TodoState.Todo, note: null, completedAt: null }),
+    ).toBe('About the todo “Run the tests”: ')
   })
 })
 
