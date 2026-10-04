@@ -15,12 +15,16 @@ import {
   type ToolCallEvent,
   type ToolEvent,
 } from '../shared/domain'
+import { FolderAccess, SandboxAskKind } from '../shared/sandbox'
 import { Chat } from './chat'
 import { clockTime } from './chat/chatModel'
 import { samplePermissionRequest, sampleTask, sampleWatcher, sampleWorkspace } from './store/test-bridge'
 import { storeWrapper, type StoreWrapper } from './store/test-wrapper'
 import { ELAPSED_REFRESH_MS, SubagentsTab } from './subagents/SubagentsTab'
 import { statusLabel } from './subagents/subagentsModel'
+import { TaskList } from './task-list'
+import { rowStatus } from './task-list/rowStatus'
+import { NOW_REFRESH_MS } from './task-list/useNow'
 import { ToolLog } from './tool-log'
 
 // Every chat entry and tool log row shows its time: one `clockTime` call per render of one.
@@ -28,6 +32,12 @@ vi.mock('./chat/chatModel', async (importOriginal) => {
   const original = await importOriginal<typeof import('./chat/chatModel')>()
   return { ...original, clockTime: vi.fn(original.clockTime) }
 })
+// Every task row's status line works out what it says: one `rowStatus` call per render of one.
+vi.mock('./task-list/rowStatus', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./task-list/rowStatus')>()
+  return { ...original, rowStatus: vi.fn(original.rowStatus) }
+})
+
 // Every subagent row shows its status: one `statusLabel` call per render of one.
 vi.mock('./subagents/subagentsModel', async (importOriginal) => {
   const original = await importOriginal<typeof import('./subagents/subagentsModel')>()
@@ -272,5 +282,62 @@ describe('the Subagents tab, with many subagents', () => {
     expect(renders(statusLabel)).toBe(1)
     rerender(<SubagentsTab taskId="t1" events={EVENTS} watchers={[]} />)
     expect(renders(statusLabel)).toBe(2)
+  })
+})
+
+describe('the task list, with many tasks', () => {
+  const TASKS = 60
+  const tasks = Array.from({ length: TASKS }, (_, index) => ({
+    ...sampleTask(`t${String(index)}`, 'w1', `Task ${String(index)}`),
+    sessionId: `session-${String(index)}`,
+    status: `Working on part ${String(index)}`,
+  }))
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(AT)
+  })
+
+  it('renders only the status line of the row whose task starts or stops waiting on a permission', async () => {
+    const { wrapper, store, fake } = storeWrapper({
+      tasks,
+      uiState: [{ key: UiStateKey.ActiveWorkspaceId, value: 'w1' }],
+    })
+    await act(() => store.getState().hydrate())
+    render(<TaskList workspaceId="w1" />, { wrapper })
+    expect(renders(rowStatus)).toBe(TASKS)
+    const [first] = tasks
+    if (first === undefined) throw new Error('No task')
+
+    // One task's agent asks for a folder: its row's line changes, led by the shield, and no other row's renders.
+    vi.mocked(rowStatus).mockClear()
+    const asking = {
+      ...first,
+      awaitingPermission: true,
+      permissionAsk: { kind: SandboxAskKind.Folder, path: '/Users/me/code/acme-web', access: FolderAccess.Read },
+    } as const
+    act(() => {
+      fake.emit({ type: EventType.TaskUpdated, task: asking })
+    })
+    expect(renders(rowStatus)).toBe(1)
+    expect(screen.getByText('Waiting on you: read ~/code/acme-web')).toBeInTheDocument()
+    expect(screen.getAllByRole('img', { name: 'Permission' })).toHaveLength(1)
+
+    // A change that leaves its line as it was (it's read) renders none, and nor does the clock ticking.
+    vi.mocked(rowStatus).mockClear()
+    act(() => {
+      fake.emit({ type: EventType.TaskUpdated, task: { ...asking, unread: true } })
+    })
+    act(() => {
+      vi.advanceTimersByTime(NOW_REFRESH_MS)
+    })
+    expect(renders(rowStatus)).toBe(0)
+
+    // Answered: that row's line alone goes back to its status.
+    act(() => {
+      fake.emit({ type: EventType.TaskUpdated, task: first })
+    })
+    expect(renders(rowStatus)).toBe(1)
+    expect(screen.queryByRole('img', { name: 'Permission' })).toBeNull()
   })
 })

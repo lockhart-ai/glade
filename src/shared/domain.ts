@@ -256,6 +256,12 @@ export interface Task {
    */
   readonly awaitingPermission: boolean
   /**
+   * What the open permission request the task has waited on longest asks of the agent sandbox, for the task list's
+   * status line ("Waiting on you: read ~/code/acme-web"); null when it awaits none, or one that asks nothing of the
+   * sandbox. Derived from the permission requests, as `awaitingPermission` is.
+   */
+  readonly permissionAsk: SandboxAsk | null
+  /**
    * Whether work the agent started is still running: a subagent (a running `Agent` call, which during the agent's own
    * turn includes the ones it waits on) or a watcher whose process runs (a `Monitor` watch or a background command;
    * `WatcherState.Running`, so not a wakeup or cron job that's only scheduled). While it does, a task whose own turn
