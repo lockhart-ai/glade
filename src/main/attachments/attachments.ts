@@ -13,8 +13,8 @@
  * - The copies stay as long as the task does (a done task keeps them); deleting the task deletes its folder. A file
  *   taken off a draft before it was ever sent goes at once (`discardAttachedFile`).
  */
-import { constants, closeSync, openSync, readSync, rmSync, fstatSync } from 'node:fs'
-import { appendFile, copyFile, mkdir, open, readdir, readFile, realpath, stat, unlink } from 'node:fs/promises'
+import { constants, closeSync, openSync, readSync, realpathSync, rmSync, fstatSync } from 'node:fs'
+import { copyFile, lstat, mkdir, open, readdir, realpath, stat, unlink } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { BridgeErrorCode } from '../../shared/bridge'
 import {
@@ -111,15 +111,56 @@ function isInside(root: string, path: string): boolean {
 }
 
 /**
+ * Whether what's there of `path` (inside `root`, which is real) leads outside `root`: one of its folders is a link to
+ * somewhere else, or a link to nothing at all. The agent can make such a link in its workspace (`ln -s ~ .glade`), and
+ * everything here runs outside its sandbox. What isn't there yet leads nowhere.
+ */
+async function leadsOutside(root: string, path: string): Promise<boolean> {
+  let current = root
+  for (const part of relative(root, path).split(sep)) {
+    current = join(current, part)
+    let real: string
+    try {
+      real = await realpath(current)
+    } catch (error) {
+      if (codeOf(error) !== 'ENOENT') throw error
+      // Nothing there: the rest is still to be made. A link to nothing is there, and leads wherever it says.
+      const dangling = await lstat(current).then(
+        (info) => info.isSymbolicLink(),
+        () => false,
+      )
+      return dangling
+    }
+    if (!isInside(root, real)) return true
+  }
+  return false
+}
+
+/** `leadsOutside`, without waiting: for the paths read and deleted as a message is sent or a task deleted. */
+function leadsOutsideSync(root: string, path: string): boolean {
+  try {
+    return !isInside(realpathSync(root), realpathSync(path))
+  } catch {
+    // Not there: nothing to read or delete, wherever it would lead.
+    return true
+  }
+}
+
+/**
  * The task's folder of attached files, made if it isn't there yet. Throws a `CommandFailure` (`outside_workspace`)
- * when it leads outside the workspace (a `.glade` that's a symlink to elsewhere).
+ * when it leads outside the workspace (a `.glade` that's a symlink to elsewhere): checked before anything is made, so
+ * no folder is ever left outside the workspace (#514), and again once it's there.
  */
 async function attachmentsFolder(filesRoot: string, taskId: string): Promise<string> {
-  const folder = join(filesRoot, attachmentsFolderOf(taskId))
+  // The workspace's own folder, made again if it's gone: it's the one folder that's always the workspace's.
+  await mkdir(filesRoot, { recursive: true })
+  const root = await realpath(filesRoot)
+  const folder = join(root, attachmentsFolderOf(taskId))
+  const outside = (): CommandFailure =>
+    new CommandFailure(BridgeErrorCode.OutsideWorkspace, `${ATTACHMENTS_FOLDER} is outside the workspace`)
+  if (await leadsOutside(root, folder)) throw outside()
   await mkdir(folder, { recursive: true })
-  if (!isInside(await realpath(filesRoot), await realpath(folder))) {
-    throw new CommandFailure(BridgeErrorCode.OutsideWorkspace, `${ATTACHMENTS_FOLDER} is outside the workspace`)
-  }
+  if (!isInside(root, await realpath(folder))) throw outside()
   return folder
 }
 
@@ -157,16 +198,25 @@ export async function excludeAttachments(git: Pick<Git, 'locate'>, filesRoot: st
     .split(sep)
     .join('/')
   const pattern = `/${literalPattern(fromTop === '' ? '' : `${fromTop}/`)}${ATTACHMENTS_FOLDER}/`
-  const exclude = join(repo.commonDir, 'info', 'exclude')
-  const current = await readFile(exclude, 'utf8').catch((error: unknown) => {
-    if (codeOf(error) === 'ENOENT') return ''
-    throw error
-  })
-  if (current.split('\n').some((line) => line.trim() === pattern)) return false
-  await mkdir(dirname(exclude), { recursive: true })
-  const separator = current === '' || current.endsWith('\n') ? '' : '\n'
-  await appendFile(exclude, `${separator}# Files attached to messages in Glade\n${pattern}\n`)
-  return true
+  const info = join(repo.commonDir, 'info')
+  await mkdir(info, { recursive: true })
+  // The agent can write in the repository's own folder, and this runs outside its sandbox: an `info` or an `exclude`
+  // swapped for a link (`ln -sf ~/.zshenv .git/info/exclude`) would have these lines land in a file of yours (#514).
+  if (!isInside(await realpath(repo.commonDir), await realpath(info))) {
+    throw new Error(`${info} leads outside the repository`)
+  }
+  // `O_NOFOLLOW` refuses a link as the file itself (`ELOOP`); `O_APPEND` writes at its end, whatever was read.
+  const flags = constants.O_RDWR | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW
+  const handle = await open(join(info, 'exclude'), flags, 0o644)
+  try {
+    const current = await handle.readFile('utf8')
+    if (current.split('\n').some((line) => line.trim() === pattern)) return false
+    const separator = current === '' || current.endsWith('\n') ? '' : '\n'
+    await handle.appendFile(`${separator}# Files attached to messages in Glade\n${pattern}\n`)
+    return true
+  } finally {
+    await handle.close()
+  }
 }
 
 /**
@@ -220,6 +270,8 @@ export async function discardAttachedFile(context: TaskServiceContext, taskId: s
   const name = path.slice(path.lastIndexOf('/') + 1)
   if (!isAttachedFileOf(taskId, { name, path })) throw refuse(`${path} isn’t a file attached to the task`)
   if (isAttachedFileSent(context.db, taskId, path)) return
+  // Never through a folder swapped for a link out of the workspace: the file to delete would be someone else's.
+  if (leadsOutsideSync(filesRoot, dirname(join(filesRoot, path)))) return
   await unlink(join(filesRoot, path)).catch((error: unknown) => {
     if (codeOf(error) !== 'ENOENT') throw error
   })
@@ -231,8 +283,12 @@ export async function discardAttachedFile(context: TaskServiceContext, taskId: s
  */
 export function deleteTaskAttachments(rootPath: string, taskId: string, log: Logger): void {
   if (!isAttachedFileName(taskId)) return
+  const root = workspaceFilesRoot(rootPath)
+  const folder = join(root, attachmentsFolderOf(taskId))
+  // Never through a folder swapped for a link out of the workspace: what would be deleted there isn't the task's.
+  if (leadsOutsideSync(root, dirname(folder))) return
   try {
-    rmSync(join(workspaceFilesRoot(rootPath), attachmentsFolderOf(taskId)), { recursive: true, force: true })
+    rmSync(folder, { recursive: true, force: true })
   } catch (error) {
     log.warn('couldn’t delete the task’s attached files', { taskId, error: String(error) })
   }
@@ -248,7 +304,7 @@ export function attachedImagesOf(rootPath: string, files: readonly AttachedFile[
   for (const file of files) {
     const mediaType = AGENT_IMAGE_TYPES[extensionOf(file.name)]
     if (file.kind !== AttachedFileKind.Image || mediaType === undefined) continue
-    const bytes = readImage(join(workspaceFilesRoot(rootPath), file.path))
+    const bytes = readImage(workspaceFilesRoot(rootPath), file.path)
     if (bytes !== null && hasImageSignature(mediaType, bytes)) {
       images.push({ mediaType, data: bytes.toString('base64') })
     }
@@ -256,12 +312,19 @@ export function attachedImagesOf(rootPath: string, files: readonly AttachedFile[
   return images
 }
 
-/** A copied image's bytes, or null when it's gone, isn't a file, or is larger than the API takes. */
-function readImage(path: string): Buffer | null {
+/**
+ * A copied image's bytes, at `path` in the workspace at `root`; null when it's gone, isn't a file, is larger than the
+ * API takes, or isn't in the workspace any more: the agent can swap the copy, or a folder above it, for a link to an
+ * image elsewhere while its message waits in the queue, and this reads outside its sandbox (#514).
+ */
+function readImage(root: string, path: string): Buffer | null {
+  const file = join(root, path)
+  // No following a folder above it swapped for a link out of the workspace since it was copied.
+  if (leadsOutsideSync(root, dirname(file))) return null
   let descriptor: number
   try {
-    // No following a symlink put in its place since it was copied.
-    descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+    // Nor a symlink put in its own place.
+    descriptor = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW)
   } catch {
     return null
   }

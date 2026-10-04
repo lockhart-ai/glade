@@ -256,11 +256,12 @@ describe('a session starting', () => {
     expect(session.flagSettings).toEqual([overlay([read(TOOLCHAIN), readWrite(SHARED), domain('registry.npmjs.org')])])
     expect(session.flagSettings[0]).toMatchObject({
       sandbox: { filesystem: { allowRead: [ROOT, TOOLCHAIN, SHARED], allowWrite: [ROOT, SHARED] } },
-      permissions: {
-        allow: [`Read(/${TOOLCHAIN}/**)`, 'WebFetch(domain:registry.npmjs.org)'],
-        additionalDirectories: [SHARED],
-      },
+      // The file tools are told of no folder (#514): only a domain is a rule, since commands' connections need it.
+      permissions: { allow: ['WebFetch(domain:registry.npmjs.org)'] },
     })
+    expect(session.flagSettings[0]?.permissions).not.toHaveProperty('additionalDirectories')
+    // What runs code stays write-protected in the folder granted read-write.
+    expect(session.flagSettings[0]?.sandbox?.filesystem?.denyWrite).toContain(`${SHARED}/.git/hooks`)
     expect(sentBeforeEachOverlay).toEqual([0])
     expect(session.sent).toHaveLength(1)
     // Everything saved went into the sandbox: nothing was left out.
@@ -278,7 +279,8 @@ describe('a session starting', () => {
       network: { allowedDomains: [] },
     })
     expect(session.flagSettings[0]?.sandbox?.credentials?.files).toContainEqual({ path: `${HOME}/.ssh`, mode: 'deny' })
-    expect(session.flagSettings[0]?.permissions).toMatchObject({ allow: [], additionalDirectories: [] })
+    expect(session.flagSettings[0]?.permissions).toMatchObject({ allow: [] })
+    expect(session.flagSettings[0]?.permissions).not.toHaveProperty('additionalDirectories')
   })
 
   it('applies nothing to a session that started with the sandbox off, then or when the grants change', async () => {
@@ -302,7 +304,7 @@ describe('a session starting', () => {
 
     const [applied] = session.flagSettings
     expect(applied?.permissions?.allow).toEqual(['WebFetch(domain:registry.npmjs.org)', 'WebFetch(domain:*.acme.dev)'])
-    expect(applied?.sandbox?.network).toEqual({ allowedDomains: [] })
+    expect(applied?.sandbox?.network).toMatchObject({ allowedDomains: [] })
     expect(JSON.stringify([session.options.flagSettings, session.options.allowedRules])).not.toMatch(/acme\.dev|npmjs/)
     expect(session.options.allowedRules).toEqual([])
   })
@@ -455,7 +457,10 @@ describe('a grant changing while sessions run', () => {
     const session = await startTask()
     await grantSandboxAccess(grants, { target: taskTarget(), grant: read(NOTES) })
     expect(session.flagSettings.at(-1)).toEqual(overlay([read(NOTES)]))
-    expect(session.flagSettings.at(-1)?.permissions?.allow).toEqual([`Read(/${NOTES}/**)`])
+    expect(session.flagSettings.at(-1)?.sandbox?.filesystem).toMatchObject({
+      allowRead: [ROOT, NOTES],
+      allowWrite: [ROOT],
+    })
 
     expect(await grantSandboxAccess(grants, { target: taskTarget(), grant: readWrite(NOTES) })).toMatchObject({
       change: SandboxGrantChange.Changed,
@@ -464,7 +469,8 @@ describe('a grant changing while sessions run', () => {
     const upgraded = session.flagSettings.at(-1)
     expect(upgraded).toEqual(overlay([readWrite(NOTES)]))
     expect(upgraded?.sandbox?.filesystem).toMatchObject({ allowRead: [ROOT, NOTES], allowWrite: [ROOT, NOTES] })
-    expect(upgraded?.permissions).toMatchObject({ allow: [], additionalDirectories: [NOTES] })
+    expect(upgraded?.sandbox?.filesystem?.denyWrite).toContain(`${NOTES}/.zshrc`)
+    expect(upgraded?.permissions).toMatchObject({ allow: [] })
   })
 
   it('takes a removed folder out of every list of the overlay', async () => {
@@ -481,11 +487,12 @@ describe('a grant changing while sessions run', () => {
     expect(JSON.stringify(withoutShared)).not.toContain(SHARED)
     expect(withoutEither).toEqual(overlay([]))
     expect(withoutEither?.sandbox?.filesystem).toMatchObject({ allowRead: [ROOT], allowWrite: [ROOT] })
-    expect(withoutEither?.permissions).toMatchObject({ allow: [], additionalDirectories: [] })
+    expect(withoutEither?.permissions).toMatchObject({ allow: [] })
+    expect(JSON.stringify(withoutEither)).not.toContain(SHARED)
     expect(backend.sessions).toEqual([session])
   })
 
-  it('downgrades a read-write folder to read-only: out of allowWrite and additionalDirectories, into a Read rule', async () => {
+  it('downgrades a read-write folder to read-only: out of allowWrite, and its write-protected files with it', async () => {
     addSandboxGrant(database.db, { target: taskTarget(), grant: readWrite(NOTES) })
     const session = await startTask()
 
@@ -496,7 +503,9 @@ describe('a grant changing while sessions run', () => {
     const downgraded = session.flagSettings.at(-1)
     expect(downgraded).toEqual(overlay([read(NOTES)]))
     expect(downgraded?.sandbox?.filesystem).toMatchObject({ allowRead: [ROOT, NOTES], allowWrite: [ROOT] })
-    expect(downgraded?.permissions).toMatchObject({ allow: [`Read(/${NOTES}/**)`], additionalDirectories: [] })
+    expect(session.flagSettings[0]?.sandbox?.filesystem?.denyWrite).toContain(`${NOTES}/.zshrc`)
+    expect(downgraded?.sandbox?.filesystem?.denyWrite).not.toContain(`${NOTES}/.zshrc`)
+    expect(downgraded?.permissions).toMatchObject({ allow: [] })
   })
 
   it('keeps a folder read-write while another scope still grants it so', async () => {
@@ -616,7 +625,8 @@ describe('a grant changing while sessions run', () => {
 
     expect(session.flagSettings).toHaveLength(101)
     expect(session.flagSettings.at(-1)).toEqual(overlay(many))
-    expect(session.flagSettings.at(-1)?.permissions?.allow).toHaveLength(100)
+    expect(session.flagSettings.at(-1)?.permissions?.allow).toHaveLength(50)
+    expect(session.flagSettings.at(-1)?.sandbox?.filesystem?.allowRead).toHaveLength(51)
     expect(log.withMessage('left a grant out of the sandbox')).toEqual([])
   })
 
@@ -647,10 +657,8 @@ describe('a mode switch', () => {
     const given = [read(NOTES), domain('registry.npmjs.org')]
     expect(session.flagSettings).toEqual([overlay(given), overlay(given, ROOT, PermissionMode.AskBeforeEdits)])
     expect(session.flagSettings.at(-1)?.sandbox?.autoAllowBashIfSandboxed).toBe(false)
-    expect(session.flagSettings.at(-1)?.permissions?.allow).toEqual([
-      `Read(/${NOTES}/**)`,
-      'WebFetch(domain:registry.npmjs.org)',
-    ])
+    expect(session.flagSettings.at(-1)?.permissions?.allow).toEqual(['WebFetch(domain:registry.npmjs.org)'])
+    expect(session.flagSettings.at(-1)?.sandbox?.filesystem?.allowRead).toEqual([ROOT, NOTES])
   })
 
   it('keeps the grants as they are now, after they changed while the session ran', async () => {

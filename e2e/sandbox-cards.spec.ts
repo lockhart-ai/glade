@@ -3,11 +3,12 @@
 // each answered for the task or for the workspace; a command the sandbox blocks has the agent ask for the folder with
 // `request_access`, and once it's allowed the same command runs; and a command that wants to run outside the sandbox is
 // allowed once, or denied with a note. A grant for the workspace reaches the workspace's next task, a grant for the task
-// doesn't, and nothing is written to the workspace's own files.
-import { existsSync, mkdirSync } from 'node:fs'
+// doesn't, and nothing is written to the workspace's own files. And the phase's security review (#514): what the
+// sandbox stops whatever Claude Code's own settings would allow.
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
-import { ASKS_SANDBOX } from '../src/main/agent/scripts'
+import { ASKS_SANDBOX, CROSSES_SANDBOX } from '../src/main/agent/scripts'
 import { CommandName } from '../src/shared/bridge'
 import {
   PermissionDecisionKind,
@@ -149,12 +150,14 @@ test('the sandbox’s cards: a domain, a folder, a blocked command’s request_a
   const last = (await agentFlagSettings(glade)).at(-1)
   expect(last?.sandbox?.filesystem?.allowRead).toEqual([root, SHARED, DOCS, ASKS_SANDBOX.configFolder])
   expect(last?.sandbox?.filesystem?.allowWrite).toEqual([root, DOCS])
-  expect(last?.permissions?.allow).toEqual([
-    `Read(/${SHARED}/**)`,
-    `Read(/${ASKS_SANDBOX.configFolder}/**)`,
-    `WebFetch(domain:${ASKS_SANDBOX.host})`,
-    'WebFetch(domain:docs.acme.dev)',
-  ])
+  // Claude Code's file tools are told of no folder (#514): Glade decides their calls itself. Only the domains are
+  // rules, since a command's connection needs them.
+  expect(last?.permissions?.allow).toEqual([`WebFetch(domain:${ASKS_SANDBOX.host})`, 'WebFetch(domain:docs.acme.dev)'])
+  expect(last?.permissions).not.toHaveProperty('additionalDirectories')
+  // And what runs code stays write-protected for commands in the folder granted read-write.
+  expect(last?.sandbox?.filesystem?.denyWrite).toEqual(
+    expect.arrayContaining([`${DOCS}/.zshrc`, `${DOCS}/.git/hooks`, `${DOCS}/.git/config`]),
+  )
   // Nothing was written to the workspace's own files.
   expect(existsSync(join(root, '.claude'))).toBe(false)
 
@@ -265,4 +268,82 @@ test('Allow for this workspace on a card adds to Settings › Workspace while it
   await expect(shared).toBeVisible()
   await expect(shared).toContainText('Read-only')
   await expect(modal.grantRows('Folders')).toHaveCount(2)
+})
+
+test('the sandbox stops what Claude Code’s own settings would allow: a card that says what it opens, or a refusal', async ({
+  launch,
+  tempFolder,
+}) => {
+  const root = join(tempFolder(), 'acme-api')
+  mkdirSync(join(root, '.claude'), { recursive: true })
+  // The repository's own Claude Code settings keep `docker` out of the sandbox: it would run unsandboxed, unasked.
+  writeFileSync(
+    join(root, '.claude', 'settings.json'),
+    JSON.stringify({ sandbox: { excludedCommands: [CROSSES_SANDBOX.excluded] } }),
+  )
+  const glade = await launch({ agentScript: 'crosses-sandbox', chosenFolder: root })
+  const { window } = glade
+  await firstRun(window).openFolder.click()
+  await invoke(window, CommandName.SettingsUpdate, { patch: { sandboxEnabled: true } })
+  await startTask(window)
+  const answers = (card: Locator) => card.getByRole('group', { name: 'Answer' }).getByRole('button')
+  const deny = async (card: Locator): Promise<void> => {
+    await card.getByRole('button', { name: 'Deny' }).click()
+    await card.getByRole('textbox', { name: 'Note for the agent' }).press('Enter')
+  }
+
+  // A write where a file runs at the next login, which a rule in the user's settings allows: Glade asks anyway.
+  const plist = await openCard(window, `The agent wants to write to${CROSSES_SANDBOX.plistFolder}`)
+  await expect(plist).toContainText(CROSSES_SANDBOX.plist)
+  await deny(plist)
+
+  // The read by macOS's other name for a file was refused with no card. The connection to this Mac asks, and says
+  // what it is.
+  const local = await openCard(window, `The agent wants to reach${CROSSES_SANDBOX.local}`)
+  await expect(local).toContainText(
+    'This is your own Mac. Allowing it lets the agent reach every service running on it.',
+  )
+  await expect(local.getByLabel('Command')).toHaveText(CROSSES_SANDBOX.curl)
+  await expect(answers(local)).toHaveText(['Allow for this task', 'Allow for this workspace', 'Deny'])
+  await deny(local)
+
+  // The command the settings keep out of the sandbox asks to run outside it, and can only be allowed once.
+  const docker = await openCard(window, 'The agent wants to run a command outside the sandbox')
+  await expect(docker.getByLabel('Command')).toHaveText(CROSSES_SANDBOX.docker)
+  await expect(answers(docker)).toHaveText(['Allow once', 'Deny'])
+  await docker.getByRole('button', { name: 'Allow once' }).click()
+
+  // A git hook in another repository: no folder to grant, only this one write, once.
+  const hook = await openCard(window, 'Write')
+  await expect(hook).toContainText(CROSSES_SANDBOX.hook)
+  await expect(answers(hook)).toHaveText(['Allow once', 'Deny'])
+  await deny(hook)
+
+  await expect(chat(window).agentReplies.last()).toContainText(CROSSES_SANDBOX.reply)
+  const lines = taskPanel(window).permissionLines
+  await expect(lines).toHaveCount(5)
+  await expect(lines.nth(0)).toHaveText(`Denied: write to ${CROSSES_SANDBOX.plistFolder}`)
+  await expect(lines.nth(1)).toHaveText(`Blocked by the sandbox: read ${CROSSES_SANDBOX.alias}`)
+  await expect(lines.nth(2)).toHaveText(`Denied: reach ${CROSSES_SANDBOX.local}`)
+  await expect(lines.nth(3)).toHaveText('Allowed once: run outside the sandbox')
+
+  // What ran, and what didn't: only the command you allowed.
+  const [task] = await tasks(window)
+  const calls = await toolCalls(window, task?.id ?? '')
+  expect(calls.map(({ name, state }) => [name, state])).toEqual([
+    ['Write', ToolCallState.Error],
+    ['Read', ToolCallState.Error],
+    ['Bash', ToolCallState.Error],
+    ['Bash', ToolCallState.Done],
+    ['Write', ToolCallState.Error],
+  ])
+  expect(calls[1]?.output).toContain("it can't tell where the path really leads")
+  // Nothing was granted, and the session's settings name no folder but the workspace.
+  const last = (await agentFlagSettings(glade)).at(-1)
+  expect(last?.sandbox?.filesystem?.allowWrite).toEqual([root])
+  expect(last?.permissions?.allow).toEqual([])
+  expect(last?.sandbox?.credentials?.envVars).toEqual([
+    { name: 'GLADE_CONTROL_URL', mode: 'deny' },
+    { name: 'GLADE_CONTROL_TOKEN', mode: 'deny' },
+  ])
 })

@@ -7,24 +7,32 @@ import { LogLevel, LogScope } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
 import {
   PromptVerdict,
+  ToolPermissionBehavior,
   type AgentSessionOptions,
   type BashCallFinished,
   type BashFinishedAnswer,
   type SandboxFlagSettings,
   type SessionHooks,
+  type ToolCallStarting,
+  type ToolStartDecision,
 } from './backend'
 import {
   BASH_FINISHED_TIMEOUT_S,
   COMMAND_TOOLS,
   createSdkBackend,
+  DISALLOWED_TOOLS,
   isSandboxed,
+  SANDBOX_CHECK_FAILED,
+  SANDBOX_DISALLOWED_TOOLS,
+  SANDBOX_TOOLS,
+  sandboxToolGuard,
   sdkFlagSettings,
   sdkHooks,
   sdkOptions,
   sdkPermissionMode,
   sdkSandbox,
 } from './sdk-backend'
-import { sandboxStartSettings } from './sandbox'
+import { sandboxOverlay, sandboxStartSettings } from './sandbox'
 
 const sdk = vi.hoisted(() => {
   const session = {
@@ -470,4 +478,274 @@ it('adds nothing, and logs it, when the host fails to decide', async () => {
       fields: { toolUseId: 'toolu_01blocked', error: expect.any(Error) as unknown },
     }),
   ])
+})
+
+// #514, finding 4: `EnterWorktree {path}` moves the session's working folder into another worktree of the repository,
+// outside the workspace root. Claude Code's file tools follow; Glade's bounds stay with the root.
+it('offers a sandboxed session no way into another worktree, and any other session what it always had', () => {
+  const sandboxed = sdkOptions({ ...OPTIONS, flagSettings: sandboxStartSettings(ROOT, '/Users/me') }, {})
+  expect(sandboxed.disallowedTools).toEqual(['AskUserQuestion', 'EnterWorktree', 'ExitWorktree'])
+  expect(SANDBOX_DISALLOWED_TOOLS).toEqual(['EnterWorktree', 'ExitWorktree'])
+
+  for (const flagSettings of [undefined, {}, { sandbox: { enabled: false } }]) {
+    const plain = sdkOptions({ ...OPTIONS, ...(flagSettings === undefined ? {} : { flagSettings }) }, {})
+    expect(plain.disallowedTools).toEqual(['AskUserQuestion'])
+  }
+  expect(DISALLOWED_TOOLS).toEqual(['AskUserQuestion'])
+})
+
+// #514, finding 3 and 5: the switches the user's own settings could turn on underneath, and the control endpoint's
+// variables, reach the SDK as Glade sets them.
+it('hands the SDK every switch Glade sets off, and the variables it keeps from commands', () => {
+  const start = sandboxStartSettings(ROOT, '/Users/me')
+  const options = sdkOptions({ ...OPTIONS, flagSettings: start }, {})
+
+  expect(options.sandbox).toMatchObject({
+    filesystem: { disabled: false },
+    network: { allowedDomains: [], allowLocalBinding: false, allowAllUnixSockets: false, allowUnixSockets: [] },
+    credentials: {
+      envVars: [
+        { name: 'GLADE_CONTROL_URL', mode: 'deny' },
+        { name: 'GLADE_CONTROL_TOKEN', mode: 'deny' },
+      ],
+    },
+    allowAppleEvents: false,
+    enableWeakerNestedSandbox: false,
+    enableWeakerNetworkIsolation: false,
+    ignoreViolations: {},
+  })
+  // And again in every overlay, whose `sandbox` replaces the last one's.
+  const overlay = sandboxOverlay(ROOT, PermissionMode.AllowAll, { folders: [], domains: [] }, '/Users/me')
+  expect(sdkFlagSettings(overlay).sandbox).toMatchObject({
+    filesystem: { disabled: false },
+    allowAppleEvents: false,
+    credentials: { envVars: [{ name: 'GLADE_CONTROL_URL' }, { name: 'GLADE_CONTROL_TOKEN' }] },
+  })
+})
+
+it('hands the SDK copies of the new lists too', () => {
+  const allowUnixSockets = ['/var/run/docker.sock']
+  const denials = ['/usr/bin/true']
+  const envVars = [{ name: 'GLADE_CONTROL_TOKEN', mode: 'deny' as const }]
+  const sandbox = sdkSandbox({
+    enabled: true,
+    network: { allowUnixSockets },
+    credentials: { envVars },
+    ignoreViolations: { '*': denials },
+  })
+  sandbox.network?.allowUnixSockets?.push('/tmp/other.sock')
+  sandbox.ignoreViolations?.['*']?.push('/usr/bin/false')
+  sandbox.credentials?.envVars?.push({ name: 'OTHER', mode: 'deny' })
+
+  expect(allowUnixSockets).toEqual(['/var/run/docker.sock'])
+  expect(denials).toEqual(['/usr/bin/true'])
+  expect(envVars).toHaveLength(1)
+  expect(sandbox.ignoreViolations).toEqual({ '*': ['/usr/bin/true', '/usr/bin/false'] })
+})
+
+/** A `PreToolUse` input for a call of the agent's own, as the SDK gives it. */
+function starting(toolName: string, toolInput: unknown, extra: Record<string, unknown> = {}): HookInput {
+  return {
+    ...HOOK_BASE,
+    hook_event_name: 'PreToolUse',
+    tool_name: toolName,
+    tool_use_id: 'toolu_01start',
+    tool_input: toolInput,
+    ...extra,
+  }
+}
+
+const DENIED = (reason: string) => ({
+  hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
+})
+const ALLOWED = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } }
+
+/** Calls the sandbox's `PreToolUse` hook, as the SDK does. */
+function guard(
+  onToolStarting: NonNullable<SessionHooks['onToolStarting']>,
+  input: HookInput,
+  signal: AbortSignal = new AbortController().signal,
+  log = createMemoryLog(LogScope.Agent),
+) {
+  return sandboxToolGuard(onToolStarting, log.logger)(input, 'toolu_01start', { signal })
+}
+
+// #514, finding 3: `permissions.allow: ["Write"]` in `~/.claude/settings.json`, or the repository's, and the file tools
+// never reached `canUseTool`: `Write ~/Library/LaunchAgents/x.plist` ran with no card. A `PreToolUse` hook runs in
+// every permission mode and before any rule is matched.
+it('hooks the tools the sandbox bounds before they run, only for a session that asks to hear of them', () => {
+  expect(sdkHooks(handlers()).PreToolUse).toHaveLength(1)
+  const onToolStarting = (): Promise<ToolStartDecision | null> => Promise.resolve(null)
+  const hooks = sdkHooks({ ...handlers(), onToolStarting })
+
+  // After the guard on Glade's own tools, which every session has.
+  expect(hooks.PreToolUse).toEqual([
+    { hooks: [expect.any(Function)] },
+    // As long as a timer allows: Claude Code gives a hook 10 minutes otherwise, and would then run the call.
+    { matcher: SANDBOX_TOOLS, hooks: [expect.any(Function)], timeout: BASH_FINISHED_TIMEOUT_S },
+  ])
+  expect(SANDBOX_TOOLS.split('|').sort()).toEqual(
+    [
+      'Bash',
+      'Edit',
+      'Glob',
+      'Grep',
+      'LS',
+      'Monitor',
+      'MultiEdit',
+      'NotebookEdit',
+      'NotebookRead',
+      'Read',
+      'WebFetch',
+      'Write',
+    ].sort(),
+  )
+  // And never for a session with no hooks at all, or one that isn't sandboxed.
+  expect(sdkHooks(undefined).PreToolUse).toHaveLength(1)
+  expect(sdkOptions(OPTIONS, {}).hooks?.PreToolUse).toHaveLength(1)
+})
+
+it('tells the host of a call about to run, and denies it with the host’s message when it says no', async () => {
+  const heard: ToolCallStarting[] = []
+  const signal = new AbortController().signal
+  const refusal = 'Glade refused this: the path is one of the credential files.'
+
+  const output = await guard(
+    (call) => {
+      heard.push(call)
+      return Promise.resolve({ behavior: ToolPermissionBehavior.Deny, message: refusal, byUser: false })
+    },
+    starting('Write', { file_path: '/Users/me/Library/LaunchAgents/x.plist', content: '<plist/>' }),
+    signal,
+  )
+
+  expect(output).toEqual(DENIED(refusal))
+  expect(heard).toEqual([
+    {
+      toolName: 'Write',
+      input: { file_path: '/Users/me/Library/LaunchAgents/x.plist', content: '<plist/>' },
+      toolUseId: 'toolu_01start',
+      agentId: null,
+      signal,
+    },
+  ])
+})
+
+it('names the subagent whose call it is', async () => {
+  const heard: ToolCallStarting[] = []
+  await guard(
+    (call) => {
+      heard.push(call)
+      return Promise.resolve(null)
+    },
+    starting('Read', { file_path: '/Users/me/notes.md' }, { agent_id: 'ac2cfaf3cec2364e5' }),
+  )
+  expect(heard[0]?.agentId).toBe('ac2cfaf3cec2364e5')
+})
+
+it('allows a call the host let through, and says nothing of one it leaves to Claude Code', async () => {
+  const allow = (): Promise<ToolStartDecision> =>
+    Promise.resolve({ behavior: ToolPermissionBehavior.Allow, byUser: true })
+  await expect(guard(allow, starting('WebFetch', { url: 'https://docs.acme.dev/x' }))).resolves.toEqual(ALLOWED)
+  await expect(guard(() => Promise.resolve(null), starting('Bash', { command: 'npm test' }))).resolves.toEqual({})
+})
+
+it('never answers `ask`: the decision is Glade’s own, whatever Claude Code’s rules would then do with one', async () => {
+  for (const decision of [
+    { behavior: ToolPermissionBehavior.Allow, byUser: true } as const,
+    { behavior: ToolPermissionBehavior.Deny, message: 'No.', byUser: true } as const,
+    null,
+  ]) {
+    const output = await guard(() => Promise.resolve(decision), starting('Read', { file_path: '/Users/me/x' }))
+    expect(JSON.stringify(output)).not.toContain('"ask"')
+  }
+})
+
+it('waits as long as the host takes to decide: the call waits with it', async () => {
+  let decide: (decision: ToolStartDecision) => void = () => undefined
+  let done = false
+  const returned = guard(
+    () =>
+      new Promise((resolve) => {
+        decide = resolve
+      }),
+    starting('Read', { file_path: '/Users/me/Documents/taxes.pdf' }),
+  ).then((output) => {
+    done = true
+    return output
+  })
+
+  await settle()
+  await settle()
+  expect(done).toBe(false)
+
+  decide({ behavior: ToolPermissionBehavior.Deny, message: 'Denied by the user.', byUser: true })
+  await expect(returned).resolves.toEqual(DENIED('Denied by the user.'))
+})
+
+it('leaves alone a tool the matcher caught that isn’t one the sandbox bounds', async () => {
+  const onToolStarting = vi.fn<NonNullable<SessionHooks['onToolStarting']>>()
+
+  await expect(guard(onToolStarting, starting('mcp__files__Read', { path: '/Users/me/x' }))).resolves.toEqual({})
+  await expect(guard(onToolStarting, starting('TodoWrite', {}))).resolves.toEqual({})
+
+  expect(onToolStarting).not.toHaveBeenCalled()
+})
+
+it('takes a call with no input, or one that isn’t a record, for one with none', async () => {
+  const inputs: unknown[] = []
+  const hear = (call: ToolCallStarting): Promise<null> => {
+    inputs.push(call.input)
+    return Promise.resolve(null)
+  }
+  await guard(hear, starting('Bash', undefined))
+  await guard(hear, starting('Bash', 'ls'))
+  expect(inputs).toEqual([{}, {}])
+})
+
+it('fails closed: a call it can’t read, or a host that fails to decide, doesn’t run', async () => {
+  const log = createMemoryLog(LogScope.Agent)
+  const never = vi.fn<NonNullable<SessionHooks['onToolStarting']>>()
+
+  // No `tool_use` id, or no tool at all: nothing to decide by.
+  const unnamed = { ...HOOK_BASE, hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: {} }
+  await expect(guard(never, unnamed as HookInput, undefined, log)).resolves.toEqual(DENIED(SANDBOX_CHECK_FAILED))
+  await expect(guard(never, { ...HOOK_BASE } as HookInput, undefined, log)).resolves.toEqual(
+    DENIED(SANDBOX_CHECK_FAILED),
+  )
+  expect(never).not.toHaveBeenCalled()
+  expect(log.withMessage('refused a tool call whose hook input Glade does not know')).toHaveLength(2)
+
+  const failing = (): Promise<never> => Promise.reject(new Error('database is locked'))
+  await expect(guard(failing, starting('Read', { file_path: '/Users/me/x' }), undefined, log)).resolves.toEqual(
+    DENIED(SANDBOX_CHECK_FAILED),
+  )
+  const throwing = (): never => {
+    throw new Error('no session')
+  }
+  await expect(guard(throwing, starting('Read', { file_path: '/Users/me/x' }), undefined, log)).resolves.toEqual(
+    DENIED(SANDBOX_CHECK_FAILED),
+  )
+  expect(log.withMessage('failed to check a tool call against the sandbox')).toEqual([
+    expect.objectContaining({ level: LogLevel.Error }),
+    expect.objectContaining({ level: LogLevel.Error }),
+  ])
+  expect(SANDBOX_CHECK_FAILED).toContain('did not run')
+})
+
+it('decides through the session’s own hooks, as the SDK calls them', async () => {
+  const onToolStarting = vi.fn<NonNullable<SessionHooks['onToolStarting']>>(() =>
+    Promise.resolve({ behavior: ToolPermissionBehavior.Deny, message: 'Not that folder.', byUser: true }),
+  )
+  const hooks = sdkHooks({ ...handlers(), onToolStarting })
+  const [, bounded] = hooks.PreToolUse ?? []
+  const [hook] = bounded?.hooks ?? []
+  if (hook === undefined) throw new Error('no sandbox hook')
+
+  const output = await hook(starting('Edit', { file_path: '/Users/me/.zshrc' }), 'toolu_01start', {
+    signal: new AbortController().signal,
+  })
+
+  expect(output).toEqual(DENIED('Not that folder.'))
+  expect(onToolStarting).toHaveBeenCalledOnce()
 })

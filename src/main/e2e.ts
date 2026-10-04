@@ -9,6 +9,7 @@ import { z } from 'zod'
 import type { SandboxFlagSettings } from './agent/backend'
 import { AGENT_SCRIPT_NAMES, type AgentScriptName } from './agent/scripts'
 import type { UserContent } from './agent/user-content'
+import { OpenWith, type OpenPath } from './files/open-path'
 import { isInTempFolder, isolateApp, type IsolatedApp } from './isolation'
 import type { Environment } from './login-env'
 
@@ -44,17 +45,21 @@ export const E2E_EDITOR_GLOBAL = '__gladeE2eEditor'
 /** The files Open in editor opened in e2e mode (`E2E_EDITOR_GLOBAL`), oldest first, by their real paths. */
 export interface E2eEditor {
   readonly opened: string[]
+  /** Those of them opened as text, in the text editor, rather than in the app macOS opens their kind of file with. */
+  readonly asText: string[]
 }
 
 /**
  * Puts an empty `E2eEditor` on the global object for a spec to read (`E2E_EDITOR_GLOBAL`), and answers with what opens
- * a file in e2e mode in place of Electron's `shell.openPath`: it records the path, and succeeds.
+ * a file in e2e mode in place of Electron's `shell.openPath` and `open -t`: it records the path, and whether it was
+ * opened as text, and succeeds.
  */
-export function createE2eEditor(): (path: string) => Promise<string> {
-  const editor: E2eEditor = { opened: [] }
+export function createE2eEditor(): OpenPath {
+  const editor: E2eEditor = { opened: [], asText: [] }
   Reflect.set(globalThis, E2E_EDITOR_GLOBAL, editor)
-  return (path) => {
+  return (path, how) => {
     editor.opened.push(path)
+    if (how === OpenWith.TextEditor) editor.asText.push(path)
     return Promise.resolve('')
   }
 }

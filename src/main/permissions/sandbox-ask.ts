@@ -24,7 +24,12 @@
  * the plain card from a file tool, and from `request_access` a refusal that says to add it in Settings.
  *
  * **A card's domain is one host,** never a pattern: `*.github.io` in a URL or a connection is not a name, and a card
- * for it would grant every host under it.
+ * for it would grant every host under it. Nor an address in another spelling than its four decimal parts
+ * (`2130706433`, `0x7f.1`): a card for it wouldn't read as the address it is (`../../shared/hosts`).
+ *
+ * **A card never grants a file that runs code** (#514): a file tool's write to one (`runsCode`: a shell startup file,
+ * a git hook, `.claude/`, …) gets the plain card, allowed once, wherever the file is, and `request_access` is refused
+ * for what a command can't write inside any grant (`isProtectedWrite`).
  */
 import { statSync } from 'node:fs'
 import { posix } from 'node:path'
@@ -44,6 +49,7 @@ import {
   type SandboxFolderAsk,
   type SandboxGrantAsk,
 } from '../../shared/sandbox'
+import { isProtectedWrite } from '../agent/sandbox'
 import { FileAccess, isBareHost, readRuleFolder, SANDBOX_NETWORK_TOOL } from '../agent/sandbox-requests'
 
 import { grantedDomain, grantedFolder } from '../sandbox/grants'
@@ -54,6 +60,7 @@ import {
   inAny,
   mayRead,
   mayWrite,
+  runsCode,
   SandboxCrossing,
   type SandboxBounds,
   type SandboxedCall,
@@ -167,6 +174,8 @@ function fileToolAsk(call: AskingCall, bounds: SandboxBounds): SandboxFolderAsk 
   const real = named === null ? null : realPath(named.path, bounds)
   if (named === null || real === null) return null
   const { access } = named
+  // A file that runs code is never granted, by itself or with its folder: its write gets the plain card, allowed once.
+  if (access === FolderAccess.ReadWrite && runsCode(pathKey(real.path))) return null
   // A path that isn't there yet is a file its tool is about to make.
   const own = real.kind === PathKind.Folder ? real.path : posix.dirname(real.path)
   const folder = folderHolding(pathKey(real.path), [...suggestedFolders(call.suggestions), own], bounds)
@@ -202,12 +211,14 @@ export function sandboxAskFor(
     case SandboxCrossing.None:
     case SandboxCrossing.Protected:
     case SandboxCrossing.Credential:
+    case SandboxCrossing.Unresolvable:
       return null
   }
   const connection = call.toolName === SANDBOX_NETWORK_TOOL
   if (connection || call.toolName === 'WebFetch') {
     const host = connection ? connectionHost(call.input) : fetchedHost(call.input)
     // One host by name, never a pattern: `grantedDomain` alone would take `*.github.io`, which is Settings' to grant.
+    // Nor an address in another spelling (`2130706433`), which `grantedDomain` refuses.
     const domain = host === null || !isBareHost(host.trim()) ? null : grantable(host, grantedDomain)
     if (domain === null) return null
     return {
@@ -260,6 +271,8 @@ export enum AccessPlanKind {
   NotGrantable = 'not_grantable',
   /** The path is a folder too much for a card to grant (`isBroadFolder`): it's added in Settings, or not at all. */
   TooBroad = 'too_broad',
+  /** The agent asks to write a file that runs code, or into a folder of them: no grant ever lets a command do that. */
+  Protected = 'protected',
 }
 
 export type AccessPlan =
@@ -274,6 +287,7 @@ export type AccessPlan =
   | { readonly kind: AccessPlanKind.Credential }
   | { readonly kind: AccessPlanKind.NotGrantable; readonly problem: string }
   | { readonly kind: AccessPlanKind.TooBroad }
+  | { readonly kind: AccessPlanKind.Protected }
 
 /** Whether a path is one `request_access` takes: absolute, or under `~`. */
 export function isAccessPath(path: string): boolean {
@@ -295,6 +309,8 @@ export function accessPlan(request: Pick<AccessRequest, 'path' | 'access'>, boun
   if (inAny(key, bounds.credentials)) return { kind: AccessPlanKind.Credential }
   // The root is the first of the folders the agent may read.
   if (inAny(key, bounds.readable.slice(0, 1))) return { kind: AccessPlanKind.InWorkspace }
+  // A file that runs code stays write-protected inside every grant: a card for it would grant nothing a command can use.
+  if (access === FolderAccess.ReadWrite && isProtectedWrite(key)) return { kind: AccessPlanKind.Protected }
   const usable =
     access === FolderAccess.Read ? mayRead(key, bounds) || !inAny(key, bounds.bounded) : mayWrite(key, bounds)
   if (usable) return { kind: AccessPlanKind.AlreadyAllowed, key, access }
@@ -324,6 +340,7 @@ export enum AccessOutcomeKind {
   Credential = 'credential',
   NotGrantable = 'not_grantable',
   TooBroad = 'too_broad',
+  Protected = 'protected',
 }
 
 export type AccessOutcome =
@@ -351,6 +368,7 @@ export type AccessOutcome =
   | { readonly kind: AccessOutcomeKind.Credential }
   | { readonly kind: AccessOutcomeKind.NotGrantable; readonly problem: string }
   | { readonly kind: AccessOutcomeKind.TooBroad }
+  | { readonly kind: AccessOutcomeKind.Protected }
 
 /** What `request_access` answers the agent: the text, and whether it's a tool error. */
 export interface AccessReply {
@@ -437,6 +455,14 @@ export function accessReply(outcome: AccessOutcome, request: Pick<AccessRequest,
           `Refused: ${path} is too much to grant from a request (the home folder, or a folder that holds it, other ` +
           "users' folders or other volumes). Ask for the folder inside it that the command needs. If the task really " +
           'needs all of it, tell the user: they can add it under Sandbox in Settings.',
+        isError: true,
+      }
+    case AccessOutcomeKind.Protected:
+      return {
+        text:
+          `Refused: ${path} is one of the files that run code later (git hooks and config, shell startup files, ` +
+          '.claude, .vscode, .idea, .mcp.json), which the sandbox never lets a command write, even inside a granted ' +
+          "folder. Don't try to write it another way; if the task needs it changed, tell the user.",
         isError: true,
       }
   }

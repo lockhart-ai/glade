@@ -176,7 +176,7 @@
     scope; any of them could become a stronger opt-in tier later, through the SDK's `spawnClaudeCodeProcess` hook.
   - **What it covers.** The agent's commands (`Bash`, `Monitor`) run under Seatbelt. The file tools (`Read`, `Edit`,
     `Write`, `MultiEdit`, `NotebookEdit`), MCP servers and hooks run outside it, so the file tools are held to the
-    same folders by the permission mode and Glade's own check instead. The terminal tabs, Glade's git tracking and
+    same folders by Glade's own check instead, taken before Claude Code's rules are (the security review, below). The terminal tabs, Glade's git tracking and
     Glade's own MCP tools run on the host, as before. Every task in a workspace shares the workspace root and the
     workspace's grants; confining a task to its own folder is out of scope.
   - **Nothing is granted by default.** An agent can read and write its workspace root, and read folders outside the
@@ -211,9 +211,13 @@
     whatever task rules exist, shows the command, and has no "always for this command".
   - **Credential files stay blocked even inside a granted folder,** the home folder included: `~/.ssh`, `~/.aws`,
     `~/.gnupg`, `~/.config/gh`, `~/.config/gcloud`, `~/.azure`, `~/.kube`, `~/Library/Keychains`, `~/.netrc`,
-    `~/.git-credentials` and `~/.docker/config.json`.
-  - **The user's own Claude Code settings still merge in** (`settingSources` includes `"user"`). Their allow rules
-    and any `sandbox` settings in `~/.claude` can widen what Glade grants. Documented, not fought.
+    `~/.git-credentials` and `~/.docker/config.json`; and, since the security review, `~/.claude.json`, `~/.npmrc`,
+    `~/.pypirc`, `~/.config/op`, more registry and cloud tools' token files, and Glade's own data folder.
+  - **The user's own Claude Code settings still merge in** (`settingSources` includes `"user"`), but **can't let a
+    call past the sandbox unasked** (the security review, below). Their allow rules and additional directories no
+    longer decide a file tool's, `WebFetch`'s or a command's call at the boundary: Glade does, first. What still
+    widens it, documented and not fought: a domain or a Unix socket in their own `sandbox` lists, which merge with
+    Glade's; and their hooks and MCP servers, which run on the host (waiting on Jared, #445).
   - **The switch** (`sandboxEnabled`, Settings › Agent › Sandbox) is app-wide and **off by default until the phase's
     security review is done** (#452); the default then flips to on. Existing workspaces and tasks take it on their
     next session start, with no grants. With it off, a session starts exactly as it did before P15.
@@ -246,9 +250,10 @@
     volume's alias resolved, case ignored), so another spelling of a denied folder asks too. Only a call's own path
     is resolved: a grant is kept by where its folder really was when it was granted, and compared as kept from then
     on, so a granted folder later swapped for a link opens nothing new (#510's review). Credential files are
-    refused outright. A write that Claude Code's own safety check holds back (`.mcp.json`, `.claude/`, `.git/`, shell
-    startup files) asks even in Allow all, on the plain card, allowed once or denied. A whole-tool `Edit` or `Write`
-    rule a task was granted in the ask mode applies only inside the workspace root and the read-write grants.
+    refused outright. A write to a file that runs code (`.mcp.json`, `.claude/`, `.git/`, `.vscode/`, shell startup
+    files) asks even in Allow all, on the plain card, allowed once or denied, wherever the file is. A whole-tool
+    `Edit` or `Write` rule a task was granted in the ask mode applies only inside the workspace root and the
+    read-write grants.
   - The sandbox's cards (P15-05, #450). A boundary crossing asks for what a grant can give, never for a rule: a file
     tool for its folder (the one Claude Code's suggestion names, else the file's own; a read read-only, a write
     read-write), `WebFetch` and a command's connection for the host's domain. The card offers **Allow for this
@@ -302,14 +307,61 @@
     single-file grant (`FolderGrant.file`, `sandbox_grants.is_file`) that Settings lists with the folders, by its
     path. Such a folder named outright is refused by `request_access` without a card, telling the agent to ask the
     user to add it in Settings, and gets the plain Allow once · Deny card from a file tool. Credential files are still
-    refused outright. A single file reaches the session as its own path in the sandbox's lists and as `Read(//<file>)`
-    and, read-write, `Edit(//<file>)` rules, never as an additional directory. That Claude Code lets a read and an
-    edit of exactly that file through on those rules, and that the sandbox takes a single file, was probed for
-    P15-07 (`sdk-notes.md` §15); a write it asks about anyway (a file whose name is on its list of files that run
-    code) gets the plain card. Also in that review: a denied read denies a write to the same folder for the turn,
+    refused outright. A single file reaches the session as its own path in the sandbox's lists (that the sandbox
+    takes a single file was probed for P15-07, `sdk-notes.md` §15); Claude Code's file tools are told nothing of it,
+    and Glade lets the calls to exactly that file through itself (the security review, below). A write to a file that
+    runs code gets the plain card, granted or not. Also in that review: a denied read denies a write to the same folder for the turn,
     while a denied write still lets a read ask; a background subagent's requests belong to the turn its `Agent` call
     was made in; a card's grant that matches one the scope already keeps in another case is kept as a grant of its
     own; and an answer refused because its folder moved shows as "Denied" with Glade's note where yours would be.
+  - **The phase's security review (P15-10, #514),** with a sandboxed agent taken for an adversary. Its fixes, each
+    with its attack as a test; how each works, and what's read from Claude Code's code rather than probed, is in
+    `sdk-notes.md` §15.
+    - **Glade decides at the boundary, before Claude Code's rules.** A sandboxed session's `PreToolUse` hook takes
+      every file-tool, `WebFetch`, `Bash` and `Monitor` call's standing against the bounds, in either mode. A call
+      inside them is left to Claude Code; a crossing is refused, or asked about on its card with the hook held until
+      you answer, and the hook returns allow or deny. So an allow rule or an additional directory in the user's, the
+      project's or the local Claude Code settings can't let a call through. With the sandbox off there's no such hook.
+    - **Claude Code is told of no grant for its file tools:** no additional directory, and no `Read` or `Edit` rule.
+      It followed a granted folder that a command had swapped for a link. It now asks about every file-tool call
+      outside the workspace root, and Glade compares where the call really leads with the grant as kept: a read in a
+      granted folder goes ahead, and a write does in Allow all (in the ask mode it asks, as every write does). The
+      command sandbox's own lists are unchanged.
+    - **macOS's `/.nofollow`, `/.vol` and `/.resolve` paths are refused,** written outright or reached through a
+      link, for the file tools, `request_access` and Settings. Each names any file by another path that can't be
+      turned back into the real one. A path Glade can't resolve at all (a loop of links) is refused too, where it
+      used to get the plain card.
+    - **A command the user's settings keep out of the sandbox** (`sandbox.excludedCommands`, in the user's, the
+      project's or the local settings) asks with the run-outside-the-sandbox card: once, every time. Glade reads those
+      files itself, and asks whenever a word of the command is the command a pattern names: a card too many over one
+      too few.
+    - **The sandbox's switches are pinned off** in what a session starts with and every overlay
+      (`filesystem.disabled`, `allowAppleEvents`, `allowLocalBinding`, `allowAllUnixSockets`,
+      `enableWeakerNestedSandbox`, `enableWeakerNetworkIsolation`; `allowUnixSockets` and `ignoreViolations` empty),
+      so one in the user's settings can't fall through.
+    - **Files that run code stay write-protected inside a folder granted read-write,** for commands: `.git/hooks`,
+      `.git/config`, shell startup files, `.vscode`, `.idea`, `.mcp.json` and Claude Code's own commands, agents,
+      skills, hooks and settings, as under the workspace root. The rest of `.git` stays writable, so a command can
+      commit there. A file tool's write to one asks on the plain card, **Allow once** · **Deny**, wherever it is; no
+      card grants one, and `request_access` is refused for a write to one.
+    - **The control endpoint's URL and token never reach sandboxed commands.** A domain's card says when its host is
+      this Mac, a bare IP address or a name on the local network; an address in another spelling (`2130706433`) gets
+      no card and no grant.
+    - **`EnterWorktree` and `ExitWorktree` are disallowed** in a sandboxed session.
+    - **Open in editor never runs a file:** it opens in the default text editor (`open -t`), whatever it is; an image
+      or a PDF still opens in the app that shows it, and a folder is shown in Finder. So Open in editor now opens a
+      Markdown or HTML file in your text editor, not in the app macOS would otherwise pick.
+    - **Attachments don't follow links out of the workspace:** the lines added to `.git/info/exclude`, the image read
+      when a queued message is delivered, and the folders made and deleted.
+    - Calls made without Jared in this review: **the hook answers allow or deny itself, never `ask`** (that an `ask`
+      overrides an allow rule is read from Claude Code's code, not probed); a command that reaches Glade in Allow all
+      though it wasn't excluded still goes ahead, since some sandboxed commands ask for other reasons; the words on a
+      domain's card for a local host ("This is your own Mac. Allowing it lets the agent reach every service running
+      on it.", and one each for an address and a local name), which no design shows; `~/.npmrc` is now a credential
+      path no grant opens, where the meta listed it as something to grant; and which extensions still open in their
+      own app (PNG, JPEG, GIF, WebP, HEIC, TIFF, BMP, PDF).
+    - Not done here, waiting on Jared (#445): whether other MCP servers' tools ask in Allow all with the sandbox on,
+      and hooks and MCP servers from existing settings that run files in the workspace.
   - **A session resumed into the sandbox is told of it once (P15-07, #452).** Claude Code keeps a session's system
     prompt when it resumes it, so a session that started before the sandbox was on knows nothing of it, nor that a
     blocked command is answered with `request_access`. When such a session runs sandboxed, Glade sends it what the

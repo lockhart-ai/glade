@@ -11,8 +11,10 @@ import {
   type BashCallFinished,
   type BashFinishedAnswer,
   type SandboxFlagSettings,
+  type ToolCallStarting,
   type ToolPermissionAnswer,
   type ToolPermissionCall,
+  type ToolStartDecision,
 } from './backend'
 import { AgentEventKind, createSdkMessageParser, type AgentEvent, type ToolResultEvent } from './events'
 import {
@@ -37,6 +39,7 @@ import {
   networkAccess,
   outsideRead,
   outsideWrite,
+  permission,
   requestAccess,
   result,
   sandboxedBash,
@@ -1134,5 +1137,250 @@ describe('a request_access step', () => {
     await vi.advanceTimersByTimeAsync(0)
 
     await expect(played.ended).resolves.toMatchObject({ message: 'No in-process MCP server named glade' })
+  })
+})
+
+// #514: Claude Code puts a call to the session's `PreToolUse` hook before it matches a single rule, in every permission
+// mode. The scripted session plays that for the tools the sandbox bounds, so a spec can show Glade deciding a call that
+// a rule in the user's own settings would have let through.
+describe('the hook on a call about to run', () => {
+  /** A session whose hook the test answers: each call it hears waits until `decide`, and is recorded. */
+  function hooked(turns: readonly ScriptTurn[], session: Partial<AgentSessionOptions> = {}) {
+    const heard: ToolCallStarting[] = []
+    let decide: (decision: ToolStartDecision | null) => void = () => undefined
+    const played = play(turns, {
+      hooks: {
+        onPrompt: () => PromptVerdict.Allow,
+        onTurnEnded: () => undefined,
+        onCompacted: () => undefined,
+        onBashFinished: () => Promise.resolve({ context: null }),
+        onToolStarting: (call) => {
+          heard.push(call)
+          return new Promise((resolve) => {
+            decide = resolve
+          })
+        },
+      },
+      ...session,
+    })
+    return {
+      ...played,
+      heard,
+      decide: async (decision: ToolStartDecision | null): Promise<void> => {
+        decide(decision)
+        await flush()
+      },
+    }
+  }
+  const REFUSED: ToolStartDecision = {
+    behavior: ToolPermissionBehavior.Deny,
+    message: 'Glade refused this.',
+    byUser: false,
+  }
+  const LET_THROUGH: ToolStartDecision = { behavior: ToolPermissionBehavior.Allow, byUser: true }
+  const PLIST = '/Users/me/Library/LaunchAgents/dev.acme.sample.plist'
+
+  it('hears of every call to a tool the sandbox bounds before anything else is decided, and waits on it, idle', async () => {
+    const played = hooked([
+      turn(
+        outsideRead('read', `${SHARED}/notes.md`, '# Notes'),
+        outsideWrite('write', `${SHARED}/out.md`, 'x', 'Wrote it.'),
+        webFetch('fetch', 'https://docs.acme.dev/x', 'A page.'),
+        sandboxedBash('test', 'npm test', 'ok', { failed: false }),
+        networkAccess('install', 'npm install', HOST, 'added 312 packages'),
+        sandboxOverride('up', 'docker compose up -d', 'Started.'),
+      ),
+    ])
+    await start(played)
+
+    // The first call waits on the hook, with nobody asked about it yet.
+    expect(played.heard.map(({ toolName }) => toolName)).toEqual(['Read'])
+    expect(played.heard[0]).toMatchObject({
+      toolName: 'Read',
+      input: { file_path: `${SHARED}/notes.md` },
+      toolUseId: toolUses(played)[0]?.id,
+      agentId: null,
+    })
+    expect(played.asked).toEqual([])
+    expect(played.idles()).toBe(1)
+    expect(results(played)).toEqual([])
+
+    // Each allowed in turn, the next is heard: the tool, and the input the model sent.
+    for (let call = 0; call < 5; call += 1) await played.decide(LET_THROUGH)
+    // The install's connection is still Claude Code's to ask about: it's no tool call, and the hook never hears of it.
+    expect(played.asked.map(({ toolName }) => toolName)).toEqual([SANDBOX_NETWORK_TOOL])
+    played.give(ALLOW)
+    await flush()
+    expect(played.heard.map(({ toolName, input }) => [toolName, input])).toEqual([
+      ['Read', { file_path: `${SHARED}/notes.md` }],
+      ['Write', { file_path: `${SHARED}/out.md`, content: 'x' }],
+      ['WebFetch', { url: 'https://docs.acme.dev/x', prompt: expect.any(String) as unknown }],
+      ['Bash', { command: 'npm test' }],
+      ['Bash', { command: 'npm install' }],
+      ['Bash', { command: 'docker compose up -d', dangerouslyDisableSandbox: true }],
+    ])
+  })
+
+  it('doesn’t run a call the hook refuses, and gives the agent its message', async () => {
+    const played = hooked([
+      turn(
+        outsideWrite('write', PLIST, '<plist/>', 'Wrote it.'),
+        webFetch('fetch', 'https://paste.example/upload', 'Uploaded.'),
+        sandboxedBash('docker', 'docker run alpine', 'ran', { failed: false }),
+        networkAccess('install', 'npm install', HOST, 'added 312 packages'),
+        sandboxOverride('up', 'docker compose up -d', 'Started.'),
+        permission('edit', 'Edit', { file_path: '/Users/me/.zshrc' }, 'Edited.'),
+      ),
+    ])
+    await start(played)
+
+    for (let call = 0; call < 6; call += 1) await played.decide(REFUSED)
+
+    expect(results(played)).toEqual(Array.from({ length: 6 }, () => ['Glade refused this.', true]))
+    // Claude Code never got as far as asking about any of them, and no command's result reached its other hook.
+    expect(played.asked).toEqual([])
+    expect(played.finished).toEqual([])
+  })
+
+  // The review's shape: `permissions.allow: ["Write"]` or `["WebFetch"]` in the user's settings. Claude Code never
+  // asks about the call (`canUseTool`), so only the hook stands in its way.
+  it('is all that stops a call a rule in the user’s own settings allows', async () => {
+    const write = { ...outsideWrite('write', PLIST, '<plist/>', 'Wrote it.'), settingsAllow: true }
+    const fetch = webFetch('fetch', 'https://paste.example/upload', 'Uploaded.', { settingsAllow: true })
+
+    // With no hook to decide it, the call runs unasked: what the review found.
+    const unguarded = play([turn(write, fetch)])
+    await start(unguarded)
+    expect(unguarded.asked).toEqual([])
+    expect(results(unguarded)).toEqual([
+      ['Wrote it.', false],
+      ['Uploaded.', false],
+    ])
+
+    // With it, the call waits, and doesn't run when the hook says no.
+    const guarded = hooked([turn(write, fetch)])
+    await start(guarded)
+    expect(results(guarded)).toEqual([])
+    await guarded.decide(REFUSED)
+    await guarded.decide(REFUSED)
+    expect(results(guarded)).toEqual([
+      ['Glade refused this.', true],
+      ['Glade refused this.', true],
+    ])
+    expect(guarded.asked).toEqual([])
+  })
+
+  it('runs a file tool’s or WebFetch’s call the hook lets through, without asking about it again', async () => {
+    const played = hooked([
+      turn(
+        outsideRead('read', `${SHARED}/notes.md`, '# Notes'),
+        webFetch('fetch', 'https://docs.acme.dev/x', 'A page.'),
+      ),
+    ])
+    await start(played)
+
+    await played.decide(LET_THROUGH)
+    await played.decide(LET_THROUGH)
+
+    expect(played.asked).toEqual([])
+    expect(results(played)).toEqual([
+      ['# Notes', false],
+      ['A page.', false],
+    ])
+  })
+
+  it('leaves a call the hook says nothing of to Claude Code, which asks as it always has', async () => {
+    const played = hooked([turn(outsideRead('read', `${SHARED}/notes.md`, '# Notes'))])
+    await start(played)
+
+    await played.decide(null)
+
+    expect(played.asked.map(({ toolName, decisionReason }) => [toolName, decisionReason])).toEqual([
+      ['Read', OUTSIDE_WORKING_DIRECTORIES],
+    ])
+    played.give(ALLOW)
+    await flush()
+    expect(results(played)).toEqual([['# Notes', false]])
+  })
+
+  it('still has Claude Code ask about leaving the sandbox once the hook lets it through: the ask rule holds', async () => {
+    const played = hooked([turn(sandboxOverride('up', 'docker compose up -d', 'Started.'))])
+    await start(played)
+
+    await played.decide(LET_THROUGH)
+
+    expect(played.asked).toHaveLength(1)
+    expect(played.asked[0]).toMatchObject({
+      toolName: 'Bash',
+      toolUseId: played.heard[0]?.toolUseId,
+      matchedAskRule: true,
+      decisionReason: SANDBOX_OVERRIDE_REASON,
+    })
+    played.give(ALLOW)
+    await flush()
+    expect(results(played)).toEqual([['Started.', false]])
+  })
+
+  it('names the subagent whose call it is', async () => {
+    const played = hooked([
+      turn(toolUse('agent', 'Agent', { description: 'Upgrade guide' }), outsideRead('read', PLIST, 'x', 'agent')),
+    ])
+    await start(played)
+
+    expect(played.heard[0]?.agentId).toMatch(/^a.*agent$/)
+  })
+
+  it('hears nothing of a tool the sandbox doesn’t bound', async () => {
+    const played = hooked([turn(permission('issue', 'mcp__github__create_issue', { title: 'Sample' }, 'Created.'))], {
+      permissionMode: PermissionMode.AskBeforeEdits,
+    })
+    await start(played)
+
+    expect(played.heard).toEqual([])
+    expect(played.asked.map(({ toolName }) => toolName)).toEqual(['mcp__github__create_issue'])
+  })
+
+  it('puts a tool call that asks permission to the hook first, then to Claude Code’s own rules', async () => {
+    const played = hooked([turn(permission('edit', 'Edit', { file_path: `${ROOT}/a.ts` }, 'Edited.'))])
+    await start(played)
+
+    expect(played.heard.map(({ toolName }) => toolName)).toEqual(['Edit'])
+    await played.decide(null)
+    // In Allow all, Claude Code lets it through by itself.
+    expect(played.asked).toEqual([])
+    expect(results(played)).toEqual([['Edited.', false]])
+  })
+
+  it('ends the turn interrupted when Stop comes while the hook decides: its signal aborts, and nothing runs', async () => {
+    const played = hooked([turn(outsideWrite('write', PLIST, '<plist/>', 'Wrote it.'), say('Done.'))])
+    await start(played)
+    const [call] = played.heard
+
+    await played.session.interrupt()
+    await flush()
+    await played.decide(LET_THROUGH)
+
+    expect(call?.signal.aborted).toBe(true)
+    expect(results(played)).toEqual([[REJECTED_TOOL_OUTPUT, true]])
+    expect(texts(played)).not.toContain('Done.')
+  })
+
+  it('goes on at once, without going idle, when the hook answers at once', async () => {
+    const turns = [turn(sandboxedBash('test', 'npm test', 'ok', { failed: false }))]
+    const unhooked = play(turns, {}, 'absent')
+    const played = play(turns, {
+      hooks: {
+        onPrompt: () => PromptVerdict.Allow,
+        onTurnEnded: () => undefined,
+        onCompacted: () => undefined,
+        onToolStarting: () => Promise.resolve(null),
+      },
+    })
+    await start(unhooked)
+    await start(played)
+
+    expect(results(played)).toEqual([['ok', false]])
+    // Idle only as a session with no such hook is: once its turn is over.
+    expect(played.idles()).toBe(unhooked.idles())
   })
 })

@@ -243,6 +243,43 @@ describe('attachFile', () => {
     const refused = await failure(attachFile(context, taskId, onDesktop('sales.csv')))
     expect(refused.code).toBe(BridgeErrorCode.OutsideWorkspace)
     expect(existsSync(join(elsewhere, 'attachments', taskId, 'sales.csv'))).toBe(false)
+    // #514, finding 7: the folders were made before the check, so empty ones were left outside the workspace.
+    expect(readdirSync(elsewhere)).toEqual([])
+  })
+
+  // #514, finding 7: the agent can make any of these links in its workspace, and attaching runs outside its sandbox.
+  it.each([
+    ['.glade/attachments', 'a link out of the workspace'],
+    ['.glade', 'a link to nothing, which making the folder would have followed'],
+  ])('makes nothing outside the workspace when %s is %s', async (linked, what) => {
+    const elsewhere = join(repos.root, 'elsewhere')
+    mkdirSync(elsewhere)
+    mkdirSync(inWorkspace('.glade'), { recursive: true })
+    if (linked === '.glade') rmSync(inWorkspace('.glade'), { recursive: true })
+    symlinkSync(what.includes('nothing') ? join(elsewhere, 'not-there') : elsewhere, inWorkspace(linked))
+
+    const refused = await failure(attachFile(context, taskId, onDesktop('sales.csv')))
+
+    expect(refused.code).toBe(BridgeErrorCode.OutsideWorkspace)
+    expect(readdirSync(elsewhere)).toEqual([])
+  })
+
+  it('still attaches through a .glade that’s a link to a folder inside the workspace', async () => {
+    mkdirSync(inWorkspace('scratch'))
+    symlinkSync(inWorkspace('scratch'), inWorkspace('.glade'))
+
+    const file = await attachFile(context, taskId, onDesktop('sales.csv'))
+
+    expect(readFileSync(inWorkspace(`scratch/attachments/${taskId}/sales.csv`), 'utf8')).toContain('north,120')
+    expect(file.path).toBe(`.glade/attachments/${taskId}/sales.csv`)
+  })
+
+  it('still attaches to a workspace whose folder is gone, making it again', async () => {
+    rmSync(root, { recursive: true })
+
+    const file = await attachFile(context, taskId, onDesktop('sales.csv'))
+
+    expect(readFileSync(inWorkspace(file.path), 'utf8')).toContain('north,120')
   })
 
   it('gives up on a name once the folder has too many copies of it', async () => {
@@ -354,6 +391,63 @@ describe('keeping the attachments out of git', () => {
   })
 })
 
+// #514, finding 7: `ln -sf ~/.zshenv .git/info/exclude` in a sandboxed command (the sandbox lets it write there), and
+// the next file you attach appended two lines to `~/.zshenv`, or made it.
+describe('keeping the attachments out of git, when the agent has put a link in the way', () => {
+  const LINES = '# Files attached to messages in Glade\n/.glade/attachments/\n'
+
+  it('never appends to a file the exclude file is a link to, and attaches the file anyway', async () => {
+    const repo = repos.repo('acme-api')
+    const zshenv = join(repos.root, '.zshenv')
+    writeFileSync(zshenv, 'export EDITOR=vim\n')
+    rmSync(join(repo, '.git', 'info', 'exclude'), { force: true })
+    symlinkSync(zshenv, join(repo, '.git', 'info', 'exclude'))
+
+    await expect(excludeAttachments(git, repo)).rejects.toMatchObject({ code: 'ELOOP' })
+    const file = await attachFile(context, taskId, onDesktop('sales.csv'))
+
+    expect(readFileSync(zshenv, 'utf8')).toBe('export EDITOR=vim\n')
+    expect(existsSync(inWorkspace(file.path))).toBe(true)
+    expect(warn).toHaveBeenCalledWith('couldn’t keep the attachments out of git', expect.objectContaining({ taskId }))
+  })
+
+  it('never makes the file a link to nothing leads to', async () => {
+    const repo = repos.repo('acme-api')
+    const zshenv = join(repos.root, '.zshenv')
+    rmSync(join(repo, '.git', 'info', 'exclude'), { force: true })
+    symlinkSync(zshenv, join(repo, '.git', 'info', 'exclude'))
+
+    await expect(excludeAttachments(git, repo)).rejects.toMatchObject({ code: 'ELOOP' })
+
+    expect(existsSync(zshenv)).toBe(false)
+  })
+
+  it('never writes through an `info` folder that’s a link out of the repository', async () => {
+    const repo = repos.repo('acme-api')
+    const elsewhere = join(repos.root, 'elsewhere')
+    mkdirSync(elsewhere)
+    writeFileSync(join(elsewhere, 'exclude'), '*.log\n')
+    rmSync(join(repo, '.git', 'info'), { recursive: true, force: true })
+    symlinkSync(elsewhere, join(repo, '.git', 'info'))
+
+    await expect(excludeAttachments(git, repo)).rejects.toThrow('leads outside the repository')
+
+    expect(readFileSync(join(elsewhere, 'exclude'), 'utf8')).toBe('*.log\n')
+    expect(readdirSync(elsewhere)).toEqual(['exclude'])
+  })
+
+  it('still writes through an `info` that’s a link to a folder inside the repository’s own', async () => {
+    const repo = repos.repo('acme-api')
+    rmSync(join(repo, '.git', 'info'), { recursive: true, force: true })
+    mkdirSync(join(repo, '.git', 'info-kept'))
+    symlinkSync(join(repo, '.git', 'info-kept'), join(repo, '.git', 'info'))
+
+    await expect(excludeAttachments(git, repo)).resolves.toBe(true)
+
+    expect(readFileSync(join(repo, '.git', 'info-kept', 'exclude'), 'utf8')).toBe(LINES)
+  })
+})
+
 describe('discardAttachedFile', () => {
   it('deletes the copy of a file taken off the draft before it was sent', async () => {
     const file = await attachFile(context, taskId, onDesktop('sales.csv'))
@@ -381,6 +475,19 @@ describe('discardAttachedFile', () => {
       expect((await failure(discardAttachedFile(context, taskId, path))).code).toBe(BridgeErrorCode.InvalidRequest)
     }
     expect(existsSync(inWorkspace('README.md'))).toBe(true)
+  })
+
+  it('never deletes through a folder swapped for a link out of the workspace', async () => {
+    const file = await attachFile(context, taskId, onDesktop('sales.csv'))
+    const elsewhere = join(repos.root, 'elsewhere')
+    mkdirSync(join(elsewhere, 'attachments', taskId), { recursive: true })
+    writeFileSync(join(elsewhere, 'attachments', taskId, 'sales.csv'), 'theirs\n')
+    rmSync(inWorkspace('.glade'), { recursive: true })
+    symlinkSync(elsewhere, inWorkspace('.glade'))
+
+    await expect(discardAttachedFile(context, taskId, file.path)).resolves.toBeUndefined()
+
+    expect(readFileSync(join(elsewhere, 'attachments', taskId, 'sales.csv'), 'utf8')).toBe('theirs\n')
   })
 
   it('passes on a failure other than the file being gone', async () => {
@@ -413,6 +520,18 @@ describe('deleteTaskAttachments', () => {
     mkdirSync(inWorkspace('.glade/attachments'), { recursive: true })
     deleteTaskAttachments(root, '..', log)
     expect(existsSync(inWorkspace('.glade/attachments'))).toBe(true)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('never deletes through a folder swapped for a link out of the workspace', () => {
+    const elsewhere = join(repos.root, 'elsewhere')
+    mkdirSync(join(elsewhere, 'attachments', taskId), { recursive: true })
+    writeFileSync(join(elsewhere, 'attachments', taskId, 'taxes.txt'), 'theirs\n')
+    symlinkSync(elsewhere, inWorkspace('.glade'))
+
+    deleteTaskAttachments(root, taskId, log)
+
+    expect(readFileSync(join(elsewhere, 'attachments', taskId, 'taxes.txt'), 'utf8')).toBe('theirs\n')
     expect(warn).not.toHaveBeenCalled()
   })
 
@@ -464,5 +583,31 @@ describe('attachedImagesOf', () => {
     rmSync(inWorkspace(folder.path))
     mkdirSync(inWorkspace(folder.path))
     expect(attachedImagesOf(root, [svg, gone, linked, large, fake, folder])).toEqual([])
+  })
+
+  // #514, finding 7: a queued message's image is read when the message is delivered, outside the sandbox. The copy's
+  // own name was never followed as a link, but a folder above it was.
+  it('reads nothing through a folder swapped for a link out of the workspace while the message waited', () => {
+    const png = Buffer.from(PNG.data, 'base64')
+    const chart = attached('chart.png', png)
+    expect(attachedImagesOf(root, [chart])).toEqual([PNG])
+    const elsewhere = join(repos.root, 'Pictures')
+
+    for (const swapped of [`.glade/attachments/${taskId}`, '.glade/attachments', '.glade']) {
+      // The same name, where the link leads: an image of yours the agent was never given.
+      const theirs = join(elsewhere, inWorkspace(chart.path).slice(inWorkspace(swapped).length))
+      mkdirSync(join(theirs, '..'), { recursive: true })
+      writeFileSync(theirs, png)
+      rmSync(inWorkspace(swapped), { recursive: true })
+      symlinkSync(elsewhere, inWorkspace(swapped))
+
+      expect(attachedImagesOf(root, [chart])).toEqual([])
+
+      rmSync(inWorkspace(swapped))
+      rmSync(elsewhere, { recursive: true })
+      attached('chart.png', png)
+    }
+    // Put back as it was, it reads again.
+    expect(attachedImagesOf(root, [chart])).toEqual([PNG])
   })
 })
