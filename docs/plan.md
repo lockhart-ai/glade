@@ -88,6 +88,7 @@ grant it, for the task, the workspace or Glade-wide (`decisions.md`, "Agent sand
 | P15-09 (#487) | Glade's own git calls hardened against config the agent can write. |
 | P15-10 (#514) | The fixes from the phase's security review: Glade decides at the sandbox's bounds before Claude Code's rules do. |
 | P15-11 (#515) | MCP servers Glade doesn't build, and the tools that reach other agents (`SendMessage`, `RemoteTrigger`), as grants: one card per server, and a third list in Settings. |
+| P15-12 (#516) | The zero-grant escape battery: the phase's acceptance test, on every PR (`escape-battery.md`). |
 
 Order: 01 → 02 → (03, 04) → (05, 06, 08, 09) → 07.
 

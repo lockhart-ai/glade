@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { OpenWith } from './files/open-path'
@@ -41,6 +41,8 @@ afterEach(() => {
   rmSync(folder, { recursive: true, force: true })
 })
 
+const STAND_IN = { baseUrl: 'http://127.0.0.1:41001', deadEndProxy: 'http://127.0.0.1:41002' } as const
+
 function spec(overrides: Partial<E2eSpec> = {}): E2eSpec {
   return { userData: folder, route: '', ...overrides }
 }
@@ -74,6 +76,7 @@ describe('readE2eSpec', () => {
     expect(readE2eSpec(env(spec({ loginShell: '/tmp/glade-e2e/login-shell' })), false)).toEqual(
       spec({ loginShell: '/tmp/glade-e2e/login-shell' }),
     )
+    expect(readE2eSpec(env(spec({ standInModel: STAND_IN })), false)).toEqual(spec({ standInModel: STAND_IN }))
   })
 
   it('rejects a spec that is not JSON', () => {
@@ -90,6 +93,25 @@ describe('readE2eSpec', () => {
     ['an unknown field', { ...spec(), show: true }],
     ['an unknown agent script', { ...spec(), agentScript: 'nope' }],
     ['an unknown agent script for a first message', { ...spec(), agentScriptsByFirstMessage: { 'Hi.': 'nope' } }],
+    // A stand-in model is on this Mac's loopback address, and nowhere else: never the real endpoint.
+    [
+      'a stand-in model at the real endpoint',
+      spec({ standInModel: { ...STAND_IN, baseUrl: 'https://api.anthropic.com' } }),
+    ],
+    ['a stand-in model on another host', spec({ standInModel: { ...STAND_IN, baseUrl: 'http://10.0.0.5:8080' } })],
+    ['a stand-in model by a name', spec({ standInModel: { ...STAND_IN, baseUrl: 'http://localhost:8080' } })],
+    ['a stand-in model with a path', spec({ standInModel: { ...STAND_IN, baseUrl: 'http://127.0.0.1:8080/v1' } })],
+    [
+      'a stand-in model whose address hides another host',
+      spec({ standInModel: { ...STAND_IN, baseUrl: 'http://127.0.0.1:8080@api.anthropic.com' } }),
+    ],
+    [
+      'a stand-in model whose dead end is another host',
+      spec({ standInModel: { ...STAND_IN, deadEndProxy: 'http://proxy.example.invalid:3128' } }),
+    ],
+    ['a stand-in model with no dead end', { ...spec(), standInModel: { baseUrl: STAND_IN.baseUrl } }],
+    ['a stand-in model with no address', { ...spec(), standInModel: { deadEndProxy: STAND_IN.deadEndProxy } }],
+    ['a stand-in model with an unknown field', { ...spec(), standInModel: { ...STAND_IN, apiKey: 'a-real-key' } }],
   ])('rejects %s', (_, value) => {
     expect(() => readE2eSpec(env(value), false)).toThrow(/^GLADE_E2E is invalid: /)
   })
@@ -125,6 +147,57 @@ describe('prepareE2e', () => {
       prepareE2e(app, spec({ userData: join(folder, 'missing') }))
     }).toThrow(E2eSpecError)
     expect(app.setPath).not.toHaveBeenCalled()
+  })
+
+  it('takes a stand-in model when the home folder is a throwaway one, by either name of the temp folder', () => {
+    const home = join(folder, 'home')
+    mkdirSync(home)
+
+    const app = fakeApp()
+    prepareE2e(app, spec({ standInModel: STAND_IN }), home)
+    expect(app.setPath).toHaveBeenCalledWith('userData', folder)
+
+    const byRealPath = fakeApp()
+    prepareE2e(byRealPath, spec({ standInModel: STAND_IN }), realpathSync(home))
+    expect(byRealPath.setPath).toHaveBeenCalledWith('userData', folder)
+  })
+
+  it.each([
+    ['your own home folder', '/Users/someone'],
+    ['a folder of it', '/Users/someone/code/acme-api'],
+    ['the temp folder itself', tmpdir()],
+    ['a path that only starts like the temp folder', `${tmpdir()}-other/home`],
+    ['a path that leaves the temp folder again', join(tmpdir(), '..', 'home')],
+    ['a relative path', 'home'],
+  ])('refuses a stand-in model with %s as the home folder: the real Claude Code would run on it', (_, home) => {
+    const app = fakeApp()
+
+    expect(() => {
+      prepareE2e(app, spec({ standInModel: STAND_IN }), home)
+    }).toThrow(/^GLADE_E2E names a stand-in model, which needs a throwaway home folder/)
+    expect(() => {
+      prepareE2e(app, spec({ standInModel: STAND_IN }), home)
+    }).toThrow(E2eSpecError)
+    expect(app.setPath).not.toHaveBeenCalled()
+    expect(app.dock.hide).not.toHaveBeenCalled()
+  })
+
+  it("needs no throwaway home folder without a stand-in model: a scripted run starts nothing of Claude Code's", () => {
+    const app = fakeApp()
+
+    prepareE2e(app, spec(), '/Users/someone')
+
+    expect(app.setPath).toHaveBeenCalledWith('userData', folder)
+  })
+
+  it("reads the home folder from the app's own environment by default", () => {
+    vi.stubEnv('HOME', '/Users/someone')
+    const app = fakeApp()
+
+    expect(() => {
+      prepareE2e(app, spec({ standInModel: STAND_IN }))
+    }).toThrow(E2eSpecError)
+    vi.unstubAllEnvs()
   })
 })
 

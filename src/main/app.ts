@@ -26,6 +26,7 @@ import { PLUGINS_FOLDER_NAME } from '../shared/plugins'
 import type { AgentBackend } from './agent/backend'
 import { sessionSettingsFiles } from './agent/excluded-commands'
 import { claudeCodeBinary, createSdkBackend, type SdkBackendOptions } from './agent/sdk-backend'
+import { standInEnv, type StandInModel } from './agent/stand-in'
 import { claudeLogin, type RunLogin, type SpawnLogin } from './account/login'
 import { createE2eLogin, WAITING_LOGIN } from './account/test-login'
 import { AGENT_SCRIPTS, type AgentScriptName } from './agent/scripts'
@@ -172,6 +173,29 @@ type TestMode =
   | { readonly kind: TestModeKind.Capture; readonly spec: CaptureSpec }
   | { readonly kind: TestModeKind.E2e; readonly spec: E2eSpec }
   | null
+
+/**
+ * The stand-in model an e2e run's tasks run on (`./agent/stand-in`), or null: every other test mode's agent plays a
+ * script, and a normal run's is the real one.
+ */
+function standInModel(testMode: TestMode): StandInModel | null {
+  return testMode?.kind === TestModeKind.E2e ? (testMode.spec.standInModel ?? null) : null
+}
+
+/** Which agent backend the app runs, for the log. */
+function agentBackendName(testMode: TestMode): 'sdk' | 'scripted' | 'stand-in' {
+  if (testMode === null) return 'sdk'
+  return standInModel(testMode) === null ? 'scripted' : 'stand-in'
+}
+
+/**
+ * The home folder whose Claude Code settings Glade reads, or null to read none: yours in a normal run, none in a test
+ * mode, and the throwaway one (`$HOME`) in an e2e run on a stand-in model.
+ */
+function claudeSettingsHome(testMode: TestMode): string | null {
+  if (testMode === null) return app.getPath('home')
+  return standInModel(testMode) === null ? null : homedir()
+}
 
 /** Logs why the app can't start and exits. Shows a dialog too, except in a test mode, which must never show anything. */
 function refuseToStart({ logSummary, message, detail }: StartFailure, testMode: TestMode, log: Logger): void {
@@ -683,7 +707,7 @@ export function startApp({
     arch: process.arch,
     packaged: app.isPackaged,
     testMode: testMode?.kind ?? null,
-    agentBackend: testMode === null ? 'sdk' : 'scripted',
+    agentBackend: agentBackendName(testMode),
     logs: logsFolder(testMode),
   })
   // Read alongside Electron starting up, and without holding the window up: an agent session waits for it instead.
@@ -715,8 +739,11 @@ export function startApp({
     const onModels = (models: unknown): void => {
       recordSdkModels({ db: database.db, emit: bridge.emit, log: log.scoped(LogScope.Agent) }, models)
     }
-    // A test mode never reaches the real Claude API, whatever the app was started with: its agent plays a script.
-    const testAgent = testMode === null ? null : createTestModeAgent(testMode, database.db, env, log, onModels)
+    // A test mode never reaches the real Claude API, whatever the app was started with: its agent plays a script. An
+    // e2e run that names a stand-in model runs the real backend instead, with the stand-in as its only endpoint.
+    const standIn = standInModel(testMode)
+    const testAgent =
+      testMode === null || standIn !== null ? null : createTestModeAgent(testMode, database.db, env, log, onModels)
     const notifyReply = createReplyNotifications({
       db: database.db,
       notifier: createNotifier(testMode),
@@ -786,7 +813,13 @@ export function startApp({
       // The main windows: the menu bar popover is sent only what's in flight, by the menu bar itself.
       targets: () => mainWindows().map((window) => window.webContents),
       agentBackend:
-        testAgent ?? createAgentBackend({ env, log: log.scoped(LogScope.Agent), version: app.getVersion(), onModels }),
+        testAgent ??
+        createAgentBackend({
+          env: standIn === null ? env : env.then((own) => standInEnv(own, standIn)),
+          log: log.scoped(LogScope.Agent),
+          version: app.getVersion(),
+          onModels,
+        }),
       // A test can't click a native dialog, so in e2e mode it answers with the folder the test chose.
       chooseFolder:
         testMode?.kind === TestModeKind.E2e
@@ -797,8 +830,9 @@ export function startApp({
       // Glade's own data is shut to sandboxed agents, whatever folder they're granted.
       dataDir: app.getPath('userData'),
       // The settings Claude Code merges under Glade's, for the commands they keep out of the sandbox. A test mode reads
-      // only its workspace's own: never the settings of the Mac it runs on.
-      claudeSettings: sessionSettingsFiles(testMode === null ? app.getPath('home') : null),
+      // only its workspace's own: never the settings of the Mac it runs on. A run on a stand-in model has a throwaway
+      // home folder (`prepareE2e`), which its Claude Code reads its settings from, so Glade reads them there too.
+      claudeSettings: sessionSettingsFiles(claudeSettingsHome(testMode)),
       // Kept in the data folder, so a test mode's are in its throwaway one.
       thumbnails: createThumbnails({
         folder: join(app.getPath('userData'), THUMBNAILS_FOLDER_NAME),

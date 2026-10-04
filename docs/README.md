@@ -34,5 +34,7 @@ for where to start can read [`llms.txt`](../llms.txt) at the repo root.
   build, and where dependency updates come from.
 - [SDK notes](sdk-notes.md): what the Claude Agent SDK does, with evidence, as Glade relies on it, its sandbox
   included (§15).
+- [Escape battery](escape-battery.md): the agent sandbox's acceptance test: what an agent with nothing granted can
+  still do, the attacks it's put through, and how to add one.
 - [Design](design/README.md): every screen, with screenshots and the markup to build it to.
 - [Doc images](doc-images.md): the README's and the user guide's screenshots, and how to regenerate one or all of them.

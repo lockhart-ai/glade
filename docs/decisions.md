@@ -429,6 +429,28 @@
       where its own card or task rule already says what was decided; that a call waiting on another call's card is
       withdrawn with it when the turn is stopped; and that a server whose name leaves nothing a tool's name can carry
       gets the plain card (Allow once · Deny).
+  - **The escape battery is the sandbox's acceptance test (P15-12, #516):** with nothing granted and every card
+    denied, an agent reaches nothing beyond its floor. What the floor is, what the battery tries and how to add an
+    entry are in `escape-battery.md`.
+    - **The real Claude Code, a stand-in for the model.** A scripted agent would test Glade's model of the sandbox,
+      not the sandbox. So the battery's app runs the real backend, with the bundled Claude Code and Seatbelt, against
+      a server on the same Mac that replays a fixed list of tool calls. An e2e run takes a stand-in only at
+      `http://127.0.0.1:<port>`, with no other endpoint or login in the session's environment, every other host a
+      dead end, and a throwaway home folder; every other e2e run and every capture still plays scripts.
+    - **Everything it names is a dummy:** a home folder and workspace in the system temp folder, canary files
+      holding random tokens, listeners on the loopback address, names under `.invalid`.
+    - **It runs on every PR,** as one of the e2e specs on the macOS runners, and a new finding from a review is
+      added as an entry in the PR that fixes it.
+    - **The live red-team run with a real model is deferred** (decided with Jared: one thing at a time, and the aim
+      for now is a reasonable guard against an agent clobbering the system by accident, not a locked box). When
+      it's picked up it runs only in a disposable macOS VM, never on a developer's Mac; so do the attacks that would
+      act on the real Mac if they got out (`launchctl`, `open`, Apple events).
+    - Calls made without Jared: **the dummy home's own Claude Code settings allow everything the sandbox holds
+      whatever they say** (every file tool, `WebFetch`, `Bash`, each MCP server's tools, `SendMessage` and
+      `RemoteTrigger` allowed whole, the sandbox's switches at their loosest, commands kept out of the sandbox), since that is the harder case and a second pass with no settings
+      would double the run for little; **a second test allows every card** in the same dummy world, to check that
+      the battery sees an escape when there is one; and **`request_access` is tried only on the dummy home's
+      folders**, never on `/`, `/Users` or `/Volumes`, which the unit tests cover.
   - **A session resumed into the sandbox is told of it once (P15-07, #452).** Claude Code keeps a session's system
     prompt when it resumes it, so a session that started before the sandbox was on knows nothing of it, nor that a
     blocked command is answered with `request_access`. When such a session runs sandboxed, Glade sends it what the
@@ -555,15 +577,40 @@
       filed, moved, made or changed shows at once, with no reload. A `filings.changed` that lands while the hub loads
       makes it read again, so an answer made before the change never wins.
     - **Renders stay small** (`CLAUDE.md`, Performance). A todo's card is memoised on its own todo, children and
-      panel; a closed todo builds no list; a tile is given only which child it is and reads it from the store through
-      an index made once per list, so one child's update renders that tile alone; and every age keeps its own clock.
-      `src/renderer/history-renders.test.tsx` holds it at 100 todos with 50 children under one.
+      panel, and the links its text names; a closed todo builds no list; a tile is given only which child it is and
+      reads it from the store through an index made once per list, so one child's update renders that tile alone; and
+      every age keeps its own clock. `src/renderer/history-renders.test.tsx` holds it at 100 todos with 50 children
+      under one.
     - **The tile** (`src/renderer/todos/tiles/`) is one shell (`Tile`: icon, title, tag, state, age; at rest, hover,
       focus, live, outlined) filled in by a component per kind. This issue's are plain: enough to show each child.
       What a tile does and opens to is #498 (files and links) and #499 (subagents, watchers and commits).
     - **Each todo's panel is as you left it:** the window changes it at once and has main remember it
       (`todoHub.setPanel`). A filter whose kind has no children shows All, and is remembered, for when it has some
       again.
+  - **Links in a todo's text** (P16-09, #500; the states strip of `design/screens/46-todo-hub.png`;
+    `src/renderer/todos/todoLinks.ts`). In a todo's title and its status line, done todos included, a PR, an issue or
+    a ticket the todo names is a link to it, when the task has it as a link artifact.
+    - **What's matched:** `#511` for a GitHub PR or issue among the task's links, with `PR ` before it as part of the
+      link when it's there (`PR #511`, as the screens draw it), and a Jira key in capitals (`API-123`) for a ticket.
+      What each of the task's links is comes from its address alone (`recogniseLink`): nothing is fetched.
+    - **Exact matches only, to the task's own links.** The number or key must be one the task has a link for: `#5`
+      isn't found in `#51`, nor `API-12` in `API-123`. One that two of the task's links share (the same number in two
+      repositories) could mean either, so it stays text. Nothing ever links to a page the task doesn't have.
+    - **It stands on its own.** Not straight after a letter, a digit or `_` (inside a word: `fix#511`), nor after `/`,
+      `#`, `=`, `&` or `-` (inside an address, an HTML entity or a branch's name: `example.com/#511`,
+      `fix-API-123`), and not straight before a letter, a digit or `_`. A URL that is a link already stays that link,
+      whole. A key in lower case (`api-123`) is text.
+    - **It's the app's link** (`Link`, [`product.md`](product.md), "Links"): it opens in the browser, underlines under
+      the pointer, shows its address as a tooltip, takes the focus with Tab, opens with ↵, and has the link menu
+      (Open link, Copy link; no Add to artifacts, since the task has it). Clicking it neither opens nor closes the
+      todo, and neither does choosing from its menu.
+    - **It follows the task's links:** adding the link artifact later turns the words into a link, and removing it
+      turns them back.
+    - **Worked out when something changes, not on every render.** The hub works out what the task's todos may name
+      once per change of its links (a file artifact that changes rebuilds nothing), then which of it each todo names,
+      once per change of the todos or the links, and gives each card only its own. So a link added or removed renders
+      the cards that name it and no other, and a card reads its text again only when its text or what it names
+      changed. A task with no PR, issue or ticket among its links reads no todo for what it names.
   - **Calls made without Jared, for the release notes (P16).** From the groundwork (P16-03, #494):
     1. A child whose own filing names a todo that's gone goes to the placeholder, even when the subagent that made
        it is under a todo that's still there: the agent filed it apart from its subagent, so it doesn't fall back to
@@ -605,8 +652,9 @@
         doesn't.
     17. The hub drops the line under the heading ("The agent writes this list and checks items off as it works."), as
         the screens do.
-    18. A task with no todos and nothing made says "No todos for this task." at the top, where the screens put it, and
-        not today's centred "No todos yet.".
+    18. A task that made things and kept no todos says "No todos for this task." at the top, above **Not under a
+        todo**, where the screens put it. One with nothing at all (no todos, and nothing made) keeps today's centred
+        "No todos yet.", as the tab shows with the switch off (#500; the hub first said the line at the top for both).
     19. A todo waiting on you keeps its purple icon and status line, as everywhere in the app. Nothing sets that
         state yet.
     20. A link's tile says `#511`, a ticket's key or a page's domain after its title, as the screens draw it, and not
@@ -619,46 +667,62 @@
         rather than everything under no todo for a moment.
     24. A todo's context menu (Copy, Ask agent about this) opens from its head. The placeholder group has none.
 
+    From the links in a todo's text (P16-09, #500):
+
+    25. `PR ` is part of the link only as it's drawn: in capitals, with one space or none before the `#`. After
+        anything else (`pr #511`, `pull request #511`, `issue #501`) the number alone is the link. A number with no
+        `#` (`PR 511`) never links, and neither does `owner/repo#511`.
+    26. A ticket's key links only in capitals, as Jira writes it: `api-123` stays text. The link's own address may
+        write it either way.
+    27. A reference stands on its own: not straight after a letter, a digit, `_`, `/`, `#`, `=`, `&` or `-`, and not
+        straight before a letter, a digit or `_`. So `#511.` and `(#511)` link, `API-123-backport` links its key, and
+        `fix#511`, `example.com/#511` and `fix-API-123` don't.
+    28. "Two of the task's links share it" is read as written: one PR given by two of its pages (`pull/511` and
+        `pull/511/files`), or `issues/511` beside `pull/511` of one repository, are two links with the number, so it
+        stays text, as the same number in two repositories does.
+    29. Every link in a todo's text is a Tab stop, as every link in the app is, after its todo and before the todo's
+        pills.
+
     From filing as it's made (P16-04, #495):
 
-    25. A session has the hub for its whole life, or not at all: the switch is read as the session starts, for its
+    30. A session has the hub for its whole life, or not at all: the switch is read as the session starts, for its
         tools, its prompt, its hooks and the task tools' switch together, as the sandbox's is. Turned on while a
         session runs, it changes nothing for that session; the task gets the hub when its session next starts.
-    26. The hub's prompt paragraphs aren't in `INSTRUCTION_UPDATES`: they're tracked by themselves
+    31. The hub's prompt paragraphs aren't in `INSTRUCTION_UPDATES`: they're tracked by themselves
         (`session_context.todo_hub`), so how many instructions a session has had is the same with the switch on or
         off. A session that started without them and resumes with the hub on is sent all three once (#496's line
         among them), ahead of its next message.
-    27. The prompt paragraph is #492's cut down to the two calls a todo is read off (an `Agent` call, a `Bash` call
+    32. The prompt paragraph is #492's cut down to the two calls a todo is read off (an `Agent` call, a `Bash` call
         that commits), reworded to say a subagent works on a todo and its commits go under it. That wording wasn't
         probed.
-    28. What an agent owes a filing for is only a commit or a subagent it made itself, in a call, with the hub on, that
+    33. What an agent owes a filing for is only a commit or a subagent it made itself, in a call, with the hub on, that
         named no todo. Never what the task made before the hub, a link you added, an artifact added through the
         control API, or something whose todo was deleted later (it drops to the placeholder, and nothing asks).
         What's owed is kept in SQLite, so a relaunch doesn't forget it; how often a turn was held isn't, so a turn
         carried on after a relaunch can be held twice more.
-    29. A marker naming a todo that isn't in the list still comes off the call: it counts as naming none, and the
+    34. A marker naming a todo that isn't in the list still comes off the call: it counts as naming none, and the
         agent is told afterwards.
-    30. When a turn's end is held, the reply the agent had written goes to the tool log, and the chat shows the one
+    35. When a turn's end is held, the reply the agent had written goes to the tool log, and the chat shows the one
         it ends on; if it files and writes no reply again, the one it had written is the turn's. An agent that
         ignores both holds ends its turn on the reply it wrote third.
-    31. A turn you stopped is never held, nor is a compaction. What an interrupted message made is taken in at the end
+    36. A turn you stopped is never held, nor is a compaction. What an interrupted message made is taken in at the end
         of the next turn.
-    32. `add_artifact` declared again with another todo moves the artifact there (`moved`). `update_artifact` takes no
+    37. `add_artifact` declared again with another todo moves the artifact there (`moved`). `update_artifact` takes no
         todo: moving is `file_children`'s. An artifact that's removed, by the agent, by you or through the control
         API, leaves no filing, so one added again starts under no todo. One pointed at another file or page keeps its
         todo, and gets a new short id the next time Glade names it.
-    33. A named `Agent` call that started no subagent (it failed, or you denied it) leaves no todo recorded.
-    34. A `Bash` call in the background is a watcher's call, so no todo is read off it, and a commit it makes is left
+    38. A named `Agent` call that started no subagent (it failed, or you denied it) leaves no todo recorded.
+    39. A `Bash` call in the background is a watcher's call, so no todo is read off it, and a commit it makes is left
         under no todo with nothing asked. A foreground call the SDK moves to the background is still read: what it
         commits is filed, and the watcher it becomes isn't.
-    35. A subagent's `Agent` call that names a todo of the task's has its marker taken off, as the agent's own does.
+    40. A subagent's `Agent` call that names a todo of the task's has its marker taken off, as the agent's own does.
         One that names a todo that isn't there loses the marker too, and stays on its parent's todo. A marker on a
         subagent's `Bash` call is left where it is: its commits follow its todo.
-    36. If the switch is turned off under a session that has the hub, its hooks still take markers off (its prompt
+    41. If the switch is turned off under a session that has the hub, its hooks still take markers off (its prompt
         still asks for them), and file, ask and hold nothing; `add_artifact` adds as it did before the hub. A session
         that then starts again has no hooks, while Claude Code keeps the prompt it started with: the markers it
         writes show until the switch is back on. That's only reachable by turning the hidden switch off by hand.
-    37. The store and the agent's tools (#494, #496) still know a watcher as a kind of child, and a subagent still
+    42. The store and the agent's tools (#494, #496) still know a watcher as a kind of child, and a subagent still
         shows in the hub's groups until #535 takes both out: `file_children` can file either, and nothing here does.
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
