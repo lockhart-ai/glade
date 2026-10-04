@@ -87,7 +87,7 @@ function launch(): void {
     backend: createSdkBackend({ version: '1.2.3', env: Promise.resolve({}) }),
     sandboxGrants: (task) => taskSandboxGrants(database.db, task),
   })
-  grants = { db: database.db, runner }
+  grants = { db: database.db, runner, emit: () => undefined }
 }
 
 /** The options the SDK's `query()` was last started with. */

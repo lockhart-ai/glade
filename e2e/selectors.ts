@@ -693,6 +693,29 @@ export function settings(page: Page) {
     account: dialog.getByRole('region', { name: 'Account' }),
     /** What Control says of the port in use: that it isn't the one chosen, or why there's none. */
     portNotice: dialog.getByRole('status'),
+    /** The Sandbox group, in Agent (the switch and the Glade-wide lists) or in the workspace's section (its lists). */
+    sandbox: dialog.getByRole('region', { name: 'Sandbox' }),
+    /**
+     * One of the sandbox's lists, by its name: "Glade-wide folders" and "Glade-wide domains" in Agent, "Folders" and
+     * "Domains" in the workspace's section.
+     */
+    grantList: (list: string) => dialog.getByRole('list', { name: list, exact: true }),
+    /** The rows of one of the sandbox's lists: each a folder or domain, by its name, and the one being added. */
+    grantRows: (list: string) => dialog.getByRole('list', { name: list, exact: true }).getByRole('listitem'),
+    /** A folder's or domain's row in one of the sandbox's lists. */
+    grantRow: (list: string, name: string) =>
+      dialog.getByRole('list', { name: list, exact: true }).getByRole('listitem', { name, exact: true }),
+    /**
+     * A list's Add…: "Add a Glade-wide folder" and "Add a Glade-wide domain" in Agent, "Add a folder" and "Add a
+     * domain" in the workspace's section.
+     */
+    addGrant: (name: string) => dialog.getByRole('button', { name, exact: true }),
+    /** A granted folder's access select, whatever is chosen: its name ends in it ("Access to ~/.nvm: Read-only"). */
+    grantAccess: (folder: string) => dialog.getByRole('button', { name: `Access to ${folder}: `, exact: false }),
+    /** The field of the domain being added. */
+    newDomain: dialog.getByRole('textbox', { name: 'Domain' }),
+    /** Why a list's last change didn't happen, under the list. */
+    grantError: dialog.getByRole('region', { name: 'Sandbox' }).getByRole('alert'),
   }
 }
 

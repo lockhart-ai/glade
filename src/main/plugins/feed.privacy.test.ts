@@ -44,6 +44,7 @@ import { pluginEventSchema } from '../../shared/plugin-api-schema'
 import { LoginState } from '../../shared/login'
 import { PluginStatus } from '../../shared/plugins'
 import { BUILT_IN_MODELS } from '../../shared/models'
+import { FolderAccess, SandboxGrantKind, SandboxGrantScope } from '../../shared/sandbox'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { appendPermissionRequest } from '../db/repositories/permission-requests'
 import { appendQuestionSet } from '../db/repositories/question-sets'
@@ -595,6 +596,16 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           working: [],
           recent: [{ seq: 1, taskId: created.id, title: secret('recent_title'), body: secret('recent'), sentAt: 1 }],
         },
+      },
+    ],
+    [EventType.SandboxGrantsChanged]: [
+      {
+        type: EventType.SandboxGrantsChanged,
+        target: { scope: SandboxGrantScope.Workspace, workspaceId: secret('grant_workspace') },
+        grants: [
+          { kind: SandboxGrantKind.Folder, path: secret('grant_folder'), access: FolderAccess.Read },
+          { kind: SandboxGrantKind.Domain, domain: secret('grant_domain') },
+        ],
       },
     ],
     [EventType.TerminalTabsChanged]: [

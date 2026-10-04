@@ -48,6 +48,8 @@ import { selectSelectedWorkspace } from '../store/state'
 import { useGladeStore } from '../store/react'
 import { useNow } from '../task-list/useNow'
 import { accountView, loginRowDescription, offersLogin } from './accountModel'
+import { SandboxHeading, SandboxLists } from './SandboxLists'
+import { SettingSelect } from './SettingSelect'
 import styles from './SettingsDialog.module.css'
 
 export interface SettingRowProps {
@@ -275,7 +277,11 @@ export function GeneralSection(): React.JSX.Element {
   )
 }
 
-/** The defaults for new tasks, and what the agent keeps current (the design's section). */
+/**
+ * The defaults for new tasks and what the agent keeps current (the design's section), then the sandbox
+ * (`docs/design/html/39-settings-sandbox.html`): whether agents run in it, a session reading that as it starts, and
+ * the folders and domains every workspace's agents may use.
+ */
 export function AgentSection(): React.JSX.Element {
   const [settings, update] = useSettings()
   const models = useGladeStore((state) => state.models)
@@ -340,6 +346,19 @@ export function AgentSection(): React.JSX.Element {
           }}
         />
       </SettingRow>
+      <section aria-labelledby="settings-sandbox" className={styles.group}>
+        <SandboxHeading id="settings-sandbox" />
+        <SettingRow name="Run agents in a sandbox" description="They can use only their workspace and what you allow.">
+          <Toggle
+            label="Run agents in a sandbox"
+            checked={settings.sandboxEnabled}
+            onChange={(sandboxEnabled) => {
+              update({ sandboxEnabled })
+            }}
+          />
+        </SettingRow>
+        <SandboxLists workspaceId={null} root={null} />
+      </section>
     </>
   )
 }
@@ -403,41 +422,14 @@ interface PluginSelectProps {
  * checked, as the model picker does.
  */
 function PluginSelect({ plugin, setting, value, onChoose }: PluginSelectProps): React.JSX.Element {
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
-  const chosen = setting.options.find((option) => option.value === value)?.label ?? value
-  const entries: MenuEntry[] = setting.options.map((option) => ({
-    kind: MenuEntryKind.Item,
-    label: option.label,
-    checked: option.value === value,
-    onSelect: () => {
-      onChoose(option.value)
-    },
-  }))
   return (
-    <>
-      <button
-        type="button"
-        aria-label={`${plugin}: ${setting.label}: ${chosen}`}
-        aria-haspopup="menu"
-        aria-expanded={anchor !== null}
-        className={classNames(styles.select, styles.pluginSelect)}
-        onClick={(event) => {
-          setAnchor(event.currentTarget)
-        }}
-      >
-        {chosen}
-        <Icon icon={faChevronDown} size={IconSize.Small} />
-      </button>
-      <Menu
-        label={setting.label}
-        entries={entries}
-        anchor={{ kind: MenuAnchorKind.Element, element: anchor, placement: Placement.BottomEnd }}
-        open={anchor !== null}
-        onClose={() => {
-          setAnchor(null)
-        }}
-      />
-    </>
+    <SettingSelect
+      name={`${plugin}: ${setting.label}`}
+      menuLabel={setting.label}
+      options={setting.options}
+      value={value}
+      onChoose={onChoose}
+    />
   )
 }
 
@@ -630,7 +622,10 @@ export function PluginsSection(): React.JSX.Element {
   )
 }
 
-/** The workspace you're in: its name and root folder. Changing the root moves nothing on disk. */
+/**
+ * The workspace you're in: its name and root folder (changing the root moves nothing on disk), then its sandbox
+ * (`docs/design/html/41-settings-workspace-sandbox.html`): the folders and domains its agents may use beyond the root.
+ */
 export function WorkspaceSection(): React.JSX.Element {
   const workspace = useGladeStore(selectSelectedWorkspace)
   const updateWorkspace = useGladeStore((state) => state.updateWorkspace)
@@ -665,7 +660,9 @@ export function WorkspaceSection(): React.JSX.Element {
 
   return (
     <>
-      <Intro>This workspace&apos;s name and root folder. Changes save automatically.</Intro>
+      <Intro>
+        This workspace&apos;s name and root folder, and what its agents may use. Changes save automatically.
+      </Intro>
       <SettingRow name="Name" description="Shown in the sidebar and the workspace switcher.">
         <Input
           label="Workspace name"
@@ -700,6 +697,18 @@ export function WorkspaceSection(): React.JSX.Element {
           {error}
         </p>
       )}
+      <section
+        aria-labelledby="settings-workspace-sandbox"
+        className={classNames(styles.group, styles.workspaceSandbox)}
+      >
+        <SandboxHeading id="settings-workspace-sandbox" />
+        <p className={styles.sandboxIntro}>
+          What this workspace’s agents can use, on top of the Glade-wide folders and domains in Agent. Allow for this
+          workspace, on a permission card, adds here.
+        </p>
+        {/* Keyed by the workspace, so a row being added in one isn't carried into another's lists. */}
+        <SandboxLists key={workspace.id} workspaceId={workspace.id} root={workspace.rootPath} />
+      </section>
     </>
   )
 }

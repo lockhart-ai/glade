@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   coversAccess,
+  FOLDER_ACCESS_LABELS,
   FolderAccess,
   grantCovers,
+  isSettingsGrantTarget,
   mergeGrants,
   SandboxGrantKind,
   SandboxGrantScope,
+  settingsGrantScopeKey,
   type Grant,
 } from './sandbox'
 
@@ -74,5 +77,25 @@ describe('grantCovers', () => {
   it('never takes a task id for a workspace id', () => {
     expect(grantCovers({ scope: SandboxGrantScope.Task, taskId: 'w1' }, task)).toBe(false)
     expect(grantCovers({ scope: SandboxGrantScope.Workspace, workspaceId: 't1' }, task)).toBe(false)
+  })
+})
+
+describe('the scopes Settings lists', () => {
+  it('lists the Glade-wide grants and a workspace’s, never a task’s', () => {
+    expect(isSettingsGrantTarget({ scope: SandboxGrantScope.Glade })).toBe(true)
+    expect(isSettingsGrantTarget({ scope: SandboxGrantScope.Workspace, workspaceId: 'w1' })).toBe(true)
+    expect(isSettingsGrantTarget({ scope: SandboxGrantScope.Task, taskId: 't1' })).toBe(false)
+  })
+
+  it('keeps each scope’s grants under a key of its own', () => {
+    expect(settingsGrantScopeKey({ scope: SandboxGrantScope.Glade })).toBe('glade')
+    expect(settingsGrantScopeKey({ scope: SandboxGrantScope.Workspace, workspaceId: 'w1' })).toBe('workspace:w1')
+    expect(settingsGrantScopeKey({ scope: SandboxGrantScope.Workspace, workspaceId: 'w2' })).toBe('workspace:w2')
+    // A workspace whose id is "glade" is still a workspace.
+    expect(settingsGrantScopeKey({ scope: SandboxGrantScope.Workspace, workspaceId: 'glade' })).not.toBe('glade')
+  })
+
+  it('reads a folder’s access as the lists and their selects show it', () => {
+    expect(FOLDER_ACCESS_LABELS).toEqual({ read: 'Read-only', read_write: 'Read-write' })
   })
 })

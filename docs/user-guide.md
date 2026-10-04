@@ -24,6 +24,7 @@ New here? The [README](../README.md) says what Glade is. The [docs index](README
 - [Permissions](#permissions)
 - [Settings](#settings)
   - [Your account](#your-account)
+  - [The sandbox](#the-sandbox)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Plugins](#plugins)
 - [Let agents control Glade](#let-agents-control-glade)
@@ -447,13 +448,13 @@ A card left open when Glade quits is still there after the relaunch; answering i
 | Section | What's there |
 |---|---|
 | General | **Show Glade in the menu bar**: the icon with what needs you and what's working (see [Glade in the menu bar](#glade-in-the-menu-bar)). On to begin with. Then the **account** your tasks run on and bill to, as Claude Code reports it (below). |
-| Agent | Defaults for new tasks: **Model** and **Effort**, from the same list as the input bar's pickers (Effort shows only the levels the model supports, and hides for one with none), and **Permissions** (Ask first or Allow all; Allow edits isn't available yet). **Status summary**: have the agent rewrite the task's status after every turn. **Task titles**: have the agent name the task from your first message. |
+| Agent | Defaults for new tasks: **Model** and **Effort**, from the same list as the input bar's pickers (Effort shows only the levels the model supports, and hides for one with none), and **Permissions** (Ask first or Allow all; Allow edits isn't available yet). **Status summary**: have the agent rewrite the task's status after every turn. **Task titles**: have the agent name the task from your first message. **Sandbox**: whether agents run in the sandbox, and the folders and domains every workspace's agents may use (see [The sandbox](#the-sandbox)). |
 | Notifications | **Notifications** on or off, and **Sound**. |
 | Appearance | Nothing yet: Glade has one theme, dark. |
 | Keyboard | Every shortcut, and a way to change it (below). |
 | Plugins | The installed plugins, a switch for each (and for what each asks to see, such as your Mac's load), each plugin's own settings, and **Open plugins folder** (see [Plugins](#plugins)). |
 | Control | **Let agents control Glade** (see [below](#let-agents-control-glade)). |
-| *(your workspace)* | Its **Name** and **Root folder**. |
+| *(your workspace)* | Its **Name** and **Root folder**, then its **Sandbox**: the folders and domains this workspace's agents may use (see [The sandbox](#the-sandbox)). |
 
 ### Your account
 
@@ -467,6 +468,50 @@ To use another account, sign in again in Claude Code (`claude auth login` in a t
 picks it up.
 
 ![Settings › General, showing the account (sample data)](images/guide/settings-general.png)
+
+### The sandbox
+
+Settings › Agent › **Sandbox** has the switch, **Run agents in a sandbox**: with it on, an agent can use only its
+workspace and what you allow. The switch is for every workspace and task. A task reads it **as its agent's session
+starts**: a new task has it from its first message, while a session that's already running keeps what it started with
+and takes the change the next time it starts, such as after Glade relaunches. While the sandbox is being built it's off
+to begin with.
+
+What you allow is kept in two pairs of lists, **Folders** and **Domains**:
+
+- **Glade-wide**, in Settings › Agent under the switch: for the agents in every workspace, like a toolchain or a package
+  cache in your home folder (`~/.nvm`, `~/.npm`) and the registry they download from. They start empty, and only you
+  fill them, here.
+- **The workspace's**, in Settings › *(your workspace)* under its root folder: for that workspace's agents alone. Its
+  Folders start with the **workspace root**, which is always read-write and can't be removed. **Allow for this
+  workspace** on a permission card adds here too, and shows in the list straight away, even while Settings is open.
+
+A grant for one task (Allow for this task, on a card) isn't listed anywhere: it ends with the task.
+
+- **Add…** a folder opens the folder picker, then a row with the folder and its access, **Read-only** to start or
+  **Read-write**; **Add** grants it, **Cancel** doesn't.
+- **Add…** a domain opens a row with a field: type a host (`pypi.org`), or `*.` and a domain for every host under it
+  (`*.example.com`), then **Add** or ↵. Esc or **Cancel** closes the row. A domain covers both the agents' commands
+  and their web fetches.
+- Each folder's access is a menu on its row: change it there at any time.
+- **×** on a row removes it.
+
+Every change takes effect in the running tasks it covers at once, without restarting them: a folder you remove, or
+make read-only, stops being usable from the agent's next call. (One exception: a domain a running task has already
+been allowed to reach on a card stays reachable until that task's session restarts.)
+
+Glade says why when it can't add something, under the list:
+
+- A domain has to be a bare host, with no `https://`, port or path, and `*.` can only come first, before at least two
+  labels (`*.example.com`, not `*.com`).
+- A folder can't be the whole disk, or have a pattern character in its path (`*`, `?`, `[`, `]`, `{`, `}` or `\`).
+- A folder or domain already in the list isn't added twice. A folder that's there read-only, added again read-write,
+  becomes read-write.
+- A workspace doesn't take its own root, or a folder inside it: its agents can already use those. (The Glade-wide
+  list does, since it's for other workspaces' agents.)
+
+**With the switch off**, agents can use any folder and reach any domain, as before the sandbox. Both pairs of lists dim
+and can't be changed, but nothing in them is lost: they apply again when the sandbox is back on.
 
 ## Keyboard shortcuts
 
