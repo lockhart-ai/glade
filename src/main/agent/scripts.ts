@@ -4040,9 +4040,6 @@ export const FILES_CHILDREN = {
     cronSchedule: '0 9 * * *',
     cronHumanSchedule: 'Every day at 9:00 AM',
     cronJob: 'c4f1d02a',
-    /** The file the commit made, and the PR, declared as artifacts: `add_artifact` takes each one's todo. */
-    file: { path: 'src/date.ts', title: 'Date header helper', todo: '2' },
-    link: { url: 'https://github.com/acme/api/pull/42', title: 'Fix the UTC date test', todo: '3' },
     reply:
       'The date helpers are reviewed and the UTC test is fixed and committed. CI on PR #42 is being watched, and ' +
       "I'll check it again in five minutes.",
@@ -4066,6 +4063,14 @@ export const FILES_CHILDREN = {
     cronHumanSchedule: 'Every day at 9:30 AM',
     cronJob: 'c9b7e31d',
     reply: 'The order totals are reviewed, the review is noted and committed, and the staging deploy is being watched.',
+  },
+  /**
+   * What the second turn declares as artifacts, the file the first turn's commit made and the PR: `add_artifact` has a
+   * field for the todo, so each gives its own.
+   */
+  artifacts: {
+    file: { path: 'src/date.ts', title: 'Date header helper', todo: '2' },
+    link: { url: 'https://github.com/acme/api/pull/42', title: 'Fix the UTC date test', todo: '3' },
   },
   /** The todo the agent files each of the second turn's children under, once Glade tells it what it made. */
   filed: { subagent: '1', commit: '2', monitor: '3', command: '2', wakeup: '3', cron: '3' },
@@ -4154,11 +4159,12 @@ function childrenTurn(
 /**
  * Makes one of each kind of child a todo can hold, twice (`docs/sdk-notes.md` §16), for Glade to file (P16-04, #495):
  * the first turn keeps three todos with Claude Code's own todo tools and names one in each call that makes a child (a
- * marker at the start of the call's own text, `[todo 2] …`), and gives `add_artifact` the todo of a file and of a
- * link; the second turn makes the same kinds and names none, as an agent that forgot would. The calls are as the model
- * wrote them. In a session with the todo hub on, Glade takes each marker off and files what the call made, and tells
- * the agent what its second turn's calls made, which it files as `filing` says (`FILES_CHILDREN.filed`). With the hub
- * off, nothing reads a marker, `add_artifact` takes no todo, and nothing is asked or filed.
+ * marker at the start of the call's own text, `[todo 2] …`); the second turn makes the same kinds and names none, as an
+ * agent that forgot would, then declares a file and a link as artifacts, giving `add_artifact` each one's todo. The
+ * calls are as the model wrote them. In a session with the todo hub on, Glade takes each marker off and files what the
+ * call made, and tells the agent what its second turn's calls made, which it files as `filing` says
+ * (`FILES_CHILDREN.filed`). With the hub off, nothing reads a marker, `add_artifact` takes no todo, and nothing is
+ * asked or filed.
  */
 const filesChildren: AgentScript = {
   name: 'files-children',
@@ -4187,8 +4193,6 @@ const filesChildren: AgentScript = {
       ...childrenTurn(FILES_CHILDREN.named, (tool, input, child) =>
         nameTodo(tool, input, FILES_CHILDREN.named[child].todo),
       ),
-      gladeTool('add-file', 'add_artifact', FILES_CHILDREN.named.file),
-      gladeTool('add-link', 'add_artifact', FILES_CHILDREN.named.link),
       ...updateTodo(1, 'completed'),
       ...updateTodo(2, 'completed'),
       ...updateTodo(3, 'in_progress'),
@@ -4199,6 +4203,8 @@ const filesChildren: AgentScript = {
       ...turnStart(),
       delay(BEAT_MS),
       ...childrenTurn(FILES_CHILDREN.unnamed, (_tool, input) => input),
+      gladeTool('add-file', 'add_artifact', FILES_CHILDREN.artifacts.file),
+      gladeTool('add-link', 'add_artifact', FILES_CHILDREN.artifacts.link),
       say(FILES_CHILDREN.unnamed.reply),
       result(),
     ],

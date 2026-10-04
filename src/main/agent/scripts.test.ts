@@ -387,8 +387,8 @@ describe('AGENT_SCRIPTS', () => {
       await backend.whenIdle()
 
       expect(listArtifacts(database.db, task.id).map(({ kind, title }) => [kind, title])).toEqual([
-        [ArtifactKind.File, FILES_CHILDREN.named.file.title],
-        [ArtifactKind.Link, FILES_CHILDREN.named.link.title],
+        [ArtifactKind.File, FILES_CHILDREN.artifacts.file.title],
+        [ArtifactKind.Link, FILES_CHILDREN.artifacts.link.title],
       ])
       // The agent never files: nothing told it to.
       expect(calls().filter(({ name }) => name === 'mcp__glade__file_children')).toEqual([])
@@ -422,11 +422,11 @@ describe('AGENT_SCRIPTS', () => {
         agent.send(task.id, FILES_CHILDREN.prompt)
         await backend.whenIdle()
 
-        // An artifact, a subagent, a watcher of each kind and a commit, each under the todo its call named.
+        // A subagent, a watcher of each kind and a commit, each under the todo its call named.
         expect(placed()).toEqual([
           ['subagent named'],
-          ['commit named', 'file named', 'watcher named'],
-          ['link named', 'watcher named', 'watcher named', 'watcher named'],
+          ['commit named', 'watcher named'],
+          ['watcher named', 'watcher named', 'watcher named'],
           [],
         ])
         // The calls ran, and were logged, with their own text alone.
@@ -459,7 +459,7 @@ describe('AGENT_SCRIPTS', () => {
         await backend.whenIdle()
 
         // Six messages that made a child, six filing calls, each right after its message: none was left for the
-        // end of the turn.
+        // end of the turn. The file and the link it then declared are under the todo each `add_artifact` call gave.
         expect(filingCalls()).toEqual(Array(CHILDREN.length).fill(ToolCallState.Done))
         expect(placed()).toEqual([
           ['subagent asked', 'subagent named'],

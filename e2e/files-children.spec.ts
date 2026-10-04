@@ -1,7 +1,7 @@
 // Filing what an agent makes under its todos as it's made (P16-04, #495), end to end with the scripted agent and the
-// hidden `todoHubEnabled` setting on. The agent's first turn names a todo in each call that makes a child (and gives
-// `add_artifact` each artifact's todo): Glade files what the call made and takes the marker off, so it shows nowhere.
-// Its second turn names none: Glade tells it what its calls made, and it files that itself, before its turn ends.
+// hidden `todoHubEnabled` setting on. The agent's first turn names a todo in each call that makes a child: Glade files
+// what the call made and takes the marker off, so it shows nowhere. Its second turn names none: Glade tells it what
+// its calls made, and it files that itself, before its turn ends; the artifacts it declares give `add_artifact` their todo.
 // What's filed survives a relaunch, and the resumed session keeps filing. The hub's own tab is another issue's (#497),
 // so the spec reads where main puts each child over the bridge, and the Tool calls tab for what the log shows.
 import { mkdirSync } from 'node:fs'
@@ -53,8 +53,8 @@ async function everythingShown(window: Page, taskId: string): Promise<string> {
 /** The first turn's children: each under the todo its call named. */
 const NAMED = [
   ['subagent named'],
-  ['commit named', 'file named', 'watcher named'],
-  ['link named', 'watcher named', 'watcher named', 'watcher named'],
+  ['commit named', 'watcher named'],
+  ['watcher named', 'watcher named', 'watcher named'],
   [],
 ]
 
@@ -71,7 +71,7 @@ test('the todo hub on: what an agent makes is under a todo by the time its turn 
   await taskList(window).newTask.click()
   const taskId = await onlyTaskId(window)
 
-  // Its first turn: three todos, and a subagent, a commit, a file, a link and four watchers, each call naming a todo.
+  // Its first turn: three todos, and a subagent, a commit and four watchers, each call naming a todo.
   await send(window, MADE.prompt)
   await expect(chat(window).agentReplies.first()).toContainText(MADE.named.reply)
   // The session started with the hub on: its prompt says how to name a todo, and nothing was sent ahead of the message.
@@ -98,7 +98,8 @@ test('the todo hub on: what an agent makes is under a todo by the time its turn 
   expect(watchers.at(-1)?.detail).toBe(MADE.named.cron.text)
 
   // Its second turn makes the same kinds and names no todo. Glade tells it what each message made, and it files that
-  // with one call each time, without being asked by you: by the end of the turn nothing is under no todo.
+  // with one call each time, without being asked by you: by the end of the turn nothing is under no todo. The file
+  // and the link it declares as artifacts go under the todo each `add_artifact` call names.
   await send(window, 'And the order totals.')
   await expect(chat(window).agentReplies.last()).toContainText(MADE.unnamed.reply)
   const filed = [

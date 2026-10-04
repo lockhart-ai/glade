@@ -3146,8 +3146,8 @@ what the probes above saw, and tested on the fake and scripted backends.
 
 The scripted backend emits these calls: the `files-children` script (`src/main/agent/scripts.ts`) keeps three todos
 and makes a background subagent, a real commit, a `Monitor`, a background command, a `ScheduleWakeup` and a
-`CronCreate` job, each naming its todo, and declares a file and a link with `add_artifact`'s `todo`; then on its second
-turn the same kinds naming none. The marker, where it goes for each tool, and the refusal's text (unused: nothing is
+`CronCreate` job, each naming its todo; then on its second turn the same kinds naming none, and a file and a link
+declared with `add_artifact`'s `todo`. The marker, where it goes for each tool, and the refusal's text (unused: nothing is
 refused) are in `src/main/agent/child-calls.ts`.
 
 The scripted session asks the three hooks as Claude Code does (`SessionHooks.onChildStarting`, `onBatchFinished`,
