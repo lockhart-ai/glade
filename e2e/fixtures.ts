@@ -547,7 +547,7 @@ export async function agentSessions({ app }: Glade): Promise<E2eAgent['sessions'
  * rules the session was handed with `applyFlagSettings`, its grants among them (`E2E_AGENT_GLOBAL`).
  */
 export async function agentFlagSettings({ app }: Glade): Promise<E2eAgent['flagSettings']> {
-  return app.evaluate((_, name) => [...(Reflect.get(globalThis, name) as E2eAgent).flagSettings], E2E_AGENT_GLOBAL)
+  return inMain(app, (_, name) => [...(Reflect.get(globalThis, name) as E2eAgent).flagSettings], E2E_AGENT_GLOBAL)
 }
 
 /**
