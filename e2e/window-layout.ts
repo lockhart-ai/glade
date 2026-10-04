@@ -1,6 +1,7 @@
 /** Helpers for specs that check how the window lays out: its size, and where things land in it. */
 import type { Locator, Page } from '@playwright/test'
 import { expect, type Glade } from './fixtures'
+import { inMain } from './in-main'
 
 /** The window's minimum size (src/main/app.ts). */
 export const MIN_WINDOW = { width: 1100, height: 700 } as const
@@ -21,7 +22,8 @@ export async function boxOf(locator: Locator): Promise<Box> {
 
 /** Sets the window's content size, and waits for the page to take it. */
 export async function resize({ app, window }: Glade, width: number, height: number): Promise<void> {
-  await app.evaluate(
+  await inMain(
+    app,
     ({ BrowserWindow }, size) => {
       BrowserWindow.getAllWindows()[0]?.setContentSize(size.width, size.height)
     },

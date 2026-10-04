@@ -3,6 +3,7 @@
 import { cpSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pluginsFolder, type Glade } from './fixtures'
+import { inMain } from './in-main'
 
 export const FIXTURE_PLUGIN = resolve(__dirname, 'plugins', 'fixture-plugin')
 
@@ -13,9 +14,13 @@ export function installFixture(userData: string): void {
 
 /** Runs `code` in the plugin's page, as its own scripts would (its main world), and answers with what it resolves to. */
 export async function inPlugin<T>({ app }: Glade, code: string): Promise<T> {
-  return app.evaluate(async ({ webContents }, source) => {
-    const page = webContents.getAllWebContents().find((contents) => contents.getURL().startsWith('glade-plugin:'))
-    if (page === undefined) throw new Error('No plugin page is running')
-    return (await page.executeJavaScript(source)) as unknown
-  }, code) as Promise<T>
+  return inMain(
+    app,
+    async ({ webContents }, source) => {
+      const page = webContents.getAllWebContents().find((contents) => contents.getURL().startsWith('glade-plugin:'))
+      if (page === undefined) throw new Error('No plugin page is running')
+      return (await page.executeJavaScript(source)) as unknown
+    },
+    code,
+  ) as Promise<T>
 }

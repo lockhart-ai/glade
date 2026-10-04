@@ -2,7 +2,7 @@
  * The `Notifier` the test modes use in place of the OS's: it shows nothing, only records what it was asked to show, and
  * can act on a recorded notification the way the OS would: click it (or its Open task action, which does the same), or
  * reply to it. In e2e mode the app puts it on the main process's global object (`E2E_NOTIFIER_GLOBAL`), so a spec can
- * read and act on it through Playwright's `app.evaluate`.
+ * read and act on it through `inMain` (`e2e/in-main.ts`).
  */
 import type { NotificationHandlers, Notifier, TaskNotification } from './notifier'
 

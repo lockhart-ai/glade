@@ -6,6 +6,7 @@
 import { expect } from '@playwright/test'
 import type { MenuItem } from 'electron'
 import type { Glade } from './fixtures'
+import { inMain } from './in-main'
 
 /** A menu bar item as a spec sees it. */
 export interface MenuBarItem {
@@ -17,17 +18,21 @@ export interface MenuBarItem {
 
 /** The item at `path` (a menu's label, then each submenu's), or null when there's none. */
 export async function findMenuItem({ app }: Glade, path: readonly string[]): Promise<MenuBarItem | null> {
-  return app.evaluate(({ Menu }, labels) => {
-    let items = Menu.getApplicationMenu()?.items ?? []
-    let found: MenuItem | undefined
-    for (const label of labels) {
-      found = items.find((item) => item.label === label)
-      items = found?.submenu?.items ?? []
-    }
-    if (found === undefined) return null
-    const { label, enabled, checked } = found
-    return { label, enabled, checked, accelerator: found.accelerator ?? null }
-  }, path)
+  return inMain(
+    app,
+    ({ Menu }, labels) => {
+      let items = Menu.getApplicationMenu()?.items ?? []
+      let found: MenuItem | undefined
+      for (const label of labels) {
+        found = items.find((item) => item.label === label)
+        items = found?.submenu?.items ?? []
+      }
+      if (found === undefined) return null
+      const { label, enabled, checked } = found
+      return { label, enabled, checked, accelerator: found.accelerator ?? null }
+    },
+    path,
+  )
 }
 
 /** The item at `path`, once the menu bar has one. */
@@ -48,13 +53,17 @@ export async function chooseMenuItem(glade: Glade, ...path: string[]): Promise<v
       message: `Menu bar item ${path.join(' › ')} never became enabled`,
     })
     .toBe(true)
-  await glade.app.evaluate(({ Menu }, labels) => {
-    let items = Menu.getApplicationMenu()?.items ?? []
-    let found: MenuItem | undefined
-    for (const label of labels) {
-      found = items.find((item) => item.label === label)
-      items = found?.submenu?.items ?? []
-    }
-    found?.click()
-  }, path)
+  await inMain(
+    glade.app,
+    ({ Menu }, labels) => {
+      let items = Menu.getApplicationMenu()?.items ?? []
+      let found: MenuItem | undefined
+      for (const label of labels) {
+        found = items.find((item) => item.label === label)
+        items = found?.submenu?.items ?? []
+      }
+      found?.click()
+    },
+    path,
+  )
 }

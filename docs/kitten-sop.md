@@ -74,6 +74,10 @@ outside, ask the supervisor.
 - **UI changes need an e2e spec.** A PR that changes the UI adds or extends a Playwright spec in `e2e/` that drives the
   real app through the workflow. Use the fixtures in `e2e/fixtures.ts` (`launch`, `tempFolder`, `chooseFolder`) and the
   locators in `e2e/selectors.ts`, and wait on locators, never on timers.
+- **A spec runs a function in the main process with `inMain`** (`e2e/in-main.ts`, #486), never Playwright's
+  `app.evaluate`: that runs it inside whatever main is doing, even in the middle of one of its queries, where a read
+  throws "This database connection is busy executing a query". `inMain` has main run it on a turn of its own, and the
+  lint fails a spec that calls `app.evaluate`.
 - **A failed e2e test keeps its evidence** (#483, `e2e/evidence.ts`). Read it before guessing at a cause, and before
   running the test again: a rare failure may not come back. It's in the test's folder under `out/e2e-results/`, and
   the list reporter prints each path under the failure:

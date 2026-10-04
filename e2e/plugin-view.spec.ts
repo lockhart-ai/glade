@@ -4,13 +4,15 @@ import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { FIXTURE_PLUGIN, inPlugin, installFixture } from './fixture-plugin'
 import { expect, pluginsFolder, test, type Glade } from './fixtures'
+import { inMain } from './in-main'
 import { expectViewOverSlot, logged, openPlugins, pluginCard, pluginView } from './plugin-view'
 import { panelToggles, regions } from './selectors'
 import { boxOf, resize } from './window-layout'
 
 /** How many plugin pages are running, in any window or none. */
 async function pluginPages({ app }: Glade): Promise<number> {
-  return app.evaluate(
+  return inMain(
+    app,
     ({ webContents }) =>
       webContents.getAllWebContents().filter((page) => page.getURL().startsWith('glade-plugin:')).length,
   )
@@ -58,7 +60,7 @@ test('an enabled plugin shows beside the terminal in its own sandboxed view, say
   await expectViewOverSlot(glade)
   expect(await pluginView(glade)).toMatchObject({ url: 'glade-plugin://fixture-plugin/index.html', sandboxed: true })
   expect(
-    await glade.app.evaluate(({ BrowserWindow, webContents }) => {
+    await inMain(glade.app, ({ BrowserWindow, webContents }) => {
       const window = BrowserWindow.getAllWindows()[0]?.webContents.getOSProcessId()
       const plugin = webContents.getAllWebContents().find((page) => page.getURL().startsWith('glade-plugin:'))
       return plugin !== undefined && plugin.getOSProcessId() !== window
@@ -210,10 +212,14 @@ test('a hostile plugin page is contained: no network, no Node, no escape from it
       .toBe('after the flood')
 
     // The session cancels a request the page's CSP never sees: main loading another host in its view.
-    await glade.app.evaluate(async ({ webContents }, url) => {
-      const page = webContents.getAllWebContents().find((contents) => contents.getURL().startsWith('glade-plugin:'))
-      await page?.loadURL(url).catch(() => undefined)
-    }, loopback6.url)
+    await inMain(
+      glade.app,
+      async ({ webContents }, url) => {
+        const page = webContents.getAllWebContents().find((contents) => contents.getURL().startsWith('glade-plugin:'))
+        await page?.loadURL(url).catch(() => undefined)
+      },
+      loopback6.url,
+    )
     await expect.poll(() => logged(glade, 'plugin request blocked').some(({ url }) => url === loopback6.url)).toBe(true)
     expect(loopback6.hits()).toBe(0)
   } finally {
