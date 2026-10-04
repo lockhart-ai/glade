@@ -4,7 +4,9 @@ import { useGladeStore } from '../store/react'
 import { ToolLog, type TurnFocus } from '../tool-log'
 import { AgentLine } from './AgentLine'
 import { AGENT_PANEL_ID, AgentStrip, agentTabId } from './AgentStrip'
+import { PinnedWatchers } from './PinnedWatchers'
 import { agentEventsSelector, selectShownAgent, type AgentId } from './agentsModel'
+import { logWatchersSelector } from './agentWatchersModel'
 import styles from './AgentsTab.module.css'
 
 interface AgentLogProps {
@@ -20,7 +22,8 @@ interface AgentLogProps {
 /**
  * One agent's tool calls: the tool log's own list (`ToolLog`), over that agent's events alone. It reads them from the
  * store as a list that only changes when one of them does (`agentEventsSelector`), so what another agent of the task
- * does doesn't render it.
+ * does doesn't render it. Its watchers that have ended are rows among them (#537), read the same way
+ * (`logWatchersSelector`): what a live watcher reports doesn't render it either.
  */
 function AgentLog({
   taskId,
@@ -33,10 +36,13 @@ function AgentLog({
 }: AgentLogProps): React.JSX.Element {
   const select = useMemo(() => agentEventsSelector(taskId, agentId), [taskId, agentId])
   const events = useGladeStore(select)
+  const selectWatchers = useMemo(() => logWatchersSelector(taskId, agentId), [taskId, agentId])
+  const watchers = useGladeStore(selectWatchers)
   return (
     <ToolLog
       taskId={taskId}
       events={events}
+      watchers={watchers}
       agentId={agentId}
       rootPath={rootPath}
       permissions={permissions}
@@ -66,6 +72,10 @@ export interface AgentsTabProps {
  * the Tool calls tab draws them (`ToolLog`). Main's list shows each subagent it started as an `Agent` call, live while
  * the subagent runs; clicking it goes to that subagent's tab. A subagent's tab says which todo it's working on in a
  * line under the strip (`AgentLine`).
+ *
+ * What the agent showing is watching is pinned under its tool calls, outside their scroll (`PinnedWatchers`, #537), and
+ * takes the place of the Watchers tab: each watcher is on the tab of the agent that started it, a subagent's on that
+ * subagent's, where it stays after the subagent finishes. Once a watcher ends it's a row of the list instead.
  *
  * Which agent's tab a task is on is remembered for the task (`selectAgentTab`), across tasks and relaunches; one
  * that's no longer among the task's subagents falls back to Main.
@@ -101,7 +111,7 @@ export const AgentsTab = memo(function AgentsTab({
 
   return (
     <div className={styles.agents}>
-      <AgentStrip taskId={taskId} />
+      <AgentStrip taskId={taskId} rootPath={rootPath} />
       <div role="tabpanel" id={AGENT_PANEL_ID} aria-labelledby={agentTabId(agentId)} className={styles.panel}>
         {agentId !== null && <AgentLine taskId={taskId} agentId={agentId} />}
         {/* Keyed by its agent, so each agent's list starts at its own end, and keeps to it as it grows. */}
@@ -115,7 +125,7 @@ export const AgentsTab = memo(function AgentsTab({
           onFocusShown={onFocusShown}
           onOpenAgent={openAgent}
         />
-        {/* #537 pins what the agent is watching here: under its tool calls, outside their scroll. */}
+        <PinnedWatchers taskId={taskId} agentId={agentId} />
       </div>
     </div>
   )

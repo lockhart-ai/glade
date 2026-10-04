@@ -95,6 +95,22 @@ describe('a commit’s tile', () => {
     expect(screen.queryByText('fix/session-race')).toBeNull()
   })
 
+  it('goes to the subagent’s tab in the Agents tab from its name, and stays open', async () => {
+    const { store, fake } = await renderTile({ commits: [REPEAT], toolEvents: [SOAK] }, REPEAT, {
+      commitFiles: { [REPEAT.id]: REPEAT_FILES },
+    })
+    await open()
+
+    fireEvent.click(screen.getByRole('button', { name: 'soak-login' }))
+    await act(() => Promise.resolve())
+
+    expect(store.getState().agentTabs).toEqual({ t1: 'soak' })
+    expect(activePanelTab(store.getState().uiState, 'w1', true)).toBe(PanelTab.Agents)
+    expect(fake.invoke).toHaveBeenCalledWith(CommandName.AgentsSetTab, { taskId: 't1', agentId: 'soak' })
+    // The click was the name's own: the tile didn't close.
+    expect(screen.getByRole('list', { name: 'Files in e7f8a9b' })).toBeInTheDocument()
+  })
+
   it('opens with ↵ while it has the focus', async () => {
     await renderTile({ commits: [REPEAT] }, REPEAT, { commitFiles: { [REPEAT.id]: REPEAT_FILES } })
     fireEvent.keyDown(tile(), { key: 'Enter' })
@@ -114,6 +130,8 @@ describe('a commit’s tile', () => {
     await renderTile({ commits: [REPEAT] }, REPEAT, { commitFiles: { [REPEAT.id]: REPEAT_FILES } })
     await open()
     expect(screen.getByTitle('Made by the subagent “Subagent”')).toBeInTheDocument()
+    // It has no tab to go to, so its name is plain text.
+    expect(screen.queryByRole('button', { name: 'Subagent' })).toBeNull()
   })
 
   it('says it’s reading its files until main answers, and reads them once however often it’s opened', async () => {

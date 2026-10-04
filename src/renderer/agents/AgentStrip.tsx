@@ -1,9 +1,19 @@
+import { faEye } from '@fortawesome/free-regular-svg-icons'
 import { faThumbtack } from '@fortawesome/free-solid-svg-icons'
 import { memo, useCallback, useLayoutEffect, useRef, type KeyboardEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { Icon, revealScroll, ScrollRow } from '../components'
 import { classNames } from '../components/classNames'
-import { useGladeStore } from '../store/react'
+import {
+  agentTabMenu,
+  ContextMenu,
+  useContextMenu,
+  useMenuCommands,
+  type ContextMenuTargetProps,
+} from '../context-menus'
+import { useGladeStore, useGladeStoreApi } from '../store/react'
+import { deriveSubagents, subagentLogText } from '../subagents/subagentsModel'
+import { hasRunningWatcher, pinnedCount, watchingTitle } from './agentWatchersModel'
 import {
   agentDotLabel,
   agentName,
@@ -49,15 +59,19 @@ interface AgentTabProps {
   readonly taskId: string
   readonly agentId: AgentId
   readonly onSelect: (agentId: AgentId) => void
+  /** What opens a subagent's menu from its tab, by its id. Main's tab has no menu. */
+  readonly menuTarget: (agentId: string) => ContextMenuTargetProps
 }
 
 /**
  * One agent's tab in the strip: Main's, with the sidebar's pin, or a subagent's, with its dot (blue while it runs,
- * slate once it's done) and its name. It reads its own name, state and whether it's the one showing from the store, so
- * a change to one agent renders that agent's tab and no other, and picking another renders the two that changed. The
- * tab showing holds the strip's one tab stop.
+ * slate once it's done) and its name; then an eye with a count while the agent has anything pinned under its tool
+ * calls (#537), blue when a watcher's process runs and grey when all it has is scheduled. It reads its own name, state,
+ * count and whether it's the one showing from the store, so a change to one agent renders that agent's tab and no
+ * other, and picking another renders the two that changed. The tab showing holds the strip's one tab stop. A
+ * subagent's tab opens its menu on a right-click and the keyboard's menu key.
  */
-const AgentTab = memo(function AgentTab({ taskId, agentId, onSelect }: AgentTabProps): React.JSX.Element {
+const AgentTab = memo(function AgentTab({ taskId, agentId, onSelect, menuTarget }: AgentTabProps): React.JSX.Element {
   const selected = useGladeStore((state) => selectShownAgent(state, taskId) === agentId)
   const name = useGladeStore((state) =>
     agentId === null ? MAIN_AGENT_NAME : agentName(agentsOf(state.toolEvents[taskId]).calls.get(agentId)),
@@ -66,6 +80,9 @@ const AgentTab = memo(function AgentTab({ taskId, agentId, onSelect }: AgentTabP
     const call = agentId === null ? undefined : agentsOf(state.toolEvents[taskId]).calls.get(agentId)
     return call !== undefined && isRunning(call)
   })
+  const watching = useGladeStore((state) => pinnedCount(state.watchers[taskId], agentId))
+  const watchingLive = useGladeStore((state) => hasRunningWatcher(state.watchers[taskId], agentId))
+  const watchingSays = watching > 0 ? watchingTitle(watching) : null
   const button = useRef<HTMLButtonElement>(null)
 
   // A subagent's tab scrolls into view as it becomes the one showing, however it was picked: smoothly (the row's
@@ -95,6 +112,7 @@ const AgentTab = memo(function AgentTab({ taskId, agentId, onSelect }: AgentTabP
       onClick={() => {
         onSelect(agentId)
       }}
+      {...(agentId === null ? {} : menuTarget(agentId))}
     >
       {agentId === null ? (
         <Icon icon={faThumbtack} className={styles.pin} />
@@ -106,13 +124,26 @@ const AgentTab = memo(function AgentTab({ taskId, agentId, onSelect }: AgentTabP
         />
       )}
       <span className={styles.name}>{name}</span>
-      {/* #537 puts the eye here, with a count, while the agent has a watcher live or scheduled. */}
+      {watchingSays !== null && (
+        <span
+          className={classNames(styles.watching, !watchingLive && styles.idle)}
+          role="img"
+          aria-label={watchingSays}
+          title={watchingSays}
+          data-live={watchingLive ? '' : undefined}
+        >
+          <Icon icon={faEye} className={styles.watchingIcon} />
+          {watching}
+        </span>
+      )}
     </button>
   )
 })
 
 export interface AgentStripProps {
   readonly taskId: string
+  /** The workspace root, so a copied log's file arguments are relative to it. */
+  readonly rootPath?: string | undefined
 }
 
 /**
@@ -123,13 +154,37 @@ export interface AgentStripProps {
  *
  * It's one tab stop, on the tab showing; ← and → pick the agent before or after, wrapping at the ends.
  *
+ * A subagent's tab has a context menu (#537), with what its row in the Subagents tab has: Copy log, and Stop subagent
+ * while it runs. Its log is read from the store as the menu opens, so the strip doesn't render with the log.
+ *
  * It reads only the order of the task's subagents, so it renders when one starts, or moves between the running and the
  * finished: not when another agent is picked, and not when anything else of the task changes. Each tab reads its own.
  */
-export const AgentStrip = memo(function AgentStrip({ taskId }: AgentStripProps): React.JSX.Element {
+export const AgentStrip = memo(function AgentStrip({ taskId, rootPath }: AgentStripProps): React.JSX.Element {
   const ids = useGladeStore(useShallow((state) => agentsOf(state.toolEvents[taskId]).ids))
   const selectAgentTab = useGladeStore((state) => state.selectAgentTab)
+  const stopSubagent = useGladeStore((state) => state.stopSubagent)
+  const store = useGladeStoreApi()
+  const menu = useContextMenu<string>()
+  const { run, copy } = useMenuCommands()
   const row = useRef<HTMLDivElement>(null)
+
+  const entries = (agentId: string) => {
+    const subagent = deriveSubagents(store.getState().toolEvents[taskId] ?? [], rootPath).find(
+      ({ call }) => call.toolUseId === agentId,
+    )
+    if (subagent === undefined) return []
+    return agentTabMenu({
+      copyLog: () => {
+        copy(subagentLogText(subagent, rootPath))
+      },
+      stop: isRunning(subagent.call)
+        ? () => {
+            run(() => stopSubagent(taskId, agentId))
+          }
+        : null,
+    })
+  }
 
   const select = useCallback(
     (agentId: AgentId): void => {
@@ -187,7 +242,7 @@ export const AgentStrip = memo(function AgentStrip({ taskId }: AgentStripProps):
   return (
     // The arrow keys are the tabs' own: the strip only hears them from the tab that has the focus.
     <div className={styles.strip} role="tablist" aria-label="Agents" onKeyDown={onKeyDown}>
-      <AgentTab taskId={taskId} agentId={null} onSelect={select} />
+      <AgentTab taskId={taskId} agentId={null} onSelect={select} menuTarget={menu.targetProps} />
       <ScrollRow
         listRef={row}
         content={ids.join('\n')}
@@ -198,9 +253,10 @@ export const AgentStrip = memo(function AgentStrip({ taskId }: AgentStripProps):
         role="presentation"
       >
         {ids.map((id) => (
-          <AgentTab key={id} taskId={taskId} agentId={id} onSelect={select} />
+          <AgentTab key={id} taskId={taskId} agentId={id} onSelect={select} menuTarget={menu.targetProps} />
         ))}
       </ScrollRow>
+      <ContextMenu label="Subagent actions" state={menu} entries={entries} />
     </div>
   )
 })

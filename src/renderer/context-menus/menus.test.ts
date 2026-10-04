@@ -4,6 +4,7 @@ import { TaskState } from '../../shared/domain'
 import { MenuEntryKind, MenuItemVariant, type MenuEntry, type MenuItem } from '../components'
 import {
   agentReplyMenu,
+  agentTabMenu,
   artifactMenu,
   fileTabMenu,
   linkArtifactMenu,
@@ -134,6 +135,11 @@ const CASES: readonly Case[] = [
     leftOut: [],
   },
   {
+    target: 'Subagent’s tab (Agents tab)',
+    entries: agentTabMenu({ ...spies('copyLog'), stop: vi.fn() }),
+    leftOut: [],
+  },
+  {
     target: 'Terminal tab',
     entries: terminalTabMenu(spies('rename', 'duplicate', 'clear', 'kill', 'close')),
     leftOut: [],
@@ -183,6 +189,7 @@ describe('the context menus', () => {
       'Remove',
       'Remove from artifacts',
       'Remove from artifacts',
+      'Stop subagent',
       'Stop subagent',
       'Kill process',
     ])
@@ -270,6 +277,27 @@ describe('toolCallMenu', () => {
     ])
     expect(written(toolCallMenu({ command: null, output: '', file: 'src/date.ts' }, actions))).toEqual(['Open file'])
     expect(toolCallMenu({ command: null, output: null, file: null }, actions)).toEqual([])
+  })
+})
+
+describe('agentTabMenu', () => {
+  it('copies the subagent’s log, and can’t stop one that isn’t running', () => {
+    const copyLog = vi.fn()
+    const entries = agentTabMenu({ copyLog, stop: null })
+
+    expect(written(entries)).toEqual(['Copy log'])
+    items(entries)[0]?.onSelect()
+    expect(copyLog).toHaveBeenCalledOnce()
+  })
+
+  it('stops a running one, last and in pink', () => {
+    const stop = vi.fn()
+    const entries = agentTabMenu({ copyLog: vi.fn(), stop })
+
+    expect(written(entries)).toEqual(['Copy log', '—', 'Stop subagent'])
+    expect(items(entries)[1]?.variant).toBe(MenuItemVariant.Destructive)
+    items(entries)[1]?.onSelect()
+    expect(stop).toHaveBeenCalledOnce()
   })
 })
 

@@ -31,18 +31,21 @@ export interface TileMetaProps {
   readonly by: string | null
   /** The tag's tooltip, which says what the subagent did: `Made by the subagent “soak-login”`. */
   readonly byTitle: (name: string) => string
+  /** Shows that subagent, from its tag; without it the tag is plain text. */
+  readonly onOpenBy?: (() => void) | undefined
   readonly children: ReactNode
 }
 
 /**
  * A line of an opened tile with the tag of the subagent that made it after it (the Changes tab's tag): a commit's
- * branch. The line is cut short before the tag is. The tag is plain text: it goes nowhere.
+ * branch. The line is cut short before the tag is. The tag goes to the subagent's tab in the Agents tab (#537), when
+ * the task's log has that subagent; else it's plain text.
  */
-export function TileMeta({ by, byTitle, children }: TileMetaProps): React.JSX.Element {
+export function TileMeta({ by, byTitle, onOpenBy, children }: TileMetaProps): React.JSX.Element {
   return (
     <div className={classNames(tileStyles.line, styles.meta)}>
       <span className={styles.metaText}>{children}</span>
-      {by !== null && <SubagentTag name={by} title={byTitle(by)} className={styles.by} />}
+      {by !== null && <SubagentTag name={by} title={byTitle(by)} className={styles.by} onOpen={onOpenBy} />}
     </div>
   )
 }

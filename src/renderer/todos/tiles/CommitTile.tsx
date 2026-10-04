@@ -1,6 +1,7 @@
 import { faCodeCommit } from '@fortawesome/free-solid-svg-icons'
 import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { agentsOf } from '../../agents/agentsModel'
 import type { TaskCommit } from '../../../shared/domain'
 import { ChildKind } from '../../../shared/todoHub'
 import {
@@ -31,15 +32,30 @@ interface OpenCommitProps {
 
 /**
  * What a commit's tile opens to: its branch and the subagent that made it (the Changes tab's tag), then the files it
- * changed (the Changes tab's list). A file opens in the Files tab, read-only: as it is now, or as the commit left it
- * when it's gone from its path. View only: nothing here commits, pushes or reverts.
+ * changed (the Changes tab's list). The subagent's name goes to its tab in the Agents tab (`showAgent`, #537). A file
+ * opens in the Files tab, read-only: as it is now, or as the commit left it when it's gone from its path. View only:
+ * nothing here commits, pushes or reverts.
  */
 function OpenCommit({ taskId, commit, by, files }: OpenCommitProps): React.JSX.Element {
   const showCommitFile = useGladeStore((state) => state.showCommitFile)
+  const showAgent = useGladeStore((state) => state.showAgent)
+  const agentId = commit.subagentToolUseId
+  // A subagent the task's log hasn't got has no tab to go to.
+  const hasTab = useGladeStore((state) => agentId !== null && agentsOf(state.toolEvents[taskId]).calls.has(agentId))
   const { run } = useMenuCommands()
   return (
     <>
-      <TileMeta by={by} byTitle={madeByTitle}>
+      <TileMeta
+        by={by}
+        byTitle={madeByTitle}
+        onOpenBy={
+          agentId !== null && hasTab
+            ? () => {
+                showAgent(taskId, agentId)
+              }
+            : undefined
+        }
+      >
         {branchLabel(commit)}
       </TileMeta>
       <div className={classNames(WELL_CLASS, FILES_CLASS)}>

@@ -1,3 +1,4 @@
+import { shallow } from 'zustand/shallow'
 import { EventType, type FilingsChangedEvent, type GladeEvent } from '../../shared/bridge'
 import type { TasksHistoryResponse, TodoHubGetResponse } from '../../shared/bridge'
 import {
@@ -173,7 +174,7 @@ export function withHistory(
     todos: { ...state.todos, [taskId]: newerTodos(history.todos, state.todos[taskId]) },
     handoffs: { ...state.handoffs, [taskId]: newerHandoff(history.handoff, state.handoffs[taskId]) },
     // Like the queue, watchers change in place: the loaded ones are as new as any event before them.
-    watchers: { ...state.watchers, [taskId]: history.watchers },
+    watchers: withWatchers(state.watchers, taskId, history.watchers),
     // Commits, too: the loaded list is the task's whole list as it was then.
     commits: { ...state.commits, [taskId]: history.commits },
     // Like the Artifacts tab's filter, only this window picks it. A history without one (the todo hub is off) leaves
@@ -201,6 +202,27 @@ export function withAgentTab(
  */
 export function withRunningSubagents(state: GladeData, calls: readonly ToolCallEvent[]): GladeData {
   return { ...state, toolEvents: calls.reduce<LogsByTask<ToolEvent>>(withAppended, state.toolEvents) }
+}
+
+/**
+ * Each task's watchers, with `taskId`'s as main last sent them. Main sends the whole list with every change to one of
+ * them, each watcher made anew: one that's as it was keeps the object the store had, and a list that's all as it was
+ * keeps the list, so what reads one watcher (its pinned card in the Agents tab, #537) only hears of that one's changes.
+ */
+export function withWatchers(
+  watchers: GladeData['watchers'],
+  taskId: string,
+  sent: readonly Watcher[],
+): GladeData['watchers'] {
+  const had = watchers[taskId]
+  if (had === undefined) return { ...watchers, [taskId]: sent }
+  const byId = new Map(had.map((watcher) => [watcher.id, watcher]))
+  const kept = sent.map((watcher) => {
+    const before = byId.get(watcher.id)
+    return before !== undefined && shallow(before, watcher) ? before : watcher
+  })
+  const same = kept.length === had.length && kept.every((watcher, index) => watcher === had[index])
+  return same ? watchers : { ...watchers, [taskId]: kept }
 }
 
 /** Records every task's live watchers, loaded on start: what the task list's marks count until a task's logs load. */
@@ -405,7 +427,7 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
     case EventType.HandoffChanged:
       return { ...state, handoffs: { ...state.handoffs, [event.taskId]: event.handoff } }
     case EventType.WatchersChanged:
-      return { ...state, watchers: { ...state.watchers, [event.taskId]: event.watchers } }
+      return { ...state, watchers: withWatchers(state.watchers, event.taskId, event.watchers) }
     case EventType.CommitsChanged:
       return { ...state, commits: { ...state.commits, [event.taskId]: event.commits } }
     // The todo hub's (P16), which main never sends while the hub is off.

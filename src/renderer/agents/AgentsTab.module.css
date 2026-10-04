@@ -161,3 +161,157 @@
   color: var(--color-faint);
   white-space: nowrap;
 }
+
+/* The eye and a count on an agent's tab (#537, docs/design/html/52-agents-watcher.html): what the agent has pinned
+   under its tool calls. Blue while a watcher's process runs; grey when all it has is a wakeup or a cron job that's
+   only scheduled. */
+.watching {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--color-blue-text);
+}
+
+.watching.idle {
+  color: var(--color-faint);
+}
+
+.watchingIcon {
+  font-size: 12px;
+}
+
+/* What the agent is watching, pinned under its tool calls, outside their scroll, while it's live. Several stack; past
+   half the panel they scroll among themselves, so the tool calls keep the rest. */
+.pinned {
+  flex-shrink: 0;
+  max-height: 50%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-inset);
+  border-top: 1px solid var(--color-inner-border);
+}
+
+.pinnedLabel {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0 9px 2px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+/* A pinned watcher: grey for one that's only scheduled, on the live tint while its process runs. */
+.watcher {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-inner-2);
+  border: 1px solid var(--color-inner-border);
+  border-radius: 8px;
+}
+
+.watcher.live {
+  background: var(--color-live);
+  border-color: var(--color-live-border);
+}
+
+.watcherHead {
+  display: flex;
+  gap: var(--space-md);
+}
+
+.watcherEye {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-faint);
+}
+
+.watcherName {
+  flex-grow: 1;
+  min-width: 0;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.4;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.watcherSide {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  height: 18px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+  white-space: nowrap;
+}
+
+.watcherState.live {
+  color: var(--color-blue-text);
+}
+
+.stop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  height: 20px;
+  box-sizing: border-box;
+  padding: 0 var(--space-sm);
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-strong);
+  border-radius: 6px;
+  font: inherit;
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.stop:hover {
+  background: var(--color-raised);
+}
+
+.stop:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 1px;
+}
+
+.stopIcon {
+  font-size: 10px;
+}
+
+/* Under the name, past the eye. */
+.watcherBody {
+  margin-left: 22px;
+}
+
+.watcherLine {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  line-height: 1.5;
+  color: var(--color-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.watcherLine b {
+  margin-right: var(--space-sm);
+  font-weight: 500;
+  color: var(--color-muted);
+}

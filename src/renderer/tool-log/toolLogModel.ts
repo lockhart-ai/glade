@@ -19,6 +19,7 @@ import {
   type NarrationEvent,
   type ToolCallEvent,
   type ToolEvent,
+  type Watcher,
 } from '../../shared/domain'
 import { clockTime, dayAndTime } from '../chat/chatModel'
 import { formatTokens } from '../context-meter/format'
@@ -379,21 +380,90 @@ export function isAgentEvent(event: ToolEvent, agentId: string | null): boolean 
   }
 }
 
+/** The event a row of the tool log shows. */
+export function rowEvent(row: ToolLogRow): ToolEvent {
+  switch (row.kind) {
+    case ToolEventKind.ToolCall:
+      return row.call
+    case ToolEventKind.Narration:
+      return row.narration
+    case ToolEventKind.Divider:
+      return row.divider
+    case ToolEventKind.Compaction:
+      return row.compaction
+  }
+}
+
+/** The kinds of row an agent's list has besides the tool log's own, which are named by their events' kinds. */
+export enum AgentLogRowKind {
+  /** A watcher that has ended (P16, #537). */
+  Watcher = 'watcher',
+}
+
+/** A watcher that has ended, as a row of its agent's list at the time it ended. */
+export interface EndedWatcherRow {
+  readonly kind: AgentLogRowKind.Watcher
+  readonly watcher: Watcher
+}
+
+/** One row of an agent's list in the Agents tab: a row of the tool log, or a watcher that has ended. */
+export type AgentLogRow = ToolLogRow | EndedWatcherRow
+
+/** What an agent's list shows of the agent's watchers (`../agents/agentWatchersModel`). */
+export interface LogWatchers {
+  /** Its watchers that have ended, in the order they ended: each is a row, at the time it ended. */
+  readonly ended: readonly Watcher[]
+  /**
+   * The `tool_use` ids of the calls that started a watcher of its, live or ended. Such a call isn't a row: while its
+   * watcher is live it's pinned under the list, and once it has ended the watcher's own row stands for it.
+   */
+  readonly startedBy: ReadonlySet<string>
+}
+
+const NO_LOG_WATCHERS: LogWatchers = { ended: [], startedBy: new Set<string>() }
+
 /**
  * The tool log's rows for one agent of the task (`isAgentEvent`), in order: the Agents tab's list for that agent (P16,
  * #536). The task's own agent's are `parentLogRows`; a subagent's are its calls and notes, the ones the Subagents tab
  * nests under its row. Either way an `Agent` call is a single row, with nothing under it: its subagent has a tab of
  * its own.
+ *
+ * With the agent's `watchers` (#537), each one that has ended is a row at the time it ended: after everything logged
+ * before then and before whatever came next, so what the agent did on being woken follows it. A watcher that ended
+ * at the very time of an event comes before it: a wake ends its watcher, then starts the turn. The call that started
+ * a watcher is left out.
  */
 export function agentLogRows(
   events: readonly ToolEvent[],
   agentId: string | null,
   permissions?: PermissionLines,
-): ToolLogRow[] {
-  return toolLogRows(
-    events.filter((event) => isAgentEvent(event, agentId)),
+  watchers: LogWatchers = NO_LOG_WATCHERS,
+): AgentLogRow[] {
+  const { ended, startedBy } = watchers
+  const rows = toolLogRows(
+    events.filter(
+      (event) =>
+        isAgentEvent(event, agentId) && !(event.kind === ToolEventKind.ToolCall && startedBy.has(event.toolUseId)),
+    ),
     permissions,
   )
+  if (ended.length === 0) return rows
+  const merged: AgentLogRow[] = []
+  let next = 0
+  /** Adds the watchers that ended by `at`, which haven't a row yet. */
+  const endedBy = (at: EpochMs): void => {
+    for (let watcher = ended[next]; watcher !== undefined; watcher = ended[next]) {
+      if ((watcher.endedAt ?? watcher.startedAt) > at) return
+      merged.push({ kind: AgentLogRowKind.Watcher, watcher })
+      next += 1
+    }
+  }
+  for (const row of rows) {
+    endedBy(rowEvent(row).createdAt)
+    merged.push(row)
+  }
+  endedBy(Infinity)
+  return merged
 }
 
 /** How many tool calls the task's own agent has made, not its subagents: the Tool calls tab's count. */
