@@ -530,6 +530,13 @@ export enum TodoState {
 
 /** One item on the agent's todo list. */
 export interface Todo {
+  /**
+   * Its id, as Claude Code's task tools give it (`TaskCreate`'s `Task #N`): unique within the task, the same across a
+   * compaction, a resume and a relaunch, and never used again once the item is deleted (`docs/sdk-notes.md` §16). What
+   * the Todos tab keys its row on, and what a child is filed under (`./todoHub`). Null for an item with none: one
+   * written with `TodoWrite` (a session whose task tools are turned off), which nothing can be filed under.
+   */
+  readonly id: string | null
   readonly text: string
   readonly state: TodoState
   /** The line under a doing or waiting item, e.g. what the agent is doing on it now; null for none. */

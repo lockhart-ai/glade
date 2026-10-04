@@ -26,6 +26,7 @@ import {
 } from '../../shared/domain'
 import { noOpenFiles } from '../../shared/files'
 import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
+import { ChildKind, FilingSource } from '../../shared/todoHub'
 import {
   FolderAccess,
   SandboxAskKind,
@@ -68,6 +69,19 @@ describe('applyEvent', () => {
 
   it('leaves the state alone for a menu bar command, which the window runs', () => {
     expect(applyEvent(state, { type: EventType.MenuCommand, command: appCommand(AppCommandId.NewTask) })).toBe(state)
+  })
+
+  it('leaves the state alone for a filing in the todo hub, which the window keeps nothing of yet (P16)', () => {
+    const filed = {
+      taskId: 't1',
+      kind: ChildKind.File,
+      key: 'docs/plan.md',
+      todoId: '1',
+      source: FilingSource.Named,
+      filedAt: 1,
+    }
+    const removed = [{ kind: ChildKind.Link, key: 'https://example.com/acme/api/pull/511' }]
+    expect(applyEvent(state, { type: EventType.FilingsChanged, taskId: 't1', filed: [filed], removed })).toBe(state)
   })
 
   it("leaves the state alone for what's in flight, which only the menu bar popover is sent", () => {
@@ -885,7 +899,7 @@ describe("a task's handoff note", () => {
 
 describe("a task's todo list", () => {
   const list = (text: string, updatedAt: number): TodoList => ({
-    items: [{ text, state: TodoState.Todo, note: null, completedAt: null }],
+    items: [{ id: '1', text, state: TodoState.Todo, note: null, completedAt: null }],
     updatedAt,
   })
   const history = (todos: TodoList | null) => ({

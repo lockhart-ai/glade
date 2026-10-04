@@ -28,6 +28,7 @@ import {
 import { ImageMediaType } from '../../shared/images'
 import { FolderAccess, SandboxGrantKind, SandboxGrantScope } from '../../shared/sandbox'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
+import { ChildKind, FilingSource } from '../../shared/todoHub'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { createEventLog } from './event-log'
 import { formatRecord, REDACTED } from './format'
@@ -539,6 +540,43 @@ describe('the tool log', () => {
         fields: { taskId: 'task-1', subjects: ['Fix the UTC date test'] },
       }),
     ])
+  })
+})
+
+describe('the todo hub', () => {
+  it('logs what kind of child went under which todo and how, never a child’s key', () => {
+    logEvent({
+      type: EventType.FilingsChanged,
+      taskId: 'task-1',
+      filed: [
+        {
+          taskId: 'task-1',
+          kind: ChildKind.File,
+          key: 'docs/secret-plan.md',
+          todoId: '2',
+          source: FilingSource.Named,
+          filedAt: 1,
+        },
+        {
+          taskId: 'task-1',
+          kind: ChildKind.Commit,
+          key: 'a1b2c3d /code/acme-api',
+          todoId: '3',
+          source: FilingSource.Moved,
+          filedAt: 1,
+        },
+      ],
+      removed: [{ kind: ChildKind.Link, key: 'https://example.com/acme/api/pull/511' }],
+    })
+
+    expect(logged()).toEqual([
+      expect.objectContaining({
+        level: LogLevel.Info,
+        message: 'filings changed',
+        fields: { taskId: 'task-1', filed: ['file 2 named', 'commit 3 moved'], removed: ['link'] },
+      }),
+    ])
+    expect(JSON.stringify(logged())).not.toMatch(/secret-plan|acme/)
   })
 })
 

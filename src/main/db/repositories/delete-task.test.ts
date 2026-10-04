@@ -17,6 +17,10 @@ import { SandboxGrantKind, SandboxGrantScope } from '../../../shared/sandbox'
 import { GIF, PNG } from '../../../shared/test-images'
 import { setArtifactGroupOpen } from './artifact-groups'
 import { setBrowseFolderExpanded } from './browse-folders'
+import { putFilings } from './child-filings'
+import { assignChildIds } from './child-ids'
+import { setTodoPanel } from './todo-panels'
+import { ChildFilter, ChildKind, FilingSource } from '../../../shared/todoHub'
 import { addArtifact, addLinkArtifact, setArtifactFilter } from './artifacts'
 import { setExternalId, setHandoff } from './backfills'
 import { setSessionContext } from './session-context'
@@ -106,6 +110,9 @@ function fillTask(db: Database, task: Task): void {
   setArtifactFilter(db, taskId, ArtifactFilter.Links)
   setArtifactGroupOpen(db, { taskId, group: ArtifactDateGroup.Today, open: false })
   setBrowseFolderExpanded(db, { taskId, path: 'api', expanded: true })
+  assignChildIds(db, taskId, [{ kind: ChildKind.File, key: 'docs/plan.md' }])
+  putFilings(db, taskId, [{ kind: ChildKind.File, key: 'docs/plan.md', todoId: '1', source: FilingSource.Named }])
+  setTodoPanel(db, { taskId, todoId: '1', open: true, filter: ChildFilter.Files })
   setWorkspaceSelection(db, task.workspaceId, taskId)
   appendQuestionSet(db, {
     taskId,
@@ -184,6 +191,10 @@ const FILLED_TABLES = [
   'attached_files',
   // The folders open in its Browse tab.
   'browse_folders',
+  // The todo its children are filed under, in the todo hub (P16).
+  'child_filings',
+  // Its children's short ids, which the agent names them by (P16).
+  'child_ids',
   // The images pasted into its messages, sent and queued, and into its input draft.
   'images',
   // Its unsent input draft.
@@ -211,6 +222,8 @@ const FILLED_TABLES = [
   'task_commits',
   // The permission rules granted it with Allow for this task.
   'task_permission_rules',
+  // How you left each of its todos' panels in the todo hub (P16).
+  'todo_panels',
   'tool_events',
   // What its agent left running or scheduled (the Watchers tab).
   'watchers',

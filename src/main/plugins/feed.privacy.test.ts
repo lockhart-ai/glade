@@ -47,6 +47,7 @@ import { PluginStatus } from '../../shared/plugins'
 import { BUILT_IN_MODELS } from '../../shared/models'
 import { FolderAccess, SandboxGrantKind, SandboxGrantScope } from '../../shared/sandbox'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
+import { ChildKind, FilingSource } from '../../shared/todoHub'
 import { appendPermissionRequest } from '../db/repositories/permission-requests'
 import { appendQuestionSet } from '../db/repositories/question-sets'
 import { createTask, updateTask } from '../db/repositories/tasks'
@@ -461,7 +462,15 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
         type: EventType.TodosChanged,
         taskId: created.id,
         todos: {
-          items: [{ text: secret('todo_text'), state: TodoState.Doing, note: secret('todo_note'), completedAt: null }],
+          items: [
+            {
+              id: '1',
+              text: secret('todo_text'),
+              state: TodoState.Doing,
+              note: secret('todo_note'),
+              completedAt: null,
+            },
+          ],
           updatedAt: 1,
         },
       },
@@ -540,6 +549,23 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
             subagentToolUseId: null,
           },
         ],
+      },
+    ],
+    [EventType.FilingsChanged]: [
+      {
+        type: EventType.FilingsChanged,
+        taskId: created.id,
+        filed: [
+          {
+            taskId: created.id,
+            kind: ChildKind.File,
+            key: secret('filed_path'),
+            todoId: secret('filed_todo'),
+            source: FilingSource.Named,
+            filedAt: 1,
+          },
+        ],
+        removed: [{ kind: ChildKind.Link, key: secret('unfiled_url') }],
       },
     ],
     [EventType.TaskOpenRequested]: [{ type: EventType.TaskOpenRequested, taskId: created.id, subagentId: null }],

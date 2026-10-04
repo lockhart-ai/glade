@@ -56,6 +56,7 @@ import {
   type WriteClipboard,
 } from '../files/files'
 import { todoListFor } from '../todos/todos'
+import { readTodoHub, rememberTodoPanel } from '../todo-hub/todo-hub'
 import { addTaskLinkByHand, removeTaskArtifact } from '../artifacts/artifacts'
 import { attachFile, discardAttachedFile } from '../attachments/attachments'
 import { NO_THUMBNAILS, type Thumbnails } from '../artifacts/thumbnails'
@@ -369,6 +370,12 @@ export function createHandlers(context: HandlerContext): Handlers {
     // A task deleted while its tab showed it is let go too.
     [CommandName.ArtifactsUnwatch]: ({ taskId }) => {
       context.artifactWatch?.unwatch(taskId)
+      return null
+    },
+    // The todo hub, behind its hidden switch: both are refused, touching nothing, while it's off.
+    [CommandName.TodoHubGet]: ({ taskId }) => readTodoHub(db, taskId),
+    [CommandName.TodoHubSetPanel]: (panel) => {
+      rememberTodoPanel(db, panel)
       return null
     },
     [CommandName.ClipboardWriteText]: async ({ text }) => {

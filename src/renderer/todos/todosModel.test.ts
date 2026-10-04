@@ -3,7 +3,13 @@ import { TodoState, type Todo, type TodoList } from '../../shared/domain'
 import { orderTodos, progressBar, progressHeading, TodoGroup, todoGroup, todoProgress } from './todosModel'
 
 const list = (...states: TodoState[]): TodoList => ({
-  items: states.map((state, index) => ({ text: `Step ${String(index)}`, state, note: null, completedAt: null })),
+  items: states.map((state, index) => ({
+    id: String(index + 1),
+    text: `Step ${String(index)}`,
+    state,
+    note: null,
+    completedAt: null,
+  })),
   updatedAt: 0,
 })
 
@@ -46,7 +52,9 @@ describe('todoGroup', () => {
 })
 
 describe('orderTodos', () => {
-  const todo = (text: string, state: TodoState, completedAt: number | null = null): Todo => ({
+  /** An item whose id is its text, unless another is given. */
+  const todo = (text: string, state: TodoState, completedAt: number | null = null, id: string | null = text): Todo => ({
+    id,
     text,
     state,
     note: null,
@@ -107,6 +115,40 @@ describe('orderTodos', () => {
     expect(texts([])).toEqual([])
     expect(texts([todo('a', TodoState.Todo), todo('b', TodoState.Todo)])).toEqual(['a', 'b'])
     expect(texts([todo('a', TodoState.Doing), todo('b', TodoState.Waiting)])).toEqual(['a', 'b'])
+  })
+
+  it('keys each row on its todo’s id, so a row is the same row wherever the list puts it', () => {
+    const keys = (items: readonly Todo[]) => orderTodos(items).map(({ todo: { text }, key }) => [text, key])
+    const items = [todo('a', TodoState.Todo, null, '1'), todo('b', TodoState.Doing, null, '2')]
+    expect(keys(items)).toEqual([
+      ['b', 'id:2'],
+      ['a', 'id:1'],
+    ])
+    // One is added above them, and the first is done: each keeps its key, though its position changed.
+    const later = [todo('new', TodoState.Todo, null, '3'), todo('a', TodoState.Done, 5, '1'), items[1] ?? items[0]]
+    expect(keys(later.filter((item) => item !== undefined))).toEqual([
+      ['b', 'id:2'],
+      ['new', 'id:3'],
+      ['a', 'id:1'],
+    ])
+  })
+
+  it('keys an item with no id (TodoWrite’s) by its place in the list, apart from any id', () => {
+    const items = [
+      todo('a', TodoState.Todo, null, null),
+      todo('b', TodoState.Todo, null, '0'),
+      todo('c', TodoState.Todo, null, null),
+    ]
+    expect(orderTodos(items).map(({ key }) => key)).toEqual(['at:0', 'id:0', 'at:2'])
+  })
+
+  it('never gives two rows one key, even if two todos shared an id', () => {
+    const items = [
+      todo('a', TodoState.Todo, null, '7'),
+      todo('b', TodoState.Todo, null, '7'),
+      todo('c', TodoState.Todo, null, '7'),
+    ]
+    expect(orderTodos(items).map(({ key }) => key)).toEqual(['id:7', 'at:1', 'at:2'])
   })
 
   it('leaves the list it was given alone', () => {

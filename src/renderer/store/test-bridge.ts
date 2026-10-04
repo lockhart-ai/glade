@@ -21,6 +21,7 @@ import { BroadcastDelivery, receivesBroadcast, type BroadcastOutcome } from '../
 import type { MenuState } from '../../shared/commands'
 import { checkArtifactUrl, defaultLinkTitle } from '../../shared/artifactLinks'
 import { artifactKey } from '../../shared/artifacts'
+import { TODO_HUB_OFF } from '../../shared/todoHub'
 import { AttachedFileKind, attachmentsFolderOf, type AttachedFile } from '../../shared/attachedFiles'
 import {
   AgentErrorKind,
@@ -753,6 +754,9 @@ export function fakeHandlers(
       main.watchedArtifacts?.push(`unwatch ${taskId}`)
       return null
     },
+    // The todo hub is off until its tab is built (#497), and main refuses both while it is.
+    [CommandName.TodoHubGet]: () => refuse(bridgeError(BridgeErrorCode.InvalidTransition, TODO_HUB_OFF)),
+    [CommandName.TodoHubSetPanel]: () => refuse(bridgeError(BridgeErrorCode.InvalidTransition, TODO_HUB_OFF)),
     [CommandName.ClipboardWriteText]: ({ text }) => {
       main.copied?.push(text)
       return null

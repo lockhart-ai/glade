@@ -493,6 +493,25 @@ export function listToolCallsNamed(db: Database, taskId: string, names: readonly
 }
 
 /**
+ * When each of a task's subagents last did anything, by the `tool_use` id of the `Agent` call that started it: the
+ * latest of its own calls, notes and results. A subagent that has done nothing yet has no entry.
+ */
+export function listSubagentActivity(db: Database, taskId: string): Map<string, EpochMs> {
+  const activity = new Map<string, EpochMs>()
+  const rows = db
+    .prepare(
+      `SELECT parent_tool_use_id AS subagent, MAX(MAX(created_at), COALESCE(MAX(finished_at), 0)) AS at
+      FROM tool_events WHERE task_id = ? AND parent_tool_use_id IS NOT NULL GROUP BY parent_tool_use_id`,
+    )
+    .all(taskId)
+  for (const raw of rows) {
+    const row = new Row('tool_events', raw)
+    activity.set(row.text('subagent'), row.integer('at'))
+  }
+  return activity
+}
+
+/**
  * Every task's calls to any of the named tools that are still running, by task and then in the order they were made:
  * e.g. the subagents running now, which the task list counts before a task's log is loaded.
  */
