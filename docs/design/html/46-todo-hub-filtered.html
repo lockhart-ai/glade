@@ -19,10 +19,12 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
    Watchers and Changes tabs. Every colour is a token from tokens.md: inner #222430, inner-hover #282B39,
    inner-2 #2E3243, inner-border #373C4F, strong #3D425E, text #E6E8F0, muted #AEB3C3, faint #999DB0, slate #5C6378,
    blue #5B8DEF, blue text #8FB2F5, teal #7FD1C7, pink #E58FA8, live #273049, live-border #40568C.
-   Nothing inside a card is black: an open todo is a card on inner-2, its tiles are on inner with an inner-border
-   outline, and the selected pill is on strong. Blue is live; grey is everything else; pink is what itself failed, and
-   a commit's removed lines. */
-.hub{flex-grow:1;min-height:0;overflow:hidden;padding:12px 8px;display:flex;flex-direction:column;gap:2px}
+   Every todo is a card on inner-2: closed or open, active, not started or done, with children or with none. Nothing
+   inside a card is black: its tiles are on inner with an inner-border outline, and the selected pill is on strong.
+   Blue is live; grey is everything else; pink is what itself failed, and a commit's removed lines. */
+/* The todos' cards are space-xs (4px) apart, as the Todos tab's items are today, and so is the Not under a todo card
+   from the last of them. */
+.hub{flex-grow:1;min-height:0;overflow:hidden;padding:12px 8px;display:flex;flex-direction:column;gap:4px}
 .sum{flex-shrink:0;display:flex;flex-direction:column;gap:8px;padding:0 9px 8px 9px}
 .sum .l{display:flex;justify-content:space-between;align-items:baseline}
 .sum b{font-size:14px;font-weight:600;color:#E6E8F0}
@@ -30,11 +32,12 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 .bar{height:6px;border-radius:3px;background:#2E3243;overflow:hidden;display:flex}
 .bar .d{background:#7FD1C7}
 .bar .p{background:#5B8DEF}
-.empty{flex-shrink:0;padding:0 9px 8px 9px;font-size:13px;line-height:1.5;color:#999DB0}
+.empty{flex-shrink:0;padding:0 9px 4px 9px;font-size:13px;line-height:1.5;color:#999DB0}
 
-/* A todo: three lines, closed or open. Its title, its status line, and one row of icons. */
-.todo{flex-shrink:0;display:flex;gap:8px;padding:8px;border:1px solid transparent;border-radius:10px}
-.todo.doing,.todo.open{background:#2E3243}
+/* A todo: a card, whatever its state and whether or not anything is under it; its state icon, its status line and
+   its struck-through title say which it is. Three lines, closed or open: its title, its status line, and one row of
+   icons. */
+.todo{flex-shrink:0;display:flex;gap:8px;padding:8px;background:#2E3243;border:1px solid transparent;border-radius:10px}
 .st{flex-shrink:0;width:18px;height:18px;margin-top:1px;display:flex;align-items:center;justify-content:center}
 .ring{width:12px;height:12px;box-sizing:border-box;border:2px solid #5B8DEF;border-radius:7px;display:flex;align-items:center;justify-content:center}
 .ring span{width:4px;height:4px;border-radius:2px;background:#5B8DEF}
@@ -76,14 +79,25 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 .tile.live{background:#273049;border-color:#40568C}
 .tile.hover{background:#282B39}
 .tile.focus{outline:2px solid #8FB2F5;outline-offset:-2px}
+/* The file showing in the Files tab is outlined (#307). */
+.tile.sel{border-color:#5C6378}
 .th{display:flex;gap:8px}
 .ki{flex-shrink:0;width:14px;height:14px;margin-top:2px;display:flex;align-items:center;justify-content:center;color:#999DB0}
-.thumb{display:block;box-sizing:border-box;border-radius:3px;outline:1px solid #373C4F;outline-offset:-1px}
+/* An image file's tile has its thumbnail where the icon goes, the size the Artifacts tab's rows have, so it's a little
+   taller than the rest. */
+.tile.img .th{align-items:center;gap:10px}
+.tile.img .ki{width:40px;height:28px;margin-top:0}
+.thumb{display:block;width:40px;height:28px;box-sizing:border-box;border:1px solid #373C4F;border-radius:5px;overflow:hidden}
 .kt{flex-grow:1;min-width:0;font-size:12.5px;line-height:1.4;color:#E6E8F0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kt .h{font-family:'Geist Mono',ui-monospace,monospace;font-size:11.5px;color:#8FB2F5;margin-right:6px}
 .kt .tag{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;margin-left:6px}
 .ks{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;line-height:1.5;color:#999DB0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ks b{font-weight:500;color:#AEB3C3;margin-right:6px}
+/* The subagent that started a watcher or made a commit, after the tile's last line: the Changes tab's tag. */
+.meta{display:flex;align-items:center;gap:8px;min-width:0}
+.meta span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.by{flex-shrink:0;padding:0 6px;border:1px solid #373C4F;border-radius:5px;font-family:Geist,system-ui,sans-serif;font-size:11px;line-height:15px;color:#AEB3C3;white-space:nowrap}
+.tile.live .by{border-color:#40568C}
 .kr{flex-shrink:0;display:flex;align-items:center;gap:6px;height:18px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;white-space:nowrap}
 .blue{color:#8FB2F5}
 .add{color:#7FD1C7}
@@ -103,12 +117,10 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 .well div span:last-child{flex-shrink:0;color:#999DB0}
 .well b{font-weight:500;color:#999DB0;margin-right:8px}
 .well p{margin:3px 0;padding-left:8px;border-left:2px solid #3D425E;font-family:Geist,system-ui,sans-serif;font-size:12px;line-height:1.45;white-space:normal}
-.bgl{margin:8px 0 4px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#999DB0}
 
-/* Not under a todo: the placeholder for children no todo was recorded for. It opens and filters as a todo does. */
-.sep{flex-shrink:0;margin:6px 9px;border-top:1px solid #373C4F}
-.loose{flex-shrink:0;padding:8px 8px 8px 34px;border:1px solid transparent;border-radius:10px}
-.loose.open{background:#2E3243}
+/* Not under a todo: the placeholder for children no todo was recorded for, after the todos. A card as a todo is,
+   closed or open, with its heading where a todo's title is; it opens and filters as a todo does. */
+.loose{flex-shrink:0;padding:8px 8px 8px 34px;background:#2E3243;border:1px solid transparent;border-radius:10px}
 .loose.bare{padding-left:8px}
 .loose.bare .kinds{margin-top:0}
 .lh{display:flex;align-items:center;gap:11px;height:20px;margin-left:-23px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#999DB0}
@@ -265,7 +277,7 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 <div class="kinds" role="group" aria-label="Show"><button type="button" class="pill" aria-pressed="false">All<i>7</i></button><button type="button" class="pill on" aria-pressed="true" aria-label="Files"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg><i>2</i></button><button type="button" class="pill" aria-pressed="false" aria-label="Links"><svg width="13" height="13" viewBox="0 0 576 512" fill="currentColor" aria-hidden="true"><path d="M419.5 96c-16.6 0-32.7 4.5-46.8 12.7-15.8-16-34.2-29.4-54.5-39.5 28.2-24 64.1-37.2 101.3-37.2 86.4 0 156.5 70 156.5 156.5 0 41.5-16.5 81.3-45.8 110.6l-71.1 71.1c-29.3 29.3-69.1 45.8-110.6 45.8-86.4 0-156.5-70-156.5-156.5 0-1.5 0-3 .1-4.5 .5-17.7 15.2-31.6 32.9-31.1s31.6 15.2 31.1 32.9c0 .9 0 1.8 0 2.6 0 51.1 41.4 92.5 92.5 92.5 24.5 0 48-9.7 65.4-27.1l71.1-71.1c17.3-17.3 27.1-40.9 27.1-65.4 0-51.1-41.4-92.5-92.5-92.5zM275.2 173.3c-1.9-.8-3.8-1.9-5.5-3.1-12.6-6.5-27-10.2-42.1-10.2-24.5 0-48 9.7-65.4 27.1L91.1 258.2c-17.3 17.3-27.1 40.9-27.1 65.4 0 51.1 41.4 92.5 92.5 92.5 16.5 0 32.6-4.4 46.7-12.6 15.8 16 34.2 29.4 54.6 39.5-28.2 23.9-64 37.2-101.3 37.2-86.4 0-156.5-70-156.5-156.5 0-41.5 16.5-81.3 45.8-110.6l71.1-71.1c29.3-29.3 69.1-45.8 110.6-45.8 86.6 0 156.5 70.6 156.5 156.9 0 1.3 0 2.6 0 3.9-.4 17.7-15.1 31.6-32.8 31.2s-31.6-15.1-31.2-32.8c0-.8 0-1.5 0-2.3 0-33.7-18-63.3-44.8-79.6z"/></svg><i>2</i></button><button type="button" class="pill" aria-pressed="false" aria-label="Subagents"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="16" y="16" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg><i>1</i></button><button type="button" class="pill" aria-pressed="false" aria-label="Watchers"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><i>1</i></button><button type="button" class="pill" aria-pressed="false" aria-label="Changes"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M2 12h6M18 12h4"/></svg><i>1</i></button></div>
 <div class="kids">
 <div class="tile hover"><div class="th"><span class="ki"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span><div class="kt">Rate limits reference<span class="tag">Markdown</span></div><span class="acts"><span class="ib" title="Open"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></span><span class="ib" title="Reveal in folder"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span><span class="ib" title="More"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg></span></span></div></div>
-<div class="tile"><div class="th"><span class="ki"><svg class="thumb" viewBox="0 0 14 14" width="14" height="14" aria-hidden="true"><rect width="14" height="14" fill="#181921"/><rect width="14" height="3" fill="#2E3243"/><rect x="2" y="5" width="6" height="1.5" rx=".5" fill="#E6E8F0"/><rect x="2" y="8" width="10" height="1.2" rx=".5" fill="#5C6378"/><rect x="2" y="10.5" width="4" height="2" rx=".6" fill="#5B8DEF"/></svg></span><div class="kt">Rate limit headers, before and after<span class="tag">PNG</span></div><div class="kr"><span>9m</span></div></div></div>
+<div class="tile img"><div class="th"><span class="ki"><span class="thumb"><svg viewBox="0 0 160 100" preserveAspectRatio="xMidYMid slice" style="display:block;width:100%;height:100%" aria-hidden="true"><rect width="160" height="100" fill="#0F1220"/><rect width="160" height="14" fill="#161A2C"/><rect x="8" y="5" width="34" height="4" rx="1" fill="#5C6378"/><rect x="88" y="5" width="30" height="4" rx="1" fill="#5C6378"/><rect x="8" y="22" width="64" height="68" rx="4" fill="#181B2B" stroke="#2F3343"/><rect x="88" y="22" width="64" height="68" rx="4" fill="#181B2B" stroke="#2F3343"/><rect x="15" y="32" width="38" height="4" rx="1" fill="#AEB3C3"/><rect x="15" y="43" width="48" height="4" rx="1" fill="#5C6378"/><rect x="15" y="54" width="30" height="4" rx="1" fill="#E58FA8"/><rect x="15" y="65" width="44" height="4" rx="1" fill="#5C6378"/><rect x="95" y="32" width="38" height="4" rx="1" fill="#AEB3C3"/><rect x="95" y="43" width="48" height="4" rx="1" fill="#5C6378"/><rect x="95" y="54" width="42" height="4" rx="1" fill="#7FD1C7"/><rect x="95" y="65" width="34" height="4" rx="1" fill="#7FD1C7"/><rect x="95" y="76" width="44" height="4" rx="1" fill="#5C6378"/></svg></span></span><div class="kt">Rate limit headers, before and after<span class="tag">PNG</span></div><div class="kr"><span>9m</span></div></div></div>
 </div>
 </div></div>
 </div>

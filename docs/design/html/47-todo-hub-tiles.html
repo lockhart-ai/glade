@@ -19,10 +19,12 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
    Watchers and Changes tabs. Every colour is a token from tokens.md: inner #222430, inner-hover #282B39,
    inner-2 #2E3243, inner-border #373C4F, strong #3D425E, text #E6E8F0, muted #AEB3C3, faint #999DB0, slate #5C6378,
    blue #5B8DEF, blue text #8FB2F5, teal #7FD1C7, pink #E58FA8, live #273049, live-border #40568C.
-   Nothing inside a card is black: an open todo is a card on inner-2, its tiles are on inner with an inner-border
-   outline, and the selected pill is on strong. Blue is live; grey is everything else; pink is what itself failed, and
-   a commit's removed lines. */
-.hub{flex-grow:1;min-height:0;overflow:hidden;padding:12px 8px;display:flex;flex-direction:column;gap:2px}
+   Every todo is a card on inner-2: closed or open, active, not started or done, with children or with none. Nothing
+   inside a card is black: its tiles are on inner with an inner-border outline, and the selected pill is on strong.
+   Blue is live; grey is everything else; pink is what itself failed, and a commit's removed lines. */
+/* The todos' cards are space-xs (4px) apart, as the Todos tab's items are today, and so is the Not under a todo card
+   from the last of them. */
+.hub{flex-grow:1;min-height:0;overflow:hidden;padding:12px 8px;display:flex;flex-direction:column;gap:4px}
 .sum{flex-shrink:0;display:flex;flex-direction:column;gap:8px;padding:0 9px 8px 9px}
 .sum .l{display:flex;justify-content:space-between;align-items:baseline}
 .sum b{font-size:14px;font-weight:600;color:#E6E8F0}
@@ -30,11 +32,12 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 .bar{height:6px;border-radius:3px;background:#2E3243;overflow:hidden;display:flex}
 .bar .d{background:#7FD1C7}
 .bar .p{background:#5B8DEF}
-.empty{flex-shrink:0;padding:0 9px 8px 9px;font-size:13px;line-height:1.5;color:#999DB0}
+.empty{flex-shrink:0;padding:0 9px 4px 9px;font-size:13px;line-height:1.5;color:#999DB0}
 
-/* A todo: three lines, closed or open. Its title, its status line, and one row of icons. */
-.todo{flex-shrink:0;display:flex;gap:8px;padding:8px;border:1px solid transparent;border-radius:10px}
-.todo.doing,.todo.open{background:#2E3243}
+/* A todo: a card, whatever its state and whether or not anything is under it; its state icon, its status line and
+   its struck-through title say which it is. Three lines, closed or open: its title, its status line, and one row of
+   icons. */
+.todo{flex-shrink:0;display:flex;gap:8px;padding:8px;background:#2E3243;border:1px solid transparent;border-radius:10px}
 .st{flex-shrink:0;width:18px;height:18px;margin-top:1px;display:flex;align-items:center;justify-content:center}
 .ring{width:12px;height:12px;box-sizing:border-box;border:2px solid #5B8DEF;border-radius:7px;display:flex;align-items:center;justify-content:center}
 .ring span{width:4px;height:4px;border-radius:2px;background:#5B8DEF}
@@ -76,14 +79,25 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 .tile.live{background:#273049;border-color:#40568C}
 .tile.hover{background:#282B39}
 .tile.focus{outline:2px solid #8FB2F5;outline-offset:-2px}
+/* The file showing in the Files tab is outlined (#307). */
+.tile.sel{border-color:#5C6378}
 .th{display:flex;gap:8px}
 .ki{flex-shrink:0;width:14px;height:14px;margin-top:2px;display:flex;align-items:center;justify-content:center;color:#999DB0}
-.thumb{display:block;box-sizing:border-box;border-radius:3px;outline:1px solid #373C4F;outline-offset:-1px}
+/* An image file's tile has its thumbnail where the icon goes, the size the Artifacts tab's rows have, so it's a little
+   taller than the rest. */
+.tile.img .th{align-items:center;gap:10px}
+.tile.img .ki{width:40px;height:28px;margin-top:0}
+.thumb{display:block;width:40px;height:28px;box-sizing:border-box;border:1px solid #373C4F;border-radius:5px;overflow:hidden}
 .kt{flex-grow:1;min-width:0;font-size:12.5px;line-height:1.4;color:#E6E8F0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kt .h{font-family:'Geist Mono',ui-monospace,monospace;font-size:11.5px;color:#8FB2F5;margin-right:6px}
 .kt .tag{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;margin-left:6px}
 .ks{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;line-height:1.5;color:#999DB0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ks b{font-weight:500;color:#AEB3C3;margin-right:6px}
+/* The subagent that started a watcher or made a commit, after the tile's last line: the Changes tab's tag. */
+.meta{display:flex;align-items:center;gap:8px;min-width:0}
+.meta span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.by{flex-shrink:0;padding:0 6px;border:1px solid #373C4F;border-radius:5px;font-family:Geist,system-ui,sans-serif;font-size:11px;line-height:15px;color:#AEB3C3;white-space:nowrap}
+.tile.live .by{border-color:#40568C}
 .kr{flex-shrink:0;display:flex;align-items:center;gap:6px;height:18px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;white-space:nowrap}
 .blue{color:#8FB2F5}
 .add{color:#7FD1C7}
@@ -103,12 +117,10 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 .well div span:last-child{flex-shrink:0;color:#999DB0}
 .well b{font-weight:500;color:#999DB0;margin-right:8px}
 .well p{margin:3px 0;padding-left:8px;border-left:2px solid #3D425E;font-family:Geist,system-ui,sans-serif;font-size:12px;line-height:1.45;white-space:normal}
-.bgl{margin:8px 0 4px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#999DB0}
 
-/* Not under a todo: the placeholder for children no todo was recorded for. It opens and filters as a todo does. */
-.sep{flex-shrink:0;margin:6px 9px;border-top:1px solid #373C4F}
-.loose{flex-shrink:0;padding:8px 8px 8px 34px;border:1px solid transparent;border-radius:10px}
-.loose.open{background:#2E3243}
+/* Not under a todo: the placeholder for children no todo was recorded for, after the todos. A card as a todo is,
+   closed or open, with its heading where a todo's title is; it opens and filters as a todo does. */
+.loose{flex-shrink:0;padding:8px 8px 8px 34px;background:#2E3243;border:1px solid transparent;border-radius:10px}
 .loose.bare{padding-left:8px}
 .loose.bare .kinds{margin-top:0}
 .lh{display:flex;align-items:center;gap:11px;height:20px;margin-left:-23px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#999DB0}
@@ -242,9 +254,11 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 <div class="hub">
 <div class="sum"><div class="l"><b>1 of 3 done</b><span class="u">updated just now</span></div><div class="bar"><div class="d" style="width: 33%"></div><div class="p" style="width: 67%"></div></div></div>
 <div class="todo doing open"><span class="st"><span class="ring"><span></span></span></span><div class="main"><div class="tl"><span class="title">Confirm the fix over 200 runs</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span></div><div class="note">In progress · 140 of 200 runs</div>
-<div class="kinds" role="group" aria-label="Show"><button type="button" class="pill on" aria-pressed="true">All<i>1</i></button><button type="button" class="pill live" aria-pressed="false" aria-label="Subagents"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="16" y="16" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg><i>1</i></button></div>
+<div class="kinds" role="group" aria-label="Show"><button type="button" class="pill on" aria-pressed="true">All<i>3</i></button><button type="button" class="pill live" aria-pressed="false" aria-label="Subagents"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="16" y="16" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg><i>1</i></button><button type="button" class="pill live" aria-pressed="false" aria-label="Watchers"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><i>1</i></button><button type="button" class="pill" aria-pressed="false" aria-label="Changes"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M2 12h6M18 12h4"/></svg><i>1</i></button></div>
 <div class="kids">
-<div class="tile live"><div class="th"><span class="ki"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="16" y="16" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg></span><div class="kt">soak-login</div><div class="kr"><span class="cnt live" title="1 watcher running"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>1</span><span class="blue">Running · now</span></div></div><div class="tb"><div class="ks">Running the login test 200 times</div><div class="well"><p>The fix is in. Soaking it over 200 runs.</p><div><span><b>Read</b>tests/test_login.py</span><span>14:00</span></div><div><span><b>Edit</b>tests/conftest.py</span><span>14:01</span></div><div><span><b>Bash</b>pytest tests/test_login.py --count 200 -x</span><span>14:02</span></div></div><div class="bgl">Background work</div><div class="kids" style="margin-top: 0"><div class="tile live"><div class="th"><span class="ki"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span><div class="kt">Login test, 200 runs</div><div class="kr"><span class="blue">Running · 3m</span><button type="button" class="stop" aria-label="Stop"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>Stop</button></div></div><div class="tb"><div class="ks"><b>Command</b>pytest tests/test_login.py --count 200 -x</div><div class="ks">0 wakes · 3m 10s · since 14:02</div></div></div></div></div></div>
+<div class="tile live"><div class="th"><span class="ki"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="16" y="16" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg></span><div class="kt">soak-login</div><div class="kr"><span class="blue">Running · now</span></div></div><div class="tb"><div class="ks">Running the login test 200 times</div><div class="well"><p>The test can repeat now. Soaking the fix over 200 runs.</p><div><span><b>Edit</b>tests/conftest.py</span><span>14:00</span></div><div><span><b>Bash</b>git commit -am "Let the login test repeat"</span><span>14:01</span></div><div><span><b>Bash</b>pytest tests/test_login.py --count 200 -x</span><span>14:02</span></div></div></div></div>
+<div class="tile live"><div class="th"><span class="ki"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span><div class="kt">Login test, 200 runs</div><div class="kr"><span class="blue">Running · 3m</span><button type="button" class="stop" aria-label="Stop"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>Stop</button></div></div><div class="tb"><div class="ks"><b>Command</b>pytest tests/test_login.py --count 200 -x</div><div class="ks"><span class="meta"><span>0 wakes · 3m 10s · since 14:02</span><span class="by" title="Started by the subagent soak-login">soak-login</span></span></div></div></div>
+<div class="tile"><div class="th"><span class="ki"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M2 12h6M18 12h4"/></svg></span><div class="kt"><span class="h">e7f8a9b</span>Let the login test repeat</div><div class="kr"><span><span class="add">+6</span> <span class="del">−1</span> · 4m</span></div></div><div class="tb"><div class="ks"><span class="meta"><span>fix/session-race</span><span class="by" title="Started by the subagent soak-login">soak-login</span></span></div><div class="well"><div><span><b>M</b>tests/conftest.py</span><span><span class="add">+6</span> <span class="del">−1</span></span></div></div></div></div>
 </div>
 </div></div>
 <div class="todo doing open"><span class="st"><span class="ring"><span></span></span></span><div class="main"><div class="tl"><span class="title">Watch CI on <a class="lk" href="https://github.com/acme/api/pull/48">PR #48</a> until it’s green</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span></div><div class="note">Waiting on CI</div>
@@ -254,11 +268,8 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 <div class="tile"><div class="th"><span class="ki"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span><div class="kt">Check the nightly flake report</div><div class="kr"><span>Due in 20m</span><button type="button" class="stop" aria-label="Stop"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>Stop</button></div></div><div class="tb"><div class="ks"><b>Wakeup</b>Check whether last night’s run still shows the login flake.</div><div class="ks">at 14:25 · 0 wakes · set 13:58</div></div></div>
 </div>
 </div></div>
-<div class="todo done open"><span class="st"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#7FD1C7"/><path d="m7.5 12.3 3.2 3.2 6.3-6.8" fill="none" stroke="#181921" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="main"><div class="tl"><span class="title">Fix the session race</span><span class="when">6m ago</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span></div>
-<div class="kinds" role="group" aria-label="Show"><button type="button" class="pill on" aria-pressed="true">All<i>1</i></button><button type="button" class="pill" aria-pressed="false" aria-label="Changes"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M2 12h6M18 12h4"/></svg><i>1</i></button></div>
-<div class="kids">
-<div class="tile"><div class="th"><span class="ki"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M2 12h6M18 12h4"/></svg></span><div class="kt"><span class="h">d4e5f6a</span>Lock the session while it refreshes</div><div class="kr"><span><span class="add">+9</span> <span class="del">−4</span> · 7m</span></div></div><div class="tb"><div class="well"><div><span><b>M</b>auth/session.py</span><span><span class="add">+7</span> <span class="del">−4</span></span></div><div><span><b>M</b>tests/test_login.py</span><span><span class="add">+2</span> <span class="del">−0</span></span></div></div></div></div>
-</div>
+<div class="todo done"><span class="st"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#7FD1C7"/><path d="m7.5 12.3 3.2 3.2 6.3-6.8" fill="none" stroke="#181921" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="main"><div class="tl"><span class="title">Fix the session race</span><span class="when">6m ago</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span></div>
+<div class="kinds"><span class="cnt" title="Changes"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M2 12h6M18 12h4"/></svg>1</span></div>
 </div></div>
 </div>
 </aside>
