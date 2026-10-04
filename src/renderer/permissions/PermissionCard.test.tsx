@@ -32,9 +32,9 @@ import {
   sampleWorkspace,
   type FakeHandlers,
 } from '../store/test-bridge'
-import { FolderAccess, SandboxAskKind, SandboxGrantScope } from '../../shared/sandbox'
+import { FolderAccess, OtherAgents, SandboxAskKind, SandboxGrantScope } from '../../shared/sandbox'
 import { REQUEST_ACCESS_TOOL } from '../../shared/toolName'
-import { OUTSIDE_SANDBOX_NOTE, TRIMMED_LINES } from './permissionCardModel'
+import { MCP_SERVER_NOTE, OTHER_AGENTS_NOTES, OUTSIDE_SANDBOX_NOTE, TRIMMED_LINES } from './permissionCardModel'
 import { moduleClass } from '../components/moduleClass'
 import { APPEAR_WINDOW_MS } from '../questions/QuestionCard'
 import { NOTE_PLACEHOLDER } from './PermissionCard'
@@ -1237,6 +1237,142 @@ describe('the sandbox’s cards', () => {
       'allowed: Allowed for this task: read ~/code/acme-web',
       'denied: Denied: read ~/code/acme-web',
     ])
+  })
+
+  // #515: an MCP server Glade doesn't build, and the tools that reach other agents. The same card, with no design of
+  // its own.
+  describe('for an MCP server, or other agents', () => {
+    const SERVER = request('server', {
+      toolName: 'mcp__claude_ai_Acme_Docs__search',
+      toolUseId: 'search-call',
+      input: { query: 'retry policy', limit: 5 },
+      suggestions: [],
+      suppressAlwaysAllowRule: true,
+      sandbox: { kind: SandboxAskKind.McpServer, server: 'claude_ai_Acme_Docs', name: 'claude.ai Acme Docs' },
+    })
+    const SESSIONS = request('sessions', {
+      toolName: 'SendMessage',
+      toolUseId: 'peer-call',
+      input: { to: 'release-notes', message: 'Retries back off from 2.4.' },
+      suggestions: [],
+      suppressAlwaysAllowRule: true,
+      sandbox: { kind: SandboxAskKind.Agents, agents: OtherAgents.Sessions },
+    })
+    const CLOUD = request('cloud', {
+      toolName: 'RemoteTrigger',
+      toolUseId: 'routines-call',
+      input: { action: 'list' },
+      suggestions: [],
+      suppressAlwaysAllowRule: true,
+      sandbox: { kind: SandboxAskKind.Agents, agents: OtherAgents.Cloud },
+    })
+
+    it('asks to use the server: its name as code, what that means, the tool and its input, and task · workspace · deny', async () => {
+      await renderChat([SERVER])
+
+      expect(card().firstElementChild).toHaveTextContent('The agent wants to use theclaude.ai Acme DocsMCP server')
+      expect(within(card()).getByText('claude.ai Acme Docs').tagName).toBe('CODE')
+      expect(within(card()).getByText(MCP_SERVER_NOTE)).toBeInTheDocument()
+      expect(within(card()).getByText('mcp__claude_ai_Acme_Docs__search')).toHaveClass(
+        moduleClass(styles, 'targetTool'),
+      )
+      expect(lines(within(card()).getByLabelText('Input'))).toEqual([
+        '{',
+        '  "query": "retry policy",',
+        '  "limit": 5',
+        '}',
+      ])
+      expect(answerNames()).toEqual(['Allow for this task', 'Allow for this workspace', 'Deny'])
+      expect(within(card()).queryByRole('button', { name: 'Allow once' })).not.toBeInTheDocument()
+      expect(button('Allow for this task')).toHaveFocus()
+    })
+
+    it('names the subagent whose call it is', async () => {
+      const events = [agentCall('reader', { description: 'Docs reader' }), subagentCall('search-call', 'reader')]
+      await renderChat([{ ...SERVER, agentId: 'a1b2c3' }], events)
+
+      expect(within(card()).getByText('subagent · Docs reader')).toBeInTheDocument()
+    })
+
+    it('asks to message other Claude sessions, and to manage cloud agents, each with what it means and its call', async () => {
+      await renderChat([SESSIONS, CLOUD])
+
+      expect(card().firstElementChild).toHaveTextContent('The agent wants to message other Claude sessions')
+      expect(within(card()).getByText(OTHER_AGENTS_NOTES[OtherAgents.Sessions])).toBeInTheDocument()
+      expect(within(card()).getByText('SendMessage')).toHaveClass(moduleClass(styles, 'targetTool'))
+      expect(lines(within(card()).getByLabelText('Input'))).toContain('  "to": "release-notes",')
+      expect(answerNames()).toEqual(['Allow for this task', 'Allow for this workspace', 'Deny'])
+
+      expect(card(1).firstElementChild).toHaveTextContent('The agent wants to manage cloud agents')
+      expect(within(card(1)).getByText(OTHER_AGENTS_NOTES[OtherAgents.Cloud])).toBeInTheDocument()
+      expect(within(card(1)).getByText('RemoteTrigger')).toHaveClass(moduleClass(styles, 'targetTool'))
+      expect(answerNames(1)).toEqual(['Allow for this task', 'Allow for this workspace', 'Deny'])
+    })
+
+    it('trims a long input, with Show all to see the rest', async () => {
+      const big = Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`field${String(index)}`, index]))
+      await renderChat([{ ...SERVER, input: big }])
+
+      expect(lines(within(card()).getByLabelText('Input'))).toHaveLength(TRIMMED_LINES)
+      fireEvent.click(within(card()).getByRole('button', { name: 'Show all 42 lines' }))
+      expect(lines(within(card()).getByLabelText('Input'))).toHaveLength(42)
+    })
+
+    it('grants the server to the workspace: the card leaves the chat, and its call’s row says so', async () => {
+      const { fake } = await renderChat([SERVER])
+      expect(decisions()).toEqual(['waiting: Waiting on you: use the claude.ai Acme Docs MCP server'])
+
+      fireEvent.click(button('Allow for this workspace'))
+      await settle()
+
+      expect(answers(fake)).toEqual([{ id: 'server', decision: { kind: PermissionDecisionKind.AllowForWorkspace } }])
+      expect(inTheChat()).toHaveLength(0)
+      expect(decisions()).toEqual(['allowed: Allowed for this workspace: use the claude.ai Acme Docs MCP server'])
+    })
+
+    it('grants other sessions to the task, and denies cloud agents with a note, each on its own call’s row', async () => {
+      const { fake } = await renderChat([SESSIONS, CLOUD])
+
+      fireEvent.click(button('Allow for this task'))
+      await settle()
+      fireEvent.click(button('Deny'))
+      fireEvent.change(screen.getByPlaceholderText(NOTE_PLACEHOLDER), { target: { value: 'Not from here.' } })
+      fireEvent.click(button('Deny'))
+      await settle()
+
+      expect(answers(fake)).toEqual([
+        { id: 'sessions', decision: { kind: PermissionDecisionKind.AllowForTask } },
+        { id: 'cloud', decision: { kind: PermissionDecisionKind.Deny, note: 'Not from here.' } },
+      ])
+      expect(decisions()).toEqual([
+        'allowed: Allowed for this task: message other Claude sessions',
+        'denied: Denied: manage cloud agents · “Not from here.”',
+      ])
+    })
+
+    it('says whose grant let a later call through, on its row, with no card', async () => {
+      const read = { ...agentCall('read-doc', { id: 'doc_42' }), name: 'mcp__claude_ai_Acme_Docs__read' }
+      const { fake } = await renderChat([], [read])
+
+      act(() => {
+        fake.emit({
+          type: EventType.PermissionMarked,
+          mark: {
+            taskId: 't1',
+            toolUseId: 'read-doc',
+            outcome: {
+              kind: PermissionMarkKind.Grant,
+              scope: SandboxGrantScope.Workspace,
+              ask: { kind: SandboxAskKind.McpServer, server: 'claude_ai_Acme_Docs', name: 'claude.ai Acme Docs' },
+            },
+            createdAt: 2_000,
+          },
+        })
+      })
+
+      expect(decisions()).toEqual(['allowed: Allowed by workspace grant: use the claude.ai Acme Docs MCP server'])
+      expect(inTheChat()).toHaveLength(0)
+    })
   })
 
   it('shows the title alone when there’s nothing more to show', async () => {

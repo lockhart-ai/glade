@@ -6,7 +6,7 @@ import {
   type PermissionMarkOutcome,
   type PermissionRequest,
 } from '../../shared/domain'
-import { FolderAccess, SandboxAskKind, SandboxGrantScope, type SandboxAsk } from '../../shared/sandbox'
+import { FolderAccess, OtherAgents, SandboxAskKind, SandboxGrantScope, type SandboxAsk } from '../../shared/sandbox'
 import { samplePermissionRequest } from '../store/test-bridge'
 import {
   NO_PERMISSION_LINES,
@@ -194,6 +194,34 @@ describe("a sandbox request's line", () => {
     expect(text({ sandbox: theirs })).toBe('Waiting on you: read /Users/someone/Documents')
   })
 
+  // #515: an MCP server Glade doesn't build, and the tools that reach other agents.
+  it('names the MCP server by the name it was reported under, and the other agents by what reaching them does', () => {
+    const docs: SandboxAsk = {
+      kind: SandboxAskKind.McpServer,
+      server: 'claude_ai_Acme_Docs',
+      name: 'claude.ai Acme Docs',
+    }
+    const sessions: SandboxAsk = { kind: SandboxAskKind.Agents, agents: OtherAgents.Sessions }
+    const cloud: SandboxAsk = { kind: SandboxAskKind.Agents, agents: OtherAgents.Cloud }
+
+    expect(text({ sandbox: docs })).toBe('Waiting on you: use the claude.ai Acme Docs MCP server')
+    expect(text({ ...allowed, sandbox: docs, grantedScope: SandboxGrantScope.Workspace })).toBe(
+      'Allowed for this workspace: use the claude.ai Acme Docs MCP server',
+    )
+    expect(text({ ...allowed, sandbox: sessions, grantedScope: SandboxGrantScope.Task })).toBe(
+      'Allowed for this task: message other Claude sessions',
+    )
+    expect(text({ state: PermissionRequestState.Denied, sandbox: cloud, denyNote: 'Not from here.' })).toBe(
+      'Denied: manage cloud agents · “Not from here.”',
+    )
+    expect(text({ state: PermissionRequestState.Denied, sandbox: docs })).toBe(
+      'Denied: use the claude.ai Acme Docs MCP server',
+    )
+    expect(text({ state: PermissionRequestState.Withdrawn, sandbox: sessions })).toBe(
+      'Withdrawn: message other Claude sessions',
+    )
+  })
+
   it('is teal for a grant to the task or the workspace, as for a rule', () => {
     const granted = requestPermissionLine(
       request('p1', { ...allowed, sandbox: WEB, grantedScope: SandboxGrantScope.Task }),
@@ -234,6 +262,22 @@ describe('the line of a call a rule decided', () => {
     } as const
     expect(text({ kind: PermissionMarkKind.Grant, scope: SandboxGrantScope.Workspace, ask: docs })).toBe(
       'Allowed by workspace grant: reach docs.acme.dev',
+    )
+  })
+
+  it('says whose grant let a call to an MCP server, or to other agents, through', () => {
+    const gmail = { kind: SandboxAskKind.McpServer, server: 'gmail', name: 'Gmail' } as const
+    const sessions = { kind: SandboxAskKind.Agents, agents: OtherAgents.Sessions } as const
+    const cloud = { kind: SandboxAskKind.Agents, agents: OtherAgents.Cloud } as const
+
+    expect(text({ kind: PermissionMarkKind.Grant, scope: SandboxGrantScope.Workspace, ask: gmail })).toBe(
+      'Allowed by workspace grant: use the Gmail MCP server',
+    )
+    expect(text({ kind: PermissionMarkKind.Grant, scope: SandboxGrantScope.Task, ask: sessions })).toBe(
+      'Allowed by task grant: message other Claude sessions',
+    )
+    expect(text({ kind: PermissionMarkKind.Grant, scope: SandboxGrantScope.Glade, ask: cloud })).toBe(
+      'Allowed by Glade-wide grant: manage cloud agents',
     )
   })
 

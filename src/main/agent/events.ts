@@ -11,11 +11,17 @@
 import { z } from 'zod'
 import { UsageWindow } from '../../shared/account'
 import { CompactionTrigger, RefusalScope, type EpochMs, type ToolInput } from '../../shared/domain'
+import { isToolOfServer, mcpServerKeys, mcpServerLabel } from '../../shared/mcpServers'
 import type { Logger } from '../logging/logger'
 
 export enum AgentEventKind {
   /** The session is running: it names its SDK session id. Arrives at the start of every turn. */
   SessionStarted = 'session_started',
+  /**
+   * The session named MCP servers that aren't in-process ones (`system/init`'s `mcp_servers`): the user's, a
+   * repository's, a connector. Follows `SessionStarted`, only when there are any.
+   */
+  McpServersReported = 'mcp_servers_reported',
   /** A block of the agent's text: preamble before a tool call, or its final reply. */
   Text = 'text',
   ToolCallStarted = 'tool_call_started',
@@ -87,6 +93,23 @@ export interface SessionStartedEvent {
   readonly sessionId: string
   /** The model the turn runs on, as the SDK names it. */
   readonly model: string
+}
+
+/** An MCP server a session's `system/init` named that isn't one the SDK says is in-process. */
+export interface InitMcpServer {
+  /** The server as its tools' names carry it (`src/shared/mcpServers.ts`). */
+  readonly server: string
+  /** Its name as reported, tidied for showing. */
+  readonly name: string
+  /** The name exactly as reported: what an in-process server is told by when no source is given. */
+  readonly reportedName: string
+  /** Where its definition came from (`user`, `project`, `claudeai`, …); null on a CLI that doesn't say. */
+  readonly source: string | null
+}
+
+export interface McpServersReportedEvent {
+  readonly kind: AgentEventKind.McpServersReported
+  readonly servers: readonly InitMcpServer[]
 }
 
 export interface TextEvent {
@@ -324,6 +347,7 @@ export interface MessagesEvictedEvent {
 /** Everything the runner reacts to. */
 export type AgentEvent =
   | SessionStartedEvent
+  | McpServersReportedEvent
   | TextEvent
   | ToolCallStartedEvent
   | ToolResultEvent
@@ -364,6 +388,12 @@ const initMessage = z.looseObject({
   subtype: z.literal('init'),
   session_id: z.string().min(1),
   model: z.string(),
+  // Either of a shape Glade doesn't know is as if it weren't there: the session still starts.
+  mcp_servers: z
+    .array(z.looseObject({ name: z.string(), source: z.string().optional().catch(undefined) }))
+    .optional()
+    .catch(undefined),
+  tools: z.array(z.string()).optional().catch(undefined),
 })
 
 const apiRetryMessage = z.looseObject({
@@ -546,8 +576,33 @@ function fromStatus(message: z.infer<typeof statusMessage>): AgentEvent[] {
 
 const modelUsage = z.looseObject({ contextWindow: z.number().int().positive() })
 
+/** The SDK's `source` for an in-process server the host registered: Glade's own, which is never reported. */
+const HOST_SOURCE = 'sdk'
+
+/**
+ * The servers an init names that aren't in-process ones, each by the key its tools' names carry: of the keys its name
+ * may be written as, the one a tool the init lists starts with, else the likeliest (`mcpServerKeys`). A name no key
+ * can be made from is left out.
+ */
+function initServers(message: z.infer<typeof initMessage>): InitMcpServer[] {
+  const tools = message.tools ?? []
+  return (message.mcp_servers ?? []).flatMap(({ name, source }): InitMcpServer[] => {
+    if (source === HOST_SOURCE) return []
+    const keys = mcpServerKeys(name)
+    const server = keys.find((key) => tools.some((tool) => isToolOfServer(tool, key))) ?? keys[0]
+    if (server === undefined) return []
+    return [{ server, name: mcpServerLabel(name, server), reportedName: name, source: source ?? null }]
+  })
+}
+
 function fromInit(message: z.infer<typeof initMessage>): AgentEvent[] {
-  return [{ kind: AgentEventKind.SessionStarted, sessionId: message.session_id, model: message.model }]
+  const started: AgentEvent = {
+    kind: AgentEventKind.SessionStarted,
+    sessionId: message.session_id,
+    model: message.model,
+  }
+  const servers = initServers(message)
+  return servers.length === 0 ? [started] : [started, { kind: AgentEventKind.McpServersReported, servers }]
 }
 
 function fromCompactBoundary(message: z.infer<typeof compactBoundaryMessage>): AgentEvent[] {

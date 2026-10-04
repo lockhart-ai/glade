@@ -269,6 +269,15 @@ Answers return as JSON keyed by question index, for the questions answered (any 
 when the user typed in the card's "Anything else?" box. The user can ignore the card and reply in words instead; that
 answers it too.
 
+## The sandbox and other servers' tools (P15-11, #515)
+
+With the agent sandbox on, Glade's own tools are the only MCP tools that never need a grant: `glade`'s always, and
+`glade-control`'s as before (its switch, and the ask mode's rules). Any other MCP server's tools (the user's own, a
+repository's `.mcp.json`, a claude.ai connector) ask once per server, and `SendMessage` to anything but the task's
+own subagents, and `RemoteTrigger`, ask once each ([`sdk-notes.md` §15](sdk-notes.md#15-sandbox), "MCP servers and
+other agents"). A server is Glade's when the SDK says it's in-process and the session was given it, never by its
+name. The system prompt says nothing of this: a call that's denied tells the agent why in its result.
+
 ## Implemented: `request_access` (P15-05, #450)
 
 The agent sandbox (#445, [`sdk-notes.md` §15](sdk-notes.md#15-sandbox)) blocks a command's read or write outside the

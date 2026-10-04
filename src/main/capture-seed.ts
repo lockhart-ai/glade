@@ -39,6 +39,7 @@ import {
   type PermissionMarkOutcome,
 } from '../shared/domain'
 import { taskPermissionRule } from '../shared/permissions'
+import type { ReportedMcpServer } from '../shared/mcpServers'
 import type { CardGrantScope, SandboxAsk } from '../shared/sandbox'
 import { permissionMarkOutcomeSchema, sandboxAskSchema } from './permissions/schema'
 import { setPermissionMark } from './db/repositories/permission-marks'
@@ -82,9 +83,11 @@ import { SETTING_SCHEMAS, updateSettings } from './db/repositories/settings'
 import { replaceUsageReadings, saveAccount } from './db/repositories/account'
 import { usageLevel, UsageLevel, UsageLimitKind, type UsageLimit } from '../shared/account'
 import { storeControlToken, storedToken } from './control/token'
+import { noteReportedServers } from './db/repositories/reported-mcp-servers'
 import { addSandboxGrant } from './db/repositories/sandbox-grants'
 import {
   FolderAccess,
+  OtherAgents,
   SandboxGrantKind,
   SandboxGrantScope,
   type Grant,
@@ -491,6 +494,11 @@ export interface CaptureSeed {
   readonly models?: readonly ModelChoice[] | undefined
   /** The sandbox grants Settings lists (#451); none unless given. */
   readonly sandboxGrants?: SeedSandboxGrants | undefined
+  /**
+   * The MCP servers the fixture's workspace's sessions have reported (#515), which Settings' MCP servers lists offer
+   * under Add…; none unless given.
+   */
+  readonly reportedServers?: readonly ReportedMcpServer[] | undefined
 }
 
 /**
@@ -590,6 +598,12 @@ const seedAccountSchema = z.strictObject({
 const seedGrant = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal(SandboxGrantKind.Folder), path: z.string().min(1), access: z.enum(FolderAccess) }),
   z.strictObject({ kind: z.literal(SandboxGrantKind.Domain), domain: z.string().min(1) }),
+  z.strictObject({
+    kind: z.literal(SandboxGrantKind.McpServer),
+    server: z.string().min(1),
+    name: z.string().min(1),
+  }),
+  z.strictObject({ kind: z.literal(SandboxGrantKind.Agents), agents: z.enum(OtherAgents) }),
 ]) satisfies z.ZodType<Grant>
 
 const seedUsageReadingSchema = z
@@ -634,6 +648,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
   sandboxGrants: z
     .strictObject({ glade: z.array(seedGrant).optional(), workspace: z.array(seedGrant).optional() })
     .optional(),
+  reportedServers: z.array(z.strictObject({ server: z.string().min(1), name: z.string().min(1) })).optional(),
   controlToken: storedToken.optional(),
   panelTab: z.string().optional(),
   panelWidth: z.int().positive().optional(),
@@ -1010,6 +1025,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       // A millisecond apart, so each list keeps the fixture's order.
       for (const [index, grant] of (grants ?? []).entries()) addSandboxGrant(db, { target, grant }, now + index)
     }
+    noteReportedServers(db, workspace.id, seed.reportedServers ?? [], now)
     if (seed.panelTab !== undefined) setUiState(db, { key: UiStateKey.RightPanelTab, value: seed.panelTab })
     if (seed.panelWidth !== undefined) {
       setUiState(db, { key: UiStateKey.RightPanelWidth, value: String(seed.panelWidth) })

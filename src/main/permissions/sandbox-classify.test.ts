@@ -4,16 +4,21 @@
 import { describe, expect, it } from 'vitest'
 import { PermissionMode, type ToolInput } from '../../shared/domain'
 import { GLADE_SERVER } from '../agent/glade-tools'
-import { FolderAccess } from '../../shared/sandbox'
+import { FolderAccess, OtherAgents, SandboxGrantKind } from '../../shared/sandbox'
+import type { McpServerOrigin } from '../agent/backend'
 import { NO_GRANTS, type SandboxGrants } from '../agent/sandbox'
 import type { PathFs } from './canonical-path'
 import { PermissionVerdict } from './classify'
 import {
   BOUNDED_TOOLS,
   callStanding,
+  isGrantedUse,
+  isOutsideTool,
   isSandboxOverride,
   isUnboundedRule,
   isWriteTool,
+  OUTSIDE_TOOLS,
+  outsideUse,
   sandboxBounds,
   sandboxCrossing,
   SandboxCrossing,
@@ -47,6 +52,8 @@ interface BoundsOverrides {
   readonly fs?: PathFs
   readonly denied?: readonly string[]
   readonly unsandboxed?: (command: string) => boolean
+  readonly inProcess?: readonly string[]
+  readonly ownSubagent?: (target: string) => boolean
 }
 
 function bounds(overrides: BoundsOverrides = {}): SandboxBounds {
@@ -57,6 +64,8 @@ function bounds(overrides: BoundsOverrides = {}): SandboxBounds {
     fs: overrides.fs ?? fsWith(),
     ...(overrides.denied === undefined ? {} : { denied: overrides.denied }),
     ...(overrides.unsandboxed === undefined ? {} : { unsandboxed: overrides.unsandboxed }),
+    ...(overrides.inProcess === undefined ? {} : { inProcess: overrides.inProcess }),
+    ...(overrides.ownSubagent === undefined ? {} : { ownSubagent: overrides.ownSubagent }),
   })
 }
 
@@ -877,7 +886,7 @@ describe('toolCallVerdict', () => {
   it('in Allow all, lets everything else inside the bounds go', () => {
     const mode = PermissionMode.AllowAll
     expect(decide('Bash', { command: 'npm test' }, mode)).toEqual(ALLOW)
-    expect(decide('mcp__github__create_issue', {}, mode)).toEqual(ALLOW)
+    expect(decide('TodoWrite', { todos: [] }, mode)).toEqual(ALLOW)
     expect(decide('Read', { file_path: `${ROOT}/.env` }, mode, { matchedAskRule: true })).toEqual(ALLOW)
   })
 
@@ -912,5 +921,247 @@ describe('toolCallVerdict', () => {
     expect(decide('WebFetch', { url: 'https://www.example.org/' }, PermissionMode.AskBeforeEdits, off)).toEqual(ALLOW)
     expect(decide('Bash', override, PermissionMode.AskBeforeEdits, off)).toEqual(ASK)
     expect(decide('Write', outside, PermissionMode.AskBeforeEdits, { ...off, writeRules: ['Write'] })).toEqual(ASK)
+  })
+})
+
+// #515: an MCP server Glade doesn't build runs outside the sandbox, and `SendMessage` and `RemoteTrigger` reach agents
+// that do. Each is a grant of its own.
+describe('what a call uses outside the sandbox', () => {
+  const GLADE: McpServerOrigin = { name: 'glade', source: 'sdk' }
+  const CONTROL: McpServerOrigin = { name: 'glade-control', source: 'sdk' }
+  const SUBAGENT = 'a7c2e91f04b3d8a1'
+  const within = (grants: Partial<SandboxGrants> = {}): SandboxBounds =>
+    bounds({
+      grants: { ...GRANTS, ...grants },
+      inProcess: ['glade', 'glade-control'],
+      ownSubagent: (target) => target === SUBAGENT,
+    })
+  const server = (key: string, name = key) => ({ kind: SandboxGrantKind.McpServer, server: key, name }) as const
+  const SESSIONS = { kind: SandboxGrantKind.Agents, agents: OtherAgents.Sessions } as const
+  const CLOUD = { kind: SandboxGrantKind.Agents, agents: OtherAgents.Cloud } as const
+
+  it('is the tools the hook hears of: every MCP tool, SendMessage and RemoteTrigger', () => {
+    expect(OUTSIDE_TOOLS).toEqual(['mcp__.*', 'SendMessage', 'RemoteTrigger'])
+    for (const tool of ['mcp__gmail__send', 'mcp__glade__set_title', 'mcp__x', 'SendMessage', 'RemoteTrigger']) {
+      expect(isOutsideTool(tool)).toBe(true)
+    }
+    for (const tool of ['Read', 'Bash', 'Agent', 'TaskStop', 'ListAgents', 'SendMessageLater', 'xmcp__gmail__send']) {
+      expect(isOutsideTool(tool)).toBe(false)
+    }
+    // None is one of the tools the sandbox bounds: a call is one or the other.
+    expect(BOUNDED_TOOLS.filter(isOutsideTool)).toEqual([])
+  })
+
+  it('is nothing for any other tool', () => {
+    for (const tool of ['Read', 'Bash', 'WebFetch', 'Agent', 'ListAgents', 'TodoWrite']) {
+      expect(outsideUse({ toolName: tool, input: { to: 'release-notes' } }, within())).toBeNull()
+    }
+  })
+
+  it('is the server an MCP tool is on, by the key its name carries, with the name the SDK reported', () => {
+    const connector = { name: 'claude.ai Acme Docs', source: 'claudeai' }
+    expect(
+      outsideUse({ toolName: 'mcp__claude_ai_Acme_Docs__search', input: {}, mcpServer: connector }, within()),
+    ).toEqual(server('claude_ai_Acme_Docs', 'claude.ai Acme Docs'))
+    expect(
+      outsideUse(
+        {
+          toolName: 'mcp__acme-tracker__create_issue',
+          input: {},
+          mcpServer: { name: 'acme-tracker', source: 'project' },
+        },
+        within(),
+      ),
+    ).toEqual(server('acme-tracker'))
+    // With nobody to say which server, it's the one its name names, and that's what is shown.
+    expect(outsideUse({ toolName: 'mcp__gmail__send', input: {} }, within())).toEqual(server('gmail'))
+    expect(outsideUse({ toolName: 'mcp__gmail__send', input: {}, mcpServer: null }, within())).toEqual(server('gmail'))
+  })
+
+  it('never takes a server for Glade’s own by its name: only an in-process one the session was given', () => {
+    const title = 'mcp__glade__set_title'
+    expect(outsideUse({ toolName: title, input: {}, mcpServer: GLADE }, within())).toBeNull()
+    expect(
+      outsideUse({ toolName: 'mcp__glade-control__list_tasks', input: {}, mcpServer: CONTROL }, within()),
+    ).toBeNull()
+
+    // A server from the user's config, a repository's or a plugin that calls itself `glade`.
+    for (const source of ['user', 'project', 'local', 'plugin', 'dynamic', 'claudeai', 'SDK', '']) {
+      expect(outsideUse({ toolName: title, input: {}, mcpServer: { name: 'glade', source } }, within())).toEqual(
+        server('glade'),
+      )
+    }
+    // The SDK not saying whose it is, at all.
+    expect(outsideUse({ toolName: title, input: {} }, within())).toEqual(server('glade'))
+    expect(outsideUse({ toolName: title, input: {}, mcpServer: null }, within())).toEqual(server('glade'))
+    // An in-process server the session was never given: not one Glade can vouch for.
+    expect(
+      outsideUse({ toolName: 'mcp__other__read', input: {}, mcpServer: { name: 'other', source: 'sdk' } }, within()),
+    ).toEqual(server('other'))
+    // And in a session with none of its own, even `glade` in-process is someone else's.
+    expect(outsideUse({ toolName: title, input: {}, mcpServer: GLADE }, bounds())).toEqual(server('glade'))
+  })
+
+  it('tells a server whose name has odd characters, or two underscores, from another', () => {
+    const odd = { name: 'my server/ü (work)', source: 'user' }
+    expect(outsideUse({ toolName: 'mcp__my_server____work___read', input: {}, mcpServer: odd }, within())).toEqual(
+      server('my_server____work_', 'my server/ü (work)'),
+    )
+    const nested = { name: 'a__b', source: 'user' }
+    expect(outsideUse({ toolName: 'mcp__a__b__c', input: {}, mcpServer: nested }, within())).toEqual(server('a__b'))
+    expect(
+      outsideUse({ toolName: 'mcp__a__b__c', input: {}, mcpServer: { name: 'a', source: 'user' } }, within()),
+    ).toEqual(server('a'))
+    // A name that would reorder the card's text is shown without what does.
+    const spoof = { name: 'glade\u202E (trusted)', source: 'project' }
+    expect(outsideUse({ toolName: 'mcp__glade___trusted___x', input: {}, mcpServer: spoof }, within())).toEqual(
+      server('glade___trusted_', 'glade (trusted)'),
+    )
+  })
+
+  it('is other Claude sessions for a SendMessage to anything but the task’s own subagent', () => {
+    const send = (to: unknown) => outsideUse({ toolName: 'SendMessage', input: { to, message: 'Hi' } }, within())
+
+    expect(send(SUBAGENT)).toBeNull()
+    // What only looks like it.
+    for (const to of [
+      'release-notes',
+      'main',
+      '*',
+      '',
+      ` ${SUBAGENT}`,
+      `${SUBAGENT} `,
+      SUBAGENT.toUpperCase(),
+      SUBAGENT.slice(0, -1),
+      `${SUBAGENT}0`,
+      `bridge:${SUBAGENT}`,
+      `uds:/tmp/${SUBAGENT}`,
+      `${SUBAGENT}@other-mac`,
+      [SUBAGENT],
+      { id: SUBAGENT },
+      undefined,
+      null,
+      7,
+    ]) {
+      expect(send(to)).toEqual(SESSIONS)
+    }
+    // And with no subagents known at all.
+    expect(outsideUse({ toolName: 'SendMessage', input: { to: SUBAGENT } }, bounds())).toEqual(SESSIONS)
+  })
+
+  it('is cloud agents for RemoteTrigger, whatever it does', () => {
+    for (const action of ['list', 'get', 'create', 'run']) {
+      expect(outsideUse({ toolName: 'RemoteTrigger', input: { action } }, within())).toEqual(CLOUD)
+    }
+    expect(outsideUse({ toolName: 'RemoteTrigger', input: {} }, within())).toEqual(CLOUD)
+  })
+
+  it('is granted by exactly its server’s key, or those agents', () => {
+    const granted = within({ servers: ['gmail', 'a__b'], agents: [OtherAgents.Cloud] })
+
+    expect(isGrantedUse(server('gmail'), granted)).toBe(true)
+    expect(isGrantedUse(server('a__b'), granted)).toBe(true)
+    for (const key of ['Gmail', 'gmail2', 'gmai', 'a', 'a__b__c', 'cloud', '']) {
+      expect(isGrantedUse(server(key), granted)).toBe(false)
+    }
+    expect(isGrantedUse(CLOUD, granted)).toBe(true)
+    expect(isGrantedUse(SESSIONS, granted)).toBe(false)
+    expect(isGrantedUse(server('gmail'), within())).toBe(false)
+    expect(isGrantedUse(CLOUD, within())).toBe(false)
+  })
+
+  it('leaves out of the bounds a server whose key no tool’s name could carry', () => {
+    const granted = within({ servers: ['gmail', 'claude.ai Acme Docs', ''] })
+    expect(granted.servers).toEqual(['gmail'])
+  })
+
+  describe('toolCallVerdict', () => {
+    const MODES = [PermissionMode.AllowAll, PermissionMode.AskBeforeEdits]
+    const ASK_AT_THE_BOUNDARY: ToolCallVerdict = { verdict: PermissionVerdict.Ask, crossing: SandboxCrossing.Boundary }
+    const ALLOW: ToolCallVerdict = { verdict: PermissionVerdict.Allow, crossing: SandboxCrossing.None }
+    const ASK: ToolCallVerdict = { verdict: PermissionVerdict.Ask, crossing: SandboxCrossing.None }
+    const tracker = { name: 'acme-tracker', source: 'project' }
+
+    const decide = (
+      toolName: string,
+      input: ToolInput,
+      permissionMode: PermissionMode,
+      mcpServer: McpServerOrigin | null,
+      inside: SandboxBounds | null = within(),
+      matchedAskRule = false,
+    ): ToolCallVerdict =>
+      toolCallVerdict(
+        { toolName, input, mcpServer, matchedAskRule },
+        {
+          permissionMode,
+          gladeServers: [GLADE_SERVER],
+          sandbox: inside === null ? null : { bounds: inside, failed: false },
+          writeRules: [],
+        },
+      )
+
+    it.each(MODES)('asks for a server that isn’t granted, whichever of its tools is called, in %s', (mode) => {
+      expect(decide('mcp__acme-tracker__create_issue', {}, mode, tracker)).toEqual(ASK_AT_THE_BOUNDARY)
+      expect(decide('mcp__acme-tracker__list_issues', {}, mode, tracker)).toEqual(ASK_AT_THE_BOUNDARY)
+      expect(decide('mcp__gmail__send', {}, mode, null)).toEqual(ASK_AT_THE_BOUNDARY)
+      // A server calling itself Glade's.
+      expect(decide('mcp__glade__set_title', {}, mode, { name: 'glade', source: 'user' })).toEqual(ASK_AT_THE_BOUNDARY)
+      expect(decide('mcp__glade__set_title', {}, mode, null)).toEqual(ASK_AT_THE_BOUNDARY)
+    })
+
+    it.each(MODES)('asks for other agents that aren’t granted, in %s', (mode) => {
+      expect(decide('SendMessage', { to: 'release-notes' }, mode, null)).toEqual(ASK_AT_THE_BOUNDARY)
+      expect(decide('RemoteTrigger', { action: 'list' }, mode, null)).toEqual(ASK_AT_THE_BOUNDARY)
+    })
+
+    it('never asks for Glade’s own tools', () => {
+      for (const mode of MODES) {
+        expect(decide('mcp__glade__set_title', {}, mode, GLADE)).toEqual(ALLOW)
+        expect(decide('mcp__glade__request_access', {}, mode, GLADE)).toEqual(ALLOW)
+      }
+    })
+
+    it('leaves the control tools as they were: decided by the mode, never by a grant', () => {
+      expect(decide('mcp__glade-control__create_task', {}, PermissionMode.AllowAll, CONTROL)).toEqual(ALLOW)
+      expect(decide('mcp__glade-control__list_tasks', {}, PermissionMode.AskBeforeEdits, CONTROL)).toEqual(ALLOW)
+      expect(decide('mcp__glade-control__create_task', {}, PermissionMode.AskBeforeEdits, CONTROL)).toEqual(ASK)
+    })
+
+    it('decides a granted server’s calls as with the sandbox off: unasked in Allow all, asked in the ask mode', () => {
+      const granted = within({ servers: ['acme-tracker'], agents: [OtherAgents.Sessions, OtherAgents.Cloud] })
+      expect(decide('mcp__acme-tracker__create_issue', {}, PermissionMode.AllowAll, tracker, granted)).toEqual(ALLOW)
+      expect(decide('mcp__acme-tracker__create_issue', {}, PermissionMode.AskBeforeEdits, tracker, granted)).toEqual(
+        ASK,
+      )
+      expect(decide('SendMessage', { to: 'release-notes' }, PermissionMode.AllowAll, null, granted)).toEqual(ALLOW)
+      expect(decide('SendMessage', { to: 'release-notes' }, PermissionMode.AskBeforeEdits, null, granted)).toEqual(ASK)
+      expect(decide('RemoteTrigger', { action: 'run' }, PermissionMode.AllowAll, null, granted)).toEqual(ALLOW)
+      expect(decide('RemoteTrigger', { action: 'run' }, PermissionMode.AskBeforeEdits, null, granted)).toEqual(ASK)
+      // Another server is still its own grant.
+      expect(decide('mcp__gmail__send', {}, PermissionMode.AllowAll, null, granted)).toEqual(ASK_AT_THE_BOUNDARY)
+      // And a user's ask rule still asks about a granted server's call in Allow all's stead in the ask mode.
+      expect(
+        decide('mcp__acme-tracker__create_issue', {}, PermissionMode.AskBeforeEdits, tracker, granted, true),
+      ).toEqual(ASK)
+    })
+
+    it('never asks for a message to the task’s own subagent, beyond what the mode asks', () => {
+      expect(decide('SendMessage', { to: SUBAGENT }, PermissionMode.AllowAll, null)).toEqual(ALLOW)
+      expect(decide('SendMessage', { to: SUBAGENT }, PermissionMode.AskBeforeEdits, null)).toEqual(ASK)
+    })
+
+    it('asks for the server, not to leave the sandbox, when an MCP tool’s input says to', () => {
+      const input = { dangerouslyDisableSandbox: true }
+      expect(decide('mcp__acme-tracker__run', input, PermissionMode.AllowAll, tracker)).toEqual(ASK_AT_THE_BOUNDARY)
+      const granted = within({ servers: ['acme-tracker'] })
+      expect(decide('mcp__acme-tracker__run', input, PermissionMode.AllowAll, tracker, granted)).toEqual(ALLOW)
+    })
+
+    it('with the sandbox off, decides as before', () => {
+      expect(decide('mcp__acme-tracker__create_issue', {}, PermissionMode.AllowAll, tracker, null)).toEqual(ALLOW)
+      expect(decide('mcp__acme-tracker__create_issue', {}, PermissionMode.AskBeforeEdits, tracker, null)).toEqual(ASK)
+      expect(decide('SendMessage', { to: 'release-notes' }, PermissionMode.AllowAll, null, null)).toEqual(ALLOW)
+      expect(decide('RemoteTrigger', {}, PermissionMode.AskBeforeEdits, null, null)).toEqual(ASK)
+    })
   })
 })

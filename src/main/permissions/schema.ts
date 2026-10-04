@@ -16,7 +16,7 @@ import {
   type PermissionRule,
   type PermissionSuggestion,
 } from '../../shared/domain'
-import { FolderAccess, SandboxAskKind, SandboxGrantScope, type SandboxAsk } from '../../shared/sandbox'
+import { FolderAccess, OtherAgents, SandboxAskKind, SandboxGrantScope, type SandboxAsk } from '../../shared/sandbox'
 
 /** A permission rule: a tool, and optionally what of it. */
 export const permissionRuleSchema = z.object({
@@ -53,16 +53,31 @@ const folderAskSchema = z.object({
   file: z.literal(true).optional(),
 })
 
+/** A domain a request or a mark names, with the command whose connection asked. */
+const domainAskSchema = z.object({
+  kind: z.literal(SandboxAskKind.Domain),
+  domain: z.string(),
+  command: z.string().nullable(),
+  commandDescription: z.string().nullable(),
+})
+
+/** An MCP server a request or a mark names (#515): its key, and the name it's shown by. */
+const serverAskSchema = z.object({
+  kind: z.literal(SandboxAskKind.McpServer),
+  server: z.string(),
+  name: z.string(),
+})
+
+/** The other agents a request or a mark names (#515). */
+const agentsAskSchema = z.object({ kind: z.literal(SandboxAskKind.Agents), agents: z.enum(OtherAgents) })
+
 /** What a request asks of the agent sandbox, as stored with it (`SandboxAsk`). */
 export const sandboxAskSchema = z.discriminatedUnion('kind', [
   folderAskSchema,
-  z.object({
-    kind: z.literal(SandboxAskKind.Domain),
-    domain: z.string(),
-    command: z.string().nullable(),
-    commandDescription: z.string().nullable(),
-  }),
+  domainAskSchema,
   z.object({ kind: z.literal(SandboxAskKind.Outside) }),
+  serverAskSchema,
+  agentsAskSchema,
 ]) satisfies z.ZodType<SandboxAsk>
 
 /** What a rule decided of a tool call, as stored with its mark (`PermissionMarkOutcome`). */
@@ -70,15 +85,7 @@ export const permissionMarkOutcomeSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal(PermissionMarkKind.Grant),
     scope: z.enum(SandboxGrantScope),
-    ask: z.discriminatedUnion('kind', [
-      folderAskSchema,
-      z.object({
-        kind: z.literal(SandboxAskKind.Domain),
-        domain: z.string(),
-        command: z.string().nullable(),
-        commandDescription: z.string().nullable(),
-      }),
-    ]),
+    ask: z.discriminatedUnion('kind', [folderAskSchema, domainAskSchema, serverAskSchema, agentsAskSchema]),
   }),
   z.object({ kind: z.literal(PermissionMarkKind.TaskRule), rule: permissionRuleSchema }),
   z.object({ kind: z.literal(PermissionMarkKind.Blocked), ask: folderAskSchema.nullable() }),

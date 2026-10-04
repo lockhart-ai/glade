@@ -1,7 +1,7 @@
 import { faCheck, faXmark } from '@fortawesome/free-solid-svg-icons'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { PermissionDecisionKind, type PermissionDecision, type PermissionRequest } from '../../shared/domain'
-import { SandboxAskKind, type SandboxAsk } from '../../shared/sandbox'
+import { isGrantAsk, type SandboxAsk } from '../../shared/sandbox'
 import { Button, ButtonVariant, CopyBlockButton, Icon, IconSize, Input, useToast } from '../components'
 import { classNames } from '../components/classNames'
 import { LinkedText } from '../links'
@@ -48,8 +48,8 @@ enum Action {
 
 /** The answers a card offers, in order; the first is the one ↵ gives, unless the card opens on Deny. */
 function actionsFor(sandbox: SandboxAsk | null, grant: TaskGrant | null): readonly Action[] {
-  // A folder or domain is granted to the task or the workspace, never once.
-  if (sandbox !== null && sandbox.kind !== SandboxAskKind.Outside) {
+  // A folder, a domain, an MCP server or other agents are granted to the task or the workspace, never once.
+  if (sandbox !== null && isGrantAsk(sandbox)) {
     return [Action.AllowForTask, Action.AllowForWorkspace, Action.Deny]
   }
   return grant === null ? [Action.Allow, Action.Deny] : [Action.Allow, Action.AllowForTask, Action.Deny]
@@ -191,6 +191,15 @@ function SandboxDetails({ detail }: { readonly detail: SandboxDetail }): React.J
           <CallInput body={detail.body} />
         </>
       )
+    case SandboxDetailKind.Call:
+      return (
+        <>
+          <div className={styles.target}>
+            <span className={styles.targetTool}>{detail.tool}</span>
+          </div>
+          <CallInput body={detail.body} />
+        </>
+      )
   }
 }
 
@@ -203,13 +212,14 @@ function SandboxCaution({ ask }: { readonly ask: SandboxAsk }): React.JSX.Elemen
   return caution === null ? null : <p className={styles.description}>{caution}</p>
 }
 
-/** A sandbox card's title: what the agent wants, the folder or domain set as code. */
+/** A sandbox card's title: what the agent wants, the folder, domain or MCP server set as code. */
 function SandboxTitleText({ ask }: { readonly ask: SandboxAsk }): React.JSX.Element {
-  const { text, subject } = sandboxTitle(ask)
+  const { text, subject, after } = sandboxTitle(ask)
   return (
     <span className={classNames(styles.titleText, styles.sandboxTitle)}>
       {text}
       {subject !== null && <code className={styles.titleSubject}>{subject}</code>}
+      {after}
     </span>
   )
 }
@@ -232,7 +242,9 @@ interface OpenCardProps {
  * Allow once and Deny. Deny opens a note field for the agent; ↵ in it denies with the note (or without one, left
  * empty), and Esc or Cancel closes it again. The answers are one tab stop, ← → between them: it's the first, so ↵
  * approves, unless the SDK says a stray key mustn't (`defaultToNo`), when it's Deny. Given `autoFocus`, the card takes
- * the focus as it opens, unless you're somewhere else in the window.
+ * the focus as it opens, unless you're somewhere else in the window. A request for an MCP server or for other agents
+ * (#515, no design of its own: built from the folder and domain cards) is the same card: its title names the server,
+ * a line says what allowing it means, and under it are the tool being called and its input.
  */
 function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps): React.JSX.Element {
   const answerPermission = useGladeStore((state) => state.answerPermission)

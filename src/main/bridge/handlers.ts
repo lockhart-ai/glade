@@ -79,6 +79,7 @@ import { readMenuBarSnapshot } from '../menu-bar/snapshot'
 import {
   addSettingsGrant,
   listSettingsGrants,
+  listSettingsServers,
   removeSettingsGrant,
   setSettingsFolderAccess,
 } from '../sandbox/settings-grants'
@@ -444,6 +445,7 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.SandboxRemoveGrant]: async ({ target, grant }) => ({
       grants: await removeSettingsGrant(sandboxGrants, target, grant),
     }),
+    [CommandName.SandboxListReportedServers]: ({ target }) => ({ servers: listSettingsServers(db, target) }),
     [CommandName.TerminalList]: () => ({ tabs: terminals.list() }),
     [CommandName.TerminalCreate]: ({ workspaceId }) => ({
       tab: terminals.create(terminalWorkspace(db, workspaceId)),

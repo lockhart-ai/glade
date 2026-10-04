@@ -33,15 +33,24 @@
  *   it always has, unless the task was granted the whole tool (Allow for this task): that rule is kept from the
  *   session, which would take it for every folder, and decided here instead, for writes inside the bounds that aren't
  *   to one of those files.
+ * - **An MCP server Glade doesn't build asks until it's granted** (#515, `outsideUse`): any tool of a server from the
+ *   user's Claude Code config, a repository's `.mcp.json` or a claude.ai connector. Such a server runs outside the
+ *   sandbox with whatever access it has, so it's a grant of its own, per server (never per tool or per call), kept by
+ *   the name its tools carry (`../../shared/mcpServers`). Glade's own in-process servers never need one: a server is
+ *   Glade's when the SDK says it's in-process (`source: 'sdk'`) and it's one the session registered, as `./classify`
+ *   tells them; the name alone proves nothing. So do `SendMessage` to anything but one of the task's own subagents, and
+ *   `RemoteTrigger`: they reach agents outside the sandbox. Once granted, a call is decided as with the sandbox off.
  * - **Everything else:** in Allow all it goes ahead; in the ask mode, `./classify` decides it, as with the sandbox off.
  *
  * **Glade decides before Claude Code's rules do** (#514). The same standing is taken in the session's `PreToolUse`
- * hook (`BOUNDED_TOOLS`, `../agent/runner`), which runs in every permission mode and before any allow rule: a call
- * that crosses the bounds is decided there, so an allow rule or an additional directory in the user's, the project's
- * or the local Claude Code settings can't let it through unasked.
+ * hook (`BOUNDED_TOOLS` and `OUTSIDE_TOOLS`, `../agent/runner`), which runs in every permission mode and before any
+ * allow rule: a call that crosses the bounds is decided there, so an allow rule or an additional directory in the
+ * user's, the project's or the local Claude Code settings can't let it through unasked.
  */
 import { PermissionMode, type PermissionRule, type ToolInput } from '../../shared/domain'
-import { FolderAccess } from '../../shared/sandbox'
+import { MCP_TOOL_PREFIX, mcpServerLabel, mcpServerOfTool } from '../../shared/mcpServers'
+import { FolderAccess, OtherAgents, SandboxGrantKind } from '../../shared/sandbox'
+import type { McpServerOrigin } from '../agent/backend'
 import {
   credentialPaths,
   DENIED_READ_ROOTS,
@@ -53,7 +62,7 @@ import {
 import type { SandboxFolderGrant, SandboxGrants } from '../agent/sandbox'
 import { hostMatches, SANDBOX_NETWORK_TOOL } from '../agent/sandbox-requests'
 import { absolutePath, canonicalKey, keyInside, NATIVE_FS, pathKey, type PathFs } from './canonical-path'
-import { permissionVerdict, PermissionVerdict, type ClassifiedCall } from './classify'
+import { HOST_SOURCE, permissionVerdict, PermissionVerdict, type ClassifiedCall } from './classify'
 
 /** How a tool call stands to the agent sandbox's bounds. */
 export enum SandboxCrossing {
@@ -71,10 +80,12 @@ export enum SandboxCrossing {
   Override = 'override',
 }
 
-/** A call as deciding it against the sandbox reads it: its tool and input. */
+/** A call as deciding it against the sandbox reads it: its tool and input, and the server an MCP tool is on. */
 export interface SandboxedCall {
   readonly toolName: string
   readonly input: ToolInput
+  /** The server serving an MCP tool, as the SDK says it; null or left out when it doesn't, and for any other tool. */
+  readonly mcpServer?: McpServerOrigin | null
 }
 
 /** The tools that only read, by the input field naming what they read; a search with no path searches the root. */
@@ -140,6 +151,68 @@ export const BOUNDED_TOOLS: readonly string[] = [
   ...new Set([...Object.keys(READ_PATHS), ...Object.keys(WRITE_PATHS), 'WebFetch', ...COMMAND_TOOL_NAMES]),
 ]
 
+/** The tool the agent messages another agent with: one of its own subagents, or a session outside the task. */
+export const SEND_MESSAGE_TOOL = 'SendMessage'
+
+/** The tool that lists, makes, changes and runs Claude's cloud agents. */
+export const REMOTE_TRIGGER_TOOL = 'RemoteTrigger'
+
+/**
+ * The tools that reach outside the sandbox altogether (#515), as hook matchers: every MCP tool, and the two of Claude
+ * Code's own that reach other agents. Glade looks at each call of these before it runs too (`outsideUse`).
+ */
+export const OUTSIDE_TOOLS: readonly string[] = [`${MCP_TOOL_PREFIX}.*`, SEND_MESSAGE_TOOL, REMOTE_TRIGGER_TOOL]
+
+/** Whether a tool is one of those (`OUTSIDE_TOOLS`). */
+export function isOutsideTool(toolName: string): boolean {
+  return toolName.startsWith(MCP_TOOL_PREFIX) || toolName === SEND_MESSAGE_TOOL || toolName === REMOTE_TRIGGER_TOOL
+}
+
+/** What a call uses that runs outside the sandbox, and so needs a grant of its own: an MCP server, or other agents. */
+export type OutsideUse =
+  | {
+      readonly kind: SandboxGrantKind.McpServer
+      /** The server's key: what its tools' names carry, and a grant is kept by. Not always one a grant can keep. */
+      readonly server: string
+      /** The server's name as the SDK reported it, for showing; its key when it reported none. */
+      readonly name: string
+    }
+  | { readonly kind: SandboxGrantKind.Agents; readonly agents: OtherAgents }
+
+/**
+ * What a call uses outside the sandbox; null for a call that uses nothing there: any other tool, a tool of one of the
+ * session's own in-process servers, or a `SendMessage` to one of the task's own subagents, which run in the same
+ * sandbox. A target that isn't exactly a subagent Glade knows as the task's is taken for another session.
+ */
+export function outsideUse(
+  call: SandboxedCall,
+  bounds: Pick<SandboxBounds, 'inProcess' | 'ownSubagent'>,
+): OutsideUse | null {
+  const { toolName, input } = call
+  if (toolName === SEND_MESSAGE_TOOL) {
+    const { to } = input
+    const own = typeof to === 'string' && to !== '' && bounds.ownSubagent(to)
+    return own ? null : { kind: SandboxGrantKind.Agents, agents: OtherAgents.Sessions }
+  }
+  if (toolName === REMOTE_TRIGGER_TOOL) return { kind: SandboxGrantKind.Agents, agents: OtherAgents.Cloud }
+  const origin = call.mcpServer ?? null
+  const server = mcpServerOfTool(toolName, origin?.name ?? null)
+  if (server === null) return null
+  // Glade's own: in-process, as only the host can register one, and one this session was given. Never by name alone.
+  if (origin?.source === HOST_SOURCE && bounds.inProcess.includes(origin.name)) return null
+  return { kind: SandboxGrantKind.McpServer, server, name: mcpServerLabel(origin?.name ?? server, server) }
+}
+
+/** Whether what a call uses outside the sandbox is granted. */
+export function isGrantedUse(use: OutsideUse, bounds: Pick<SandboxBounds, 'servers' | 'agents'>): boolean {
+  switch (use.kind) {
+    case SandboxGrantKind.McpServer:
+      return bounds.servers.includes(use.server)
+    case SandboxGrantKind.Agents:
+      return bounds.agents.includes(use.agents)
+  }
+}
+
 /** Whether a tool writes files. */
 export function isWriteTool(toolName: string): boolean {
   return pathField(WRITE_PATHS, toolName) !== undefined
@@ -178,6 +251,14 @@ export interface SandboxBounds {
   readonly credentials: readonly string[]
   /** The domains granted. */
   readonly domains: readonly string[]
+  /** The MCP servers granted, each by its key. */
+  readonly servers: readonly string[]
+  /** The other agents granted. */
+  readonly agents: readonly OtherAgents[]
+  /** The session's own in-process MCP servers, by name: Glade's, which need no grant. */
+  readonly inProcess: readonly string[]
+  /** Whether a `SendMessage` target is one of the task's own subagents, by the id the SDK gave it. */
+  readonly ownSubagent: (target: string) => boolean
   /**
    * Whether a command would run outside the sandbox without asking to: the user's Claude Code settings exclude it
    * (`sandbox.excludedCommands`, `../agent/excluded-commands`).
@@ -198,12 +279,19 @@ export interface SandboxBoundsSource {
   readonly denied?: readonly string[]
   /** Whether a command would run outside the sandbox unasked (`SandboxBounds.unsandboxed`): none does by default. */
   readonly unsandboxed?: (command: string) => boolean
+  /** The session's own in-process MCP servers (`SandboxBounds.inProcess`). None by default. */
+  readonly inProcess?: readonly string[]
+  /** Whether a `SendMessage` target is one of the task's own subagents: none is by default. */
+  readonly ownSubagent?: (target: string) => boolean
   /** The file system paths are resolved through: the real one by default. */
   readonly fs?: PathFs
 }
 
 /** Every command runs in the sandbox: what the bounds take when nothing says otherwise. */
 const ALL_SANDBOXED = (): boolean => false
+
+/** No target is one of the task's own subagents: what the bounds take when nothing says otherwise. */
+const NO_SUBAGENTS = (): boolean => false
 
 /** The sandbox's bounds for a workspace root and what's granted beyond it; a grant the sandbox can't take is left out. */
 export function sandboxBounds({
@@ -212,13 +300,15 @@ export function sandboxBounds({
   grants,
   denied = [],
   unsandboxed = ALL_SANDBOXED,
+  inProcess = [],
+  ownSubagent = NO_SUBAGENTS,
   fs = NATIVE_FS,
 }: SandboxBoundsSource): SandboxBounds {
   // A folder that can't be resolved is compared as written.
   const key = (folder: string): string => canonicalKey(sandboxFolder(folder), fs) ?? pathKey(sandboxFolder(folder))
   // A grant is compared as it's kept, never resolved again: what its path leads to now was never granted.
   const kept = (granted: readonly SandboxFolderGrant[]): string[] => granted.map(({ path }) => pathKey(path))
-  const { folders: granted, domains } = usableGrants(grants).grants
+  const { folders: granted, domains, servers = [], agents = [] } = usableGrants(grants).grants
   const folders = granted.filter(({ file }) => file !== true)
   const files = granted.filter(({ file }) => file === true)
   const readWrite = ({ access }: SandboxFolderGrant): boolean => access === FolderAccess.ReadWrite
@@ -232,6 +322,10 @@ export function sandboxBounds({
     bounded: [home, ...BOUNDED_ROOTS].map(key),
     credentials: [...credentialPaths(home).map(({ path }) => path), ...denied].map(key),
     domains,
+    servers,
+    agents,
+    inProcess,
+    ownSubagent,
     unsandboxed,
     fs,
   }
@@ -386,7 +480,12 @@ export interface ToolCallVerdict {
 export function toolCallVerdict(call: ClassifiedCall & SandboxedCall, session: SessionScope): ToolCallVerdict {
   const { permissionMode, gladeServers, sandbox } = session
   const allowAll = permissionMode === PermissionMode.AllowAll
-  if (sandbox !== null) {
+  // What runs outside the sandbox altogether asks until it's granted, and is then decided as with the sandbox off.
+  const outside = sandbox === null ? null : outsideUse(call, sandbox.bounds)
+  if (sandbox !== null && outside !== null && !isGrantedUse(outside, sandbox.bounds)) {
+    return { verdict: PermissionVerdict.Ask, crossing: SandboxCrossing.Boundary }
+  }
+  if (sandbox !== null && outside === null) {
     const { crossing, key } = callStanding(call, sandbox.bounds)
     switch (crossing) {
       case SandboxCrossing.Override:

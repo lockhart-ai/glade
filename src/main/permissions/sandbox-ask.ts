@@ -11,6 +11,9 @@
  * - **`request_access`** (the Glade tool an agent calls when the sandbox blocked its command) asks for the folder of the
  *   path it names: the path itself if it's a folder, or doesn't exist yet; otherwise the folder the file is in.
  * - **A command asking to run outside the sandbox** asks for just that.
+ * - **A tool of an MCP server Glade doesn't build** asks for the server (#515), and **`SendMessage`** to anything but
+ *   the task's own subagents, or **`RemoteTrigger`**, for the other agents it reaches (`outsideUse`). A server whose
+ *   name no grant can keep gets the plain card.
  *
  * The folder a card names is the one a grant would keep (`grantedFolder`): where it really is, links followed, and so
  * is what kind of thing the path is: a link to a file is the file it leads to, in that file's folder. A call whose
@@ -39,10 +42,12 @@ import {
   type PermissionSuggestion,
   type ToolInput,
 } from '../../shared/domain'
+import { isMcpServerKey } from '../../shared/mcpServers'
 import {
   coversAccess,
   FolderAccess,
   SandboxAskKind,
+  SandboxGrantKind,
   SandboxGrantScope,
   type CardGrantScope,
   type SandboxAsk,
@@ -60,8 +65,10 @@ import {
   inAny,
   mayRead,
   mayWrite,
+  outsideUse,
   runsCode,
   SandboxCrossing,
+  type OutsideUse,
   type SandboxBounds,
   type SandboxedCall,
 } from './sandbox-classify'
@@ -187,6 +194,20 @@ function fileToolAsk(call: AskingCall, bounds: SandboxBounds): SandboxFolderAsk 
   return file === null ? null : { kind: SandboxAskKind.Folder, path: file, access, file: true }
 }
 
+/**
+ * What a call that uses something outside the sandbox asks for: its MCP server, or the other agents it reaches. Null
+ * for a server whose key no grant can keep (a name with nothing a tool's name can carry): it gets the plain card.
+ */
+export function outsideAsk(use: OutsideUse): SandboxGrantAsk | null {
+  switch (use.kind) {
+    case SandboxGrantKind.McpServer:
+      if (!isMcpServerKey(use.server)) return null
+      return { kind: SandboxAskKind.McpServer, server: use.server, name: use.name }
+    case SandboxGrantKind.Agents:
+      return { kind: SandboxAskKind.Agents, agents: use.agents }
+  }
+}
+
 /** The host a connection's request names; null when it names none. */
 function connectionHost(input: ToolInput): string | null {
   return typeof input.host === 'string' ? input.host : null
@@ -214,6 +235,8 @@ export function sandboxAskFor(
     case SandboxCrossing.Unresolvable:
       return null
   }
+  const outside = outsideUse(call, bounds)
+  if (outside !== null) return outsideAsk(outside)
   const connection = call.toolName === SANDBOX_NETWORK_TOOL
   if (connection || call.toolName === 'WebFetch') {
     const host = connection ? connectionHost(call.input) : fetchedHost(call.input)
@@ -234,7 +257,7 @@ export function sandboxAskFor(
 /**
  * Whether a denied request's ask covers a new one, so the denial stands for it too: the same folder (or file), asked
  * for with at least the access that was denied (a denied read denies a write too; a denied write still lets a read
- * ask), or the same domain.
+ * ask), the same domain, the same MCP server, or the same other agents.
  */
 export function deniedCovers(denied: SandboxAsk | null, ask: SandboxGrantAsk): boolean {
   switch (ask.kind) {
@@ -244,6 +267,10 @@ export function deniedCovers(denied: SandboxAsk | null, ask: SandboxGrantAsk): b
       )
     case SandboxAskKind.Domain:
       return denied?.kind === SandboxAskKind.Domain && denied.domain === ask.domain
+    case SandboxAskKind.McpServer:
+      return denied?.kind === SandboxAskKind.McpServer && denied.server === ask.server
+    case SandboxAskKind.Agents:
+      return denied?.kind === SandboxAskKind.Agents && denied.agents === ask.agents
   }
 }
 

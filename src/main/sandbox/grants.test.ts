@@ -22,6 +22,7 @@ import {
 } from '../../shared/domain'
 import {
   FolderAccess,
+  OtherAgents,
   SandboxGrantKind,
   SandboxGrantScope,
   type Grant,
@@ -92,6 +93,8 @@ afterAll(() => {
 const read = (path: string): Grant => ({ kind: SandboxGrantKind.Folder, path, access: FolderAccess.Read })
 const readWrite = (path: string): Grant => ({ kind: SandboxGrantKind.Folder, path, access: FolderAccess.ReadWrite })
 const domain = (host: string): Grant => ({ kind: SandboxGrantKind.Domain, domain: host })
+const server = (key: string, name = key): Grant => ({ kind: SandboxGrantKind.McpServer, server: key, name })
+const agents = (which: OtherAgents): Grant => ({ kind: SandboxGrantKind.Agents, agents: which })
 const folderKey = (path: string) => ({ kind: SandboxGrantKind.Folder, path }) as const
 
 const GLADE: SandboxGrantTarget = { scope: SandboxGrantScope.Glade }
@@ -399,8 +402,8 @@ describe('a grant changing while sessions run', () => {
     expect(backend.sessions.some(({ closed }) => closed)).toBe(false)
     expect(listSandboxGrants(database.db, workspaceTarget()).map(({ grant }) => grant)).toEqual([readWrite(SHARED)])
     expect(log.withMessage('sandbox grants changed').map(({ fields }) => fields)).toEqual([
-      { taskId: task.id, folders: 1, domains: 0 },
-      { taskId: sibling.id, folders: 1, domains: 0 },
+      { taskId: task.id, folders: 1, domains: 0, servers: 0, agents: 0 },
+      { taskId: sibling.id, folders: 1, domains: 0, servers: 0, agents: 0 },
     ])
     // The idle task in the workspace gets it as soon as it starts.
     const started = await startTask(idle.id)
@@ -1209,16 +1212,25 @@ describe('what a task’s session reads', () => {
     addSandboxGrant(database.db, { target: taskTarget(), grant: read(NOTES) }, 13)
     addSandboxGrant(database.db, { target: taskTarget(elsewhere.id), grant: domain('web.dev') }, 14)
 
+    addSandboxGrant(database.db, { target: GLADE, grant: server('claude_ai_Acme_Docs', 'claude.ai Acme Docs') }, 15)
+    addSandboxGrant(database.db, { target: workspaceTarget(), grant: server('acme-tracker') }, 16)
+    addSandboxGrant(database.db, { target: taskTarget(), grant: agents(OtherAgents.Cloud) }, 17)
+    addSandboxGrant(database.db, { target: taskTarget(elsewhere.id), grant: agents(OtherAgents.Sessions) }, 18)
+
     expect(taskSandboxGrants(database.db, task)).toEqual({
       folders: [
         { path: TOOLCHAIN, access: FolderAccess.ReadWrite },
         { path: NOTES, access: FolderAccess.Read },
       ],
       domains: ['registry.npmjs.org'],
+      servers: ['claude_ai_Acme_Docs', 'acme-tracker'],
+      agents: [OtherAgents.Cloud],
     })
     expect(taskSandboxGrants(database.db, elsewhere)).toEqual({
       folders: [{ path: TOOLCHAIN, access: FolderAccess.Read }],
       domains: ['web.dev'],
+      servers: ['claude_ai_Acme_Docs'],
+      agents: [OtherAgents.Sessions],
     })
     expect(sandboxGrantsOf([])).toEqual(NO_GRANTS)
   })
@@ -1304,6 +1316,8 @@ describe('a permission card’s grant', () => {
         { path: join(scratch, 'disk'), access: FolderAccess.ReadWrite },
       ],
       domains: [],
+      servers: [],
+      agents: [],
     })
     const held = heldGrants(database.db, task)
     expect(held).toEqual([
