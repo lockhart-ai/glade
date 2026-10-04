@@ -6,7 +6,10 @@
 import type { Todo } from '../../shared/domain'
 import { CHILD_KINDS, ChildFilter, ChildKind, type Child, type TodoPanel } from '../../shared/todoHub'
 
-/** What the hub says in place of the summary while the task's agent has kept no todo list. */
+/**
+ * What the hub says in place of the summary, above the placeholder group, for a task that made things and kept no todo
+ * list. One with nothing at all has the Todos tab's own empty state instead (`NoTodos`).
+ */
 export const NO_HUB_TODOS = 'No todos for this task.'
 
 /** The placeholder group's heading: the children no todo has. */
