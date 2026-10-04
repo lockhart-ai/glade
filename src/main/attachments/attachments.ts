@@ -152,6 +152,8 @@ function leadsOutsideSync(root: string, path: string): boolean {
  * no folder is ever left outside the workspace (#514), and again once it's there.
  */
 async function attachmentsFolder(filesRoot: string, taskId: string): Promise<string> {
+  // The workspace's own folder, made again if it's gone: it's the one folder that's always the workspace's.
+  await mkdir(filesRoot, { recursive: true })
   const root = await realpath(filesRoot)
   const folder = join(root, attachmentsFolderOf(taskId))
   const outside = (): CommandFailure =>

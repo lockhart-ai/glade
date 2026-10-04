@@ -274,6 +274,14 @@ describe('attachFile', () => {
     expect(file.path).toBe(`.glade/attachments/${taskId}/sales.csv`)
   })
 
+  it('still attaches to a workspace whose folder is gone, making it again', async () => {
+    rmSync(root, { recursive: true })
+
+    const file = await attachFile(context, taskId, onDesktop('sales.csv'))
+
+    expect(readFileSync(inWorkspace(file.path), 'utf8')).toContain('north,120')
+  })
+
   it('gives up on a name once the folder has too many copies of it', async () => {
     const folder = inWorkspace(`.glade/attachments/${taskId}`)
     mkdirSync(folder, { recursive: true })
