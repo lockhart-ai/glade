@@ -45,9 +45,17 @@ export const permissionSuggestionSchema = z.discriminatedUnion('type', [
 /** The suggestions stored with a request. */
 export const permissionSuggestionsSchema = z.array(permissionSuggestionSchema).readonly()
 
+/** A folder, or one file (`file`), a request or a mark names. */
+const folderAskSchema = z.object({
+  kind: z.literal(SandboxAskKind.Folder),
+  path: z.string(),
+  access: z.enum(FolderAccess),
+  file: z.literal(true).optional(),
+})
+
 /** What a request asks of the agent sandbox, as stored with it (`SandboxAsk`). */
 export const sandboxAskSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal(SandboxAskKind.Folder), path: z.string(), access: z.enum(FolderAccess) }),
+  folderAskSchema,
   z.object({
     kind: z.literal(SandboxAskKind.Domain),
     domain: z.string(),
@@ -56,12 +64,6 @@ export const sandboxAskSchema = z.discriminatedUnion('kind', [
   }),
   z.object({ kind: z.literal(SandboxAskKind.Outside) }),
 ]) satisfies z.ZodType<SandboxAsk>
-
-const folderAskSchema = z.object({
-  kind: z.literal(SandboxAskKind.Folder),
-  path: z.string(),
-  access: z.enum(FolderAccess),
-})
 
 /** What a rule decided of a tool call, as stored with its mark (`PermissionMarkOutcome`). */
 export const permissionMarkOutcomeSchema = z.discriminatedUnion('kind', [

@@ -196,10 +196,36 @@ const removeArtifactInput = z.object({
   url: text('url').optional().describe("A link artifact's url, as it was added."),
 }) satisfies z.ZodType<RemoveArtifactInput>
 
+/** The longest path `request_access` takes: macOS's own limit is far below it. */
+export const ACCESS_PATH_MAX = 4096
+
+/** The longest reason `request_access` takes: a sentence, which the card shows whole. */
+export const ACCESS_REASON_MAX = 500
+
+/**
+ * What a permission card must never show as if it were plain text: control characters (a line break, an escape, a NUL)
+ * and the characters that reorder the text around them (the bidirectional overrides, embeddings and isolates), which
+ * could make a path or a reason read as something it isn't.
+ */
+const UNSHOWABLE = /[\p{Cc}\u202A-\u202E\u2066-\u2069]/u
+
+/** Text the card shows as the agent wrote it: not empty, not too long, and nothing in it that the card can't show. */
+function shownText(what: string, max: number) {
+  return text(what)
+    .max(max, `The ${what} is too long: ${String(max)} characters at most.`)
+    .refine((value) => !UNSHOWABLE.test(value), {
+      message: `The ${what} has a control or text-direction character in it. Give it as plain text.`,
+    })
+}
+
 const requestAccessInput = z.object({
-  path: text('path').describe('The absolute path the command was blocked from: a file or a folder.'),
+  path: shownText('path', ACCESS_PATH_MAX).describe(
+    'The absolute path the command was blocked from: a file or a folder.',
+  ),
   access: z.enum(FileAccess).describe('"read" to read it, or "write" to write to it (which lets you read it too).'),
-  reason: text('reason').describe('Why you need it, in one short sentence: the user reads it on the card.'),
+  reason: shownText('reason', ACCESS_REASON_MAX).describe(
+    'Why you need it, in one short sentence: the user reads it on the card.',
+  ),
 }) satisfies z.ZodType<AccessRequest>
 
 /** A tool's reply to the model: MCP's own result type. */

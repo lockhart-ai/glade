@@ -41,6 +41,10 @@ import { NOTE_PLACEHOLDER } from './PermissionCard'
 import { PERMISSION_LINE_STATE } from './PermissionLine'
 import styles from './PermissionCard.module.css'
 import toolLogStyles from '../tool-log/ToolLog.module.css'
+import { setHomeFolder } from '../../shared/homeFolder'
+
+// The sample data's home folder, which paths under it are shown from as `~`.
+setHomeFolder('/Users/me')
 
 /** The sample workspace's root, which paths show relative to. */
 const ROOT = '/code/w1'
@@ -1043,6 +1047,44 @@ describe('the sandbox’s cards', () => {
     expect(within(card()).getByText('uv sync --frozen').tagName).toBe('CODE')
     expect(card()).toHaveTextContent('uv sync --frozen needs to write its download cache.')
     expect(answerNames()).toEqual(['Allow for this task', 'Allow for this workspace', 'Deny'])
+  })
+
+  it('asks for a single file by its own name, with the same answers, and its row says the file', async () => {
+    const gitconfig = request('gitconfig', {
+      toolName: REQUEST_ACCESS_TOOL,
+      toolUseId: 'gitconfig-call',
+      input: { path: '~/.gitconfig', access: 'read', reason: '`git log` needs your git settings.' },
+      description: '`git log` needs your git settings.',
+      suggestions: [],
+      suppressAlwaysAllowRule: true,
+      // A file in the home folder: the card asks for it alone, never for the home folder.
+      sandbox: { kind: SandboxAskKind.Folder, path: '/Users/me/.gitconfig', access: FolderAccess.Read, file: true },
+    })
+    const { fake } = await renderChat([gitconfig])
+
+    expect(card().firstElementChild).toHaveTextContent('The agent wants to read~/.gitconfig')
+    expect(within(card()).getByText('~/.gitconfig').tagName).toBe('CODE')
+    expect(card()).toHaveTextContent('git log needs your git settings.')
+    expect(answerNames()).toEqual(['Allow for this task', 'Allow for this workspace', 'Deny'])
+
+    fireEvent.click(button('Allow for this workspace'))
+    await settle()
+
+    expect(answers(fake)).toEqual([{ id: 'gitconfig', decision: { kind: PermissionDecisionKind.AllowForWorkspace } }])
+  })
+
+  it('names another user’s folder in full: only your own home folder is ~', async () => {
+    const theirs = request('theirs', {
+      ...FOLDER_READ,
+      input: { file_path: '/Users/someone/Documents/taxes.txt' },
+      sandbox: { kind: SandboxAskKind.Folder, path: '/Users/someone/Documents', access: FolderAccess.Read },
+    })
+    await renderChat([theirs])
+
+    // Before #510's review, this card read "The agent wants to read ~/Documents".
+    expect(card().firstElementChild).toHaveTextContent('The agent wants to read/Users/someone/Documents')
+    expect(card()).toHaveTextContent('/Users/someone/Documents/taxes.txt')
+    expect(card()).not.toHaveTextContent('~')
   })
 
   it('asks to run a command outside the sandbox: what that means, the command, and only Allow once · Deny', async () => {

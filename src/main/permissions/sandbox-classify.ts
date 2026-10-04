@@ -9,6 +9,10 @@
  *   (`SandboxNetworkAccess`). Reads elsewhere (`/etc/hosts`, `/usr/…`) go ahead, as do reads inside the bounds.
  * - **Paths are compared by where they really are** (`./canonical-path`): a symbolic link, the data volume's alias,
  *   another case or `~` is the folder it leads to. A path that can't be resolved asks.
+ * - **A granted folder is the path that was granted, and nothing it later leads to.** Grants are kept by where the
+ *   folder really was when it was granted (`../sandbox/grants`), and compared here as kept: only the call's own path is
+ *   resolved. So a granted folder swapped for a link to another opens nothing new: a call through it leads elsewhere,
+ *   and asks. A single file's grant (`SandboxFolderGrant.file`) covers that path alone, not what's beside it.
  * - **A credential path is refused**, read or write, whatever is granted and however it's spelled (`CREDENTIAL_PATHS`).
  * - **Running a command outside the sandbox asks**, every time (`dangerouslyDisableSandbox` set to anything but false),
  *   and is refused without asking once the sandbox couldn't start in the session.
@@ -23,7 +27,7 @@
 import { PermissionMode, type PermissionRule, type ToolInput } from '../../shared/domain'
 import { FolderAccess } from '../../shared/sandbox'
 import { credentialPaths, DENIED_READ_ROOTS, sandboxFolder, usableGrants } from '../agent/sandbox'
-import type { SandboxGrants } from '../agent/sandbox'
+import type { SandboxFolderGrant, SandboxGrants } from '../agent/sandbox'
 import { hostMatches, SANDBOX_NETWORK_TOOL } from '../agent/sandbox-requests'
 import { absolutePath, canonicalKey, keyInside, NATIVE_FS, pathKey, type PathFs } from './canonical-path'
 import { permissionVerdict, PermissionVerdict, type ClassifiedCall } from './classify'
@@ -130,6 +134,10 @@ export interface SandboxBounds {
   readonly readable: readonly string[]
   /** The folders it may write: the root and the read-write grants. */
   readonly writable: readonly string[]
+  /** The single files granted, each of which it may read: that path alone, and nothing beside it. */
+  readonly readableFiles: readonly string[]
+  /** The single files granted read-write. */
+  readonly writableFiles: readonly string[]
   /** The folders its reads are bounded in: the home folder, `/Users`, `/Volumes` and `/System/Volumes`. */
   readonly bounded: readonly string[]
   /** The credential paths, which nothing opens. */
@@ -152,13 +160,19 @@ export interface SandboxBoundsSource {
 export function sandboxBounds({ root, home, grants, fs = NATIVE_FS }: SandboxBoundsSource): SandboxBounds {
   // A folder that can't be resolved is compared as written.
   const key = (folder: string): string => canonicalKey(sandboxFolder(folder), fs) ?? pathKey(sandboxFolder(folder))
-  const { folders, domains } = usableGrants(grants).grants
-  const readWrite = folders.filter(({ access }) => access === FolderAccess.ReadWrite)
+  // A grant is compared as it's kept, never resolved again: what its path leads to now was never granted.
+  const kept = (granted: readonly SandboxFolderGrant[]): string[] => granted.map(({ path }) => pathKey(path))
+  const { folders: granted, domains } = usableGrants(grants).grants
+  const folders = granted.filter(({ file }) => file !== true)
+  const files = granted.filter(({ file }) => file === true)
+  const readWrite = ({ access }: SandboxFolderGrant): boolean => access === FolderAccess.ReadWrite
   return {
     root: sandboxFolder(root),
     home: sandboxFolder(home),
-    readable: [root, ...folders.map(({ path }) => path)].map(key),
-    writable: [root, ...readWrite.map(({ path }) => path)].map(key),
+    readable: [key(root), ...kept(folders)],
+    writable: [key(root), ...kept(folders.filter(readWrite))],
+    readableFiles: kept(files),
+    writableFiles: kept(files.filter(readWrite)),
     bounded: [home, ...BOUNDED_ROOTS].map(key),
     credentials: credentialPaths(home).map(({ path }) => key(path)),
     domains,
@@ -179,6 +193,16 @@ function inputKey(input: ToolInput, field: string | undefined, bounds: SandboxBo
 /** Whether the path with this key is in one of the folders with these keys. */
 export function inAny(key: string, folders: readonly string[]): boolean {
   return folders.some((folder) => keyInside(key, folder))
+}
+
+/** Whether the agent may read the path with this key: it's in the root or a granted folder, or is a granted file. */
+export function mayRead(key: string, bounds: Pick<SandboxBounds, 'readable' | 'readableFiles'>): boolean {
+  return inAny(key, bounds.readable) || bounds.readableFiles.includes(key)
+}
+
+/** Whether the agent may write the path with this key: in the root or a read-write folder, or a read-write file. */
+export function mayWrite(key: string, bounds: Pick<SandboxBounds, 'writable' | 'writableFiles'>): boolean {
+  return inAny(key, bounds.writable) || bounds.writableFiles.includes(key)
 }
 
 /** The path a file tool's call names, and what the tool does with it. */
@@ -220,31 +244,47 @@ export function fetchedHost(input: ToolInput): string | null {
   return host === '' ? null : host
 }
 
-/** How a call stands to the sandbox's bounds (see the module comment). */
-export function sandboxCrossing(call: SandboxedCall, bounds: SandboxBounds): SandboxCrossing {
+/** How a call stands to the sandbox's bounds, and the path it was decided by. */
+export interface CallStanding {
+  readonly crossing: SandboxCrossing
+  /**
+   * The key of the path a file tool's call names, resolved once here for whoever goes on to ask which grant covers it;
+   * null for any other call, and for a path that can't be resolved.
+   */
+  readonly key: string | null
+}
+
+/** How a call stands to the sandbox's bounds (see the module comment), with the key of the path it names. */
+export function callStanding(call: SandboxedCall, bounds: SandboxBounds): CallStanding {
   const { toolName, input } = call
-  if (isSandboxOverride(input)) return SandboxCrossing.Override
-  if (toolName === SANDBOX_NETWORK_TOOL) return SandboxCrossing.Boundary
+  if (isSandboxOverride(input)) return { crossing: SandboxCrossing.Override, key: null }
+  if (toolName === SANDBOX_NETWORK_TOOL) return { crossing: SandboxCrossing.Boundary, key: null }
   if (toolName === 'WebFetch') {
     const host = fetchedHost(input)
     const granted = host !== null && bounds.domains.some((domain) => hostMatches(host, domain))
-    return granted ? SandboxCrossing.None : SandboxCrossing.Boundary
+    return { crossing: granted ? SandboxCrossing.None : SandboxCrossing.Boundary, key: null }
   }
   const read = inputKey(input, pathField(READ_PATHS, toolName), bounds)
   if (read !== undefined) {
-    if (read === null) return SandboxCrossing.Boundary
-    if (inAny(read, bounds.credentials)) return SandboxCrossing.Credential
-    if (inAny(read, bounds.readable)) return SandboxCrossing.None
-    return inAny(read, bounds.bounded) ? SandboxCrossing.Boundary : SandboxCrossing.None
+    if (read === null) return { crossing: SandboxCrossing.Boundary, key: null }
+    if (inAny(read, bounds.credentials)) return { crossing: SandboxCrossing.Credential, key: read }
+    if (mayRead(read, bounds)) return { crossing: SandboxCrossing.None, key: read }
+    const bounded = inAny(read, bounds.bounded)
+    return { crossing: bounded ? SandboxCrossing.Boundary : SandboxCrossing.None, key: read }
   }
   const written = inputKey(input, pathField(WRITE_PATHS, toolName), bounds)
   if (written !== undefined) {
-    if (written === null) return SandboxCrossing.Boundary
-    if (inAny(written, bounds.credentials)) return SandboxCrossing.Credential
-    if (!inAny(written, bounds.writable)) return SandboxCrossing.Boundary
-    return runsCode(written) ? SandboxCrossing.Protected : SandboxCrossing.None
+    if (written === null) return { crossing: SandboxCrossing.Boundary, key: null }
+    if (inAny(written, bounds.credentials)) return { crossing: SandboxCrossing.Credential, key: written }
+    if (!mayWrite(written, bounds)) return { crossing: SandboxCrossing.Boundary, key: written }
+    return { crossing: runsCode(written) ? SandboxCrossing.Protected : SandboxCrossing.None, key: written }
   }
-  return SandboxCrossing.None
+  return { crossing: SandboxCrossing.None, key: null }
+}
+
+/** How a call stands to the sandbox's bounds (see the module comment). */
+export function sandboxCrossing(call: SandboxedCall, bounds: SandboxBounds): SandboxCrossing {
+  return callStanding(call, bounds).crossing
 }
 
 /** The sandbox a session runs in, as deciding its calls reads it. */

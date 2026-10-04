@@ -20,6 +20,10 @@ import {
   permissionLinesByToolUse,
   requestPermissionLine,
 } from './permissionLines'
+import { setHomeFolder } from '../../shared/homeFolder'
+
+// The sample data's home folder, which paths under it are shown from as `~`.
+setHomeFolder('/Users/me')
 
 function request(id: string, patch: Partial<PermissionRequest> = {}): PermissionRequest {
   return { ...samplePermissionRequest(id, 't1'), ...patch }
@@ -169,6 +173,25 @@ describe("a sandbox request's line", () => {
     expect(text({ state: PermissionRequestState.Withdrawn, sandbox: API })).toBe(
       'Withdrawn: write to ~/code/acme-web/src/api',
     )
+  })
+
+  it('names a single file as it names a folder, and another user’s folder in full', () => {
+    const file: SandboxAsk = {
+      kind: SandboxAskKind.Folder,
+      path: '/Users/me/.gitconfig',
+      access: FolderAccess.Read,
+      file: true,
+    }
+    expect(text({ sandbox: file })).toBe('Waiting on you: read ~/.gitconfig')
+    expect(text({ ...allowed, sandbox: file, grantedScope: SandboxGrantScope.Workspace })).toBe(
+      'Allowed for this workspace: read ~/.gitconfig',
+    )
+    const theirs: SandboxAsk = {
+      kind: SandboxAskKind.Folder,
+      path: '/Users/someone/Documents',
+      access: FolderAccess.Read,
+    }
+    expect(text({ sandbox: theirs })).toBe('Waiting on you: read /Users/someone/Documents')
   })
 
   it('is teal for a grant to the task or the workspace, as for a rule', () => {

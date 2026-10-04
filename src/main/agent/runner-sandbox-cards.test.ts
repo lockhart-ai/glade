@@ -2,7 +2,7 @@
 // answer grants and to whom, that the grant is in force before the call goes on, and the agent's own `request_access`.
 // A fake agent session behind the real bridge, saving to a database in a temporary folder. The home folder is a
 // temporary one too, so the paths the sandbox resolves are never the machine's own.
-import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -45,9 +45,10 @@ import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { setUiState } from '../db/repositories/ui-state'
+import { FOLDER_MOVED_NOTE } from '../permissions/permissions'
 import { ACCESS_WITHDRAWN, AccessOutcomeKind, accessReply } from '../permissions/sandbox-ask'
 import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
-import { grantSandboxAccess, type SandboxGrantsContext } from '../sandbox/grants'
+import { grantSandboxAccess, revokeSandboxGrant, type SandboxGrantsContext } from '../sandbox/grants'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
 import { ToolPermissionBehavior, type ToolPermissionAnswer } from './backend'
 import {
@@ -58,11 +59,19 @@ import {
   type PermissionCallFields,
   type ToolCaller,
 } from './fake-backend'
-import { PERMISSION_WITHDRAWN_NOTE, SANDBOX_NOT_APPLIED, type AgentRunner } from './runner'
+import {
+  alreadyDeniedMessage,
+  CONNECTION_REFUSAL,
+  PERMISSION_WITHDRAWN_NOTE,
+  SANDBOX_FAILED_REFUSAL,
+  SANDBOX_NOT_APPLIED,
+  type AgentRunner,
+} from './runner'
 import {
   FileAccess,
   networkAccessCall,
   outsideFileCall,
+  sandboxInitFailure,
   sandboxOverrideCall,
   SANDBOX_NETWORK_TOOL,
   webFetchCall,
@@ -273,6 +282,27 @@ const OVERRIDE = { command: 'docker compose up -d db', dangerouslyDisableSandbox
 
 const BOTH_MODES = [PermissionMode.AllowAll, PermissionMode.AskBeforeEdits]
 
+/** The agent calls `request_access` for a path: resolves once the tool has returned, which a card holds up. */
+function asksAccess(
+  session: FakeAgentSession,
+  toolUseId: string,
+  path: string,
+  access: 'read' | 'write' = 'read',
+  caller: ToolCaller = {},
+): Promise<void> {
+  const input = { path, access, reason: 'The command needs it.' }
+  const called = session.callTool(toolUseId, REQUEST_ACCESS_TOOL, input, undefined, caller)
+  // One left waiting on its card when the test ends is cancelled as its session closes.
+  called.catch(() => undefined)
+  return called
+}
+
+/** Swaps a folder or file for a link to somewhere else, as a command with a grant above it could. */
+function swapForLink(path: string, target: string): void {
+  renameSync(path, `${path}.was`)
+  symlinkSync(target, path)
+}
+
 describe('what each crossing asks for', () => {
   it.each(BOTH_MODES)('a command’s connection asks for the domain, on the command’s own row, in %s', async (mode) => {
     await setMode(mode)
@@ -374,17 +404,45 @@ describe('what each crossing asks for', () => {
     const glob = await callTool(session, readOf('toolu_glob', `${HOME}/code/a[1]/x.md`))
     await callTool(session, webFetchCall('toolu_ip6', { url: 'http://[::1]:8000/', prompt: 'Read it.' }))
     await callTool(session, { toolUseId: 'toolu_nourl', toolName: 'WebFetch', input: { url: 'not a url' } })
-    session.requestPermission({ ...networkAccessCall('ok.example', 'net-1'), input: {} })
-    await settle()
+    // A pattern of hosts isn't one a card can grant: before #510's review, this card granted every host under it.
+    await callTool(session, webFetchCall('toolu_wild', { url: 'https://*.github.io/x', prompt: 'Read it.' }))
 
-    for (const toolUseId of ['toolu_glob', 'toolu_ip6', 'toolu_nourl', 'net-1']) {
+    for (const toolUseId of ['toolu_glob', 'toolu_ip6', 'toolu_nourl', 'toolu_wild']) {
       expect(only(toolUseId)).toMatchObject({ sandbox: null, suppressAlwaysAllowRule: true })
     }
+    await expect(answer('toolu_wild', FOR_TASK)).rejects.toMatchObject({ code: BridgeErrorCode.InvalidRequest })
     await expect(answer('toolu_glob', FOR_WORKSPACE)).rejects.toMatchObject({ code: BridgeErrorCode.InvalidRequest })
     await answer('toolu_glob', ONCE)
     await expect(glob.answer).resolves.toEqual(ALLOWED_BY_YOU)
     expect(taskGrants()).toEqual([])
   })
+
+  it.each(BOTH_MODES)(
+    'refuses a command’s connection to a host no card can name, with no card, in %s',
+    async (mode) => {
+      await setMode(mode)
+      const session = await startTurn()
+      await startCommand(session, 'toolu_aws', { command: 'aws s3 ls' })
+
+      // A connection can't be allowed just once, and a pattern or an address is nothing a card can grant.
+      const refused = { behavior: ToolPermissionBehavior.Deny, message: CONNECTION_REFUSAL, byUser: false }
+      for (const [index, host] of ['*.amazonaws.com', '*', '[::1]', 'https://registry.npmjs.org/', ''].entries()) {
+        const asked = session.requestPermission(networkAccessCall(host, `net-${String(index)}`))
+        await expect(asked.answer).resolves.toEqual(refused)
+      }
+      const nameless = session.requestPermission({ ...networkAccessCall('ok.example', 'net-none'), input: {} })
+      await expect(nameless.answer).resolves.toEqual(refused)
+
+      expect(requests()).toEqual([])
+      expect(taskGrants()).toEqual([])
+      expect(workspaceGrants()).toEqual([])
+      expect(current().awaitingPermission).toBe(false)
+      // One host, by name, still asks.
+      session.requestPermission(networkAccessCall('s3.amazonaws.com', 'net-ok'))
+      await settle()
+      expect(only('toolu_aws').sandbox).toMatchObject({ kind: SandboxAskKind.Domain, domain: 's3.amazonaws.com' })
+    },
+  )
 
   it.each(BOTH_MODES)('a command asking to leave the sandbox asks for just that in %s', async (mode) => {
     await setMode(mode)
@@ -1438,11 +1496,14 @@ describe('what a rule decided', () => {
     expect(marks().map(([toolUseId]) => toolUseId)).toEqual(['toolu_test'])
   })
 
-  it('marks a sandboxed command whose result says the sandbox blocked it, failed or not, in any case', async () => {
+  it('marks a sandboxed command that failed saying the sandbox blocked it, in any case, and no other', async () => {
     const session = await startTurn()
 
     await command(session, 'toolu_cat', 'Exit code 1\ncat: /x/secret.txt: Operation not permitted')
     await command(session, 'toolu_redirect', 'Exit code 1\n(eval):1: operation not permitted: /x/new.txt')
+    // A command that printed the words and went on wasn't stopped by the sandbox: `cat docs/sdk-notes.md`, say, whose
+    // text says them. Before #510's review, it read "Blocked by the sandbox".
+    await command(session, 'toolu_notes', 'A blocked `cat` fails with "Operation not permitted".', false)
     await command(session, 'toolu_carried_on', 'cat: /x/a: Operation not permitted\ndone', false)
     await command(session, 'toolu_other', 'Exit code 1\nnpm error missing script: build')
     await command(session, 'toolu_fine', 'ok', false)
@@ -1453,11 +1514,119 @@ describe('what a rule decided', () => {
     expect(marks()).toEqual([
       ['toolu_cat', blocked],
       ['toolu_redirect', blocked],
-      ['toolu_carried_on', blocked],
     ])
   })
 
-  it('names what the blocked command was blocked from once the agent’s request_access says, on the latest unnamed one', async () => {
+  it('doesn’t put a request_access path on a command that only printed the words', async () => {
+    const session = await startTurn()
+    await command(session, 'toolu_notes', 'A blocked `cat` fails with "Operation not permitted".', false)
+
+    void asksAccess(session, 'toolu_access', `${HOME}/code/cache`, 'write')
+    await settle()
+
+    expect(marks()).toEqual([])
+    expect(only('toolu_access').state).toBe(PermissionRequestState.Open)
+  })
+
+  it('names a blocked command only from the same agent’s very next call', async () => {
+    const session = await startTurn()
+    session.emit(sdk.toolUse('toolu_agent', 'Agent', { description: 'Client generator', prompt: 'Go.' }))
+    await settle()
+    const subagent = { agentId: 'agent-7', parent: 'toolu_agent' }
+    const blocked = { kind: PermissionMarkKind.Blocked, ask: null }
+    const cache = `${HOME}/code/cache`
+
+    // The agent's own command is blocked, then its subagent asks for something of its own: not the same agent's.
+    await command(session, 'toolu_main', 'Exit code 1\ncat: /x: Operation not permitted')
+    void asksAccess(session, 'toolu_sub_access', WEB, 'read', subagent)
+    await settle()
+    expect(marks()).toEqual([['toolu_main', blocked]])
+
+    // The subagent's command is blocked, and the agent asks: not the subagent's either.
+    session.emit(sdk.toolUse('toolu_sub_uv', 'Bash', { command: 'uv sync' }, 'toolu_agent'))
+    await settle()
+    const output = 'Exit code 1\nerror: Operation not permitted (os error 1)'
+    await session.finishBash({ toolUseId: 'toolu_sub_uv', command: 'uv sync', output, failed: true }).answer
+    session.emit(sdk.toolResult('toolu_sub_uv', output, true))
+    await settle()
+    // Another call of the agent's came between its blocked command and its request: that isn't "just before" either.
+    await runs(session, 'toolu_between', 'Read', { file_path: `${ROOT}/a.ts` })
+    void asksAccess(session, 'toolu_main_access', `${HOME}/code/elsewhere`, 'write')
+    await settle()
+    expect(marks()).toEqual([
+      ['toolu_main', blocked],
+      ['toolu_sub_uv', blocked],
+    ])
+
+    // The subagent's next call asks for what its own command was blocked from: that names it.
+    void asksAccess(session, 'toolu_sub_access_2', cache, 'write', subagent)
+    await settle()
+    expect(marks()).toEqual([
+      ['toolu_main', blocked],
+      ['toolu_sub_uv', { kind: PermissionMarkKind.Blocked, ask: folder(cache, FolderAccess.ReadWrite) }],
+    ])
+  })
+
+  it('never marks a call allowed that crosses the sandbox’s bounds: it’s asked about or refused, whatever rule covers it', async () => {
+    await setMode(PermissionMode.AskBeforeEdits)
+    addTaskPermissionRule(database.db, { taskId: task.id, rule: { toolName: 'Bash', ruleContent: 'docker compose *' } })
+    addTaskPermissionRule(database.db, { taskId: task.id, rule: { toolName: 'Read' } })
+    const session = await startTurn()
+    // The sandbox couldn't start: from here on, every request to run outside it is refused without a card.
+    session.emit(sdk.toolUse('toolu_ls', 'Bash', { command: 'ls' }))
+    await settle()
+    const failure = sandboxInitFailure('sandbox-exec: command not found')
+    await session.finishBash({ toolUseId: 'toolu_ls', command: 'ls', output: failure, failed: true }).answer
+
+    // Before #510's review, this row read "Allowed by task rule", though the command was refused.
+    const refused = await callTool(session, sandboxOverrideCall('toolu_out', OVERRIDE, true))
+    await expect(refused.answer).resolves.toEqual({
+      behavior: ToolPermissionBehavior.Deny,
+      message: SANDBOX_FAILED_REFUSAL,
+      byUser: false,
+    })
+    // And a read outside the bounds asks, whole-tool rule or not.
+    await callTool(session, readOf('toolu_read', `${WEB}/package.json`))
+    expect(only('toolu_read').state).toBe(PermissionRequestState.Open)
+    expect(marks()).toEqual([])
+
+    // A call inside the bounds that a rule covers is still marked.
+    await runs(session, 'toolu_ps', 'Bash', { command: 'docker compose ps' })
+    await runs(session, 'toolu_mine', 'Read', { file_path: `${ROOT}/a.ts` })
+    expect(marks().map(([toolUseId, { kind }]) => [toolUseId, kind])).toEqual([
+      ['toolu_ps', PermissionMarkKind.TaskRule],
+      ['toolu_mine', PermissionMarkKind.TaskRule],
+    ])
+  })
+
+  it('reads the task’s rules and grants again once they change, and not before', async () => {
+    await setMode(PermissionMode.AskBeforeEdits)
+    const session = await startTurn()
+    const workspaceTarget = { scope: SandboxGrantScope.Workspace, workspaceId: workspace.id } as const
+
+    // No rule and no grant yet: neither call is marked.
+    const edit = { file_path: `${ROOT}/src/date.ts`, old_string: 'a', new_string: 'b' }
+    await runs(session, 'toolu_shared_0', 'Read', { file_path: `${SHARED}/a.md` })
+    const asked = await callTool(session, { toolUseId: 'toolu_edit', toolName: 'Edit', input: edit })
+    expect(marks()).toEqual([])
+
+    // Allow for this task on the card grants the rule: the next call it covers says so.
+    await answer('toolu_edit', FOR_TASK)
+    await expect(asked.answer).resolves.toMatchObject({ behavior: ToolPermissionBehavior.Allow })
+    await runs(session, 'toolu_edit_1', 'Edit', edit)
+    // And a grant made in Settings while the session runs marks the next call it lets through.
+    await grant(workspaceTarget, { kind: SandboxGrantKind.Folder, path: SHARED, access: FolderAccess.Read })
+    await runs(session, 'toolu_shared_1', 'Read', { file_path: `${SHARED}/a.md` })
+    await revokeSandboxGrant(grantsContext(), workspaceTarget, { kind: SandboxGrantKind.Folder, path: SHARED })
+    await runs(session, 'toolu_shared_2', 'Read', { file_path: `${SHARED}/a.md` })
+
+    expect(marks().map(([toolUseId, { kind }]) => [toolUseId, kind])).toEqual([
+      ['toolu_edit_1', PermissionMarkKind.TaskRule],
+      ['toolu_shared_1', PermissionMarkKind.Grant],
+    ])
+  })
+
+  it('names what the blocked command was blocked from once the agent’s request_access says, on the one just before', async () => {
     const session = await startTurn()
     await command(session, 'toolu_first', 'Exit code 1\ncat: /x: Operation not permitted')
     await command(session, 'toolu_uv', 'Exit code 1\nerror: Operation not permitted (os error 1)')
@@ -1521,5 +1690,435 @@ describe('what a rule decided', () => {
     expect(history.permissionMarks).toMatchObject([
       { toolUseId: 'toolu_cat', outcome: { kind: PermissionMarkKind.Blocked, ask: null } },
     ])
+  })
+})
+
+describe('a card grants exactly what it showed', () => {
+  const SCRATCH = `${HOME}/scratch`
+  const CACHE = `${SCRATCH}/cache`
+  const DOCUMENTS = `${HOME}/Documents`
+
+  beforeEach(() => {
+    mkdirSync(CACHE, { recursive: true })
+    mkdirSync(DOCUMENTS, { recursive: true })
+    writeFileSync(`${DOCUMENTS}/taxes.txt`, 'private')
+  })
+
+  afterEach(() => {
+    rmSync(SCRATCH, { recursive: true, force: true })
+    rmSync(DOCUMENTS, { recursive: true, force: true })
+  })
+
+  it.each([FOR_TASK, FOR_WORKSPACE])(
+    'request_access: a folder swapped for a link while its card is open is not granted, and the agent is told why (%o)',
+    async (allow) => {
+      const session = await startTurn()
+      const called = asksAccess(session, 'toolu_access', CACHE, 'write')
+      await settle()
+      expect(only('toolu_access').sandbox).toMatchObject({ path: CACHE, access: FolderAccess.ReadWrite })
+      const overlays = session.flagSettings.length
+
+      // Before #510's review, allowing it now granted Documents, read-write: where the link leads.
+      swapForLink(CACHE, DOCUMENTS)
+      await answer('toolu_access', allow)
+      await called
+      await settle()
+
+      expect(only('toolu_access')).toMatchObject({
+        state: PermissionRequestState.Denied,
+        denyNote: FOLDER_MOVED_NOTE,
+        grantedScope: null,
+      })
+      expect(taskGrants()).toEqual([])
+      expect(workspaceGrants()).toEqual([])
+      expect(session.flagSettings).toHaveLength(overlays)
+      expect(toolCall('toolu_access').state).toBe(ToolCallState.Error)
+      expect(toolCall('toolu_access').output).toContain(FOLDER_MOVED_NOTE)
+      expect(current()).toMatchObject({ activity: TaskActivity.Working, awaitingPermission: false })
+    },
+  )
+
+  it('a file tool’s card: a folder swapped while it’s open is not granted, and the call doesn’t run', async () => {
+    const session = await startTurn()
+    const asked = await callTool(session, writeOf('toolu_write', `${CACHE}/index.json`))
+    expect(only('toolu_write').sandbox).toMatchObject({ path: CACHE, access: FolderAccess.ReadWrite })
+
+    swapForLink(CACHE, DOCUMENTS)
+    await answer('toolu_write', FOR_WORKSPACE)
+
+    await expect(asked.answer).resolves.toMatchObject({
+      behavior: ToolPermissionBehavior.Deny,
+      message: expect.stringContaining(FOLDER_MOVED_NOTE) as unknown,
+    })
+    expect(only('toolu_write')).toMatchObject({ state: PermissionRequestState.Denied, denyNote: FOLDER_MOVED_NOTE })
+    expect(taskGrants()).toEqual([])
+    expect(workspaceGrants()).toEqual([])
+    expect(overlay(session).allowWrite).toEqual([ROOT])
+  })
+
+  it('a granted folder swapped for a link afterwards opens nothing new: a file tool asks again, and the overlay still names the path granted', async () => {
+    const session = await startTurn()
+    const first = await callTool(session, writeOf('toolu_first', `${CACHE}/index.json`))
+    await answer('toolu_first', FOR_TASK)
+    await expect(first.answer).resolves.toEqual(ALLOWED_BY_YOU)
+    const granted: Grant = { kind: SandboxGrantKind.Folder, path: CACHE, access: FolderAccess.ReadWrite }
+    expect(taskGrants()).toEqual([granted])
+    const inside = await callTool(session, {
+      toolUseId: 'toolu_inside',
+      toolName: 'Read',
+      input: { file_path: `${CACHE}/index.json` },
+    })
+    await expect(inside.answer).resolves.toEqual(ALLOWED_AT_ONCE)
+
+    swapForLink(CACHE, DOCUMENTS)
+    // Any change to the task's grants builds its bounds again: before #510's review, they then followed the link, and
+    // Documents opened to the file tools.
+    await grantSandboxAccess(grantsContext(), {
+      target: { scope: SandboxGrantScope.Glade },
+      grant: { kind: SandboxGrantKind.Domain, domain: 'docs.acme.dev' },
+    })
+
+    const through = await callTool(session, {
+      toolUseId: 'toolu_through',
+      toolName: 'Read',
+      input: { file_path: `${CACHE}/taxes.txt` },
+    })
+    expect(await isSettled(through.answer)).toBe(false)
+    // The card names where the call really leads, not the folder that was granted.
+    expect(only('toolu_through').sandbox).toEqual({
+      kind: SandboxAskKind.Folder,
+      path: DOCUMENTS,
+      access: FolderAccess.Read,
+    })
+    await callTool(session, writeOf('toolu_direct', `${DOCUMENTS}/taxes.txt`))
+    expect(only('toolu_direct').state).toBe(PermissionRequestState.Open)
+    // The grant, and what the session is told of it, is still the path that was granted.
+    expect(taskGrants()).toEqual([granted])
+    expect(overlay(session)).toMatchObject({
+      allowRead: [ROOT, CACHE],
+      allowWrite: [ROOT, CACHE],
+      additionalDirectories: [CACHE],
+    })
+    // And no call through the link is marked as let through by the grant.
+    expect(listPermissionMarks(database.db, task.id).map(({ toolUseId }) => toolUseId)).toEqual(['toolu_inside'])
+  })
+})
+
+describe('a file whose folder is too much to offer', () => {
+  const GITCONFIG = `${HOME}/.gitconfig`
+  const ZSHRC = `${HOME}/.zshrc`
+  const NOTES = `${HOME}/notes.txt`
+
+  beforeEach(() => {
+    writeFileSync(GITCONFIG, '[user]\n')
+    writeFileSync(ZSHRC, '')
+  })
+
+  afterEach(() => {
+    for (const file of [GITCONFIG, ZSHRC, NOTES]) rmSync(file, { force: true })
+  })
+
+  const reads = (toolUseId: string, path: string): PermissionCallFields => ({
+    toolUseId,
+    toolName: 'Read',
+    input: { file_path: path },
+  })
+
+  it('request_access for a file in the home folder asks for that file, and grants it alone', async () => {
+    const session = await startTurn()
+
+    // Before #510's review, this card asked for the whole home folder.
+    const called = asksAccess(session, 'toolu_access', '~/.gitconfig')
+    await settle()
+    const file = { kind: SandboxAskKind.Folder, path: GITCONFIG, access: FolderAccess.Read, file: true } as const
+    expect(only('toolu_access').sandbox).toEqual(file)
+    await answer('toolu_access', FOR_TASK)
+    await called
+    await settle()
+
+    expect(taskGrants()).toEqual([
+      { kind: SandboxGrantKind.Folder, path: GITCONFIG, access: FolderAccess.Read, file: true },
+    ])
+    expect(toolCall('toolu_access').output).toBe(
+      `Allowed for this task: you can now read ${GITCONFIG}. Run the command that was blocked again.`,
+    )
+    // Commands may read that file; the file tools get a rule for exactly it, with no `/**` and no directory.
+    expect(overlay(session)).toEqual({
+      allowRead: [ROOT, GITCONFIG],
+      allowWrite: [ROOT],
+      allow: [`Read(/${GITCONFIG})`],
+      additionalDirectories: [],
+    })
+
+    // Glade's own check agrees: the file reads, and nothing beside it does.
+    const granted = await callTool(session, reads('toolu_granted', GITCONFIG))
+    await expect(granted.answer).resolves.toEqual(ALLOWED_AT_ONCE)
+    expect(listPermissionMarks(database.db, task.id).map(({ toolUseId, outcome }) => [toolUseId, outcome])).toEqual([
+      ['toolu_granted', { kind: PermissionMarkKind.Grant, scope: SandboxGrantScope.Task, ask: file }],
+    ])
+    const beside = await callTool(session, reads('toolu_beside', ZSHRC))
+    expect(await isSettled(beside.answer)).toBe(false)
+    expect(only('toolu_beside').sandbox).toEqual({ ...file, path: ZSHRC })
+    for (const [index, path] of [`${GITCONFIG}.bak`, `${GITCONFIG}/x`, `${HOME}/.gitconfig-work`].entries()) {
+      const toolUseId = `toolu_near_${String(index)}`
+      await callTool(session, reads(toolUseId, path))
+      expect(only(toolUseId).state).toBe(PermissionRequestState.Open)
+    }
+    // It was granted to read: a write to it asks, for the file again.
+    await callTool(session, writeOf('toolu_write', GITCONFIG))
+    expect(only('toolu_write').sandbox).toEqual({ ...file, access: FolderAccess.ReadWrite })
+    // Asked for again, there's nothing to decide.
+    await asksAccess(session, 'toolu_again', GITCONFIG)
+    expect(toolCall('toolu_again').output).toBe(
+      `${GITCONFIG} is already granted for this task with that access: nothing more to grant.`,
+    )
+  })
+
+  it('a file tool’s write to a file in the home folder asks for that file, and grants it read-write alone', async () => {
+    const session = await startTurn()
+
+    // Claude Code suggests the file's folder, the home folder itself: the card asks for the file instead.
+    const asked = await callTool(session, writeOf('toolu_write', NOTES))
+    const file = { kind: SandboxAskKind.Folder, path: NOTES, access: FolderAccess.ReadWrite, file: true } as const
+    expect(only('toolu_write').sandbox).toEqual(file)
+    await answer('toolu_write', FOR_WORKSPACE)
+    await expect(asked.answer).resolves.toEqual(ALLOWED_BY_YOU)
+
+    expect(workspaceGrants()).toEqual([
+      { kind: SandboxGrantKind.Folder, path: NOTES, access: FolderAccess.ReadWrite, file: true },
+    ])
+    // Commands may read and write that file; the file tools get `Read` and `Edit` rules for exactly it. It's never an
+    // additional directory, which Claude Code takes for a folder and all in it.
+    expect(overlay(session)).toEqual({
+      allowRead: [ROOT, NOTES],
+      allowWrite: [ROOT, NOTES],
+      allow: [`Read(/${NOTES})`, `Edit(/${NOTES})`],
+      additionalDirectories: [],
+    })
+    // What's beside it still asks, each for itself.
+    for (const [index, path] of [`${HOME}/notes-2.txt`, `${NOTES}.bak`, `${NOTES}/x`].entries()) {
+      const toolUseId = `toolu_near_${String(index)}`
+      await callTool(session, writeOf(toolUseId, path))
+      expect(only(toolUseId).state).toBe(PermissionRequestState.Open)
+      expect(only(toolUseId).sandbox).not.toBeNull()
+    }
+    // A read of it goes ahead. A write Claude Code still asks about gets the plain card, in Allow all, as any write
+    // inside the bounds that reaches Glade does: allowed once or denied, never more.
+    const read = await callTool(session, reads('toolu_read', NOTES))
+    await expect(read.answer).resolves.toEqual(ALLOWED_AT_ONCE)
+    await callTool(session, writeOf('toolu_write_2', NOTES))
+    expect(only('toolu_write_2')).toMatchObject({ sandbox: null, state: PermissionRequestState.Open })
+  })
+
+  it('request_access refuses a folder that’s too much, with no card, and says where to add it', async () => {
+    const session = await startTurn()
+
+    const folders = ['~', HOME, '/Users', '/Volumes', '/System/Volumes']
+    for (const [index, path] of folders.entries()) {
+      const toolUseId = `toolu_broad_${String(index)}`
+      await asksAccess(session, toolUseId, path, 'write')
+      expect(toolCall(toolUseId).state).toBe(ToolCallState.Error)
+      expect(toolCall(toolUseId).output).toContain(`Refused: ${path} is too much to grant from a request`)
+      expect(toolCall(toolUseId).output).toContain('they can add it under Sandbox in Settings')
+    }
+    // A credential file in the home folder is refused as it always was, not asked for by itself.
+    await asksAccess(session, 'toolu_netrc', '~/.netrc')
+    expect(toolCall('toolu_netrc').output).toContain('is one of the credential files')
+
+    expect(requests()).toEqual([])
+    expect(taskGrants()).toEqual([])
+    expect(current().awaitingPermission).toBe(false)
+  })
+
+  it('a file tool that names such a folder gets the plain card: allowed once or denied, never granted', async () => {
+    const session = await startTurn()
+
+    const listed = await callTool(session, { toolUseId: 'toolu_ls', toolName: 'LS', input: { path: '~' } })
+    await callTool(session, { toolUseId: 'toolu_users', toolName: 'LS', input: { path: '/Users' } })
+
+    for (const toolUseId of ['toolu_ls', 'toolu_users']) {
+      expect(only(toolUseId)).toMatchObject({ sandbox: null, suppressAlwaysAllowRule: true })
+    }
+    for (const remembered of [FOR_TASK, FOR_WORKSPACE]) {
+      await expect(answer('toolu_ls', remembered)).rejects.toMatchObject({ code: BridgeErrorCode.InvalidRequest })
+    }
+    await answer('toolu_ls', ONCE)
+    await expect(listed.answer).resolves.toEqual(ALLOWED_BY_YOU)
+    expect(taskGrants()).toEqual([])
+    expect(workspaceGrants()).toEqual([])
+  })
+
+  it('a link to a file asks for the real file’s folder, never the link’s', async () => {
+    writeFileSync(`${WEB}/config.json`, '{}')
+    symlinkSync(`${WEB}/config.json`, `${ROOT}/linked.json`)
+    symlinkSync(GITCONFIG, `${ROOT}/gitconfig`)
+    const session = await startTurn()
+
+    // Before #510's review, each of these cards asked for the workspace root itself.
+    void asksAccess(session, 'toolu_link', `${ROOT}/linked.json`)
+    void asksAccess(session, 'toolu_home_link', `${ROOT}/gitconfig`, 'write')
+    await callTool(session, reads('toolu_read', `${ROOT}/linked.json`))
+
+    const web = { kind: SandboxAskKind.Folder, path: WEB, access: FolderAccess.Read }
+    expect(only('toolu_link').sandbox).toEqual(web)
+    expect(only('toolu_read').sandbox).toEqual(web)
+    expect(only('toolu_home_link').sandbox).toEqual({
+      kind: SandboxAskKind.Folder,
+      path: GITCONFIG,
+      access: FolderAccess.ReadWrite,
+      file: true,
+    })
+    rmSync(`${ROOT}/linked.json`, { force: true })
+    rmSync(`${ROOT}/gitconfig`, { force: true })
+  })
+})
+
+describe('a denial lasts the turn', () => {
+  const NOTE = 'Use the vendored copy.'
+  const deny = (note?: string): PermissionDecision => ({ kind: PermissionDecisionKind.Deny, ...(note ? { note } : {}) })
+  const asked = (): string[] => requests().map(({ toolUseId }) => toolUseId)
+
+  it('request_access again for a folder you denied is answered denied at once, with your note and no card', async () => {
+    const session = await startTurn()
+    const first = asksAccess(session, 'toolu_1', WEB)
+    await settle()
+    await answer('toolu_1', deny(NOTE))
+    await first
+    notifyReply.mockClear()
+
+    // Before #510's review, each of these opened a card again, as often as the agent asked.
+    await asksAccess(session, 'toolu_2', WEB)
+    await asksAccess(session, 'toolu_3', '~/code/acme-web/')
+    // A write reads too: the read you denied denies it.
+    await asksAccess(session, 'toolu_4', WEB, 'write')
+    await settle()
+
+    expect(asked()).toEqual(['toolu_1'])
+    for (const toolUseId of ['toolu_2', 'toolu_3', 'toolu_4']) {
+      expect(toolCall(toolUseId).state).toBe(ToolCallState.Error)
+      expect(toolCall(toolUseId).output).toContain('the user already denied')
+      expect(toolCall(toolUseId).output).toContain(`The user said: ${NOTE}`)
+    }
+    expect(taskGrants()).toEqual([])
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, awaitingPermission: false })
+    expect(notifyReply).not.toHaveBeenCalled()
+    // Another folder still asks.
+    void asksAccess(session, 'toolu_5', `${HOME}/code/other`)
+    await settle()
+    expect(only('toolu_5').state).toBe(PermissionRequestState.Open)
+  })
+
+  it('asks again once you’ve sent the next message', async () => {
+    const session = await startTurn()
+    const first = asksAccess(session, 'toolu_1', WEB)
+    await settle()
+    await answer('toolu_1', deny())
+    await first
+    await asksAccess(session, 'toolu_2', WEB)
+    expect(asked()).toEqual(['toolu_1'])
+    session.emit(sdk.result('I couldn’t read it.'))
+    await settle()
+
+    await glade.invoke(CommandName.TasksSend, { id: task.id, text: 'Go on, ask me again.' })
+    await settle()
+    void asksAccess(session, 'toolu_3', WEB)
+    await settle()
+
+    expect(only('toolu_3').state).toBe(PermissionRequestState.Open)
+    expect(only('toolu_3').turn).toBe(only('toolu_1').turn + 1)
+  })
+
+  it('a subagent repeating the agent’s denied request is denied the same, and the agent a subagent’s', async () => {
+    const session = await startTurn()
+    session.emit(sdk.toolUse('toolu_agent', 'Agent', { description: 'Client generator', prompt: 'Go.' }))
+    await settle()
+    const subagent = { agentId: 'agent-7', parent: 'toolu_agent' }
+    const first = asksAccess(session, 'toolu_main', WEB)
+    const other = asksAccess(session, 'toolu_sub', `${HOME}/code/cache`, 'write', subagent)
+    await settle()
+    await answer('toolu_main', deny(NOTE))
+    await answer('toolu_sub', deny())
+    await Promise.all([first, other])
+
+    await asksAccess(session, 'toolu_sub_again', WEB, 'read', subagent)
+    await asksAccess(session, 'toolu_main_again', `${HOME}/code/cache`, 'write')
+    await settle()
+
+    expect(asked()).toEqual(['toolu_main', 'toolu_sub'])
+    expect(toolCall('toolu_sub_again').output).toContain(`The user said: ${NOTE}`)
+    expect(toolCall('toolu_main_again').output).toContain('the user already denied')
+    expect(toolCall('toolu_main_again').output).not.toContain('The user said')
+  })
+
+  it('a file tool’s crossing, WebFetch and a command’s connection you denied are denied again without asking', async () => {
+    const session = await startTurn()
+    await callTool(session, readOf('toolu_read', `${WEB}/package.json`))
+    await answer('toolu_read', deny(NOTE))
+    await startCommand(session, 'toolu_install', { command: 'npm install' })
+    session.requestPermission(networkAccessCall(HOST, 'net-1'))
+    await settle()
+    await answer('toolu_install', deny())
+
+    const again = await callTool(session, readOf('toolu_read_2', `${WEB}/README.md`))
+    const written = await callTool(session, writeOf('toolu_write', `${WEB}/README.md`))
+    await asksAccess(session, 'toolu_access', WEB)
+    const connected = session.requestPermission(networkAccessCall(HOST, 'net-2'))
+    const fetched = await callTool(session, webFetchCall('toolu_fetch', { url: `https://${HOST}/x`, prompt: 'Read.' }))
+
+    const denied = (note: string | null): ToolPermissionAnswer => ({
+      behavior: ToolPermissionBehavior.Deny,
+      message: alreadyDeniedMessage(note),
+      byUser: false,
+    })
+    await expect(again.answer).resolves.toEqual(denied(NOTE))
+    await expect(written.answer).resolves.toEqual(denied(NOTE))
+    await expect(connected.answer).resolves.toEqual(denied(null))
+    await expect(fetched.answer).resolves.toEqual(denied(null))
+    expect(alreadyDeniedMessage(NOTE)).toContain(`They said: ${NOTE}`)
+    expect(toolCall('toolu_access').output).toContain('the user already denied')
+    expect(asked()).toEqual(['toolu_read', 'toolu_install'])
+    expect(current().awaitingPermission).toBe(false)
+  })
+
+  it('a write you denied still lets a read ask, and cards open at the same time each keep theirs', async () => {
+    const session = await startTurn()
+    const write = await callTool(session, writeOf('toolu_write', `${WEB}/a.ts`))
+    // Two more for the same folder, open before the first is answered.
+    const second = await callTool(session, writeOf('toolu_write_2', `${WEB}/b.ts`))
+    const third = asksAccess(session, 'toolu_access', WEB, 'write')
+    await settle()
+
+    await answer('toolu_write', deny(NOTE))
+    await expect(write.answer).resolves.toMatchObject({ behavior: ToolPermissionBehavior.Deny, byUser: true })
+    // The others are still yours to answer.
+    expect(only('toolu_write_2').state).toBe(PermissionRequestState.Open)
+    expect(only('toolu_access').state).toBe(PermissionRequestState.Open)
+    await answer('toolu_access', FOR_TASK)
+    await third
+    await answer('toolu_write_2', FOR_TASK)
+    await expect(second.answer).resolves.toEqual(ALLOWED_BY_YOU)
+  })
+
+  it('a write you denied still lets a read of the folder ask', async () => {
+    const session = await startTurn()
+    await callTool(session, writeOf('toolu_write', `${WEB}/a.ts`))
+    await answer('toolu_write', deny())
+
+    await callTool(session, readOf('toolu_read', `${WEB}/a.ts`))
+
+    expect(only('toolu_read')).toMatchObject({
+      state: PermissionRequestState.Open,
+      sandbox: { path: WEB, access: FolderAccess.Read },
+    })
+  })
+
+  it('running outside the sandbox asks every time, denied or not', async () => {
+    const session = await startTurn()
+    await callTool(session, sandboxOverrideCall('toolu_out', OVERRIDE, true))
+    await answer('toolu_out', deny(NOTE))
+
+    await callTool(session, sandboxOverrideCall('toolu_out_2', OVERRIDE, true))
+
+    expect(only('toolu_out_2').state).toBe(PermissionRequestState.Open)
   })
 })

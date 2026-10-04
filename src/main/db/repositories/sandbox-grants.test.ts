@@ -101,6 +101,37 @@ describe('addSandboxGrant', () => {
     ])
   })
 
+  it('keeps a single file apart from a folder, through an upgrade and a change of access', () => {
+    const file = (access: FolderAccess): Grant => ({
+      kind: SandboxGrantKind.Folder,
+      path: '/Users/sam/.gitconfig',
+      access,
+      file: true,
+    })
+    add(taskTarget, file(FolderAccess.Read), 10)
+    add(taskTarget, read('/Users/sam/shared'), 11)
+    expect(listSandboxGrants(database.db, taskTarget).map(({ grant }) => grant)).toEqual([
+      file(FolderAccess.Read),
+      read('/Users/sam/shared'),
+    ])
+
+    // Granted again read-write, it's upgraded, and is still the one file.
+    expect(add(taskTarget, file(FolderAccess.ReadWrite), 20)).toBe(SandboxGrantChange.Changed)
+    expect(listGrantsCovering(database.db, task)).toEqual([file(FolderAccess.ReadWrite), read('/Users/sam/shared')])
+    expect(setSandboxFolderAccess(database.db, taskTarget, '/Users/sam/.gitconfig', FolderAccess.Read)).toBe(
+      SandboxGrantChange.Changed,
+    )
+    // Granted again as a folder, it stays what it first was: its row is kept.
+    expect(add(taskTarget, read('/Users/sam/.gitconfig'), 30)).toBe(SandboxGrantChange.Unchanged)
+    expect(listSandboxGrants(database.db, taskTarget).map(({ grant }) => grant)).toEqual([
+      file(FolderAccess.Read),
+      read('/Users/sam/shared'),
+    ])
+    expect(
+      removeSandboxGrant(database.db, taskTarget, { kind: SandboxGrantKind.Folder, path: '/Users/sam/.gitconfig' }),
+    ).toBe(true)
+  })
+
   it('keeps the same folder at two scopes apart, each with its own access', () => {
     add(GLADE, readWrite('/opt/sdk'))
     add(workspaceTarget, read('/opt/sdk'))

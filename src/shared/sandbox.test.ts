@@ -12,11 +12,14 @@ import {
   sandboxAskPhrase,
   SandboxGrantKind,
   SandboxGrantScope,
-  shortenHomePath,
   settingsGrantScopeKey,
   type Grant,
   type SandboxAsk,
 } from './sandbox'
+import { setHomeFolder } from './homeFolder'
+
+// The sample data's home folder, which paths under it are shown from as `~`.
+setHomeFolder('/Users/me')
 
 const read = (path: string): Grant => ({ kind: SandboxGrantKind.Folder, path, access: FolderAccess.Read })
 const readWrite = (path: string): Grant => ({ kind: SandboxGrantKind.Folder, path, access: FolderAccess.ReadWrite })
@@ -61,6 +64,22 @@ describe('mergeGrants', () => {
     ).toEqual([readWrite('/opt/a'), domain('registry.npmjs.org'), read('/opt/b'), domain('acme.dev')])
   })
 
+  it('keeps a single file a single file, unless a grant of the same path is a folder’s', () => {
+    const file = (access: FolderAccess): Grant => ({
+      kind: SandboxGrantKind.Folder,
+      path: '/Users/sam/.zshrc',
+      access,
+      file: true,
+    })
+    expect(mergeGrants([file(FolderAccess.Read)])).toEqual([file(FolderAccess.Read)])
+    expect(mergeGrants([file(FolderAccess.Read), file(FolderAccess.ReadWrite)])).toEqual([file(FolderAccess.ReadWrite)])
+    // The same path granted as a folder is the wider grant: the folder's, with the widest access of the two.
+    expect(mergeGrants([file(FolderAccess.ReadWrite), read('/Users/sam/.zshrc')])).toEqual([
+      readWrite('/Users/sam/.zshrc'),
+    ])
+    expect(mergeGrants([read('/Users/sam/.zshrc'), file(FolderAccess.Read)])).toEqual([read('/Users/sam/.zshrc')])
+  })
+
   it('keeps nested folders apart: each is its own grant', () => {
     expect(mergeGrants([read('/Users/sam/code'), readWrite('/Users/sam/code/acme')])).toEqual([
       read('/Users/sam/code'),
@@ -103,17 +122,6 @@ describe('what a sandbox request is about', () => {
     expect(sandboxAskPhrase({ kind: SandboxAskKind.Outside })).toBe('run outside the sandbox')
     expect(folderVerb(FolderAccess.Read)).toBe('read')
     expect(folderVerb(FolderAccess.ReadWrite)).toBe('write to')
-  })
-
-  it('shortens only a path under a home folder', () => {
-    expect(shortenHomePath('/Users/me')).toBe('~')
-    expect(shortenHomePath('/Users/me/code/api')).toBe('~/code/api')
-    expect(shortenHomePath('/Users')).toBe('/Users')
-    // The shared folder beside the home folders is nobody's home.
-    expect(shortenHomePath('/Users/Shared/acme-shared')).toBe('/Users/Shared/acme-shared')
-    expect(shortenHomePath('/Users/Shared')).toBe('/Users/Shared')
-    expect(shortenHomePath('/Users/Sharedrive/x')).toBe('~/x')
-    expect(shortenHomePath('/tmp/Users/me')).toBe('/tmp/Users/me')
   })
 
   it('grants the folder with the access asked for, or the domain', () => {

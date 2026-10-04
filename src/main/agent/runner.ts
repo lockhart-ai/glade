@@ -200,15 +200,26 @@
  * blocked a command: it opens the same folder card, and returns once you've answered and the grant is live. The
  * tool's handler isn't told which call it answers or whose, so the session's `PreToolUse` hook says
  * (`onAccessRequested`). A request the app quit on is answered as any other: the grant is saved with the answer, and
- * the session Glade resumes to tell the agent starts with it.
+ * the session Glade resumes to tell the agent starts with it. A command's connection to a host no card can name (not
+ * a plain host name) is refused: allowing a connection "once" would let the session keep the host for its whole life.
+ *
+ * **A denial lasts the turn.** A folder or domain you denied isn't asked for again in the same turn: the same request
+ * again (the agent's `request_access`, a file tool's or `WebFetch`'s crossing, a command's connection, a subagent's
+ * as much as the agent's own) is answered denied at once, with the note you gave, and no card. A read you denied
+ * denies a write to the same folder too; a write you denied still lets a read ask. Your next message starts a new
+ * turn, and it may ask again. (A background subagent's requests belong to the turn its `Agent` call was made in.)
+ * Requests open at the same time each keep their card.
  *
  * **What a rule decided** (`PermissionMark`). Where Glade can tell that a rule, not you, decided a call, it marks the
  * call, for its row in the Tool calls list to say: a file tool or `WebFetch` a sandbox grant covers ("Allowed by
  * workspace grant"), a call in the ask mode that a rule from an earlier Allow for this task covers ("Allowed by task
- * rule"), a sandboxed command whose result says "Operation not permitted" ("Blocked by the sandbox", naming what of
- * once the agent's `request_access` after it says), a credential path refused, and a `request_access` call answered
- * without a card. A call in the workspace root with no rule involved has no mark, and a call you're asked about shows
- * your answer instead. Each mark is saved, and only that call's goes to the windows.
+ * rule"), a sandboxed command that failed saying "Operation not permitted" ("Blocked by the sandbox", naming what of
+ * once the same agent's next call is a `request_access` that says), a credential path refused, and a
+ * `request_access` call answered without a card. A call in the workspace root with no rule involved has no mark, and a
+ * call you're asked about shows your answer instead. A call that crosses the sandbox's bounds is never marked allowed:
+ * it's asked about or refused whatever rule covers it. Each mark is saved, and only that call's goes to the windows.
+ * Marking costs a call nothing it didn't already pay: the path is resolved once, by the classifier, and the task's
+ * rules and grants are kept on the session between changes to them.
  *
  * **Resume on launch.** A turn the app quit or crashed in is left working in the database: a turn's user messages and
  * its working activity are saved together, so none is left unanswered. On launch, `resumeInterrupted` carries each
@@ -266,6 +277,7 @@ import {
   type PastedBlock,
   type PermissionDecision,
   type PermissionMarkOutcome,
+  type PermissionRule,
   type ToolInput,
   type PermissionRequest,
   type QuestionAnswers,
@@ -286,7 +298,10 @@ import {
   SandboxGrantKind,
   SandboxGrantScope,
   type CardGrantScope,
+  type FolderGrant,
+  type GrantedTask,
   type SandboxApplyResult,
+  type SandboxAsk,
   type SandboxFolderAsk,
   type SandboxGrantAsk,
   type SandboxGrantTarget,
@@ -315,6 +330,7 @@ import { appendMessage, lastTurn, listMessages, turnStartedAt } from '../db/repo
 import {
   getPermissionRequest,
   listAllOpenPermissionRequests,
+  listPermissionRequests,
   listRestartRequests,
   listTasksWithRestartRequests,
   restartDeliveryOf,
@@ -322,7 +338,7 @@ import {
   setRestartDelivery,
   type NewPermissionRequest,
 } from '../db/repositories/permission-requests'
-import { latestUnnamedBlock, setPermissionMark } from '../db/repositories/permission-marks'
+import { getPermissionMark, setPermissionMark } from '../db/repositories/permission-marks'
 import { getOpenQuestionSet, getQuestionSet, listOpenQuestionSets } from '../db/repositories/question-sets'
 import { listTaskPermissionRules } from '../db/repositories/task-permission-rules'
 import { listQueuedMessages, listTasksWithQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
@@ -345,6 +361,7 @@ import {
   interruptPausedToolCalls,
   interruptRunningToolCall,
   interruptRunningToolCalls,
+  previousToolCall,
   listTasksWithRunningToolCalls,
   listToolCallsNamed,
   listToolEvents,
@@ -363,6 +380,7 @@ import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import type { NotifyReply } from '../notifications/notifications'
 import { PermissionVerdict } from '../permissions/classify'
 import {
+  callStanding,
   fetchedHost,
   fileToolPath,
   isSandboxOverride,
@@ -370,22 +388,22 @@ import {
   isWriteTool,
   sandboxBounds,
   SandboxCrossing,
-  sandboxCrossing,
   toolCallVerdict,
   type SandboxBounds,
 } from '../permissions/sandbox-classify'
-import { absolutePath, canonicalKey, keyInside } from '../permissions/canonical-path'
+import { absolutePath, keyInside } from '../permissions/canonical-path'
 import { cardGrantTarget, createPermissionBroker, type PermissionBroker } from '../permissions/permissions'
 import {
   AccessOutcomeKind,
   accessPlan,
   AccessPlanKind,
+  deniedCovers,
   sandboxAskFor,
   type AccessOutcome,
   type AccessRequest,
   type RunningCommand,
 } from '../permissions/sandbox-ask'
-import { grantingGrant } from '../sandbox/grants'
+import { grantingGrant, heldGrants, type GrantingGrant } from '../sandbox/grants'
 import { createQuestionBroker, toolResultFor, type QuestionBroker } from '../questions/questions'
 import { addQueuedMessage } from '../tasks/queue'
 import { changesTodos, refreshTodos } from '../todos/todos'
@@ -696,6 +714,11 @@ interface LiveSandbox {
   /** The bounds the root and those grants make, as the session's calls are decided against them. */
   bounds: SandboxBounds
   /**
+   * Every grant that covers the task, each with its scope, for saying whose grant let a call through (`heldGrants`):
+   * read when first needed, and again once the grants change. Null until then.
+   */
+  held: readonly GrantingGrant[] | null
+  /**
    * The write tools the task was granted whole (Allow for this task), which the session isn't told of: Glade decides
    * their calls itself, so the rule never reaches past the sandbox's bounds (`toolCallVerdict`).
    */
@@ -709,11 +732,18 @@ interface LiveSandbox {
 
 interface LiveSession {
   readonly session: AgentSession
+  /** The task the session is, and its workspace: what its grants are found by. */
+  readonly owner: GrantedTask
   turn: Turn | null
   /** The model, effort and permission mode the session runs with now. */
   settings: AgentSessionSettings
   /** The sandbox the session runs in; null when it started with the sandbox off. */
   readonly sandbox: LiveSandbox | null
+  /**
+   * The task's permission rules (Allow for this task), for marking the calls one covers in the ask mode: read when
+   * first needed, and again after an answer, which may have added one. Null until then.
+   */
+  rules: readonly PermissionRule[] | null
   /** The names of the session's in-process MCP servers that are Glade's own, whose tools never ask: `glade` only. */
   readonly gladeServers: readonly string[]
   /** Whether the session has the `glade-control` tools, which its system prompt says. */
@@ -978,6 +1008,32 @@ const CREDENTIAL_REFUSED: ToolPermissionAnswer = {
   byUser: false,
 }
 
+/**
+ * What the agent is told when a command's connection is to a host no permission card can name: refused without asking,
+ * since a connection can't be allowed just once (the session would keep the host for as long as it runs).
+ */
+export const CONNECTION_REFUSAL =
+  "Glade refused this connection: its host isn't a plain host name (like registry.npmjs.org), so the user can't be " +
+  'asked to allow it. If the task needs it, tell the user.'
+
+/** The answer to a command's connection to a host no card can name: refused, with no card. */
+const CONNECTION_REFUSED: ToolPermissionAnswer = {
+  behavior: ToolPermissionBehavior.Deny,
+  message: CONNECTION_REFUSAL,
+  byUser: false,
+}
+
+/**
+ * What the agent is told when a call asks for a folder or domain the user denied earlier in the turn: denied again,
+ * with the note they gave then, without asking them.
+ */
+export function alreadyDeniedMessage(note: string | null): string {
+  const denied =
+    "The user already denied this earlier in the turn, so they weren't asked again and it did not run. Don't try it " +
+    'again this turn.'
+  return note === null ? denied : `${denied} They said: ${note}`
+}
+
 /** The answer to a request to run outside a sandbox that couldn't start: refused, with no card. */
 const SANDBOX_FAILED: ToolPermissionAnswer = {
   behavior: ToolPermissionBehavior.Deny,
@@ -994,7 +1050,10 @@ interface DecidedRequest {
 /** The tools whose calls run a command in the sandbox: a connection's request belongs to one of them. */
 const COMMAND_TOOL_NAMES: readonly string[] = ['Bash', 'Monitor']
 
-/** What a command the sandbox blocked prints, in whatever case its tool writes it (`docs/sdk-notes.md` §15). */
+/**
+ * What a command the sandbox blocked fails with, in whatever case its tool writes it (`docs/sdk-notes.md` §15). Only a
+ * failed command's error counts: one that printed it and went on (a file's text, say) wasn't stopped by the sandbox.
+ */
 const BLOCKED_BY_SANDBOX = /operation not permitted/i
 
 /**
@@ -1007,6 +1066,12 @@ const COMMAND_TICKS = 20
 function grantAskOf(request: Pick<PermissionRequest, 'sandbox'>): SandboxGrantAsk | null {
   const { sandbox } = request
   return sandbox === null || sandbox.kind === SandboxAskKind.Outside ? null : sandbox
+}
+
+/** What a call did with a granted folder (or single file), as its mark says it: the grant's own path, and the access used. */
+function grantedAsk(grant: FolderGrant, access: FolderAccess): SandboxFolderAsk {
+  const { path, file } = grant
+  return { kind: SandboxAskKind.Folder, path, access, ...(file === true ? { file } : {}) }
 }
 
 /** Who a decision grants a request's folder or domain to; null when it grants none. */
@@ -2271,11 +2336,22 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const command = sandbox !== null && toolName === SANDBOX_NETWORK_TOOL ? await commandBehind(taskId) : null
     // The session may have closed while the command was looked for.
     if (sessions.get(taskId) !== live) return WITHDRAWN
+    const ask = sandbox === null ? null : sandboxAskFor(call, crossing, sandbox.bounds, command)
+    if (sandbox !== null && toolName === SANDBOX_NETWORK_TOOL && ask === null) {
+      taskLog(taskId).info('connection refused: no card can name its host', { toolUseId, host: call.input.host })
+      return CONNECTION_REFUSED
+    }
+    const asking = command?.toolUseId ?? toolUseId
+    const denied = ask === null ? undefined : deniedEarlier(taskId, turnOf(taskId, live, asking), ask)
+    if (denied !== undefined) {
+      taskLog(taskId).info('denied as earlier in the turn', { toolName, toolUseId, requestId: denied.id })
+      return { behavior: ToolPermissionBehavior.Deny, message: alreadyDeniedMessage(denied.denyNote), byUser: false }
+    }
     const { request, decision } = await requested(
       taskId,
       live,
       {
-        toolUseId: command?.toolUseId ?? toolUseId,
+        toolUseId: asking,
         agentId: agentId ?? command?.parentToolUseId ?? null,
         toolName,
         input: call.input,
@@ -2287,13 +2363,34 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         // Nothing that crosses the sandbox's bounds is ever remembered as a rule: the rule Allow for this task would
         // grant is the whole tool, for every folder. A folder or domain is granted instead, by its own card.
         suppressAlwaysAllowRule: call.suppressAlwaysAllowRule || crossing !== SandboxCrossing.None,
-        sandbox: sandbox === null ? null : sandboxAskFor(call, crossing, sandbox.bounds, command),
+        sandbox: ask,
       },
       call.signal,
     )
     if (decision === null || !(await applyGrant(taskId, live, grantedScope(decision, request)))) return WITHDRAWN
     carryOn(taskId, live)
     return sessionAnswer(live, answerFor(decision, request))
+  }
+
+  /**
+   * The turn a call's permission request belongs to: a background subagent's call, the turn its `Agent` call was made
+   * in; any other, the turn running.
+   */
+  const turnOf = (taskId: string, live: LiveSession, toolUseId: string): number => {
+    const owner = live.backgroundCalls.get(toolUseId)
+    return (owner === undefined ? live.turn?.number : live.background.get(owner)) ?? Math.max(1, lastTurn(db, taskId))
+  }
+
+  /**
+   * Your denial, earlier in a turn, of the folder or domain a call now asks for (see the module comment): the latest,
+   * or undefined when you haven't denied it this turn. Running outside the sandbox asks every time.
+   */
+  const deniedEarlier = (taskId: string, turn: number, ask: SandboxAsk): PermissionRequest | undefined => {
+    if (ask.kind === SandboxAskKind.Outside) return undefined
+    return listPermissionRequests(db, taskId).findLast(
+      (request) =>
+        request.turn === turn && request.state === PermissionRequestState.Denied && deniedCovers(request.sandbox, ask),
+    )
   }
 
   /**
@@ -2307,17 +2404,16 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     signal: AbortSignal | undefined,
   ): Promise<DecidedRequest> => {
     const { toolUseId, toolName, agentId } = call
-    // A background subagent's call belongs to the turn its `Agent` call was made in; any other, to the turn running.
-    const owner = live.backgroundCalls.get(toolUseId)
-    const turn =
-      (owner === undefined ? live.turn?.number : live.background.get(owner)) ?? Math.max(1, lastTurn(db, taskId))
+    const turn = turnOf(taskId, live, toolUseId)
     const pending = permissions.request({ ...call, taskId, turn }, signal)
     const requestId = pending.request.id
     const asks = call.sandbox?.kind ?? null
     taskLog(taskId).info('permission requested', { requestId, toolName, toolUseId, agentId, turn, asks })
-    live.requests.set(requestId, owner !== undefined)
+    live.requests.set(requestId, live.backgroundCalls.has(toolUseId))
     const decision = await pending.decision
     live.requests.delete(requestId)
+    // The answer may have granted the task a rule.
+    live.rules = null
     if (decision === null) taskLog(taskId).info('permission withdrawn', { requestId, toolUseId })
     else taskLog(taskId).info('permission answered', { requestId, toolUseId, decision: decision.kind })
     return { request: pending.request, decision }
@@ -2349,39 +2445,57 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   /**
    * Marks a call a rule decides, as it starts (see the module comment): one the sandbox refuses for its credential
-   * path, one a grant covers, or, in the ask mode, one a task rule covers. Any other call is left unmarked.
+   * path, one a grant covers, or, in the ask mode, one a task rule covers. Any other call is left unmarked, and so is
+   * every call that crosses the sandbox's bounds: it's asked about, or refused, whatever rule covers it.
    */
   const markRuled = (
     taskId: string,
     live: LiveSession,
     call: Pick<ToolCallStartedEvent, 'toolUseId' | 'name' | 'input'>,
   ): void => {
-    const task = getTask(db, taskId)
-    if (task === undefined) return
-    const { toolUseId, name: toolName, input } = call
-    const outcome =
-      (live.sandbox === null ? null : sandboxOutcome(task, live.sandbox, toolName, input)) ??
-      ruleOutcome(live, taskId, toolName, input)
-    if (outcome !== null) mark(taskId, toolUseId, outcome)
+    const outcome = ruledOutcome(taskId, live, call.name, call.input)
+    if (outcome !== null) mark(taskId, call.toolUseId, outcome)
   }
 
-  /** What the sandbox's grants decide of a file tool's or `WebFetch`'s call; null when they decide nothing of it. */
-  const sandboxOutcome = (
-    task: Task,
-    sandbox: LiveSandbox,
+  /** What a rule decides of a call as it starts; null when none decides anything of it. */
+  const ruledOutcome = (
+    taskId: string,
+    live: LiveSession,
     toolName: string,
     input: ToolInput,
   ): PermissionMarkOutcome | null => {
-    const { bounds } = sandbox
-    const crossing = sandboxCrossing({ toolName, input }, bounds)
-    const named = fileToolPath({ toolName, input }, bounds)
-    if (crossing === SandboxCrossing.Credential && named !== null) {
-      return { kind: PermissionMarkKind.Blocked, ask: { kind: SandboxAskKind.Folder, ...named } }
+    const { sandbox } = live
+    if (sandbox !== null) {
+      // The path is resolved here, once, as the classifier would for `canUseTool`.
+      const { crossing, key } = callStanding({ toolName, input }, sandbox.bounds)
+      const named = crossing === SandboxCrossing.Credential ? fileToolPath({ toolName, input }, sandbox.bounds) : null
+      if (named !== null) return { kind: PermissionMarkKind.Blocked, ask: { kind: SandboxAskKind.Folder, ...named } }
+      if (crossing !== SandboxCrossing.None) return null
+      const granted = grantOutcome(live, sandbox, toolName, input, key)
+      if (granted !== null) return granted
     }
-    if (crossing !== SandboxCrossing.None) return null
+    return ruleOutcome(live, taskId, toolName, input)
+  }
+
+  /** Every grant that covers a session's task, with its scope: read once, and again when its grants change. */
+  const heldBy = (live: LiveSession, sandbox: LiveSandbox): readonly GrantingGrant[] =>
+    (sandbox.held ??= heldGrants(db, live.owner))
+
+  /**
+   * Whose grant lets a file tool's or `WebFetch`'s call through, inside the bounds as it is; null when no grant is
+   * needed for it. `key` is the key of the path a file tool's call names.
+   */
+  const grantOutcome = (
+    live: LiveSession,
+    sandbox: LiveSandbox,
+    toolName: string,
+    input: ToolInput,
+    key: string | null,
+  ): PermissionMarkOutcome | null => {
     if (toolName === 'WebFetch') {
       const host = fetchedHost(input)
-      const granting = host === null ? null : grantingGrant(db, task, { kind: SandboxGrantKind.Domain, domain: host })
+      const use = { kind: SandboxGrantKind.Domain, domain: host ?? '' } as const
+      const granting = host === null ? null : grantingGrant(heldBy(live, sandbox), use)
       if (host === null || granting === null) return null
       const ask: SandboxGrantAsk = {
         kind: SandboxAskKind.Domain,
@@ -2391,15 +2505,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       }
       return { kind: PermissionMarkKind.Grant, scope: granting.scope, ask }
     }
-    if (named === null) return null
-    const { path, access } = named
     // A call in the workspace root needs no grant, and most calls are: nothing is looked up for one.
-    const key = canonicalKey(path, bounds.fs)
-    if (key === null || keyInside(key, bounds.readable[0] ?? key)) return null
-    const granting = grantingGrant(db, task, { kind: SandboxGrantKind.Folder, path, access })
+    if (key === null || keyInside(key, sandbox.bounds.readable[0] ?? key)) return null
+    const access = isWriteTool(toolName) ? FolderAccess.ReadWrite : FolderAccess.Read
+    const granting = grantingGrant(heldBy(live, sandbox), { kind: SandboxGrantKind.Folder, key, access })
     if (granting?.grant.kind !== SandboxGrantKind.Folder) return null
-    const ask: SandboxFolderAsk = { kind: SandboxAskKind.Folder, path: granting.grant.path, access }
-    return { kind: PermissionMarkKind.Grant, scope: granting.scope, ask }
+    return { kind: PermissionMarkKind.Grant, scope: granting.scope, ask: grantedAsk(granting.grant, access) }
   }
 
   /** The task rule that lets a call through in the ask mode, as its mark; null in Allow all, and when none covers it. */
@@ -2410,8 +2521,22 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     input: ToolInput,
   ): PermissionMarkOutcome | null => {
     if (live.settings.permissionMode !== PermissionMode.AskBeforeEdits) return null
-    const covering = listTaskPermissionRules(db, taskId).find(({ rule }) => ruleCovers(rule, toolName, input))
-    return covering === undefined ? null : { kind: PermissionMarkKind.TaskRule, rule: covering.rule }
+    live.rules ??= listTaskPermissionRules(db, taskId).map(({ rule }) => rule)
+    const covering = live.rules.find((rule) => ruleCovers(rule, toolName, input))
+    return covering === undefined ? null : { kind: PermissionMarkKind.TaskRule, rule: covering }
+  }
+
+  /**
+   * The command the sandbox blocked that a `request_access` call asks about: the call the same agent (the task's own,
+   * or the same subagent) made just before it, when the sandbox blocked that and nothing has said what of yet. Null
+   * when the call before was anything else, or the `request_access` call itself isn't logged.
+   */
+  const blockedJustBefore = (taskId: string, toolUseId: string): string | null => {
+    const before = previousToolCall(db, taskId, toolUseId)
+    const outcome = before === undefined ? undefined : getPermissionMark(db, taskId, before.toolUseId)?.outcome
+    return before !== undefined && outcome?.kind === PermissionMarkKind.Blocked && outcome.ask === null
+      ? before.toolUseId
+      : null
   }
 
   /**
@@ -2576,16 +2701,19 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const session = sandboxed ? gatedSession(started, overlay) : started
     const live: LiveSession = {
       session,
+      owner: { id: task.id, workspaceId: task.workspaceId },
       turn: null,
       settings: { model: task.model, effort: task.effort, permissionMode: task.permissionMode },
       sandbox: sandboxed
         ? {
             root: workspace.rootPath,
             ...checkedGrants(task.id, workspace.rootPath, grantsOf(task)),
+            held: null,
             writeRules: new Set(writeRules.map(({ toolName }) => toolName)),
             failure: null,
           }
         : null,
+      rules: null,
       gladeServers: gladeOwnServers(servers),
       control,
       requests: new Map(),
@@ -2679,18 +2807,19 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   /**
    * A sandboxed session's `Bash` call has run: one that failed because the sandbox couldn't start (Claude Code's
    * `Sandbox is required but failed to initialize`, `docs/sdk-notes.md` §15) marks the session's sandbox failed, so
-   * every request to run outside it from then on is refused, and the turn it's in ends on the error. Any other call,
-   * whatever it printed, changes nothing.
+   * every request to run outside it from then on is refused, and the turn it's in ends on the error. One that failed
+   * saying the sandbox blocked it is marked so. Any other call, whatever it printed, changes nothing.
    */
   const onBashFinished = (taskId: string, live: LiveSession, call: BashCallFinished): void => {
     const { sandbox } = live
     if (sandbox === null || live.closed) return
-    // A command the sandbox blocked says so, whether or not it went on to fail: which path, it doesn't reliably say.
-    const unsandboxed = isSandboxOverride(getToolCall(db, taskId, call.toolUseId)?.input ?? {})
-    if (!unsandboxed && BLOCKED_BY_SANDBOX.test(call.output)) {
+    if (!call.failed) return
+    // A command the sandbox blocked fails saying so: which path, it doesn't reliably say. One that ran outside the
+    // sandbox wasn't blocked by it, whatever it says.
+    const blocked = BLOCKED_BY_SANDBOX.test(call.output)
+    if (blocked && !isSandboxOverride(getToolCall(db, taskId, call.toolUseId)?.input ?? {})) {
       mark(taskId, call.toolUseId, { kind: PermissionMarkKind.Blocked, ask: null })
     }
-    if (!call.failed) return
     const reason = sandboxFailureReason(call.output)
     if (reason === null) return
     const failure = call.output.trim()
@@ -3112,6 +3241,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working; answer once it has finished')
       }
       const answered = permissions.answer(id, decision)
+      const idle = sessions.get(request.taskId)
+      // The answer may have granted the task a rule.
+      if (idle !== undefined) idle.rules = null
       // No call waits on it to apply what it granted: the other running sessions the grant covers get it now, and the
       // session resumed to tell the agent starts with it.
       const task = getTask(db, request.taskId)
@@ -3124,8 +3256,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
     async requestAccess(taskId, request, call) {
       const live = sessions.get(taskId)
-      const task = getTask(db, taskId)
-      if (task === undefined || live === undefined || live.closed) return { kind: AccessOutcomeKind.Withdrawn }
+      if (live === undefined || live.closed) return { kind: AccessOutcomeKind.Withdrawn }
       const { sandbox } = live
       if (sandbox === null) return { kind: AccessOutcomeKind.SandboxOff }
       const caller = accessCaller(live, request, call.toolUseId)
@@ -3138,11 +3269,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         path: absolutePath(request.path, sandbox.bounds.root, sandbox.bounds.home),
         access,
       }
-      // The command the sandbox blocked just before is the one this asks about: its mark now says what of.
-      const blocked = latestUnnamedBlock(db, taskId)
-      if (blocked !== undefined) {
+      // The command the sandbox blocked just before, the same agent's, is the one this asks about: its mark now says
+      // what of.
+      const blocked = blockedJustBefore(taskId, caller.toolUseId)
+      if (blocked !== null) {
         const ask = plan.kind === AccessPlanKind.Ask ? plan.ask : named
-        mark(taskId, blocked.toolUseId, { kind: PermissionMarkKind.Blocked, ask })
+        mark(taskId, blocked, { kind: PermissionMarkKind.Blocked, ask })
       }
       switch (plan.kind) {
         case AccessPlanKind.InWorkspace:
@@ -3152,10 +3284,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           return { kind: AccessOutcomeKind.Credential }
         case AccessPlanKind.NotGrantable:
           return { kind: AccessOutcomeKind.NotGrantable, problem: plan.problem }
+        case AccessPlanKind.TooBroad:
+          return { kind: AccessOutcomeKind.TooBroad }
         case AccessPlanKind.AlreadyAllowed: {
-          const granting = grantingGrant(db, task, { kind: SandboxGrantKind.Folder, path: plan.path, access })
+          const use = { kind: SandboxGrantKind.Folder, key: plan.key, access } as const
+          const granting = grantingGrant(heldBy(live, sandbox), use)
           if (granting?.grant.kind === SandboxGrantKind.Folder) {
-            const ask: SandboxFolderAsk = { ...named, path: granting.grant.path }
+            const ask = grantedAsk(granting.grant, access)
             mark(taskId, caller.toolUseId, { kind: PermissionMarkKind.Grant, scope: granting.scope, ask })
           }
           return { kind: AccessOutcomeKind.AlreadyAllowed, scope: granting?.scope ?? null }
@@ -3164,6 +3299,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           break
       }
       const { ask } = plan
+      const denied = deniedEarlier(taskId, turnOf(taskId, live, caller.toolUseId), ask)
+      if (denied !== undefined) {
+        taskLog(taskId).info('access denied as earlier in the turn', { ...caller, requestId: denied.id })
+        return { kind: AccessOutcomeKind.Denied, note: denied.denyNote, earlier: true }
+      }
       const { request: opened, decision } = await requested(
         taskId,
         live,
@@ -3217,6 +3357,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         const { grants, bounds } = checkedGrants(taskId, sandbox.root, grantsOf(task))
         sandbox.grants = grants
         sandbox.bounds = bounds
+        sandbox.held = null
         agentLog(taskId).info('sandbox grants changed', {
           folders: grants.folders.length,
           domains: grants.domains.length,

@@ -12,6 +12,10 @@ import { fakeBridge, refuse, sampleWorkspace, type FakeBridge, type FakeHandlers
 import { SettingsSection } from './sections'
 import { SettingsDialog } from './SettingsDialog'
 import { Permission, permissionModeOf } from './SettingsSections'
+import { setHomeFolder } from '../../shared/homeFolder'
+
+// The sample data's home folder, which paths under it are shown from as `~`.
+setHomeFolder('/Users/sam')
 
 interface Rendered extends FakeBridge {
   readonly store: GladeStore

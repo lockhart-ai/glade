@@ -1040,6 +1040,7 @@ export function fakeBridge(main: FakeMain, overrides: Partial<FakeHandlers> = {}
         }
       },
       pathForFile: (file) => FILE_PATHS.get(file) ?? '',
+      homeFolder: null,
     },
     invoke,
     emit,

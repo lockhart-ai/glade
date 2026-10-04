@@ -1,11 +1,6 @@
 import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
-import {
-  PermissionMarkKind,
-  type EpochMs,
-  type PermissionMark,
-  type PermissionMarkOutcome,
-} from '../../../shared/domain'
+import type { EpochMs, PermissionMark, PermissionMarkOutcome } from '../../../shared/domain'
 import { permissionMarkOutcomeSchema } from '../../permissions/schema'
 import { Row, RowError } from './rows'
 
@@ -64,14 +59,4 @@ export function listPermissionMarks(db: Database, taskId: string): PermissionMar
     .prepare(`SELECT ${COLUMNS} FROM ${TABLE} WHERE task_id = ? ORDER BY created_at, rowid`)
     .all(taskId)
     .map(parsePermissionMark)
-}
-
-/**
- * The task's latest call the sandbox blocked that doesn't say what of yet: the command an agent's `request_access`
- * names the path of. Undefined when there's none.
- */
-export function latestUnnamedBlock(db: Database, taskId: string): PermissionMark | undefined {
-  return listPermissionMarks(db, taskId).findLast(
-    ({ outcome }) => outcome.kind === PermissionMarkKind.Blocked && outcome.ask === null,
-  )
 }

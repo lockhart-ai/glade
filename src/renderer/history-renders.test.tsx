@@ -28,6 +28,10 @@ import { TaskList } from './task-list'
 import { rowStatus } from './task-list/rowStatus'
 import { NOW_REFRESH_MS } from './task-list/useNow'
 import { ToolLog } from './tool-log'
+import { setHomeFolder } from '../shared/homeFolder'
+
+// The sample data's home folder, which paths under it are shown from as `~`.
+setHomeFolder('/Users/me')
 
 // Every chat entry and tool log row shows its time: one `clockTime` call per render of one.
 vi.mock('./chat/chatModel', async (importOriginal) => {

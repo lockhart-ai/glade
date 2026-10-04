@@ -16,7 +16,8 @@ import {
   type ToolInput,
 } from '../../shared/domain'
 import { permissionSubject, taskPermissionRule } from '../../shared/permissions'
-import { folderVerb, SandboxAskKind, shortenHomePath, type SandboxAsk } from '../../shared/sandbox'
+import { shortenHomePath } from '../../shared/homeFolder'
+import { folderVerb, SandboxAskKind, type SandboxAsk } from '../../shared/sandbox'
 import { REQUEST_ACCESS_TOOL, toolDisplayName } from '../../shared/toolName'
 import { subagentName } from '../subagents/subagentsModel'
 import { relativePath } from '../tool-log/toolLogModel'

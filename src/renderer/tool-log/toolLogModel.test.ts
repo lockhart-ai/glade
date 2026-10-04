@@ -39,6 +39,10 @@ import {
   type CallRow,
   type ToolLogRow,
 } from './toolLogModel'
+import { setHomeFolder } from '../../shared/homeFolder'
+
+// The sample data's home folder, which paths under it are shown from as `~`.
+setHomeFolder('/Users/sample')
 
 const AT = new Date(2026, 8, 23, 11, 20).getTime()
 

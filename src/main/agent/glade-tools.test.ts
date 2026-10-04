@@ -24,6 +24,8 @@ import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from
 import { createQuestionBroker } from '../questions/questions'
 import { PREAMBLE_MAX_LENGTH } from '../questions/schema'
 import {
+  ACCESS_PATH_MAX,
+  ACCESS_REASON_MAX,
   ACCESS_TOOL_NAME,
   createGladeMcpServer,
   createGladeToolHandlers,
@@ -801,6 +803,24 @@ describe('request_access', () => {
     ['an empty path', { ...REQUEST, path: ' ' }, 'The path is empty.'],
     ['no reason', { path: REQUEST.path, access: 'write' }, 'reason'],
     ['another access', { ...REQUEST, access: 'execute' }, 'access'],
+    // What the card would show as if it were plain text: nothing that hides, breaks or reorders it.
+    [
+      'a path longer than any path',
+      { ...REQUEST, path: `/${'a'.repeat(ACCESS_PATH_MAX)}` },
+      'The path is too long: 4096 characters at most.',
+    ],
+    [
+      'a reason longer than a sentence or two',
+      { ...REQUEST, reason: 'x'.repeat(ACCESS_REASON_MAX + 1) },
+      'The reason is too long: 500 characters at most.',
+    ],
+    ['a line break in the path', { ...REQUEST, path: '/Users/me/.cache\n/Users/me' }, 'The path has a control'],
+    ['a NUL in the path', { ...REQUEST, path: '/Users/me/.cache\u0000/uv' }, 'The path has a control'],
+    ['an escape in the reason', { ...REQUEST, reason: 'uv\u001b[2K needs it' }, 'The reason has a control'],
+    ['a line break in the reason', { ...REQUEST, reason: 'uv needs it.\nAllow for this workspace.' }, 'The reason has'],
+    // A right-to-left override makes `/Users/me/\u202Etxt.cod` read as `/Users/me/doc.txt`.
+    ['a text-direction override in the path', { ...REQUEST, path: '/Users/me/\u202Etxt.cod' }, 'text-direction'],
+    ['a text-direction isolate in the reason', { ...REQUEST, reason: 'uv \u2067needs\u2069 it' }, 'text-direction'],
   ])('is a tool error for %s, with nobody asked', async (_name, input, problem) => {
     const { requestAccess, tools } = asking({ kind: AccessOutcomeKind.SandboxOff })
 
@@ -809,6 +829,18 @@ describe('request_access', () => {
     expect(outcome.isError).toBe(true)
     expect(outcome.output).toContain(problem)
     expect(requestAccess).not.toHaveBeenCalled()
+    await tools.close()
+  })
+
+  it('takes a path and a reason as long as it allows, in any script', async () => {
+    const { requestAccess, tools } = asking({ kind: AccessOutcomeKind.SandboxOff })
+    const path = `/${'a'.repeat(ACCESS_PATH_MAX - 1)}`
+    const reason = `${'é'.repeat(ACCESS_REASON_MAX - 12)} 日本語 עברית`
+
+    const outcome = await tools.call(ACCESS_TOOL_NAME, { path, access: 'read', reason })
+
+    expect(outcome.isError).toBe(false)
+    expect(requestAccess.mock.calls[0]?.[1]).toEqual({ path, access: 'read', reason })
     await tools.close()
   })
 

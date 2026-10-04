@@ -36,6 +36,10 @@ import { TaskList, TaskListToolbar } from '.'
 import { rowStatus } from './rowStatus'
 import { PERMISSION_SHIELD_LABEL } from './TaskRow'
 import { NOW_REFRESH_MS } from './useNow'
+import { setHomeFolder } from '../../shared/homeFolder'
+
+// The sample data's home folder, which paths under it are shown from as `~`.
+setHomeFolder('/Users/me')
 
 const NOW = Date.UTC(2026, 8, 23, 11, 30)
 const MINUTE = 60_000

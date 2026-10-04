@@ -66,6 +66,7 @@ const glade: GladeBridge = {
   invoke: () => Promise.resolve({} as never),
   subscribe: () => noop,
   pathForFile: () => '',
+  homeFolder: null,
 }
 const WORKSPACE: Workspace = { id: 'w', name: 'Acme API', rootPath: '/code/acme-api', createdAt: 1, lastOpenedAt: 1 }
 

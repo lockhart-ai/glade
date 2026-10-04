@@ -1916,4 +1916,9 @@ export interface GladeBridge {
    * with `attachments.add`; `''` for one that isn't a file on disk, such as an image copied from an app.
    */
   pathForFile(file: File): string
+  /**
+   * The user's home folder, as main told the window when it made it (`src/shared/homeFolder`): what paths are shown
+   * from as `~`. Null when it wasn't told, and nothing is shortened.
+   */
+  readonly homeFolder: string | null
 }

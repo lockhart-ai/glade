@@ -3,7 +3,7 @@
  * window's tool log and the control API's chat (`get_chat`, `docs/control-api.md`), so both say the same.
  */
 import type { ToolCallEvent, ToolInput } from './domain'
-import { shortenHomePath } from './sandbox'
+import { shortenHomePath } from './homeFolder'
 import { REQUEST_ACCESS_TOOL } from './toolName'
 
 /** How long the short JSON of an MCP tool's input may be before it's cut; the row's ellipsis shows the rest. */

@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -15,6 +15,7 @@ import {
 } from '../shared/bridge'
 import { appCommand, AppCommandId, EMPTY_MENU_STATE } from '../shared/commands'
 import { MessageRole, TaskActivity, UiStateKey } from '../shared/domain'
+import { homeArgument, SAMPLE_HOME, shortenHomePath } from '../shared/homeFolder'
 import { BUILT_IN_MODELS } from '../shared/models'
 import { CAPTURE_ENV, type CaptureSpec } from './capture'
 import { FakeAgentBackend, settle } from './agent/fake-backend'
@@ -510,8 +511,10 @@ describe('startApp', () => {
       titleBarStyle: 'hidden',
       trafficLightPosition: TRAFFIC_LIGHT_POSITION,
       backgroundColor: '#0A0B0F',
-      webPreferences: WINDOW_WEB_PREFERENCES,
+      // The security settings, and the home folder for the page to show paths from as `~`: yours.
+      webPreferences: { ...WINDOW_WEB_PREFERENCES, additionalArguments: [homeArgument(homedir())] },
     })
+    expect(shortenHomePath(`${homedir()}/code/api`)).toBe('~/code/api')
   })
 
   it('opens with the traffic lights in the collapsed position when the sidebar was last left collapsed (#357)', async () => {
@@ -1537,8 +1540,10 @@ describe('startApp in capture mode', () => {
     expect(window.options).toMatchObject({
       show: false,
       paintWhenInitiallyHidden: true,
-      webPreferences: WINDOW_WEB_PREFERENCES,
+      // A capture shows sample data, which lives under a made-up home folder.
+      webPreferences: { ...WINDOW_WEB_PREFERENCES, additionalArguments: [homeArgument(SAMPLE_HOME)] },
     })
+    expect(shortenHomePath('/Users/sample/code/api')).toBe('~/code/api')
     expect(window.onceHandlers.has('ready-to-show')).toBe(false)
     expect(window.show).not.toHaveBeenCalled()
     expect(window.loadFile).toHaveBeenCalledWith(expect.stringMatching(/index\.html$/), { hash: 'gallery' })
@@ -2144,7 +2149,7 @@ describe('startApp: Glade in the menu bar', () => {
       frame: false,
       resizable: false,
       show: false,
-      webPreferences: WINDOW_WEB_PREFERENCES,
+      webPreferences: { ...WINDOW_WEB_PREFERENCES, additionalArguments: [homeArgument(homedir())] },
     })
     expect(popover.loadFile).toHaveBeenCalledWith(expect.stringMatching(/renderer[\\/]index\.html$/), {
       hash: 'menu-bar',

@@ -28,6 +28,10 @@ import {
 import { BLANK_DOMAIN, grantFailureMessage } from './SandboxLists'
 import { SettingsSection } from './sections'
 import { SettingsDialog } from './SettingsDialog'
+import { setHomeFolder } from '../../shared/homeFolder'
+
+// The sample data's home folder, which paths under it are shown from as `~`.
+setHomeFolder('/Users/sam')
 
 const read = (path: string): Grant => ({ kind: SandboxGrantKind.Folder, path, access: FolderAccess.Read })
 const readWrite = (path: string): Grant => ({ kind: SandboxGrantKind.Folder, path, access: FolderAccess.ReadWrite })

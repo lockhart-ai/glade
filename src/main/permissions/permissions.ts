@@ -16,6 +16,10 @@
  *   outside the sandbox. A folder or domain is allowed for the task or for its workspace, never once: the answer saves
  *   the grant with it (`../sandbox/grants`), and whoever made the call applies it to the running sessions before the
  *   call goes on. Running outside the sandbox is allowed once, or denied, and nothing is remembered.
+ * - **A card grants exactly what it showed.** The grant saved is the request's own folder, as the card named it, never
+ *   resolved again. If that folder has moved since the card opened (it, or a folder above it, swapped for a link:
+ *   `hasMoved`), allowing it is refused: the request closes denied, with `FOLDER_MOVED_NOTE` for the agent to read,
+ *   and nothing is granted.
  *
  * Only this process's calls wait: a request still open from before the app quit has nothing waiting on it
  * (`isWaiting` is false). Answering one just closes it; the agent runner hands the decision to the agent another way.
@@ -51,7 +55,7 @@ import {
 import { addTaskPermissionRule } from '../db/repositories/task-permission-rules'
 import { getTask } from '../db/repositories/tasks'
 import type { NotifyReply } from '../notifications/notifications'
-import { broadcastGrants, saveSandboxGrant } from '../sandbox/grants'
+import { broadcastGrants, hasMoved, saveCardGrant } from '../sandbox/grants'
 import { noteAgentReply } from '../tasks/attention'
 import { updateTaskFromRunner, type TaskServiceContext } from '../tasks/service'
 
@@ -87,6 +91,14 @@ export interface PermissionBroker {
    */
   close(): void
 }
+
+/**
+ * The note a folder request closes with when it's allowed after its folder has moved (see the module comment): Glade's
+ * own, in place of yours, so the agent and the call's row both say why nothing was granted.
+ */
+export const FOLDER_MOVED_NOTE =
+  'Glade didn’t grant this: the folder changed while the request was open, and no longer leads where the request ' +
+  'said. Nothing was granted. Ask again for the folder you need.'
 
 /** What a request asks a grant for: its folder or domain; null for any other request. */
 function grantAsk(request: Pick<PermissionRequest, 'sandbox'>): SandboxGrantAsk | null {
@@ -147,6 +159,18 @@ function closingFor(decision: PermissionDecision, request: PermissionRequest): P
 }
 
 /**
+ * The decision a request closes on: yours, unless it would grant a folder that has moved since its card opened, which
+ * isn't the folder the card showed. That closes denied, with Glade's note (`FOLDER_MOVED_NOTE`).
+ */
+function settledDecision(decision: PermissionDecision, request: PermissionRequest): PermissionDecision {
+  const { sandbox } = request
+  const grants =
+    decision.kind === PermissionDecisionKind.AllowForTask || decision.kind === PermissionDecisionKind.AllowForWorkspace
+  const moved = grants && sandbox?.kind === SandboxAskKind.Folder && hasMoved(sandbox.path)
+  return moved ? { kind: PermissionDecisionKind.Deny, note: FOLDER_MOVED_NOTE } : decision
+}
+
+/**
  * The broker for a task service. `notify` notifies a request made in a task you aren't viewing, as the runner's
  * `notifyReply` does a reply; nothing by default.
  */
@@ -181,7 +205,7 @@ export function createPermissionBroker(
       const ask = grantAsk(request)
       const task = getTask(db, request.taskId)
       if (closing.grantedScope !== undefined && ask !== null && task !== undefined) {
-        saveSandboxGrant(db, { target: cardGrantTarget(closing.grantedScope, task), grant: grantFor(ask) })
+        saveCardGrant(db, { target: cardGrantTarget(closing.grantedScope, task), grant: grantFor(ask) })
       }
       return request
     })()
@@ -229,8 +253,9 @@ export function createPermissionBroker(
     answer(id, decision) {
       const request = getPermissionRequest(db, id)
       if (request === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No permission request ${id}`)
+      const settled = settledDecision(decision, request)
       const answered =
-        request.state === PermissionRequestState.Open ? close(id, closingFor(decision, request), decision) : undefined
+        request.state === PermissionRequestState.Open ? close(id, closingFor(settled, request), settled) : undefined
       if (answered === undefined) {
         throw new CommandFailure(BridgeErrorCode.InvalidTransition, 'The permission request is not open any more')
       }

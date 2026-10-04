@@ -32,6 +32,10 @@ import {
   TRIMMED_LINES,
   type InputLine,
 } from './permissionCardModel'
+import { setHomeFolder } from '../../shared/homeFolder'
+
+// The sample data's home folder, which paths under it are shown from as `~`.
+setHomeFolder('/Users/me')
 
 const ROOT = '/Users/sample/code/api'
 

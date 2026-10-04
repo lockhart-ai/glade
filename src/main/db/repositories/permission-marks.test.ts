@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { PermissionMarkKind, type PermissionMarkOutcome, type Task } from '../../../shared/domain'
 import { FolderAccess, SandboxAskKind, SandboxGrantScope } from '../../../shared/sandbox'
-import { getPermissionMark, latestUnnamedBlock, listPermissionMarks, setPermissionMark } from './permission-marks'
+import { getPermissionMark, listPermissionMarks, setPermissionMark } from './permission-marks'
 import { RowError } from './rows'
 import { deleteTask } from './tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
@@ -63,23 +63,6 @@ describe('permission marks', () => {
       createdAt: 10,
     })
     expect(listPermissionMarks(test.db, task.id)).toHaveLength(1)
-  })
-
-  it('finds the latest blocked call that doesn’t say what of yet, in its own task', () => {
-    const other = sampleTask(test.db, task.workspaceId)
-    expect(latestUnnamedBlock(test.db, task.id)).toBeUndefined()
-    setPermissionMark(test.db, { taskId: task.id, toolUseId: 'first', outcome: BLOCKED }, 10)
-    setPermissionMark(test.db, { taskId: task.id, toolUseId: 'second', outcome: BLOCKED }, 20)
-    setPermissionMark(test.db, { taskId: task.id, toolUseId: 'granted', outcome: GRANT }, 30)
-    setPermissionMark(test.db, { taskId: other.id, toolUseId: 'theirs', outcome: BLOCKED }, 40)
-
-    expect(latestUnnamedBlock(test.db, task.id)?.toolUseId).toBe('second')
-    setPermissionMark(test.db, {
-      taskId: task.id,
-      toolUseId: 'second',
-      outcome: { kind: PermissionMarkKind.Blocked, ask: WEB },
-    })
-    expect(latestUnnamedBlock(test.db, task.id)?.toolUseId).toBe('first')
   })
 
   it('goes with its task, and refuses a row whose outcome is not one it knows', () => {

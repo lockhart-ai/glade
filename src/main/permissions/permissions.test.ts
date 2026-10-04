@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
 import {
@@ -28,7 +31,8 @@ import {
 } from '../../shared/sandbox'
 import { CommandFailure } from '../bridge/errors'
 import { listSandboxGrants } from '../db/repositories/sandbox-grants'
-import { cardGrantTarget, createPermissionBroker, type PermissionBroker } from './permissions'
+import { setHomeFolder } from '../../shared/homeFolder'
+import { cardGrantTarget, createPermissionBroker, FOLDER_MOVED_NOTE, type PermissionBroker } from './permissions'
 
 let database: TestDatabase
 let task: Task
@@ -500,6 +504,107 @@ describe("the permission broker: the sandbox's cards", () => {
     expect(broker.isWaiting(pending.request.id)).toBe(true)
   })
 
+  describe('a folder that moves while its card is open', () => {
+    let scratch: string
+    /** A real folder, asked for by where it really is, as a card names one. */
+    let cache: string
+    /** Somewhere the card never showed. */
+    let documents: string
+
+    beforeEach(() => {
+      scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'glade-broker-')))
+      cache = join(scratch, 'scratch', 'cache')
+      documents = join(scratch, 'Documents')
+      mkdirSync(cache, { recursive: true })
+      mkdirSync(documents)
+    })
+
+    afterEach(() => {
+      rmSync(scratch, { recursive: true, force: true })
+    })
+
+    /** Swaps the folder for a link to somewhere else, as a command in a granted folder above it could. */
+    function swap(folder: string, target: string): void {
+      renameSync(folder, `${folder}.was`)
+      symlinkSync(target, folder)
+    }
+
+    it.each([FOR_TASK, FOR_WORKSPACE])(
+      'refuses to grant it: the request closes denied, with why, and nothing is granted (%o)',
+      async (allow) => {
+        const ask: SandboxAsk = { kind: SandboxAskKind.Folder, path: cache, access: FolderAccess.ReadWrite }
+        const pending = broker.request(asking('toolu_1', ask))
+        // Before #510's review, allowing it now granted `documents`, read-write: where the link leads.
+        swap(cache, documents)
+
+        const answered = broker.answer(pending.request.id, allow)
+
+        expect(answered).toMatchObject({
+          state: PermissionRequestState.Denied,
+          denyNote: FOLDER_MOVED_NOTE,
+          grantedScope: null,
+          sandbox: ask,
+        })
+        expect(granted(taskTarget())).toEqual([])
+        expect(granted(workspaceTarget())).toEqual([])
+        // The call that waited is told it was denied, and why.
+        await expect(pending.decision).resolves.toEqual({ kind: PermissionDecisionKind.Deny, note: FOLDER_MOVED_NOTE })
+        expect(broker.isWaiting(pending.request.id)).toBe(false)
+      },
+    )
+
+    it('refuses when a folder above it was swapped, or it can’t be resolved any more', () => {
+      const above = broker.request(
+        asking('toolu_1', { kind: SandboxAskKind.Folder, path: cache, access: FolderAccess.Read }),
+      )
+      swap(join(scratch, 'scratch'), documents)
+      expect(broker.answer(above.request.id, FOR_TASK).denyNote).toBe(FOLDER_MOVED_NOTE)
+
+      const loop = join(scratch, 'loop')
+      const looping = broker.request(
+        asking('toolu_2', { kind: SandboxAskKind.Folder, path: loop, access: FolderAccess.Read }),
+      )
+      symlinkSync(join(scratch, 'pool'), loop)
+      symlinkSync(loop, join(scratch, 'pool'))
+      expect(broker.answer(looping.request.id, FOR_WORKSPACE).denyNote).toBe(FOLDER_MOVED_NOTE)
+      expect(granted(taskTarget())).toEqual([])
+      expect(granted(workspaceTarget())).toEqual([])
+    })
+
+    it('grants the folder as its card showed it when it hasn’t moved, and your own denial keeps your note', () => {
+      const ask: SandboxAsk = { kind: SandboxAskKind.Folder, path: cache, access: FolderAccess.ReadWrite }
+      const allowed = broker.request(asking('toolu_1', ask))
+      const denied = broker.request(asking('toolu_2', ask))
+
+      expect(broker.answer(allowed.request.id, FOR_TASK).state).toBe(PermissionRequestState.Allowed)
+      expect(granted(taskTarget())).toEqual([
+        { kind: SandboxGrantKind.Folder, path: cache, access: FolderAccess.ReadWrite },
+      ])
+      // Denying a folder that has moved is your denial, as you gave it.
+      swap(cache, documents)
+      expect(broker.answer(denied.request.id, { kind: PermissionDecisionKind.Deny, note: 'No.' }).denyNote).toBe('No.')
+    })
+
+    it('grants a single file as a single file, and refuses one swapped for a link', () => {
+      const gitconfig = join(scratch, '.gitconfig')
+      writeFileSync(gitconfig, '[user]\n')
+      const ask: SandboxAsk = { kind: SandboxAskKind.Folder, path: gitconfig, access: FolderAccess.Read, file: true }
+      const first = broker.request(asking('toolu_1', ask))
+      const second = broker.request(asking('toolu_2', { ...ask, access: FolderAccess.ReadWrite }))
+
+      broker.answer(first.request.id, FOR_WORKSPACE)
+      expect(granted(workspaceTarget())).toEqual([
+        { kind: SandboxGrantKind.Folder, path: gitconfig, access: FolderAccess.Read, file: true },
+      ])
+
+      swap(gitconfig, join(documents, 'secrets.txt'))
+      expect(broker.answer(second.request.id, FOR_WORKSPACE).denyNote).toBe(FOLDER_MOVED_NOTE)
+      expect(granted(workspaceTarget())).toEqual([
+        { kind: SandboxGrantKind.Folder, path: gitconfig, access: FolderAccess.Read, file: true },
+      ])
+    })
+  })
+
   it('names the tasks a card grants to', () => {
     expect(cardGrantTarget(SandboxGrantScope.Task, task)).toEqual(taskTarget())
     expect(cardGrantTarget(SandboxGrantScope.Workspace, task)).toEqual(workspaceTarget())
@@ -507,6 +612,7 @@ describe("the permission broker: the sandbox's cards", () => {
 
   it('notifies a sandbox request by what it asks for', () => {
     setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: '' })
+    setHomeFolder('/Users/me')
 
     broker.request(asking('toolu_1', FOLDER))
     broker.request(asking('toolu_2', { ...FOLDER, access: FolderAccess.ReadWrite }))
