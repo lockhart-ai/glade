@@ -48,6 +48,8 @@ has no menu. The Subagents tab isn't shown with the setting on, so its **Subagen
 isn't reachable there; whether the Agents tab takes those over is open ([`decisions.md`](decisions.md), "From the
 Agents tab").
 
+A **commit's tile** has no menu, as a commit in the Changes tab has none: it only shows what the agent did.
+
 **A file's and a link's tile** in the todo hub (#498, behind the same hidden `todoHubEnabled` setting until #501) have
 the menus their rows in the Artifacts tab have, item for item: a file's is **Artifact**'s above, and a link's is
 **Link artifact**'s. A tile's menu opens from a right-click on it, from Context menu (⇧F10) while it or one of its

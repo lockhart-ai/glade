@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import { WindowCommandId } from '../../shared/commands'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
-import { TodoState, ToolCallState, WatcherState, type Artifact, type Todo } from '../../shared/domain'
+import { CommitFileStatus, TodoState, ToolCallState, WatcherState, type Artifact, type Todo } from '../../shared/domain'
+import { commitFileKey } from '../../shared/files'
 import { ChildFilter, FilingSource, UNFILED_TODO_ID } from '../../shared/todoHub'
 import linkStyles from '../links/Link.module.css'
 import { refuse } from '../store/test-bridge'
@@ -647,6 +648,36 @@ describe('Not under a todo', () => {
     expect(tiles(UNFILED_HEADING)).toEqual([])
     // The todos themselves have nothing under them.
     expect(kinds(/Fix the date formatting/)).toEqual([])
+  })
+
+  it('opens a commit under no todo to its branch and files there, as under a todo (#499)', async () => {
+    const [commit] = BEFORE.commits ?? []
+    if (commit === undefined) throw new Error('No commit')
+    const files = {
+      files: [{ path: 'src/date.ts', oldPath: null, status: CommitFileStatus.Modified, additions: 1, deletions: 1 }],
+      total: 1,
+    }
+    const main = { ...hubMain(BEFORE), commitFiles: { [commit.id]: files } }
+    const wrapper = storeWrapper(main)
+    await act(() => wrapper.store.getState().hydrate())
+    render(<HubForTask />, { wrapper: wrapper.wrapper })
+    await waitFor(() => {
+      expect(wrapper.store.getState().filings.t1).toBeDefined()
+    })
+    fireEvent.click(head(UNFILED_HEADING))
+
+    fireEvent.click(screen.getByRole('group', { name: 'Change: Fix the UTC date test' }))
+    await act(() => Promise.resolve())
+
+    const tile = screen.getByRole('group', { name: 'Change: Fix the UTC date test' })
+    expect(tile).toHaveTextContent(/fix\/date-testMsrc\/date\.ts\+1−1$/)
+    // Opening a tile, or a file in it, is no click on the group around it.
+    fireEvent.click(within(tile).getByRole('button', { name: /src\/date\.ts/ }))
+    await act(() => Promise.resolve())
+    expect(head(UNFILED_HEADING)).toHaveAttribute('aria-expanded', 'true')
+    expect(wrapper.store.getState().openFiles.t1?.activePath).toBe(
+      commitFileKey({ commitId: commit.id, path: 'src/date.ts' }),
+    )
   })
 
   it('opens, filters and remembers as a todo does, under its own id', async () => {

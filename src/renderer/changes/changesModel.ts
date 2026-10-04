@@ -38,10 +38,21 @@ export function deletionsLabel(lines: number): string {
  * `main · 12m ago`, `fix/date-test · just now · merge`.
  */
 export function commitMeta(commit: TaskCommit, now: EpochMs): string {
-  const parts = [commit.branch ?? 'detached', formatAgo(commit.committedAt, now)]
-  if (commit.merge) parts.push('merge')
+  const parts = [branchLabel(commit), formatAgo(commit.committedAt, now)]
+  if (commit.merge) parts.push(MERGE_LABEL)
   return parts.join(' · ')
 }
+
+/** The branch a commit was made on, as it's shown: its name, or `detached` for one made on a detached HEAD. */
+export function branchLabel({ branch }: Pick<TaskCommit, 'branch'>): string {
+  return branch ?? 'detached'
+}
+
+/** What a merge commit is marked with. */
+export const MERGE_LABEL = 'merge'
+
+/** What a subagent the tool log hasn't got is called, where something says which subagent made it. */
+export const UNKNOWN_SUBAGENT = 'Subagent'
 
 /**
  * Who made a commit, when a subagent did: the subagent's name, from its `Agent` call in the tool log (a subagent the
@@ -51,7 +62,12 @@ export function madeBy(commit: TaskCommit, events: readonly ToolEvent[]): string
   const { subagentToolUseId } = commit
   if (subagentToolUseId === null) return null
   const call = events.find((event) => event.kind === ToolEventKind.ToolCall && event.toolUseId === subagentToolUseId)
-  return call?.kind === ToolEventKind.ToolCall ? subagentName(call) : 'Subagent'
+  return call?.kind === ToolEventKind.ToolCall ? subagentName(call) : UNKNOWN_SUBAGENT
+}
+
+/** The tooltip of the tag that says which subagent made a commit. */
+export function madeByTitle(name: string): string {
+  return `Made by the subagent “${name}”`
 }
 
 /** The letter a file's status shows as, as `git status --short` has them: A, M, D, R. */
