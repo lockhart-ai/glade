@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Todo hub, tiles open</title>
+<title>Agents, more than fit</title>
 <script src="./support.js"></script>
 </head>
 <body>
@@ -15,111 +15,67 @@ body{margin:0;background:#0A0B0F}
 a{color:#8FB2F5}a:hover{color:#B5CBF8}
 </style>
 <style>
-/* The Todos tab (P16, #491): what the work produced, under the todo that made it, in place of the Artifacts and
-   Changes tabs. A todo holds files, links and changes only; what's going on (subagents, watchers) is in the Agents
-   tab (50 to 54). Every colour is a token from tokens.md: inner #222430, inner-hover #282B39, inner-2 #2E3243,
-   inner-border #373C4F, strong #3D425E, text #E6E8F0, muted #AEB3C3, faint #999DB0, slate #5C6378, blue #5B8DEF,
-   blue text #8FB2F5, teal #7FD1C7, pink #E58FA8.
-   Every todo is a card on inner-2: closed or open, active, not started or done, with something under it or with
-   nothing. Nothing inside a card is black: its tiles are on inner with an inner-border outline, and the selected pill
-   is on strong. Nothing under a todo is live, so no count, pill or tile is ever blue: grey throughout, and pink only
-   for a commit's removed lines. */
-/* The todos' cards are space-xs (4px) apart, as the Todos tab's items are today, and so is the Not under a todo card
-   from the last of them, with no hairline between. */
-.hub{flex-grow:1;min-height:0;overflow:hidden;padding:12px 8px;display:flex;flex-direction:column;gap:4px}
-.sum{flex-shrink:0;display:flex;flex-direction:column;gap:8px;padding:0 9px 8px 9px}
-.sum .l{display:flex;justify-content:space-between;align-items:baseline}
-.sum b{font-size:14px;font-weight:600;color:#E6E8F0}
-.sum .u{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0}
-.bar{height:6px;border-radius:3px;background:#2E3243;overflow:hidden;display:flex}
-.bar .d{background:#7FD1C7}
-.bar .p{background:#5B8DEF}
-.empty{flex-shrink:0;padding:0 9px 4px 9px;font-size:13px;line-height:1.5;color:#999DB0}
+/* The Agents tab (P16, #491): what's happening, an agent to a tab, in place of the Tool calls, Subagents and Watchers
+   tabs. Every colour is a token from tokens.md: bg #0A0B0F, inner #222430, inner-hover #282B39, inner-2 #2E3243,
+   border #2F3343, inner-border #373C4F, strong #3D425E, text #E6E8F0, muted #AEB3C3, faint #999DB0, slate #5C6378,
+   blue #5B8DEF, blue text #8FB2F5, pink #E58FA8, live #273049, live-border #40568C.
+   Blue is live (a running agent's dot, a running call, a watcher whose process runs); grey is everything else; pink
+   is only what itself failed (a failed call's dot, a watcher whose own command failed).
+   A tool call's row, the notes between calls and a call's output are 2 · Agent working's, unchanged. */
 
-/* A todo: a card, whatever its state and whether or not anything is under it; its state icon, its status line and
-   its struck-through title say which it is. Three lines, closed or open: its title, its status line, and one row of
-   icons. */
-.todo{flex-shrink:0;display:flex;gap:8px;padding:8px;background:#2E3243;border:1px solid transparent;border-radius:10px}
-.st{flex-shrink:0;width:18px;height:18px;margin-top:1px;display:flex;align-items:center;justify-content:center}
-.ring{width:12px;height:12px;box-sizing:border-box;border:2px solid #5B8DEF;border-radius:7px;display:flex;align-items:center;justify-content:center}
-.ring span{width:4px;height:4px;border-radius:2px;background:#5B8DEF}
-.main{flex-grow:1;min-width:0}
-.tl{display:flex;align-items:baseline;gap:8px}
-.title{flex-grow:1;min-width:0;font-size:14px;line-height:1.4;font-weight:500;color:#E6E8F0}
-.todo.ns .title{font-weight:400}
-.todo.done .title{font-weight:400;color:#999DB0;text-decoration:line-through;text-decoration-color:#5C6378}
-.when{flex-shrink:0;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;white-space:nowrap}
-.chev{flex-shrink:0;align-self:center;display:flex;color:#999DB0}
-.note{margin-top:2px;font-size:12.5px;line-height:1.4;color:#8FB2F5}
-/* A PR, an issue or a ticket the todo names, when the task has it as a link (#500): the app's link, underlined
-   under the pointer. */
+/* The strip: a tab for every agent. Main, the task's own agent, is pinned first and stays put; after it the running
+   subagents, then the finished ones, the newest first within each. The rest scrolls sideways when it doesn't fit,
+   with no scroll bar: a chevron over a fade at an end that has tabs past it (27 · Tab overflow). A tab is 24px tall,
+   and its hit area is the 28px of a dense touch target. */
+.strip{flex-shrink:0;display:flex;align-items:center;gap:4px;padding:8px;border-bottom:1px solid #373C4F}
+.ags{position:relative;flex-grow:1;min-width:0;display:flex}
+.row{flex-grow:1;min-width:0;display:flex;overflow:hidden}
+.row>div{flex-shrink:0;display:flex;align-items:center;gap:4px}
+.row.past-right{mask-image:linear-gradient(to left,transparent 24px,#000 44px)}
+.row.past-left{justify-content:flex-end;mask-image:linear-gradient(to right,transparent 24px,#000 44px)}
+.chv{position:absolute;top:50%;translate:0 -50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;padding:0;background:transparent;border:1px solid transparent;border-radius:7px;color:#999DB0;cursor:pointer}
+.chv.left{left:0}
+.chv.right{right:0}
+.ag{flex-shrink:0;display:flex;align-items:center;gap:6px;height:24px;box-sizing:border-box;padding:0 8px;background:transparent;border:1px solid transparent;border-radius:7px;font:inherit;font-family:'Geist Mono',ui-monospace,monospace;font-size:11.5px;color:#AEB3C3;white-space:nowrap;cursor:pointer}
+.ag>svg{color:#999DB0}
+/* A subagent's dot: blue while it runs, slate once it's done. */
+.dot{flex-shrink:0;width:6px;height:6px;border-radius:3px;background:#5C6378}
+.dot.run{background:#5B8DEF}
+/* The eye and a count: what this agent has pinned under its tool calls. Blue while a watcher's process runs; grey
+   when all it has is a wakeup or a cron job that's only scheduled. */
+.ey{display:flex;align-items:center;gap:2px;color:#8FB2F5}
+.ey.idle{color:#999DB0}
+.ag.hover{background:#282B39;color:#E6E8F0}
+.ag.focus{outline:2px solid #8FB2F5;outline-offset:1px}
+.ag.on{background:#2E3243;border-color:#373C4F;color:#E6E8F0}
+
+/* Under the strip, on a subagent's tab: the todo it's working on, a link to that todo in the Todos tab, and its
+   state. One subagent, one todo. */
+.aline{flex-shrink:0;display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:8px 17px;border-bottom:1px solid #373C4F;font-size:12.5px;line-height:1.4;color:#AEB3C3}
+.aw{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.am{flex-shrink:0;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;white-space:nowrap}
 .lk{color:#8FB2F5;text-decoration:none;border-radius:3px}
-.lk.hover{text-decoration:underline}
-.lk.focus{outline:2px solid #8FB2F5;outline-offset:1px}
 
-/* The third line is the same box closed and open, so opening a todo moves nothing above it. Closed: an icon and a
-   count per kind (files, links, changes), kinds with none left out. Open: the same icons as filter pills, with All in
-   front. A count is never blue: nothing under a todo is live. */
-.kinds{display:flex;align-items:center;gap:12px;height:22px;margin-top:6px}
-.kinds[role=group]{gap:4px}
-.cnt{display:flex;align-items:center;gap:4px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11.5px;color:#AEB3C3}
-.cnt svg{color:#999DB0}
-.todo.done .cnt{color:#999DB0}
-.pill{display:flex;align-items:center;gap:4px;height:22px;box-sizing:border-box;padding:0 8px;background:transparent;border:1px solid #373C4F;border-radius:11px;font:inherit;font-size:11.5px;color:#AEB3C3;white-space:nowrap;cursor:pointer}
-.pill i{font-style:normal;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0}
-.pill svg{color:#999DB0}
-.pill.hover{border-color:#5C6378;color:#E6E8F0}
-.pill.focus{outline:2px solid #8FB2F5;outline-offset:2px}
-.pill.on{background:#3D425E;border-color:#3D425E;color:#E6E8F0}
-.pill.on i{color:#AEB3C3}
-.pill.on svg{color:#E6E8F0}
+/* The agent's tool calls: 2 · Agent working's list, newest at the bottom. */
+.calls{flex-grow:1;min-height:0;overflow:hidden;padding:8px;display:flex;flex-direction:column;justify-content:flex-end;gap:2px}
 
-/* Under an open todo: one flat list, a tile per file, link or commit, most recently updated first. */
-.kids{margin-top:8px;display:flex;flex-direction:column;gap:4px}
-.tile{display:flex;flex-direction:column;padding:6px 8px;background:#222430;border:1px solid #373C4F;border-radius:7px}
-.tile.hover{background:#282B39}
-.tile.focus{outline:2px solid #8FB2F5;outline-offset:-2px}
-/* The file showing in the Files tab is outlined (#307). */
-.tile.sel{border-color:#5C6378}
+/* What the agent is watching, pinned under its tool calls, outside the scroll, while it's live: a watcher whose
+   process runs on the live tint, and a wakeup or a cron job that's only scheduled the same way in grey. Once one
+   ends it leaves here and is a row in the calls, at the time it ended. */
+.pin{flex-shrink:0;display:flex;flex-direction:column;gap:4px;padding:8px;border-top:1px solid #373C4F}
+.ph{padding:0 9px 2px 9px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#999DB0}
+.wt{display:flex;flex-direction:column;padding:6px 8px;background:#2E3243;border:1px solid #373C4F;border-radius:8px}
+.wt.live{background:#273049;border-color:#40568C}
 .th{display:flex;gap:8px}
 .ki{flex-shrink:0;width:14px;height:14px;margin-top:2px;display:flex;align-items:center;justify-content:center;color:#999DB0}
-/* An image file's tile has its thumbnail where the icon goes, the size the Artifacts tab's rows have, so it's a little
-   taller than the rest. */
-.tile.img .th{align-items:center;gap:10px}
-.tile.img .ki{width:40px;height:28px;margin-top:0}
-.thumb{display:block;width:40px;height:28px;box-sizing:border-box;border:1px solid #373C4F;border-radius:5px;overflow:hidden}
 .kt{flex-grow:1;min-width:0;font-size:12.5px;line-height:1.4;color:#E6E8F0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.kt .h{font-family:'Geist Mono',ui-monospace,monospace;font-size:11.5px;color:#8FB2F5;margin-right:6px}
-.kt .tag{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;margin-left:6px}
-.ks{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;line-height:1.5;color:#999DB0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* The subagent that made a commit, after its branch: the Changes tab's tag. It goes to that subagent's tab in
-   Agents. A commit the task's own agent made has no tag. */
-.meta{display:flex;align-items:center;gap:8px;min-width:0}
-.meta span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.by{flex-shrink:0;padding:0 6px;border:1px solid #373C4F;border-radius:5px;font-family:Geist,system-ui,sans-serif;font-size:11px;line-height:15px;color:#AEB3C3;white-space:nowrap}
 .kr{flex-shrink:0;display:flex;align-items:center;gap:6px;height:18px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;white-space:nowrap}
-.add{color:#7FD1C7}
-.del{color:#E58FA8}
-/* A file's actions, in place of its age while the tile is under the pointer or has the focus: icon buttons, as the
-   Artifacts tab's rows have. */
-.acts{flex-shrink:0;display:flex;gap:2px;height:18px;align-items:center;margin-right:-4px}
-.ib{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;color:#AEB3C3}
-/* Under a commit's first line, in line with its text, once it's opened in place: its branch and the subagent that
-   made it, then its files in a box on inner-2, never black. */
+.blue{color:#8FB2F5}
+.failed{color:#E58FA8}
+.stop{display:flex;align-items:center;gap:4px;height:20px;box-sizing:border-box;padding:0 6px;background:transparent;color:#E6E8F0;border:1px solid #3D425E;border-radius:6px;font:inherit;font-family:Geist,system-ui,sans-serif;font-size:11.5px;font-weight:500;cursor:pointer}
 .tb{margin-left:22px}
-.well{margin:6px 0 2px;padding:4px 8px;background:#2E3243;border-radius:6px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;line-height:1.7;color:#AEB3C3}
-.well div{display:flex;justify-content:space-between;gap:12px;white-space:nowrap}
-.well div span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.well div span:last-child{flex-shrink:0;color:#999DB0}
-.well b{font-weight:500;color:#999DB0;margin-right:8px}
-
-/* Not under a todo: the placeholder for the files, links and commits no todo was recorded for, after the todos. A
-   card as a todo is, closed or open, with its heading where a todo's title is; it opens and filters as a todo does. */
-.loose{flex-shrink:0;padding:8px 8px 8px 34px;background:#2E3243;border:1px solid transparent;border-radius:10px}
-.loose.bare{padding-left:8px}
-.loose.bare .kinds{margin-top:0}
-.lh{display:flex;align-items:center;gap:11px;height:20px;margin-left:-23px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#999DB0}
-.lh+.kinds{margin-top:4px}
+.ks{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;line-height:1.5;color:#999DB0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ks b{font-weight:500;color:#AEB3C3;margin-right:6px}
 </style>
 </helmet>
 <div style="position: relative; width: 1920px; height: 1200px; box-sizing: border-box; padding: 8px 8px 8px 8px; gap: 8px; display: flex; flex-direction: column; background: #0A0B0F; color: #E6E8F0; font-family: Geist, system-ui, sans-serif; overflow: hidden">
@@ -157,15 +113,15 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 <span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #C8B2FF"></span><span style="font-size: 14px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Add rate limiting to public API</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">4m</span></span>
 <span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Waiting on you: pick a limit for /search</span>
 </button>
-<button type="button" style="display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
-<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5B8DEF"></span><span style="font-size: 14px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Move image uploads to S3</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">now</span></span>
-<span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Copying existing files, 1,240 of 3,900</span>
-<span data-indicators="" style="display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; padding-left: 16px; line-height: 16px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0"><span role="img" aria-label="3 of 7 todos done · Now: Copy the 3,900 existing files" title="3 of 7 todos done · Now: Copy the 3,900 existing files" style="flex-shrink: 0; display: flex; align-items: center; gap: 4px"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" style="flex-shrink: 0"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#3D425E" stroke-width="2"></circle><circle cx="6" cy="6" r="4.5" fill="none" stroke="#5B8DEF" stroke-width="2" stroke-dasharray="12.12 28.27" transform="rotate(-90 6 6)"></circle></svg>3/7</span></span>
-</button>
 <button type="button" style="display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; padding: 8px; background: #232531; border: 1px solid #2F3343; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
-<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5B8DEF"></span><span style="font-size: 14px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Fix flaky login test</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">now</span></span>
-<span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Soaking the fix: 140 of 200 runs</span>
-<span data-indicators="" style="display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; padding-left: 16px; line-height: 16px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0"><span role="img" aria-label="1 of 3 todos done · Now: Confirm the fix over 200 runs" title="1 of 3 todos done · Now: Confirm the fix over 200 runs" style="flex-shrink: 0; display: flex; align-items: center; gap: 4px"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" style="flex-shrink: 0"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#3D425E" stroke-width="2"></circle><circle cx="6" cy="6" r="4.5" fill="none" stroke="#5B8DEF" stroke-width="2" stroke-dasharray="9.42 28.27" transform="rotate(-90 6 6)"></circle></svg>1/3</span><span role="img" aria-label="1 subagent running" title="1 subagent running" style="flex-shrink: 0; display: flex; align-items: center; gap: 4px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="6" rx="1"></rect><rect x="2" y="16" width="6" height="6" rx="1"></rect><rect x="16" y="16" width="6" height="6" rx="1"></rect><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"></path><path d="M12 12V8"></path></svg>1</span><span role="img" aria-label="2 watchers running" title="2 watchers running" style="flex-shrink: 0; display: flex; align-items: center; gap: 4px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>2</span></span>
+<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5B8DEF"></span><span style="font-size: 14px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Ship the rate-limit fixes for 2.5</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">now</span></span>
+<span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Drafting the 2.5 release notes</span>
+<span data-indicators="" style="display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; padding-left: 16px; line-height: 16px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0"><span role="img" aria-label="3 of 4 todos done · Now: Draft the 2.5 release notes" title="3 of 4 todos done · Now: Draft the 2.5 release notes" style="flex-shrink: 0; display: flex; align-items: center; gap: 4px"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" style="flex-shrink: 0"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#3D425E" stroke-width="2"></circle><circle cx="6" cy="6" r="4.5" fill="none" stroke="#5B8DEF" stroke-width="2" stroke-dasharray="21.20 28.27" transform="rotate(-90 6 6)"></circle></svg>3/4</span><span role="img" aria-label="1 subagent running" title="1 subagent running" style="flex-shrink: 0; display: flex; align-items: center; gap: 4px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="6" rx="1"></rect><rect x="2" y="16" width="6" height="6" rx="1"></rect><rect x="16" y="16" width="6" height="6" rx="1"></rect><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"></path><path d="M12 12V8"></path></svg>1</span></span>
+</button>
+<button type="button" style="display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
+<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5B8DEF"></span><span style="font-size: 14px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Fix flaky login test</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">9m</span></span>
+<span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Found the race; fix passes 200 local runs</span>
+<span data-indicators="" style="display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; padding-left: 16px; line-height: 16px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0"><span role="img" aria-label="5 of 5 todos done" title="5 of 5 todos done" style="flex-shrink: 0; display: flex; align-items: center; gap: 4px"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" style="flex-shrink: 0"><circle cx="6" cy="6" r="6" fill="#5C6378"></circle><path d="M3.4 6.2 5.1 7.9 8.6 4.4" fill="none" stroke="#181921" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>5/5</span></span>
 </button>
 </div>
 <div style="height: 8px"></div>
@@ -184,6 +140,10 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 <span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span><span style="font-size: 14px; font-weight: 500; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Set up nightly backups</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">1w</span></span>
 <span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Nightly dump, 14-day retention</span>
 </button>
+<button type="button" style="display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
+<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span><span style="font-size: 14px; font-weight: 500; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Add CSV export to reports</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">3w</span></span>
+<span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Export endpoint and button shipped</span>
+</button>
 </div>
 </div>
 <div style="flex-shrink: 0; border-top: 1px solid #373C4F; padding: 8px"><button type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="Usage" style="display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; box-sizing: border-box; padding: 0 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; font: inherit; color: inherit; cursor: pointer; text-align: left"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex-shrink: 0"><circle cx="8.0" cy="8.0" r="6" fill="none" stroke="#3D425E" stroke-width="2.4"></circle><circle cx="8.0" cy="8.0" r="6" fill="none" stroke="#8FB2F5" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="14.3 37.7" transform="rotate(-90 8.0 8.0)"></circle></svg><span style="font-size: 12.5px; font-weight: 400; color: #AEB3C3; white-space: nowrap">Session</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; font-weight: 500; color: #E6E8F0">38%</span><span style="flex-grow: 1"></span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0; white-space: nowrap">resets 15:40</span><span style="display: flex; color: #999DB0"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"></path></svg></span></button></div>
@@ -194,8 +154,8 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 <div style="display: flex; align-items: center; gap: 8px">
 <div style="flex-grow: 1; min-width: 0; display: flex; align-items: center; gap: 8px">
 <span role="img" aria-label="Active · working" title="Active · working" style="flex-shrink: 0; width: 10px; height: 10px; border-radius: 5px; background: #5B8DEF"></span>
-<h1 style="margin: 0; min-width: 0; font-family: Geist, system-ui, sans-serif; font-size: 17px; font-weight: 700; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Fix flaky login test</h1>
-<span title="Started Oct 2, 2026, 1:31 PM" style="flex-shrink: 1000; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #999DB0">· 34m</span>
+<h1 style="margin: 0; min-width: 0; font-family: Geist, system-ui, sans-serif; font-size: 17px; font-weight: 700; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Ship the rate-limit fixes for 2.5</h1>
+<span title="Started Oct 2, 2026, 1:02 PM" style="flex-shrink: 1000; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #999DB0">· 56m</span>
 </div>
 <button type="button" aria-label="Pin task" aria-pressed="false" title="Pin task" style="flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: transparent; border: 1px solid transparent; color: #999DB0; border-radius: 7px; cursor: pointer"><svg width="16" height="16" viewBox="0 0 384 512" aria-hidden="true"><path fill="currentColor" d="M32 32C32 14.3 46.3 0 64 0L320 0c17.7 0 32 14.3 32 32s-14.3 32-32 32l-29.5 0 10.3 134.1c37.1 21.2 65.8 56.4 78.2 99.7l3.8 13.4c2.8 9.7 .8 20-5.2 28.1S362 352 352 352L32 352c-10 0-19.5-4.7-25.5-12.7s-8-18.4-5.2-28.1L5 297.8c12.4-43.3 41-78.5 78.2-99.7L93.5 64 64 64C46.3 64 32 49.7 32 32zM160 400l64 0 0 112c0 17.7-14.3 32-32 32s-32-14.3-32-32l0-112z"></path></svg></button>
 <button type="button" aria-label="Mark done" title="Mark done" style="flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: transparent; border: 1px solid transparent; color: #999DB0; border-radius: 7px; cursor: pointer"><svg width="16" height="16" viewBox="0 0 512 512" aria-hidden="true"><path fill="currentColor" d="M256 512a256 256 0 1 1 0-512 256 256 0 1 1 0 512zM374 145.7c-10.7-7.8-25.7-5.4-33.5 5.3L221.1 315.2 169 263.1c-9.4-9.4-24.6-9.4-33.9 0s-9.4 24.6 0 33.9l72 72c5 5 11.8 7.5 18.8 7s13.4-4.1 17.5-9.8L379.3 179.2c7.8-10.7 5.4-25.7-5.3-33.5z"></path></svg></button>
@@ -203,33 +163,33 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 <div style="display: flex; flex-direction: column; gap: 2px; padding-left: 18px">
 <div style="display: flex; align-items: baseline; gap: 8px">
 <div style="flex-shrink: 0; width: 52px; margin-left: 8px; white-space: nowrap; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #999DB0">Goal</div>
-<p style="margin: 0; flex-grow: 1; min-width: 0; font-size: 14px; line-height: 1.5; color: #AEB3C3">Find why the login test fails one run in twenty, fix it, and prove the fix over 200 runs.</p>
+<p style="margin: 0; flex-grow: 1; min-width: 0; font-size: 14px; line-height: 1.5; color: #AEB3C3">Work #501, #502 and #503 for 2.5: a subagent each, open PRs, watch CI, then draft the release notes.</p>
 </div>
 <div style="display: flex; align-items: baseline; gap: 8px">
 <div style="flex-shrink: 0; width: 52px; margin-left: 8px; white-space: nowrap; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #999DB0">Now</div>
-<p style="margin: 0; flex-grow: 1; min-width: 0; font-size: 14px; line-height: 1.5; color: #E6E8F0">The session race is fixed in PR #48. Soaking the login test: 140 of 200 runs pass so far, and CI is still running.</p><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: #999DB0">now</span>
+<p style="margin: 0; flex-grow: 1; min-width: 0; font-size: 14px; line-height: 1.5; color: #E6E8F0">All three PRs are merged. A subagent is drafting the release notes.</p><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: #999DB0">now</span>
 </div>
 </div>
 </header>
 <main style="position: relative; flex-grow: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column">
-<div style="flex-grow: 1; min-height: 0; overflow: hidden; margin: 50px 8px 51px 8px; padding: 66px 0 60px 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 16px">
+<div style="flex-grow: 1; min-height: 0; overflow: hidden; margin: 50px 8px 51px 8px; padding: 87px 0 60px 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 16px">
 <div style="flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 4px">
-<div style="max-width: 520px; padding: 12px 16px; background: #22304D; border-radius: 14px 14px 4px 14px; font-size: 14.5px; line-height: 1.55; color: #E6E8F0">The login test fails about one run in twenty. Find out why, fix it, and prove the fix over 200 runs.</div>
-<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">you · 13:31</span>
+<div style="max-width: 520px; padding: 12px 16px; background: #22304D; border-radius: 14px 14px 4px 14px; font-size: 14.5px; line-height: 1.55; color: #E6E8F0">Work #501, #502 and #503 for 2.5: a subagent each, open PRs, watch CI, then draft the release notes.</div>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">you · 13:02</span>
 </div>
 <div style="flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px">
-<div style="max-width: 720px; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; background: #1E1B33; border: 1px solid #3B3366; border-radius: 12px; font-size: 14.5px; line-height: 1.6; color: #E6E8F0"><p style="margin: 0">Found it: two requests can refresh the same session at once, and the second reads a token the first has already rotated. The fix locks the session for the refresh; it’s in PR #48.</p><p style="margin: 0">A subagent is running the login test 200 times to prove it, and I’m watching CI on the PR.</p></div>
-<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">agent · 14:03</span>
+<div style="max-width: 720px; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; background: #1E1B33; border: 1px solid #3B3366; border-radius: 12px; font-size: 14.5px; line-height: 1.6; color: #E6E8F0"><p style="margin: 0">PR #511 is green again: the header is on every 429 in a burst now. It’s merged, and so is PR #513.</p><p style="margin: 0">The release notes are next; a subagent is drafting them from the three PRs.</p></div>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">agent · 13:55</span>
 </div>
 <div style="flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 10px 14px; align-self: flex-start; background: #182238; border: 1px solid #27406E; border-radius: 10px; font-size: 13.5px; color: #B5CBF8">
-<span style="display: flex; gap: 4px"><span style="flex-shrink: 0; width: 6px; height: 6px; border-radius: 3px; background: #5B8DEF"></span><span style="flex-shrink: 0; width: 6px; height: 6px; border-radius: 3px; background: #3E62A8"></span><span style="flex-shrink: 0; width: 6px; height: 6px; border-radius: 3px; background: #2B4579"></span></span>Working · soak-login is running the login test, 140 of 200</div>
+<span style="display: flex; gap: 4px"><span style="flex-shrink: 0; width: 6px; height: 6px; border-radius: 3px; background: #5B8DEF"></span><span style="flex-shrink: 0; width: 6px; height: 6px; border-radius: 3px; background: #3E62A8"></span><span style="flex-shrink: 0; width: 6px; height: 6px; border-radius: 3px; background: #2B4579"></span></span>Working · notes-25 is drafting the release notes</div>
 </div>
 <div style="position: absolute; bottom: 0; left: 0; right: 0; z-index: 1; padding: 0">
 <div style="display: flex; flex-direction: column; background: #232531; border: 1px solid #3D425E; border-radius: 12px">
 <div style="display: flex; align-items: center; gap: 2px; padding: 4px 8px; border-bottom: 1px solid #373C4F">
 <button type="button" aria-label="Model: [MODEL NAME]" style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 7px; background: transparent; border: 1px solid transparent; border-radius: 6px; font: inherit; font-size: 12.5px; color: #AEB3C3; cursor: pointer"><span style="color: #999DB0">Model</span><span style="color: #E6E8F0; font-weight: 500">[MODEL NAME]</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></button><button type="button" aria-label="Effort: High" style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 7px; background: transparent; border: 1px solid transparent; border-radius: 6px; font: inherit; font-size: 12.5px; color: #AEB3C3; cursor: pointer"><span style="color: #999DB0">Effort</span><span style="color: #E6E8F0; font-weight: 500">High</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></button><button type="button" aria-label="Permissions: Allow all" style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 7px; background: transparent; border: 1px solid transparent; border-radius: 6px; font: inherit; font-size: 12.5px; color: #AEB3C3; cursor: pointer"><span style="color: #999DB0">Permissions</span><span style="color: #E6E8F0; font-weight: 500">Allow all</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></button><span title="Context used" style="margin-left: auto; display: flex; align-items: center; gap: 7px; padding: 0 6px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: #999DB0">
-<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="#3D425E" stroke-width="2.4"></circle><circle cx="8" cy="8" r="6" fill="none" stroke="#8FB2F5" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="11.7 37.7" transform="rotate(-90 8 8)"></circle></svg>
-<span><span style="color: #E6E8F0">31%</span> · 62k / 200k</span>
+<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="#3D425E" stroke-width="2.4"></circle><circle cx="8" cy="8" r="6" fill="none" stroke="#8FB2F5" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="16.6 37.7" transform="rotate(-90 8 8)"></circle></svg>
+<span><span style="color: #E6E8F0">44%</span> · 88k / 200k</span>
 </span>
 </div>
 <div style="display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 16px">
@@ -243,28 +203,90 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 </div>
 <aside style="flex-shrink: 0; width: 440px; box-sizing: border-box; background: #222430; border: 1px solid #373C4F; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.25); overflow: hidden; display: flex; flex-direction: column">
 <div style="display: flex; align-items: center; gap: 2px; padding: 8px 8px; border-bottom: 1px solid #373C4F">
-<button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Agents <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">2</span></button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Files</button><button type="button" aria-pressed="true" style="height: 28px; padding: 0 8px; background: #2E3243; color: #E6E8F0; border: 1px solid #373C4F; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Todos <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">1/3</span></button>
+<button type="button" aria-pressed="true" style="height: 28px; padding: 0 8px; background: #2E3243; color: #E6E8F0; border: 1px solid #373C4F; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Agents <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">6</span></button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Files</button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Todos <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">3/4</span></button>
 <span style="flex-grow: 1"></span><button type="button" aria-label="Collapse side panel" title="Collapse side panel" style="flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: transparent; border: 0; border-radius: 7px; color: #999DB0; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"></rect><path d="M15 4.5v15"></path></svg></button>
 </div>
-<div class="hub">
-<div class="sum"><div class="l"><b>1 of 3 done</b><span class="u">updated just now</span></div><div class="bar"><div class="d" style="width: 33%"></div><div class="p" style="width: 67%"></div></div></div>
-<div class="todo doing open"><span class="st"><span class="ring"><span></span></span></span><div class="main"><div class="tl"><span class="title">Confirm the fix over 200 runs</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span></div><div class="note">In progress · 140 of 200 runs</div>
-<div class="kinds" role="group" aria-label="Show"><button type="button" class="pill on" aria-pressed="true">All<i>2</i></button><button type="button" class="pill" aria-pressed="false" aria-label="Files"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg><i>1</i></button><button type="button" class="pill" aria-pressed="false" aria-label="Changes"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M2 12h6M18 12h4"/></svg><i>1</i></button></div>
-<div class="kids">
-<div class="tile"><div class="th"><span class="ki"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span><div class="kt">Login test, the first 100 runs<span class="tag">Text</span></div><div class="kr"><span>2m</span></div></div></div>
-<div class="tile"><div class="th"><span class="ki"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M2 12h6M18 12h4"/></svg></span><div class="kt"><span class="h">e7f8a9b</span>Let the login test repeat</div><div class="kr"><span><span class="add">+6</span> <span class="del">−1</span> · 4m</span></div></div><div class="tb"><div class="ks"><span class="meta"><span>fix/session-race</span><span class="by" title="Made by the subagent soak-login">soak-login</span></span></div><div class="well"><div><span><b>M</b>tests/conftest.py</span><span><span class="add">+6</span> <span class="del">−1</span></span></div></div></div></div>
+<div class="strip" role="tablist" aria-label="Agents">
+<button type="button" role="tab" aria-selected="false" class="ag"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"/><path d="M9 3h6l-1 6 4 4v2H6v-2l4-4z"/></svg>Main</button>
+<div class="ags"><div class="row past-left"><div><button type="button" role="tab" aria-selected="false" class="ag"><span class="dot run"></span>notes-25</button><button type="button" role="tab" aria-selected="false" class="ag"><span class="dot"></span>fix-501-ci</button><button type="button" role="tab" aria-selected="false" class="ag"><span class="dot"></span>limits-502</button><button type="button" role="tab" aria-selected="false" class="ag"><span class="dot"></span>docs-503</button><button type="button" role="tab" aria-selected="true" class="ag on"><span class="dot"></span>fix-501</button></div></div><button type="button" class="chv left" aria-label="Scroll agents left" title="Scroll agents left"><svg width="12" height="12" viewBox="0 0 320 512" aria-hidden="true"><path fill="currentColor" d="M9.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l192 192c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L77.3 256 246.6 86.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-192 192z"></path></svg></button></div>
 </div>
-</div></div>
-<div class="todo doing"><span class="st"><span class="ring"><span></span></span></span><div class="main"><div class="tl"><span class="title">Watch CI on <a class="lk" href="https://github.com/acme/api/pull/48">PR #48</a> until it’s green</span></div><div class="note">Waiting on CI</div></div></div>
-<div class="todo done open"><span class="st"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#7FD1C7"/><path d="m7.5 12.3 3.2 3.2 6.3-6.8" fill="none" stroke="#181921" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="main"><div class="tl"><span class="title">Fix the session race</span><span class="when">6m ago</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span></div>
-<div class="kinds" role="group" aria-label="Show"><button type="button" class="pill on" aria-pressed="true">All<i>4</i></button><button type="button" class="pill" aria-pressed="false" aria-label="Links"><svg width="13" height="13" viewBox="0 0 576 512" fill="currentColor" aria-hidden="true"><path d="M419.5 96c-16.6 0-32.7 4.5-46.8 12.7-15.8-16-34.2-29.4-54.5-39.5 28.2-24 64.1-37.2 101.3-37.2 86.4 0 156.5 70 156.5 156.5 0 41.5-16.5 81.3-45.8 110.6l-71.1 71.1c-29.3 29.3-69.1 45.8-110.6 45.8-86.4 0-156.5-70-156.5-156.5 0-1.5 0-3 .1-4.5 .5-17.7 15.2-31.6 32.9-31.1s31.6 15.2 31.1 32.9c0 .9 0 1.8 0 2.6 0 51.1 41.4 92.5 92.5 92.5 24.5 0 48-9.7 65.4-27.1l71.1-71.1c17.3-17.3 27.1-40.9 27.1-65.4 0-51.1-41.4-92.5-92.5-92.5zM275.2 173.3c-1.9-.8-3.8-1.9-5.5-3.1-12.6-6.5-27-10.2-42.1-10.2-24.5 0-48 9.7-65.4 27.1L91.1 258.2c-17.3 17.3-27.1 40.9-27.1 65.4 0 51.1 41.4 92.5 92.5 92.5 16.5 0 32.6-4.4 46.7-12.6 15.8 16 34.2 29.4 54.6 39.5-28.2 23.9-64 37.2-101.3 37.2-86.4 0-156.5-70-156.5-156.5 0-41.5 16.5-81.3 45.8-110.6l71.1-71.1c29.3-29.3 69.1-45.8 110.6-45.8 86.6 0 156.5 70.6 156.5 156.9 0 1.3 0 2.6 0 3.9-.4 17.7-15.1 31.6-32.8 31.2s-31.6-15.1-31.2-32.8c0-.8 0-1.5 0-2.3 0-33.7-18-63.3-44.8-79.6z"/></svg><i>2</i></button><button type="button" class="pill" aria-pressed="false" aria-label="Changes"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M2 12h6M18 12h4"/></svg><i>2</i></button></div>
-<div class="kids">
-<div class="tile"><div class="th"><span class="ki"><svg width="13" height="13" viewBox="0 0 512 512" fill="currentColor" aria-hidden="true"><path d="M328 24c0-9.7-5.8-18.5-14.8-22.2S293.9 .2 287 7L231 63c-9.4 9.4-9.4 24.6 0 33.9l56 56c6.9 6.9 17.2 8.9 26.2 5.2S328 145.7 328 136l0-24 24 0c17.7 0 32 14.3 32 32l0 214.7c-28.3 12.3-48 40.5-48 73.3 0 44.2 35.8 80 80 80s80-35.8 80-80c0-32.8-19.7-61-48-73.3L448 144c0-53-43-96-96-96l-24 0 0-24zM72 80a24 24 0 1 1 48 0 24 24 0 1 1 -48 0zm56 73.3c28.3-12.3 48-40.5 48-73.3 0-44.2-35.8-80-80-80S16 35.8 16 80c0 32.8 19.7 61 48 73.3l0 205.3c-28.3 12.3-48 40.5-48 73.3 0 44.2 35.8 80 80 80s80-35.8 80-80c0-32.8-19.7-61-48-73.3l0-205.3zM72 432a24 24 0 1 1 48 0 24 24 0 1 1 -48 0zm344-24a24 24 0 1 1 0 48 24 24 0 1 1 0-48z"/></svg></span><div class="kt">Lock the session while it refreshes<span class="tag">#48</span></div><div class="kr"><span>6m</span></div></div></div>
-<div class="tile"><div class="th"><span class="ki"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M2 12h6M18 12h4"/></svg></span><div class="kt"><span class="h">c9d0e1f</span>Lock the session while it refreshes</div><div class="kr"><span><span class="add">+24</span> <span class="del">−7</span> · 8m</span></div></div><div class="tb"><div class="ks"><span class="meta"><span>fix/session-race</span></span></div><div class="well"><div><span><b>M</b>api/auth/session.py</span><span><span class="add">+18</span> <span class="del">−5</span></span></div><div><span><b>M</b>tests/test_login.py</span><span><span class="add">+6</span> <span class="del">−2</span></span></div></div></div></div>
-<div class="tile"><div class="th"><span class="ki"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M2 12h6M18 12h4"/></svg></span><div class="kt"><span class="h">b8c9d0e</span>Log each session refresh</div><div class="kr"><span><span class="add">+9</span> <span class="del">−0</span> · 21m</span></div></div></div>
-<div class="tile"><div class="th"><span class="ki"><svg width="13" height="13" viewBox="0 0 512 512" fill="currentColor" aria-hidden="true"><path d="M256 512a256 256 0 1 1 0-512 256 256 0 1 1 0 512zm0-464a208 208 0 1 0 0 416 208 208 0 1 0 0-416zm0 304a96 96 0 1 1 0-192 96 96 0 1 1 0 192z"/></svg></span><div class="kt">The login test fails one run in twenty<span class="tag">#47</span></div><div class="kr"><span>34m</span></div></div></div>
+<div class="aline"><span class="aw">Worked on <a class="lk" href="https://github.com/acme/api/issues/501">#501 Return Retry-After on 429s</a></span><span class="am">Done · 28m</span></div>
+<div class="calls">
+<div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: #E6E8F0">Bash</span>
+<span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">git commit -m "Return Retry-After on 429 responses"</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:07</span>
 </div>
-</div></div>
+<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">a1b2c3d on fix/501-retry-after</div>
+</div>
+<div data-narr="1" style="flex-shrink: 0; margin: 6px 4px 6px 12px; padding: 2px 0 2px 12px; border-left: 2px solid #3D425E; font-size: 13px; line-height: 1.5; color: #AEB3C3">The header is on a single 429. Next: a test that sends a burst. <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:08</span></div>
+<div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: #E6E8F0">Write</span>
+<span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">tests/test_burst.py</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:08</span>
+</div>
+<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">New file, 54 lines</div>
+</div>
+<div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #E58FA8"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: #E6E8F0">Bash</span>
+<span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">pytest tests/test_burst.py -v</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:09</span>
+</div>
+<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">1 failed, 2 passed</div>
+</div>
+<div data-narr="1" style="flex-shrink: 0; margin: 6px 4px 6px 12px; padding: 2px 0 2px 12px; border-left: 2px solid #3D425E; font-size: 13px; line-height: 1.5; color: #AEB3C3">The second 429 in a burst returns early, before the header is set. Moving the header up. <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:10</span></div>
+<div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: #E6E8F0">Edit</span>
+<span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">api/throttle.py</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:12</span>
+</div>
+<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">+6 −2</div>
+</div>
+<div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: #E6E8F0">Bash</span>
+<span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">pytest tests/test_burst.py -v</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:13</span>
+</div>
+<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">3 passed</div>
+</div>
+<div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: #E6E8F0">Bash</span>
+<span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">git commit -am "Test the header under burst traffic"</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:14</span>
+</div>
+<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">0c4d2e1 on fix/501-retry-after</div>
+</div>
+<div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: #E6E8F0">Bash</span>
+<span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">pytest -q</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:15</span>
+</div>
+<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">412 passed</div>
+</div>
+<div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: #E6E8F0">Bash</span>
+<span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">gh pr create --fill</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:30</span>
+</div>
+<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">Opened PR #511</div>
+</div>
+<div data-narr="1" style="flex-shrink: 0; margin: 6px 4px 6px 12px; padding: 2px 0 2px 12px; border-left: 2px solid #3D425E; font-size: 13px; line-height: 1.5; color: #AEB3C3">PR #511 is open: every 429 carries Retry-After, and the burst test covers it. <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:31</span></div>
 </div>
 </aside>
 </div>
