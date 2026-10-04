@@ -1,6 +1,7 @@
 import type { Database } from 'better-sqlite3'
 import type { EpochMs } from '../../../shared/domain'
 import { CHILD_KINDS, FilingSource, type ChildRef, type Filing, type NewFiling } from '../../../shared/todoHub'
+import { WATCHER_KIND } from './child-ids'
 import { Row } from './rows'
 
 // The todo hub's filings (P16, `src/shared/todoHub.ts`): which todo each of a task's children is under.
@@ -44,14 +45,17 @@ export function putFilings(
   )()
 }
 
-/** A task's filings, oldest first. None when nothing of it has been filed. */
+/**
+ * A task's filings, oldest first. None when nothing of it has been filed. A watcher's filing, from when watchers were
+ * filed (`WATCHER_KIND`), is left out.
+ */
 export function listFilings(db: Database, taskId: string): Filing[] {
   return db
     .prepare(
       `SELECT task_id, kind, key, todo_id, source, filed_at FROM child_filings
-      WHERE task_id = ? ORDER BY filed_at, kind, key`,
+      WHERE task_id = ? AND kind <> ? ORDER BY filed_at, kind, key`,
     )
-    .all(taskId)
+    .all(taskId, WATCHER_KIND)
     .map(parseFiling)
 }
 

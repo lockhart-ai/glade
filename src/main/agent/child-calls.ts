@@ -1,41 +1,34 @@
 /**
- * The calls of Claude Code's own tools that make something a todo can hold (a "child": a subagent, a watcher, a
- * scheduled wakeup or cron job, a commit), in the shapes the P16-01 probes recorded (`docs/sdk-notes.md` §16), for the
- * scripted agent's scripts to build (`./scripts`). Since the phase split into Agents and Todos, Glade reads a todo off
- * two of them alone (P16-04, #495; `readsTodo`): an `Agent` call, whose subagent works on that todo, and a `Bash` call
- * in the foreground, whose commits go under it. A watcher isn't filed, so a `Monitor`, background `Bash`,
- * `ScheduleWakeup` or `CronCreate` call is left exactly as the model wrote it, whatever its text starts with.
+ * The calls of Claude Code's own tools that Glade reads a todo off (P16-04, #495; `readsTodo`), in the shapes the
+ * P16-01 probes recorded (`docs/sdk-notes.md` §16): an `Agent` call, whose subagent works on that todo, and a `Bash`
+ * call in the foreground, whose commits go under it. Nothing else: a watcher isn't filed, so a `Monitor`, background
+ * `Bash`, `ScheduleWakeup` or `CronCreate` call is left exactly as the model wrote it, whatever its text starts with,
+ * and nothing here knows those tools (#535).
  *
  * - Glade can't add a field to these tools, so a todo's id travels as a marker at the start of the call's own free
- *   text: `[todo 2] Review the date helpers`. Which text depends on the tool (`TODO_FIELDS`).
+ *   text, its description (`TODO_FIELD`): `[todo 2] Review the date helpers`.
  * - A `PreToolUse` hook sees the whole input and can hand the tool a changed one (`updatedInput`), so the marker never
- *   reaches what the SDK says of the call afterwards (its task's description, a job's prompt). The `tool_use` block the
- *   model wrote keeps it.
+ *   reaches what the SDK says of the call afterwards (its task's description). The `tool_use` block the model wrote
+ *   keeps it.
  * - A call such a hook refuses comes back as an error result, `hookRefusal`, and the tool never runs.
  */
 import type { ToolInput } from '../../shared/domain'
 
-/** The tools of Claude Code's own that make a child. `Bash` does when it runs in the background, or commits. */
+/** The tools of Claude Code's own a todo is read off: `Agent`, and `Bash`, which may commit. */
 export enum ChildTool {
   Agent = 'Agent',
-  Monitor = 'Monitor',
   Bash = 'Bash',
-  ScheduleWakeup = 'ScheduleWakeup',
-  CronCreate = 'CronCreate',
 }
 
-/** The free text of each tool's input that a todo's marker goes at the start of. */
-export const TODO_FIELDS: Readonly<Record<ChildTool, string>> = {
-  [ChildTool.Agent]: 'description',
-  [ChildTool.Monitor]: 'description',
-  [ChildTool.Bash]: 'description',
-  [ChildTool.ScheduleWakeup]: 'reason',
-  [ChildTool.CronCreate]: 'prompt',
-}
+/** The free text of a call's input that a todo's marker goes at the start of: either tool's description. */
+export const TODO_FIELD = 'description'
 
-const CHILD_TOOLS: readonly string[] = Object.values(ChildTool)
+/** The tools a todo is read off, as the SDK names them: what a hook matches. */
+export const TODO_TOOLS: readonly ChildTool[] = Object.values(ChildTool)
 
-/** Whether a tool, by name, is one that makes a child. */
+const CHILD_TOOLS: readonly string[] = TODO_TOOLS
+
+/** Whether a tool, by name, is one a todo is read off. */
 export function isChildTool(name: string): name is ChildTool {
   return CHILD_TOOLS.includes(name)
 }
@@ -51,13 +44,12 @@ export function todoMarker(todoId: string): string {
  */
 const MARKER = /^\s*\[todo #?(\d+)\]\s*/i
 
-/** A call's input with its todo named: the marker at the start of the tool's free text. */
-export function nameTodo(tool: ChildTool, input: ToolInput, todoId: string): ToolInput {
-  const field = TODO_FIELDS[tool]
-  const text = input[field]
+/** An `Agent` or `Bash` call's input with its todo named: the marker at the start of its description. */
+export function nameTodo(input: ToolInput, todoId: string): ToolInput {
+  const text = input[TODO_FIELD]
   return {
     ...input,
-    [field]: typeof text === 'string' && text !== '' ? `${todoMarker(todoId)} ${text}` : todoMarker(todoId),
+    [TODO_FIELD]: typeof text === 'string' && text !== '' ? `${todoMarker(todoId)} ${text}` : todoMarker(todoId),
   }
 }
 
@@ -68,18 +60,17 @@ export interface NamedTodo {
 }
 
 /**
- * The todo a call names, with the input the tool should run with (the marker taken off); null for a tool that makes
- * no child, and for a call that names none.
+ * The todo a call names, with the input the tool should run with (the marker taken off); null for a tool no todo is
+ * read off, and for a call that names none.
  */
 export function namedTodo(tool: string, input: ToolInput): NamedTodo | null {
   if (!isChildTool(tool)) return null
-  const field = TODO_FIELDS[tool]
-  const text = input[field]
+  const text = input[TODO_FIELD]
   if (typeof text !== 'string') return null
   const marked = MARKER.exec(text)
   if (marked === null) return null
   const [marker, todoId = ''] = marked
-  return { todoId, input: { ...input, [field]: text.slice(marker.length) } }
+  return { todoId, input: { ...input, [TODO_FIELD]: text.slice(marker.length) } }
 }
 
 /** A call as `readsTodo` takes it: the tool, its input, and whether a subagent made it. */
@@ -108,15 +99,8 @@ export function readsTodo({ toolName, input, subagent }: TodoCall): boolean {
       return true
     case ChildTool.Bash:
       return !subagent && input.run_in_background !== true
-    case ChildTool.Monitor:
-    case ChildTool.ScheduleWakeup:
-    case ChildTool.CronCreate:
-      return false
   }
 }
-
-/** The tools `readsTodo` reads a todo off, as the SDK names them: what a hook matches. */
-export const TODO_TOOLS: readonly ChildTool[] = [ChildTool.Agent, ChildTool.Bash]
 
 /** What the agent reads as the result of a call a `PreToolUse` hook refused, with the hook's reason. */
 export function hookRefusal(tool: string, reason: string): string {

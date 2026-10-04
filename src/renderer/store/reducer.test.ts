@@ -997,7 +997,7 @@ describe('the todo hub’s filings (P16)', () => {
   })
 
   it('keeps the panels the window already has when the hub is loaded again: only this window changes them', () => {
-    const mine = { taskId: 't1', todoId: '1', open: true, filter: ChildFilter.Watchers }
+    const mine = { taskId: 't1', todoId: '1', open: true, filter: ChildFilter.Commits }
     const earlier = { ...loaded, todoPanels: { t1: { '1': mine } } }
     const stale = { taskId: 't1', todoId: '1', open: false, filter: ChildFilter.Links }
 
@@ -1012,17 +1012,17 @@ describe('the todo hub’s filings (P16)', () => {
   })
 
   it('adds a filing made, and moves a child whose filing was replaced, leaving the rest as they were', () => {
-    const watcher = filing(ChildKind.Watcher, 'toolu_9', '2', 5)
+    const subagent = filing(ChildKind.Subagent, 'toolu_9', '2', 5)
     const moved = { ...PLAN, todoId: '2', source: FilingSource.Moved, filedAt: 6 }
 
     const next = applyEvent(loaded, {
       type: EventType.FilingsChanged,
       taskId: 't1',
-      filed: [watcher, moved],
+      filed: [subagent, moved],
       removed: [],
     })
 
-    expect(next.filings.t1).toEqual([PR, watcher, moved])
+    expect(next.filings.t1).toEqual([PR, subagent, moved])
     expect(next.filingsVersion.t1).toBe(1)
   })
 

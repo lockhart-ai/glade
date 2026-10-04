@@ -1,7 +1,7 @@
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import type { KeyboardEvent, MouseEvent, ReactNode, Ref } from 'react'
 import type { EpochMs } from '../../../shared/domain'
-import type { ChildKind } from '../../../shared/todoHub'
+import type { ProducedKind } from '../../../shared/todoHub'
 import { Icon, IconSize } from '../../components'
 import { classNames } from '../../components/classNames'
 import type { ContextMenuTargetProps } from '../../context-menus'
@@ -9,23 +9,16 @@ import { tileLabel } from '../todoHubModel'
 import { Age } from './Age'
 import styles from './Tile.module.css'
 
-/** How a tile's state reads, which colours it: blue is live, pink is what itself failed, grey is everything else. */
-export enum TileTone {
-  Plain = 'plain',
-  Live = 'live',
-  Failed = 'failed',
-}
-
 /** What every kind's tile is given: which task, and which of its children. It reads the child from the store itself. */
 export interface KindTileProps {
   readonly taskId: string
-  /** The child's own key within its kind (`ChildRef.key`): a file's path, a link's URL, a call's `tool_use` id. */
+  /** The child's own key within its kind (`ChildRef.key`): a file's path, a link's URL, a commit's hash and repository. */
   readonly childKey: string
 }
 
 export interface TileProps {
-  /** What it is, which names it to a screen reader ahead of its title (`Subagent: fix-501-ci`). */
-  readonly kind: ChildKind
+  /** What it is, which names it to a screen reader ahead of its title (`File: Rate limits reference`). */
+  readonly kind: ProducedKind
   /** Its title, as plain text: what it's called, and its accessible name. */
   readonly name: string
   /** The icon of what it is. */
@@ -38,14 +31,10 @@ export interface TileProps {
   readonly tag?: string | null
   /** What its tag says under the pointer: a file's path, a link's repository (#498). Nothing unless given. */
   readonly tagTitle?: string | undefined
-  /** Where it stands, before its age: `Running`, `Done`, a commit's `+54 −0`. Nothing unless given. */
+  /** What it says of itself before its age: a commit's `+54 −0`. Nothing unless given. */
   readonly state?: ReactNode
-  /** How its state reads (`TileTone`); plain unless given. */
-  readonly tone?: TileTone
   /** When it last changed: its age, last on the first line. */
   readonly at: EpochMs
-  /** Whether it's running now (a running subagent, a watcher whose process runs): the tile takes the live tint. */
-  readonly live?: boolean
   /** Whether it's outlined, e.g. the file the Files tab shows (#498). */
   readonly selected?: boolean
   /** Whether it's faded back: a file that's gone, its title and its icon as faint as the rest (#498). */
@@ -70,11 +59,11 @@ export interface TileProps {
   /** The tile's own element, e.g. to hand the focus back to it (#498). */
   readonly ref?: Ref<HTMLDivElement> | undefined
   /**
-   * What a click on the tile does, and ↵ or Space while it has the focus: open a file, a subagent's log, a commit's
-   * files (#498, #499). Nothing unless given. A click on a control inside the tile is the control's own.
+   * What a click on the tile does, and ↵ or Space while it has the focus: open a file, a commit's files (#498, #499).
+   * Nothing unless given. A click on a control inside the tile is the control's own.
    */
   readonly onOpen?: (() => void) | undefined
-  /** Its own lines under the first (`TileLine`), and what it opens to in place, under its title across its width. */
+  /** What it opens to in place, under its title across its width. */
   readonly children?: ReactNode
 }
 
@@ -86,11 +75,11 @@ function onControl({ target, currentTarget }: MouseEvent<HTMLElement>): boolean 
 }
 
 /**
- * One child of a todo in the hub (`docs/design/html/46-todo-hub.html`): its icon, its title with a tag, its state and
- * its age on one line, then any lines of its own. On `inner` with an `inner-border` outline, lighter under the pointer,
- * ringed while it has the focus, and on the `live` tint while it's running. It takes the focus by itself, so every
- * child is reachable with Tab. Each kind's tile (`FileTile`, `LinkTile`, `SubagentTile`, `WatcherTile`, `CommitTile`)
- * fills this in from its own child.
+ * One child of a todo in the hub (`docs/design/html/46-todo-hub.html`): its icon, its title with a tag, what it says
+ * of itself and its age on one line, then what it opens to in place. On `inner` with an `inner-border` outline, lighter
+ * under the pointer and ringed while it has the focus; never blue, since nothing under a todo is live. It takes the
+ * focus by itself, so every child is reachable with Tab. Each kind's tile (`FileTile`, `LinkTile`, `CommitTile`) fills
+ * this in from its own child.
  */
 export function Tile({
   kind,
@@ -101,9 +90,7 @@ export function Tile({
   tag = null,
   tagTitle,
   state,
-  tone = TileTone.Plain,
   at,
-  live = false,
   selected = false,
   muted = false,
   busy = false,
@@ -130,7 +117,6 @@ export function Tile({
       ref={ref}
       className={classNames(
         styles.tile,
-        live && styles.live,
         selected && styles.selected,
         muted && styles.muted,
         onOpen !== undefined && styles.openable,
@@ -143,7 +129,6 @@ export function Tile({
       aria-busy={busy || undefined}
       tabIndex={0}
       data-kind={kind}
-      data-live={live ? '' : undefined}
       {...(onOpen === undefined ? {} : { onClick })}
       {...(onOpen === undefined && menuTarget === undefined ? {} : { onKeyDown })}
       {...(menuTarget === undefined ? {} : { onContextMenu: menuTarget.onContextMenu })}
@@ -161,10 +146,10 @@ export function Tile({
             </span>
           )}
         </div>
-        <div className={classNames(styles.right, tone === TileTone.Live && styles.liveText)}>
+        <div className={styles.right}>
           {state !== undefined && (
             <>
-              <span className={classNames(tone === TileTone.Failed && styles.failed)}>{state}</span>
+              {state}
               {' · '}
             </>
           )}
@@ -175,24 +160,6 @@ export function Tile({
       {children !== undefined && children !== null && children !== false && (
         <div className={styles.body}>{children}</div>
       )}
-    </div>
-  )
-}
-
-export interface TileLineProps {
-  /** A short label before the line, in a lighter grey: `last`, `end`. */
-  readonly label?: string | undefined
-  /** Whether the line says what failed: pink. */
-  readonly failed?: boolean
-  readonly children: ReactNode
-}
-
-/** One of a tile's own lines under its first: what a subagent is doing, what a watcher last said. One line, cut short. */
-export function TileLine({ label, failed = false, children }: TileLineProps): React.JSX.Element {
-  return (
-    <div className={styles.line}>
-      {label !== undefined && <b className={styles.lineLabel}>{label}</b>}
-      <span className={classNames(failed && styles.failed)}>{children}</span>
     </div>
   )
 }

@@ -592,18 +592,18 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
     'to read or write it, and a short reason the user will read. It returns the decision: once it says the access ' +
     "is allowed, run the command again; if it's denied, don't, and it returns the user's note if they left one.",
   [GladeTool.ListChildren]:
-    'List what this task has made, its children: the files and links among its artifacts, its subagents, its ' +
-    'watchers and its commits. They come grouped by the todo each is under, with the ones under no todo last, and ' +
-    'each has a short id (c1, c2, …) to file it by, its kind and its title. A child marked "follows cN" was made by ' +
-    `that subagent and goes wherever it goes. Give a todo's id to list that todo's children alone, or "${NO_TODO}" ` +
-    'for the ones under no todo.',
+    'List what this task has produced, its children: the files and links among its artifacts, and its commits. They ' +
+    'come grouped by the todo each is under, with the ones under no todo last, and each has a short id (c1, c2, …) ' +
+    'to file it by, its kind and its title. A subagent is listed only while it has no todo, with the ones under no ' +
+    'todo: file it under the todo it works on. A child marked "follows cN" was made by that subagent and goes ' +
+    `wherever it goes. Give a todo's id to list that todo's children alone, or "${NO_TODO}" for the ones under no todo.`,
   [GladeTool.FileChildren]:
-    'File children of this task under its todos, or move them from one todo to another: the user finds each child ' +
-    "under its todo in the Todos tab. Give every filing in one call, each a child's short id (from " +
+    'File children of this task under its todos, or move them from one todo to another: the user finds each file, ' +
+    "link and commit under its todo in the Todos tab. Give every filing in one call, each a child's short id (from " +
     `${GladeTool.ListChildren}, or as Glade named it to you) and the id of the todo to put it under (the N of Task ` +
-    '#N). A subagent brings what it made (its commits, its watchers, its own subagents), so file those apart only to ' +
-    "keep them somewhere else. If a child or a todo isn't there, nothing is filed and the error says which. Create " +
-    'the todo first (TaskCreate) if none fits.',
+    '#N). Filing a subagent says which todo it works on, and its commits go under that todo with it, so file those ' +
+    "apart only to keep them somewhere else. If a child or a todo isn't there, nothing is filed and the error says " +
+    'which. Create the todo first (TaskCreate) if none fits.',
 }
 
 /** What `add_artifact`'s description adds in a session with the todo hub on, where it takes the artifact's todo. */

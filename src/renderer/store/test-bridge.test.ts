@@ -2,12 +2,14 @@ import { expect, it, vi } from 'vitest'
 import { BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import { BroadcastDelivery } from '../../shared/broadcast'
 import {
+  ArtifactKind,
   PermissionDecisionKind,
   PermissionMarkKind,
   TaskActivity,
   TaskState,
   TodoState,
   UiStateKey,
+  type Artifact,
   type PermissionMark,
 } from '../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
@@ -168,16 +170,24 @@ it('refuses the todo hub’s commands, as main does while the hub is off', async
   ).rejects.toMatchObject({ code: BridgeErrorCode.InvalidTransition, message: TODO_HUB_OFF })
 })
 
-it('answers the todo hub’s commands while the hub is on: a task’s children grouped by todo, its filings and its panels', async () => {
+it('answers the todo hub’s commands while the hub is on: what a task produced grouped by todo, its filings and its panels', async () => {
   const watcher = sampleWatcher('w1', 't1', { toolUseId: 'watch-a' })
   const filing = {
     taskId: 't1',
-    kind: ChildKind.Watcher,
-    key: 'watch-a',
+    kind: ChildKind.Link,
+    key: 'https://github.com/acme/api/pull/511',
     todoId: '1',
     source: FilingSource.Named,
     filedAt: 1,
   }
+  const link = (taskId: string): Artifact => ({
+    kind: ArtifactKind.Link,
+    taskId,
+    url: filing.key,
+    title: 'Return Retry-After on 429s',
+    addedAt: 1,
+    updatedAt: 1,
+  })
   const todoPanels = [{ taskId: 't2', todoId: '1', open: true, filter: ChildFilter.All }]
   const fake = fakeBridge({
     workspaces: [],
@@ -190,6 +200,7 @@ it('answers the todo hub’s commands while the hub is on: a task’s children g
         updatedAt: 1,
       },
     },
+    artifacts: [link('t1'), link('t2')],
     watchers: [watcher, sampleWatcher('w2', 't2')],
     commits: [sampleCommit('c1', 't1'), sampleCommit('c2', 't2')],
     filings: [filing, { ...filing, taskId: 't2' }],
@@ -200,17 +211,18 @@ it('answers the todo hub’s commands while the hub is on: a task’s children g
   expect(hub.filings).toEqual([filing])
   expect(hub.panels).toEqual([])
   expect(hub.children.todos.map(({ todoId, children }) => [todoId, children.map(({ kind }) => kind)])).toEqual([
-    ['1', [ChildKind.Watcher]],
+    ['1', [ChildKind.Link]],
   ])
+  // Its commit is under no todo; its watcher is no child at all.
   expect(hub.children.unfiled.children.map(({ kind }) => kind)).toEqual([ChildKind.Commit])
-  // A task with no todo list has everything under no todo.
+  // A task with no todo list has everything it produced under no todo.
   const other = await fake.bridge.invoke(CommandName.TodoHubGet, { taskId: 't2' })
   expect(other.children.todos).toEqual([])
   expect(other.children.unfiled.todoId).toBe(UNFILED_TODO_ID)
   expect(other.children.unfiled.children).toHaveLength(2)
 
   // A panel is added, then replaced in place.
-  const opened = { taskId: 't1', todoId: '1', open: true, filter: ChildFilter.Watchers }
+  const opened = { taskId: 't1', todoId: '1', open: true, filter: ChildFilter.Commits }
   await fake.bridge.invoke(CommandName.TodoHubSetPanel, opened)
   await fake.bridge.invoke(CommandName.TodoHubSetPanel, { ...opened, filter: ChildFilter.All })
   expect(todoPanels).toEqual([todoPanels[0], { ...opened, filter: ChildFilter.All }])

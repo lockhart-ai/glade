@@ -9,7 +9,7 @@ import { ChildKind } from '../../../shared/todoHub'
 import type { ContextMenuTargetProps } from '../../context-menus'
 import { NOW_REFRESH_MS } from '../../task-list/useNow'
 import { HUB_NOW, minutesAgo } from '../test-hub'
-import { Tile, TileLine, TileTone, type TileProps } from './Tile'
+import { Tile, type TileProps } from './Tile'
 import styles from './Tile.module.css'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -59,34 +59,24 @@ describe('Tile', () => {
     expect(tile()).toHaveFocus()
   })
 
-  it('has no tag, lead, state or lines of its own unless given', () => {
-    render(<Tile kind={ChildKind.Subagent} name="fix-501" icon={faFileLines} at={minutesAgo(0)} />)
+  it('has no tag, lead or state, and nothing under its first line, unless given', () => {
+    render(<Tile kind={ChildKind.Link} name="fix-501" icon={faFileLines} at={minutesAgo(0)} />)
     expect(tile()).toHaveTextContent(/^fix-501now$/)
     expect(tile().children).toHaveLength(1)
+    expect(tile()).not.toHaveClass(styles.selected ?? '', styles.openable ?? '', styles.acting ?? '')
+  })
+
+  it('is never live: nothing marks it as running, whatever it is', () => {
+    render(<Tile {...FILE} kind={ChildKind.Commit} state="+54 −0" />)
     expect(tile()).not.toHaveAttribute('data-live')
-    expect(tile()).not.toHaveClass(styles.live ?? '', styles.selected ?? '', styles.openable ?? '', styles.acting ?? '')
+    expect(tile().className).not.toMatch(/live/)
+    expect(tile().innerHTML).not.toMatch(/live/i)
   })
 
   it('shows a short code before its title, and where it stands before its age', () => {
     render(<Tile {...FILE} kind={ChildKind.Commit} name="Fix the header" tag={null} lead="0c4d2e1" state="+54 −0" />)
     expect(tile()).toHaveTextContent('0c4d2e1Fix the header+54 −0 · 6m')
     expect(screen.getByText('0c4d2e1')).toHaveClass(styles.lead ?? '')
-  })
-
-  it('is on the live tint while it runs, with its state and its age in blue', () => {
-    render(<Tile {...FILE} kind={ChildKind.Subagent} state="Running" tone={TileTone.Live} live />)
-    expect(tile()).toHaveClass(styles.live ?? '')
-    expect(tile()).toHaveAttribute('data-live')
-    expect(screen.getByText('Running').parentElement).toHaveClass(styles.liveText ?? '')
-    expect(screen.getByText('Running')).not.toHaveClass(styles.failed ?? '')
-  })
-
-  it('says what itself failed in pink, and its age stays grey', () => {
-    render(<Tile {...FILE} kind={ChildKind.Watcher} state="Failed" tone={TileTone.Failed} />)
-    expect(screen.getByText('Failed')).toHaveClass(styles.failed ?? '')
-    expect(screen.getByText('Failed').parentElement).not.toHaveClass(styles.liveText ?? '')
-    expect(screen.getByText('6m')).not.toHaveClass(styles.failed ?? '')
-    expect(tile()).not.toHaveClass(styles.live ?? '')
   })
 
   it('is outlined when selected, e.g. the file the Files tab shows', () => {
@@ -101,24 +91,17 @@ describe('Tile', () => {
     expect(tile().querySelector('img')?.parentElement).toHaveClass(styles.media ?? '')
   })
 
-  it('shows its own lines under its first, each with its label, and what failed in pink', () => {
+  it('shows what it opens to under its first line, in line with its title', () => {
     render(
-      <Tile {...FILE} kind={ChildKind.Watcher}>
-        <TileLine label="last">lint pass 38s</TileLine>
-        <TileLine label="end" failed>
-          failed with exit code 1
-        </TileLine>
-        <TileLine>Rerunning the burst test</TileLine>
+      <Tile {...FILE} kind={ChildKind.Commit}>
+        <p>fix-501 · 3 files</p>
       </Tile>,
     )
     expect(tile().children).toHaveLength(2)
-    expect(screen.getByText('last')).toHaveClass(styles.lineLabel ?? '')
-    expect(screen.getByText('lint pass 38s')).not.toHaveClass(styles.failed ?? '')
-    expect(screen.getByText('failed with exit code 1')).toHaveClass(styles.failed ?? '')
-    expect(screen.getByText('Rerunning the burst test').parentElement?.children).toHaveLength(1)
+    expect(screen.getByText('fix-501 · 3 files').parentElement).toHaveClass(styles.body ?? '')
   })
 
-  it('has no lines when given none, as a tile whose line comes and goes gives', () => {
+  it('has nothing under its first line when given nothing, as a tile that opens and closes gives', () => {
     render(<Tile {...FILE}>{false}</Tile>)
     expect(tile().children).toHaveLength(1)
   })
@@ -293,20 +276,31 @@ describe('the hub’s colours', () => {
     }
   })
 
-  it('puts a tile on inner with an inner-border outline, a live one on the live tint, and the selected pill on strong', () => {
+  it('puts a tile on inner with an inner-border outline, and the selected pill on strong', () => {
     expect(tileCss).toMatch(
       /\.tile \{[^}]*background: var\(--color-inner\);[^}]*border: 1px solid var\(--color-inner-border\)/,
-    )
-    expect(tileCss).toMatch(
-      /\.tile\.live:hover \{[^}]*background: var\(--color-live\);[^}]*border-color: var\(--color-live-border\)/,
     )
     expect(hubCss).toMatch(/\.card \{[^}]*background: var\(--color-inner-2\)/)
     expect(hubCss).toMatch(/\.pill\.on \{[^}]*background: var\(--color-strong\)/)
   })
 
-  it('uses pink only for what failed and for removed lines, and blue only for what’s live, a commit’s hash and a status line', () => {
+  it('uses pink only for a commit’s removed lines', () => {
     const pink = [...tileCss.matchAll(/([^{}]+)\{[^}]*var\(--color-pink\)/g)].map((match) => match[1]?.trim())
-    expect(pink).toEqual(['.failed', expect.stringContaining('.removed')])
+    expect(pink).toEqual([expect.stringContaining('.removed')])
     expect(hubCss).not.toContain('--color-pink')
+  })
+
+  it('has nothing live: no live tint on a tile, and no blue count or pill', () => {
+    for (const css of [tileCss, hubCss]) {
+      expect(css).not.toMatch(/\.live\b/)
+      expect(css).not.toMatch(/var\(--color-live/)
+    }
+    // Blue is left to the focus ring, a commit's hash, a todo's status line and the progress bar.
+    const blue = (css: string): (string | undefined)[] =>
+      [...css.matchAll(/([^{}]+)\{[^}]*var\(--color-blue(-text)?\)/g)].map((match) =>
+        match[1]?.replace(/\/\*[^]*?\*\//g, '').trim(),
+      )
+    expect(blue(tileCss)).toEqual(['.tile:focus-visible', '.lead'])
+    for (const selector of blue(hubCss)) expect(selector).not.toMatch(/\.(count|pill)(?!:focus-visible)/)
   })
 })

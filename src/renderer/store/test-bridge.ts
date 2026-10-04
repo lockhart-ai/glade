@@ -781,7 +781,6 @@ export function fakeHandlers(
         todos: main.todos?.[taskId]?.items ?? [],
         artifacts: artifacts.filter((artifact) => artifact.taskId === taskId),
         subagents: subagentsOf((main.toolEvents ?? []).filter((event) => event.taskId === taskId)),
-        watchers: (main.watchers ?? []).filter((watcher) => watcher.taskId === taskId),
         commits: (main.commits ?? []).filter((commit) => commit.taskId === taskId),
         filings,
       })

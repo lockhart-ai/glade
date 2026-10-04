@@ -1,6 +1,6 @@
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
-import { faEye, faFile } from '@fortawesome/free-regular-svg-icons'
-import { faChevronDown, faChevronRight, faCodeCommit, faLink, faSitemap } from '@fortawesome/free-solid-svg-icons'
+import { faFile } from '@fortawesome/free-regular-svg-icons'
+import { faChevronDown, faChevronRight, faCodeCommit, faLink } from '@fortawesome/free-solid-svg-icons'
 import { memo, useEffect, useMemo, type KeyboardEvent, type MouseEvent } from 'react'
 import {
   TodoState,
@@ -10,7 +10,6 @@ import {
   type Todo,
   type TodoList,
   type ToolEvent,
-  type Watcher,
 } from '../../shared/domain'
 import {
   ChildFilter,
@@ -19,6 +18,7 @@ import {
   groupChildren,
   UNFILED_TODO_ID,
   type Child,
+  type ProducedKind,
   type TodoId,
   type TodoPanel,
 } from '../../shared/todoHub'
@@ -56,7 +56,6 @@ import styles from './TodoHub.module.css'
 const NO_TODOS: readonly Todo[] = []
 const NO_ARTIFACTS: readonly Artifact[] = []
 const NO_TOOL_EVENTS: readonly ToolEvent[] = []
-const NO_WATCHERS: readonly Watcher[] = []
 const NO_COMMITS: readonly TaskCommit[] = []
 const NO_CHILDREN: readonly Child[] = []
 const NO_PANELS: TodoPanels = {}
@@ -66,11 +65,9 @@ const NO_LINKS: ReadonlyMap<string, LinkReferences> = new Map<string, LinkRefere
 const HEAD_ATTRIBUTE = 'data-todo-head'
 
 /** The icon of each kind of child, on its count and its filter pill. */
-const KIND_ICONS: Readonly<Record<ChildKind, IconDefinition>> = {
+const KIND_ICONS: Readonly<Record<ProducedKind, IconDefinition>> = {
   [ChildKind.File]: faFile,
   [ChildKind.Link]: faLink,
-  [ChildKind.Subagent]: faSitemap,
-  [ChildKind.Watcher]: faEye,
   [ChildKind.Commit]: faCodeCommit,
 }
 
@@ -116,9 +113,10 @@ interface KindsProps {
 
 /**
  * A todo's third line, the same box closed and open, so opening it moves nothing above it. Closed: an icon and a count
- * per kind, a kind with none left out; clicking one opens the todo on that kind. Open: the same icons as filter pills,
- * with All in front. An icon is blue while one of its kind is live, with what it counts in words as its tooltip. A
- * kind's button is the same element closed and open, so the one you click keeps the focus as it becomes a pill.
+ * per kind (files, links, changes), a kind with none left out; clicking one opens the todo on that kind. Open: the same
+ * icons as filter pills, with All in front. Each has what it counts in words as its tooltip, and none is ever blue:
+ * nothing under a todo is live. A kind's button is the same element closed and open, so the one you click keeps the
+ * focus as it becomes a pill.
  */
 function Kinds({ counts, total, open, filter, onShow }: KindsProps): React.JSX.Element {
   return (
@@ -141,7 +139,7 @@ function Kinds({ counts, total, open, filter, onShow }: KindsProps): React.JSX.E
         </button>
       )}
       {counts.map((count) => {
-        const { kind, live } = count
+        const { kind } = count
         const label = kindCountLabel(count)
         const kindFilter = filterOfKind(kind)
         const selected = open && filter === kindFilter
@@ -149,14 +147,13 @@ function Kinds({ counts, total, open, filter, onShow }: KindsProps): React.JSX.E
           <button
             key={kind}
             type="button"
-            className={classNames(open ? styles.pill : styles.count, selected && styles.on, live > 0 && styles.live)}
+            className={classNames(open ? styles.pill : styles.count, selected && styles.on)}
             // A closed todo's counts are for the pointer: with the keyboard, → opens the todo and Tab reaches its pills.
             tabIndex={open ? undefined : -1}
             aria-label={label}
             aria-pressed={open ? selected : undefined}
             title={label}
             data-kind={kind}
-            data-live={live > 0 ? '' : undefined}
             onClick={() => {
               onShow(kindFilter)
             }}
@@ -477,21 +474,21 @@ export interface TodoHubProps {
 
 /**
  * The Todos tab as the hub (P16, #491; `docs/design/html/46-todo-hub.html` to `49-todo-hub-unfiled.html`), shown in
- * place of `Todos` while the hidden `todoHubEnabled` setting is on: everything a task made, ran and is waiting on,
- * under the todo it belongs to. Every todo is a card (`TodoCard`), in the tab's order (`orderTodos`), then the
- * placeholder group for what no todo has (`UnfiledCard`), hidden while it's empty. A task with no todos that made
- * something says so in a line above that group; one with nothing at all has the Todos tab's own empty state
- * (`NoTodos`).
+ * place of `Todos` while the hidden `todoHubEnabled` setting is on: what a task produced (its files, links and
+ * commits), under the todo it belongs to. What's going on (subagents, watchers) is in the Agents tab, and no todo shows
+ * any (#535). Every todo is a card (`TodoCard`), in the tab's order (`orderTodos`), then the placeholder group for what
+ * no todo has (`UnfiledCard`), hidden while it's empty. A task with no todos that produced something says so in a line
+ * above that group; one with nothing at all has the Todos tab's own empty state (`NoTodos`).
  *
  * It works out which todo each child is under itself (`groupChildren`), from the lists the store already keeps for the
- * other tabs and the task's filings, so a child filed, moved or changed shows at once, with no reload. Every change to
+ * other tabs and the task's filings, so a child filed, moved or changed shows at once, with no reload. The tool log is
+ * read for its subagents alone: a subagent's commits go under the todo it works on. Every change to
  * the task lands here; a card renders again only when its own todo, children or panel changed, or a link its text
  * names (`sameCard`), and a tile only when its own child did (`ChildTile`).
  */
 export const TodoHub = memo(function TodoHub({ taskId, list }: TodoHubProps): React.JSX.Element {
   const artifacts = useGladeStore((state) => state.artifacts[taskId]) ?? NO_ARTIFACTS
   const events = useGladeStore((state) => state.toolEvents[taskId]) ?? NO_TOOL_EVENTS
-  const watchers = useGladeStore((state) => state.watchers[taskId]) ?? NO_WATCHERS
   const commits = useGladeStore((state) => state.commits[taskId]) ?? NO_COMMITS
   const filings = useGladeStore((state) => state.filings[taskId])
   const panels = useGladeStore((state) => state.todoPanels[taskId]) ?? NO_PANELS
@@ -524,8 +521,8 @@ export const TodoHub = memo(function TodoHub({ taskId, list }: TodoHubProps): Re
     () =>
       filings === undefined
         ? null
-        : groupChildren({ todos, artifacts, subagents: subagentsIn(events), watchers, commits, filings }),
-    [todos, artifacts, events, watchers, commits, filings],
+        : groupChildren({ todos, artifacts, subagents: subagentsIn(events), commits, filings }),
+    [todos, artifacts, events, commits, filings],
   )
   /** Each todo's children, by its row's key: an item with no id of its own (`at:…`) has none. */
   const childLists = useMemo(
@@ -560,15 +557,10 @@ export const TodoHub = memo(function TodoHub({ taskId, list }: TodoHubProps): Re
     })
   }
 
-  // Nothing at all, neither a todo nor anything made: with no todos, whatever the task made is under no todo,
-  // whatever its filings say, so this is known before they're read.
-  const nothing =
-    todos.length === 0 &&
-    artifacts.length === 0 &&
-    watchers.length === 0 &&
-    commits.length === 0 &&
-    subagentsIn(events).length === 0
-  if (nothing) return <NoTodos />
+  // Nothing at all, neither a todo nor anything produced: with no todos, whatever the task produced is under no todo,
+  // whatever its filings say, so this is known before they're read. Subagents and watchers don't count: a task with
+  // only those has produced nothing.
+  if (todos.length === 0 && artifacts.length === 0 && commits.length === 0) return <NoTodos />
 
   return (
     <div className={styles.hub}>

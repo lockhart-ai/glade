@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { ArtifactKind, ToolCallState, ToolEventKind, type Artifact, type ToolCallEvent } from '../../../shared/domain'
 import { ChildKind, refKey, commitChildKey } from '../../../shared/todoHub'
-import { sampleCommit, sampleWatcher } from '../../store/test-bridge'
-import { findArtifact, findCommit, findSubagent, findWatcher, subagentsIn } from './childIndex'
+import { sampleCommit } from '../../store/test-bridge'
+import { findArtifact, findCommit, subagentsIn } from './childIndex'
 
 function file(path: string): Artifact {
   return {
@@ -55,17 +55,10 @@ describe('finding a child among the store’s lists', () => {
 
   it('finds nothing in a list the store hasn’t loaded', () => {
     expect(findArtifact(undefined, fileRef('docs/limits.md'))).toBeUndefined()
-    expect(findSubagent(undefined, 'agent-a')).toBeUndefined()
-    expect(findWatcher(undefined, 'watch-a')).toBeUndefined()
     expect(findCommit(undefined, 'abc /code/api')).toBeUndefined()
   })
 
-  it('finds a watcher by the call that started it, and a commit by its hash and working tree', () => {
-    const watchers = [
-      sampleWatcher('w1', 't1', { toolUseId: 'watch-a' }),
-      sampleWatcher('w2', 't1', { toolUseId: 'watch-b' }),
-    ]
-    expect(findWatcher(watchers, 'watch-b')).toBe(watchers[1])
+  it('finds a commit by its hash and working tree', () => {
     const commits = [sampleCommit('c1', 't1', { hash: 'abc' }), sampleCommit('c2', 't1', { hash: 'def' })]
     const [, second] = commits
     if (second === undefined) throw new Error('No commit')
@@ -73,51 +66,46 @@ describe('finding a child among the store’s lists', () => {
     expect(findCommit(commits, 'abc /elsewhere')).toBeUndefined()
   })
 
-  it('finds a subagent by its Agent call, with when it last did anything', () => {
-    const events = [
-      call('agent-a'),
-      call('did-1', { name: 'Bash', parentToolUseId: 'agent-a', createdAt: 2_000, finishedAt: 2_500 }),
-      call('agent-b', { state: ToolCallState.Done, finishedAt: 4_000 }),
-    ]
-    expect(findSubagent(events, 'agent-a')).toEqual({ call: events[0], lastActivityAt: 2_500 })
-    expect(findSubagent(events, 'agent-b')).toEqual({ call: events[2], lastActivityAt: 4_000 })
-    // A subagent's own call isn't a subagent.
-    expect(findSubagent(events, 'did-1')).toBeUndefined()
-  })
-
   it('keeps the first of two with one key, which the store never has', () => {
-    const watchers = [
-      sampleWatcher('w1', 't1', { toolUseId: 'watch-a' }),
-      sampleWatcher('w2', 't1', { toolUseId: 'watch-a' }),
+    const commits = [
+      sampleCommit('c1', 't1', { hash: 'abc', subject: 'First' }),
+      sampleCommit('c2', 't1', { hash: 'abc', subject: 'Second' }),
     ]
-    expect(findWatcher(watchers, 'watch-a')).toBe(watchers[0])
+    const [first] = commits
+    if (first === undefined) throw new Error('No commit')
+    expect(findCommit(commits, commitChildKey(first))).toBe(first)
   })
 })
 
 describe('indexing once per list', () => {
   it('works a log’s subagents out once, and again only for a new log', () => {
-    const events = [call('agent-a')]
+    const events = [
+      call('agent-a'),
+      call('did-1', { name: 'Bash', parentToolUseId: 'agent-a' }),
+      call('agent-b', { state: ToolCallState.Done, parentToolUseId: 'agent-a' }),
+    ]
     const first = subagentsIn(events)
+    // Its `Agent` calls, a subagent's own included, and no other call.
+    expect(first).toEqual([events[0], events[2]])
     expect(subagentsIn(events)).toBe(first)
-    // The same subagent object each time a tile asks, so a tile whose subagent hasn't changed doesn't render.
-    expect(findSubagent(events, 'agent-a')).toBe(first[0])
-    expect(findSubagent(events, 'agent-a')).toBe(findSubagent(events, 'agent-a'))
     expect(subagentsIn([...events])).not.toBe(first)
   })
 
   it('reads a list of 5,000 entries once for any number of lookups', () => {
     let reads = 0
-    const watchers = Array.from({ length: 5_000 }, (_, index) =>
-      sampleWatcher(`w${String(index)}`, 't1', { toolUseId: `use-${String(index)}` }),
+    const commits = Array.from({ length: 5_000 }, (_, index) =>
+      sampleCommit(`c${String(index)}`, 't1', { hash: `hash-${String(index)}` }),
     )
-    const counted = new Proxy(watchers, {
+    const counted = new Proxy(commits, {
       get(target, property, receiver) {
         if (property === Symbol.iterator) reads += 1
         return Reflect.get(target, property, receiver) as unknown
       },
     })
     for (let index = 0; index < 200; index += 1) {
-      expect(findWatcher(counted, `use-${String(index * 20)}`)?.id).toBe(`w${String(index * 20)}`)
+      const commit = commits[index * 20]
+      if (commit === undefined) throw new Error('No commit')
+      expect(findCommit(counted, commitChildKey(commit))?.id).toBe(`c${String(index * 20)}`)
     }
     expect(reads).toBe(1)
   })
