@@ -25,7 +25,9 @@ subagent the sandbox blocked asks for the folder itself, with `glade`'s `request
 `request_access`", below). The guard lets that one tool through, and nothing else: every other tool of `glade`, and
 all of `glade-control`, is still refused to a subagent. The card it opens names the subagent, as a subagent's
 permission card does. The same hook tells the runner which call each `request_access` is and whose (its `tool_use_id`
-and `agent_id`), the main agent's too, since an MCP tool's handler isn't told either.
+and `agent_id`), the main agent's too: an MCP tool's handler is given its call's `tool_use` id (`_meta`'s
+`claudecode/toolUseId`, [`sdk-notes.md` §15](sdk-notes.md#15-sandbox)), which is how it finds its call, but never
+whose call it is.
 
 ## What a user message contains
 
@@ -269,8 +271,9 @@ answers it too.
 The agent sandbox (#445, [`sdk-notes.md` §15](sdk-notes.md#15-sandbox)) blocks a command's read or write outside the
 folders the task has been granted, and the command just fails with `Operation not permitted`: Glade can't see which
 path was blocked, or whether it was a read or a write. So the agent says, with `mcp__glade__request_access`, and then
-runs the command again. The system prompt tells it to (below), and so does the tool's own description, which a
-resumed session gets too.
+runs the command again. The system prompt tells it to (below), and so does the tool's own description. A session
+resumed from before the sandbox was on has neither in its prompt, so it's told once, ahead of its next message
+("Resumed sessions", below).
 
 - **Input:** `{ path, access, reason }`, checked at the boundary. `path` is the absolute path that was blocked, a file
   or a folder (`~` and `~/…` are taken as the home folder); `access` is `"read"` or `"write"`; `reason` is a short
@@ -419,8 +422,8 @@ Three more parts are added after that, each after a blank line, when they apply:
   domains the user has allowed, and that when a command fails with "Operation not permitted" on a path outside the
   workspace it should call `request_access` (the absolute path, read or write, a short reason) instead of retrying
   outside the sandbox, and run the command again once it's allowed. With the sandbox off, the prompt doesn't mention
-  it. A session resumed from before the sandbox was on keeps its old prompt; it still has the tool, whose description
-  says the same.
+  it. A session resumed from before the sandbox was on keeps its old prompt, and is sent this paragraph once instead
+  ("Resumed sessions", below).
 - **The control tools:** while the session has them, one line: that it has Glade's control tools (the `glade-control`
   MCP server; find them with tool search), which list, read, create, change, message and delete Glade's tasks, and to
   use them only when the user asks to work with Glade or its other tasks.
@@ -436,3 +439,11 @@ had once, as a `[Glade: new instructions for this session] … [end]` block ahea
 the chat shows only your message. How many each session has had is kept in SQLite
 (`session_context.instruction_updates`), so a relaunch neither loses nor repeats the block. An imported session gets
 Glade's whole prompt instead ([`control-api.md`](control-api.md)), these lines and all.
+
+The sandbox paragraph isn't in that list, since it's only for a session that runs sandboxed (#452). A session that
+started outside the sandbox (before the switch was on, or before the sandbox existed) and resumes in it is sent
+`SANDBOX_LINE` once, as a `[Glade: this session now runs in a sandbox] … [end]` block ahead of the next message
+Glade sends it, after the block of new instructions and before a handoff note's. Whether a session has been told is
+kept in SQLite too (`session_context.sandbox`): one that started sandboxed has it in its prompt and is never sent it,
+one that still runs outside the sandbox isn't told, and one told once isn't told again, whatever the switch does
+later. An imported session gets it in Glade's whole prompt when it runs sandboxed.

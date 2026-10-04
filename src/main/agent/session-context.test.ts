@@ -11,26 +11,32 @@ import {
   type ContextCheck,
   type MissingContext,
 } from './session-context'
-import { FINAL_REPLY_LINE, handoffSection, INSTRUCTION_UPDATES, LINK_ARTIFACTS_LINE } from './system-prompt'
+import {
+  FINAL_REPLY_LINE,
+  handoffSection,
+  INSTRUCTION_UPDATES,
+  LINK_ARTIFACTS_LINE,
+  SANDBOX_LINE,
+} from './system-prompt'
 
 const HANDOFF: TaskHandoff = { taskId: 't1', body: '## Next\n\nShip it.', addedAt: 5_000 }
 const PROMPT = 'You are running inside Glade.'
 const CURRENT = INSTRUCTION_UPDATES.length
 
 function check(overrides: Partial<ContextCheck>): ContextCheck {
-  return { recorded: undefined, startedElsewhere: false, handoff: null, prompt: PROMPT, ...overrides }
+  return { recorded: undefined, startedElsewhere: false, handoff: null, prompt: PROMPT, sandboxed: false, ...overrides }
 }
 
 /** What's recorded for a session that has Glade's prompt, `updates` of the instructions added since, and a note. */
-function has(updates: number, handoffAt: number | null = null): SessionContext {
-  return { instructions: true, instructionUpdates: updates, handoffAt }
+function has(updates: number, handoffAt: number | null = null, sandbox = false): SessionContext {
+  return { instructions: true, instructionUpdates: updates, handoffAt, sandbox }
 }
 
 describe('what a session is missing', () => {
   it('is nothing for a session Glade starts, until a handoff note it has not had', () => {
-    expect(missingContext(check({ recorded: startedContext(null) }))).toEqual([])
-    expect(missingContext(check({ recorded: startedContext(HANDOFF), handoff: HANDOFF }))).toEqual([])
-    expect(startedContext(HANDOFF)).toEqual(has(CURRENT, 5_000))
+    expect(missingContext(check({ recorded: startedContext(null, false) }))).toEqual([])
+    expect(missingContext(check({ recorded: startedContext(HANDOFF, false), handoff: HANDOFF }))).toEqual([])
+    expect(startedContext(HANDOFF, false)).toEqual(has(CURRENT, 5_000))
 
     expect(missingContext(check({ recorded: has(CURRENT, 1_000), handoff: HANDOFF }))).toEqual([
       { kind: MissingContextKind.Handoff, handoff: HANDOFF },
@@ -75,8 +81,76 @@ describe('what a session is missing', () => {
     // Once sent, what's recorded says so, whatever it started with.
     expect(missingContext(check({ startedElsewhere: true, recorded: has(CURRENT) }))).toEqual([])
     expect(
-      missingContext(check({ recorded: { instructions: false, instructionUpdates: 0, handoffAt: null } })),
+      missingContext(
+        check({ recorded: { instructions: false, instructionUpdates: 0, handoffAt: null, sandbox: false } }),
+      ),
     ).toMatchObject([{ kind: MissingContextKind.Instructions }])
+  })
+})
+
+describe('what a session is missing of the sandbox', () => {
+  const sandbox = { kind: MissingContextKind.Sandbox } as const
+
+  it('is nothing for a session that started in it, or that runs outside it', () => {
+    expect(startedContext(null, true)).toEqual(has(CURRENT, null, true))
+    expect(missingContext(check({ recorded: startedContext(null, true), sandboxed: true }))).toEqual([])
+    // Outside the sandbox there's nothing to say of it, whatever the session was told before.
+    expect(missingContext(check({ recorded: startedContext(null, false), sandboxed: false }))).toEqual([])
+    expect(missingContext(check({ recorded: startedContext(null, true), sandboxed: false }))).toEqual([])
+  })
+
+  it('is what the prompt says of it, for a session that started outside it and runs in it now', () => {
+    expect(missingContext(check({ recorded: startedContext(null, false), sandboxed: true }))).toEqual([sandbox])
+    // One from before anything was recorded started outside it too.
+    expect(missingContext(check({ sandboxed: true }))).toEqual([
+      { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE] },
+      sandbox,
+    ])
+  })
+
+  it('comes after the instructions added since, and before the handoff note', () => {
+    expect(missingContext(check({ recorded: has(1), handoff: HANDOFF, sandboxed: true }))).toEqual([
+      { kind: MissingContextKind.Updates, updates: [LINK_ARTIFACTS_LINE] },
+      sandbox,
+      { kind: MissingContextKind.Handoff, handoff: HANDOFF },
+    ])
+  })
+
+  it("is covered by Glade's whole prompt for a session that started elsewhere, as that prompt is now", () => {
+    const instructions = { kind: MissingContextKind.Instructions, prompt: PROMPT, handoffAt: null } as const
+
+    expect(missingContext(check({ startedElsewhere: true, sandboxed: true }))).toEqual([instructions])
+    // The prompt it's sent in the sandbox says so; the one it's sent outside it doesn't.
+    expect(contextAfter(check({ startedElsewhere: true, sandboxed: true }), [instructions])).toEqual(
+      has(CURRENT, null, true),
+    )
+    expect(contextAfter(check({ startedElsewhere: true, sandboxed: false }), [instructions])).toEqual(has(CURRENT))
+    expect(missingContext(check({ startedElsewhere: true, recorded: has(CURRENT), sandboxed: true }))).toEqual([
+      sandbox,
+    ])
+  })
+
+  it('is recorded as given once sent, keeping the rest, and never taken back', () => {
+    const stale = check({ recorded: has(0, 1_000), sandboxed: true })
+
+    expect(contextAfter(stale, [sandbox])).toEqual(has(0, 1_000, true))
+    expect(contextAfter(check({ recorded: has(CURRENT, null, true) }), [])).toEqual(has(CURRENT, null, true))
+    // A session told of it stays told when its whole prompt is sent again outside the sandbox.
+    const instructions = { kind: MissingContextKind.Instructions, prompt: PROMPT, handoffAt: null } as const
+    const told: SessionContext = { instructions: false, instructionUpdates: 0, handoffAt: null, sandbox: true }
+    expect(contextAfter(check({ recorded: told, sandboxed: false }), [instructions])).toEqual(has(CURRENT, null, true))
+  })
+
+  it('is said in a block of its own, between the others', () => {
+    const block = `[Glade: this session now runs in a sandbox]\n${SANDBOX_LINE}\n[end]`
+    const updates = { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE] } as const
+    const handoff = { kind: MissingContextKind.Handoff, handoff: HANDOFF } as const
+
+    expect(contextBlock([sandbox])).toBe(block)
+    expect(contextBlock([updates, sandbox, handoff])).toBe(
+      [contextBlock([updates]), block, contextBlock([handoff])].join('\n\n'),
+    )
+    expect(withContext(contextBlock([sandbox]), 'Carry on.')).toBe(`${block}\n\nCarry on.`)
   })
 })
 

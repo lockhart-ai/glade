@@ -937,12 +937,14 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         at,
       )
       // Its session started with Glade's prompt as it is now, so it isn't sent the lines added since
-      // (`INSTRUCTION_UPDATES`). A handoff note is as it was: one set by the seed goes to the session once.
+      // (`INSTRUCTION_UPDATES`), nor what the prompt says of the sandbox. A handoff note is as it was: one set by the
+      // seed goes to the session once.
       if (sample.title !== '') {
         setSessionContext(db, task.id, {
           instructions: true,
           instructionUpdates: INSTRUCTION_UPDATES.length,
           handoffAt: null,
+          sandbox: true,
         })
       }
       if (sample.selected === true) setUiState(db, { key: UiStateKey.SelectedTaskId, value: task.id })

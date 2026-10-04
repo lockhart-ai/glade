@@ -22,7 +22,7 @@ claude mcp add --transport http glade-control http://127.0.0.1:45233/mcp --heade
 
 ## Using Glade
 
-- [User guide](https://github.com/lockhart-ai/glade/blob/main/docs/user-guide.md): using Glade day to day, from a first task to marking it done.
+- [User guide](https://github.com/lockhart-ai/glade/blob/main/docs/user-guide.md): using Glade day to day, from a first task to marking it done, with permissions and the agent sandbox (what an agent can use, the cards that ask, what to allow).
 - [README](https://github.com/lockhart-ai/glade/blob/main/README.md): what Glade is, installing it, and building it from source.
 - [Keymap](https://github.com/lockhart-ai/glade/blob/main/docs/keymap.md): every keyboard shortcut, and rebinding them.
 - [Context menus](https://github.com/lockhart-ai/glade/blob/main/docs/context-menus.md): what right-clicking each thing offers.
@@ -31,7 +31,7 @@ claude mcp add --transport http glade-control http://127.0.0.1:45233/mcp --heade
 ## Extending Glade
 
 - [Plugin API](https://github.com/lockhart-ai/glade/blob/main/docs/plugin-api.md): a plugin's manifest and sandbox, the events Glade sends its page and the messages it can post back.
-- [Model surface](https://github.com/lockhart-ai/glade/blob/main/docs/model-surface.md): the tools Glade gives each task's agent (`set_title`, `set_status`, `ask`, …) and what it adds to the system prompt.
+- [Model surface](https://github.com/lockhart-ai/glade/blob/main/docs/model-surface.md): the tools Glade gives each task's agent (`set_title`, `set_status`, `ask`, `request_access`, …) and what it adds to the system prompt.
 
 ## Contributing
 
@@ -47,4 +47,4 @@ claude mcp add --transport http glade-control http://127.0.0.1:45233/mcp --heade
 - [Design](https://github.com/lockhart-ai/glade/blob/main/docs/design/README.md): every screen, with screenshots and markup.
 - [Design tokens](https://github.com/lockhart-ai/glade/blob/main/docs/design/tokens.md): colours, type, spacing and motion.
 - [Releasing](https://github.com/lockhart-ai/glade/blob/main/docs/releasing.md): cutting a release, and where dependency updates come from.
-- [SDK notes](https://github.com/lockhart-ai/glade/blob/main/docs/sdk-notes.md): how the Claude Agent SDK behaves, as Glade relies on it.
+- [SDK notes](https://github.com/lockhart-ai/glade/blob/main/docs/sdk-notes.md): how the Claude Agent SDK behaves, as Glade relies on it; §15 is the agent sandbox.

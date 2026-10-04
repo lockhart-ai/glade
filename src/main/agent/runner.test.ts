@@ -3232,6 +3232,7 @@ describe("a task's handoff note", () => {
       instructions: true,
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: 1_000,
+      sandbox: false,
     })
   })
 
@@ -3301,6 +3302,7 @@ describe("a task's handoff note", () => {
       instructions: true,
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: 2_000,
+      sandbox: false,
     })
   })
 
@@ -3388,7 +3390,12 @@ describe('instructions added to the prompt since a session started', () => {
   function startedBeforeTheRule(recorded: boolean): void {
     database.db.prepare('UPDATE tasks SET session_id = ? WHERE id = ?').run('old-session', task.id)
     if (recorded)
-      setSessionContext(database.db, task.id, { instructions: true, instructionUpdates: 0, handoffAt: null })
+      setSessionContext(database.db, task.id, {
+        instructions: true,
+        instructionUpdates: 0,
+        handoffAt: null,
+        sandbox: false,
+      })
   }
 
   it('are in the prompt of a session Glade starts, which is sent none of them', async () => {
@@ -3403,6 +3410,7 @@ describe('instructions added to the prompt since a session started', () => {
       instructions: true,
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: null,
+      sandbox: false,
     })
   })
 
@@ -3431,6 +3439,7 @@ describe('instructions added to the prompt since a session started', () => {
         instructions: true,
         instructionUpdates: INSTRUCTION_UPDATES.length,
         handoffAt: null,
+        sandbox: false,
       })
     },
   )
@@ -3482,6 +3491,7 @@ describe('instructions added to the prompt since a session started', () => {
       instructions: true,
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: 5_000,
+      sandbox: false,
     })
   })
 

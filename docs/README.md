@@ -6,7 +6,8 @@ for where to start can read [`llms.txt`](../llms.txt) at the repo root.
 ## User
 
 - [README](../README.md): what Glade is, how to install it, and how to build it from source.
-- [User guide](user-guide.md): using Glade day to day, from your first task to marking it done.
+- [User guide](user-guide.md): using Glade day to day, from your first task to marking it done, with permissions and
+  the agent sandbox.
 
 ## Reference
 
@@ -14,7 +15,8 @@ for where to start can read [`llms.txt`](../llms.txt) at the repo root.
   plain JSON, and how to connect to them.
 - [Plugin API](plugin-api.md): the events a plugin's page gets, the messages it can post back, its manifest, the
   capabilities it can ask for (the Mac's load), the settings it can declare and its sandbox.
-- [Model surface](model-surface.md): the tools Glade gives each task's agent, and what it adds to the system prompt.
+- [Model surface](model-surface.md): the tools Glade gives each task's agent (`request_access`, for the agent
+  sandbox, among them), and what it adds to the system prompt.
 - [Logs](logs.md): where the log is, what each line holds, and what each scope logs.
 - [Keymap](keymap.md): every keyboard shortcut, and how rebinding them works.
 - [Context menus](context-menus.md): what right-clicking each thing offers.
@@ -30,6 +32,7 @@ for where to start can read [`llms.txt`](../llms.txt) at the repo root.
   releases, and how Dependabot PRs are handled.
 - [Releasing](releasing.md): cutting a release, from the version bump to the published build, checking a packaged
   build, and where dependency updates come from.
-- [SDK notes](sdk-notes.md): what the Claude Agent SDK does, with evidence, as Glade relies on it.
+- [SDK notes](sdk-notes.md): what the Claude Agent SDK does, with evidence, as Glade relies on it, its sandbox
+  included (§15).
 - [Design](design/README.md): every screen, with screenshots and the markup to build it to.
 - [Doc images](doc-images.md): the README's and the user guide's screenshots, and how to regenerate one or all of them.
