@@ -92,7 +92,8 @@ export function subagentName(call: ToolCallEvent): string {
   return stringInput(call, 'description') ?? stringInput(call, 'subagent_type') ?? UNNAMED_SUBAGENT
 }
 
-function subagentStatus(state: ToolCallState): SubagentStatus {
+/** A subagent's status, from its `Agent` call's state. */
+export function subagentStatus(state: ToolCallState): SubagentStatus {
   switch (state) {
     case ToolCallState.Running:
       return SubagentStatus.Running

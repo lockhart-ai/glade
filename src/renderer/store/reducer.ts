@@ -1,5 +1,5 @@
-import { EventType, type GladeEvent } from '../../shared/bridge'
-import type { TasksHistoryResponse } from '../../shared/bridge'
+import { EventType, type FilingsChangedEvent, type GladeEvent } from '../../shared/bridge'
+import type { TasksHistoryResponse, TodoHubGetResponse } from '../../shared/bridge'
 import {
   ToolCallState,
   ToolEventKind,
@@ -20,6 +20,7 @@ import {
 } from '../../shared/domain'
 import { settingsGrantScopeKey, type Grant, type SettingsGrantTarget } from '../../shared/sandbox'
 import { isSubagentTool } from '../../shared/subagents'
+import { childRefKey } from '../../shared/todoHub'
 import { withCountedChange, withoutDoneLists } from './doneLists'
 import type { GladeData } from './state'
 
@@ -218,6 +219,35 @@ function newerArtifacts(
   return current !== undefined && currentVersion > versionAtLoad ? current : loaded
 }
 
+/**
+ * A change to a task's filings (`filings.changed`), which carries the change alone: each filing made takes the place
+ * of its child's earlier one, and each child unfiled loses its own. A task whose hub hasn't been loaded keeps none: the
+ * load brings them all, and the count here tells a load that was already on its way to read again (`loadTodoHub`).
+ */
+function withFilingsChange(state: GladeData, { taskId, filed, removed }: FilingsChangedEvent): GladeData {
+  const filingsVersion = { ...state.filingsVersion, [taskId]: (state.filingsVersion[taskId] ?? 0) + 1 }
+  const loaded = state.filings[taskId]
+  if (loaded === undefined) return { ...state, filingsVersion }
+  const changed = new Set([...filed, ...removed].map(childRefKey))
+  const kept = loaded.filter((filing) => !changed.has(childRefKey(filing)))
+  return { ...state, filingsVersion, filings: { ...state.filings, [taskId]: [...kept, ...filed] } }
+}
+
+/**
+ * Records a task's todo hub as loaded from main (`todoHub.get`): its filings, and its todos' panels unless the window
+ * already has them, since only this window changes them, and it has by the time a later load answers. A task deleted
+ * while it loaded keeps nothing.
+ */
+export function withTodoHub(state: GladeData, taskId: string, hub: TodoHubGetResponse): GladeData {
+  if (!(taskId in state.tasks)) return state
+  const panels = state.todoPanels[taskId] ?? Object.fromEntries(hub.panels.map((panel) => [panel.todoId, panel]))
+  return {
+    ...state,
+    filings: { ...state.filings, [taskId]: hub.filings },
+    todoPanels: { ...state.todoPanels, [taskId]: panels },
+  }
+}
+
 /** A task's artifact date groups opened or folded, with one more: `fold` in place of what it replaces. */
 export function withGroupFold(folds: readonly ArtifactGroupFold[], fold: ArtifactGroupFold): ArtifactGroupFold[] {
   return [...folds.filter(({ group }) => group !== fold.group), fold]
@@ -265,6 +295,9 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     watchers: without(state.watchers, taskId),
     commits: without(state.commits, taskId),
     handoffs: without(state.handoffs, taskId),
+    filings: without(state.filings, taskId),
+    filingsVersion: without(state.filingsVersion, taskId),
+    todoPanels: without(state.todoPanels, taskId),
     inputDrafts: without(state.inputDrafts, taskId),
     fileFocus: state.fileFocus?.taskId === taskId ? null : state.fileFocus,
     toolLogFocus: state.toolLogFocus?.taskId === taskId ? null : state.toolLogFocus,
@@ -357,10 +390,9 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, watchers: { ...state.watchers, [event.taskId]: event.watchers } }
     case EventType.CommitsChanged:
       return { ...state, commits: { ...state.commits, [event.taskId]: event.commits } }
-    // The todo hub's, which main never sends while the hub is off (P16): the window keeps no filings until the hub's
-    // tab is built (#497).
+    // The todo hub's (P16), which main never sends while the hub is off.
     case EventType.FilingsChanged:
-      return state
+      return withFilingsChange(state, event)
     case EventType.TerminalTabsChanged: {
       const { renamingTerminalId } = state
       const renaming = event.tabs.some(({ id }) => id === renamingTerminalId) ? renamingTerminalId : null

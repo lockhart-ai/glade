@@ -8,6 +8,7 @@ import {
   createE2eDesktop,
   createE2eEditor,
   createE2eNetwork,
+  createE2eTodoHub,
   E2E_AGENT_ENVS_GLOBAL,
   E2E_AGENT_GLOBAL,
   E2E_CHOSEN_FOLDER_ENV,
@@ -15,6 +16,7 @@ import {
   E2E_EDITOR_GLOBAL,
   E2E_ENV,
   E2E_NETWORK_GLOBAL,
+  E2E_TODO_HUB_GLOBAL,
   e2eChosenFolder,
   E2eSpecError,
   prepareE2e,
@@ -25,6 +27,7 @@ import {
   type E2eEditor,
   type E2eNetwork,
   type E2eSpec,
+  type E2eTodoHub,
 } from './e2e'
 
 let folder = join(tmpdir(), 'glade-e2e-test')
@@ -146,6 +149,20 @@ describe('createE2eNetwork', () => {
     expect(isOnline()).toBe(false)
     network.online = true
     expect(isOnline()).toBe(true)
+  })
+})
+
+describe('createE2eTodoHub', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, E2E_TODO_HUB_GLOBAL)
+  })
+
+  it('puts main’s filing service on the global object for a spec to call', () => {
+    const hub: E2eTodoHub = { file: vi.fn(() => []), unfile: vi.fn(() => []) }
+
+    createE2eTodoHub(hub)
+
+    expect(Reflect.get(globalThis, E2E_TODO_HUB_GLOBAL)).toBe(hub)
   })
 })
 

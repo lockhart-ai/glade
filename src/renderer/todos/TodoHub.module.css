@@ -1,0 +1,350 @@
+/*
+ * The Todos tab as the hub (P16, #491), from docs/design/html/46-todo-hub.html to 49-todo-hub-unfiled.html. Behind the
+ * hidden todoHubEnabled setting. Every todo is a card on inner-2, closed or open, whatever its state and whether or not
+ * anything is under it; nothing inside a card is black. Blue is live, grey is everything else.
+ */
+.hub {
+  flex-grow: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-lg) var(--space-inset);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.summary {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  /* In line with the cards' content, inside their 1px border. */
+  padding: 0 calc(var(--space-item) + 1px) var(--space-md);
+}
+
+.headingRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-md);
+}
+
+.heading {
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.updated {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+  white-space: nowrap;
+}
+
+.bar {
+  flex-shrink: 0;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-inner-2);
+  overflow: hidden;
+  display: flex;
+}
+
+.barDone {
+  background: var(--color-teal);
+}
+
+.barDoing {
+  background: var(--color-blue);
+}
+
+/* A task with no todos: the line in the summary's place. */
+.empty {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0 calc(var(--space-item) + 1px) var(--space-xs);
+  font-size: var(--font-size-secondary);
+  line-height: 1.5;
+  color: var(--color-faint);
+}
+
+/* The cards are space-xs apart, as the Todos tab's items are, and so is the placeholder group from the last of them. */
+.list {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.card {
+  flex-shrink: 0;
+  padding: var(--space-item);
+  background: var(--color-inner-2);
+  border: 1px solid transparent;
+  border-radius: 10px;
+}
+
+/* A todo's head: its state icon, its title and its status line. It takes the focus, and opens a todo with children. */
+.head {
+  display: flex;
+  gap: var(--space-md);
+  border-radius: 6px;
+}
+
+.head:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 2px;
+}
+
+.opens {
+  cursor: pointer;
+}
+
+.stateIcon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+}
+
+.main {
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+}
+
+.title {
+  flex-grow: 1;
+  min-width: 0;
+  font-size: var(--font-size-body);
+  line-height: 1.4;
+  font-weight: 500;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.todo .title {
+  font-weight: 400;
+}
+
+/* Done: a filled check in the quiet teal, with the title dimmed and struck through. */
+.done .stateIcon {
+  color: var(--color-teal);
+}
+
+.done .title {
+  font-weight: 400;
+  color: var(--color-faint);
+  text-decoration: line-through;
+  text-decoration-color: var(--color-slate);
+}
+
+/* When a done todo was finished, on its first line. */
+.when {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+  white-space: nowrap;
+}
+
+.chevron {
+  flex-shrink: 0;
+  align-self: center;
+  display: flex;
+  color: var(--color-faint);
+}
+
+/* The status line: what the agent is doing on it now. */
+.note {
+  margin-top: var(--space-2xs);
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.4;
+  color: var(--color-blue-text);
+  overflow-wrap: anywhere;
+}
+
+/* Waiting on you is purple everywhere in the app. */
+.waiting .stateIcon,
+.waiting .note {
+  color: var(--color-purple);
+}
+
+/* Read by a screen reader, not shown. */
+.hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Under the head, in line with the title: the row of icons, then the open todo's children. */
+.under {
+  margin-left: 26px;
+}
+
+/* In a task with no todos the group has no heading, and its pills and tiles take the card's whole width. */
+.flush {
+  margin-left: 0;
+}
+
+/*
+ * The third line is the same box closed and open, so opening a todo moves nothing above it. Closed: an icon and a
+ * count per kind. Open: the same icons as filter pills, with All in front.
+ */
+.kinds {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  height: 22px;
+  margin-top: var(--space-sm);
+}
+
+.pills {
+  gap: var(--space-xs);
+}
+
+.flush .kinds {
+  margin-top: 0;
+}
+
+.unfiledHead + .under .kinds {
+  margin-top: var(--space-xs);
+}
+
+.count,
+.pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0;
+  background: transparent;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* The hit area is a dense touch target's 28px, around a count's text or a pill's 22px. */
+.count::after,
+.pill::after {
+  content: '';
+  position: absolute;
+  inset: 50% -4px auto;
+  height: var(--touch-target-dense);
+  transform: translateY(-50%);
+}
+
+.count {
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-muted);
+}
+
+.count svg,
+.pill svg {
+  color: var(--color-faint);
+}
+
+.done .count {
+  color: var(--color-faint);
+}
+
+.pill {
+  height: 22px;
+  box-sizing: border-box;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--color-inner-border);
+  border-radius: 11px;
+  font-size: 11.5px;
+  color: var(--color-muted);
+}
+
+.pillCount {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+.pill:hover {
+  border-color: var(--color-slate);
+  color: var(--color-text);
+}
+
+.count:focus-visible,
+.pill:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 2px;
+}
+
+/* The selected pill is on strong, never black. */
+.pill.on {
+  background: var(--color-strong);
+  border-color: var(--color-strong);
+  color: var(--color-text);
+}
+
+.pill.on .pillCount {
+  color: var(--color-muted);
+}
+
+.pill.on svg {
+  color: var(--color-text);
+}
+
+/* A kind with something live is blue, on a closed todo, a done one and a selected pill alike. */
+.count.live,
+.count.live svg,
+.done .count.live,
+.pill.live,
+.pill.live svg,
+.pill.live .pillCount {
+  color: var(--color-blue-text);
+}
+
+/* Under an open todo: one flat list, a tile per child, most recently updated first. */
+.tiles {
+  margin: var(--space-md) 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+/* Not under a todo: its heading where a todo's title is, with its chevron where a todo's state icon is. */
+.unfiledHead {
+  align-items: center;
+  height: 20px;
+}
+
+.unfiledHead .stateIcon {
+  margin-top: 0;
+  color: var(--color-faint);
+}
+
+.unfiledHeading {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+  color: var(--color-faint);
+}

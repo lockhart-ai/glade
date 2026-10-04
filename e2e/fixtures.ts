@@ -20,6 +20,7 @@ import {
   E2E_MENU_BAR_GLOBAL,
   E2E_NETWORK_GLOBAL,
   E2E_NOTIFIER_GLOBAL,
+  E2E_TODO_HUB_GLOBAL,
   E2E_WINDOW_SIZE,
   type E2eAgent,
   type E2eAgentEnvs,
@@ -27,6 +28,7 @@ import {
   type E2eEditor,
   type E2eMenuBar,
   type E2eNetwork,
+  type E2eTodoHub,
   E2E_LOGIN_GLOBAL,
   type E2eLogin,
   type E2eLoginOutcome,
@@ -39,6 +41,7 @@ import type { RecordingNotifier } from '../src/main/notifications/recording-noti
 import { COMMAND_CHANNEL, CommandName } from '../src/shared/bridge'
 import { UiStateKey } from '../src/shared/domain'
 import { PLUGINS_FOLDER_NAME } from '../src/shared/plugins'
+import type { ChildRef, Filing, NewFiling } from '../src/shared/todoHub'
 import { READY_ATTRIBUTE } from '../src/shared/ready'
 import { attachEvidence, readTasksEvidence } from './evidence'
 import { inMain } from './in-main'
@@ -523,6 +526,32 @@ export async function desktop({ app }: Glade): Promise<E2eDesktop> {
       return { revealed: [...revealed], copied: [...copied], opened: [...opened] }
     },
     E2E_DESKTOP_GLOBAL,
+  )
+}
+
+/**
+ * Files children of a task under todos, replacing any filing they had, as the agent's own tools do (P16): through
+ * main's filing service (`E2E_TODO_HUB_GLOBAL`), which tells the window. Answers with the filings made; none while
+ * the hub is off.
+ */
+export async function fileChildren({ app }: Glade, taskId: string, filings: readonly NewFiling[]): Promise<Filing[]> {
+  return inMain(
+    app,
+    (_, { name, taskId: id, filings: filed }) => (Reflect.get(globalThis, name) as E2eTodoHub).file(id, filed),
+    { name: E2E_TODO_HUB_GLOBAL, taskId, filings },
+  )
+}
+
+/** Takes away the filings of some of a task's children, through main's filing service. Answers with those that had one. */
+export async function unfileChildren(
+  { app }: Glade,
+  taskId: string,
+  children: readonly ChildRef[],
+): Promise<ChildRef[]> {
+  return inMain(
+    app,
+    (_, { name, taskId: id, children: unfiled }) => (Reflect.get(globalThis, name) as E2eTodoHub).unfile(id, unfiled),
+    { name: E2E_TODO_HUB_GLOBAL, taskId, children },
   )
 }
 
