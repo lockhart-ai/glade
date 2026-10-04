@@ -106,15 +106,6 @@
   color: var(--color-blue-text);
 }
 
-/* A control that's always there, after its age: a live watcher's Stop (#499), space-sm from the state before it. */
-.control {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  height: 18px;
-  margin-left: calc(var(--space-sm) - var(--space-md));
-}
-
 .failed {
   color: var(--color-pink);
 }

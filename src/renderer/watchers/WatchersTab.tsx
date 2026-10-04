@@ -24,24 +24,6 @@ import styles from './WatchersTab.module.css'
 /** How often the tab's times tick while a watcher is live: its elapsed time and when it's due. */
 export const WATCHERS_REFRESH_MS = 1000
 
-export interface StopButtonProps {
-  /** What it stops, which names the button to a screen reader: `Stop CI checks on PR #42`. */
-  readonly label: string
-  readonly onStop: () => void
-  /** A class of the caller's own, e.g. for the smaller button a watcher's tile has in the todo hub. */
-  readonly className?: string | undefined
-}
-
-/** Stop, on a watcher that's live: on its row here and under its subagent, and on its tile in the todo hub (P16). */
-export function StopButton({ label, onStop, className }: StopButtonProps): React.JSX.Element {
-  return (
-    <button type="button" className={classNames(styles.stop, className)} onClick={onStop} aria-label={`Stop ${label}`}>
-      <Icon icon={faSquare} size={IconSize.Small} />
-      Stop
-    </button>
-  )
-}
-
 export interface WatcherRowProps {
   readonly watcher: Watcher
   readonly now: EpochMs
@@ -69,7 +51,12 @@ export function WatcherRow({ watcher, now, onStop }: WatcherRowProps): React.JSX
           {watcher.label}
         </span>
         <span className={styles.status}>{statusLabel(watcher, now)}</span>
-        {onStop !== null && <StopButton label={watcher.label} onStop={onStop} />}
+        {onStop !== null && (
+          <button type="button" className={styles.stop} onClick={onStop} aria-label={`Stop ${watcher.label}`}>
+            <Icon icon={faSquare} size={IconSize.Small} />
+            Stop
+          </button>
+        )}
       </span>
       <span className={styles.line}>
         <span className={styles.kind}>{kindLabel(watcher.kind)}</span>

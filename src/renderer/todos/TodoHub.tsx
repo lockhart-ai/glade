@@ -1,7 +1,7 @@
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import { faEye, faFile } from '@fortawesome/free-regular-svg-icons'
 import { faChevronDown, faChevronRight, faCodeCommit, faLink, faSitemap } from '@fortawesome/free-solid-svg-icons'
-import { memo, useEffect, useMemo, useRef, type KeyboardEvent, type MouseEvent } from 'react'
+import { memo, useEffect, useMemo, type KeyboardEvent, type MouseEvent } from 'react'
 import {
   TodoState,
   type Artifact,
@@ -28,7 +28,6 @@ import { ContextMenu, todoMenu, useContextMenu, useMenuCommands, type ContextMen
 import { LinkedText } from '../links'
 import { useGladeStore } from '../store/react'
 import type { TodoPanels } from '../store/state'
-import type { SubagentShown } from '../subagents'
 import { formatAgo, formatFullDate } from '../task-header/headerModel'
 import { useNow } from '../task-list/useNow'
 import { ChildTile } from './tiles/ChildTile'
@@ -50,7 +49,6 @@ import {
   type PanelView,
 } from './todoHubModel'
 import { orderTodos, progressBar, progressHeading, todoProgress } from './todosModel'
-import { CHILD_ATTRIBUTE, useShownSubagent } from './useShownSubagent'
 import styles from './TodoHub.module.css'
 
 const NO_TODOS: readonly Todo[] = []
@@ -181,14 +179,11 @@ interface TilesProps {
 function Tiles({ taskId, under, shown }: TilesProps): React.JSX.Element {
   return (
     <ul className={styles.tiles} aria-label={`Under ${under}`}>
-      {shown.map(({ kind, key }) => {
-        const child = refKey({ kind, key })
-        return (
-          <li key={child} {...{ [CHILD_ATTRIBUTE]: child }}>
-            <ChildTile taskId={taskId} kind={kind} childKey={key} />
-          </li>
-        )
-      })}
+      {shown.map(({ kind, key }) => (
+        <li key={refKey({ kind, key })}>
+          <ChildTile taskId={taskId} kind={kind} childKey={key} />
+        </li>
+      ))}
     </ul>
   )
 }
@@ -456,10 +451,6 @@ export interface TodoHubProps {
   readonly taskId: string
   /** The task's todo list; null or undefined while the agent has kept none. */
   readonly list: TodoList | null | undefined
-  /** A subagent to show (`useShownSubagent`): its todo opens on the Subagents filter, and its tile takes the focus. */
-  readonly focus?: SubagentShown | null | undefined
-  /** Called once the hub has shown `focus`, so its owner can clear it. */
-  readonly onFocusShown?: (() => void) | undefined
 }
 
 /**
@@ -473,8 +464,7 @@ export interface TodoHubProps {
  * the task lands here; a card renders again only when its own todo, children or panel changed (`sameCard`), and a tile
  * only when its own child did (`ChildTile`).
  */
-export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown }: TodoHubProps): React.JSX.Element {
-  const hub = useRef<HTMLDivElement>(null)
+export const TodoHub = memo(function TodoHub({ taskId, list }: TodoHubProps): React.JSX.Element {
   const artifacts = useGladeStore((state) => state.artifacts[taskId]) ?? NO_ARTIFACTS
   const events = useGladeStore((state) => state.toolEvents[taskId]) ?? NO_TOOL_EVENTS
   const watchers = useGladeStore((state) => state.watchers[taskId]) ?? NO_WATCHERS
@@ -519,7 +509,6 @@ export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown
     [grouped],
   )
   const unfiled = grouped?.unfiled.children ?? NO_CHILDREN
-  useShownSubagent({ hub, taskId, grouped, panels, focus, onShown: onFocusShown })
 
   // The menu is opened for a row's key, and finds its todo as it is by then.
   const { targetProps } = menu
@@ -537,7 +526,7 @@ export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown
   }
 
   return (
-    <div ref={hub} className={styles.hub}>
+    <div className={styles.hub}>
       {list === null || list === undefined || todos.length === 0 ? (
         <p className={styles.empty}>{NO_HUB_TODOS}</p>
       ) : (

@@ -114,9 +114,8 @@ export interface FileFocus {
 
 /**
  * A request to show a subagent in the Subagents tab, as picking it there does (its log open): made when a plugin opens
- * a task on one of its subagents (`openTask`), and acted on by the Subagents tab; with the todo hub on (P16), by the
- * Todos tab, which opens the subagent's todo and gives its tile the focus. `request` goes up by one with every request,
- * like `ToolLogFocus`'s.
+ * a task on one of its subagents (`openTask`), and acted on by the Subagents tab. `request` goes up by one with every
+ * request, like `ToolLogFocus`'s.
  */
 export interface SubagentFocus {
   readonly taskId: string

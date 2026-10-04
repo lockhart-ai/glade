@@ -212,13 +212,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     }
 
     // Opens a task main asked to open, as clicking its row does; with a subagent, then shows it in the Subagents tab, as
-    // picking it there does. With the todo hub on (P16), it shows in the Todos tab instead: its todo opens on the
-    // Subagents filter, and its tile takes the focus (`useShownSubagent`). Selecting the task can be called off
-    // (unsaved edits), and then nothing more happens.
+    // picking it there does. Selecting it can be called off (unsaved edits), and then nothing more happens.
     const openRequested = async ({ taskId, subagentId }: OpenRequest): Promise<void> => {
       await get().selectTask(taskId)
       if (subagentId === null || get().selectedTaskId !== taskId) return
-      showPanelTab(taskId, get().settings.todoHubEnabled ? PanelTab.Todos : PanelTab.Subagents)
+      showPanelTab(taskId, PanelTab.Subagents)
       set(({ subagentFocus }) => ({
         subagentFocus: { taskId, subagentId, request: (subagentFocus?.request ?? 0) + 1 },
       }))

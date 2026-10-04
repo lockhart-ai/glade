@@ -12,7 +12,6 @@ import {
   outputLine,
   OutputLineKind,
   ownWatchers,
-  reportLine,
   statusLabel,
   subagentWatchers,
   tally,
@@ -171,45 +170,5 @@ describe('how a watcher reads', () => {
   it('names the task list’s mark', () => {
     expect(watchingLabel(1)).toBe('1 watcher running')
     expect(watchingLabel(4)).toBe('4 watchers running')
-  })
-})
-
-describe('the line a watcher’s tile shows in the todo hub (#499)', () => {
-  const reported = { lastOutput: 'unit-tests fail test_retry_after_burst' }
-
-  it('is the last thing it reported, while it’s live', () => {
-    for (const state of [WatcherState.Running, WatcherState.Scheduled, WatcherState.Suspended]) {
-      expect(reportLine(sampleWatcher('w', 't1', { state, ...reported }))).toEqual({
-        kind: OutputLineKind.Last,
-        text: reported.lastOutput,
-      })
-      expect(reportLine(sampleWatcher('w', 't1', { state }))).toBeNull()
-    }
-  })
-
-  it('is still its last report once it has finished, not how it ended, which the Watchers tab says', () => {
-    const finished = sampleWatcher('w', 't1', { state: WatcherState.Finished, outcome: 'exit code 0', ...reported })
-    expect(reportLine(finished)).toEqual({ kind: OutputLineKind.Last, text: reported.lastOutput })
-    expect(outputLine(finished)).toEqual({ kind: OutputLineKind.End, text: 'exit code 0' })
-  })
-
-  it('is how a finished one ended when it never reported anything, and nothing when that isn’t known either', () => {
-    expect(reportLine(sampleWatcher('w', 't1', { state: WatcherState.Finished, outcome: 'exit code 0' }))).toEqual({
-      kind: OutputLineKind.End,
-      text: 'exit code 0',
-    })
-    expect(reportLine(sampleWatcher('w', 't1', { state: WatcherState.Finished }))).toBeNull()
-  })
-
-  it('is how it ended for one that failed or was stopped, whatever it last reported', () => {
-    expect(
-      reportLine(
-        sampleWatcher('w', 't1', { state: WatcherState.Failed, outcome: 'failed with exit code 1', ...reported }),
-      ),
-    ).toEqual({ kind: OutputLineKind.End, text: 'failed with exit code 1' })
-    expect(
-      reportLine(sampleWatcher('w', 't1', { state: WatcherState.Stopped, outcome: 'You stopped it.', ...reported })),
-    ).toEqual({ kind: OutputLineKind.End, text: 'You stopped it.' })
-    expect(reportLine(sampleWatcher('w', 't1', { state: WatcherState.Stopped, ...reported }))).toBeNull()
   })
 })
