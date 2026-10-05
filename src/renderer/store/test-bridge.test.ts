@@ -12,8 +12,7 @@ import {
   type Artifact,
   type PermissionMark,
 } from '../../shared/domain'
-import { DEFAULT_SETTINGS } from '../../shared/settings'
-import { ChildFilter, ChildKind, FilingSource, TODO_HUB_OFF, UNFILED_TODO_ID } from '../../shared/todoHub'
+import { ChildFilter, ChildKind, FilingSource, UNFILED_TODO_ID } from '../../shared/todoHub'
 import { fakeBridge, sampleCommit, samplePermissionRequest, sampleTask, sampleWatcher } from './test-bridge'
 
 it('keeps the OpenRouter stand-in offline for every catalog command', async () => {
@@ -173,19 +172,7 @@ it("gives a task's history its own marks of the calls a rule decided", async () 
   expect(history.permissionMarks.map(({ toolUseId }) => toolUseId)).toEqual(['a', 'c'])
 })
 
-it('refuses the todo hub’s commands, as main does while the hub is off', async () => {
-  const fake = fakeBridge({ workspaces: [], tasks: [sampleTask('t1', 'w1')], uiState: [] })
-
-  await expect(fake.bridge.invoke(CommandName.TodoHubGet, { taskId: 't1' })).rejects.toMatchObject({
-    code: BridgeErrorCode.InvalidTransition,
-    message: TODO_HUB_OFF,
-  })
-  await expect(
-    fake.bridge.invoke(CommandName.TodoHubSetPanel, { taskId: 't1', todoId: '1', open: true, filter: ChildFilter.All }),
-  ).rejects.toMatchObject({ code: BridgeErrorCode.InvalidTransition, message: TODO_HUB_OFF })
-})
-
-it('answers the todo hub’s commands while the hub is on: what a task produced grouped by todo, its filings and its panels', async () => {
+it('answers the todo hub’s commands: what a task produced grouped by todo, its filings and its panels', async () => {
   const watcher = sampleWatcher('w1', 't1', { toolUseId: 'watch-a' })
   const filing = {
     taskId: 't1',
@@ -208,7 +195,6 @@ it('answers the todo hub’s commands while the hub is on: what a task produced 
     workspaces: [],
     tasks: [sampleTask('t1', 'w1'), sampleTask('t2', 'w1')],
     uiState: [],
-    settings: { ...DEFAULT_SETTINGS, todoHubEnabled: true },
     todos: {
       t1: {
         items: [{ id: '1', text: 'Watch CI', state: TodoState.Doing, note: null, completedAt: null }],
@@ -251,7 +237,6 @@ it('answers the todo hub with nothing for a main that has none, and remembers no
     workspaces: [],
     tasks: [sampleTask('t1', 'w1')],
     uiState: [],
-    settings: { ...DEFAULT_SETTINGS, todoHubEnabled: true },
   })
   const opened = { taskId: 't1', todoId: '1', open: true, filter: ChildFilter.All }
 

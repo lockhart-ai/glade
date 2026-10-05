@@ -6,9 +6,6 @@
  * A todo shows produced work only (#535). A subagent has a todo too, the one it was started for, but as plumbing: it's
  * what the subagent's commits follow and what its tab in the Agents tab says (`subagentTodo`), and the subagent itself
  * is never shown under the todo. A watcher has none: it isn't filed, grouped or given an id.
- *
- * It's all behind the hidden setting `todoHubEnabled` (`./settings`), off until the phase's last issue (#501): with it
- * off, nothing here is read, written, sent or shown.
  */
 import {
   ArtifactKind,
@@ -140,9 +137,6 @@ export interface NewFiling extends ChildRef {
  * todo that ever did would have no children of its own.
  */
 export const UNFILED_TODO_ID: TodoId = 'unfiled'
-
-/** What a hub command is refused with while the hub is off (`todoHubEnabled`). */
-export const TODO_HUB_OFF = 'The todo hub is off (the todoHubEnabled setting).'
 
 /** Which of a todo's children its open panel shows: all of them, or one kind alone. */
 export enum ChildFilter {

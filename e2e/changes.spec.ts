@@ -2,10 +2,14 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
-import { MAKES_COMMITS, REPLIES_BRIEFLY } from '../src/main/agent/scripts'
+import { MAKES_COMMITS } from '../src/main/agent/scripts'
 import { SHELL_GIT_ENV } from '../src/main/agent/scripted-shell'
-import { expect, test, type Glade, type LaunchOptions } from './fixtures'
-import { changesTab, chat, filesTab, firstRun, inputBar, taskList, taskPanel } from './selectors'
+import { expect, test } from './fixtures'
+import { chat, firstRun, inputBar, taskList, taskPanel, todoHub } from './selectors'
+
+// The commits a task and its subagent made, newest first, each opening to its files and a file to Files, are covered
+// end to end by `todo-hub-commits.spec.ts`. This file covers what's distinct: commits surviving a relaunch and the
+// worktree's removal, read back from the repository, and a task taking none of another's.
 
 /** The scripts the tasks play, by their first message: one makes the design's commits, the other one more. */
 const SCRIPTS = {
@@ -38,118 +42,40 @@ async function newTask(window: Page, prompt: string, reply: string): Promise<voi
   await expect(chat(window).agentReplies.last()).toContainText(reply)
 }
 
-/** The short hash of a commit's row. */
-async function shortHash(window: Page, subject: string): Promise<string> {
-  const hash = await changesTab(window).row(subject).getAttribute('data-hash')
-  return (hash ?? '').slice(0, 7)
+/** The task's commit tiles' labels, as the todo hub shows them: the whole list, the task having no todos. */
+async function commitLabels(window: Page): Promise<string[]> {
+  await taskPanel(window)
+    .tab(/^Todos/)
+    .click()
+  const hub = todoHub(window)
+  const labels = await hub.tiles(hub.cards).evaluateAll((tiles) => tiles.map((tile) => tile.getAttribute('aria-label')))
+  return labels.filter((label): label is string => label !== null)
 }
 
-/** Opens the Changes tab (⌘⌥7). */
-async function showChanges(window: Page): Promise<void> {
-  await window.keyboard.press('Meta+Alt+Digit7')
-  await expect(taskPanel(window).tab(/^Changes/)).toHaveAttribute('aria-selected', 'true')
-}
+const MADE = [MAKES_COMMITS.merge, MAKES_COMMITS.guide, MAKES_COMMITS.bump, MAKES_COMMITS.fix].map(
+  (subject) => `Change: ${subject}`,
+)
 
-/** Launches the app on the workspace, and has the first task make its commits. */
-async function makeCommits(launch: (options: LaunchOptions) => Promise<Glade>, root: string): Promise<Glade> {
-  const glade = await launch({ agentScriptsByFirstMessage: SCRIPTS, chosenFolder: root })
-  await firstRun(glade.window).openFolder.click()
-  await newTask(glade.window, MAKES_COMMITS.prompt, MAKES_COMMITS.reply)
-  await showChanges(glade.window)
-  return glade
-}
-
-const MADE = [MAKES_COMMITS.merge, MAKES_COMMITS.guide, MAKES_COMMITS.bump, MAKES_COMMITS.fix]
-
-test('changes: the commits a task and its subagent made, newest first, each opening to its files, and a file to Files', async ({
+test('changes: still there after a relaunch and the worktree’s removal, read from the repository, and another task takes none of them', async ({
   launch,
   tempFolder,
 }) => {
   const root = acmeApi(tempFolder)
-  const { window } = await makeCommits(launch, root)
-  const changes = changesTab(window)
-
-  // Every commit the agent made, however it made it: printed, by the release script, amended, by the subagent in its
-  // worktree, and the merge. Not the person's first commit.
-  await expect(taskPanel(window).tab(/^Changes/)).toHaveText('Changes 4')
-  expect(await changes.rows.evaluateAll((rows) => rows.map((row) => row.getAttribute('aria-label')))).toEqual(MADE)
-  await expect(changes.panel).not.toContainText('Start the Acme API')
-  await expect(changes.panel).not.toContainText('Bump the version+')
-  await expect(changes.row(MAKES_COMMITS.merge)).toContainText('main · just now · merge')
-  await expect(changes.row(MAKES_COMMITS.guide)).toContainText(`${MAKES_COMMITS.worktreeBranch} · just now`)
-  await expect(changes.row(MAKES_COMMITS.guide)).toContainText(MAKES_COMMITS.subagent)
-  await expect(changes.row(MAKES_COMMITS.fix)).toContainText('+1−1main · just now')
-  await expect(changes.row(MAKES_COMMITS.fix)).not.toContainText(MAKES_COMMITS.subagent)
-
-  // The fix's file is still in the workspace: it opens in Files as it is now.
-  const fix = await shortHash(window, MAKES_COMMITS.fix)
-  await changes.header(MAKES_COMMITS.fix).click()
-  await expect(changes.files(fix).getByRole('listitem')).toHaveText(['Msrc/date.ts+1−1'])
-  await changes.file(MAKES_COMMITS.fix, 'src/date.ts').click()
-  await expect(taskPanel(window).tab(/^Files/)).toHaveAttribute('aria-selected', 'true')
-  await expect(filesTab(window).contents).toContainText('toISOString')
-  await expect(filesTab(window).openInEditor).toBeVisible()
-
-  // The subagent's rename and logo, in its worktree beside the workspace: the file opens as its commit left it.
-  await showChanges(window)
-  const guide = await shortHash(window, MAKES_COMMITS.guide)
-  await changes.header(MAKES_COMMITS.guide).click()
-  await expect(changes.files(guide).getByRole('listitem')).toHaveText([
-    'Adocs/logo.pngbinary',
-    'Rdocs/upgrade.md → docs/upgrading.md+2−0',
-  ])
-  await changes.file(MAKES_COMMITS.guide, /docs\/upgrading\.md/).click()
-  await expect(taskPanel(window).panel.getByText(`As of ${guide} · read-only`)).toBeVisible()
-  await expect(filesTab(window).contents).toContainText('Run the migrations before you start the server.')
-  await expect(filesTab(window).openInEditor).toHaveCount(0)
-  // Only in git, it's read-only: the source, never the editor.
-  await expect(filesTab(window).source).toBeVisible()
-  await expect(filesTab(window).editor).toHaveCount(0)
-
-  // Another task committing in the same repository has its own, and takes none of these.
-  await newTask(window, MAKES_COMMITS.otherPrompt, MAKES_COMMITS.otherReply)
-  await showChanges(window)
-  await expect(taskPanel(window).tab(/^Changes/)).toHaveText('Changes 1')
-  await expect(changes.rows).toHaveCount(1)
-  await expect(changes.row(MAKES_COMMITS.other)).toBeVisible()
-  await taskList(window).taskRow(MAKES_COMMITS.title).click()
-  await expect(taskPanel(window).tab(/^Changes/)).toHaveText('Changes 4')
-  await expect(changes.panel).not.toContainText(MAKES_COMMITS.other)
-})
-
-test('changes: still there after a relaunch and the worktree’s removal, its files read from the repository', async ({
-  launch,
-  tempFolder,
-}) => {
-  const root = acmeApi(tempFolder)
-  const first = await makeCommits(launch, root)
-  // The last commit is linked just after the reply: quit once it is.
-  await expect(taskPanel(first.window).tab(/^Changes/)).toHaveText('Changes 4')
-  const guide = await shortHash(first.window, MAKES_COMMITS.guide)
+  const first = await launch({ agentScriptsByFirstMessage: SCRIPTS, chosenFolder: root })
+  await firstRun(first.window).openFolder.click()
+  await newTask(first.window, MAKES_COMMITS.prompt, MAKES_COMMITS.reply)
+  await expect.poll(() => commitLabels(first.window)).toEqual(MADE)
   await first.close()
   sh(`git worktree remove --force ${MAKES_COMMITS.worktree}`, root)
 
+  // Reads back the same after the relaunch, with the subagent's worktree gone: nothing but git itself to read it from.
   const { window } = await launch({ agentScriptsByFirstMessage: SCRIPTS, chosenFolder: root })
-  const changes = changesTab(window)
   await taskList(window).taskRow(MAKES_COMMITS.title).click()
-  await showChanges(window)
-  await expect(taskPanel(window).tab(/^Changes/)).toHaveText('Changes 4')
-  expect(await changes.rows.evaluateAll((rows) => rows.map((row) => row.getAttribute('aria-label')))).toEqual(MADE)
+  await expect.poll(() => commitLabels(window)).toEqual(MADE)
 
-  await changes.header(MAKES_COMMITS.guide).click()
-  await expect(changes.files(guide).getByRole('listitem')).toHaveCount(2)
-  await changes.file(MAKES_COMMITS.guide, /docs\/upgrading\.md/).click()
-  await expect(taskPanel(window).panel.getByText(`As of ${guide} · read-only`)).toBeVisible()
-  await expect(filesTab(window).contents).toContainText('Run the migrations before you start the server.')
-})
-
-test('changes: a workspace that isn’t a git repository says so', async ({ launch, tempFolder }) => {
-  const root = join(tempFolder(), 'notes')
-  mkdirSync(root)
-  const { window } = await launch({ agentScript: 'replies-briefly', chosenFolder: root })
-  await firstRun(window).openFolder.click()
-  await newTask(window, 'Draft the release notes.', REPLIES_BRIEFLY.reply)
-  await showChanges(window)
-  await expect(taskPanel(window).tab(/^Changes/)).toHaveText('Changes')
-  await expect(changesTab(window).panel).toContainText('This workspace isn’t a git repository.')
+  // Another task committing in the same repository has its own, and takes none of these.
+  await newTask(window, MAKES_COMMITS.otherPrompt, MAKES_COMMITS.otherReply)
+  await expect.poll(() => commitLabels(window)).toEqual([`Change: ${MAKES_COMMITS.other}`])
+  await taskList(window).taskRow(MAKES_COMMITS.title).click()
+  await expect.poll(() => commitLabels(window)).toEqual(MADE)
 })

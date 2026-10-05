@@ -1,4 +1,4 @@
-/* The subagent that made something, as a tag: a commit in the Changes tab (24-changes.html), and in the todo hub. */
+/* The subagent that made something, as a tag: a commit, on its tile in the Todos tab. */
 .subagent {
   min-width: 0;
   padding: 1px 6px;

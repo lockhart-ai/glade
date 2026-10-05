@@ -50,15 +50,21 @@ describe('systemPromptAppend', () => {
           'it in preamble, then ask.',
         '',
         'When you make a deliverable the user asked for (a report, a document, a draft), call add_artifact with its ' +
-          'path and a short title, so it shows in the Artifacts tab and stays with the task after it is done. Keep ' +
+          'path and a short title, so it shows in the Todos tab and stays with the task after it is done. Keep ' +
           "that list current: if its file moves or it needs a new title, call update_artifact; if it's no longer a " +
           'deliverable, call remove_artifact.',
         'When you open or work on a pull request, or the task is about an issue or a ticket (GitHub, Jira), call ' +
-          'add_artifact with its url and a short title, so the user finds it in the Artifacts tab next to the files.',
+          'add_artifact with its url and a short title, so the user finds it in the Todos tab next to the files.',
         '',
         'When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the ' +
           "Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows " +
-          "in the task's Watchers tab.",
+          "in the task's Agents tab.",
+        '',
+        TODO_HUB_FILING_LINE,
+        '',
+        TODO_HUB_ARTIFACTS_LINE,
+        '',
+        TODO_HUB_TOOLS_LINE,
       ].join('\n'),
     )
     expect(systemPromptAppend(task)).toContain(WATCHERS_LINE)
@@ -163,20 +169,18 @@ describe('the sandbox line', () => {
 })
 
 describe("the todo hub's lines", () => {
-  const HUB_ON = { statusSummary: true, taskTitles: true, todoHubEnabled: true }
+  it('tells a session how what it makes is filed, and of its tools, after the watchers line', () => {
+    const prompt = systemPromptAppend(task)
 
-  it('tells a session with the hub on how what it makes is filed, and of its tools, after the watchers line', () => {
-    const prompt = systemPromptAppend(task, HUB_ON)
-
-    expect(prompt).toBe(
-      `${systemPromptAppend(task)}\n\n${TODO_HUB_FILING_LINE}\n\n${TODO_HUB_ARTIFACTS_LINE}\n\n${TODO_HUB_TOOLS_LINE}`,
+    expect(prompt.endsWith(`\n\n${TODO_HUB_FILING_LINE}\n\n${TODO_HUB_ARTIFACTS_LINE}\n\n${TODO_HUB_TOOLS_LINE}`)).toBe(
+      true,
     )
     expect(TODO_HUB_LINES).toEqual([TODO_HUB_FILING_LINE, TODO_HUB_ARTIFACTS_LINE, TODO_HUB_TOOLS_LINE])
     for (const line of TODO_HUB_LINES) expect(line).not.toContain('\n')
     expect(TODO_HUB_TOOLS_LINE).toContain("list_children lists them, each with a short id and the todo it's under")
     expect(TODO_HUB_TOOLS_LINE).toContain('file_children files them under a todo or moves them to another')
     // Ahead of the sandbox's and the control tools' lines and the handoff note, which stay last.
-    const all = systemPromptAppend(task, HUB_ON, true, { taskId: task.id, body: 'Notes.', addedAt: 1_000 }, true)
+    const all = systemPromptAppend(task, undefined, true, { taskId: task.id, body: 'Notes.', addedAt: 1_000 }, true)
     const places = [
       WATCHERS_LINE,
       TODO_HUB_FILING_LINE,
@@ -206,29 +210,24 @@ describe("the todo hub's lines", () => {
     )
   })
 
-  it("says nothing of the hub or its tools with the switch off, as it's off unless given", () => {
-    const off = [
+  it('gives every session the lines, whatever its upkeep, and keeps them out of the instructions sent by count', () => {
+    for (const prompt of [
       systemPromptAppend(task),
-      systemPromptAppend(task, { statusSummary: true, taskTitles: true }),
-      systemPromptAppend(task, { statusSummary: true, taskTitles: true, todoHubEnabled: false }),
-      systemPromptAppend(
-        task,
-        { statusSummary: false, taskTitles: false, todoHubEnabled: undefined },
-        true,
-        null,
-        true,
-      ),
-    ]
-
-    for (const prompt of off) {
-      expect(prompt).not.toContain('list_children')
-      expect(prompt).not.toContain('file_children')
-      expect(prompt).not.toMatch(/\[todo \d+\]|under one of your todos|as todo/)
-      for (const line of TODO_HUB_LINES) expect(prompt).not.toContain(line)
+      systemPromptAppend(task, { statusSummary: false, taskTitles: false }, true, null, true),
+    ]) {
+      for (const line of TODO_HUB_LINES) expect(prompt.split(line)).toHaveLength(2)
     }
-    // They're for sessions with the hub alone, so none is among the instructions every resumed session is sent: a
-    // session's count of those stays what it was, hub or no hub.
+    // Whether a session has them is tracked by itself (`session-context`): a session's count of the instructions
+    // added since it started stays what it was.
     for (const line of TODO_HUB_LINES) expect(INSTRUCTION_UPDATES).not.toContain(line)
     expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE])
+  })
+
+  it('names no tab the panel no longer has', () => {
+    const prompt = systemPromptAppend(task, undefined, true, { taskId: task.id, body: 'Notes.', addedAt: 1_000 }, true)
+
+    expect(prompt).not.toMatch(/Artifacts tab|Watchers tab|Subagents tab|Tool calls tab|Changes tab/)
+    expect(prompt).toContain('so it shows in the Todos tab')
+    expect(prompt).toContain("so it shows in the task's Agents tab")
   })
 })

@@ -1,6 +1,6 @@
 /**
  * What the image viewer (`ImageViewer.tsx`) can show: a message's pasted image, loaded from main by id (`images.get`),
- * or a task's workspace file, loaded whole from main by path (`files.read`) as a `data:` URL. The Artifacts tab opens
+ * or a task's workspace file, loaded whole from main by path (`files.read`) as a `data:` URL. A file's tile opens
  * the viewer on its image artifacts, in the list's order; the Files tab opens it on the one file showing.
  */
 import type { ImageRef } from '../../shared/images'

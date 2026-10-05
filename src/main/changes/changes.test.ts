@@ -11,7 +11,7 @@ import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from
 import { appendToolCall } from '../db/repositories/tool-events'
 import { createGit } from '../git/git'
 import { openTestRepos, TEST_GIT_RUN, type TestRepos } from '../git/test-repos'
-import { commitFiles, openCommitFile, readCommitFile, workspaceInRepository, type ChangesContext } from './changes'
+import { commitFiles, openCommitFile, readCommitFile, type ChangesContext } from './changes'
 import { createChangeTracker } from './tracker'
 
 let database: TestDatabase
@@ -203,19 +203,5 @@ describe('readCommitFile', () => {
     expect(await readCommitFile(context, task.id, { commitId: 'nope', path: 'src/date.ts' })).toEqual({
       kind: FileContentKind.Missing,
     })
-  })
-})
-
-describe('workspaceInRepository', () => {
-  it('says whether the task’s workspace root is in a repository', async () => {
-    expect(await workspaceInRepository(context, task.id)).toBe(true)
-    const plain = sampleTask(database.db, sampleWorkspace(database.db, repos.root).id, 4_000)
-    expect(await workspaceInRepository(context, plain.id)).toBe(false)
-  })
-
-  it('reads git once for it', async () => {
-    const locate = vi.spyOn(context.git, 'locate')
-    await workspaceInRepository(context, task.id)
-    expect(locate).toHaveBeenCalledExactlyOnceWith(api)
   })
 })

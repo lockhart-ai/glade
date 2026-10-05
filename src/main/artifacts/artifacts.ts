@@ -1,6 +1,6 @@
 /**
  * A task's artifacts: the files the agent declares as its deliverables with `add_artifact` (and renames, repoints or
- * takes off with `update_artifact` and `remove_artifact`), shown in the Artifacts tab, and the links it declares the
+ * takes off with `update_artifact` and `remove_artifact`), shown as tiles in the Todos tab, and the links it declares the
  * same way (#407): the PRs, issues and tickets the task is about, by URL, which you can add by hand too. They're kept in
  * the database with the task, so a done task still has them, and so does a relaunch. So is when each file last changed,
  * which the tab lists them by (#307): looked at as each is declared, and again whenever it may have changed
@@ -8,7 +8,7 @@
  *
  * With the todo hub on (P16, `../todo-hub`), an artifact can be filed under a todo, and its filing is kept in step
  * here, however the artifact changes: one pointed at another file or page keeps its todo, and one that's removed
- * leaves no filing behind. With the hub off, none of that does anything.
+ * leaves no filing behind.
  */
 import { stat } from 'node:fs/promises'
 import { checkArtifactUrl, defaultLinkTitle } from '../../shared/artifactLinks'

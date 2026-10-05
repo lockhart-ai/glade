@@ -3,7 +3,7 @@
  * from the marks of the calls a rule decided. A request names the call it was about by its `tool_use` id
  * (`PermissionRequest.toolUseId`), which the call's row has too (`ToolCallEvent.toolUseId`), so the rows look their
  * lines up by it (`permissionLinesByToolUse`). A subagent's call is found the same way, on the row it already has in
- * the Subagents tab. A command's connection asks under its command's id, so its decision is on the command's row.
+ * the Agents tab. A command's connection asks under its command's id, so its decision is on the command's row.
  *
  * A card shows in the chat only while its request is open (#459): from then on, this line is where its decision shows.
  * A request of the agent sandbox's (#450) says what it was about: "Allowed for this workspace: write to

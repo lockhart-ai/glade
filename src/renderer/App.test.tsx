@@ -107,7 +107,7 @@ it('renders the window layout with the workspace, the chat, the task panel and t
   expect(within(inputBar).getByRole('region', { name: 'Notifications' })).toBeInTheDocument()
 
   const panel = within(main).getByRole('complementary', { name: 'Task panel' })
-  expect(within(panel).getByRole('tab', { name: /^Tool calls/ })).toHaveAttribute('aria-selected', 'true')
+  expect(within(panel).getByRole('tab', { name: /^Agents/ })).toHaveAttribute('aria-selected', 'true')
 
   const terminal = screen.getByRole('region', { name: 'Terminal' })
   expect(within(terminal).getByRole('group', { name: 'Terminal tabs' })).toBeEmptyDOMElement()

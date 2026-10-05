@@ -8,7 +8,7 @@
  * subagents, and their open questions and permission requests. Then each change follows, in order.
  *
  * **Watchers** reach a plugin as a count on their task and nothing else (`PluginTask.watchers`, #490): how many of them
- * are running. It's counted from what the Watchers tab is told (`watchers.changed`, which carries the task's watchers,
+ * are running. It's counted from what the Agents tab is told (`watchers.changed`, which carries the task's watchers,
  * so nothing is read for it) and, for a snapshot, from the live watchers the task list's marks are loaded from. A
  * change that leaves the count as it was (a watcher waking the agent, a job being scheduled) sends nothing.
  *
@@ -339,8 +339,8 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       case EventType.PermissionWithdrawn:
         permissionRequest(event.permissionRequest)
         return
-      // Not a plugin's business: what's said in the chat and queued for it, the Files, Todos, Artifacts and
-      // Changes tabs, the handoff note, the terminal, the window's own state, settings, the models the pickers offer,
+      // Not a plugin's business: what's said in the chat and queued for it, the Files, Todos, Todos
+      // tab, the handoff note, the terminal, the window's own state, settings, the models the pickers offer,
       // plugins and the control endpoint (whose token no plugin may see). A removed workspace's tasks are deleted one by one.
       // A refusal-fallback eviction is rare and best-effort here: a plugin keeps whatever it already showed for it.
       // Nor which rule decided a call: its mark names a folder or a command.

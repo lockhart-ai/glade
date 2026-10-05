@@ -1,8 +1,7 @@
 import { expect, it } from 'vitest'
-import { ArtifactDateGroup, ArtifactKind } from '../../../shared/domain'
+import { ArtifactKind } from '../../../shared/domain'
 import { openDatabase } from '../database'
 import { migrate } from '../migrate'
-import { listArtifactGroups, setArtifactGroupOpen } from '../repositories/artifact-groups'
 import { listArtifacts } from '../repositories/artifacts'
 import { MIGRATIONS } from '.'
 import { artifactGroupsMigration } from './0041-artifact-groups'
@@ -11,7 +10,7 @@ it('is migration 41', () => {
   expect(MIGRATIONS.find((migration) => migration.version === 41)).toBe(artifactGroupsMigration)
 })
 
-it('leaves existing artifacts unlooked at, starts each task’s groups as they start, and drops them with it', () => {
+it('leaves existing artifacts unlooked at, and keeps one fold per date group of a task', () => {
   const db = openDatabase(':memory:')
   migrate(
     db,
@@ -24,6 +23,16 @@ it('leaves existing artifacts unlooked at, starts each task’s groups as they s
     VALUES ('t', 'w', '', '', '', 'active', 'waiting', 0, 0, 'claude-sample-1', 'high', 1, 1, NULL, NULL)`,
   ).run()
   db.prepare("INSERT INTO artifacts VALUES ('t', 'docs/notes.md', 'Notes', 5, 6)").run()
+
+  // Up to this migration: its table is dropped again once the Artifacts tab is gone (0064).
+  migrate(
+    db,
+    MIGRATIONS.filter((migration) => migration.version <= 41),
+  )
+  expect(db.prepare('SELECT COUNT(*) FROM artifact_groups').pluck().get()).toBe(0)
+  db.prepare("INSERT INTO artifact_groups VALUES ('t', 'this_week', 1)").run()
+  expect(() => db.prepare("INSERT INTO artifact_groups VALUES ('t', 'this_week', 0)").run()).toThrow(/UNIQUE/)
+  expect(() => db.prepare("INSERT INTO artifact_groups VALUES ('t', 'older', 2)").run()).toThrow(/CHECK/)
 
   migrate(db, MIGRATIONS)
 
@@ -41,11 +50,7 @@ it('leaves existing artifacts unlooked at, starts each task’s groups as they s
     },
   ])
   expect(() => db.prepare("UPDATE artifacts SET missing = 2 WHERE task_id = 't'").run()).toThrow(/CHECK/)
-  expect(listArtifactGroups(db, 't')).toEqual([])
-  setArtifactGroupOpen(db, { taskId: 't', group: ArtifactDateGroup.ThisWeek, open: true })
-  expect(() => db.prepare("INSERT INTO artifact_groups VALUES ('t', 'this_week', 0)").run()).toThrow(/UNIQUE/)
-  expect(() => db.prepare("INSERT INTO artifact_groups VALUES ('t', 'older', 2)").run()).toThrow(/CHECK/)
   db.prepare("DELETE FROM tasks WHERE id = 't'").run()
-  expect(db.prepare('SELECT COUNT(*) FROM artifact_groups').pluck().get()).toBe(0)
+  expect(db.prepare('SELECT COUNT(*) FROM artifacts').pluck().get()).toBe(0)
   db.close()
 })

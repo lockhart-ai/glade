@@ -597,10 +597,16 @@ The user sees the task through its title, objective and status. Keep them curren
 
 When you need the user to decide something before you can go on, call ask instead of asking in your reply: it shows your questions on a card and waits for the answers. Ask everything you need at once, with choices or pills when the likely answers are known. When you ask in response to a message, first respond to it in preamble, then ask.
 
-When you make a deliverable the user asked for (a report, a document, a draft), call add_artifact with its path and a short title, so it shows in the Artifacts tab and stays with the task after it is done. Keep that list current: if its file moves or it needs a new title, call update_artifact; if it's no longer a deliverable, call remove_artifact.
-When you open or work on a pull request, or the task is about an issue or a ticket (GitHub, Jira), call add_artifact with its url and a short title, so the user finds it in the Artifacts tab next to the files.
+When you make a deliverable the user asked for (a report, a document, a draft), call add_artifact with its path and a short title, so it shows in the Todos tab and stays with the task after it is done. Keep that list current: if its file moves or it needs a new title, call update_artifact; if it's no longer a deliverable, call remove_artifact.
+When you open or work on a pull request, or the task is about an issue or a ticket (GitHub, Jira), call add_artifact with its url and a short title, so the user finds it in the Todos tab next to the files.
 
-When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows in the task's Watchers tab.
+When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows in the task's Agents tab.
+
+Glade files every commit you make under one of your todos, where the user finds it, and each subagent you start works on one of them. Name the todo in the call: start the description of an Agent call, and of a Bash call that commits, with the todo's id in square brackets, like "[todo 2] Review the date helpers". Create the todo first (TaskCreate) if none fits. If a call names none, Glade asks you right after it to file what it made, with mcp__glade__file_children: do that at once, before your next step. What a subagent commits goes under its todo by itself: leave those.
+
+An artifact goes under a todo too: give add_artifact the todo's id as todo, for a file and for a link.
+
+What this task has produced (its artifacts and commits) shows to the user under its todos. list_children lists them, each with a short id and the todo it's under, and file_children files them under a todo or moves them to another, by those ids. When the user asks you to file or sort what you made, list them, then file them all in one call.
 ```
 
 The line about the last message is for the chat (#301): it shows only the agent's final reply each turn
@@ -609,32 +615,24 @@ that answers and then carries on (files an issue, updates its notes) would other
 the answer would be buried. Narration between tool calls stays in the tool log.
 
 The line about pull requests, issues and tickets is for link artifacts (#407): tasks depend on remote things that
-would otherwise be scattered through the chat, the todos and the tool log, and the Artifacts tab is the one place to
+would otherwise be scattered through the chat, the todos and the tool log, and the Todos tab is the one place to
 get back to them.
 
-The last line is for the Watchers tab (#250, [`sdk-notes.md`](sdk-notes.md) §13): Glade follows what the agent starts
+The line about watch scripts is for the watchers the Agents tab pins (#250, [`sdk-notes.md`](sdk-notes.md) §13): Glade follows what the agent starts
 with the SDK's own tools (`Monitor`, background `Bash`, `ScheduleWakeup`, `CronCreate`), whatever script it runs, but
 a script backgrounded inside a foreground `Bash` call (`nohup ./watch.sh &`) is invisible to the SDK, so to Glade too.
+
+The last three paragraphs are the todo hub's (`TODO_HUB_LINES`, P16-04 and P16-05, #495 and #496): how its commits
+are filed and each subagent gets a todo (`TODO_HUB_FILING_LINE`: what #492 probed,
+[`sdk-notes.md` §16](sdk-notes.md#16-filing-a-child-under-a-todo), cut down to the two calls Glade reads a todo off,
+with nothing of watchers), that an artifact needs a todo too, and that the hub's tools exist and what they're for.
 
 The "after the user's first message" line asks only for what isn't set yet, so a resumed session never renames a task
 the user has renamed; with both set, the line goes. With Status summary or Task titles off in Settings › Agent, the
 prompt leaves out asking for it.
 
-Four more parts are added after that, each after a blank line, when they apply:
+Three more parts are added after that, each after a blank line, when they apply:
 
-- **The todo hub** (behind the hidden `todoHubEnabled` setting, P16-04 and P16-05, #495 and #496): in a session that
-  starts with the setting on, three paragraphs (`TODO_HUB_LINES`): how its commits are filed and each subagent gets a
-  todo (`TODO_HUB_FILING_LINE`: what #492 probed, [`sdk-notes.md` §16](sdk-notes.md#16-filing-a-child-under-a-todo),
-  cut down to the two calls Glade reads a todo off, with nothing of watchers), that an artifact needs a todo too, and
-  that the hub's tools exist and what they're for. With the setting off, the prompt says nothing of any of it:
-
-  ```
-  Glade files every commit you make under one of your todos, where the user finds it, and each subagent you start works on one of them. Name the todo in the call: start the description of an Agent call, and of a Bash call that commits, with the todo's id in square brackets, like "[todo 2] Review the date helpers". Create the todo first (TaskCreate) if none fits. If a call names none, Glade asks you right after it to file what it made, with mcp__glade__file_children: do that at once, before your next step. What a subagent commits goes under its todo by itself: leave those.
-
-  An artifact goes under a todo too: give add_artifact the todo's id as todo, for a file and for a link.
-
-  What this task has produced (its artifacts and commits) shows to the user under its todos. list_children lists them, each with a short id and the todo it's under, and file_children files them under a todo or moves them to another, by those ids. When the user asks you to file or sort what you made, list them, then file them all in one call.
-  ```
 - **The sandbox:** in a session that runs sandboxed (Settings › Agent › Sandbox on as it starts), one paragraph
   (`SANDBOX_LINE`): that its commands can read and write the workspace folder and, beyond it, only the folders and
   domains the user has allowed, and that when a command fails with "Operation not permitted" on a path outside the
@@ -666,13 +664,11 @@ kept in SQLite too (`session_context.sandbox`): one that started sandboxed has i
 one that still runs outside the sandbox isn't told, and one told once isn't told again, whatever the switch does
 later. An imported session gets it in Glade's whole prompt when it runs sandboxed.
 
-The todo hub's paragraphs aren't in that list either, being only for sessions with the hub on (#495), so the count
-of instructions a session has had (`session_context.instruction_updates`) is the same with the hub on or off. They're
-tracked by themselves, as the sandbox's is (`session_context.todo_hub`). A session has the hub for its whole life, or
-not at all: the setting is read as the session starts, with its tools and hooks. So a session that started with the
-switch off isn't touched when the switch is turned on while it runs. When it next starts (a relaunch, or once it has
-ended), it resumes with the hub's tools and hooks, and is sent the three paragraphs once, as a
+The todo hub's paragraphs aren't in that list either: the hub was built behind a switch (#495), so whether a session
+has them is tracked by itself, as the sandbox's is (`session_context.todo_hub`), and the count of instructions a
+session has had (`session_context.instruction_updates`) is untouched by it. Every session has the hub now (#501). One
+that started before that (from before the hub, or from while it was behind its switch and off) resumes with the hub's
+tools and hooks when it next starts, and is sent the three paragraphs once, as a
 `[Glade: this session now files what it makes under its todos] … [end]` block ahead of the next message Glade sends
-it, after the sandbox's block and before a handoff note's. One that started with the hub on has them in its prompt
-and is never sent them, one that runs with the hub off isn't told, and one told once isn't told again, whatever the
-switch does later. An imported session gets them in Glade's whole prompt when it runs with the hub on.
+it, after the sandbox's block and before a handoff note's. One that started with them has them in its prompt and is
+never sent them, and one told once isn't told again. An imported session gets them in Glade's whole prompt.

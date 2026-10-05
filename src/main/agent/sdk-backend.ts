@@ -856,10 +856,10 @@ export function sdkOptions(
     // Questions go through Glade's own `ask`, which shows them on a card; Claude Code's own asking tool has no UI here.
     // A sandboxed session can't move into another worktree either: its sandbox is bounded by the folder it started in.
     disallowedTools: sandboxed ? [...DISALLOWED_TOOLS, ...SANDBOX_DISALLOWED_TOOLS] : [...DISALLOWED_TOOLS],
-    // A subagent's own text too, not just its tool calls: the Subagents tab shows the last thing each one said.
+    // A subagent's own text too, not just its tool calls: the Agents tab shows the last thing each one said.
     forwardSubagentText: true,
     // A running subagent's one-line summary of what it's doing now, about every 30 seconds, from a small fork of its
-    // conversation: the line under its name in the Subagents tab (docs/sdk-notes.md, "Subagents").
+    // conversation: the line under its name in the Agents tab (docs/sdk-notes.md, "Subagents").
     agentProgressSummaries: true,
     // What the Claude Code process prints to its error output goes to the task's log, within limits (docs/logs.md).
     stderr: stderrLogger(options.log ?? SILENT_LOGGER),
@@ -867,7 +867,7 @@ export function sdkOptions(
     // turn. Without this, the SDK fails closed and an interrupt kills every background subagent (docs/sdk-notes.md §7).
     perTaskStopAffordance: true,
     // Always given: a subagent's call to one of Glade's own tools is refused whether or not the session tells the
-    // runner anything else (#366). What the session's watchers do, when it does, is in here too (the Watchers tab,
+    // runner anything else (#366). What the session's watchers do, when it does, is in here too (the Agents tab,
     // docs/sdk-notes.md §13).
     hooks: sdkHooks(options.hooks, options.log ?? SILENT_LOGGER),
   }

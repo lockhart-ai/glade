@@ -2146,17 +2146,13 @@ describe('startApp in e2e mode', () => {
     const db = new Database(join(electron.app.userData, 'glade.db'))
     const taskId = sampleTask(db, sampleWorkspace(db, electron.app.userData).id).id
     db.close()
-    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
     const hub = Reflect.get(globalThis, E2E_TODO_HUB_GLOBAL) as E2eTodoHub
     const plan = { kind: ChildKind.File, key: 'docs/plan.md' }
     const filing = { ...plan, todoId: '1', source: FilingSource.Named }
     const { send } = onlyWindow().webContents
 
-    // With the hub off, as it is by default, nothing is filed and nothing sent.
-    expect(hub.file(taskId, [filing])).toEqual([])
     expect(hub.unfile(taskId, [plan])).toEqual([])
 
-    await handler?.(fromWindow(), CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
     const filed = hub.file(taskId, [filing])
     expect(filed).toEqual([{ taskId, ...filing, filedAt: expect.any(Number) as unknown }])
     await vi.waitFor(() => {

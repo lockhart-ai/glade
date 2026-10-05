@@ -229,7 +229,6 @@ describe('the unsaved edits prompt', () => {
     })
     expect(store.getState().selectedTaskId).toBe('t1')
     expect(store.getState().selectedWorkspaceId).toBe('w1')
-    expect(store.getState().subagentFocus).toBeNull()
     expect(store.getState().uiState[UiStateKey.RightPanelTabs]).toBeUndefined()
   })
 

@@ -24,13 +24,14 @@ import {
   type ToolEvent,
   type Workspace,
 } from '../../shared/domain'
+import { childOfArtifact, groupChildren, refKey } from '../../shared/todoHub'
 import { toolDisplayName } from '../../shared/toolName'
 import { argumentSummary } from '../../shared/toolSummary'
-import { listArtifacts } from '../db/repositories/artifacts'
 import { getExternalId, getHandoff } from '../db/repositories/backfills'
 import { lastTurn, turnStartedAt } from '../db/repositories/messages'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import type { TaskCounts } from '../db/repositories/tasks'
+import { taskChildren } from '../todo-hub/todo-hub'
 
 /** A workspace, with how many tasks it holds. */
 export interface WorkspaceSummary {
@@ -77,33 +78,57 @@ export interface TaskDetailHandoff {
   readonly addedAt: EpochMs
 }
 
+/** The todo an artifact is under in its task's Todos tab (P16): its id (the N of Claude Code's `Task #N`), and its text. */
+export interface ArtifactTodo {
+  readonly id: string
+  readonly text: string
+}
+
+/** What every artifact of a task says of itself, whatever its kind. */
+interface TaskDetailArtifactBase {
+  readonly title: string
+  readonly addedAt: EpochMs
+  /**
+   * The todo it's under, as the Todos tab shows it (#501); null for one under none ("Not under a todo"): what a task
+   * made before todos held its work, what the control API added, and one whose todo has been deleted since.
+   */
+  readonly todo: ArtifactTodo | null
+}
+
 /**
- * One of a task's artifacts: a file, by its absolute path, or a link, by its URL (#407); its title, and when it was
- * first declared or registered.
+ * One of a task's artifacts: a file, by its absolute path, or a link, by its URL (#407); its title, when it was first
+ * declared or registered, and the todo it's under.
  */
 export type TaskDetailArtifact =
-  | {
-      readonly kind: ArtifactKind.File
-      readonly path: string
-      readonly title: string
-      readonly addedAt: EpochMs
-    }
-  | {
-      readonly kind: ArtifactKind.Link
-      readonly url: string
-      readonly title: string
-      readonly addedAt: EpochMs
-    }
+  | (TaskDetailArtifactBase & { readonly kind: ArtifactKind.File; readonly path: string })
+  | (TaskDetailArtifactBase & { readonly kind: ArtifactKind.Link; readonly url: string })
 
 /** One of a task's artifacts, as `get_task` gives it: a file by its absolute path, under the workspace at `root`. */
-function detailArtifact(artifact: Artifact, root: string): TaskDetailArtifact {
+function detailArtifact(artifact: Artifact, root: string, todo: ArtifactTodo | null): TaskDetailArtifact {
   const { title, addedAt } = artifact
   switch (artifact.kind) {
     case ArtifactKind.File:
-      return { kind: ArtifactKind.File, path: join(root, artifact.path), title, addedAt }
+      return { kind: ArtifactKind.File, path: join(root, artifact.path), title, addedAt, todo }
     case ArtifactKind.Link:
-      return { kind: ArtifactKind.Link, url: artifact.url, title, addedAt }
+      return { kind: ArtifactKind.Link, url: artifact.url, title, addedAt, todo }
   }
+}
+
+/**
+ * A task's artifacts, in the order they were first declared, each with the todo the Todos tab shows it under: worked
+ * out as the tab's own groups are (`groupChildren`), so the two never disagree.
+ */
+function detailArtifacts(db: Database, taskId: string, root: string): TaskDetailArtifact[] {
+  const children = taskChildren(db, taskId)
+  const texts = new Map(children.todos.map(({ id, text }) => [id, text]))
+  const todos = new Map<string, ArtifactTodo>()
+  for (const { todoId, children: under } of groupChildren(children).todos) {
+    const todo = { id: todoId, text: texts.get(todoId) ?? '' }
+    for (const child of under) todos.set(refKey(child), todo)
+  }
+  return children.artifacts.map((artifact) =>
+    detailArtifact(artifact, root, todos.get(refKey(childOfArtifact(artifact))) ?? null),
+  )
 }
 
 /** A task as its header card and its sidebar row show it. */
@@ -133,7 +158,7 @@ export interface TaskDetail extends TaskSummary {
   readonly importedAt: EpochMs | null
   /** Its handoff note (the Backfilled card); null when it has none. */
   readonly handoff: TaskDetailHandoff | null
-  /** Its artifacts (the Artifacts tab), in the order they were first declared. */
+  /** Its artifacts (the Todos tab), in the order they were first declared. */
   readonly artifacts: readonly TaskDetailArtifact[]
   /** The caller's own id it was created with (`create_task`'s `externalId`); null when it has none. */
   readonly externalId: string | null
@@ -217,7 +242,7 @@ export function taskDetail(db: Database, task: Task, workspace: WorkspaceSummary
     sessionId: task.sessionId,
     importedAt: task.importedAt,
     handoff: handoffOf(db, task.id),
-    artifacts: listArtifacts(db, task.id).map((artifact) => detailArtifact(artifact, workspace.rootPath)),
+    artifacts: detailArtifacts(db, task.id, workspace.rootPath),
     externalId: getExternalId(db, task.id),
   }
 }

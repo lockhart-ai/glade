@@ -161,13 +161,11 @@ function toolCallRows(): string[] {
   )
 }
 
-/** The rows of each subagent's log in the Subagents tab. */
+/** The rows of each subagent's log, as its tab of the Agents tab lists them. */
 function subagentRows(): string[] {
   const calls = (rows: readonly SubagentRow[]): string[] =>
     rows.flatMap((row) => (row.kind === ToolEventKind.ToolCall ? [shown(row)] : []))
-  return deriveSubagents(store.getState().toolEvents[task.id] ?? [], undefined, lines()).flatMap(({ log }) =>
-    calls(log),
-  )
+  return deriveSubagents(store.getState().toolEvents[task.id] ?? [], lines()).flatMap(({ log }) => calls(log))
 }
 
 const ALLOW_ONCE: PermissionDecision = { kind: PermissionDecisionKind.AllowOnce }

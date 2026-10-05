@@ -7,25 +7,17 @@ import {
   type ToolCallEvent,
   type ToolEvent,
 } from '../../shared/domain'
-import { TaskIndicator } from '../../shared/taskIndicator'
 import {
-  anyRunning,
   deriveSubagents,
   elapsedMs,
   formatElapsed,
-  LatestLineKind,
-  metaLine,
   runningSubagentCount,
   runningSubagentCounts,
-  statusIndicator,
   statusLabel,
-  subagentCount,
   subagentLogText,
   subagentName,
   subagentsRunningLabel,
   SubagentStatus,
-  tally,
-  toolCallsLabel,
   UNNAMED_SUBAGENT,
 } from './subagentsModel'
 
@@ -82,10 +74,7 @@ describe('deriveSubagents', () => {
 
     const subagents = deriveSubagents(events)
 
-    expect(subagents.map(({ name, toolCalls }) => [name, toolCalls])).toEqual([
-      ['API changes', 1],
-      ['Explore', 1],
-    ])
+    expect(subagents.map(({ name }) => name)).toEqual(['API changes', 'Explore'])
     expect(subagents[0]?.log.map((row) => row.kind)).toEqual([ToolEventKind.Narration, ToolEventKind.ToolCall])
     expect(subagents[0]?.call.id).toBe('api')
   })
@@ -111,58 +100,10 @@ describe('deriveSubagents', () => {
       agent('inner', 'Inner', { parentToolUseId: 'use-outer' }),
       call({ id: 'grep', name: 'Grep', toolUseId: 'use-grep', parentToolUseId: 'use-inner' }),
     ])
-    expect(subagents.map(({ name, toolCalls }) => [name, toolCalls])).toEqual([
+    expect(subagents.map(({ name, log }) => [name, log.length])).toEqual([
       ['Outer', 1],
       ['Inner', 1],
     ])
-  })
-
-  describe('the latest line', () => {
-    it('is nothing before a running subagent has done anything', () => {
-      expect(deriveSubagents([agent('api', 'API changes')])[0]?.latest).toBeNull()
-    })
-
-    it('is its latest tool call while it runs, with the argument relative to the workspace root', () => {
-      const [subagent] = deriveSubagents(
-        [
-          agent('api', 'API changes'),
-          said('n', 'Reading.', 'use-api'),
-          call({
-            id: 'read',
-            toolUseId: 'use-read',
-            parentToolUseId: 'use-api',
-            input: { file_path: '/code/api/api/throttles.py' },
-          }),
-        ],
-        '/code/api',
-      )
-      expect(subagent?.latest).toEqual({ kind: LatestLineKind.ToolCall, name: 'Read', argument: 'api/throttles.py' })
-    })
-
-    it('is the last thing it said while it runs, when that came after its last call', () => {
-      const [subagent] = deriveSubagents([
-        agent('dash', 'Dashboard changes'),
-        call({ id: 'bash', name: 'Bash', toolUseId: 'use-bash', parentToolUseId: 'use-dash' }),
-        said('n', '#1418 belongs under features.', 'use-dash'),
-      ])
-      expect(subagent?.latest).toEqual({ kind: LatestLineKind.Said, text: '#1418 belongs under features.' })
-    })
-
-    it('is the first line of what it finished with, or its last row when that is empty', () => {
-      const [done] = deriveSubagents([
-        agent('links', 'Check links', { state: ToolCallState.Done, output: '\nFound 2 broken links.\nFixed both.' }),
-      ])
-      expect(done?.latest).toEqual({ kind: LatestLineKind.Outcome, text: 'Found 2 broken links.' })
-
-      const [failed] = deriveSubagents([agent('api', 'API changes', { state: ToolCallState.Error, output: null })])
-      expect(failed?.latest).toBeNull()
-
-      const [quiet] = deriveSubagents([
-        agent('api', 'API changes', { state: ToolCallState.Done, output: '' }),
-        said('n', 'All sorted.', 'use-api'),
-      ])
-      expect(quiet?.latest).toEqual({ kind: LatestLineKind.Said, text: 'All sorted.' })
-    })
   })
 
   describe('the summary', () => {
@@ -191,20 +132,6 @@ describe('deriveSubagents', () => {
   })
 })
 
-describe('subagentCount', () => {
-  it('counts the Agent and Task calls, and nothing else', () => {
-    expect(subagentCount([])).toBe(0)
-    expect(
-      subagentCount([
-        agent('a', 'A'),
-        call({ id: 't', name: 'Task', toolUseId: 'use-t' }),
-        call({ id: 'r', toolUseId: 'use-r', parentToolUseId: 'use-a' }),
-        said('n', 'Hi', null),
-      ]),
-    ).toBe(2)
-  })
-})
-
 describe('runningSubagentCount', () => {
   it('counts the Agent and Task calls still running, nested ones included, and nothing else', () => {
     expect(runningSubagentCount(undefined)).toBe(0)
@@ -229,7 +156,7 @@ describe('runningSubagentCount', () => {
     expect(runningSubagentCount([...events, agent('live', 'Live')])).toBe(1)
   })
 
-  it('is the Subagents tab’s count of running ones', () => {
+  it('is how many of the task’s subagents are running', () => {
     const events = [
       agent('a', 'A'),
       agent('b', 'B', { state: ToolCallState.Done, output: 'Done.' }),
@@ -281,77 +208,38 @@ describe('elapsed time', () => {
     expect(formatElapsed(252_000)).toBe('4m 12s')
     expect(formatElapsed(3_720_000)).toBe('1h 02m')
   })
-
-  it('goes before the tool call count, when it is known', () => {
-    if (running === undefined || unknown === undefined) throw new Error('No subagent')
-    expect(metaLine(running, AT + 72_000)).toBe('1m 12s · 0 tool calls')
-    expect(metaLine(unknown, AT)).toBe('0 tool calls')
-    expect(toolCallsLabel(1)).toBe('1 tool call')
-    expect(toolCallsLabel(12)).toBe('12 tool calls')
-  })
 })
 
 describe('statuses', () => {
-  it('have a label and a dot each', () => {
-    expect(Object.values(SubagentStatus).map((status) => [statusLabel(status), statusIndicator(status)])).toEqual([
-      ['Running', TaskIndicator.Working],
-      ['Paused', TaskIndicator.Waiting],
-      ['Done', TaskIndicator.Done],
-      ['Interrupted', TaskIndicator.Done],
-      ['Failed', TaskIndicator.Error],
+  it('have a label each', () => {
+    expect(Object.values(SubagentStatus).map((status) => statusLabel(status))).toEqual([
+      'Running',
+      'Paused',
+      'Done',
+      'Interrupted',
+      'Failed',
     ])
-  })
-
-  it('tally up by status, leaving out a status no subagent has', () => {
-    const subagents = deriveSubagents([
-      agent('a', 'A'),
-      agent('b', 'B', { state: ToolCallState.Done }),
-      agent('c', 'C'),
-      agent('d', 'D'),
-    ])
-    expect(tally(subagents)).toEqual([
-      { status: SubagentStatus.Running, label: '3 running' },
-      { status: SubagentStatus.Done, label: '1 done' },
-    ])
-    expect(
-      tally(
-        deriveSubagents([
-          agent('a', 'A', { state: ToolCallState.Error }),
-          agent('b', 'B', { state: ToolCallState.Interrupted }),
-          agent('c', 'C', { state: ToolCallState.Paused }),
-        ]),
-      ),
-    ).toEqual([
-      { status: SubagentStatus.Paused, label: '1 paused' },
-      { status: SubagentStatus.Interrupted, label: '1 interrupted' },
-      { status: SubagentStatus.Error, label: '1 failed' },
-    ])
-    expect(anyRunning(subagents)).toBe(true)
-    expect(anyRunning(subagents.filter((subagent) => subagent.status === SubagentStatus.Done))).toBe(false)
   })
 })
 
 describe('subagentLogText', () => {
   it('writes the log out: its name, each call with its argument and result, each note, nested ones indented', () => {
-    const [explore] = deriveSubagents(
-      [
-        agent('explore', 'Find flaky tests', { state: ToolCallState.Done, output: 'Found one.\n' }),
-        said('n1', 'Looking for timezone use.', 'use-explore'),
-        call({
-          id: 'grep',
-          name: 'Grep',
-          toolUseId: 'use-grep',
-          input: { pattern: 'new Date' },
-          output: 'test/date.test.ts',
-          state: ToolCallState.Done,
-          parentToolUseId: 'use-explore',
-        }),
-        agent('inner', 'Check one', { parentToolUseId: 'use-explore' }),
-        said('n2', 'Checking.', 'use-inner'),
-        call({ id: 'ls', name: 'LS', toolUseId: 'use-ls', parentToolUseId: 'use-explore' }),
-      ],
-      '/code/api',
-    ).filter((subagent) => subagent.name === 'Find flaky tests')
+    const [explore] = deriveSubagents([
+      agent('explore', 'Find flaky tests', { state: ToolCallState.Done, output: 'Found one.\n' }),
+      said('n1', 'Looking for timezone use.', 'use-explore'),
+      call({
+        id: 'grep',
+        name: 'Grep',
+        toolUseId: 'use-grep',
+        input: { pattern: 'new Date' },
+        output: 'test/date.test.ts',
+        state: ToolCallState.Done,
+        parentToolUseId: 'use-explore',
+      }),
+      agent('inner', 'Check one', { parentToolUseId: 'use-explore' }),
+      said('n2', 'Checking.', 'use-inner'),
+      call({ id: 'ls', name: 'LS', toolUseId: 'use-ls', parentToolUseId: 'use-explore' }),
+    ]).filter((subagent) => subagent.name === 'Find flaky tests')
 
     if (explore === undefined) throw new Error('No subagent')
     expect(subagentLogText(explore, '/code/api')).toBe(

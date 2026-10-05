@@ -1,5 +1,5 @@
 /**
- * The files of a task's workspace, for the Files and Artifacts tabs: reading one for the viewer and saving one from the
+ * The files of a task's workspace, for the Files and Todos tabs: reading one for the viewer and saving one from the
  * editor, the tabs open in it, opening one in your editor, an artifact's file's thumbnail, copying and revealing it,
  * and the agent's `show_file`. A file is only ever reached inside the task's workspace root: every path is resolved
  * against the root's real path, and so is every symlink along it, so `..` or a symlink can't reach a file outside it.

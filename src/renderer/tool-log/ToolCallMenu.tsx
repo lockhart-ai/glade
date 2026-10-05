@@ -39,7 +39,7 @@ export interface ToolCallMenuProps {
 }
 
 /**
- * The context menu of the tool calls inside it, one for them all: in the tool log, and in the Subagents tab's logs.
+ * The context menu of the tool calls inside it, one for them all: in each agent's tool log in the Agents tab.
  * Copy command and Copy output put the call's command or output on the clipboard, Open file shows its file in the
  * Files tab, and Run again in terminal puts a Bash call's command at the terminal's prompt, for you to look over and
  * run.

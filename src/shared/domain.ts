@@ -526,7 +526,7 @@ export interface CompactionEvent extends ToolEventBase {
  */
 export type ToolEvent = NarrationEvent | ToolCallEvent | DividerEvent | CompactionEvent | RefusalFallbackEvent
 
-/** Where an item on the agent's todo list stands (`docs/design/html/09-todos.html`). */
+/** Where an item on the agent's todo list stands (`docs/design/html/46-todo-hub.html`). */
 export enum TodoState {
   Todo = 'todo',
   /** Being worked on now. */
@@ -1047,7 +1047,7 @@ interface ArtifactBase {
 }
 
 /**
- * A deliverable of a task: a file in its workspace the agent declared with `add_artifact`, shown in the Artifacts tab.
+ * A deliverable of a task: a file in its workspace the agent declared with `add_artifact`, shown as a tile in the Todos tab.
  * It stays with the task, done or not.
  */
 export interface FileArtifact extends ArtifactBase {
@@ -1056,8 +1056,7 @@ export interface FileArtifact extends ArtifactBase {
   readonly path: string
   /**
    * When its file last changed, as Glade last saw it (its mtime); null until Glade has looked. A file that's gone keeps
-   * its last known time. The Artifacts tab lists artifacts newest first by this (by `updatedAt` until it's known),
-   * grouped by its date.
+   * its last known time. A todo lists its artifacts newest first by this (by `updatedAt` until it's known).
    */
   readonly modifiedAt: EpochMs | null
   /** Whether its file was gone when Glade last looked. */
@@ -1081,38 +1080,6 @@ export type Artifact = FileArtifact | LinkArtifact
 export type ArtifactRef =
   | { readonly kind: ArtifactKind.File; readonly path: string }
   | { readonly kind: ArtifactKind.Link; readonly url: string }
-
-/**
- * Which of a task's artifacts its Artifacts tab shows (#407): all of them, only its files, or only its links. The
- * filter only shows while the task has both, and is remembered for the task.
- */
-export enum ArtifactFilter {
-  All = 'all',
-  Files = 'files',
-  Links = 'links',
-}
-
-/**
- * The Artifacts tab's date groups, newest first, by when each artifact's file last changed, in the local time zone:
- * today, yesterday, earlier this week (a week starts on Monday), last week, earlier this month, and before that.
- */
-export enum ArtifactDateGroup {
-  Today = 'today',
-  Yesterday = 'yesterday',
-  ThisWeek = 'this_week',
-  LastWeek = 'last_week',
-  ThisMonth = 'this_month',
-  Older = 'older',
-}
-
-/**
- * Whether one of a task's artifact date groups is open, as you last left it with its header. A group you haven't
- * folded or opened has none: Today and Yesterday start open, the others folded.
- */
-export interface ArtifactGroupFold {
-  readonly group: ArtifactDateGroup
-  readonly open: boolean
-}
 
 /**
  * What a watcher is: one of the SDK's own ways the agent leaves something running or scheduled that wakes it later
@@ -1156,7 +1123,7 @@ export const LIVE_WATCHER_STATES: readonly WatcherState[] = [
 ]
 
 /**
- * Something the task's agent left running or scheduled with the SDK's own tools, as the Watchers tab lists it: a
+ * Something the task's agent left running or scheduled with the SDK's own tools, as the Agents tab shows it: a
  * `Monitor` watch, a background command, a `ScheduleWakeup` or a `CronCreate` job. Glade follows it from the call
  * that started it to its end, counting each time it wakes the agent.
  */
@@ -1167,8 +1134,8 @@ export interface Watcher {
   /** The tool call that started it. */
   readonly toolUseId: string
   /**
-   * The `Agent` call of the subagent whose call started it, which it belongs to (the Subagents tab shows it under that
-   * subagent); null for the task's own (the Watchers tab, and its counts).
+   * The `Agent` call of the subagent whose call started it, which it belongs to (the Agents tab pins it on that
+   * subagent's tab); null for the task's own (Main's tab, and the task list's count).
    */
   readonly parentToolUseId: string | null
   /** What the agent called it: the call's description, a wakeup's reason, or a cron job's prompt. */
@@ -1198,7 +1165,7 @@ export interface Watcher {
 }
 
 /**
- * A commit made within a task, as the Changes tab lists it: one the task's agent or one of its subagents made with the
+ * A commit made within a task, as its tile in the Todos tab shows it: one the task's agent or one of its subagents made with the
  * `Bash` tool, however it made it (`git commit`, an amend, a merge, a script). Glade only watches git: it never commits,
  * pushes or changes a repository itself.
  */
@@ -1295,5 +1262,5 @@ export interface MissingFileThumbnail {
   readonly kind: FileThumbnailKind.Missing
 }
 
-/** An artifact's file, as its row in the Artifacts tab shows it: a thumbnail, its type, or that it's missing. */
+/** An artifact's file, as its tile in the Todos tab shows it: a thumbnail, its type, or that it's missing. */
 export type FileThumbnail = ImageFileThumbnail | NoFileThumbnail | MissingFileThumbnail

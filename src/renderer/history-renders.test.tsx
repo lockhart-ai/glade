@@ -39,8 +39,6 @@ import { clockTime } from './chat/chatModel'
 import { permissionLinesByToolUse } from './permissions/permissionLines'
 import { samplePermissionRequest, sampleTask, sampleWatcher, sampleWorkspace } from './store/test-bridge'
 import { storeWrapper, type StoreWrapper } from './store/test-wrapper'
-import { ELAPSED_REFRESH_MS, SubagentsTab } from './subagents/SubagentsTab'
-import { statusLabel } from './subagents/subagentsModel'
 import { TaskList } from './task-list'
 import {
   HUB_NOW,
@@ -91,12 +89,6 @@ vi.mock('./usage-meter/usageMeterModel', async (importOriginal) => {
   const original = await importOriginal<typeof import('./usage-meter/usageMeterModel')>()
   return { ...original, usageMeterState: vi.fn(original.usageMeterState) }
 })
-// Every subagent row shows its status: one `statusLabel` call per render of one.
-vi.mock('./subagents/subagentsModel', async (importOriginal) => {
-  const original = await importOriginal<typeof import('./subagents/subagentsModel')>()
-  return { ...original, statusLabel: vi.fn(original.statusLabel) }
-})
-
 // The Agents tab: every subagent's tab names its dot (one `agentDotLabel` call per render of one), every subagent's
 // `Agent` call says how it's doing under it (one `agentCallResult` call per render of that line), and the line under
 // the strip says the subagent's state (one `agentStateLine` call per render of it).
@@ -348,131 +340,6 @@ describe('the tool log, with a long history', () => {
       ]),
     )
     expect(renders(clockTime)).toBe(0)
-  })
-})
-
-describe('the Subagents tab, with many subagents', () => {
-  const SUBAGENTS = 30
-
-  function agent(index: number, overrides: Partial<ToolCallEvent> = {}): ToolCallEvent {
-    return call(`agent-${String(index)}`, 1, {
-      name: 'Agent',
-      input: { description: `Review PR ${String(index)}`, prompt: '…' },
-      output: 'Looks good.',
-      ...overrides,
-    })
-  }
-
-  /** Thirty subagents, each with a note and a call in its log: all done but the last, which runs. */
-  const EVENTS: ToolEvent[] = Array.from({ length: SUBAGENTS }, (_, index) => {
-    const last = index === SUBAGENTS - 1
-    const subagent = agent(index, last ? { state: ToolCallState.Running, output: null, finishedAt: null } : {})
-    return [
-      subagent,
-      note(`said-${String(index)}`, 1, subagent.toolUseId),
-      call(`did-${String(index)}`, 1, { parentToolUseId: subagent.toolUseId }),
-    ]
-  }).flat()
-
-  beforeEach(() => {
-    vi.useFakeTimers()
-    vi.setSystemTime(AT + 5000)
-    vi.mocked(statusLabel).mockClear()
-  })
-
-  it('renders only the running subagent as its elapsed time ticks', () => {
-    const { wrapper } = storeWrapper()
-    render(<SubagentsTab taskId="t1" events={EVENTS} />, { wrapper })
-    expect(renders(statusLabel)).toBe(SUBAGENTS)
-
-    vi.mocked(statusLabel).mockClear()
-    act(() => {
-      vi.advanceTimersByTime(ELAPSED_REFRESH_MS)
-    })
-    expect(renders(statusLabel)).toBe(1)
-    expect(screen.getByText(/^6s · 1 tool call$/)).toBeDefined()
-  })
-
-  it('renders only the subagent whose log grew or changed', () => {
-    const { wrapper } = storeWrapper()
-    const { rerender } = render(<SubagentsTab taskId="t1" events={EVENTS} />, { wrapper })
-
-    // Another call by the third subagent.
-    vi.mocked(statusLabel).mockClear()
-    const grown = [...EVENTS, call('did-more', 1, { parentToolUseId: 'use-agent-2' })]
-    rerender(<SubagentsTab taskId="t1" events={grown} />)
-    expect(renders(statusLabel)).toBe(1)
-
-    // A note of the fifth's becomes another, and a call of the sixth's gets its result.
-    vi.mocked(statusLabel).mockClear()
-    const changed = grown.map((event) => {
-      if (event.id === 'said-4') return { ...event }
-      if (event.id === 'did-5') return { ...event, output: 'changed' }
-      return event
-    })
-    rerender(<SubagentsTab taskId="t1" events={changed} />)
-    expect(renders(statusLabel)).toBe(2)
-
-    // A row whose kind changed in place (a note where a call was) renders too.
-    vi.mocked(statusLabel).mockClear()
-    const swapped = changed.map((event) => (event.id === 'did-6' ? note('did-6', 1, 'use-agent-6') : event))
-    rerender(<SubagentsTab taskId="t1" events={swapped} />)
-    expect(renders(statusLabel)).toBe(1)
-    const back = swapped.map((event) =>
-      event.id === 'said-7' ? call('said-7', 1, { parentToolUseId: 'use-agent-7' }) : event,
-    )
-    vi.mocked(statusLabel).mockClear()
-    rerender(<SubagentsTab taskId="t1" events={back} />)
-    expect(renders(statusLabel)).toBe(1)
-  })
-
-  it("renders only the subagent whose call's permission request changed (#459)", () => {
-    const { wrapper } = storeWrapper()
-    const request: PermissionRequest = {
-      ...samplePermissionRequest('p1', 't1'),
-      toolUseId: 'use-did-3',
-      agentId: 'agent-3',
-    }
-    const tab = (requests: PermissionRequest[]): React.JSX.Element => (
-      <SubagentsTab taskId="t1" events={EVENTS} permissions={permissionLinesByToolUse(requests)} />
-    )
-    const { rerender } = render(tab([]), { wrapper })
-
-    // The fourth subagent's call waits on a card: that subagent alone.
-    vi.mocked(statusLabel).mockClear()
-    rerender(tab([request]))
-    expect(renders(statusLabel)).toBe(1)
-
-    // The same request in a new list: none. Then it's allowed: that subagent again.
-    vi.mocked(statusLabel).mockClear()
-    rerender(tab([{ ...request }]))
-    expect(renders(statusLabel)).toBe(0)
-    rerender(tab([{ ...request, state: PermissionRequestState.Allowed, closedAt: AT }]))
-    expect(renders(statusLabel)).toBe(1)
-  })
-
-  it('renders a subagent with background work as the clock ticks, and as its watchers change', () => {
-    const { wrapper } = storeWrapper()
-    const watcher = sampleWatcher('w', 't1', { parentToolUseId: 'use-agent-0' })
-    const { rerender } = render(<SubagentsTab taskId="t1" events={EVENTS} watchers={[watcher]} />, { wrapper })
-
-    // The clock: the running subagent, and the one whose watcher's times it shows.
-    vi.mocked(statusLabel).mockClear()
-    act(() => {
-      vi.advanceTimersByTime(ELAPSED_REFRESH_MS)
-    })
-    expect(renders(statusLabel)).toBe(2)
-
-    // The same watchers in a new list: none.
-    vi.mocked(statusLabel).mockClear()
-    rerender(<SubagentsTab taskId="t1" events={EVENTS} watchers={[watcher]} />)
-    expect(renders(statusLabel)).toBe(0)
-
-    // Its watcher changed, then gone: that subagent each time.
-    rerender(<SubagentsTab taskId="t1" events={EVENTS} watchers={[{ ...watcher, wakes: 1 }]} />)
-    expect(renders(statusLabel)).toBe(1)
-    rerender(<SubagentsTab taskId="t1" events={EVENTS} watchers={[]} />)
-    expect(renders(statusLabel)).toBe(2)
   })
 })
 

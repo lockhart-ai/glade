@@ -1,6 +1,5 @@
 import type { Database } from 'better-sqlite3'
 import {
-  ArtifactFilter,
   ArtifactKind,
   type Artifact,
   type ArtifactRef,
@@ -221,24 +220,4 @@ export function listFileArtifacts(db: Database, taskId: string): FileArtifact[] 
     .prepare(`SELECT ${COLUMNS} FROM artifacts WHERE task_id = ? AND kind = 'file' ORDER BY added_at, rowid`)
     .all(taskId)
     .map(parseFileArtifact)
-}
-
-const FILTERS = [ArtifactFilter.Files, ArtifactFilter.Links]
-
-/** Which of a task's artifacts its Artifacts tab shows, as you last chose: all of them until you choose. */
-export function getArtifactFilter(db: Database, taskId: string): ArtifactFilter {
-  const raw: unknown = db.prepare('SELECT filter FROM artifact_filters WHERE task_id = ?').get(taskId)
-  return raw === undefined ? ArtifactFilter.All : new Row('artifact_filters', raw).oneOf('filter', FILTERS)
-}
-
-/** Remembers which of a task's artifacts its Artifacts tab shows: All forgets the choice, which is where it starts. */
-export function setArtifactFilter(db: Database, taskId: string, filter: ArtifactFilter): void {
-  if (filter === ArtifactFilter.All) {
-    db.prepare('DELETE FROM artifact_filters WHERE task_id = ?').run(taskId)
-    return
-  }
-  db.prepare(
-    `INSERT INTO artifact_filters (task_id, filter) VALUES (?, ?)
-    ON CONFLICT (task_id) DO UPDATE SET filter = excluded.filter`,
-  ).run(taskId, filter)
 }

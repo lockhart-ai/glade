@@ -1,5 +1,5 @@
-// A file's and a link's tile in the todo hub (P16, #498), end to end with the hidden `todoHubEnabled` setting on: each
-// does what its row in the Artifacts tab does. A file's tile opens it in the Files tab (and is outlined while it shows
+// A file's and a link's tile in the todo hub (P16, #498), end to end: each does what its row in the old Artifacts tab
+// did. A file's tile opens it in the Files tab (and is outlined while it shows
 // there), or the image viewer for an image, which steps through the images of that todo alone and hands the focus back
 // to the tile; a link's opens in the browser, never in Glade. Under the pointer or with the focus, a tile's age gives
 // way to its icon buttons, which the keyboard alone reaches and works; More and a right-click open the artifact's
@@ -110,7 +110,6 @@ function hubSeed(folder: string): { readonly seed: string; readonly root: string
     seed,
     JSON.stringify({
       workspace: { name: 'Acme API', rootPath: realpathSync(root) },
-      settings: { todoHubEnabled: true },
       panelTab: 'todos',
       tasks: [
         {

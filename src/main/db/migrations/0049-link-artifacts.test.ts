@@ -1,8 +1,8 @@
 import { expect, it } from 'vitest'
-import { ArtifactFilter, ArtifactKind } from '../../../shared/domain'
+import { ArtifactKind } from '../../../shared/domain'
 import { openDatabase } from '../database'
 import { migrate } from '../migrate'
-import { addLinkArtifact, getArtifactFilter, listArtifacts } from '../repositories/artifacts'
+import { addLinkArtifact, listArtifacts } from '../repositories/artifacts'
 import { MIGRATIONS } from '.'
 import { linkArtifactsMigration } from './0049-link-artifacts'
 
@@ -25,6 +25,15 @@ it('keeps every artifact as a file, in its order and with what was seen of it, a
   // Declared at the same moment, so only their rowids order them: the later one first in the table.
   db.prepare("INSERT INTO artifacts VALUES ('t', 'out/landing.png', 'Landing page', 5, 6, 9, 1)").run()
   db.prepare("INSERT INTO artifacts VALUES ('t', 'docs/notes.md', 'Notes', 5, 5, NULL, 0)").run()
+
+  // Up to this migration: the filter's table is dropped again once the Artifacts tab is gone (0064).
+  migrate(
+    db,
+    MIGRATIONS.filter((migration) => migration.version <= 49),
+  )
+  expect(db.prepare('SELECT COUNT(*) FROM artifact_filters').pluck().get()).toBe(0)
+  db.prepare("INSERT INTO artifact_filters VALUES ('t', 'links')").run()
+  expect(() => db.prepare("INSERT INTO artifact_filters VALUES ('t', 'files')").run()).toThrow(/UNIQUE/)
 
   migrate(db, MIGRATIONS)
 
@@ -56,14 +65,10 @@ it('keeps every artifact as a file, in its order and with what was seen of it, a
     ArtifactKind.File,
     ArtifactKind.Link,
   ])
-  expect(getArtifactFilter(db, 't')).toBe(ArtifactFilter.All)
-  db.prepare("INSERT INTO artifact_filters VALUES ('t', 'links')").run()
-  expect(getArtifactFilter(db, 't')).toBe(ArtifactFilter.Links)
 
   // They all go with their task.
   db.prepare("DELETE FROM tasks WHERE id = 't'").run()
   expect(db.prepare('SELECT COUNT(*) FROM artifacts').pluck().get()).toBe(0)
-  expect(db.prepare('SELECT COUNT(*) FROM artifact_filters').pluck().get()).toBe(0)
   expect(db.pragma('foreign_key_check')).toEqual([])
   db.close()
 })

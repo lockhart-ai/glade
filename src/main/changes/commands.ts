@@ -1,5 +1,5 @@
 /**
- * What a `Bash` call's command and output say about the commits it may make, for the Changes tab (`./tracker`). Pure:
+ * What a `Bash` call's command and output say about the commits it may make, for the Todos tab's commit tiles (`./tracker`). Pure:
  * each takes text and answers with what it read from it.
  */
 import { isAbsolute, resolve } from 'node:path'

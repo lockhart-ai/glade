@@ -10,11 +10,8 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
-  WatcherKind,
-  WatcherState,
   type Artifact,
   type DividerEvent,
-  type FileArtifact,
   type NarrationEvent,
   type OpenFiles,
   type TodoList,
@@ -23,7 +20,6 @@ import {
   type UiStateEntry,
   type Watcher,
 } from '../../shared/domain'
-import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import { ChildKind, FilingSource, type Filing } from '../../shared/todoHub'
 import { requestClose } from '../commands/closeRequest'
 import { ToastProvider } from '../components'
@@ -88,8 +84,6 @@ interface Setup {
   readonly todos?: Readonly<Record<string, TodoList>>
   readonly artifacts?: readonly Artifact[]
   readonly watchers?: Watcher[]
-  /** The settings, e.g. with the todo hub's hidden switch on; the defaults unless given. */
-  readonly settings?: Settings
   /** The todo hub's filings. */
   readonly filings?: readonly Filing[]
   /** How some commands answer instead of the fake main's own handlers. */
@@ -104,7 +98,6 @@ async function renderPanel({
   todos,
   artifacts = [],
   watchers = [],
-  settings,
   filings = [],
   handlers = {},
 }: Setup = {}): Promise<FakeBridge & { store: GladeStore }> {
@@ -122,7 +115,6 @@ async function renderPanel({
       artifacts,
       watchers,
       filings,
-      ...(settings === undefined ? {} : { settings }),
       ...(todos === undefined ? {} : { todos }),
     },
     handlers,
@@ -144,7 +136,19 @@ function log(): HTMLElement {
 }
 
 function tab(name: RegExp | string): HTMLElement {
-  return screen.getByRole('tab', { name })
+  return within(screen.getByRole('tablist', { name: 'Task panels' })).getByRole('tab', { name })
+}
+
+/** The panel's own tab panel: the Agents tab has one of its own inside it, for the agent it shows. */
+function tabPanel(): HTMLElement {
+  const [panel] = screen.getAllByRole('tabpanel')
+  if (panel === undefined) throw new Error('The panel shows no tab')
+  return panel
+}
+
+/** An agent's tab in the Agents tab's strip. */
+function agentTab(name: string): HTMLElement {
+  return within(screen.getByRole('tablist', { name: 'Agents' })).getByRole('tab', { name: new RegExp(`${name}$`) })
 }
 
 function row(name: RegExp): HTMLElement {
@@ -163,19 +167,15 @@ afterEach(() => {
 })
 
 describe('TaskPanel', () => {
-  it('shows the tab bar, with Tool calls selected and counted', async () => {
+  it('shows the tab bar, three tabs, with Agents selected and counted', async () => {
     await renderPanel()
 
-    expect(screen.getAllByRole('tab').map((element) => element.textContent)).toEqual([
-      'Tool calls 2',
-      'Files',
-      'Todos',
-      'Artifacts',
-      'Subagents',
-      'Watchers',
-      'Changes',
-    ])
-    expect(tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
+    expect(
+      within(screen.getByRole('tablist', { name: 'Task panels' }))
+        .getAllByRole('tab')
+        .map((element) => element.textContent),
+    ).toEqual(['Agents 1', 'Files', 'Todos'])
+    expect(tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
   })
 
   it('keeps the tab you pick in UI state', async () => {
@@ -194,11 +194,11 @@ describe('TaskPanel', () => {
   })
 
   it('opens on the stored tab, the same for every task', async () => {
-    const { store } = await renderPanel({ uiState: [{ key: UiStateKey.RightPanelTab, value: 'artifacts' }] })
+    const { store } = await renderPanel({ uiState: [{ key: UiStateKey.RightPanelTab, value: 'todos' }] })
 
-    expect(tab('Artifacts')).toHaveAttribute('aria-selected', 'true')
+    expect(tab('Todos')).toHaveAttribute('aria-selected', 'true')
     await act(() => store.getState().selectTask('t2'))
-    expect(tab('Artifacts')).toHaveAttribute('aria-selected', 'true')
+    expect(tab('Todos')).toHaveAttribute('aria-selected', 'true')
   })
 
   it('collapses with its collapse button, and shows nothing while collapsed', async () => {
@@ -269,30 +269,27 @@ describe('TaskPanel', () => {
     expect(slot.style.getPropertyValue('--right-panel-width')).toBe(`${narrowed}px`)
   })
 
-  it('shows an empty state on Todos and Artifacts while they have nothing', async () => {
+  it('shows an empty state on Todos while the task has nothing', async () => {
     await renderPanel()
 
-    for (const [name, empty] of [
-      ['Todos', 'No todos yet.'],
-      ['Artifacts', 'No artifacts yet.'],
-    ] as const) {
-      fireEvent.click(tab(name))
-      expect(screen.getByRole('tabpanel')).toHaveTextContent(empty)
-    }
-    fireEvent.click(tab(/^Tool calls/))
+    fireEvent.click(tab('Todos'))
+    await waitFor(() => {
+      expect(tabPanel()).toHaveTextContent(/^No todos yet\.$/)
+    })
+    fireEvent.click(tab(/^Agents/))
     expect(log()).toBeInTheDocument()
   })
 
-  it('says when there are no tool calls yet, and shows nothing without a task', async () => {
+  it('says when there are no tool calls yet, and counts the task’s own agent alone', async () => {
     await renderPanel({ toolEvents: [] })
-    expect(screen.getByRole('tabpanel')).toHaveTextContent('No tool calls yet.')
-    expect(tab(/^Tool calls/)).toHaveTextContent(/^Tool calls$/)
+    expect(tabPanel()).toHaveTextContent('No tool calls yet.')
+    expect(tab(/^Agents/)).toHaveTextContent(/^Agents 1$/)
   })
 
-  it('shows nothing in the log, and no counts, when no task is selected', async () => {
+  it('shows nothing in the panel, and no counts, when no task is selected', async () => {
     await renderPanel({ selected: false })
-    expect(screen.getByRole('tabpanel')).toBeEmptyDOMElement()
-    expect(tab(/^Tool calls/)).toHaveTextContent(/^Tool calls$/)
+    expect(tabPanel()).toBeEmptyDOMElement()
+    expect(tab(/^Agents/)).toHaveTextContent(/^Agents$/)
   })
 
   describe('the Todos tab', () => {
@@ -311,33 +308,32 @@ describe('TaskPanel', () => {
       await renderPanel({ todos: { t1: list(3, 7) }, uiState: [{ key: UiStateKey.RightPanelTab, value: 'todos' }] })
 
       expect(tab(/^Todos/)).toHaveTextContent('Todos 3/7')
-      expect(screen.getByRole('tabpanel')).toHaveTextContent('3 of 7 done')
-      expect(within(screen.getByRole('list', { name: 'Todos' })).getAllByRole('listitem')).toHaveLength(7)
+      expect(tabPanel()).toHaveTextContent('3 of 7 done')
+      expect(document.querySelectorAll('[data-todo-head]')).toHaveLength(7)
     })
 
     it('follows the list as the agent changes it, and shows the task you pick', async () => {
       const { emit, store } = await renderPanel({ uiState: [{ key: UiStateKey.RightPanelTab, value: 'todos' }] })
       expect(tab(/^Todos/)).toHaveTextContent(/^Todos$/)
-      expect(screen.getByRole('tabpanel')).toHaveTextContent('No todos yet.')
+      expect(tabPanel()).toHaveTextContent('No todos yet.')
 
       act(() => {
         emit({ type: EventType.TodosChanged, taskId: 't1', todos: list(1, 4) })
       })
       expect(tab(/^Todos/)).toHaveTextContent('Todos 1/4')
-      expect(screen.getByRole('tabpanel')).toHaveTextContent('1 of 4 done')
+      expect(tabPanel()).toHaveTextContent('1 of 4 done')
 
       await act(() => store.getState().selectTask('t2'))
       expect(tab(/^Todos/)).toHaveTextContent(/^Todos$/)
-      expect(screen.getByRole('tabpanel')).toHaveTextContent('No todos yet.')
+      expect(tabPanel()).toHaveTextContent('No todos yet.')
     })
 
     it('shows nothing without a task', async () => {
       await renderPanel({ selected: false, uiState: [{ key: UiStateKey.RightPanelTab, value: 'todos' }] })
-      expect(screen.getByRole('tabpanel')).toBeEmptyDOMElement()
+      expect(tabPanel()).toBeEmptyDOMElement()
     })
 
-    describe('as the todo hub (P16), behind its hidden switch', () => {
-      const HUB_ON: Settings = { ...DEFAULT_SETTINGS, todoHubEnabled: true }
+    describe('as the todo hub (P16)', () => {
       const ON_TODOS = [{ key: UiStateKey.RightPanelTab, value: 'todos' }]
       const watcher = sampleWatcher('w1', 't1', { toolUseId: 'watch-a', label: 'CI checks on PR #511' })
       const pr: Artifact = {
@@ -356,82 +352,39 @@ describe('TaskPanel', () => {
         source: FilingSource.Named,
         filedAt: 1,
       }
-      const TAB_NAMES = ['Tool calls', 'Files', 'Todos', 'Artifacts', 'Subagents', 'Watchers', 'Changes']
-      const tabNames = (): (string | undefined)[] =>
-        screen.getAllByRole('tab').map((each) => each.textContent.replace(/\s*[\d/]+$/, ''))
 
-      it('is exactly today’s tab with the switch off: the plain list, and nothing of the hub read or shown', async () => {
-        const { invoke } = await renderPanel({
-          todos: { t1: list(1, 4) },
-          watchers: [watcher],
-          artifacts: [pr],
-          filings: [filed],
-          uiState: ON_TODOS,
-        })
-
-        expect(screen.getByRole('tabpanel')).toHaveTextContent(
-          'The agent writes this list and checks items off as it works.',
-        )
-        expect(within(screen.getByRole('list', { name: 'Todos' })).getAllByRole('listitem')).toHaveLength(4)
-        expect(within(screen.getByRole('tabpanel')).queryAllByRole('button')).toEqual([])
-        expect(document.querySelector('[data-todo-head]')).toBeNull()
-        expect(invoke.mock.calls.map(([command]) => command)).not.toContain(CommandName.TodoHubGet)
-        expect(invoke.mock.calls.map(([command]) => command)).not.toContain(CommandName.ArtifactsWatch)
-        expect(tabNames()).toEqual(TAB_NAMES)
-      })
-
-      it('is the hub with the switch on: each todo a card with what’s under it, in a panel of three tabs', async () => {
+      it('shows each todo as a card with what’s under it, and nothing of what’s going on', async () => {
         await renderPanel({
           todos: { t1: list(1, 4) },
           watchers: [watcher],
           artifacts: [pr],
           filings: [filed],
-          settings: HUB_ON,
           uiState: ON_TODOS,
         })
 
         const count = await screen.findByRole('button', { name: '1 link' })
-        expect(screen.getByRole('tabpanel')).toHaveTextContent('1 of 4 done')
-        expect(screen.getByRole('tabpanel')).not.toHaveTextContent('The agent writes this list')
+        expect(tabPanel()).toHaveTextContent('1 of 4 done')
         expect(document.querySelectorAll('[data-todo-head]')).toHaveLength(4)
         fireEvent.click(count)
         expect(screen.getByRole('group', { name: 'Link: Return Retry-After on 429s' })).toBeInTheDocument()
-        // The task's watcher is no child of a todo: it's in its own tab alone.
-        expect(screen.getByRole('tabpanel')).not.toHaveTextContent('CI checks on PR #511')
+        // The task's watcher is no child of a todo: it's in the Agents tab alone.
+        expect(tabPanel()).not.toHaveTextContent('CI checks on PR #511')
         expect(tab(/^Todos/)).toHaveTextContent('Todos 1/4')
-        // Agents · Files · Todos (#536): the tabs the hub and the Agents tab replace aren't shown.
-        expect(tabNames()).toEqual(['Agents', 'Files', 'Todos'])
       })
 
-      it('follows the switch as it’s turned on and off, and shows the task you pick', async () => {
-        const { emit, store } = await renderPanel({
-          todos: { t1: list(1, 4) },
-          watchers: [watcher],
-          artifacts: [pr],
-          filings: [filed],
-          uiState: ON_TODOS,
-        })
-        expect(document.querySelector('[data-todo-head]')).toBeNull()
+      it('shows what a task from before the hub produced under "Not under a todo": nothing says where it goes', async () => {
+        await renderPanel({ todos: { t1: list(1, 4) }, artifacts: [pr], uiState: ON_TODOS })
 
-        act(() => {
-          emit({ type: EventType.SettingsChanged, settings: HUB_ON })
-        })
-        expect(document.querySelectorAll('[data-todo-head]')).toHaveLength(4)
-
-        // A task with nothing at all reads as it does with the switch off.
-        await act(() => store.getState().selectTask('t2'))
-        expect(screen.getByRole('tabpanel')).toHaveTextContent(/^No todos yet\.$/)
-
-        act(() => {
-          emit({ type: EventType.SettingsChanged, settings: DEFAULT_SETTINGS })
-        })
-        expect(screen.getByRole('tabpanel')).toHaveTextContent(/^No todos yet\.$/)
-        await act(() => store.getState().selectTask('t1'))
-        expect(screen.getByRole('tabpanel')).toHaveTextContent('The agent writes this list')
-        expect(document.querySelector('[data-todo-head]')).toBeNull()
+        const unfiled = await screen.findByRole('button', { name: /^Not under a todo/ })
+        fireEvent.click(unfiled)
+        expect(screen.getByRole('group', { name: 'Link: Return Retry-After on 429s' })).toBeInTheDocument()
+        // No todo has anything under it.
+        expect(screen.queryByRole('button', { name: '1 link' })).toBe(
+          within(unfiled.closest('[data-todo]') ?? document.body).queryByRole('button', { name: '1 link' }),
+        )
       })
 
-      it('links the PR a todo names only while the switch is on (#500)', async () => {
+      it('links the PR a todo names, when the task has it as a link (#500)', async () => {
         const url = 'https://github.com/acme/api/pull/511'
         const naming: TodoList = {
           items: [
@@ -445,38 +398,23 @@ describe('TaskPanel', () => {
           ],
           updatedAt: Date.now(),
         }
-        const { emit } = await renderPanel({
+        await renderPanel({
           todos: { t1: naming },
           artifacts: [
             { kind: ArtifactKind.Link, taskId: 't1', url, title: 'Return Retry-After', addedAt: 1, updatedAt: 1 },
           ],
           uiState: ON_TODOS,
         })
-        const todos = (): HTMLElement => screen.getByRole('list', { name: 'Todos' })
-        expect(todos()).toHaveTextContent('Watch CI on PR #511')
-        expect(within(todos()).queryAllByRole('link')).toEqual([])
 
-        act(() => {
-          emit({ type: EventType.SettingsChanged, settings: HUB_ON })
-        })
+        const todos = screen.getByRole('list', { name: 'Todos' })
         expect(
-          within(todos())
+          within(todos)
             .getAllByRole('link')
             .map((link) => [link.textContent, link.getAttribute('href')]),
         ).toEqual([
           ['PR #511', url],
           ['#511', url],
         ])
-
-        act(() => {
-          emit({ type: EventType.SettingsChanged, settings: DEFAULT_SETTINGS })
-        })
-        expect(within(todos()).queryAllByRole('link')).toEqual([])
-      })
-
-      it('shows nothing without a task, as before', async () => {
-        await renderPanel({ selected: false, settings: HUB_ON, uiState: ON_TODOS })
-        expect(screen.getByRole('tabpanel')).toBeEmptyDOMElement()
       })
     })
   })
@@ -671,7 +609,7 @@ describe('TaskPanel', () => {
       expect(button).toHaveAttribute('aria-expanded', 'false')
     })
 
-    it('leaves a subagent’s calls out of the log: its Agent call is one row, and they’re in the Subagents tab', async () => {
+    it('leaves a subagent’s calls out of Main’s log: its Agent call is one row, and they’re on its own tab', async () => {
       await renderPanel({
         toolEvents: [
           call('agent', { name: 'Agent', input: { description: 'Find the settings' }, output: 'In api/settings.py.' }),
@@ -684,22 +622,18 @@ describe('TaskPanel', () => {
         within(log())
           .getAllByRole('button')
           .map((button) => button.textContent),
-      ).toEqual(['AgentFind the settings10:44In api/settings.py.'])
+      ).toEqual(['AgentFind the settings10:44Done · In api/settings.py.'])
       expect(log()).not.toHaveTextContent('THROTTLE')
       expect(log()).not.toHaveTextContent('Looking for the throttle settings.')
       expect(screen.queryByRole('group', { name: 'Agent subagent calls' })).toBeNull()
-      expect(tab(/^Tool calls/)).toHaveTextContent('Tool calls 1')
+      expect(tab(/^Agents/)).toHaveTextContent('Agents 2')
 
-      fireEvent.click(tab(/^Subagents/))
-      fireEvent.click(
-        within(screen.getByRole('group', { name: 'Find the settings' })).getAllByRole('button')[0] ?? log(),
-      )
-      const subagentLog = screen.getByRole('log', { name: 'Find the settings log' })
-      expect(subagentLog).toHaveTextContent('Looking for the throttle settings.')
-      expect(within(subagentLog).getByRole('button')).toHaveTextContent('GrepTHROTTLE')
+      fireEvent.click(agentTab('Find the settings'))
+      expect(log()).toHaveTextContent('Looking for the throttle settings.')
+      expect(within(log()).getByRole('button')).toHaveTextContent('GrepTHROTTLE')
     })
 
-    it('keeps nested and interleaved subagents’ calls, and a failing one, out of the log, live', async () => {
+    it('keeps nested and interleaved subagents’ calls, and a failing one, out of Main’s log, live', async () => {
       const { emit } = await renderPanel({ toolEvents: [] })
       const events: ToolEvent[] = [
         call('outer', { name: 'Agent', input: { description: 'API changes' }, state: ToolCallState.Running }),
@@ -721,38 +655,30 @@ describe('TaskPanel', () => {
         for (const toolEvent of events) emit({ type: EventType.ToolEventAppended, toolEvent })
       })
 
-      expect(
+      const calls = (): string[] =>
         within(log())
           .getAllByRole('button')
-          .map((button) => button.textContent),
-      ).toEqual([
-        'AgentAPI changes10:44Running…',
-        'AgentDashboard changes10:44Running…',
+          .map((button) => button.textContent)
+      // A running subagent's row says how long it has run, which is from the test's clock: only its start is checked.
+      expect(calls()).toEqual([
+        expect.stringMatching(/^AgentAPI changes10:44Running · /) as unknown,
+        expect.stringMatching(/^AgentDashboard changes10:44Running · /) as unknown,
         'GrepCHANGELOG10:44CHANGELOG.md',
       ])
       expect(log()).not.toHaveTextContent(/gh pr list|redis-cli|Connection refused|ratelimit|charts\.ts|PR 1402/)
-      expect(tab(/^Tool calls/)).toHaveTextContent('Tool calls 3')
-      expect(tab(/^Subagents/)).toHaveTextContent('Subagents 3')
+      // Main and its three subagents, the nested one among them.
+      expect(tab(/^Agents/)).toHaveTextContent('Agents 4')
 
-      fireEvent.click(tab(/^Subagents/))
-      const open = (name: string): HTMLElement => {
-        fireEvent.click(within(screen.getByRole('group', { name })).getAllByRole('button')[0] ?? log())
-        return screen.getByRole('log', { name: `${name} log` })
-      }
-      const calls = (element: HTMLElement): string[] =>
-        within(element)
-          .getAllByRole('button')
-          .map((button) => button.textContent)
-      // Each subagent lists its own calls, in order; the nested one's sit under its Agent call, and in its own entry.
-      expect(calls(open('API changes'))).toEqual([
-        'Bashgh pr list10:44',
-        'AgentRead PR 140210:44',
-        'Grepratelimit10:44',
-      ])
-      expect(calls(open('Read PR 1402'))).toEqual(['Grepratelimit10:44'])
-      const dashboard = open('Dashboard changes')
-      expect(calls(dashboard)).toEqual(['Bashredis-cli info10:44', 'Readweb/charts.ts10:44'])
-      expect(within(dashboard).getByLabelText('Failed')).toBeInTheDocument()
+      // Each subagent's tab lists its own calls, in order; the nested one's Agent call is one row there too.
+      const starts = (): string[] => calls().map((text) => /^.*?10:44/.exec(text)?.[0] ?? text)
+      fireEvent.click(agentTab('API changes'))
+      expect(starts()).toEqual(['Bashgh pr list10:44', 'AgentRead PR 140210:44'])
+      fireEvent.click(agentTab('Read PR 1402'))
+      expect(starts()).toEqual(['Grepratelimit10:44'])
+      fireEvent.click(agentTab('Dashboard changes'))
+      expect(starts()).toEqual(['Bashredis-cli info10:44', 'Readweb/charts.ts10:44'])
+      expect(log()).toHaveTextContent('Connection refused')
+      expect(within(log()).getByLabelText('Failed')).toBeInTheDocument()
     })
 
     it('streams new entries and results live', async () => {
@@ -765,7 +691,6 @@ describe('TaskPanel', () => {
       })
       expect(log()).toHaveTextContent('Running the tests.')
       expect(row(/^Running\s*Bash\s*pytest -q/)).toHaveTextContent('Running…')
-      expect(tab(/^Tool calls/)).toHaveTextContent('Tool calls 1')
 
       act(() => {
         emit({
@@ -788,192 +713,10 @@ describe('TaskPanel', () => {
     })
   })
 
-  describe('the Subagents tab', () => {
-    const agent = (id: string, description: string, overrides: Partial<ToolCallEvent> = {}): ToolCallEvent =>
-      call(id, { name: 'Agent', input: { description }, state: ToolCallState.Running, output: null, ...overrides })
-
-    it('counts nothing and says so when the task has no subagents', async () => {
-      await renderPanel({ uiState: [{ key: UiStateKey.RightPanelTab, value: 'subagents' }] })
-      expect(tab(/^Subagents/)).toHaveTextContent(/^Subagents$/)
-      expect(screen.getByRole('tabpanel')).toHaveTextContent('No subagents yet.')
-    })
-
-    it('shows nothing without a task', async () => {
-      await renderPanel({ selected: false, uiState: [{ key: UiStateKey.RightPanelTab, value: 'subagents' }] })
-      expect(screen.getByRole('tabpanel')).toBeEmptyDOMElement()
-    })
-
-    it('lists the task’s subagents and follows them live', async () => {
-      const { emit } = await renderPanel({
-        toolEvents: [agent('api', 'API changes'), agent('links', 'Check links')],
-        uiState: [{ key: UiStateKey.RightPanelTab, value: 'subagents' }],
-      })
-      const tally = (): HTMLElement => screen.getByRole('group', { name: 'Subagents by status' })
-      expect(tab(/^Subagents/)).toHaveTextContent('Subagents 2')
-      expect(tally()).toHaveTextContent('2 running')
-
-      act(() => {
-        emit({
-          type: EventType.ToolEventAppended,
-          toolEvent: call('bash', {
-            name: 'Bash',
-            input: { command: 'gh pr list' },
-            state: ToolCallState.Running,
-            output: null,
-            parentToolUseId: 'use-api',
-          }),
-        })
-        emit({
-          type: EventType.ToolEventUpdated,
-          toolEvent: agent('links', 'Check links', { state: ToolCallState.Done, output: 'Fixed both links.' }),
-        })
-      })
-      expect(tally()).toHaveTextContent('1 running1 done')
-      const api = screen.getByRole('group', { name: 'API changes' })
-      expect(api).toHaveTextContent('Bashgh pr list')
-      expect(api).toHaveTextContent('1 tool call')
-      expect(screen.getByRole('group', { name: 'Check links' })).toHaveTextContent('Fixed both links.')
-    })
-
-    describe('showing a subagent a plugin opens', () => {
-      const header = (name: string): HTMLElement =>
-        within(screen.getByRole('group', { name })).getByRole('button', { name: new RegExp(`^${name}`) })
-
-      it('opens the panel at Subagents, with that subagent’s log open, and scrolls to it once', async () => {
-        const { emit } = await renderPanel({
-          toolEvents: [agent('api', 'API changes'), agent('links', 'Check links')],
-          uiState: [
-            { key: UiStateKey.RightPanelCollapsed, value: 'true' },
-            { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: 'files' }) },
-          ],
-        })
-
-        act(() => {
-          emit({ type: EventType.TaskOpenRequested, taskId: 't1', subagentId: 'use-links' })
-        })
-
-        await waitFor(() => {
-          expect(header('Check links')).toHaveAttribute('aria-expanded', 'true')
-        })
-        expect(tab(/^Subagents/)).toHaveAttribute('aria-selected', 'true')
-        expect(header('API changes')).toHaveAttribute('aria-expanded', 'false')
-        expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: 'nearest' })
-        expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('group', { name: 'Check links' }))
-
-        // Shown once: coming back to the tab doesn't show it again.
-        fireEvent.click(tab('Files'))
-        fireEvent.click(tab(/^Subagents/))
-        expect(header('Check links')).toHaveAttribute('aria-expanded', 'false')
-        expect(scrollIntoView).toHaveBeenCalledOnce()
-      })
-
-      it('keeps an open log open, rather than closing it as a click would', async () => {
-        const { emit } = await renderPanel({
-          toolEvents: [agent('links', 'Check links')],
-          uiState: [{ key: UiStateKey.RightPanelTab, value: 'subagents' }],
-        })
-        fireEvent.click(header('Check links'))
-
-        act(() => {
-          emit({ type: EventType.TaskOpenRequested, taskId: 't1', subagentId: 'use-links' })
-        })
-
-        await waitFor(() => {
-          expect(scrollIntoView).toHaveBeenCalledOnce()
-        })
-        expect(header('Check links')).toHaveAttribute('aria-expanded', 'true')
-      })
-
-      it('selects another task first, and shows its subagent', async () => {
-        const { emit, store } = await renderPanel({
-          toolEvents: [agent('links', 'Check links'), agent('kitten', 'Migrate webhooks', { taskId: 't2' })],
-        })
-
-        act(() => {
-          emit({ type: EventType.TaskOpenRequested, taskId: 't2', subagentId: 'use-kitten' })
-        })
-
-        await waitFor(() => {
-          expect(header('Migrate webhooks')).toHaveAttribute('aria-expanded', 'true')
-        })
-        expect(store.getState().selectedTaskId).toBe('t2')
-        expect(screen.queryByRole('group', { name: 'Check links' })).toBeNull()
-      })
-
-      it('waits for a subagent that isn’t in the tab yet, and shows it when it starts', async () => {
-        const { emit } = await renderPanel({ toolEvents: [agent('links', 'Check links')] })
-
-        act(() => {
-          emit({ type: EventType.TaskOpenRequested, taskId: 't1', subagentId: 'use-late' })
-        })
-        await waitFor(() => {
-          expect(tab(/^Subagents/)).toHaveAttribute('aria-selected', 'true')
-        })
-        expect(scrollIntoView).not.toHaveBeenCalled()
-
-        act(() => {
-          emit({ type: EventType.ToolEventAppended, toolEvent: agent('late', 'Late arrival') })
-        })
-        expect(header('Late arrival')).toHaveAttribute('aria-expanded', 'true')
-        expect(header('Check links')).toHaveAttribute('aria-expanded', 'false')
-        expect(scrollIntoView).toHaveBeenCalledOnce()
-      })
-    })
-  })
-
-  describe('the Watchers tab', () => {
-    const WATCHING = { key: UiStateKey.RightPanelTab, value: 'watchers' }
-
-    it('counts nothing and says so when the agent has left nothing running or scheduled', async () => {
-      await renderPanel({ uiState: [WATCHING] })
-      expect(tab(/^Watchers/)).toHaveTextContent(/^Watchers$/)
-      expect(screen.getByRole('tabpanel')).toHaveTextContent('Nothing running or scheduled.')
-    })
-
-    it('shows nothing without a task', async () => {
-      await renderPanel({ selected: false, uiState: [WATCHING] })
-      expect(screen.getByRole('tabpanel')).toBeEmptyDOMElement()
-    })
-
-    it('lists the task’s watchers, counts the live ones on the tab, and follows them as they change', async () => {
-      const ended = sampleWatcher('docs', 't1', {
-        kind: WatcherKind.Command,
-        label: 'Docs',
-        state: WatcherState.Failed,
-      })
-      const other = sampleWatcher('other', 't2', { label: 'Another task’s' })
-      const { emit, store } = await renderPanel({
-        uiState: [WATCHING],
-        watchers: [sampleWatcher('ci', 't1'), ended, other],
-      })
-      expect(tab(/^Watchers/)).toHaveTextContent('Watchers 1')
-      expect(screen.getByRole('group', { name: 'Watchers by state' })).toHaveTextContent('1 running1 ended')
-      expect(screen.queryByRole('group', { name: 'Another task’s' })).not.toBeInTheDocument()
-
-      act(() => {
-        emit({
-          type: EventType.WatchersChanged,
-          taskId: 't1',
-          watchers: [
-            sampleWatcher('ci', 't1', { wakes: 1, lastOutput: 'lint pass' }),
-            ended,
-            sampleWatcher('queue', 't1', { kind: WatcherKind.Cron, label: 'Queue', state: WatcherState.Scheduled }),
-          ],
-        })
-      })
-      expect(tab(/^Watchers/)).toHaveTextContent('Watchers 2')
-      expect(screen.getByRole('group', { name: 'CI checks on PR #42' })).toHaveTextContent('lastlint pass')
-
-      await act(() => store.getState().selectTask('t2'))
-      expect(tab(/^Watchers/)).toHaveTextContent('Watchers 1')
-      expect(screen.getByRole('group', { name: 'Another task’s' })).toBeInTheDocument()
-    })
-  })
-
   describe('showing a turn the chat asks for', () => {
     const TWO_TURNS: ToolEvent[] = [...TURN_ONE, divider('d2', 2), call('c3', { turn: 2 })]
 
-    it('switches to Tool calls, scrolls to the turn’s divider and highlights it for a moment', async () => {
+    it('switches to Agents, scrolls to the turn’s divider and highlights it for a moment', async () => {
       const { store } = await renderPanel({ toolEvents: TWO_TURNS })
       vi.useFakeTimers()
       fireEvent.click(tab('Files'))
@@ -981,7 +724,7 @@ describe('TaskPanel', () => {
       act(() => {
         store.getState().focusTurn('t1', 2)
       })
-      expect(tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
+      expect(tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
       const turnTwo = screen.getByRole('separator', { name: 'turn 2 · 11:20' })
       expect(scrollIntoView).toHaveBeenCalledOnce()
       expect(scrollIntoView.mock.contexts[0]).toBe(turnTwo)
@@ -1009,7 +752,7 @@ describe('TaskPanel', () => {
       expect(within(log()).getByRole('separator')).toHaveClass(HIGHLIGHT_CLASS)
     })
 
-    it('opens the panel when it was collapsed, and keeps Tool calls as the tab', async () => {
+    it('opens the panel when it was collapsed, and keeps Agents as the tab', async () => {
       const { store } = await renderPanel({
         toolEvents: TWO_TURNS,
         uiState: [
@@ -1024,9 +767,9 @@ describe('TaskPanel', () => {
       })
       expect(store.getState().uiState).toMatchObject({ [UiStateKey.RightPanelCollapsed]: 'false' })
       expect(parsePanelTabSelection(store.getState().uiState[UiStateKey.RightPanelTabs])).toEqual({
-        w1: 'tool-calls',
+        w1: 'agents',
       })
-      expect(tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
+      expect(tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
       expect(scrollIntoView.mock.contexts[0]).toBe(within(log()).getByRole('separator', { name: 'turn 2 · 11:20' }))
     })
 
@@ -1042,7 +785,7 @@ describe('TaskPanel', () => {
       act(() => {
         store.getState().focusTurn('t1', 9)
       })
-      expect(tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
+      expect(tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
       expect(scrollIntoView).not.toHaveBeenCalled()
 
       // Selecting the task again doesn't act on the request it already acted on.
@@ -1050,45 +793,6 @@ describe('TaskPanel', () => {
       await act(() => store.getState().selectTask('t2'))
       await act(() => store.getState().selectTask('t1'))
       expect(tab('Files')).toHaveAttribute('aria-selected', 'true')
-    })
-  })
-
-  describe('Artifacts', () => {
-    const artifact = (path: string, title: string): FileArtifact => ({
-      kind: ArtifactKind.File,
-      taskId: 't1',
-      path,
-      title,
-      addedAt: AT,
-      updatedAt: AT,
-      // Changed just now, so it's in Today, which starts open.
-      modifiedAt: Date.now(),
-      missing: false,
-    })
-
-    it('counts the task’s artifacts in the tab, keeps up with the agent, and shows their rows', async () => {
-      const { emit } = await renderPanel({
-        artifacts: [artifact('docs/releases/2.4.md', 'Release notes 2.4')],
-        uiState: [{ key: UiStateKey.RightPanelTab, value: 'artifacts' }],
-      })
-
-      expect(tab(/^Artifacts/)).toHaveTextContent('Artifacts 1')
-      expect(screen.getByRole('listitem', { name: 'Release notes 2.4' })).toBeInTheDocument()
-
-      act(() => {
-        emit({
-          type: EventType.ArtifactsChanged,
-          taskId: 't1',
-          artifacts: [
-            artifact('docs/releases/2.4.md', 'Release notes 2.4'),
-            { ...artifact('out/email.txt', 'Email'), missing: true },
-          ],
-        })
-      })
-      expect(tab(/^Artifacts/)).toHaveTextContent('Artifacts 2')
-      await waitFor(() => {
-        expect(screen.getByRole('listitem', { name: 'Email' })).toHaveTextContent('Text · missing')
-      })
     })
   })
 
@@ -1175,7 +879,7 @@ describe('TaskPanel', () => {
       const { invoke } = await renderPanel({ openFiles: [OPEN, { taskId: 't2', paths: [], activePath: null }] })
       const panel = screen.getByRole('complementary', { name: 'Task panel' })
       const press = (): boolean => {
-        screen.getByRole('tab', { name: /^Tool calls/ }).focus()
+        tab(/^Agents/).focus()
         return requestClose()
       }
 

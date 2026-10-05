@@ -1,41 +1,20 @@
-// What the Watchers tab (docs/design/html/28-watchers.html) and the task list's watcher marks show of a task's
-// watchers: what its agent left running or scheduled with the SDK's own tools (docs/sdk-notes.md §13).
+// What the Agents tab's pinned watchers (`../agents/PinnedWatchers`) and the task list's watcher marks show of a task's
+// watchers: what its agents left running or scheduled with the SDK's own tools (docs/sdk-notes.md §13).
 import { LIVE_WATCHER_STATES, WatcherKind, WatcherState, type EpochMs, type Watcher } from '../../shared/domain'
-import { TaskIndicator } from '../../shared/taskIndicator'
-import { clockTime } from '../chat/chatModel'
-import { formatElapsed } from '../subagents/subagentsModel'
 
 /** Whether a watcher can still wake the agent: running, scheduled, or waiting for its session to resume. */
 export function isLive(watcher: Watcher): boolean {
   return LIVE_WATCHER_STATES.includes(watcher.state)
 }
 
-/**
- * The watchers the task's own agent started: what the Watchers tab lists and counts. A subagent's are its own, under it
- * in the Subagents tab (`subagentWatchers`).
- */
+/** The watchers the task's own agent started. A subagent's are its own, pinned on its tab of the Agents tab. */
 export function ownWatchers(watchers: readonly Watcher[]): Watcher[] {
   return watchers.filter((watcher) => watcher.parentToolUseId === null)
 }
 
-/** The watchers a subagent started, by its `Agent` call, in the order they started. */
-export function subagentWatchers(watchers: readonly Watcher[], toolUseId: string): Watcher[] {
-  return watchers.filter((watcher) => watcher.parentToolUseId === toolUseId)
-}
-
-/**
- * How many of a task's own watchers are live: the tab's count, and the task list's mark. Its subagents' don't count
- * (`ownWatchers`).
- */
+/** How many of a task's own watchers are live: the task list's mark. Its subagents' don't count (`ownWatchers`). */
 export function liveWatcherCount(watchers: readonly Watcher[] | undefined): number {
   return ownWatchers(watchers ?? []).filter(isLive).length
-}
-
-/** The tab's order: the live ones first, in the order they started, then the ended ones, the latest to end first. */
-export function orderWatchers(watchers: readonly Watcher[]): Watcher[] {
-  const live = watchers.filter(isLive)
-  const ended = watchers.filter((watcher) => !isLive(watcher))
-  return [...live, ...ended.sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))]
 }
 
 /** What a watcher's kind is called: the SDK tool the agent started it with, in words. */
@@ -80,22 +59,6 @@ export function statusLabel(watcher: Watcher, now: EpochMs): string {
   }
 }
 
-/** A watcher's dot: running blue, scheduled or suspended purple (waiting), failed pink, ended slate. */
-export function watcherIndicator(state: WatcherState): TaskIndicator {
-  switch (state) {
-    case WatcherState.Running:
-      return TaskIndicator.Working
-    case WatcherState.Scheduled:
-    case WatcherState.Suspended:
-      return TaskIndicator.Waiting
-    case WatcherState.Failed:
-      return TaskIndicator.Error
-    case WatcherState.Finished:
-    case WatcherState.Stopped:
-      return TaskIndicator.Done
-  }
-}
-
 /** What a watcher runs, beside its kind: the command, a wakeup's prompt, or a cron job's schedule. */
 export function whatLine(watcher: Watcher): string {
   switch (watcher.kind) {
@@ -128,71 +91,6 @@ export function outputLine(watcher: Watcher): OutputLine | null {
 /** "3 wakes", "1 wake". */
 export function wakesLabel(wakes: number): string {
   return `${String(wakes)} wake${wakes === 1 ? '' : 's'}`
-}
-
-/**
- * The line under a watcher: how many times it woke the agent and when it last did, then when it's due (scheduled),
- * how long it has run and since when (running), or when it ran (ended): "3 wakes · last 13:18 · 12m 04s · since 13:02".
- */
-export function metaLine(watcher: Watcher, now: EpochMs): string {
-  const parts = [wakesLabel(watcher.wakes)]
-  if (watcher.lastWokeAt !== null) parts.push(`last ${clockTime(watcher.lastWokeAt)}`)
-  switch (watcher.state) {
-    case WatcherState.Running:
-      parts.push(formatElapsed(Math.max(0, now - watcher.startedAt)), `since ${clockTime(watcher.startedAt)}`)
-      break
-    case WatcherState.Scheduled:
-      if (watcher.nextDueAt !== null) parts.push(`${watcher.recurring ? 'next' : 'at'} ${clockTime(watcher.nextDueAt)}`)
-      parts.push(`set ${clockTime(watcher.startedAt)}`)
-      break
-    case WatcherState.Suspended:
-      parts.push('back when the session resumes', `set ${clockTime(watcher.startedAt)}`)
-      break
-    case WatcherState.Finished:
-    case WatcherState.Failed:
-    case WatcherState.Stopped:
-      parts.push(`${clockTime(watcher.startedAt)}–${clockTime(watcher.endedAt ?? watcher.startedAt)}`)
-      break
-  }
-  return parts.join(' · ')
-}
-
-/** How the tally groups watchers: live ones by state, the ended ones together. */
-export enum TallyGroup {
-  Running = 'running',
-  Scheduled = 'scheduled',
-  Suspended = 'suspended',
-  Ended = 'ended',
-}
-
-const TALLY_GROUPS: readonly TallyGroup[] = Object.values(TallyGroup)
-
-function tallyGroup(state: WatcherState): TallyGroup {
-  switch (state) {
-    case WatcherState.Running:
-      return TallyGroup.Running
-    case WatcherState.Scheduled:
-      return TallyGroup.Scheduled
-    case WatcherState.Suspended:
-      return TallyGroup.Suspended
-    case WatcherState.Finished:
-    case WatcherState.Failed:
-    case WatcherState.Stopped:
-      return TallyGroup.Ended
-  }
-}
-
-export interface TallyPart {
-  readonly group: TallyGroup
-  readonly label: string
-}
-
-/** The tally at the top of the tab: "2 running · 1 scheduled · 3 ended", leaving out a group with none. */
-export function tally(watchers: readonly Watcher[]): TallyPart[] {
-  return TALLY_GROUPS.flatMap((group) => {
-    const count = watchers.filter((watcher) => tallyGroup(watcher.state) === group).length
-    return count === 0 ? [] : [{ group, label: `${String(count)} ${group}` }]
-  })
 }
 
 /** How the task list's watcher count reads to a screen reader and in its tooltip: "2 watchers running". */

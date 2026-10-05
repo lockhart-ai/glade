@@ -1,4 +1,4 @@
-// Which tool calls start a subagent, and what a subagent is called, as the Subagents tab, the task list's subagent
+// Which tool calls start a subagent, and what a subagent is called, as the Agents tab, the task list's subagent
 // count, the plugins and the todo hub see them.
 import type { ToolCallEvent } from './domain'
 

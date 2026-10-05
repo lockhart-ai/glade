@@ -53,7 +53,7 @@ test('resizable panels: dragging the task list’s and bottom bar’s handles re
   const { window } = glade
   const handles = resizeHandles(window)
   const region = regions(window)
-  await expect(taskPanel(window).tab('Tool calls')).toBeVisible()
+  await expect(taskPanel(window).tab(/^Agents/)).toBeVisible()
   await expectSizes(window, SIDEBAR.initial, BOTTOM_BAR.initial)
   await expect(handles.taskList).toHaveAttribute('aria-orientation', 'vertical')
   await expect(handles.bottomBar).toHaveAttribute('aria-orientation', 'horizontal')
@@ -121,7 +121,7 @@ test('resizable panels: a smaller window holds the task list and bottom bar to t
   const { window } = glade
   const handles = resizeHandles(window)
   const region = regions(window)
-  await expect(taskPanel(window).tab('Tool calls')).toBeVisible()
+  await expect(taskPanel(window).tab(/^Agents/)).toBeVisible()
 
   // Both as big as they go in the design's window.
   await drag(window, handles.taskList, 1000, 0)

@@ -19,15 +19,7 @@ import type { ImageData } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import { describeFailure, lastOpenedWorkspace, loadSnapshot } from './hydrate'
 import { isLoaded, withDoneCounts, withDonePage, withLoadedTasks } from './doneLists'
-import {
-  applyEvent,
-  withAgentTab,
-  withGroupFold,
-  withHistory,
-  withOpenedWorkspace,
-  withSandboxGrants,
-  withTodoHub,
-} from './reducer'
+import { applyEvent, withAgentTab, withHistory, withOpenedWorkspace, withSandboxGrants, withTodoHub } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState, type TerminalEvent } from './state'
 import {
   UnsavedChoice,
@@ -209,30 +201,22 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     // Shows a panel tab of the selected task: the right panel opens at it, even when it was collapsed or on another
     // tab, in that task's own workspace. For another task, nothing changes: the panel shows the task you're viewing.
     const showPanelTab = (taskId: string, tab: PanelTab): void => {
-      const { selectedTaskId, tasks, uiState, settings } = get()
+      const { selectedTaskId, tasks, uiState } = get()
       if (taskId !== selectedTaskId) return
       const workspaceId = tasks[taskId]?.workspaceId
       if (workspaceId === undefined) return
-      if (activePanelTab(uiState, workspaceId, settings.todoHubEnabled) !== tab) {
+      if (activePanelTab(uiState, workspaceId) !== tab) {
         void setUiState(panelTabEntry(uiState, workspaceId, tab))
       }
       if (isCollapsed(uiState, Panel.RightPanel)) void setUiState(collapsedEntry(Panel.RightPanel, false))
     }
 
-    // Opens a task main asked to open, as clicking its row does; with a subagent, then shows it in the Subagents tab, as
-    // picking it there does, or with the todo hub on, on its own tab in the Agents tab (#536). Selecting it can be called
-    // off (unsaved edits), and then nothing more happens.
+    // Opens a task main asked to open, as clicking its row does; with a subagent, then shows it on its own tab in the
+    // Agents tab (#536). Selecting it can be called off (unsaved edits), and then nothing more happens.
     const openRequested = async ({ taskId, subagentId }: OpenRequest): Promise<void> => {
       await get().selectTask(taskId)
       if (subagentId === null || get().selectedTaskId !== taskId) return
-      if (get().settings.todoHubEnabled) {
-        get().showAgent(taskId, subagentId)
-        return
-      }
-      showPanelTab(taskId, PanelTab.Subagents)
-      set(({ subagentFocus }) => ({
-        subagentFocus: { taskId, subagentId, request: (subagentFocus?.request ?? 0) + 1 },
-      }))
+      get().showAgent(taskId, subagentId)
     }
 
     // Main broadcasts the new tab too; adding it from the answer as well means it's there whichever arrives first.
@@ -829,9 +813,8 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       focusTurn(taskId, turn) {
-        // With the todo hub on, the task's own tool calls are Main's tab of the Agents tab (#536).
-        if (get().settings.todoHubEnabled) get().showAgent(taskId, null)
-        else showPanelTab(taskId, PanelTab.ToolCalls)
+        // The task's own tool calls are Main's tab of the Agents tab (#536).
+        get().showAgent(taskId, null)
         set(({ toolLogFocus }) => ({ toolLogFocus: { taskId, turn, request: (toolLogFocus?.request ?? 0) + 1 } }))
       },
 
@@ -1010,20 +993,6 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.ArtifactsAddLink, { taskId, url, text })
       },
 
-      // The tab shows the choice at once; main remembers it for the task.
-      async setArtifactFilter(taskId, filter) {
-        set(({ artifactFilters }) => ({ artifactFilters: { ...artifactFilters, [taskId]: filter } }))
-        await bridge.invoke(CommandName.ArtifactsSetFilter, { taskId, filter })
-      },
-
-      // The group opens or folds at once; main remembers it for the task.
-      async setArtifactGroupOpen(taskId, group, open) {
-        set(({ artifactGroups }) => ({
-          artifactGroups: { ...artifactGroups, [taskId]: withGroupFold(artifactGroups[taskId] ?? [], { group, open }) },
-        }))
-        await bridge.invoke(CommandName.ArtifactsSetGroupOpen, { taskId, group, open })
-      },
-
       async watchArtifacts(taskId) {
         await bridge.invoke(CommandName.ArtifactsWatch, { taskId })
       },
@@ -1067,11 +1036,6 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       async showCommitFile(taskId, commitId, path) {
         applyOpenFiles(await bridge.invoke(CommandName.ChangesOpenFile, { taskId, id: commitId, path }))
         showPanelTab(taskId, PanelTab.Files)
-      },
-
-      async inRepository(taskId) {
-        const { repository } = await bridge.invoke(CommandName.ChangesRepository, { taskId })
-        return repository
       },
 
       async copyText(text) {

@@ -9,7 +9,13 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import { addArtifact, listArtifacts, listFileArtifacts } from '../db/repositories/artifacts'
-import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
+import {
+  openTestDatabase,
+  sampleTask,
+  sampleTodo,
+  sampleWorkspace,
+  type TestDatabase,
+} from '../db/repositories/test-database'
 import { createQuestionBroker } from '../questions/questions'
 import {
   createGladeMcpServer,
@@ -46,11 +52,12 @@ beforeEach(async () => {
   writeFileSync(join(outside, 'secret.md'), 'not yours\n')
   symlinkSync(join(outside, 'secret.md'), join(root, 'docs', 'linked.md'))
   taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+  sampleTodo(database.db, taskId)
   tools = createMcpToolCaller({ [GLADE_SERVER]: createGladeMcpServer(context, taskId) })
   vi.useFakeTimers({ now: 1_000, toFake: ['Date'] })
-  await tools.call('mcp__glade__add_artifact', { path: 'docs/releases/2.4.md', title: 'Release notes' })
+  await tools.call('mcp__glade__add_artifact', { path: 'docs/releases/2.4.md', title: 'Release notes', todo: '1' })
   vi.setSystemTime(1_100)
-  await tools.call('mcp__glade__add_artifact', { path: 'out/screens/landing.png', title: 'Landing page' })
+  await tools.call('mcp__glade__add_artifact', { path: 'out/screens/landing.png', title: 'Landing page', todo: '1' })
   vi.setSystemTime(2_000)
   events.length = 0
 })
@@ -280,7 +287,7 @@ describe('link artifacts (#407)', () => {
   const TICKET = 'https://acme.atlassian.net/browse/API-123'
 
   function add(input: Record<string, unknown>): Promise<McpToolOutcome> {
-    return tools.call('mcp__glade__add_artifact', input)
+    return tools.call('mcp__glade__add_artifact', { todo: '1', ...input })
   }
 
   /** The task's artifacts, as `kind title`, in their order. */
@@ -290,12 +297,12 @@ describe('link artifacts (#407)', () => {
 
   it('adds a link by its url, after the files, and renames it when it’s added again', async () => {
     await expect(add({ url: 'HTTPS://github.com/acme/api/pull/412', title: 'Navigation refresh' })).resolves.toEqual({
-      output: `Added ${PR} to the artifacts as "Navigation refresh".`,
+      output: `Added ${PR} to the artifacts as "Navigation refresh". It's under todo #1.`,
       isError: false,
     })
     vi.setSystemTime(3_000)
     await expect(add({ url: PR, title: '#412' })).resolves.toEqual({
-      output: `Renamed the artifact ${PR} to "#412".`,
+      output: `Renamed the artifact ${PR} to "#412". It's under todo #1.`,
       isError: false,
     })
 

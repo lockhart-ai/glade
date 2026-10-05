@@ -7,7 +7,7 @@ import { inPlugin, installFixture } from './fixture-plugin'
 import { expect, seedPath, test, type Glade } from './fixtures'
 import { inMain } from './in-main'
 import { expectViewOverSlot, logged, pluginCard } from './plugin-view'
-import { regions, subagentsTab, taskHeader, taskPanel } from './selectors'
+import { agentsTab, regions, taskHeader, taskPanel } from './selectors'
 
 /** The seed's tasks (e2e/seeds/plugin-open-task.json). */
 const SHOWING = 'Fix the flaky date test'
@@ -102,15 +102,16 @@ test('clicking in a plugin opens the task it asks for, in another workspace, and
   // #426: the input bar has the focus, as after any task switch.
   await expect(window.getByRole('textbox', { name: 'Message the agent' })).toBeFocused()
 
-  // A click on a kitten: the Subagents tab opens on it, its log open.
+  // A click on a kitten: the Agents tab opens on its own tab.
   const panel = taskPanel(window)
-  const subagents = subagentsTab(window)
-  await panel.tab(/^Tool calls/).click()
+  const agents = agentsTab(window)
+  await panel.tab(/^Agents/).click()
+  await agents.tab('Main').click()
   await postOnInput(glade, { ...open, subagentId: 'kitten-retries' })
   await clickInView(glade)
-  await expect(panel.tab(/^Subagents/)).toHaveAttribute('aria-selected', 'true')
-  await expect(subagents.header(KITTEN)).toHaveAttribute('aria-expanded', 'true')
-  await expect(subagents.header('List the endpoints')).toHaveAttribute('aria-expanded', 'false')
+  await expect(panel.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
+  await expect(agents.tab(KITTEN)).toHaveAttribute('aria-selected', 'true')
+  await expect(agents.tab('List the endpoints')).not.toHaveAttribute('aria-selected', 'true')
 
   // A subagent of another task, or a task the plugin was never told of, is dropped even after a click.
   const showing = seen.tasks.find(({ title }) => title === SHOWING)?.id ?? ''

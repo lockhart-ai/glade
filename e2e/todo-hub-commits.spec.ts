@@ -1,7 +1,6 @@
-// A commit's tile in the todo hub (P16-08, #499), end to end with the scripted agent and the hidden `todoHubEnabled`
-// setting on: the commits a task and its subagent really made, each a tile that opens in place to its branch, the
-// subagent that made it and its files, and a file that opens in the Files tab. With the switch off again, the Changes
-// tab is as it was.
+// A commit's tile in the todo hub (P16-08, #499), end to end with the scripted agent: the commits a task and its
+// subagent really made, each a tile that opens in place to its branch, the subagent that made it and its files, and
+// a file that opens in the Files tab.
 //
 // The task keeps no todos, and nothing files its commits (#495), so they're under no todo: the placeholder group, which
 // is then the whole list.
@@ -13,7 +12,7 @@ import { MAKES_COMMITS } from '../src/main/agent/scripts'
 import { SHELL_GIT_ENV } from '../src/main/agent/scripted-shell'
 import { CommandName } from '../src/shared/bridge'
 import { expect, test } from './fixtures'
-import { agentsTab, changesTab, chat, filesTab, firstRun, inputBar, taskList, taskPanel, todoHub } from './selectors'
+import { agentsTab, chat, filesTab, firstRun, inputBar, taskList, taskPanel, todoHub } from './selectors'
 import { invoke } from './task-view'
 
 const MADE = [MAKES_COMMITS.merge, MAKES_COMMITS.guide, MAKES_COMMITS.bump, MAKES_COMMITS.fix]
@@ -39,10 +38,7 @@ test('the todo hub: a commit’s tile opens to its branch, the subagent that mad
   await inputBar(window).field.fill(MAKES_COMMITS.prompt)
   await inputBar(window).field.press('Enter')
   await expect(chat(window).agentReplies.last()).toContainText(MAKES_COMMITS.reply)
-  // The last commit is linked just after the reply.
-  await expect(taskPanel(window).tab(/^Changes/)).toHaveText('Changes 4')
 
-  await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
   await taskPanel(window)
     .tab(/^Todos/)
     .click()
@@ -123,17 +119,4 @@ test('the todo hub: a commit’s tile opens to its branch, the subagent that mad
   await expect(taskPanel(window).tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
   await expect(agentsTab(window).tab(MAKES_COMMITS.subagent)).toHaveAttribute('aria-selected', 'true')
   await expect(agentsTab(window).list).toContainText('git')
-
-  // With the switch off again, the Changes tab is as it was: its rows, a row's files, and a file in Files.
-  await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: false } })
-  await taskPanel(window)
-    .tab(/^Changes/)
-    .click()
-  const changes = changesTab(window)
-  expect(await changes.rows.evaluateAll((rows) => rows.map((row) => row.getAttribute('aria-label')))).toEqual(MADE)
-  await expect(changes.row(MAKES_COMMITS.guide)).toContainText(MAKES_COMMITS.subagent)
-  await changes.header(MAKES_COMMITS.fix).click()
-  await expect(changes.files(fix).getByRole('listitem')).toHaveText(['Msrc/date.ts+1−1'])
-  await changes.file(MAKES_COMMITS.fix, 'src/date.ts').click()
-  await expect(taskPanel(window).tab(/^Files/)).toHaveAttribute('aria-selected', 'true')
 })

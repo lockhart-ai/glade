@@ -67,8 +67,8 @@ export interface CommitFileListProps {
 
 /**
  * The files a commit changed, once they're read: a row each, which opens the file in Files, then how many more there
- * are past the cap. Until then it says it's reading them, or why it can't. Under a commit in the Changes tab, and in a
- * commit's opened tile in the todo hub (P16).
+ * are past the cap. Until then it says it's reading them, or why it can't. In a commit's opened tile in the Todos tab
+ * (P16).
  */
 export function CommitFileList({ hash, files, onOpenFile }: CommitFileListProps): React.JSX.Element {
   if (files === undefined || files.state === 'loading') return <p className={styles.note}>Reading its files…</p>

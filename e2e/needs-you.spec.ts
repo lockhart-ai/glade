@@ -11,16 +11,15 @@ import { PERMISSION_AT_QUIT, STOP_SPARES_BACKGROUND } from '../src/main/agent/sc
 import { clickMenuBarIcon, expect, menuBarIcon, sendAndOpenNewTask, test, type Glade } from './fixtures'
 import { chooseMenuItem } from './menu'
 import {
+  agentsTab,
   chat,
   contextMenu,
   firstRun,
   inputBar,
   menuBarPopover,
-  subagentsTab,
   taskHeader,
   taskList,
   taskPanel,
-  watchersTab,
   workspaceSwitcher,
 } from './selectors'
 
@@ -212,26 +211,24 @@ test('a read reply with a subagent and a watcher still running is working, until
   await expect(chat(window).agentReplies.first()).toContainText(STOP_SPARES_BACKGROUND.started)
   await expect(inputBar(window).send).toBeVisible()
   const panel = taskPanel(window)
-  await panel.tab(/^Subagents/).click()
-  await expect(subagentsTab(window).tally).toHaveText('1 running')
+  const agents = agentsTab(window)
+  await panel.tab(/^Agents/).click()
+  await expect(agents.tab(STOP_SPARES_BACKGROUND.bisect)).toHaveAttribute('data-running', '')
   await expectDot(window, title, 'working')
   await expect(taskHeader(window).stateDot).toHaveAccessibleName('Active · working')
   await expectSwitcher(window, '1 active')
   await expectMenuBarCount(glade, '')
 
   // The watch stops: the subagent still runs, so it's still working.
-  await panel.tab(/^Watch/).click()
-  await watchersTab(window).stop(STOP_SPARES_BACKGROUND.ci).click()
-  await expect(watchersTab(window).row(STOP_SPARES_BACKGROUND.ci)).toHaveAttribute('data-state', 'stopped')
+  await agents.stopWatcher(STOP_SPARES_BACKGROUND.ci).click()
+  await expect(agents.endedWatcher(STOP_SPARES_BACKGROUND.ci)).toHaveAttribute('data-state', 'stopped')
   await expectDot(window, title, 'working')
   await expect(taskHeader(window).stateDot).toHaveAccessibleName('Active · working')
 
   // The subagent stops too: nothing is running and the reply is read, so it's idle, neither working nor needing you.
-  await panel.tab(/^Subagents/).click()
-  const bisect = subagentsTab(window).header(STOP_SPARES_BACKGROUND.bisect)
-  await bisect.click({ button: 'right' })
+  await agents.tab(STOP_SPARES_BACKGROUND.bisect).click({ button: 'right' })
   await contextMenu(window, 'Subagent actions').item('Stop subagent').click()
-  await expect(bisect).toContainText('You stopped the subagent.')
+  await expect(agents.agentCall(STOP_SPARES_BACKGROUND.bisect)).toContainText('You stopped the subagent.')
   await expectDot(window, title, 'idle')
   await expect(taskHeader(window).stateDot).toHaveAccessibleName('Active · idle')
   await expectSwitcher(window, '1 active')
@@ -263,9 +260,9 @@ test('background work running at a relaunch has ended with it: a read reply is t
   await expectSwitcher(second.window, '1 active')
   await expectMenuBarCount(second, '')
   await taskPanel(second.window)
-    .tab(/^Subagents/)
+    .tab(/^Agents/)
     .click()
-  await expect(subagentsTab(second.window).tally).toHaveText('1 interrupted')
+  await expect(agentsTab(second.window).agentCall(STOP_SPARES_BACKGROUND.bisect)).toContainText('Interrupted')
 })
 
 test('a reply needs you while a subagent and a watch it left running still run, not only once they end (#461)', async ({

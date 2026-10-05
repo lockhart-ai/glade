@@ -491,9 +491,8 @@ export interface TodoShown {
 }
 
 /**
- * The Todos tab as the hub (P16, #491; `docs/design/html/46-todo-hub.html` to `49-todo-hub-unfiled.html`), shown in
- * place of `Todos` while the hidden `todoHubEnabled` setting is on: what a task produced (its files, links and
- * commits), under the todo it belongs to. What's going on (subagents, watchers) is in the Agents tab, and no todo shows
+ * The Todos tab (P16, #491; `docs/design/html/46-todo-hub.html` to `49-todo-hub-unfiled.html`): what a task produced
+ * (its files, links and commits), under the todo it belongs to. What's going on (subagents, watchers) is in the Agents tab, and no todo shows
  * any (#535). Every todo is a card (`TodoCard`), in the tab's order (`orderTodos`), then the placeholder group for what
  * no todo has (`UnfiledCard`), hidden while it's empty. A task with no todos that produced something says so in a line
  * above that group; one with nothing at all has the Todos tab's own empty state (`NoTodos`).
@@ -527,8 +526,7 @@ export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown
     loadTodoHub(taskId).catch(() => undefined)
   }, [taskId, loadTodoHub])
 
-  // While the tab shows the task, main watches its file artifacts for edits from anywhere, as it does for the
-  // Artifacts tab: a file's place in its todo's list goes by when it last changed.
+  // While the tab shows the task, main watches its file artifacts for edits from anywhere, since a file's place in its todo's list goes by when it last changed.
   useEffect(() => {
     watchArtifacts(taskId).catch(() => undefined)
     return () => {

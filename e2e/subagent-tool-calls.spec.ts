@@ -2,13 +2,13 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
-import { chat, firstRun, inputBar, subagentsTab, taskList, taskPanel } from './selectors'
+import { agentsTab, chat, firstRun, inputBar, taskList, taskPanel } from './selectors'
 
 // What the subagent-calls agent says when its turn ends (`SUBAGENT_CALLS_REPLY` in src/main/agent/scripts.ts).
 const REPLY = 'The 2.4 notes are drafted'
 const TITLE = 'Draft release notes for 2.4'
 
-/** The tool log's rows: the task's own calls, the Agent calls that started its subagents among them. */
+/** Main's tool log's rows: its own calls, the Agent calls that started its subagents among them. */
 const PARENT_ROWS = [
   /^Done set_title/,
   /^Done set_objective/,
@@ -21,59 +21,51 @@ const PARENT_ROWS = [
   /^Done set_status/,
 ]
 
-/** Checks both panels: the tool log shows only the task's own calls, and each subagent's calls are under it. */
-async function checkBothPanels(window: Page): Promise<void> {
+/** Checks every agent's own tab: Main's log shows only its own calls, and each subagent's are under its own tab. */
+async function checkEveryAgent(window: Page): Promise<void> {
   const panel = taskPanel(window)
-  await panel.tab(/^Tool calls/).click()
-  await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 9')
-  await expect(panel.log.getByRole('button')).toHaveCount(PARENT_ROWS.length)
-  for (const [index, name] of PARENT_ROWS.entries()) {
-    await expect(panel.log.getByRole('button').nth(index)).toHaveAccessibleName(name)
-  }
-  // None of the subagents' calls or notes, nested or failed, is in it.
-  await expect(panel.log).not.toContainText(/gh pr|redis-cli|throttles|charts\.ts|2\.3\.md|curl|Listing the merged/)
-  await expect(panel.log.getByRole('group')).toHaveCount(0)
+  const agents = agentsTab(window)
+  await panel.tab(/^Agents/).click()
+  await expect(panel.tab(/^Agents/)).toHaveText('Agents 5')
 
-  // Each subagent lists its own calls, in order, with how each went.
-  const subagents = subagentsTab(window)
-  await panel.tab(/^Subagents/).click()
-  await expect(panel.tab(/^Subagents/)).toHaveText('Subagents 4')
-  await expect(subagents.tally).toHaveText('4 done')
-  await expect(subagents.header('API changes')).toContainText('2 tool calls')
-  await subagents.header('API changes').click()
-  const api = subagents.log('API changes')
-  await expect(api).toContainText('Listing the merged API PRs.')
-  await expect(api.getByRole('button')).toHaveCount(4)
-  await expect(api.getByRole('button').nth(0)).toHaveAccessibleName(/^Done Bash gh pr list --label api/)
-  await expect(api.getByRole('button').nth(1)).toHaveAccessibleName(/^Done Agent Read PR 1402/)
-  // The nested subagent's calls sit under its Agent call, and in its own entry.
-  await expect(api.getByRole('button').nth(2)).toHaveAccessibleName(/^Done Bash gh pr view 1402/)
-  await expect(api.getByRole('button').nth(3)).toHaveAccessibleName(/^Done Read api\/throttles\.py/)
-  await subagents.header('API changes').click()
-  await subagents.header('Read PR 1402').click()
-  await expect(subagents.log('Read PR 1402').getByRole('button')).toHaveCount(2)
-  await subagents.header('Read PR 1402').click()
+  await agents.tab('Main').click()
+  await expect(agents.list.getByRole('button')).toHaveCount(PARENT_ROWS.length)
+  for (const [index, name] of PARENT_ROWS.entries()) {
+    await expect(agents.list.getByRole('button').nth(index)).toHaveAccessibleName(name)
+  }
+  // None of the subagents' calls or notes, nested or failed, is in Main's own log.
+  await expect(agents.list).not.toContainText(/gh pr|redis-cli|throttles|charts\.ts|2\.3\.md|curl|Listing the merged/)
+  await expect(agents.list.getByRole('group')).toHaveCount(0)
+
+  // Each subagent's own tab lists its own calls, in order, with how each went. The nested subagent's calls aren't
+  // among them: only the Agent call that started it is, same as Main never shows API changes's own calls.
+  await agents.tab('API changes').click()
+  await expect(agents.list).toContainText('Listing the merged API PRs.')
+  await expect(agents.list.getByRole('button')).toHaveCount(2)
+  await expect(agents.list.getByRole('button').nth(0)).toHaveAccessibleName(/^Done Bash gh pr list --label api/)
+  await expect(agents.list.getByRole('button').nth(1)).toHaveAccessibleName(/^Done Agent Read PR 1402/)
+  // The nested subagent's own calls are on its own tab.
+  await agents.tab('Read PR 1402').click()
+  await expect(agents.list.getByRole('button')).toHaveCount(2)
+  await expect(agents.list.getByRole('button').nth(0)).toHaveAccessibleName(/^Done Bash gh pr view 1402/)
+  await expect(agents.list.getByRole('button').nth(1)).toHaveAccessibleName(/^Done Read api\/throttles\.py/)
 
   // The dashboard one's failed call is pink, and opens on its error.
-  await subagents.header('Dashboard changes').click()
-  const dashboard = subagents.log('Dashboard changes')
-  await expect(dashboard.getByRole('button')).toHaveCount(3)
-  const failed = dashboard.getByRole('button').first()
+  await agents.tab('Dashboard changes').click()
+  await expect(agents.list.getByRole('button')).toHaveCount(3)
+  const failed = agents.list.getByRole('button').first()
   await expect(failed).toHaveAccessibleName(/^Failed Bash redis-cli/)
   await failed.click()
-  await expect(dashboard.getByLabel('Bash output')).toContainText('Connection refused')
-  await subagents.header('Dashboard changes').click()
+  await expect(agents.list.getByLabel('Bash output')).toContainText('Connection refused')
 
-  // The background one's calls are under it too.
-  await subagents.header('Check links in the 2.3 notes').click()
-  const links = subagents.log('Check links in the 2.3 notes')
-  await expect(links.getByRole('button')).toHaveCount(2)
-  await expect(links.getByRole('button').first()).toHaveAccessibleName(/^Done Read docs\/releases\/2\.3\.md/)
-  await expect(links.getByRole('button').last()).toHaveAccessibleName(/^Done Bash curl -sI/)
-  await subagents.header('Check links in the 2.3 notes').click()
+  // The background one's calls are under its own tab too.
+  await agents.tab('Check links in the 2.3 notes').click()
+  await expect(agents.list.getByRole('button')).toHaveCount(2)
+  await expect(agents.list.getByRole('button').first()).toHaveAccessibleName(/^Done Read docs\/releases\/2\.3\.md/)
+  await expect(agents.list.getByRole('button').last()).toHaveAccessibleName(/^Done Bash curl -sI/)
 }
 
-test('subagent tool calls: the tool log shows only the parent’s, each subagent’s are under it in Subagents', async ({
+test('subagent tool calls: each agent’s tab shows only its own calls, the nested subagent’s included', async ({
   launch,
   tempFolder,
 }) => {
@@ -88,15 +80,15 @@ test('subagent tool calls: the tool log shows only the parent’s, each subagent
   await expect(chat(first.window).agentReplies.first()).toContainText(REPLY)
   // The background subagent finishes after the turn.
   await taskPanel(first.window)
-    .tab(/^Subagents/)
+    .tab(/^Agents/)
     .click()
-  await expect(subagentsTab(first.window).tally).toHaveText('4 done')
+  await expect(taskPanel(first.window).tab(/^Agents/)).toHaveText('Agents 5')
 
-  await checkBothPanels(first.window)
+  await checkEveryAgent(first.window)
 
   // It all reads back the same after a relaunch.
   await first.close()
   const second = await launch({ agentScript: 'subagent-calls' })
   await taskList(second.window).taskRow(TITLE).click()
-  await checkBothPanels(second.window)
+  await checkEveryAgent(second.window)
 })

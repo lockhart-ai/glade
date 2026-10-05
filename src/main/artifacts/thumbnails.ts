@@ -1,5 +1,5 @@
 /**
- * Thumbnails of the images a task declared as artifacts, for their rows in the Artifacts tab (#307). macOS makes them
+ * Thumbnails of the images a task declared as artifacts, for their tiles in the Todos tab (#307). macOS makes them
  * (Electron's `nativeImage.createThumbnailFromPath`, Quick Look), off the main thread, a few at a time; each is kept as
  * a PNG in a folder under the app's data, named for the file's path, size and when it last changed, so a file that
  * changes gets a new one and one that doesn't is never made twice. A file that can't be made into one (broken, or a

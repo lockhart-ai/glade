@@ -19,13 +19,14 @@ import { ArtifactKind, type Task, type Workspace } from '../../shared/domain'
 import { ChildKind, FilingSource } from '../../shared/todoHub'
 import { listArtifacts, listFileArtifacts } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
-import { updateSettings } from '../db/repositories/settings'
 import { fileChildren } from '../todo-hub/todo-hub'
 import { getTask } from '../db/repositories/tasks'
+import { sampleTodo } from '../db/repositories/test-database'
 import { createWorkspace } from '../db/repositories/workspaces'
 import { checkArtifactUpdates } from './backfill'
 import { ControlErrorCode } from './errors'
 import { ControlToolName } from './names'
+import type { TaskDetailArtifact } from './views'
 import {
   connect,
   errorCode,
@@ -101,10 +102,9 @@ function patch(changes: Readonly<Record<string, unknown>>): Promise<ToolReply> {
   return client.call(ControlToolName.UpdateTask, { id, patch: changes })
 }
 
-describe('update_task with the todo hub on (#495)', () => {
+describe('update_task and the todo hub (#495)', () => {
   it('keeps an artifact’s filing in step: repointed, it keeps its todo; taken off, it leaves none; added, it has none', async () => {
     const { db } = app.database
-    updateSettings(db, { todoHubEnabled: true })
     const filed = ['notes/plan.md', 'screens/landing.png', 'notes/draft.md'].map((key) => ({
       kind: ChildKind.File,
       key,
@@ -138,6 +138,57 @@ describe('update_task with the todo hub on (#495)', () => {
   })
 })
 
+describe('get_task: the todo each artifact is under (#501)', () => {
+  /** Each of the task's artifacts as `get_task` gives it: its title, and its todo. */
+  async function artifactTodos(): Promise<unknown[]> {
+    const { artifacts } = taskOf(await client.call(ControlToolName.GetTask, { id }))
+    return (artifacts as readonly TaskDetailArtifact[]).map(({ title, todo }) => [title, todo])
+  }
+
+  it('says none for a task from before its work was filed, and for what the control API adds', async () => {
+    sampleTodo(app.database.db, id, '1', 'Plan the release')
+
+    expect(await artifactTodos()).toEqual([
+      ['Plan', null],
+      ['Landing page', null],
+      ['Draft', null],
+    ])
+    await patch({ artifacts: [{ path: file('notes/summary.md'), title: 'Summary' }] })
+    expect((await artifactTodos()).at(-1)).toEqual(['Summary', null])
+  })
+
+  it('names the todo an artifact is filed under, by its id and its text, as the Todos tab shows it', async () => {
+    const { db } = app.database
+    sampleTodo(db, id, '1', 'Plan the release')
+    sampleTodo(db, id, '2', 'Screenshot the landing page')
+    const filing = { db, emit: () => undefined }
+    fileChildren(filing, id, [
+      { kind: ChildKind.File, key: 'notes/plan.md', todoId: '1', source: FilingSource.Named },
+      { kind: ChildKind.File, key: 'screens/landing.png', todoId: '2', source: FilingSource.Asked },
+    ])
+
+    expect(await artifactTodos()).toEqual([
+      ['Plan', { id: '1', text: 'Plan the release' }],
+      ['Landing page', { id: '2', text: 'Screenshot the landing page' }],
+      ['Draft', null],
+    ])
+
+    // Moved by its agent, it says its new todo.
+    fileChildren(filing, id, [{ kind: ChildKind.File, key: 'notes/plan.md', todoId: '2', source: FilingSource.Moved }])
+    expect((await artifactTodos())[0]).toEqual(['Plan', { id: '2', text: 'Screenshot the landing page' }])
+  })
+
+  it('says none for an artifact whose todo isn’t in the task’s list: it shows under "Not under a todo"', async () => {
+    const { db } = app.database
+    sampleTodo(db, id, '1', 'Plan the release')
+    fileChildren({ db, emit: () => undefined }, id, [
+      { kind: ChildKind.File, key: 'notes/plan.md', todoId: '7', source: FilingSource.Named },
+    ])
+
+    expect((await artifactTodos())[0]).toEqual(['Plan', null])
+  })
+})
+
 describe('update_task: updateArtifacts and removeArtifacts', () => {
   it('renames, repoints and takes off artifacts, keeping their places and the task’s, in one broadcast', async () => {
     renameSync(join(root, 'screens', 'landing.png'), join(root, 'screens', 'landing-dark.png'))
@@ -161,12 +212,14 @@ describe('update_task: updateArtifacts and removeArtifacts', () => {
         path: join(root, 'notes', 'plan.md'),
         title: 'Plan, final',
         addedAt: expect.any(Number) as unknown,
+        todo: null,
       },
       {
         kind: ArtifactKind.File,
         path: join(root, 'screens', 'landing-dark.png'),
         title: 'Landing page',
         addedAt: expect.any(Number) as unknown,
+        todo: null,
       },
     ])
     expect(listFileArtifacts(app.database.db, id)[1]).toMatchObject({ modifiedAt: moved.getTime(), missing: false })
@@ -323,8 +376,14 @@ describe('link artifacts through the control API (#407)', () => {
     expect(all()).toEqual(['file Plan', 'file Landing page', 'file Draft', 'link #412', 'link Docs refresh epic'])
     expect(await detailArtifacts()).toEqual(
       expect.arrayContaining([
-        { kind: ArtifactKind.Link, url: PR, title: '#412', addedAt: expect.any(Number) as unknown },
-        { kind: ArtifactKind.Link, url: TICKET, title: 'Docs refresh epic', addedAt: expect.any(Number) as unknown },
+        { kind: ArtifactKind.Link, url: PR, title: '#412', addedAt: expect.any(Number) as unknown, todo: null },
+        {
+          kind: ArtifactKind.Link,
+          url: TICKET,
+          title: 'Docs refresh epic',
+          addedAt: expect.any(Number) as unknown,
+          todo: null,
+        },
       ]),
     )
 
@@ -355,8 +414,9 @@ describe('link artifacts through the control API (#407)', () => {
         path: join(root, 'notes', 'nav.md'),
         title: 'Nav notes',
         addedAt: expect.any(Number) as unknown,
+        todo: null,
       },
-      { kind: ArtifactKind.Link, url: PR, title: '#412', addedAt: expect.any(Number) as unknown },
+      { kind: ArtifactKind.Link, url: PR, title: '#412', addedAt: expect.any(Number) as unknown, todo: null },
     ])
   })
 

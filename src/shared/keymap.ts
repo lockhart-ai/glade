@@ -302,16 +302,9 @@ export const COMMANDS: readonly CommandDefinition[] = [
   command(AppCommandId.ToggleSidebar, Panels, 'Toggle task list', MenuBar, 'Meta+B'),
   command(AppCommandId.ToggleRightPanel, Panels, 'Toggle right panel', MenuBar, 'Meta+Alt+B'),
   command(AppCommandId.ToggleBottomBar, Panels, 'Toggle bottom bar', MenuBar, 'Meta+J'),
-  command(
-    WindowCommandId.ShowPanelTab,
-    Panels,
-    'Tool calls · Files · Todos · Artifacts · Subagents · Watchers · Changes',
-    Window,
-    'Meta+Alt+1',
-    {
-      digits: { from: 1, to: 7 },
-    },
-  ),
+  command(WindowCommandId.ShowPanelTab, Panels, 'Agents · Files · Todos', Window, 'Meta+Alt+1', {
+    digits: { from: 1, to: 3 },
+  }),
   command(AppCommandId.Close, Panels, 'Close file tab', MenuBar, 'Meta+W', {
     fixed: FixedReason.Window,
   }),
@@ -643,12 +636,8 @@ export const KEYMAP_LAYOUT: readonly KeymapGroup[] = [
       row('Toggle right panel', AppCommandId.ToggleRightPanel),
       row('Toggle bottom bar', AppCommandId.ToggleBottomBar),
       {
-        action: 'Tool calls · Files · Todos',
+        action: 'Agents · Files · Todos',
         keys: [{ command: WindowCommandId.ShowPanelTab, digits: { from: 1, to: 3 } }],
-      },
-      {
-        action: 'Artifacts · Subagents · Watchers · Changes',
-        keys: [{ command: WindowCommandId.ShowPanelTab, digits: { from: 4, to: 7 } }],
       },
       row('Close file tab', AppCommandId.Close),
       row('Open file in editor', WindowCommandId.OpenInEditor),

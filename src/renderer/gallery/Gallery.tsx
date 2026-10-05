@@ -321,23 +321,19 @@ function SegmentedSection(): React.JSX.Element {
 }
 
 enum SidePanel {
-  ToolCalls = 'tool-calls',
+  Agents = 'agents',
   Files = 'files',
   Todos = 'todos',
-  Artifacts = 'artifacts',
-  Subagents = 'subagents',
 }
 
 const SIDE_PANELS: readonly TabItem<SidePanel>[] = [
-  { value: SidePanel.ToolCalls, label: 'Tool calls', count: 7 },
+  { value: SidePanel.Agents, label: 'Agents', count: 4 },
   { value: SidePanel.Files, label: 'Files' },
   { value: SidePanel.Todos, label: 'Todos', count: '3/4' },
-  { value: SidePanel.Artifacts, label: 'Artifacts' },
-  { value: SidePanel.Subagents, label: 'Subagents' },
 ]
 
 function TabsSection(): React.JSX.Element {
-  const [panel, setPanel] = useState(SidePanel.ToolCalls)
+  const [panel, setPanel] = useState(SidePanel.Agents)
   const label = SIDE_PANELS.find((tab) => tab.value === panel)?.label
 
   return (

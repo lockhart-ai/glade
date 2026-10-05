@@ -51,13 +51,6 @@ export interface Settings {
    * to on in P15's last PR (#452).
    */
   readonly sandboxEnabled: boolean
-  /**
-   * Whether the Todos tab is the todo hub (P16, #491): each todo with the files, links, subagents, watchers and commits
-   * that belong to it (`./todoHub`). A hidden switch, with nothing in Settings: the phase is built behind it, and with
-   * it off nothing of the hub is read, written, sent or shown, so the app behaves exactly as it did before. Off until
-   * the phase's last issue (#501) turns it on and takes the switch away.
-   */
-  readonly todoHubEnabled: boolean
 }
 
 /** The settings you change at once: the ones left out keep their value. */
@@ -66,8 +59,7 @@ export type SettingsPatch = Partial<Settings>
 /**
  * The settings before you change any: the SDK's default model (the built-in list's first) at high effort, allowing every tool
  * call, notifying silently, with no agent allowed to control Glade, showing Glade in the menu bar, and, until P15's
- * last PR (#452) turns it on, running agents outside the sandbox; and, until P16's last PR (#501), with the Todos tab as
- * it was before the todo hub.
+ * last PR (#452) turns it on, running agents outside the sandbox.
  */
 export const DEFAULT_SETTINGS: Settings = {
   defaultSubagentModel: null,
@@ -84,6 +76,4 @@ export const DEFAULT_SETTINGS: Settings = {
   showInMenuBar: true,
   // Off until P15's last PR (#452): see `Settings.sandboxEnabled`.
   sandboxEnabled: false,
-  // Off until P16's last PR (#501): see `Settings.todoHubEnabled`.
-  todoHubEnabled: false,
 }
