@@ -124,8 +124,6 @@ The **input bar** under the chat sets how this task runs:
   variant, where your login offers one, is listed right after it. The task's own model is always in the list, checked,
   even one your login no longer offers, and it's always named, never shown as a raw id: a task on `opus[1m]` reads
   "Opus 5.5 (1M)". A task whose agent runs with a 1M context window says so the same way, with "(1M)" after the name.
-- **Subagents:** Same as task, or another model from the same billing source. Native SDK subagents share the
-  parent’s connection; a Claude-account task cannot dispatch native OpenRouter children.
 - **Effort:** how long the agent thinks before acting: Low, Medium, High, Extra high or Max, as far as the model
   supports them. Some models, like Haiku, take no effort, and the picker hides. Switch to a model that doesn't offer
   the task's effort and the effort moves to the model's default (High, where it has it), and a toast says so. A model
@@ -753,15 +751,20 @@ background work and must be stopped before switching sources. If a Claude model 
 names the model the task continues with.
 OpenRouter errors point to its key/provider settings and do not require a Claude login or subscription reset.
 
-The SDK provides both sources' agent tools. Native subagents can use a different model within the parent's source.
+The parent chooses a model when dispatching each subagent; there is no blanket subagent model picker or default.
+Claude tasks keep native Claude model selection. OpenRouter tasks expose every enabled OpenRouter route as a named
+subagent, with its model, provider, context window and indicative API prices. Ask the parent to choose an appropriate
+model for each job, or name the model you want for a particular dispatch. Providers stay fixed by Settings. Available named choices load when the SDK process starts. Native
+children share the parent’s connection, so they cannot mix Claude-account and OpenRouter billing within one task.
 Catalog compatibility is a starting point: individual models can still reject SDK parameters or history formats.
 Glade reports the error and retains the archived history so you can select another model.
 
 OpenRouter tasks use separate Claude Code user configuration. Your Claude user instructions, skills, agents,
 commands, hooks, plugins, user MCP servers and existing auto-memory do not transfer; project configuration and Glade
-tools still load. They return when you switch back to Claude. **Same as task** also sends SDK helper/small-model
-calls to the task's OpenRouter route; choosing a cheaper subagent model sends those calls there too. The context
-meter uses the smaller parent/subagent window, matching the SDK's compaction limit.
+tools still load. They return when you switch back to Claude. Built-in subagent types and SDK helper/small-model
+calls use the task's OpenRouter route. To select another model, the parent dispatches its named OpenRouter subagent.
+The SDK shares one context override across native children: the process and context meter use the smallest window
+of its enabled OpenRouter choices. Changes to the catalog do not alter the prepared limit of a running process.
 
 The key stays in Glade's main process. Sandboxed commands cannot read the relay URL/token from their environment.
 Unsandboxed commands and session hooks or stdio MCP servers can inherit the temporary session relay token, which

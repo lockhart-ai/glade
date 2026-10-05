@@ -19,7 +19,6 @@ const keyBindingsSchema = z
 /** How each setting's JSON value parses. A key missing here fails the typecheck. */
 export const SETTING_SCHEMAS: { readonly [K in keyof Settings]: z.ZodType<Settings[K]> } = {
   defaultModel: z.string().min(1),
-  defaultSubagentModel: z.string().min(1).nullable(),
   defaultEffort: z.enum(Effort),
   defaultPermissionMode: z.enum(PermissionMode),
   statusSummary: z.boolean(),
@@ -62,7 +61,6 @@ export function getSettings(db: Database): Settings {
   return {
     defaultModel: read('defaultModel'),
     defaultEffort: read('defaultEffort'),
-    defaultSubagentModel: read('defaultSubagentModel'),
     defaultPermissionMode: read('defaultPermissionMode'),
     statusSummary: read('statusSummary'),
     taskTitles: read('taskTitles'),

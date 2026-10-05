@@ -12,7 +12,8 @@ fonts, design tokens and menu shapes. Rendered screens are 1920×1200 at 1×.
    include it in the task picker. A model cannot be enabled without an explicit provider choice.
 4. The task picker contains the normal Claude choices plus only enabled OpenRouter models. Source headings identify
    the account used; the provider appears in the saved model label.
-5. Subagents default to **Same as task**. Their optional model override uses the enabled choices from the task's source.
+5. There is no subagent picker. The parent chooses a model at each dispatch, from Claude models in a Claude task or
+   enabled OpenRouter routes in an OpenRouter task. Provider choices stay in Settings.
 6. In an existing Claude task, including one paused by an Anthropic limit, use the same picker to select an enabled
    OpenRouter model and continue in the same task. A minimal Claude-to-OpenRouter probe retained the SDK session ID
    and recalled the original code from text history. Live OpenRouter tool-history resumption and automated limit recovery now pass; cross-source signed thinking remains
@@ -74,8 +75,9 @@ existing tasks; selecting another source requests the safe history handoff descr
 
 ### 59 · OpenRouter task selected
 
-The existing input bar shows the selected model and the model/provider pair’s label. Its subagents inherit the same source
-and, by default, the same model. The implementation overrides the SDK’s unknown-model default with the selected endpoint’s actual context window;
+The existing input bar shows the selected model and the model/provider pair’s label. The parent chooses a model per
+subagent dispatch; native children inherit the same source. The implementation overrides the SDK’s unknown-model
+default with the smallest actual context window of its enabled OpenRouter routes;
 this mockup uses the verified override. Effort is hidden when the route advertises no effort capability. The picker uses the implemented source headings
 and shows the provider as part of each saved model label. The panel uses Agents · Files · Todos.
 

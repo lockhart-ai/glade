@@ -311,22 +311,6 @@ export function AgentSection(): React.JSX.Element {
       <SettingRow name="Model" description="Used for new tasks.">
         <ModelPicker models={models} value={settings.defaultModel} onChoose={chooseModel} />
       </SettingRow>
-      <SettingRow name="Subagents" description="Native subagents share the task’s billing source.">
-        <SettingSelect
-          name="Subagents"
-          menuLabel="Subagents"
-          value={settings.defaultSubagentModel ?? ''}
-          options={[
-            { value: '', label: 'Same as task' },
-            ...models
-              .filter(({ id }) => agentSource(id) === agentSource(settings.defaultModel))
-              .map(({ id, name }) => ({ value: id, label: name })),
-          ]}
-          onChoose={(id) => {
-            update({ defaultSubagentModel: id === '' ? null : id })
-          }}
-        />
-      </SettingRow>
       {efforts.length > 0 && (
         <SettingRow name="Effort" description="How long the agent thinks before acting.">
           <Segmented

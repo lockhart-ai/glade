@@ -18,6 +18,14 @@ const OPTIONS: AgentSessionOptions = {
 
 const ASKING = { model: 'claude-sample-1', effort: Effort.High, permissionMode: PermissionMode.AskBeforeEdits }
 
+it('reads the prepared context limit through the sandbox gate without copying a pre-initialization value', () => {
+  const session = new FakeAgentSession(OPTIONS)
+  const gated = gatedSession(session, Promise.resolve(true))
+  expect(gated.contextWindowTokens).toBeUndefined()
+  Object.assign(session, { contextWindowTokens: 64_000 })
+  expect(gated.contextWindowTokens).toBe(64_000)
+})
+
 /** A gate, and what opens or shuts it. */
 function gate(): { readonly ready: Promise<boolean>; readonly settle: (open: boolean) => void } {
   let settleGate: (open: boolean) => void = () => undefined

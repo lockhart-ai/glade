@@ -223,8 +223,6 @@ export interface Task {
   readonly unread: boolean
   /** The model id the task's session runs on, as the SDK names it. */
   readonly model: string
-  /** Native child model; omitted or null means Same as task. */
-  readonly subagentModel?: string | null
   /** Saved OpenRouter route name, including when it is no longer enabled in the picker. */
   readonly modelName?: string
   readonly effort: Effort

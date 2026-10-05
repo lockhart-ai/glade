@@ -484,7 +484,8 @@ import { namedTodo, readsTodo } from './child-calls'
 import { createExcludedCommands, type ExcludedCommands } from './excluded-commands'
 import { gatedSession } from './gated-session'
 import { AgentSource, agentSource } from '../../shared/openrouter'
-import { completeModelSwitch, validateModel, validateSubagentModel } from '../models/switches'
+import { taskModelWindow } from '../db/repositories/context-windows'
+import { completeModelSwitch, validateModel } from '../models/switches'
 import { getOpenRouterChoice } from '../db/repositories/openrouter'
 import { effortWithModel, listModels } from '../models/models'
 import { FileAccess, SANDBOX_NETWORK_TOOL } from './sandbox-requests'
@@ -637,7 +638,7 @@ export interface SandboxApplyOptions {
 
 export interface AgentRunner {
   /** Prepares a safe model/source change without consuming messages or changing history on failure. */
-  changeModel(taskId: string, model: string, subagentModel?: string | null): Promise<Task>
+  changeModel(taskId: string, model: string): Promise<Task>
   /**
    * Saves the user's message and starts a turn with it. A done task is reopened first (see the module comment). Throws
    * a `CommandFailure`: `not_found` for no such task, `busy` while a turn is running or the task is paused. With
@@ -2107,13 +2108,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const sessionModel = live.settings.model
     const route = getOpenRouterChoice(db, sessionModel)
     if (route !== undefined) {
-      const child = getTask(db, taskId)?.subagentModel
-      const childRoute = child == null ? route : getOpenRouterChoice(db, child)
       updateTaskFromRunner(context, taskId, {
-        contextWindowTokens: Math.min(
-          route.model.contextLength,
-          childRoute?.model.contextLength ?? route.model.contextLength,
-        ),
+        contextWindowTokens: live.session.contextWindowTokens ?? taskModelWindow(db, sessionModel),
       })
       return
     }
@@ -2425,6 +2421,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (event.kind === AgentEventKind.ToolResult) live.callParents.delete(event.toolUseId)
     if (event.kind === AgentEventKind.SessionStarted) {
       live.sdkModel = event.model
+      if (getTask(db, taskId)?.model === live.settings.model && live.session.contextWindowTokens !== undefined)
+        updateTaskFromRunner(context, taskId, { contextWindowTokens: live.session.contextWindowTokens })
       if (getTask(db, taskId)?.model === live.settings.model) recordSwitch(taskId, live.settings.model)
       if (getTask(db, taskId)?.sessionId !== event.sessionId) {
         agentLog(taskId).info('session id saved', { sessionId: event.sessionId, model: event.model })
@@ -3204,7 +3202,6 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       ...(provisional ? { provisional: true } : {}),
       cwd: workspace.rootPath,
       model: task.model,
-      subagentModel: task.subagentModel ?? null,
       effort: task.effort,
       permissionMode: task.permissionMode,
       resumeSessionId: task.sessionId,
@@ -3790,23 +3787,15 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   const runner: AgentRunner = {
-    async changeModel(taskId, model, givenChild) {
+    async changeModel(taskId, model) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
       validateModel(db, model)
-      const child =
-        givenChild === undefined
-          ? agentSource(task.model) === agentSource(model)
-            ? (task.subagentModel ?? null)
-            : null
-          : givenChild
-      validateSubagentModel(db, model, child)
-      const childChanged = child !== (task.subagentModel ?? null)
-      if (task.model === model && !childChanged) return task
+      if (task.model === model) return task
       if (switching.has(taskId)) throw new CommandFailure(BridgeErrorCode.Busy, 'The task is switching models')
       const crossesRouter =
         agentSource(task.model) === AgentSource.OpenRouter || agentSource(model) === AgentSource.OpenRouter
-      if (!crossesRouter && !childChanged) return updateTaskFromUser(context, taskId, { model })
+      if (!crossesRouter) return updateTaskFromUser(context, taskId, { model })
       const previous = sessions.get(taskId)
       if (
         previous?.turn != null ||
@@ -3823,13 +3812,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       }
       if (task.sessionId === null) {
         if (previous !== undefined) restartSession(taskId, 'model changed before the session initialized')
-        return updateTaskFromUser(context, taskId, { model, subagentModel: child })
+        return updateTaskFromUser(context, taskId, { model })
       }
       switching.add(taskId)
       let candidate: LiveSession | undefined
       try {
         const effort = effortWithModel(db, model, undefined, task.effort) ?? task.effort
-        candidate = start({ ...task, model, effort, subagentModel: child }, true)
+        candidate = start({ ...task, model, effort }, true)
         preparing.set(taskId, candidate)
         await waitForModelSwitch(candidate.session.ready?.() ?? Promise.resolve())
         if (candidate.closed)
@@ -3847,7 +3836,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         )
           throw new CommandFailure(BridgeErrorCode.Busy, 'The agent started work while its new session started.')
         const changed = db.transaction(() => {
-          const changed = updateTaskFromUser(context, taskId, { model, effort, subagentModel: child })
+          const changed = updateTaskFromUser(context, taskId, { model, effort })
           candidate?.session.activate?.()
           return changed
         })()

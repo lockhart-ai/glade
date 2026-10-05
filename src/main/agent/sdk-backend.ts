@@ -68,6 +68,9 @@ export interface SdkBackendOptions {
 export interface PreparedSdkSession {
   readonly env: Environment
   readonly model?: string
+  readonly agents?: Options['agents']
+  readonly subagentInstructions?: string
+  readonly contextWindowTokens?: number
   readonly sessionStore?: import('@anthropic-ai/claude-agent-sdk').SessionStore
   readonly onMirrorError?: (sessionId: string) => void
   activate?(): void
@@ -984,9 +987,17 @@ export function createSdkBackend({
           }
           if (active) prepared?.activate?.()
           const sdk = sdkOptions(
-            { ...options, ...(prepared === undefined ? {} : { env: {}, model: prepared.model ?? options.model }), log },
+            {
+              ...options,
+              ...(prepared === undefined ? {} : { env: {}, model: prepared.model ?? options.model }),
+              systemPromptAppend: [options.systemPromptAppend, prepared?.subagentInstructions]
+                .filter(Boolean)
+                .join('\n\n'),
+              log,
+            },
             { ...(prepared?.env ?? resolved), ...clientAppEnv(version) },
           )
+          if (prepared?.agents !== undefined) sdk.agents = prepared.agents
           if (prepared?.sessionStore !== undefined) {
             sdk.sessionStore = prepared.sessionStore
             sdk.sessionStoreFlush = 'eager'
@@ -1034,6 +1045,9 @@ export function createSdkBackend({
         void queue.catch(() => undefined)
       }
       return {
+        get contextWindowTokens() {
+          return prepared?.contextWindowTokens
+        },
         async ready() {
           await (await started).initializationResult()
         },

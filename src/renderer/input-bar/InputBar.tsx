@@ -4,7 +4,6 @@ import { faArrowUp } from '@fortawesome/free-solid-svg-icons'
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type ClipboardEvent,
@@ -662,16 +661,6 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
       : {}),
   }))
   const efforts = effortsOf(models, task.model)
-  const childChoices = useMemo(
-    () => [
-      { id: '', name: 'Same as task' },
-      ...modelOptions(
-        models.filter(({ id }) => agentSource(id) === agentSource(task.model)),
-        task.subagentModel ?? task.model,
-      ),
-    ],
-    [models, task.model, task.subagentModel],
-  )
 
   /** Changes the model, and the effort with it when the new model doesn't support the task's, saying so. */
   const changeModel = async (model: string): Promise<void> => {
@@ -741,22 +730,6 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
           selectedId={selectedModel}
           onChoose={(model) => {
             if (model !== selectedModel) void changeModel(model)
-          }}
-        />
-        <SettingPicker
-          label="Subagents"
-          value={
-            changing === 'subagent model'
-              ? 'Switching…'
-              : task.subagentModel == null
-                ? 'Same as task'
-                : modelLabel(models, task.subagentModel, 0)
-          }
-          options={childChoices}
-          disabled={changing !== null || working || task.asking || task.awaitingPermission || task.backgroundWork}
-          selectedId={task.subagentModel ?? ''}
-          onChoose={(id) => {
-            void change('subagent model', { subagentModel: id === '' ? null : id })
           }}
         />
         {efforts.length > 0 && (

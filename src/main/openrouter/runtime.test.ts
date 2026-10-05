@@ -82,7 +82,8 @@ it('isolates route credentials, aliases and configuration, preserving the task t
     ANTHROPIC_BASE_URL: 'http://127.0.0.1:1234',
     ANTHROPIC_AUTH_TOKEN: 'temporary-token',
     ANTHROPIC_MODEL: openRouterSdkModel(SAMPLE_CHOICE.id),
-    CLAUDE_CODE_SUBAGENT_MODEL: openRouterSdkModel(SAMPLE_CHOICE.id),
+    CLAUDE_CODE_SUBAGENT_MODEL: '',
+    CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '',
     CLAUDE_CONFIG_DIR: join(dir, 'openrouter-sdk'),
     CLAUDE_CODE_MAX_CONTEXT_TOKENS: '128000',
     GLADE_CONTROL_URL: inherited.GLADE_CONTROL_URL,
@@ -104,36 +105,50 @@ it('isolates route credentials, aliases and configuration, preserving the task t
   expect(relayClose).toHaveBeenCalled()
 })
 
-it('allows a distinct native child only within OpenRouter and pins helper aliases to that child', async () => {
+it('allows all enabled OpenRouter models for per-dispatch selection while helper aliases keep the parent route', async () => {
   const child = {
     ...SAMPLE_CHOICE,
     id: 'openrouter:sample/small@sample-host',
     model: { ...SAMPLE_MODEL, id: 'sample/small', contextLength: 64_000 },
   }
   setOpenRouterChoice(database.db, child)
+  const disabled = {
+    ...child,
+    id: 'openrouter:sample/disabled@sample-host',
+    model: { ...child.model, contextLength: 16_000 },
+    enabled: false,
+  }
+  setOpenRouterChoice(database.db, disabled)
   vi.spyOn(service, 'endpoints').mockResolvedValue([SAMPLE_PROVIDER])
   const prepared = await openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() }).prepare(
-    { ...options, subagentModel: child.id },
+    options,
     inherited,
   )
   expect(prepared.env).toMatchObject({
-    CLAUDE_CODE_SUBAGENT_MODEL: openRouterSdkModel(child.id),
-    ANTHROPIC_DEFAULT_HAIKU_MODEL: openRouterSdkModel(child.id),
+    CLAUDE_CODE_SUBAGENT_MODEL: '',
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: openRouterSdkModel(SAMPLE_CHOICE.id),
     CLAUDE_CODE_MAX_CONTEXT_TOKENS: '64000',
   })
   expect(vi.mocked(createOpenRouterRelay).mock.calls.at(-1)?.[0].choices).toEqual([SAMPLE_CHOICE, child])
+  expect(Object.keys(prepared.agents ?? {})).toEqual([
+    openRouterSdkModel(SAMPLE_CHOICE.id),
+    openRouterSdkModel(child.id),
+  ])
+  for (const choice of [SAMPLE_CHOICE, child])
+    expect(prepared.agents?.[openRouterSdkModel(choice.id)]?.model).toBe(openRouterSdkModel(choice.id))
+  expect(prepared.agents?.[openRouterSdkModel(child.id)]?.description).toContain('64000 tokens')
+  expect(prepared.subagentInstructions).toContain('Choose the model for each subagent')
   expect(vi.spyOn(service, 'endpoints')).not.toHaveBeenCalled()
 })
 
 it('keeps account configuration and login intact without passing an OpenRouter key to account agents', async () => {
   const prepared = await openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() }).prepare(
-    { ...options, model: 'claude-sonnet-5', subagentModel: 'claude-haiku-4-5' },
+    { ...options, model: 'claude-sonnet-5' },
     inherited,
   )
   expect(prepared.env).toMatchObject({
     CLAUDE_CONFIG_DIR: inherited.CLAUDE_CONFIG_DIR,
     CLAUDE_CODE_OAUTH_TOKEN: 'account-token',
-    CLAUDE_CODE_SUBAGENT_MODEL: 'claude-haiku-4-5',
   })
   expect(prepared.env.OPENROUTER_API_KEY).toBe('')
   expect(prepared.publishModels).toBe(true)
@@ -304,13 +319,10 @@ it('serializes imports for one task while keeping incomplete copies out of ordin
   await first
 })
 
-it('refuses missing, disabled and missing-child routes before spawning an SDK process', async () => {
+it('refuses missing and disabled parent routes before spawning an SDK process', async () => {
   const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
   await expect(runtime.prepare({ ...options, model: 'openrouter:missing' }, inherited)).rejects.toThrow('Enable this')
   setOpenRouterChoice(database.db, { ...SAMPLE_CHOICE, enabled: false })
   await expect(runtime.prepare(options, inherited)).rejects.toThrow('Enable this')
   setOpenRouterChoice(database.db, SAMPLE_CHOICE)
-  await expect(runtime.prepare({ ...options, subagentModel: 'openrouter:missing' }, inherited)).rejects.toThrow(
-    'Enable this',
-  )
 })

@@ -5,7 +5,6 @@ export const openRouterMigration: Migration = {
   name: 'Keep encrypted OpenRouter credentials, curated routes and SDK transcripts',
   up(db) {
     db.exec(`
-      ALTER TABLE tasks ADD COLUMN subagent_model TEXT;
       CREATE TABLE openrouter_connection (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         encrypted_key BLOB NOT NULL,

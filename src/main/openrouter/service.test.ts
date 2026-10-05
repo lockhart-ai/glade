@@ -37,31 +37,17 @@ it('restores a usable New task default when a default route is disabled or the k
   await service.select({ model: SAMPLE_MODEL.id, provider: SAMPLE_PROVIDER.id, enabled: true })
   const workspace = sampleWorkspace(database.db)
   const context = { db: database.db, emit: (event: GladeEvent) => events.push(event) }
-  updateSettings(database.db, { defaultModel: SAMPLE_CHOICE.id, defaultSubagentModel: SAMPLE_CHOICE.id })
+  updateSettings(database.db, { defaultModel: SAMPLE_CHOICE.id })
   await service.select({ model: SAMPLE_MODEL.id, provider: SAMPLE_PROVIDER.id, enabled: false })
   expect(getSettings(database.db)).toMatchObject({
     defaultModel: DEFAULT_SETTINGS.defaultModel,
-    defaultSubagentModel: null,
   })
   expect(createTask(context, workspace.id).model).toBe(DEFAULT_SETTINGS.defaultModel)
   await service.select({ model: SAMPLE_MODEL.id, provider: SAMPLE_PROVIDER.id, enabled: true })
-  updateSettings(database.db, { defaultModel: SAMPLE_CHOICE.id, defaultSubagentModel: SAMPLE_CHOICE.id })
+  updateSettings(database.db, { defaultModel: SAMPLE_CHOICE.id })
   service.remove()
   expect(createTask(context, workspace.id).model).toBe(DEFAULT_SETTINGS.defaultModel)
   expect(events.some((event) => event.type === EventType.SettingsChanged)).toBe(true)
-})
-
-it('clears only a disabled child default while keeping an enabled parent', async () => {
-  await service.connect('key')
-  const child = {
-    ...SAMPLE_CHOICE,
-    id: 'openrouter:sample/child@sample-host',
-    model: { ...SAMPLE_MODEL, id: 'sample/child' },
-  }
-  setOpenRouterChoice(database.db, child)
-  updateSettings(database.db, { defaultModel: child.id, defaultSubagentModel: SAMPLE_CHOICE.id })
-  await service.select({ model: SAMPLE_MODEL.id, provider: SAMPLE_PROVIDER.id, enabled: false })
-  expect(getSettings(database.db)).toMatchObject({ defaultModel: child.id, defaultSubagentModel: null })
 })
 
 it('persists key usage, coalesces concurrent reads, throttles completions and preserves a stale reading on failure', async () => {

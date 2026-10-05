@@ -159,13 +159,10 @@ export class OpenRouterService {
     const available = new Set(listModels(db).map(({ id }) => id))
     const parentGone =
       agentSource(settings.defaultModel) === AgentSource.OpenRouter && !available.has(settings.defaultModel)
-    const childGone = settings.defaultSubagentModel !== null && !available.has(settings.defaultSubagentModel)
-    if (!parentGone && !childGone) return
+    if (!parentGone) return
     const updated = updateSettings(db, {
-      ...(parentGone
-        ? { defaultModel: DEFAULT_SETTINGS.defaultModel, defaultEffort: DEFAULT_SETTINGS.defaultEffort }
-        : {}),
-      defaultSubagentModel: null,
+      defaultModel: DEFAULT_SETTINGS.defaultModel,
+      defaultEffort: DEFAULT_SETTINGS.defaultEffort,
     })
     this.options.emit({ type: EventType.SettingsChanged, settings: updated })
   }

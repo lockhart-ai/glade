@@ -32,7 +32,6 @@ import { sandboxAskSchema } from '../../permissions/schema'
 import { Row, RowError } from './rows'
 
 export interface NewTask {
-  readonly subagentModel?: string | null
   /** A new id unless given (a sample fixture's fixed one). */
   readonly id?: string
   readonly workspaceId: string
@@ -49,7 +48,6 @@ export interface NewTask {
 
 /** The fields `updateTask` can change; the ones left out keep their value. */
 export interface TaskPatch {
-  readonly subagentModel?: string | null
   readonly title?: string
   readonly objective?: string
   readonly status?: string
@@ -87,7 +85,7 @@ export interface TaskPatch {
 
 const COLUMNS = `id, workspace_id, title, objective, status, status_updated_at, state, activity, pinned, unread, model,
   effort, permission_mode, created_at, updated_at, done_at, session_id, context_used_tokens, context_window_tokens, error,
-  retrying, pause, imported_at, todos, auto_compact, subagent_model`
+  retrying, pause, imported_at, todos, auto_compact`
 
 /** The tools that start a subagent, as SQL string literals. */
 const SUBAGENT_NAMES = SUBAGENT_TOOL_NAMES.map((name) => `'${name}'`).join(', ')
@@ -213,7 +211,6 @@ function parseTask(db: Database, raw: unknown): Task {
     unread: row.flag('unread'),
     model,
     ...(modelName === null ? {} : { modelName }),
-    ...(row.nullableText('subagent_model') === null ? {} : { subagentModel: row.text('subagent_model') }),
     effort: row.oneOf('effort', EFFORTS),
     permissionMode: row.oneOf('permission_mode', PERMISSION_MODES),
     createdAt: row.integer('created_at'),
@@ -242,7 +239,6 @@ function parseTask(db: Database, raw: unknown): Task {
 function toParams(task: Task): Record<string, string | number | null> {
   return {
     ...task,
-    subagentModel: task.subagentModel ?? null,
     asking: task.asking ? 1 : 0,
     awaitingPermission: task.awaitingPermission ? 1 : 0,
     permissionAsk: null,
@@ -272,7 +268,6 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     pinned: false,
     unread: false,
     model: input.model,
-    ...(input.subagentModel == null ? {} : { subagentModel: input.subagentModel }),
     effort: input.effort,
     permissionMode: input.permissionMode ?? PermissionMode.AllowAll,
     createdAt: now,
@@ -280,7 +275,7 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     doneAt: null,
     sessionId: null,
     contextUsedTokens: 0,
-    contextWindowTokens: taskModelWindow(db, input.model, input.subagentModel),
+    contextWindowTokens: taskModelWindow(db, input.model),
     error: null,
     retrying: null,
     asking: false,
@@ -295,7 +290,7 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
   db.prepare(
     `INSERT INTO tasks (${COLUMNS}) VALUES (@id, @workspaceId, @title, @objective, @status, @statusUpdatedAt, @state,
       @activity, @pinned, @unread, @model, @effort, @permissionMode, @createdAt, @updatedAt, @doneAt, @sessionId,
-      @contextUsedTokens, @contextWindowTokens, @error, @retrying, @pause, @importedAt, @todos, @autoCompact, @subagentModel)`,
+      @contextUsedTokens, @contextWindowTokens, @error, @retrying, @pause, @importedAt, @todos, @autoCompact)`,
   ).run(toParams(task))
   return task
 }
@@ -461,10 +456,7 @@ function contextAfter(
   model: string,
   patch: TaskPatch,
 ): [window: number, autoCompact: AutoCompact | null] {
-  const child = patch.subagentModel === undefined ? current.subagentModel : patch.subagentModel
-  const childChanged = (child ?? null) !== (current.subagentModel ?? null)
-  const guess =
-    model === current.model && !childChanged ? current.contextWindowTokens : taskModelWindow(db, model, child)
+  const guess = model === current.model ? current.contextWindowTokens : taskModelWindow(db, model)
   const kept = guess === current.contextWindowTokens || sameModel(offeredModels(db), model, current.model)
   const window = patch.contextWindowTokens ?? (kept ? current.contextWindowTokens : guess)
   return [window, patch.autoCompact ?? (kept ? current.autoCompact : null)]
@@ -494,7 +486,6 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
     pinned: patch.pinned ?? current.pinned,
     unread: patch.unread ?? current.unread,
     model,
-    ...(patch.subagentModel === undefined ? {} : { subagentModel: patch.subagentModel }),
     effort: patch.effort ?? current.effort,
     permissionMode: patch.permissionMode ?? current.permissionMode,
     updatedAt: patch.updatedAt ?? (onlyUnread(patch) ? current.updatedAt : now),
@@ -512,7 +503,7 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
       state = @state, activity = @activity, pinned = @pinned, unread = @unread, model = @model, effort = @effort,
       permission_mode = @permissionMode, updated_at = @updatedAt, done_at = @doneAt, session_id = @sessionId, context_used_tokens = @contextUsedTokens,
       context_window_tokens = @contextWindowTokens, auto_compact = @autoCompact, error = @error, retrying = @retrying,
-      pause = @pause, subagent_model = @subagentModel
+      pause = @pause
     WHERE id = @id`,
   ).run(toParams(updated))
   return updated

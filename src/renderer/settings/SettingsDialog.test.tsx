@@ -62,17 +62,11 @@ function dialog(): HTMLElement {
 }
 
 describe('SettingsDialog', () => {
-  it('opens model curation and saves a native subagent default', async () => {
-    const { invoke } = await renderSettings(SettingsSection.Models)
+  it('opens model curation without a blanket subagent default', async () => {
+    await renderSettings(SettingsSection.Models)
     expect(screen.getByLabelText('OpenRouter API key')).toHaveAttribute('type', 'password')
     fireEvent.click(screen.getByRole('button', { name: 'Agent' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Subagents: Same as task' }))
-    await settleFloating()
-    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Haiku 4.5' }))
-    await act(async () => {
-      await Promise.resolve()
-    })
-    expect(settingsUpdates(invoke)).toContainEqual({ patch: { defaultSubagentModel: 'claude-haiku-4-5' } })
+    expect(screen.queryByRole('button', { name: /^Subagents:/ })).not.toBeInTheDocument()
   })
   it('shows nothing until Settings is opened', async () => {
     await renderSettings(null)

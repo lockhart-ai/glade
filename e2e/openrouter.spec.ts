@@ -79,13 +79,11 @@ test('curates an OpenRouter route, monitors key usage and preserves Glade chat a
   await switching.release()
   await expect(bar.setting('Model')).toHaveAccessibleName('Model: Sample Flash · Sample Host')
   await expect(bar.field).toHaveValue('Keep this draft during the switch.')
-  await bar.setting('Subagents').click()
-  await bar.option('Sample Flash · Sample Host').click()
-  await expect(bar.setting('Subagents')).toHaveAccessibleName('Subagents: Sample Flash · Sample Host')
+  await expect(bar.setting('Subagents')).toHaveCount(0)
   await resize(glade, MIN_WINDOW.width, MIN_WINDOW.height)
   const row = regions(window).inputBar.getByTestId('context-meter-slot').locator('..')
   expect(await row.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
-  for (const name of ['Model', 'Subagents', 'Permissions'] as const) {
+  for (const name of ['Model', 'Permissions'] as const) {
     await expect(bar.setting(name)).toBeInViewport({ ratio: 1 })
   }
   if (media !== undefined) await regions(window).inputBar.screenshot({ path: join(media, 'narrow-model-pickers.png') })
@@ -94,9 +92,6 @@ test('curates an OpenRouter route, monitors key usage and preserves Glade chat a
   await taskPanel(window).tab('Agents').click()
   await expect(taskPanel(window).log).toContainText('Switched model to Sample Flash · Sample Host (OpenRouter)')
   if (media !== undefined) await regions(window).task.screenshot({ path: join(media, 'task-model-switch.png') })
-  await bar.setting('Subagents').click()
-  await expect(bar.options('Subagents')).toHaveText(['Same as task', 'Sample Flash · Sample Host'])
-  await bar.option('Same as task').click()
   await bar.field.fill('Continue with the same context.')
   await bar.field.press('Enter')
   await expect(chat(window).agentReplies).toHaveCount(2)

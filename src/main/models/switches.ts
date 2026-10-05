@@ -62,13 +62,3 @@ export function completeModelSwitch(db: Database, taskId: string, model: string,
     return event
   })()
 }
-
-export function validateSubagentModel(db: Database, parent: string, child: string | null | undefined): void {
-  if (child == null) return
-  validateModel(db, child)
-  if (agentSource(parent) !== agentSource(child))
-    throw new CommandFailure(
-      BridgeErrorCode.InvalidRequest,
-      'Native subagents must use the task’s source. Choose Same as task or a model from that source.',
-    )
-}

@@ -2,13 +2,7 @@ import { afterAll, afterEach, expect, it } from 'vitest'
 import { openTestDatabase, sampleTask, sampleWorkspace } from '../db/repositories/test-database'
 import { setOpenRouterChoice, setOpenRouterConnection } from '../db/repositories/openrouter'
 import { SAMPLE_CHOICE, SAMPLE_MODEL, SAMPLE_PROVIDER } from '../../shared/test-openrouter'
-import {
-  completeModelSwitch,
-  pendingModelSwitch,
-  stageModelSwitch,
-  validateModel,
-  validateSubagentModel,
-} from './switches'
+import { completeModelSwitch, pendingModelSwitch, stageModelSwitch, validateModel } from './switches'
 
 const database = openTestDatabase()
 afterAll(() => {
@@ -49,7 +43,7 @@ it('coalesces pending changes, removes a cancelled switch, and labels account mo
   expect(pendingModelSwitch(database.db, task.id)).toBeNull()
 })
 
-it('only permits configured OpenRouter choices, and refuses mixed-source native children', () => {
+it('only permits configured OpenRouter choices', () => {
   expect(() => {
     validateModel(database.db, 'claude-sonnet-5')
   }).not.toThrow()
@@ -68,15 +62,6 @@ it('only permits configured OpenRouter choices, and refuses mixed-source native 
   expect(() => {
     validateModel(database.db, SAMPLE_CHOICE.id)
   }).not.toThrow()
-  expect(() => {
-    validateSubagentModel(database.db, SAMPLE_CHOICE.id, null)
-  }).not.toThrow()
-  expect(() => {
-    validateSubagentModel(database.db, SAMPLE_CHOICE.id, SAMPLE_CHOICE.id)
-  }).not.toThrow()
-  expect(() => {
-    validateSubagentModel(database.db, 'claude-sonnet-5', SAMPLE_CHOICE.id)
-  }).toThrow('must use the task’s source')
   setOpenRouterChoice(database.db, { ...SAMPLE_CHOICE, enabled: false })
   expect(() => {
     validateModel(database.db, SAMPLE_CHOICE.id)

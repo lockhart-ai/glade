@@ -9,7 +9,6 @@ import { DEFAULT_CONTROL_PORT } from './control'
 import { BUILT_IN_MODELS } from './models'
 
 export interface Settings {
-  readonly defaultSubagentModel: string | null
   /** The model a new task starts with, as the SDK names it. Each task can change its own from its input bar. */
   readonly defaultModel: string
   /** The effort a new task starts with. */
@@ -62,7 +61,6 @@ export type SettingsPatch = Partial<Settings>
  * last PR (#452) turns it on, running agents outside the sandbox.
  */
 export const DEFAULT_SETTINGS: Settings = {
-  defaultSubagentModel: null,
   defaultModel: BUILT_IN_MODELS[0].id,
   defaultEffort: Effort.High,
   defaultPermissionMode: PermissionMode.AllowAll,

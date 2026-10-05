@@ -382,7 +382,6 @@ export interface SandboxFlagSettings {
 /** How to start one task's agent session. */
 export interface AgentSessionOptions extends AgentSessionSettings {
   readonly taskId?: string
-  readonly subagentModel?: string | null
   /** A handoff candidate must not adopt its imported transcript until the runner commits the selection. */
   readonly provisional?: boolean
   /** The folder the agent runs in: the workspace's root. */
@@ -430,6 +429,8 @@ export interface AgentSessionOptions extends AgentSessionSettings {
  * session's whole life, across turns. It finishes when the session is closed and throws if the agent process fails.
  */
 export interface AgentSession {
+  /** The context limit this process was prepared with, when its inference route supplies one. */
+  readonly contextWindowTokens?: number
   /** Initialization and transcript loading completed, before a source handoff commits. */
   ready?(): Promise<void>
   /** Commit a prepared handoff's transcript ownership. */

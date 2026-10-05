@@ -73,7 +73,7 @@ import type { Batch } from './dispatcher'
 import type { Emit } from './events'
 import type { OpenRouterService } from '../openrouter/service'
 import { openRouterStatus, openRouterUsage } from '../db/repositories/openrouter'
-import { validateModel, validateSubagentModel } from '../models/switches'
+import { validateModel } from '../models/switches'
 import type { ControlEndpoint } from '../control/endpoint'
 import type { AccountTracker } from '../account/account'
 import { retryLoggedOutTasks, type LoginService } from '../account/login'
@@ -224,12 +224,11 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.TasksUpdate]: async ({ id, patch }) => {
       const task = requireTask(db, id)
       const routing =
-        patch.subagentModel !== undefined ||
-        (patch.model !== undefined &&
-          (agentSource(task.model) === AgentSource.OpenRouter || agentSource(patch.model) === AgentSource.OpenRouter))
-      if (routing) await runner.changeModel(id, patch.model ?? task.model, patch.subagentModel)
+        patch.model !== undefined &&
+        (agentSource(task.model) === AgentSource.OpenRouter || agentSource(patch.model) === AgentSource.OpenRouter)
+      if (routing) await runner.changeModel(id, patch.model)
       return {
-        task: changeTask(context, id, routing ? { ...patch, model: undefined, subagentModel: undefined } : patch),
+        task: changeTask(context, id, routing ? { ...patch, model: undefined } : patch),
       }
     },
     [CommandName.TasksDelete]: ({ id }) => {
@@ -441,18 +440,10 @@ export function createHandlers(context: HandlerContext): Handlers {
       const { defaultModel, defaultEffort } = patch
       if (defaultModel !== undefined) validateModel(db, defaultModel)
       const current = getSettings(db)
-      const child =
-        patch.defaultSubagentModel === undefined
-          ? defaultModel === undefined || defaultModel === current.defaultModel
-            ? current.defaultSubagentModel
-            : null
-          : patch.defaultSubagentModel
-      validateSubagentModel(db, defaultModel ?? current.defaultModel, child)
       const effort = effortWithModel(db, defaultModel, defaultEffort, current.defaultEffort)
       const settings = updateSettings(db, {
         ...patch,
         ...(effort === undefined ? {} : { defaultEffort: effort }),
-        defaultSubagentModel: child,
       })
       emit({ type: EventType.SettingsChanged, settings })
       // The endpoint follows the switch and the port: answered once it has started, stopped or moved.

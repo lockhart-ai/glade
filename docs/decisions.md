@@ -15,7 +15,9 @@
   third-party app (see `sdk-notes.md` §1 and Open risks).
 - **OpenRouter inference (#551, Jared, Oct 5):** keep the SDK harness and add an optional inference key, encrypted
   with Electron `safeStorage` in SQLite. Claude login remains active. Discover and curate model/provider pairs in
-  Settings; task and same-source subagent pickers use those pairs. A loopback relay pins the provider without fallback.
+  Settings; task pickers use those pairs. The parent chooses a model for each native subagent dispatch, with no
+  blanket subagent picker or saved default. OpenRouter supplies named SDK definitions for enabled routes. A
+  loopback relay pins the provider without fallback.
   Ordinary Claude tasks keep SDK transcript files; tasks that use OpenRouter opt into the SDK's alpha transcript
   store for cross-source history, retained until task deletion. A model switch keeps history and adds an Agents/Main
   log entry. Native children share their parent's source. OpenRouter uses separate user configuration and memory;

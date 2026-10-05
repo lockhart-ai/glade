@@ -59,7 +59,7 @@ interface Setup {
 
 type Rendered = FakeBridge & { store: GladeStore }
 
-it('groups billing sources and offers native children only within the task source', async () => {
+it('groups task billing sources without a blanket subagent picker', async () => {
   const model: ModelChoice = {
     id: SAMPLE_CHOICE.id,
     name: 'Sample Flash · Sample Host',
@@ -68,21 +68,14 @@ it('groups billing sources and offers native children only within the task sourc
     efforts: [],
     source: AgentSource.OpenRouter,
   }
-  const { invoke } = await renderBar({ models: [...SDK_MODELS, model], task: { model: SAMPLE_CHOICE.id } })
+  await renderBar({ models: [...SDK_MODELS, model], task: { model: SAMPLE_CHOICE.id } })
   fireEvent.click(screen.getByRole('button', { name: 'Model: Sample Flash · Sample Host' }))
   await settleFloating()
   expect(screen.getByText('Anthropic account')).toBeInTheDocument()
   expect(screen.getByText('OpenRouter')).toBeInTheDocument()
   fireEvent.keyDown(screen.getByRole('menu', { name: 'Model' }), { key: 'Escape' })
   await settleFloating()
-  fireEvent.click(screen.getByRole('button', { name: 'Subagents: Same as task' }))
-  await settleFloating()
-  expect(screen.queryByRole('menuitemradio', { name: 'Haiku' })).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('menuitemradio', { name: model.name }))
-  await act(async () => {
-    await Promise.resolve()
-  })
-  expect(invoke).toHaveBeenCalledWith(CommandName.TasksUpdate, { id: 't1', patch: { subagentModel: model.id } })
+  expect(screen.queryByRole('button', { name: /^Subagents:/ })).not.toBeInTheDocument()
 })
 
 it('shows a pending model switch, preserves typed input and restores the picker after a refused handoff', async () => {
@@ -100,7 +93,6 @@ it('shows a pending model switch, preserves typed input and restores the picker 
   await settleFloating()
   fireEvent.click(screen.getByRole('menuitemradio', { name: 'Haiku 4.5' }))
   expect(await screen.findByRole('button', { name: 'Model: Switching…' })).toBeDisabled()
-  expect(screen.getByRole('button', { name: /^Subagents:/ })).toBeDisabled()
   expect(screen.getByRole('button', { name: /^Permissions:/ })).toBeDisabled()
   expect(sendButton()).toBeDisabled()
   act(() => {

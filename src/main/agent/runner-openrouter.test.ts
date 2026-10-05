@@ -408,7 +408,6 @@ it('rejects unsafe, unavailable and mixed-source switches; first-turn selection 
     code: BridgeErrorCode.NotFound,
   })
   expect((await runner.changeModel(task.id, task.model)).model).toBe(task.model)
-  await expect(runner.changeModel(task.id, task.model, SAMPLE_CHOICE.id)).rejects.toThrow('must use')
   expect((await runner.changeModel(task.id, SAMPLE_CHOICE.id)).model).toBe(SAMPLE_CHOICE.id)
   expect(backend.sessions).toHaveLength(0)
   await runner.changeModel(task.id, 'claude-sonnet-5')
@@ -417,30 +416,6 @@ it('rejects unsafe, unavailable and mixed-source switches; first-turn selection 
   expect(() => runner.retry(task.id, SAMPLE_CHOICE.id)).toThrow('Select the new model')
   setOpenRouterChoice(database.db, { ...SAMPLE_CHOICE, enabled: false })
   await expect(runner.changeModel(task.id, SAMPLE_CHOICE.id)).rejects.toThrow('Enable this')
-})
-
-it('restarts at a safe boundary for a same-source child model and delivers waiting queued input after readiness', async () => {
-  await previousTurn()
-  const old = backend.session
-  let ready: () => void = () => undefined
-  backend.onSessionStart = (session) => {
-    Object.assign(session, {
-      ready: () =>
-        new Promise<void>((resolve) => {
-          ready = resolve
-        }),
-    })
-  }
-  const switching = runner.changeModel(task.id, task.model, 'claude-haiku-4-5')
-  await settle()
-  runner.queue(task.id, 'Continue in the saved context.')
-  expect(backend.session.sent).toHaveLength(0)
-  ready()
-  await switching
-  expect(old.closed).toBe(true)
-  expect(backend.session.options.subagentModel).toBe('claude-haiku-4-5')
-  expect(backend.session.sent.at(-1)?.text).toContain('Continue in the saved context.')
-  expect(listQueuedMessages(database.db, task.id)).toHaveLength(0)
 })
 
 it('ignores OpenRouter account readings, rate limits, fake SDK windows and list-price cost', async () => {
@@ -464,15 +439,19 @@ it('ignores OpenRouter account readings, rate limits, fake SDK windows and list-
   expect(getTask(database.db, task.id)?.contextWindowTokens).toBe(SAMPLE_MODEL.contextLength)
 })
 
-it('shows the SDK’s smaller child window before the first turn and after a result with a guessed parent window', async () => {
+it('keeps the prepared child limit when the catalog changes and ignores guessed SDK context windows', async () => {
   const child = {
     ...SAMPLE_CHOICE,
     id: 'openrouter:sample/small@sample-host',
     model: { ...SAMPLE_MODEL, id: 'sample/small', contextLength: 64_000 },
   }
   setOpenRouterChoice(database.db, child)
-  expect((await runner.changeModel(task.id, SAMPLE_CHOICE.id, child.id)).contextWindowTokens).toBe(64_000)
+  expect((await runner.changeModel(task.id, SAMPLE_CHOICE.id)).contextWindowTokens).toBe(64_000)
+  backend.onSessionStart = (session) => {
+    Object.assign(session, { contextWindowTokens: 64_000 })
+  }
   runner.send(task.id, 'Echo')
+  setOpenRouterChoice(database.db, { ...child, enabled: false })
   backend.session.emit(sdk.init())
   backend.session.emit(sdk.result('Echo', { modelUsage: { [SAMPLE_CHOICE.id]: { contextWindow: 1_000_000 } } }))
   await settle()

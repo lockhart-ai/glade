@@ -339,7 +339,6 @@ export interface TaskIdRequest {
  * not this command; the state changes only through `tasks.markDone` and `tasks.reopen`.
  */
 export interface TaskUserPatch {
-  readonly subagentModel?: string | null
   readonly title?: string
   readonly pinned?: boolean
   readonly unread?: boolean

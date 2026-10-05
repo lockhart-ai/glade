@@ -56,6 +56,32 @@ async function post(relay: OpenRouterRelay, body: unknown): Promise<Response> {
   })
 }
 
+it('routes separate child dispatches to their own enabled model/provider pairs without changing the parent route', async () => {
+  const child = {
+    ...SAMPLE_CHOICE,
+    id: 'openrouter:sample/small@other-host',
+    model: { ...SAMPLE_CHOICE.model, id: 'sample/small' },
+    provider: { id: 'other-host', name: 'Other Host' },
+  }
+  const request = vi.fn<typeof fetch>().mockResolvedValue(new Response('Echo'))
+  const relay = await createOpenRouterRelay({ choices: [SAMPLE_CHOICE, child], key: () => 'key', request })
+  relays.push(relay)
+  for (const choice of [child, SAMPLE_CHOICE, child]) {
+    // A new Response per call keeps the mock response's body readable.
+    request.mockResolvedValueOnce(new Response('Echo'))
+    expect(await (await post(relay, { model: openRouterSdkModel(choice.id) })).text()).toBe('Echo')
+    const body = z
+      .record(z.string(), z.unknown())
+      .parse(JSON.parse(z.string().parse(request.mock.calls.at(-1)?.[1]?.body)))
+    expect(body).toMatchObject({
+      model: choice.model.id,
+      provider: { only: [choice.provider.id], allow_fallbacks: false },
+    })
+  }
+  expect((await post(relay, { model: 'openrouter:sample/not-enabled@other-host' })).status).toBe(400)
+  expect(request).toHaveBeenCalledTimes(3)
+})
+
 it('pins models and hosting providers, preserves tool/history payloads, normalizes thinking and streams without inspecting each SSE frame', async () => {
   const sse =
     'event: message_start\ndata: {"type":"message_start","message":{"id":"gen-sample"}}\n\ndata: {"id":"gen-sample"}\n\ndata: {"id":"tool-call"}\n\ndata: {}\n\ndata: [DONE]\n\n'

@@ -4,6 +4,16 @@ The app gives the agent a small set of tools so the model can drive the UI. Expo
 in-process MCP server (e.g. `createSdkMcpServer`). Names and schemas are a **draft** — confirm with Jared before
 freezing them.
 
+## Choosing subagent models
+
+The parent chooses a model when dispatching each native SDK subagent. Glade supplies no blanket subagent picker or
+saved default. Claude-account tasks keep native Claude model selection. OpenRouter tasks register one named SDK
+agent definition per enabled model/provider pair; its description gives the model name, selected provider,
+context window and indicative API prices. Select that definition with `Agent.subagent_type` and omit `model`,
+whose SDK schema accepts Claude aliases rather than arbitrary OpenRouter IDs. Built-in types and helper calls use
+the parent’s OpenRouter route. Provider routing stays fixed by Settings, and native children use the parent’s
+connection. Different Glade tasks can use different connections concurrently.
+
 ## Main agent only (#366)
 
 Jared only ever talks to a task's main agent, never its subagents, so both of Glade's own in-process MCP servers —

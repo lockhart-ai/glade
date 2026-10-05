@@ -160,7 +160,6 @@ const tasksUpdateRequest = z.strictObject({
     pinned: z.boolean().optional(),
     unread: z.boolean().optional(),
     model: z.string().min(1).optional(),
-    subagentModel: z.string().min(1).nullable().optional(),
     effort: z.enum(Effort).optional(),
     permissionMode: z.enum(PermissionMode).optional(),
   }),
