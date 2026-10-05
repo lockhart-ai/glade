@@ -75,7 +75,7 @@ test('links: open in the browser from a reply, the header, the tool log and todo
 
   // A working note and a command's output in the tool log.
   const panel = taskPanel(window)
-  await panel.tab(/^Tool calls/).click()
+  await panel.tab(/^Agents/).click()
   await panel.log.getByRole('paragraph').filter({ hasText: 'Checking what' }).getByRole('link').click()
   await panel.call(/Bash/).click()
   await panel.log.getByLabel('Bash output').getByRole('link', { name: 'https://example.com/docs/health' }).click()

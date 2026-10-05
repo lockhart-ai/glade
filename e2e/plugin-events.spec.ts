@@ -8,7 +8,7 @@ import { PluginEventType, type GladeMessage, type PluginEvent } from '../src/sha
 import { gladeMessageSchema } from '../src/shared/plugin-api-schema'
 import { inPlugin, installFixture } from './fixture-plugin'
 import { expect, test, type Glade } from './fixtures'
-import { chat, firstRun, inputBar, taskHeader, taskList, taskPanel, watchersTab } from './selectors'
+import { agentsTab, chat, firstRun, inputBar, taskHeader, taskList, taskPanel } from './selectors'
 import { invoke } from './task-view'
 
 const EMPTY_SNAPSHOT: PluginEvent = {
@@ -188,22 +188,23 @@ test('a plugin is told how many watchers a task has running as they start, end a
   await expect
     .poll(() => last(first, PluginEventType.TaskUpdated))
     .toMatchObject({ task: { activity: 'waiting', watchers: 2 } })
-  // The same watchers the Watchers tab counts as running.
-  await window.keyboard.press('Meta+Alt+Digit6')
-  await expect(taskPanel(window).tab(/^Watch/)).toHaveAttribute('aria-selected', 'true')
-  const watchers = watchersTab(window)
-  await expect(watchers.tally).toHaveText('2 running2 scheduled1 ended')
+  // The same watchers the Agents tab's eye counts as still going, on Main: the two scheduled among the two running.
+  await window.keyboard.press('Meta+Alt+Digit1')
+  await expect(taskPanel(window).tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
+  const agents = agentsTab(window)
+  await expect(agents.eye('Main')).toHaveText('4')
+  await expect(agents.eye('Main')).toHaveAttribute('data-live', '')
 
   // A reload of the page: the snapshot has the count.
   expect(await readyAgain(first)).toMatchObject({ tasks: [{ title: WATCHES_THINGS.title, watchers: 2 }] })
 
   // Stop the monitor: one fewer, in one event. Stopping the wakeup changes nothing a plugin is told.
-  await watchers.stop(WATCHES_THINGS.ci).click()
-  await expect(watchers.row(WATCHES_THINGS.ci)).toHaveAttribute('data-state', 'stopped')
+  await agents.stopWatcher(WATCHES_THINGS.ci).click()
+  await expect(agents.endedWatcher(WATCHES_THINGS.ci)).toHaveAttribute('data-state', 'stopped')
   await expect.poll(() => watcherCounts(first)).toEqual([1])
-  await watchers.stop(WATCHES_THINGS.rollout).click()
-  await expect(watchers.row(WATCHES_THINGS.rollout)).toHaveAttribute('data-state', 'stopped')
-  await expect(watchers.tally).toHaveText('1 running1 scheduled3 ended')
+  await agents.stopWatcher(WATCHES_THINGS.rollout).click()
+  await expect(agents.endedWatcher(WATCHES_THINGS.rollout)).toHaveAttribute('data-state', 'stopped')
+  await expect(agents.eye('Main')).toHaveText('2')
   expect((await received(first)).filter(({ type }) => type === PluginEventType.TaskUpdated)).toHaveLength(1)
 
   // Nothing of a watcher but the count reached the plugin: not its command, what it reported, how it ended, its

@@ -5,17 +5,7 @@ import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { desktop, expect, test, type Glade } from './fixtures'
-import {
-  artifactsTab,
-  chat,
-  contextMenu,
-  filesTab,
-  firstRun,
-  inputBar,
-  subagentsTab,
-  taskList,
-  taskPanel,
-} from './selectors'
+import { agentsTab, chat, contextMenu, filesTab, firstRun, inputBar, taskList, taskPanel, todoHub } from './selectors'
 
 /** Opens the workspace at `root`, starts a task and sends it `message`. */
 async function startTask(window: Page, message: string): Promise<void> {
@@ -70,13 +60,13 @@ test('context menus: copy and quote an agent reply, act on tool calls, file tabs
   await expect(bar.field).toBeFocused()
   await bar.field.fill('')
 
-  // Show this turn's tool calls opens the Tool calls tab, from any other.
+  // Show this turn's tool calls opens the Agents tab, from any other.
   const panel = taskPanel(window)
   await panel.tab('Todos').click()
   await agentReplies.first().focus()
   await window.keyboard.press('Shift+F10')
   await replyMenu.item("Show this turn's tool calls").click()
-  await expect(panel.tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
+  await expect(panel.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
 
   // A Bash call's menu copies its command and its output; a Read call's opens its file in the Files tab.
   const callMenu = contextMenu(window, 'Tool call actions')
@@ -111,17 +101,16 @@ test('context menus: copy and quote an agent reply, act on tool calls, file tabs
   await fileMenu.item('Close all').click()
   await expect(files.tab('date.ts')).toHaveCount(0)
 
-  // A subagent's menu opens its log and copies it.
-  const subagents = subagentsTab(window)
+  // A subagent's tab menu copies its log.
+  const agents = agentsTab(window)
   const subagentMenu = contextMenu(window, 'Subagent actions')
-  await panel.tab(/^Subagents/).click()
-  await subagents.header('Find flaky tests').click({ button: 'right' })
-  await expect(subagentMenu.items).toHaveText(['Expand log↵', 'Copy log'])
+  await panel.tab(/^Agents/).click()
+  await agents.tab('Find flaky tests').click({ button: 'right' })
+  await expect(subagentMenu.items).toHaveText(['Copy log'])
   await subagentMenu.item('Copy log').click()
   await expect.poll(async () => (await copied(glade)).at(-1)).toMatch(/^Find flaky tests\nGrep new Date/)
-  await subagents.header('Find flaky tests').click({ button: 'right' })
-  await subagentMenu.item('Expand log').click()
-  await expect(subagents.log('Find flaky tests')).toBeVisible()
+  await agents.tab('Find flaky tests').click()
+  await expect(agents.tab('Find flaky tests')).toHaveAttribute('aria-selected', 'true')
 })
 
 test('context menus: edit and remove a queued message', async ({ launch, tempFolder }) => {
@@ -183,12 +172,15 @@ test('context menus: open, copy, reveal and remove an artifact', async ({ launch
   await startTask(window, 'Draft release notes for 2.4, with a short upgrade guide.')
   await expect(chat(window).agentReplies).toHaveCount(1)
   const panel = taskPanel(window)
-  const artifacts = artifactsTab(window)
-  await panel.tab(/^Artifacts/).click()
-  await expect(artifacts.rows).toHaveCount(2)
+  const hub = todoHub(window)
+  await panel.tab(/^Todos/).click()
+  await expect(hub.cards).toHaveCount(1)
+  const upgradeGuide = hub.tile(hub.cards, 'File: Upgrade guide')
+  const releaseNotes = hub.tile(hub.cards, 'File: Release notes 2.4')
 
   const menu = contextMenu(window, 'Artifact actions')
-  await artifacts.row('Upgrade guide').click({ button: 'right' })
+  await upgradeGuide.hover()
+  await hub.tileAction(upgradeGuide, 'More').click()
   await expect(menu.items).toHaveText([
     'Open↵',
     'Open in editor⌘⇧E',
@@ -199,20 +191,22 @@ test('context menus: open, copy, reveal and remove an artifact', async ({ launch
   ])
   await menu.item('Copy path').click()
   await expect.poll(async () => (await desktop(glade)).copied).toEqual([join(root, 'docs/releases/2.4-upgrade.md')])
-  await artifacts.row('Upgrade guide').click({ button: 'right' })
+  await upgradeGuide.hover()
+  await hub.tileAction(upgradeGuide, 'More').click()
   await menu.item('Reveal in Finder').click()
   await expect
     .poll(async () => (await desktop(glade)).revealed)
     .toEqual([realpathSync(join(root, 'docs', 'releases', '2.4-upgrade.md'))])
 
-  // Remove from artifacts takes the card away; the file stays.
-  await artifacts.row('Upgrade guide').click({ button: 'right' })
+  // Remove from artifacts takes the tile away; the file stays.
+  await upgradeGuide.hover()
+  await hub.tileAction(upgradeGuide, 'More').click()
   await menu.item('Remove from artifacts').click()
-  await expect(artifacts.rows).toHaveCount(1)
-  await expect(panel.tab(/^Artifacts/)).toHaveText('Artifacts 1')
+  await expect(hub.tiles(hub.cards)).toHaveCount(1)
 
   // Open shows the other in the Files tab.
-  await artifacts.row('Release notes 2.4').click({ button: 'right' })
+  await releaseNotes.hover()
+  await hub.tileAction(releaseNotes, 'More').click()
   await menu.item('Open').click()
   await expect(panel.tab(/^Files/)).toHaveAttribute('aria-selected', 'true')
   await expect(filesTab(window).tab('2.4.md')).toHaveAttribute('aria-pressed', 'true')

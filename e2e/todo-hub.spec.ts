@@ -1,7 +1,6 @@
-// The todo hub's groundwork (P16, #494), end to end with the scripted agent. The hub is built behind a hidden setting,
-// `todoHubEnabled`, off by default and with nothing in Settings: a spec turns it on over the bridge, as these do. With
-// it off, the Todos tab is what it was; with it on, the tab is the hub (#497, `./todo-hub-tab.spec.ts`), main answers
-// with a task's children grouped by todo, and remembers each todo's panel across a relaunch.
+// The todo hub's groundwork (P16, #494), end to end with the scripted agent: the Todos tab is the hub (#497,
+// `./todo-hub-tab.spec.ts`), main answers with a task's children grouped by todo, and remembers each todo's panel
+// across a relaunch.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'

@@ -1190,7 +1190,6 @@ describe('a todo’s menu', () => {
     const main = hubMain(SHIP)
     const settings = {
       ...DEFAULT_SETTINGS,
-      todoHubEnabled: true,
       keyBindings: { [WindowCommandId.ContextMenu]: 'ArrowRight' },
     }
     const wrapper = storeWrapper({ ...main, settings })

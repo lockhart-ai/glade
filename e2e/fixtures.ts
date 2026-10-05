@@ -547,8 +547,7 @@ export async function desktop({ app }: Glade): Promise<E2eDesktop> {
 
 /**
  * Files children of a task under todos, replacing any filing they had, as the agent's own tools do (P16): through
- * main's filing service (`E2E_TODO_HUB_GLOBAL`), which tells the window. Answers with the filings made; none while
- * the hub is off.
+ * main's filing service (`E2E_TODO_HUB_GLOBAL`), which tells the window. Answers with the filings made.
  */
 export async function fileChildren({ app }: Glade, taskId: string, filings: readonly NewFiling[]): Promise<Filing[]> {
   return inMain(

@@ -104,7 +104,7 @@ test('a task imports a Claude Code session: it is under Done with its chat, tool
   await expect(conversation.agentReplies.nth(1)).toContainText(SECOND_REPLY)
 
   // The tool log: the calls with their outcomes, the narration, and turn 2's divider at its time.
-  await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 3')
+  await expect(panel.tab(/^Agents/)).toHaveText('Agents 1')
   await expect(panel.call(/^Failed Bash npm test -- rate/)).toContainText('2 failed')
   await expect(panel.call(/^Done Edit test\/setup\.ts/)).toBeVisible()
   await expect(panel.call(/^Done Bash npm test -- rate/)).toContainText('14 passed')

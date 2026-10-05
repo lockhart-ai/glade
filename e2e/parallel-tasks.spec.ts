@@ -44,7 +44,7 @@ test('two tasks work at once, each with its own chat and tool log, and stopping 
   await expect(agentReplies.first()).toContainText('The failing test was a timezone bug')
   await expect(header.title).toHaveText('Fix the flaky date test')
   await expect(header.stateDot).toHaveAccessibleName('Active · idle')
-  await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 10')
+  await expect(panel.tab(/^Agents/)).toHaveText('Agents 2')
   await expect(panel.log.getByRole('button', { name: /^Done/ })).toHaveCount(10)
   await expect(panel.call(/Bash\s*npm run test:e2e/)).toHaveCount(0)
 
@@ -61,7 +61,7 @@ test('two tasks work at once, each with its own chat and tool log, and stopping 
   await expect(userMessages).toHaveCount(1)
   await expect(userMessages.first()).toContainText(RUN_SUITE)
   await expect(agentReplies).toHaveCount(0)
-  await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 4')
+  await expect(panel.tab(/^Agents/)).toHaveText('Agents 1')
   await expect(panel.call(/^Running\s*Bash/)).toBeVisible()
   await expect(panel.call(/Read\s*src\/date\.ts/)).toHaveCount(0)
 
@@ -71,7 +71,7 @@ test('two tasks work at once, each with its own chat and tool log, and stopping 
   await expect(userMessages).toHaveCount(1)
   await expect(userMessages.first()).toContainText(FIX_DATE)
   await expect(agentReplies).toHaveCount(1)
-  await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 10')
+  await expect(panel.tab(/^Agents/)).toHaveText('Agents 2')
   await expect(list.dot(rowA)).toHaveAttribute('data-state', 'working')
 
   // Stopping A ends only A's turn.

@@ -96,7 +96,7 @@ test('typing stays prompt in a task with a very long history, idle and while the
   // The whole history is there: every message, and the tool log's rows.
   await expect(chat(window).userMessages).toHaveCount(LONG_HISTORY.messages / 2)
   await expect(chat(window).agentReplies).toHaveCount(LONG_HISTORY.messages / 2)
-  await expect(taskPanel(window).tab(/^Subagents/)).toHaveText(`Subagents ${String(LONG_HISTORY.subagents)}`)
+  await expect(taskPanel(window).tab(/^Agents/)).toHaveText(`Agents ${String(LONG_HISTORY.subagents + 1)}`)
 
   await typesPromptly(window)
 })
@@ -121,11 +121,11 @@ async function typesPromptly(window: Page): Promise<void> {
   await expect(chat(window).agentReplies).toHaveCount(LONG_HISTORY.messages / 2 + 1)
 }
 
-// The same task with the Agents tab open on it (P16, #536), which the panel shows in place of Tool calls and
-// Subagents while the todo hub's switch is on: a tab for each of its 90 subagents and Main, and Main's list, the whole
-// tool log of the task's own agent. Every event of the turn reaches them; a tab renders only when its own agent's
-// name or state changed, and a row only when its own event did, so the keys don't wait on them. (With the switch off,
-// the test above waits on the Subagents tab's count, as it always has.)
+// The same task with the Agents tab open on it (P16, #536), which the panel shows in place of the old Tool calls,
+// Subagents and Watchers tabs: a tab for each of its 90 subagents and Main, and Main's list, the whole tool log of the
+// task's own agent. Every event of the turn reaches them; a tab renders only when its own agent's name or state
+// changed, and a row only when its own event did, so the keys don't wait on them. (The test above waits on the
+// Agents tab's count instead, as a plainer check that the same history loaded.)
 test('typing stays prompt with the Agents tab open on a task with a very long history', async ({
   launch,
   tempFolder,

@@ -1,5 +1,5 @@
-// Links in a todo's text (P16, #500), end to end with the scripted agent and the hidden `todoHubEnabled` setting on:
-// where a todo's title or status line names a PR, an issue or a ticket the task has as a link artifact, those words
+// Links in a todo's text (P16, #500), end to end with the scripted agent: where a todo's title or status line names
+// a PR, an issue or a ticket the task has as a link artifact, those words
 // are a link to it, which behaves as every link in the app does and never opens or closes the todo. Adding the link
 // later turns the words into a link, and removing it turns them back. Also the hub's two empty states.
 //

@@ -116,7 +116,7 @@ for (const size of [{ width: 1920, height: 1200 }, MIN_WINDOW]) {
     expectNear(tabs.x - panelBox.x, inset, 'right panel tabs, left')
     // A tool call's content (its dot first) starts where the tabs' labels do.
     const call = await boxOf(taskPanel(window).log.getByRole('button').first())
-    expectNear(call.x, await contentLeft(taskPanel(window).tab(/^Tool calls/)), 'tool call and tab label')
+    expectNear(call.x, await contentLeft(taskPanel(window).tab(/^Agents/)), 'tool call and tab label')
 
     // The sidebar: the search field, the section headers and the task rows share one left edge, the
     // panel inset in from the card, and one inner padding, so their content lines up too.

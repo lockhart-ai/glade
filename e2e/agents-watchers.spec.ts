@@ -1,8 +1,8 @@
-// Watchers in the Agents tab (P16, #537), end to end with the scripted agent and the hidden `todoHubEnabled` setting
-// on: a live watcher pinned under the tool calls of the agent that started it, with Stop; an ended one as a row of
-// that agent's list at the time it ended; the eye on the agent's tab; what a relaunch leaves; and a list that stays
-// where it is, for someone reading back, as a watcher moves into it. Then what the Agents tab took over from the
-// Subagents tab: a subagent's tab menu, and what a running subagent is doing now.
+// Watchers in the Agents tab (P16, #537), end to end with the scripted agent: a live watcher pinned under the tool
+// calls of the agent that started it, with Stop; an ended one as a row of that agent's list at the time it ended;
+// the eye on the agent's tab; what a relaunch leaves; and a list that stays where it is, for someone reading back,
+// as a watcher moves into it. Then what the Agents tab took over from the old Subagents tab: a subagent's tab menu,
+// and what a running subagent is doing now.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Locator } from '@playwright/test'

@@ -1,7 +1,6 @@
-// A commit's tile in the todo hub (P16-08, #499), end to end with the scripted agent and the hidden `todoHubEnabled`
-// setting on: the commits a task and its subagent really made, each a tile that opens in place to its branch, the
-// subagent that made it and its files, and a file that opens in the Files tab. With the switch off again, the Changes
-// tab is as it was.
+// A commit's tile in the todo hub (P16-08, #499), end to end with the scripted agent: the commits a task and its
+// subagent really made, each a tile that opens in place to its branch, the subagent that made it and its files, and
+// a file that opens in the Files tab.
 //
 // The task keeps no todos, and nothing files its commits (#495), so they're under no todo: the placeholder group, which
 // is then the whole list.
@@ -39,8 +38,6 @@ test('the todo hub: a commit’s tile opens to its branch, the subagent that mad
   await inputBar(window).field.fill(MAKES_COMMITS.prompt)
   await inputBar(window).field.press('Enter')
   await expect(chat(window).agentReplies.last()).toContainText(MAKES_COMMITS.reply)
-  // The last commit is linked just after the reply.
-  await expect(taskPanel(window).tab(/^Changes/)).toHaveText('Changes 4')
 
   await taskPanel(window)
     .tab(/^Todos/)

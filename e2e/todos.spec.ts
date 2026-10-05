@@ -146,7 +146,7 @@ test('todos: the list follows TaskCreate and TaskUpdate over a turn, counted in 
   await expect(progress).toHaveAttribute('title', '6 of 7 todos done')
 
   // The todo tool calls stay in the tool log like any others.
-  await panel.tab(/^Tool calls/).click()
+  await panel.tab(/^Agents/).click()
   await expect(panel.call(/^Done\s*TaskCreate/)).toHaveCount(7)
   await panel.tab(/^Todos/).click()
 

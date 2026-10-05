@@ -1,5 +1,5 @@
-// The Todos tab as the todo hub (P16, #497), end to end with the scripted agent and the hidden `todoHubEnabled` setting
-// on: each todo a card with what it produced under it (its files, links and commits; #535), counted closed and listed
+// The Todos tab as the todo hub (P16, #497), end to end with the scripted agent: each todo a card with what it
+// produced under it (its files, links and commits; #535), counted closed and listed
 // open, remembered across todos, tasks and a relaunch; children filed and moved while the tab shows; the placeholder
 // group; and the keyboard. No subagent or watcher is under a todo, whatever the task has going on.
 //
