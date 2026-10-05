@@ -13,19 +13,22 @@ fonts, design tokens and menu shapes. Rendered screens are 1920×1200 at 1×.
 4. The task picker contains the normal Claude choices plus only enabled OpenRouter models. Source headings identify
    the account used; the provider appears in the saved model label.
 5. There is no subagent picker. The parent chooses a model at each dispatch, including an enabled OpenRouter route
-   for a Claude-account parent. Provider choices stay in Settings. Native dispatch currently shares the parent's
-   connection; a separate-session SDK probe proved the mixed-source path, whose production adapter is still pending.
+   for a Claude-account parent. Provider choices stay in Settings. Glade's dispatch tool starts a separate SDK
+   session on the chosen connection; both cross-source directions have passed bounded production-adapter probes.
+   Native SDK dispatch shares its process's connection.
    See [Mixed-source subagent dispatch](../openrouter-integration-spec.md#mixed-source-subagent-dispatch).
 6. In an existing Claude task, including one paused by an Anthropic limit, use the same picker to select an enabled
-   OpenRouter model and continue in the same task. A minimal Claude-to-OpenRouter probe retained the SDK session ID
-   and recalled the original code from text history. Live OpenRouter tool-history resumption and automated limit recovery now pass; cross-source signed thinking remains
-   a manual compatibility check. See the [probe results](../openrouter-integration-spec.md#validation-evidence).
+   OpenRouter model and continue in the same task. A production runtime round trip through Claude, OpenRouter and
+   Claude again retained the session ID, recalled a fresh tool result and kept Claude thinking in stored history.
+   Provider-specific reasoning formats remain a compatibility check.
+   See the [probe results](../openrouter-integration-spec.md#validation-evidence).
 
 Provider choices are made by the user in Settings. The agent cannot supply or override a provider; the request adapter
 enforces the selected provider for parent, child and helper requests. No provider fallback controls or reusable
-routing-profile editor in the first version. Changing a provider applies from the next safe idle turn, never to an
-in-flight request or a running background subagent. A task can change source at a safe turn boundary or while paused
-by a limit, after live work has stopped. The task and its history remain; the SDK session is restarted for the selected
+routing-profile editor in the first version. Changing a provider creates a different curated model/provider pair;
+existing tasks keep their saved pair until another is selected. A task can change source at a safe turn boundary
+after background work stops. A limit-paused task can switch immediately, ending its old background work with a
+logged reason. The task and its history remain; the SDK session is restarted for the selected
 source. A failed history handoff preserves the prior selection and reports the problem. The picker shows
 **Switching…** during preparation. A task paused by a Claude limit resumes immediately on OpenRouter; the
 banner switches several paused tasks one at a time.
