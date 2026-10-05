@@ -54,7 +54,10 @@ const sdk = vi.hoisted(() => {
   }
 })
 
-vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: sdk.query }))
+vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@anthropic-ai/claude-agent-sdk')>()),
+  query: sdk.query,
+}))
 
 let scratch: string
 let home: string

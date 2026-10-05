@@ -14,6 +14,7 @@ import type {
 } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
 import type { Logger } from '../logging/logger'
+import type { AgentEvent } from './events'
 
 /**
  * In-process MCP servers to give a session, by server name, e.g. `{ glade: createSdkMcpServer({ name: 'glade', … }) }`.
@@ -381,6 +382,10 @@ export interface SandboxFlagSettings {
 
 /** How to start one task's agent session. */
 export interface AgentSessionOptions extends AgentSessionSettings {
+  /** A separately routed child is still a subagent for permissions and main-only tools. */
+  readonly managedAgentId?: string
+  readonly createMcpServers?: () => AgentMcpServers
+  readonly onSubagentEvent?: (event: AgentEvent) => void
   readonly taskId?: string
   /** A handoff candidate must not adopt its imported transcript until the runner commits the selection. */
   readonly provisional?: boolean

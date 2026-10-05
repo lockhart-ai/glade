@@ -501,9 +501,6 @@ it('never spawns an agent closed before its environment was known', async () => 
 
 it('passes an eager isolated transcript store and revokes prepared credentials on early close', async () => {
   const store: SessionStore = { append: () => Promise.resolve(), load: () => Promise.resolve(null) }
-  const agents = {
-    cheap: { model: 'glade-or-cheap', description: 'Cheap model', prompt: 'Finish the delegated work.' },
-  }
   const close = vi.fn()
   const initializationResult = vi.fn(() => Promise.resolve({ models: [] }))
   sdk.query.mockReturnValueOnce({ ...sdk.session, ...{ initializationResult } })
@@ -515,8 +512,6 @@ it('passes an eager isolated transcript store and revokes prepared credentials o
         Promise.resolve({
           env: { PATH: '/isolated', ANTHROPIC_AUTH_TOKEN: 'temporary' },
           sessionStore: store,
-          agents,
-          subagentInstructions: 'Choose a model for each dispatch.',
           contextWindowTokens: 64_000,
           publishModels: false,
           close,
@@ -530,8 +525,7 @@ it('passes an eager isolated transcript store and revokes prepared credentials o
   expect(sdk.query.mock.calls.at(-1)?.[0].options).toMatchObject({
     sessionStore: store,
     sessionStoreFlush: 'eager',
-    agents,
-    systemPrompt: { append: `${OPTIONS.systemPromptAppend}\n\nChoose a model for each dispatch.` },
+    systemPrompt: { append: OPTIONS.systemPromptAppend },
     env: { PATH: '/isolated', ANTHROPIC_AUTH_TOKEN: 'temporary' },
   })
   expect(sdk.query.mock.calls.at(-1)?.[0].options).not.toMatchObject({ env: { ANTHROPIC_API_KEY: 'must-not-return' } })

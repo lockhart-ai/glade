@@ -23,6 +23,7 @@ import type { GladeEvent } from '../../shared/bridge'
 import { ArtifactKind, type Artifact, type ArtifactRef, type Question } from '../../shared/domain'
 import type { Settings } from '../../shared/settings'
 import { REQUEST_ACCESS_TOOL } from '../../shared/toolName'
+import { AGENTS_SERVER } from '../../shared/managed-agents'
 import {
   addTaskArtifact,
   addTaskLinkArtifact,
@@ -87,7 +88,7 @@ export const GLADE_TOOL_TIMEOUT_MS = 2 ** 31 - 1
  * MCP server's do, bar the reads `../permissions/classify` lets through.
  */
 export function gladeOwnServers(servers: Readonly<Record<string, unknown>>): string[] {
-  return Object.keys(servers).filter((name) => name === GLADE_SERVER)
+  return Object.keys(servers).filter((name) => name === GLADE_SERVER || name === AGENTS_SERVER)
 }
 
 /** `request_access` as the SDK names it: the one Glade tool a subagent may call (#450). */

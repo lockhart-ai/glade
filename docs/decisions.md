@@ -13,20 +13,17 @@
   the same binary's own `claude auth login`, which opens Anthropic's sign-in page in the browser and saves the login
   itself: Glade sees only whether it worked. Policy risk: Anthropic's docs don't clearly permit subscription use by a
   third-party app (see `sdk-notes.md` §1 and Open risks).
-- **OpenRouter inference (#551, Jared, Oct 5):** keep the SDK harness and add an optional inference key, encrypted
-  with Electron `safeStorage` in SQLite. Claude login remains active. Discover and curate model/provider pairs in
-  Settings; task pickers use those pairs. The parent chooses a model for each native subagent dispatch, with no
-  blanket subagent picker or saved default. OpenRouter supplies named SDK definitions for enabled routes. A
-  loopback relay pins the provider without fallback.
-  Ordinary Claude tasks keep SDK transcript files; tasks that use OpenRouter opt into the SDK's alpha transcript
-  store for cross-source history, retained until task deletion. A model switch keeps history and adds an Agents/Main
-  log entry. Native children share their parent's source. OpenRouter uses separate user configuration and memory;
-  project configuration and Glade tools still load. Subscription billing and the OpenRouter key's API-reported USD
-  spend/allowance stay separate in the sidebar usage monitor. No management key is requested.
-  Jared subsequently required Claude-account parents to dispatch OpenRouter children. A live separate-session SDK
-  probe proved that connection through an in-process MCP tool. The existing native-only draft does not yet meet this
-  requirement; the additional dispatch adapter and its history, permissions and lifecycle guarantees are specified
-  in [Mixed-source subagent dispatch](openrouter-integration-spec.md#mixed-source-subagent-dispatch).
+- **OpenRouter inference (#551, user requirements):** keep the SDK harness and add an optional encrypted inference
+  key while Claude login stays active. Discover and curate model/provider pairs in Settings. The parent chooses each
+  child's model at dispatch; no blanket child picker or default. Glade's dispatch tool starts another SDK session,
+  so either source can dispatch children on either source. Each route pins its provider without fallback and keeps
+  its own context window. Child history, identity and model live in SQLite; Agents shows the selected model.
+  Model switches retain history and SDK todos and add an Agents/Main log entry. A limit-paused switch ends old
+  background work with a recorded reason and resumes the held turn on OpenRouter. Ordinary busy tasks must stop
+  before switching source. OpenRouter has separate user configuration and memory; project configuration and Glade
+  tools still load. Subscription usage and OpenRouter key USD spend remain separate in the sidebar; metadata reads
+  are coalesced with a trailing refresh, and credit failures show as blocked. No management key is requested.
+  See [OpenRouter integration](openrouter-integration-spec.md) for the support matrix and validation limits.
 - **State:** everything in SQLite — workspaces, tasks, chat, tool log, todos, artifacts, queue, UI state. Reopening
   after a crash resumes from the database.
 - **Agent sessions run in the workspace root** (the SDK session's `cwd`), so the workspace's own `CLAUDE.md` (the

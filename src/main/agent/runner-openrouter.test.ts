@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { BridgeErrorCode, type GladeEvent } from '../../shared/bridge'
+import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
 import {
   AgentErrorKind,
   PauseReason,
@@ -439,14 +439,14 @@ it('ignores OpenRouter account readings, rate limits, fake SDK windows and list-
   expect(getTask(database.db, task.id)?.contextWindowTokens).toBe(SAMPLE_MODEL.contextLength)
 })
 
-it('keeps the prepared child limit when the catalog changes and ignores guessed SDK context windows', async () => {
+it('keeps the prepared parent limit when the catalog changes and ignores guessed SDK context windows', async () => {
   const child = {
     ...SAMPLE_CHOICE,
     id: 'openrouter:sample/small@sample-host',
     model: { ...SAMPLE_MODEL, id: 'sample/small', contextLength: 64_000 },
   }
   setOpenRouterChoice(database.db, child)
-  expect((await runner.changeModel(task.id, SAMPLE_CHOICE.id)).contextWindowTokens).toBe(64_000)
+  expect((await runner.changeModel(task.id, SAMPLE_CHOICE.id)).contextWindowTokens).toBe(128_000)
   backend.onSessionStart = (session) => {
     Object.assign(session, { contextWindowTokens: 64_000 })
   }
@@ -456,4 +456,71 @@ it('keeps the prepared child limit when the catalog changes and ignores guessed 
   backend.session.emit(sdk.result('Echo', { modelUsage: { [SAMPLE_CHOICE.id]: { contextWindow: 1_000_000 } } }))
   await settle()
   expect(getTask(database.db, task.id)?.contextWindowTokens).toBe(64_000)
+})
+
+it('ends background work when a usage-paused task switches and retries the held turn immediately', async () => {
+  await previousTurn()
+  const original = backend.session
+  original.emit(...sdk.backgroundLaunch('bg-call', 'bg-sdk', 'Watch progress'))
+  await settle()
+  original.emit(sdk.result('Watching.'))
+  await settle()
+  addWatcher(database.db, {
+    taskId: task.id,
+    kind: WatcherKind.Wakeup,
+    toolUseId: 'pause-wake',
+    parentToolUseId: null,
+    sdkId: 'pause-job',
+    label: 'Follow up',
+    detail: 'Check tests',
+    cron: null,
+    schedule: '1h',
+    recurring: false,
+    state: WatcherState.Scheduled,
+    nextDueAt: Date.now() + 3600_000,
+    expiresAt: null,
+  })
+  updateTask(database.db, task.id, { activity: TaskActivity.Paused, pause })
+  await runner.changeModel(task.id, SAMPLE_CHOICE.id)
+  expect(original.closed).toBe(true)
+  expect(backend.session.sent).toHaveLength(1)
+  expect(getTask(database.db, task.id)).toMatchObject({ model: SAMPLE_CHOICE.id, pause: null, backgroundWork: false })
+  expect(listWatchers(database.db, task.id).every(({ state }) => state !== WatcherState.Scheduled)).toBe(true)
+  expect(listToolEvents(database.db, task.id)).toContainEqual(
+    expect.objectContaining({ output: 'Background work ended when the paused task switched models.' }),
+  )
+})
+
+it('rejects a smaller context window before preparing or committing a handoff', async () => {
+  await previousTurn()
+  const original = backend.session
+  updateTask(database.db, task.id, { contextUsedTokens: 200_000 })
+  await expect(runner.changeModel(task.id, SAMPLE_CHOICE.id)).rejects.toThrow(
+    'Choose a model with a larger context window',
+  )
+  expect(backend.sessions).toHaveLength(1)
+  expect(original.closed).toBe(false)
+  expect(getTask(database.db, task.id)?.model).toBe(task.model)
+})
+
+it('keeps an adopted destination live if a post-commit history notification throws', async () => {
+  runner.close()
+  runner = createAgentRunner({
+    db: database.db,
+    backend,
+    emit: (event) => {
+      if (
+        event.type === EventType.ToolEventAppended &&
+        'text' in event.toolEvent &&
+        event.toolEvent.text.startsWith('Switched model')
+      )
+        throw new Error('Window disconnected')
+    },
+  })
+  await previousTurn()
+  await expect(runner.changeModel(task.id, SAMPLE_CHOICE.id)).rejects.toThrow('Window disconnected')
+  expect(getTask(database.db, task.id)?.model).toBe(SAMPLE_CHOICE.id)
+  expect(backend.session.closed).toBe(false)
+  runner.send(task.id, 'Continue after notification failure')
+  expect(backend.session.sent.at(-1)?.text).toBe('Continue after notification failure')
 })

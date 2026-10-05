@@ -104,6 +104,12 @@ export function beginTranscriptImport(
   configDir: string | null = null,
 ): void {
   db.transaction(() => {
+    if (configDir !== null)
+      db.prepare(
+        `INSERT OR IGNORE INTO sdk_transcript_backups (owner, session_id, task_id, entries)
+      SELECT ?, ?, ?, json_group_array(json_object('project', project_key, 'subpath', subpath, 'key', entry_key, 'entry', entry, 'ordinal', ordinal))
+      FROM sdk_transcripts WHERE owner = ? AND session_id = ?`,
+      ).run(taskId ?? '', sessionId, taskId, taskId ?? '', sessionId)
     db.prepare('DELETE FROM sdk_transcripts WHERE owner = ? AND session_id = ?').run(taskId ?? '', sessionId)
     db.prepare(
       "INSERT OR REPLACE INTO sdk_transcript_failures (owner, session_id, task_id, reason, config_dir) VALUES (?, ?, ?, 'importing', ?)",
@@ -112,16 +118,25 @@ export function beginTranscriptImport(
 }
 
 export function finishTranscriptImport(db: Database, sessionId: string, taskId: string | null): void {
-  db.prepare("DELETE FROM sdk_transcript_failures WHERE owner = ? AND session_id = ? AND reason = 'importing'").run(
-    taskId ?? '',
-    sessionId,
-  )
+  db.transaction(() => {
+    db.prepare("DELETE FROM sdk_transcript_failures WHERE owner = ? AND session_id = ? AND reason = 'importing'").run(
+      taskId ?? '',
+      sessionId,
+    )
+    db.prepare('DELETE FROM sdk_transcript_backups WHERE owner = ? AND session_id = ?').run(taskId ?? '', sessionId)
+  })()
 }
 
-/** A rejected handoff must not replace subsequent turns written by the original Claude process. */
+/** Roll back a partial rebuild too: retain the previous mirror for recovery, without calling it complete. */
 export function discardTranscriptImport(db: Database, sessionId: string, taskId: string | null): void {
   db.transaction(() => {
     db.prepare('DELETE FROM sdk_transcripts WHERE owner = ? AND session_id = ?').run(taskId ?? '', sessionId)
+    db.prepare(
+      `INSERT INTO sdk_transcripts
+      SELECT b.owner, json_extract(j.value, '$.project'), b.session_id, json_extract(j.value, '$.subpath'),
+        json_extract(j.value, '$.key'), json_extract(j.value, '$.entry'), json_extract(j.value, '$.ordinal'), b.task_id
+      FROM sdk_transcript_backups b, json_each(b.entries) j WHERE b.owner = ? AND b.session_id = ?`,
+    ).run(taskId ?? '', sessionId)
     finishTranscriptImport(db, sessionId, taskId)
   })()
 }

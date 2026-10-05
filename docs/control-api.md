@@ -676,7 +676,11 @@ To port everything in, an agent pages through `list_claude_code_sessions { impor
 
 `create_task.model` and `update_task.patch.model` accept enabled `openrouter:<model>@<provider>` selections curated
 in Settings › Models. Providers and credentials are configured through Settings, not overridden in task input.
-A change involving OpenRouter restarts the SDK at a safe turn boundary with saved context and a 30-second startup timeout; active turns, questions,
-permissions and background work must be resolved first. Initialization failure keeps the original selection.
+A change involving OpenRouter restarts the SDK at a safe turn boundary with saved context and a 30-second startup timeout.
+Active turns, questions and permissions must be resolved first. An idle task must also finish its background work;
+a task paused on a usage limit can switch immediately, ending its old children and watchers with a logged reason.
+Initialization failure keeps the original selection. A destination smaller than the task's known context is refused.
 The task retains chat, tool results and queued input, and records the applied model change in its Agents › Main log.
-Independent tasks may use different sources. Native SDK children remain within their parent's billing source.
+The SDK todo list and its numbering follow the task across sources. A parent chooses each independently routed
+child's model with `glade-agents` ([model surface](model-surface.md#choosing-subagent-models)); all four
+Claude/OpenRouter parent–child combinations are supported. Native SDK children still use their process's connection.

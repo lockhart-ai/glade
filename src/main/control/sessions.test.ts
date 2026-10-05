@@ -101,7 +101,7 @@ describe("a task's session", () => {
   it('gets the control server next to glade, bound to its task, and the prompt says so, while the switch is on', async () => {
     const session = await start(caller)
 
-    expect(Object.keys(session.options.mcpServers)).toEqual([GLADE_SERVER, CONTROL_SERVER])
+    expect(Object.keys(session.options.mcpServers)).toEqual([GLADE_SERVER, CONTROL_SERVER, 'glade-agents'])
     expect(session.options.mcpServers[CONTROL_SERVER]).toMatchObject({ type: 'sdk', name: CONTROL_SERVER })
     expect(session.options.systemPromptAppend).toContain(CONTROL_TOOLS_LINE)
   })
@@ -111,14 +111,14 @@ describe("a task's session", () => {
 
     const session = await start(caller)
 
-    expect(Object.keys(session.options.mcpServers)).toEqual([GLADE_SERVER])
+    expect(Object.keys(session.options.mcpServers)).toEqual([GLADE_SERVER, 'glade-agents'])
     expect(session.options.systemPromptAppend).not.toContain(CONTROL_SERVER)
   })
 
   it("pre-approves only glade's tools: the control server's go to the permission check", async () => {
     const session = await start(caller)
 
-    expect(sdkOptions(session.options, {}).allowedTools).toEqual([`mcp__${GLADE_SERVER}`])
+    expect(sdkOptions(session.options, {}).allowedTools).toEqual([`mcp__${GLADE_SERVER}`, 'mcp__glade-agents'])
   })
 
   it('calls as its own task', async () => {
@@ -138,7 +138,7 @@ describe('the switch', () => {
     await fresh.glade.invoke(CommandName.TasksSend, { id: task.id, text: 'Go.' })
     const client = await connect(fresh.bridge.control.server(HTTP))
 
-    expect(Object.keys(fresh.backend.session.options.mcpServers)).toEqual([GLADE_SERVER])
+    expect(Object.keys(fresh.backend.session.options.mcpServers)).toEqual([GLADE_SERVER, 'glade-agents'])
     expect(errorCode(await client.call(ControlToolName.ListWorkspaces))).toBe(ControlErrorCode.Disabled)
     expect(errorMessage(await client.call(ControlToolName.ListWorkspaces))).toBe(
       'Agents may not control Glade: turn it on in Settings › Control',

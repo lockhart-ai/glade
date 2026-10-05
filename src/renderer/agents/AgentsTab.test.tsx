@@ -703,3 +703,15 @@ describe('a strip with more agents than fit', () => {
     expect(scrollBy).toHaveBeenCalledExactlyOnceWith({ left: TAB_WIDTH })
   })
 })
+
+it('shows the chosen child model with or without a todo and keeps the saved route visible after disabling it', async () => {
+  const routed = {
+    ...DOCS,
+    name: 'mcp__glade-agents__dispatch',
+    input: { ...DOCS.input, model: 'openrouter:sample/flash@sample-host' },
+  }
+  await renderAgents({ ...SHIP, toolEvents: [routed], filings: [] })
+  fireEvent.click(tab('docs-503'))
+  expect(line()).toHaveTextContent('openrouter:sample/flash@sample-host')
+  expect(line()).toHaveTextContent('Running')
+})

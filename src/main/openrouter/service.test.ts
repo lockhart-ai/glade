@@ -131,6 +131,7 @@ it('never restores removed/replaced account usage or touches a closed database a
   expect(await closed).toEqual({ connected: false, reading: null, error: null })
 })
 afterEach(() => {
+  service.close()
   database.close()
 })
 
@@ -213,4 +214,69 @@ it('refuses unavailable encryption, credentials, models and providers without ch
   })
   await expect(service.refresh()).rejects.toThrow('connection changed')
   expect(service.status().connected).toBe(false)
+})
+
+it('reads once after the last completion in a burst and cancels the trailing read on removal or shutdown', async () => {
+  vi.useFakeTimers()
+  try {
+    await service.connect('key')
+    const read = vi.spyOn(client, 'usage')
+    await vi.advanceTimersByTimeAsync(10_000)
+    await service.refreshUsage()
+    await vi.advanceTimersByTimeAsync(20_000)
+    await service.refreshUsage()
+    expect(read).toHaveBeenCalledOnce()
+    read.mockResolvedValue({ ...SAMPLE_USAGE, monthly: 12 })
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(service.usage().reading?.monthly).toBe(12)
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(read).toHaveBeenCalledTimes(2)
+    await service.refreshUsage(true)
+    await service.refreshUsage()
+    service.close()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(read).toHaveBeenCalledTimes(3)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('reports an undecryptable key without throwing at launch and keeps credit failures visible until inference succeeds', async () => {
+  await service.connect('key')
+  vi.spyOn(cipher, 'decryptString').mockImplementationOnce(() => {
+    throw new Error('secret details')
+  })
+  const pending = service.refreshUsage(true)
+  expect((await pending).error).toContain('Could not refresh')
+  service.noteResponse(402)
+  expect(service.usage().error).toContain('insufficient credits')
+  await service.refreshUsage(true)
+  expect(service.usage().error).toContain('insufficient credits')
+  vi.spyOn(client, 'usage').mockRejectedValueOnce(new Error('Network error'))
+  await service.refreshUsage(true)
+  expect(service.usage().error).toContain('insufficient credits')
+  service.noteResponse(500)
+  expect(service.usage().error).toContain('insufficient credits')
+  service.noteResponse(200)
+  expect(service.usage().error).toBeNull()
+  service.remove()
+  service.noteResponse(402)
+  expect(service.usage().error).toBeNull()
+})
+
+it('does not erase a credit failure that arrives during a failing usage read', async () => {
+  await service.connect('key')
+  let fail!: (reason: unknown) => void
+  vi.spyOn(client, 'usage').mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        fail = reject
+      }),
+  )
+  const pending = service.refreshUsage(true)
+  service.noteResponse(402)
+  fail(new Error('Metadata request failed'))
+  await pending
+  expect(service.usage().error).toContain('insufficient credits')
 })

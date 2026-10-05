@@ -930,6 +930,27 @@ describe('Chat', () => {
 
       expect(await screen.findByText('Couldn’t retry: The agent is working')).toBeInTheDocument()
     })
+
+    it('holds both retry controls until a slow model switch settles', async () => {
+      const { invoke } = await renderChat({ task: stopped, messages: [ASK] })
+      let rejectRetry!: (reason: unknown) => void
+      invoke.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectRetry = reject
+          }),
+      )
+      fireEvent.click(within(card()).getByRole('button', { name: 'Retry with another model' }))
+      fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Sonnet 5' }))
+      expect(within(card()).getByRole('button', { name: 'Retrying…' })).toBeDisabled()
+      expect(within(card()).getByRole('button', { name: 'Retry with another model' })).toBeDisabled()
+      await act(() => {
+        rejectRetry(bridgeError(BridgeErrorCode.Busy, 'The model could not start'))
+        return Promise.resolve()
+      })
+      expect(within(card()).getByRole('button', { name: 'Retry' })).toBeEnabled()
+      expect(within(card()).getByRole('button', { name: 'Retry with another model' })).toBeEnabled()
+    })
   })
 
   describe('the logged-out card', () => {

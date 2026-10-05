@@ -55,7 +55,7 @@ export interface OpenRouterRelayOptions {
   readonly key: () => string
   readonly request: typeof fetch
   readonly log?: Logger
-  readonly onComplete?: () => void
+  readonly onComplete?: (status: number) => void
 }
 
 export interface OpenRouterRelay {
@@ -180,7 +180,7 @@ export async function createOpenRouterRelay(options: OpenRouterRelayOptions): Pr
           .join('[redacted]')
           .slice(0, 2048)
         log.warn('OpenRouter inference failed', { status: upstream.status, message })
-        options.onComplete?.()
+        options.onComplete?.(upstream.status)
         failure(response, upstream.status === 401 || upstream.status === 403 ? 400 : upstream.status, message)
         return
       }
@@ -193,7 +193,7 @@ export async function createOpenRouterRelay(options: OpenRouterRelayOptions): Pr
           if (!response.write(chunk)) await once(response, 'drain', { signal: controller.signal })
         }
       }
-      options.onComplete?.()
+      options.onComplete?.(upstream.status)
       response.end()
     } catch (error) {
       const reason = (error instanceof Error ? `${error.name}: ${error.message}` : 'Unknown transport failure')

@@ -422,3 +422,16 @@ it('lets request_access run whatever the hook can read of the call, or whoever h
   await expect(callGuard(failing, mcpInput(ACCESS_TOOL_NAME, glade, {}))).resolves.toEqual({})
   expect(log.withMessage('failed to note a request_access call')).toHaveLength(1)
 })
+
+it('enforces main-only tools for a separately routed child even without a native agent_id', async () => {
+  const hooks = sdkHooks(undefined, createMemoryLog().logger, undefined, 'glade-child-1')
+  await expect(callGuard(hooks, mcpInput('mcp__glade__ask', { name: GLADE_SERVER, source: 'sdk' }))).resolves.toEqual(
+    DENIED,
+  )
+  await expect(
+    callGuard(hooks, mcpInput('mcp__glade-control__list_tasks', { name: CONTROL_SERVER_NAME, source: 'sdk' })),
+  ).resolves.toEqual(DENIED)
+  await expect(
+    callGuard(hooks, mcpInput('mcp__glade__request_access', { name: GLADE_SERVER, source: 'sdk' })),
+  ).resolves.toEqual({})
+})

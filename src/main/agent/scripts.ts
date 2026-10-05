@@ -228,6 +228,8 @@ export interface ToolResultStep {
 }
 
 export interface GladeToolStep {
+  /** Another host-owned MCP server, for independently routed child dispatches. */
+  readonly server?: string
   readonly kind: ScriptStepKind.GladeTool
   readonly id: string
   /** The tool's name on the `glade` server, e.g. `set_title`. */
@@ -4497,6 +4499,7 @@ const sharesCode: AgentScript = {
 
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
+  'mixed-models',
   'makes-commits',
   'makes-another-commit',
   'files-children',
@@ -4570,6 +4573,44 @@ export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
 
 /** Every script a test mode can run, by name. */
 export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
+  'mixed-models': {
+    name: 'mixed-models',
+    turns: [
+      [
+        init(),
+        ...tool(
+          'plan',
+          'TaskCreate',
+          { subject: 'Check the implementation' },
+          'Task #1 created successfully: Check the implementation',
+        ),
+        {
+          kind: ScriptStepKind.GladeTool,
+          server: 'glade-agents',
+          tool: 'dispatch',
+          id: 'router-child',
+          input: {
+            model: 'openrouter:sample/flash@sample-host',
+            description: '[todo 1] Check the sample file',
+            prompt: 'Report from the routed child.',
+          },
+        },
+        {
+          kind: ScriptStepKind.GladeTool,
+          server: 'glade-agents',
+          tool: 'dispatch',
+          id: 'claude-child',
+          input: {
+            model: 'haiku',
+            description: '[todo 1] Review the sample test',
+            prompt: 'Report from the routed child.',
+          },
+        },
+        say('Both children finished on their selected models.'),
+        result(),
+      ],
+    ],
+  },
   'makes-commits': makesCommits,
   'makes-another-commit': makesAnotherCommit,
   'files-children': filesChildren,

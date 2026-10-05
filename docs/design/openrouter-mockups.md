@@ -77,10 +77,10 @@ existing tasks; selecting another source requests the safe history handoff descr
 
 ### 59 · OpenRouter task selected
 
-The existing input bar shows the selected model and the model/provider pair’s label. The parent chooses a model per
-subagent dispatch; native children inherit the same source. The implementation overrides the SDK’s unknown-model
-default with the smallest actual context window of its enabled OpenRouter routes;
-this mockup uses the verified override. Effort is hidden when the route advertises no effort capability. The picker uses the implemented source headings
+The existing input bar shows the selected model and the model/provider pair’s label. The parent chooses a Claude or
+OpenRouter model for each dispatch, independently of its own source; the Agents panel shows the child's selected model.
+Each process uses its own route's context window, so enabling a smaller child model doesn't shrink the parent.
+Effort is hidden when the route advertises no effort capability. The picker uses the implemented source headings
 and shows the provider as part of each saved model label. The panel uses Agents · Files · Todos.
 
 ![New OpenRouter task](screens/59-task-openrouter.png)

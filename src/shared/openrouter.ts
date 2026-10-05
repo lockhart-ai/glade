@@ -1,4 +1,4 @@
-/** Billing source of an inference session. Native SDK children share their parent's source. */
+/** Billing source of one SDK session. Independently dispatched children choose their own source. */
 export enum AgentSource {
   Anthropic = 'anthropic',
   OpenRouter = 'openrouter',

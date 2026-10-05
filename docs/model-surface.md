@@ -6,13 +6,31 @@ freezing them.
 
 ## Choosing subagent models
 
-The parent chooses a model when dispatching each native SDK subagent. Glade supplies no blanket subagent picker or
-saved default. Claude-account tasks keep native Claude model selection. OpenRouter tasks register one named SDK
-agent definition per enabled model/provider pair; its description gives the model name, selected provider,
-context window and indicative API prices. Select that definition with `Agent.subagent_type` and omit `model`,
-whose SDK schema accepts Claude aliases rather than arbitrary OpenRouter IDs. Built-in types and helper calls use
-the parent’s OpenRouter route. Provider routing stays fixed by Settings, and native children use the parent’s
-connection. Different Glade tasks can use different connections concurrently.
+The parent chooses each child's model at dispatch. There is no blanket subagent picker or saved child default.
+Every task receives the in-process `glade-agents` server, which runs each delegation through the existing SDK
+backend on its selected connection. Claude → Claude, Claude → OpenRouter, OpenRouter → Claude and
+OpenRouter → OpenRouter all use the same tools:
+
+| Tool | Input | Result |
+| --- | --- | --- |
+| `mcp__glade-agents__list_models` | `{}` | Current Claude models and enabled OpenRouter model/provider selections, including their context windows and indicative OpenRouter input/output prices in USD per token. |
+| `mcp__glade-agents__dispatch` | `{ model, prompt, description, run_in_background?, resume? }` | The child's id and result, or its id immediately for background work. |
+
+`model` is an exact id from `list_models`; `prompt` supplies the delegated task and necessary context.
+Prefix `description` with `[todo N]` to file the child under that todo. Curation is checked on every dispatch, so
+newly enabled routes are available without restarting the parent. Provider choice remains in Settings.
+`resume` continues a saved child id from this task on its original model, including after the parent switches source;
+it must have finished first. Duplicate dispatch tool calls return the saved outcome without starting another child.
+
+Children retain the SDK coding preset, workspace, sandbox and task permissions. Their chat and tool calls appear under
+their dispatch in Agents, alongside their model. A background child's result is delivered to the live parent when it
+finishes. Stop works for the child and its descendants; ending a delegation ends any descendants it left running.
+After a session ends, an unfinished saved child can be resumed explicitly. Only the main task agent may use the
+metadata and control tools below; independently routed children are subject to the same guard as native children.
+
+Native `Agent` remains available on the process's own connection. Under OpenRouter, its aliases and helper calls use
+that process's route. Use `glade-agents.dispatch` to select another connection or route, and its `resume` argument
+to continue that child; native `SendMessage` cannot address an independently routed child.
 
 ## Main agent only (#366)
 
@@ -25,8 +43,8 @@ or filed under a todo (`list_children` and `file_children`, behind the todo hub'
 changes, reads or messages no task.
 
 Decided by a `PreToolUse` hook (`src/main/agent/sdk-backend.ts`'s `subagentGladeToolGuard`, `docs/sdk-notes.md` §9)
-that denies the call before it ever dispatches, keyed on the SDK's `agent_id` (set only for a subagent's call, never
-the main agent's) and `mcp_server.source: 'sdk'` (so only Glade's own in-process servers are covered, never a
+that denies the call before it ever dispatches, keyed on the SDK's `agent_id` or Glade's managed child id, and
+`mcp_server.source: 'sdk'` (so only Glade's own in-process servers are covered, never a
 configured server whose author names it `glade` too). This can't be `canUseTool`: `glade`'s tools are pre-approved in
 `allowedTools`, so Claude Code never asks about them, and Allow all (`bypassPermissions`) skips `canUseTool` for every
 tool, `glade-control`'s included; a `PreToolUse` hook fires regardless of permission mode, and is asked first.

@@ -49,6 +49,7 @@ export class OpenRouterService {
   private revision = 0
   private usagePending: Promise<OpenRouterUsageStatus> | null = null
   private lastUsageAttempt = -Infinity
+  private usageTimer: ReturnType<typeof setTimeout> | null = null
   constructor(private readonly options: OpenRouterServiceOptions) {
     this.client = options.client
   }
@@ -76,6 +77,7 @@ export class OpenRouterService {
     setOpenRouterConnection(this.options.db, { encryptedKey: this.options.cipher.encryptString(key), ...catalog })
     this.options.db.prepare('DELETE FROM openrouter_usage').run()
     this.usagePending = null
+    this.clearUsageTimer()
     await this.refreshUsage(true)
     return this.changed()
   }
@@ -94,6 +96,7 @@ export class OpenRouterService {
 
   remove(): OpenRouterStatus {
     this.revision++
+    this.clearUsageTimer()
     this.usagePending = null
     this.options.db.transaction(() => {
       this.options.db.prepare('DELETE FROM openrouter_connection').run()
@@ -177,22 +180,65 @@ export class OpenRouterService {
     return status
   }
 
-  /** At most one read per minute, even with many children completing together; explicit Refresh bypasses the cache. */
+  private clearUsageTimer(): void {
+    if (this.usageTimer !== null) clearTimeout(this.usageTimer)
+    this.usageTimer = null
+  }
+
+  close(): void {
+    this.revision++
+    this.clearUsageTimer()
+  }
+
+  /** Keep a provider's credit failure visible until an inference request succeeds, even when /key still works. */
+  noteResponse(status: number): void {
+    const current = this.usage()
+    if (!current.connected) return
+    const blocked = 'OpenRouter requests are blocked: insufficient credits or the key spending limit was reached.'
+    if (status === 402 || (status >= 200 && status < 300 && current.error === blocked)) {
+      setOpenRouterUsage(this.options.db, { ...current, error: status === 402 ? blocked : null })
+      this.emitUsage()
+    }
+  }
+
+  /** Coalesce request completions, retaining a trailing read so the final request is included. */
   refreshUsage(force = false): Promise<OpenRouterUsageStatus> {
     const status = this.usage()
     if (!status.connected) return Promise.resolve(status)
-    if (this.usagePending !== null) return this.usagePending
     const now = this.options.now ?? Date.now
-    if (!force && now() - this.lastUsageAttempt < 60_000) return Promise.resolve(status)
+    const remaining = this.lastUsageAttempt + 60_000 - now()
+    if (this.usagePending !== null || (!force && remaining > 0)) {
+      if (!force && this.usageTimer === null) {
+        this.usageTimer = setTimeout(
+          () => {
+            this.usageTimer = null
+            void this.refreshUsage()
+          },
+          Math.max(1, remaining),
+        )
+        this.usageTimer.unref()
+      }
+      return this.usagePending ?? Promise.resolve(status)
+    }
+    this.clearUsageTimer()
     this.lastUsageAttempt = now()
     const revision = this.revision
-    const pending = this.client
-      .usage(this.key(), now())
+    // Decryption is inside the promise too: an unavailable key must not throw during app launch.
+    const read = async () => this.client.usage(this.key(), now())
+    const pending = read()
       .then(
-        (reading): OpenRouterUsageStatus => ({ connected: true, reading, error: null }),
+        (reading): OpenRouterUsageStatus => ({
+          connected: true,
+          reading,
+          error:
+            this.usage().error?.startsWith('OpenRouter requests are blocked:') === true ? this.usage().error : null,
+        }),
         (): OpenRouterUsageStatus => ({
           ...status,
-          error: 'Could not refresh OpenRouter usage. Showing the last reading.',
+          error:
+            this.usage().error?.startsWith('OpenRouter requests are blocked:') === true
+              ? this.usage().error
+              : 'Could not refresh OpenRouter usage. Showing the last reading.',
         }),
       )
       .then((next) => {

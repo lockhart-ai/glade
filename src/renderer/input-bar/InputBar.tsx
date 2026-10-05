@@ -633,7 +633,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
 
   /** Changes the task's settings; answers whether they changed. */
   const change = async (setting: string, patch: Parameters<typeof updateTask>[1]): Promise<boolean> => {
-    if (setting === 'model' || setting === 'subagent model') setChanging(setting)
+    if (setting === 'model') setChanging(setting)
     try {
       await updateTask(task.id, patch)
       return true
@@ -641,7 +641,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
       toast.show({ message: `Couldn’t change the ${setting}: ${describeFailure(error)}` })
       return false
     } finally {
-      if (setting === 'model' || setting === 'subagent model') setChanging(null)
+      if (setting === 'model') setChanging(null)
     }
   }
 

@@ -17,6 +17,9 @@ import {
   type ToolInput,
 } from '../../../shared/domain'
 import { Row } from './rows'
+import { SUBAGENT_TOOL_NAMES } from '../../../shared/subagents'
+
+const SUBAGENT_NAMES = SUBAGENT_TOOL_NAMES.map((name) => `'${name}'`).join(', ')
 
 /** Where a new tool log entry goes. */
 export interface NewToolEventBase {
@@ -554,7 +557,7 @@ export function setSubagentProgress(db: Database, progress: SubagentProgress): T
     .prepare(
       `UPDATE tool_events SET progress_summary = @summary
       WHERE task_id = @taskId AND tool_use_id = @toolUseId AND kind = 'tool_call' AND tool_state = 'running'
-        AND tool_name IN ('Agent', 'Task') AND progress_summary IS NOT @summary
+        AND tool_name IN (${SUBAGENT_NAMES}) AND progress_summary IS NOT @summary
       RETURNING ${COLUMNS}`,
     )
     .get(progress)
@@ -588,7 +591,7 @@ export function setSubagentTaskId(db: Database, subagent: SubagentTaskId): boole
   const result = db
     .prepare(
       `UPDATE tool_events SET sdk_task_id = @sdkTaskId
-      WHERE task_id = @taskId AND tool_use_id = @toolUseId AND kind = 'tool_call' AND tool_name IN ('Agent', 'Task')`,
+      WHERE task_id = @taskId AND tool_use_id = @toolUseId AND kind = 'tool_call' AND tool_name IN (${SUBAGENT_NAMES})`,
     )
     .run(subagent)
   return result.changes > 0
@@ -602,7 +605,7 @@ export function findSubagentCall(db: Database, taskId: string, sdkTaskId: string
   const raw: unknown = db
     .prepare(
       `SELECT ${COLUMNS} FROM tool_events
-      WHERE task_id = ? AND sdk_task_id = ? AND kind = 'tool_call' AND tool_name IN ('Agent', 'Task')
+      WHERE task_id = ? AND sdk_task_id = ? AND kind = 'tool_call' AND tool_name IN (${SUBAGENT_NAMES})
       ORDER BY seq DESC LIMIT 1`,
     )
     .get(taskId, sdkTaskId)
@@ -618,7 +621,7 @@ export function reopenSubagentCall(db: Database, taskId: string, toolUseId: stri
   const row: unknown = db
     .prepare(
       `UPDATE tool_events SET tool_state = 'running', tool_output = NULL, finished_at = NULL, progress_summary = NULL
-      WHERE task_id = ? AND tool_use_id = ? AND kind = 'tool_call' AND tool_name IN ('Agent', 'Task')
+      WHERE task_id = ? AND tool_use_id = ? AND kind = 'tool_call' AND tool_name IN (${SUBAGENT_NAMES})
         AND tool_state != 'running'
       RETURNING ${COLUMNS}`,
     )

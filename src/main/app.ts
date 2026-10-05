@@ -966,6 +966,7 @@ export function startApp({
 
     app.on('will-quit', () => {
       log.info('app quitting')
+      openrouter.close()
       stopLoggingCrashes()
       runner.close()
       bridge.account.close()

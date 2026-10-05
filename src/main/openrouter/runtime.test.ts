@@ -99,13 +99,13 @@ it('isolates route credentials, aliases and configuration, preserving the task t
   const relay = vi.mocked(createOpenRouterRelay).mock.calls.at(-1)?.[0]
   expect(relay?.key()).toBe('inference-key')
   const refreshed = vi.spyOn(service, 'refreshUsage').mockResolvedValue({ connected: true, reading: null, error: null })
-  relay?.onComplete?.()
+  relay?.onComplete?.(200)
   expect(refreshed).toHaveBeenCalled()
   prepared.close()
   expect(relayClose).toHaveBeenCalled()
 })
 
-it('allows all enabled OpenRouter models for per-dispatch selection while helper aliases keep the parent route', async () => {
+it('gives each independently routed session its own model and context window', async () => {
   const child = {
     ...SAMPLE_CHOICE,
     id: 'openrouter:sample/small@sample-host',
@@ -127,15 +127,17 @@ it('allows all enabled OpenRouter models for per-dispatch selection while helper
   expect(prepared.env).toMatchObject({
     CLAUDE_CODE_SUBAGENT_MODEL: '',
     ANTHROPIC_DEFAULT_HAIKU_MODEL: openRouterSdkModel(SAMPLE_CHOICE.id),
-    CLAUDE_CODE_MAX_CONTEXT_TOKENS: '64000',
+    CLAUDE_CODE_MAX_CONTEXT_TOKENS: '128000',
   })
-  expect(vi.mocked(createOpenRouterRelay).mock.calls.at(-1)?.[0].choices).toEqual([SAMPLE_CHOICE, child])
-  expect(Object.keys(prepared.agents ?? {})).toEqual([SAMPLE_CHOICE.id, child.id])
-  for (const choice of [SAMPLE_CHOICE, child])
-    expect(prepared.agents?.[choice.id]?.model).toBe(openRouterSdkModel(choice.id))
-  expect(prepared.agents?.[child.id]?.description).toContain('64000 tokens')
-  expect(prepared.subagentInstructions).toContain('Choose the model for each subagent')
-  expect(vi.spyOn(service, 'endpoints')).not.toHaveBeenCalled()
+  expect(vi.mocked(createOpenRouterRelay).mock.calls.at(-1)?.[0].choices).toEqual([SAMPLE_CHOICE])
+  const childSession = await openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() }).prepare(
+    { ...options, model: child.id },
+    inherited,
+  )
+  expect(childSession.contextWindowTokens).toBe(64_000)
+  expect(vi.mocked(createOpenRouterRelay).mock.calls.at(-1)?.[0].choices).toEqual([child])
+  prepared.close()
+  childSession.close()
 })
 
 it('keeps account configuration and login intact without passing an OpenRouter key to account agents', async () => {
@@ -322,4 +324,32 @@ it('refuses missing and disabled parent routes before spawning an SDK process', 
   setOpenRouterChoice(database.db, { ...SAMPLE_CHOICE, enabled: false })
   await expect(runtime.prepare(options, inherited)).rejects.toThrow('Enable this')
   setOpenRouterChoice(database.db, SAMPLE_CHOICE)
+})
+
+it('retains the previous mirror when rebuilding fails, through repeated starts, then replaces it after recovery', async () => {
+  const key = { projectKey: 'sample', sessionId: 'failed-rebuild' }
+  const store = sqliteSessionStore(database.db)
+  const kept = [
+    { type: 'user', uuid: 'u1' },
+    { type: 'assistant', uuid: 'a1', message: 'saved history' },
+  ]
+  await store.append(key, kept)
+  const config = join(dir, 'recover-config')
+  markTranscriptFailed(database.db, key.sessionId, null, config)
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await expect(runtime.prepare({ ...options, resumeSessionId: key.sessionId }, inherited)).rejects.toThrow(
+      'could not be recovered',
+    )
+    expect(await store.load(key)).toEqual(kept)
+  }
+  mkdirSync(join(config, 'projects', 'sample'), { recursive: true })
+  writeFileSync(
+    join(config, 'projects', 'sample', `${key.sessionId}.jsonl`),
+    [...kept, { type: 'user', uuid: 'u2' }].map((entry) => JSON.stringify(entry)).join('\n') + '\n',
+  )
+  const prepared = await runtime.prepare({ ...options, resumeSessionId: key.sessionId }, inherited)
+  expect(await store.load(key)).toHaveLength(3)
+  expect(database.db.prepare('SELECT * FROM sdk_transcript_backups').all()).toEqual([])
+  prepared.close()
 })

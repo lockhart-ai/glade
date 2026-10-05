@@ -80,6 +80,10 @@ function attachedFile(taskId: string, name: string): AttachedFile {
 /** Gives a task a row in every table that belongs to one. */
 async function fillTask(db: Database, task: Task): Promise<void> {
   const taskId = task.id
+  db.prepare(
+    "INSERT INTO managed_agents VALUES (?, ?, 'dispatch', 'sonnet', 'child-session', 'completed', 'Done')",
+  ).run(`child-${taskId}`, taskId)
+  db.prepare("INSERT INTO sdk_transcript_backups VALUES (?, 'session', ?, '[]')").run(taskId, taskId)
   await sqliteSessionStore(db, taskId).append({ projectKey: 'sample', sessionId: taskId }, [
     { type: 'user', uuid: taskId },
   ])
@@ -217,6 +221,7 @@ const FILLED_TABLES = [
   'images',
   // Its unsent input draft.
   'input_drafts',
+  'managed_agents',
   'messages',
   // The notifications sent about it, for the menu bar popover's Recent section.
   'notifications',
@@ -233,6 +238,7 @@ const FILLED_TABLES = [
   // The folders and domains its sandbox was granted for it alone (#449).
   'sandbox_grants',
   // The search index's rows for its fields and messages, which a new task and `fillTask`'s message make.
+  'sdk_transcript_backups',
   'sdk_transcript_failures',
   'sdk_transcripts',
   'search_documents',

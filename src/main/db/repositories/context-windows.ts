@@ -42,16 +42,13 @@ export function guessModelWindow(db: Database, model: string): number {
   return guessContextWindow(offeredModels(db), getReportedWindows(db), model)
 }
 
-/** OpenRouter native children share the SDK's context limit; use the smallest enabled route for compaction. */
+/** Independently routed children have their own windows; the task retains its selected model's window. */
 export function taskModelWindow(db: Database, model: string): number {
   if (agentSource(model) !== AgentSource.OpenRouter) return guessModelWindow(db, model)
-  const row = new Row(
-    'openrouter_choices',
-    db
-      .prepare(
-        "SELECT min(CAST(json_extract(choice, '$.model.contextLength') AS INTEGER)) AS window FROM openrouter_choices WHERE id = ? OR json_extract(choice, '$.enabled') = 1",
-      )
-      .get(model),
-  )
-  return row.nullableInteger('window') ?? guessModelWindow(db, model)
+  const raw = db
+    .prepare(
+      "SELECT CAST(json_extract(choice, '$.model.contextLength') AS INTEGER) AS window FROM openrouter_choices WHERE id = ?",
+    )
+    .get(model)
+  return raw === undefined ? guessModelWindow(db, model) : new Row('openrouter_choices', raw).integer('window')
 }

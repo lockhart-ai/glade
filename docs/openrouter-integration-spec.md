@@ -25,81 +25,59 @@ pickers. Providers are chosen in Settings. Changing provider creates a different
 previous pair. Existing tasks on disabled routes or removed keys never receive an automatic replacement: enable the saved pair or
 choose another model to continue. A task retains its saved model/provider name.
 
-The durable selection ID is `openrouter:<model>@<provider>`. Claude selections retain existing IDs/aliases. Source
-is derived from this ID, so old tasks need no source backfill. There is no saved blanket subagent model or second
-input-bar picker. The parent chooses a model for each dispatch. Claude retains native Agent model selection.
-OpenRouter registers a named SDK agent definition for each enabled route. Its name is the durable model/provider
-ID, retained in dispatch history; its model field uses the full opaque SDK ID.
-Descriptions give the selected provider, context window and indicative input/output prices; the parent selects
-`subagent_type` and omits `model`, whose native schema accepts only Claude aliases.
-
-| Parent | Native SDK subagents |
-| --- | --- |
-| Claude account | The parent chooses a Claude model for each dispatch |
-| OpenRouter | The parent chooses an enabled OpenRouter route for each dispatch |
-| Claude account with OpenRouter children | Required; separate-session dispatch proved live, production wiring pending |
-
-Definitions and route metadata are captured when the SDK process starts; a later catalog change applies when a
-process next starts. Existing native children retain their prepared routes and context limit.
-
-Native SDK children inherit the parent's endpoint and credentials. Helpers and built-in subagent types use the
-parent's OpenRouter route; named subagents use their own enabled routes. Independent Glade tasks can use different sources concurrently.
+The durable selection ID is `openrouter:<model>@<provider>`. Claude selections retain existing IDs/aliases.
+There is no blanket subagent model or second input-bar picker. The parent chooses the model for each job.
 
 ## Mixed-source subagent dispatch
 
-Mixed-source dispatch is required by Jared's latest instruction. The earlier same-source allowance no longer defines
-the target. The existing draft implementation still uses native children; this section describes the additional
-adapter, not shipped behavior.
+`mcp__glade-agents__list_models` returns the current Claude models and enabled OpenRouter routes, including their
+context windows and OpenRouter input/output prices in USD per token. `mcp__glade-agents__dispatch` takes `model`,
+`prompt`, `description`, optional `run_in_background`, and optional `resume` (a previously returned child ID).
+It starts the existing SDK backend in another session, in the same workspace, with its own connection. It accepts
+only currently offered models; provider selection remains in Settings. Curation changes apply to the next dispatch.
 
-A live SDK 0.3.283 probe established an Anthropic-account Haiku parent invoking an in-process MCP dispatch tool,
-whose handler started a second SDK `query()` on DeepSeek V4.1 Flash through Together. The child used the production
-OpenRouter relay, an isolated configuration directory and no Anthropic credentials. Its text result returned through
-the tool; the parent continued on Claude and reported that result. No Claude credential was read, copied or stored
-by the probe. Both agent loops were the SDK's unmodified loops.
+| Parent | Claude child | OpenRouter child |
+| --- | --- | --- |
+| Claude account | Supported | Supported |
+| OpenRouter | Supported | Supported |
 
-Native `AgentDefinition.model` selects a model, but supplies no child-specific endpoint or credentials. Native
-`Agent.model` accepts Claude aliases. `spawnClaudeCodeProcess` customizes the top-level process; it is not a native
-child-process callback. Changing the parent's environment or credentials around a dispatch would change a shared
-connection and race concurrent calls. Separate SDK sessions avoid that shared connection.
+The adapter retains the full SDK coding prompt and agent loop, and adds delegation instructions. It creates fresh
+MCP servers for each process, forwards the task's permissions and sandbox grants, and gives separate sessions a
+subagent identity for main-only tool checks. A child cannot change Glade task metadata, ask the user, or control
+other tasks. Its own permission/access requests still identify it in the task's cards.
 
-The narrow implementation is an in-process Glade dispatch tool backed by the existing `AgentBackend.start()` and
-`SdkSessionRuntime.prepare()`. The parent supplies the child's model, prompt and description per call. The model is
-an enabled durable route such as `openrouter:<model>@<provider>`; the tool has no provider or credential argument.
-Glade validates the saved pair and retains provider pinning in the relay. The tool's description/prompt lists the
-curated models, their providers, context windows and indicative prices so the parent can choose for the job. There
-is no subagent picker or blanket default. Native Claude children and existing native OpenRouter children can keep
-their current path; cross-source children use the adapter.
+SQLite records each dispatch's owning task, model/provider route, SDK session ID, result and state. Child text and
+tool events appear under its dispatch in Agents, whose selected-child line shows the model. Child initialization,
+context and completion never replace the parent task's session or model. Each process keeps its own context window.
+Claude children report Claude account usage; OpenRouter children refresh the separate OpenRouter usage row.
 
-Production wiring must preserve the behavior of a subagent, rather than create a second visible task:
+Foreground dispatch waits for the result. Background dispatch returns the child ID and sends its completion or
+failure back to the parent. Stop subagent works through the existing Agents controls, including nested children.
+Stopping a foreground turn ends its foreground children. Closing a session ends all its children; finishing a
+child ends its remaining descendants and watchers. The adapter does not leave independently billed work orphaned.
 
-- Associate each dispatch call with an immutable child model/provider, separate SDK session ID and owning task in
-  SQLite. Reuse the transcript store for child history; do not overwrite the parent's session ID or rewrite its
-  conversation. Retrying a persisted dispatch after relaunch must not silently start duplicate work.
-- Attach child text and tool events to the dispatch call so the existing Agents view, todo filing and plugin events
-  see it as a subagent. Register the dispatch tool in the existing shared subagent/tool classifiers. Resolve the
-  calling tool ID through the SDK hooks; do not depend solely on the unprobed MCP metadata field.
-- Start the child in the same workspace with the task's permission and sandbox settings. A separate SDK session
-  considers itself a main agent, so explicitly retain Glade's main-agent-only restrictions and attribute its access
-  and permission requests to the child. Create fresh in-process MCP server instances for each SDK connection.
-- Route Stop subagent to the child's session and its work. Route task/session shutdown and foreground cancellation
-  to the affected children. Track background work, completion delivery and child continuation explicitly so source
-  switching cannot leave a child running unseen. Native `SendMessage` cannot address an independent SDK session;
-  the adapter needs its own continuation path if that behavior is exposed.
-- Keep child initialization, context, turn completion, errors and rate limits out of the parent's session/account
-  state. An OpenRouter child failure returns to the parent as a child/tool failure. Its inference still refreshes
-  the OpenRouter usage row through the existing relay callback; the parent retains Claude usage reporting.
+Resume a child with another dispatch using its returned ID and original model, including after the parent switches
+source or Glade relaunches. The same task owns the saved conversation; other tasks cannot resume it. Replaying a
+persisted tool call returns its saved state instead of starting duplicate work. A process interrupted by relaunch
+is marked stopped; resumption is explicit. `SendMessage` continues to address native SDK children only.
 
-The probe proves the connection and return path, not these lifecycle guarantees. Mocked integration tests must
-cover concurrent children with different routes, permission attribution, main-only tool refusal, foreground and
-background stop, child failure, persistence/relaunch and unchanged parent history. Hidden Electron coverage must
-show the child in the existing Agents view with its selected route and working stop control. No new model selector
-or general backend abstraction is needed.
+Native `Agent` is still available: Claude children share the Claude account; under OpenRouter every native model
+alias and built-in type uses that process's selected route. For a different route or source, the parent uses Glade's
+dispatch tool. Native child wakeups remain tied to their source process; the portable continuation path is managed
+dispatch. SDK helpers such as compaction use the process's selected route too.
 
 ## Switching an existing task
 
 A source change or OpenRouter model change needs a stopped or waiting task, with no active
-turn, question, permission or background work, including scheduled wakeups and cron jobs. Stop or finish that work first. Ordinary Claude model changes keep
+turn, question or permission request. Ordinary waiting tasks must also finish or stop their background work. A task
+paused on a usage limit may switch immediately: its old children, watchers and scheduled work end with a recorded
+reason, and its held turn resumes on OpenRouter. Ordinary Claude model changes keep
 the existing next-turn behavior.
+
+If known context usage exceeds the destination window, the switch is refused before preparation; choose a larger
+model or compact first. The SDK todo list, its identifiers and high-water mark are shared across both configurations
+and independently routed children through a task-specific list. Existing lists seed that list without overwriting
+the original files.
 
 For a task with a session, the runner prepares a provisional process with the same SDK session ID, persisted
 transcript, workspace, tools and permissions. Queued input waits for SDK initialization and sandbox setup. Only
@@ -144,16 +122,15 @@ stdio MCP servers can inherit the short-lived relay token; it grants inference o
 
 Messages thinking/effort fields follow endpoint capabilities; other output configuration fields remain intact.
 Text-only routes reject image-containing requests explicitly. The SDK's unknown-model 200K default is overridden
-with the smallest actual context window of its enabled routes. Production probing confirmed the override.
+with that session's selected route's actual context window. Production probing confirmed the override.
 The context meter uses that prepared limit, including after catalog changes during a session. Helper calls and
-built-in subagent types use the parent route. Glade does not set a blanket native child model; explicit named
-definitions select each child's route. SDK fallback Claude pricing is not an OpenRouter bill.
+built-in subagent types use the parent route. Glade does not set a blanket child model; each managed dispatch selects its own route. SDK fallback Claude pricing is not an OpenRouter bill.
 [Messages API](https://openrouter.ai/docs/api/api-reference/anthropic-messages/create-messages?explorer=true).
 
 ## Durable history and usage
 
-Ordinary Claude tasks retain SDK transcript files, without an import or a mirror. Only tasks that use OpenRouter
-opt into SDK 0.3.283’s alpha `sessionStore` with eager flush. Main/child entries retain UUIDs, tool results,
+Ordinary Claude parent tasks retain SDK transcript files, without an import or a mirror. Tasks that use OpenRouter
+and independently routed children use SDK 0.3.283’s alpha `sessionStore` with eager flush. Main/child entries retain UUIDs, tool results,
 thinking/signatures and metadata. `importSessionToStore` imports legacy history at the first OpenRouter handoff;
 missing history fails explicitly. A provisional import is adopted in the same database transaction as the
 selection; failure or cancellation discards it. An uncommitted copy after a crash is never treated as the task’s
@@ -164,7 +141,8 @@ and metadata sidecars. Ordinary Claude tasks preserve the user’s own inherited
 Append writes only incoming entries, preserving order. Separate owners isolate copied SDK IDs. Mirrored entries
 and switch records remain until task deletion, which cascades them. `mirror_error` stops the task and persists an
 unreliable-history marker with the SDK config directory. The next start rebuilds the mirror from complete local SDK
-files and clears the marker only on adoption. If recovery fails, the error explains how to restore the file or carry
+files and clears the marker only on adoption. A durable backup retains the prior mirror while a rebuild is pending or fails. The failed copy is never treated as
+complete. If recovery fails, the error explains how to restore the file or carry
 the saved Glade chat into a new task; a shorter mirror is never loaded. There is no time-based
 truncation. Closing before environment resolution never spawns a process: cancelled handoff candidates must not
 start or deliver input after rollback. Saved chat/queued input remains available for retry.
@@ -173,7 +151,9 @@ The sidebar’s separate OpenRouter row reads `/key`: USD spend today/week/month
 allowance/reset, BYOK totals and optional free-request counts. It covers all activity on the key, including outside
 Glade; periods are UTC. No SDK list-price estimate or unused per-generation reconciliation pipeline is retained.
 SQLite caches the last reading and error for the connected key; replacement/removal clears it. Launch, connection,
-request completion and popover opening refresh through one coalesced read at most per minute. Explicit Refresh
+request completion and popover opening refresh through one coalesced read at most per minute, with a trailing read
+to include the final request of a burst. A 402 marks the sidebar row blocked until inference succeeds; a successful
+metadata read alone does not clear the credit failure. Decryption/read failures cannot crash app launch. Explicit Refresh
 bypasses that cache. A failed read preserves the previous figures/age; unknown remains distinct from zero.
 No figures or key labels reach logs or plugin feeds. Account credit balance needs a management key and is omitted.
 [Current key](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-api-key),
@@ -194,28 +174,36 @@ The mixed-source probe described above exercised an actual parent tool call, one
 request, the child result and a subsequent Claude parent reply. An initial parent prompt omitted the child task and
 returned a clarification instead; the corrected prompt dispatched successfully. The private audit accepts the
 parent's formatting around the returned marker. No additional inference was run just to enforce exact formatting.
-Thinking and filesystem tools were disabled, output was capped and live probing stopped after the successful
-dispatch. This is feasibility evidence; the production managed-child adapter has not been implemented or validated.
-
-A no-inference SDK initialization check registered two named agents with distinct full opaque model IDs. It
-submitted no prompt and used no live inference endpoint or account credentials. Mocked runtime and relay tests
-verify per-dispatch selection and provider pinning; a live named-child dispatch remains a compatibility check
-before release.
+Thinking and filesystem tools were disabled and output was capped. Production dispatch now has mocked integration
+coverage for all four source combinations, concurrency, nested stop, saved-child resume after parent switching,
+live route curation, account isolation and main-only tool guards. Hidden Electron tests exercise both kinds of
+parent dispatching one child on each source and display both model labels. A subsequent bounded live probe ran the
+production dispatch adapter, SDK backend, runtime and child persistence in both cross-source directions: Claude
+Haiku → DeepSeek Flash / Together, and DeepSeek Flash / Together → Claude Haiku. Each parent received its child's
+echo and each child was saved as completed. The probe reduced the system prompt, disabled thinking and filesystem
+tools, and capped output at 256 tokens; it made three OpenRouter requests across both cases. The current-key response shape was
+also checked with an authenticated metadata-only request, with no usage figures retained in the repo.
 
 A fresh OpenRouter process recalled its genuine random tool result through the production SQLite store. Artificial
 transcript injection was insufficient evidence because SDK replay checkpoints can exclude appended entries.
-Cross-source signed thinking, reverse paid Claude inference and sandboxed SDK-cache reads were not live-probed;
-they require manual validation before release. Provider context-overflow recovery and withdrawn-provider errors also need
+A production runtime round trip then ran Claude Haiku → DeepSeek Flash / Together → Claude Haiku on the same
+SDK session. The first Claude turn emitted signed thinking and read a fresh random token from a tool. Both resumed
+models recalled that token, and SQLite retained the thinking blocks. The SDK normalized the resumed outgoing
+OpenRouter history to text/tool blocks; DeepSeek returned no thinking blocks on this trivial request. This proves
+that tested round trip, not arbitrary providers' reasoning formats. The probe made one OpenRouter request and used
+1,024-token thinking budgets with 1,280-token output caps; actual generated output was 241 tokens across the three
+turns. OpenRouter-origin reasoning signatures and sandboxed SDK-cache reads still require manual validation before
+release. Provider context-overflow recovery and withdrawn-provider errors also need
 a manual run. Native subagent progress summaries remain enabled and generate inference requests; their cost and
 cache behavior should be checked in a provider generation log before recommending a route for cheap work.
 
 Automated tests mock catalog/inference traffic and use the existing fake agent. They cover credential/source
 isolation, discovery, key races, route failures, opaque history, deletion, switch entries, sandbox readiness,
-queue holding, rollback, mirror recovery, deferred pause timers, scheduled-work refusal, mixed-source usage refresh,
-limit recovery, per-dispatch model definitions and separate native child routes. Hidden Electron tests cover the UI’s connection errors, curation, provider filtering, usage monitor, persisted Glade
+queue holding, rollback, mirror recovery, deferred pause timers, scheduled-work handling, mixed-source usage refresh,
+limit recovery, shared SDK todos, destination context checks, post-commit failure handling and independent child routes. Hidden Electron tests cover the UI’s connection errors, curation, provider filtering, usage monitor, persisted Glade
 chat/log rows, relaunch and selections in both directions. Test mode uses the fake backend, so Playwright does not
 prove SDK transcript handoff; mocked SDK/runtime integration tests and the private live probes provide that evidence. Capture/e2e mode uses an offline catalog,
 even if supplied a real key.
 
-Approved UI references are [screens 56–59](design/openrouter-mockups.md). Migration 65 and typed bridge commands
+Approved UI references are [screens 56–59](design/openrouter-mockups.md). Migrations 65–66 (including upgrades from earlier preview schemas) and typed bridge commands
 extend existing repositories and Settings/picker surfaces without a general backend refactor.

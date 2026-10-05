@@ -1,5 +1,6 @@
 import { memo, useMemo } from 'react'
 import type { ToolCallEvent } from '../../shared/domain'
+import { modelName } from '../../shared/models'
 import { useGladeStore } from '../store/react'
 import { agentsOf, agentStateLine, agentTodoSelector, isRunning, todoLineVerb } from './agentsModel'
 import { useElapsedNow } from './useElapsedNow'
@@ -32,21 +33,32 @@ export const AgentLine = memo(function AgentLine({ taskId, agentId }: AgentLineP
   const selectTodo = useMemo(() => agentTodoSelector(taskId, agentId), [taskId, agentId])
   const todo = useGladeStore(selectTodo)
   const showTodo = useGladeStore((state) => state.showTodo)
+  const model = typeof call?.input.model === 'string' ? call.input.model : null
+  const label = useGladeStore((state) => (model === null ? null : modelName(state.models, model)))
   const todoId = todo?.id ?? null
-  if (call === undefined || todo === null || todoId === null) return null
+  if (call === undefined || (todo === null && label === null)) return null
   return (
     <div className={styles.line} data-agent-line="">
       <span className={styles.working}>
-        {todoLineVerb(call)}{' '}
-        <button
-          type="button"
-          className={styles.todo}
-          onClick={() => {
-            showTodo(taskId, todoId)
-          }}
-        >
-          {todo.text}
-        </button>
+        {label !== null && (
+          <span className={styles.model} title={label} data-agent-model="">
+            {label}
+          </span>
+        )}
+        {todo !== null && todoId !== null && (
+          <>
+            {todoLineVerb(call)}{' '}
+            <button
+              type="button"
+              className={styles.todo}
+              onClick={() => {
+                showTodo(taskId, todoId)
+              }}
+            >
+              {todo.text}
+            </button>
+          </>
+        )}
       </span>
       <AgentState call={call} />
     </div>

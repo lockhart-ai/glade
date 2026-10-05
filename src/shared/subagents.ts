@@ -1,9 +1,10 @@
 // Which tool calls start a subagent, and what a subagent is called, as the Agents tab, the task list's subagent
 // count, the plugins and the todo hub see them.
 import type { ToolCallEvent } from './domain'
+import { DISPATCH_AGENT_TOOL } from './managed-agents'
 
 /** The tools that start a subagent: `Agent` in `tool_use` (the init tools list calls it `Task`). */
-export const SUBAGENT_TOOL_NAMES: readonly string[] = ['Agent', 'Task']
+export const SUBAGENT_TOOL_NAMES: readonly string[] = ['Agent', 'Task', DISPATCH_AGENT_TOOL]
 
 /** Whether a call to the named tool starts a subagent. */
 export function isSubagentTool(name: string): boolean {

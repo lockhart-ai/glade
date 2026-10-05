@@ -68,8 +68,6 @@ export interface SdkBackendOptions {
 export interface PreparedSdkSession {
   readonly env: Environment
   readonly model?: string
-  readonly agents?: Options['agents']
-  readonly subagentInstructions?: string
   readonly contextWindowTokens?: number
   readonly sessionStore?: import('@anthropic-ai/claude-agent-sdk').SessionStore
   readonly onMirrorError?: (sessionId: string) => void
@@ -370,11 +368,13 @@ const preToolUseInput = z.looseObject({
 export function subagentGladeToolGuard(
   log: Logger = SILENT_LOGGER,
   onAccessRequested?: SessionHooks['onAccessRequested'],
+  managedAgentId?: string,
 ): HookCallback {
   return (input) => {
     const parsed = preToolUseInput.safeParse(input)
     if (!parsed.success) return Promise.resolve({})
-    const { agent_id: agentId, mcp_server: mcpServer, tool_name: toolName } = parsed.data
+    const { agent_id: nativeAgentId, mcp_server: mcpServer, tool_name: toolName } = parsed.data
+    const agentId = nativeAgentId ?? managedAgentId
     if (mcpServer === undefined) return Promise.resolve({})
     if (mcpServer.source !== 'sdk' || !isGladeServer(mcpServer.name)) return Promise.resolve({})
     if (mcpServer.name === GLADE_SERVER && toolName === ACCESS_TOOL_NAME) {
@@ -618,9 +618,10 @@ export function sdkHooks(
   hooks: SessionHooks | undefined,
   log: Logger = SILENT_LOGGER,
   bashTimeoutMs: number = BASH_HOOK_TIMEOUT_MS,
+  managedAgentId?: string,
 ): NonNullable<Options['hooks']> {
   const preToolUse: NonNullable<Options['hooks']>['PreToolUse'] = [
-    { hooks: [subagentGladeToolGuard(log, hooks?.onAccessRequested)] },
+    { hooks: [subagentGladeToolGuard(log, hooks?.onAccessRequested, managedAgentId)] },
   ]
   if (hooks === undefined) return { PreToolUse: preToolUse }
   const { onToolStarting } = hooks
@@ -874,7 +875,7 @@ export function sdkOptions(
     // Always given: a subagent's call to one of Glade's own tools is refused whether or not the session tells the
     // runner anything else (#366). What the session's watchers do, when it does, is in here too (the Agents tab,
     // docs/sdk-notes.md §13).
-    hooks: sdkHooks(options.hooks, options.log ?? SILENT_LOGGER),
+    hooks: sdkHooks(options.hooks, options.log ?? SILENT_LOGGER, BASH_HOOK_TIMEOUT_MS, options.managedAgentId),
   }
 }
 
@@ -990,14 +991,10 @@ export function createSdkBackend({
             {
               ...options,
               ...(prepared === undefined ? {} : { env: {}, model: prepared.model ?? options.model }),
-              systemPromptAppend: [options.systemPromptAppend, prepared?.subagentInstructions]
-                .filter(Boolean)
-                .join('\n\n'),
               log,
             },
             { ...(prepared?.env ?? resolved), ...clientAppEnv(version) },
           )
-          if (prepared?.agents !== undefined) sdk.agents = prepared.agents
           if (prepared?.sessionStore !== undefined) {
             sdk.sessionStore = prepared.sessionStore
             sdk.sessionStoreFlush = 'eager'

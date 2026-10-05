@@ -32,8 +32,9 @@ export function OpenRouterUsageMeter(): React.JSX.Element | null {
   if (!status.connected) return null
   const { reading } = status
   const fraction = openRouterUsageFraction(reading)
-  const limited = fraction === 1
-  const warning = fraction !== null && fraction >= 0.7
+  const blocked = status.error?.startsWith('OpenRouter requests are blocked:') === true
+  const limited = fraction === 1 || blocked
+  const warning = status.error !== null || (fraction !== null && fraction >= 0.7)
   const remaining = reading?.limit != null && reading.remaining !== null ? reading.remaining : null
   const run = (force: boolean): void => {
     setBusy(true)
@@ -74,7 +75,15 @@ export function OpenRouterUsageMeter(): React.JSX.Element | null {
         <span className={styles.percent}>{reading === null ? '—' : usd.format(remaining ?? reading.monthly)}</span>
         <span className={styles.spacer} />
         <span className={styles.detail}>
-          {reading === null ? 'not yet read' : remaining === null ? 'month' : 'left'}
+          {blocked
+            ? 'blocked'
+            : status.error !== null
+              ? 'check usage'
+              : reading === null
+                ? 'not yet read'
+                : remaining === null
+                  ? 'month'
+                  : 'left'}
         </span>
         <span className={styles.chevron}>
           <Icon icon={faChevronUp} size={IconSize.Small} />

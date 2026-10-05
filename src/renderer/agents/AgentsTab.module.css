@@ -133,6 +133,13 @@
   text-overflow: ellipsis;
 }
 
+/* Keep the chosen model visible even when the todo's title fills the line. */
+.model {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .todo {
   display: inline;
   padding: 0;

@@ -6,7 +6,7 @@ import { homedir } from 'node:os'
 import { AgentSource, agentSource } from '../../shared/openrouter'
 import type { AgentSessionOptions } from '../agent/backend'
 import type { PreparedSdkSession, SdkSessionRuntime } from '../agent/sdk-backend'
-import { getOpenRouterChoice, getOpenRouterChoices } from '../db/repositories/openrouter'
+import { getOpenRouterChoice } from '../db/repositories/openrouter'
 import type { Environment } from '../login-env'
 import type { OpenRouterService } from './service'
 import { createOpenRouterRelay } from './relay'
@@ -21,7 +21,8 @@ import {
 } from './transcripts'
 import { openRouterSdkModel } from './sdk-model'
 import { importLocalTranscript } from './local-transcripts'
-import { openRouterSubagents } from './subagents'
+import { sdkTaskList } from './task-list'
+import { getTask } from '../db/repositories/tasks'
 
 export interface OpenRouterRuntimeOptions {
   readonly db: Database
@@ -43,6 +44,10 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
         : ([inherited.CLAUDE_CONFIG_DIR, process.env.CLAUDE_CONFIG_DIR].find(
             (path) => path !== undefined && path !== '',
           ) ?? join(homedir(), '.claude'))
+      const claudeConfig =
+        [inherited.CLAUDE_CONFIG_DIR, process.env.CLAUDE_CONFIG_DIR].find(
+          (path) => path !== undefined && path !== '',
+        ) ?? join(homedir(), '.claude')
       const recoveryDir = sessionId === null ? null : failedTranscriptConfig(db, sessionId, options.taskId ?? null)
       let imported = false
       let adopted = options.provisional !== true
@@ -57,6 +62,24 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
         }
       }
       try {
+        const originalTask = options.taskId === undefined ? undefined : getTask(db, options.taskId)
+        const originalConfig =
+          agentSource(originalTask?.model ?? options.model) === AgentSource.OpenRouter
+            ? join(dataDir, 'openrouter-sdk')
+            : claudeConfig
+        const taskList =
+          options.taskId === undefined
+            ? undefined
+            : await sdkTaskList({
+                taskId: options.taskId,
+                sessionId:
+                  (inherited.CLAUDE_CODE_TASK_LIST_ID === '' ? undefined : inherited.CLAUDE_CODE_TASK_LIST_ID) ??
+                  originalTask?.sessionId ??
+                  sessionId,
+                configDir,
+                dataDir,
+                legacyConfigDir: originalConfig,
+              })
         let mirrored = sessionId !== null && hasTranscript(db, sessionId, options.taskId ?? null)
         // Ordinary Claude tasks keep their existing SDK files. Import only at the first OpenRouter handoff.
         if (sessionId !== null && (recoveryDir !== null || (router && !mirrored))) {
@@ -90,12 +113,13 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
         }
         if (agentSource(options.model) === AgentSource.Anthropic) {
           const env = Object.fromEntries(Object.entries(inherited).filter(([name]) => !name.startsWith('OPENROUTER_')))
+          if (taskList !== undefined) env.CLAUDE_CODE_TASK_LIST_ID = taskList
           for (const name of new Set([...Object.keys(process.env), ...Object.keys(inherited)]))
             if (name.startsWith('OPENROUTER_')) env[name] = ''
           return {
             env,
-            ...(mirrored ? { sessionStore: store } : {}),
-            ...(mirrored ? { onMirrorError: mirrorFailure } : {}),
+            ...(mirrored || options.managedAgentId !== undefined ? { sessionStore: store } : {}),
+            ...(mirrored || options.managedAgentId !== undefined ? { onMirrorError: mirrorFailure } : {}),
             publishModels: true,
             activate,
             close() {
@@ -108,19 +132,19 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
         service.key()
         const config = configDir
         await mkdir(config, { recursive: true, mode: 0o700 })
-        const choices = getOpenRouterChoices(db).filter(({ enabled }) => enabled)
+        const choices = [choice]
         const relay = await createOpenRouterRelay({
           choices,
           key: () => service.key(),
           request,
           ...(options.log === undefined ? {} : { log: options.log }),
-          onComplete: () => {
+          onComplete: (status) => {
+            service.noteResponse(status)
             void service.refreshUsage()
           },
         })
         const model = openRouterSdkModel(choice.id)
-        const subagents = openRouterSubagents(choices)
-        const contextWindowTokens = Math.min(...choices.map(({ model }) => model.contextLength))
+        const contextWindowTokens = choice.model.contextLength
         const env: Record<string, string> = {}
         // SDK subprocesses merge process.env under this map: omission alone would reintroduce credentials.
         for (const name of new Set([...Object.keys(process.env), ...Object.keys(inherited)])) {
@@ -153,11 +177,10 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
           CLAUDE_CODE_NO_MODEL_FALLBACK: '1',
           // The SDK's unknown-model default is 200K; its installed runtime supports this explicit real-window override.
           CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(contextWindowTokens),
+          ...(taskList === undefined ? {} : { CLAUDE_CODE_TASK_LIST_ID: taskList }),
         })
         return {
           model,
-          agents: subagents.agents,
-          subagentInstructions: subagents.instructions,
           contextWindowTokens,
           env,
           sessionStore: store,

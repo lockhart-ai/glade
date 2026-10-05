@@ -742,36 +742,39 @@ source. An OpenRouter choice includes its selected provider. The task picker sel
 provider in Settings. Existing tasks retain their previous pair, and a disabled or disconnected choice is shown
 as unavailable. Enable it again or choose another model; Glade never silently substitutes a provider.
 
-Switch the model between turns, including when paused by a Claude limit. Finish or stop background work and answer
-pending questions/permissions first. The same task continues with its conversation, tool results and queued input.
+Switch the model between turns, including when paused by a Claude limit. Answer pending questions/permissions
+first. On a usage-limit pause, switching ends old background work with a recorded reason; otherwise finish or stop
+that work first. The same task continues with its conversation, tool results and queued input.
 When ready, the **Agents › Main** log adds **Switched model to …**; relaunch keeps that entry. A failed or timed-out startup keeps
 the previous selection and history. Switching a task paused by a Claude usage limit to OpenRouter resumes the held turn immediately. The picker shows
-**Switching…** while the destination starts; your draft stays in place. Scheduled wakeups and cron jobs count as
-background work and must be stopped before switching sources. If a Claude model change is refused, the Main log
+**Switching…** while the destination starts; your draft stays in place. SDK todos keep their IDs across sources. A destination whose context window is too small is refused before the
+switch; choose a larger model or compact first. If a Claude model change is refused, the Main log
 names the model the task continues with.
 OpenRouter errors point to its key/provider settings and do not require a Claude login or subscription reset.
 
-The parent chooses a model when dispatching each subagent; there is no blanket subagent model picker or default.
-Claude tasks keep native Claude model selection. OpenRouter tasks expose every enabled OpenRouter route as a named
-subagent, with its model, provider, context window and indicative API prices. Ask the parent to choose an appropriate
-model for each job, or name the model you want for a particular dispatch. Providers stay fixed by Settings. Available named choices load when the SDK process starts. Native
-children share the parent’s connection, so they cannot mix Claude-account and OpenRouter billing within one task.
+The parent chooses a model when dispatching each subagent; there is no blanket subagent picker or default. Ask it to
+choose for the job, or name the model for a particular child. Claude and OpenRouter parents can both dispatch Claude
+and OpenRouter children. The agent lists current choices with Glade's model tool and dispatches a child on the
+selected route. Settings controls the provider. The child's Agents tab shows its selected model, and its text and
+tool history stay there. Settings changes apply to the next dispatch. A saved child can be resumed on its original
+model after its parent changes model or Glade relaunches, using its returned child ID. Stop subagent also stops its
+remaining work. Completing a child ends its remaining descendants and watchers.
 Catalog compatibility is a starting point: individual models can still reject SDK parameters or history formats.
 Glade reports the error and retains the archived history so you can select another model.
 
 OpenRouter tasks use separate Claude Code user configuration. Your Claude user instructions, skills, agents,
 commands, hooks, plugins, user MCP servers and existing auto-memory do not transfer; project configuration and Glade
 tools still load. They return when you switch back to Claude. Built-in subagent types and SDK helper/small-model
-calls use the task's OpenRouter route. To select another model, the parent dispatches its named OpenRouter subagent.
-The SDK shares one context override across native children: the process and context meter use the smallest window
-of its enabled OpenRouter choices. Changes to the catalog do not alter the prepared limit of a running process.
+calls use the task's OpenRouter route. To select another model or source, the parent uses Glade's dispatch tool. Each separately dispatched child has its
+own context window; enabling a smaller model does not shrink the parent's window. Changes to the catalog do not alter the prepared limit of a running process.
 
 The key stays in Glade's main process. Sandboxed commands cannot read the relay URL/token from their environment.
 Unsandboxed commands and session hooks or stdio MCP servers can inherit the temporary session relay token, which
 can spend on the session's selected routes until it closes. The separate SDK cache is inside Glade's private data
 folder: sandboxed file tools cannot read cached large tool results or auto-memory there; workspace files remain usable.
 
-The sidebar's **OpenRouter** usage row shows remaining key allowance, or this month's spend when uncapped. Open it
+The sidebar's **OpenRouter** usage row marks credit failures as blocked and refreshes after the final requests of
+a turn. It shows remaining key allowance, or this month's spend when uncapped. Open it
 for API-reported USD spend today, this week, this month and all time, the configured key cap/reset, BYOK spend and
 free-request allowance when reported. UTC periods include all activity on the key, including outside Glade. The
 reading is cached across launches, refreshed on connection/launch and after requests at most once a minute, and can

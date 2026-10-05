@@ -148,3 +148,11 @@ it('uses the API remaining allowance, handles zero and unknown caps, and shows B
   })
   expect(await open()).toHaveTextContent('Usage unavailable.')
 })
+
+it('shows a credit-blocked uncapped key in the sidebar and retains the provider explanation in the popover', async () => {
+  const message = 'OpenRouter requests are blocked: insufficient credits or the key spending limit was reached.'
+  await show({ ...STATUS, reading: { ...SAMPLE_USAGE, limit: null, remaining: null }, error: message })
+  expect(screen.getByRole('button', { name: 'OpenRouter usage' })).toHaveTextContent('blocked')
+  const dialog = await open()
+  expect(within(dialog).getByRole('alert')).toHaveTextContent(message)
+})

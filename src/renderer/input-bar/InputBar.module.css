@@ -14,7 +14,7 @@
   border-color: var(--color-blue);
 }
 
-/* Model, Subagents, Effort and Permissions, with the context meter at the right. */
+/* Model, Effort and Permissions, with the context meter at the right. */
 .settings {
   display: flex;
   align-items: center;

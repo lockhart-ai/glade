@@ -350,6 +350,8 @@ import { withAttachedFiles, type AttachedFile } from '../../shared/attachedFiles
 import { attachedImagesOf } from '../attachments/attachments'
 import { checkAnswers, tidyAnythingElse } from '../../shared/questions'
 import { isSubagentTool } from '../../shared/subagents'
+import { managedBackend } from './managed-backend'
+import { AGENTS_SERVER, DISPATCH_AGENT_TOOL } from '../../shared/managed-agents'
 import { sandboxFailureReason } from '../../shared/sandboxFailure'
 import { apiRowArgument, apiRowResult } from '../../shared/taskError'
 import { CommandFailure } from '../bridge/errors'
@@ -1389,7 +1391,12 @@ function describeError(error: unknown): string {
 }
 
 export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
-  const { db, emit, backend } = options
+  const { db, emit } = options
+  const backend = managedBackend({
+    db,
+    backend: options.backend,
+    ...(options.account === undefined ? {} : { account: options.account }),
+  })
   const mcpServers = options.mcpServers ?? (() => ({}))
   const sessionEnv = options.sessionEnv ?? (() => ({}))
   // The home folder, whose reads the agent sandbox denies but for the folders granted.
@@ -1631,7 +1638,16 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    */
   const loggedInput = (taskId: string, event: ToolCallStartedEvent): ToolInput => {
     const { toolUseId, name: toolName, input, parentToolUseId } = event
-    return filer.callStarting(taskId, { toolName, input, toolUseId, subagent: parentToolUseId !== null }) ?? input
+    const filed =
+      filer.callStarting(taskId, { toolName, input, toolUseId, subagent: parentToolUseId !== null }) ?? input
+    const model = getTask(db, taskId)?.model
+    return isSubagentTool(toolName) &&
+      toolName !== DISPATCH_AGENT_TOOL &&
+      parentToolUseId === null &&
+      model !== undefined &&
+      agentSource(model) === AgentSource.OpenRouter
+      ? { ...filed, model }
+      : filed
   }
 
   const onToolCall = (taskId: string, turn: Turn, event: ToolCallStartedEvent): void => {
@@ -2256,6 +2272,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return true
     }
     if (event.kind !== AgentEventKind.ToolResult || !live.backgroundCalls.delete(event.toolUseId)) return false
+    if (live.background.has(event.toolUseId)) return true
     live.subagents.delete(event.toolUseId)
     const state = event.isError ? ToolCallState.Error : ToolCallState.Done
     const call = updateToolCall(db, { taskId, toolUseId: event.toolUseId, state, output: event.output })
@@ -2493,7 +2510,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       live.woken.delete(event.toolUseId)
       const finished = subagent === undefined ? event : { ...event, toolUseId: subagent }
       watchers.taskFinished(taskId, finished)
-      if (finished.outcome === TaskOutcome.Stopped) onSubagentStopped(taskId, live, finished.toolUseId)
+      if (
+        finished.outcome === TaskOutcome.Stopped ||
+        getToolCall(db, taskId, finished.toolUseId)?.name === DISPATCH_AGENT_TOOL
+      )
+        onSubagentStopped(taskId, live, finished.toolUseId)
       onTaskFinished(taskId, live, finished)
       return
     }
@@ -3199,6 +3220,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     })
     const started = backend.start({
       taskId: task.id,
+      createMcpServers: () => mcpServers(getTask(db, task.id) ?? task),
+      onSubagentEvent: (event) => {
+        try {
+          onEvent(task.id, live, event)
+        } catch (error) {
+          taskLog(task.id).error('failed to handle a child event', { kind: event.kind, error })
+        }
+      },
       ...(provisional ? { provisional: true } : {}),
       cwd: workspace.rootPath,
       model: task.model,
@@ -3249,7 +3278,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       log: agentLog(task.id),
     })
     // The servers the session was given in-process: Glade's own, whose tools need no grant.
-    const inProcess = Object.keys(servers)
+    const inProcess = [...Object.keys(servers), AGENTS_SERVER]
     // A sandboxed session's messages and settings wait on its overlay: whether its commands ask is in the overlay
     // alone, so nothing reaches the agent before it, or at all if the session won't take it.
     const session = sandboxed ? gatedSession(started, overlay) : started
@@ -3271,7 +3300,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           }
         : null,
       rules: null,
-      gladeServers: gladeOwnServers(servers),
+      gladeServers: [...gladeOwnServers(servers), AGENTS_SERVER],
       inProcess,
       reported: new Map(),
       control,
@@ -3796,14 +3825,21 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const crossesRouter =
         agentSource(task.model) === AgentSource.OpenRouter || agentSource(model) === AgentSource.OpenRouter
       if (!crossesRouter) return updateTaskFromUser(context, taskId, { model })
+      const destinationWindow = taskModelWindow(db, model)
+      if (task.contextUsedTokens > destinationWindow)
+        throw new CommandFailure(
+          BridgeErrorCode.InvalidRequest,
+          `This task uses about ${String(task.contextUsedTokens)} tokens. The selected model holds ${String(destinationWindow)}. Choose a model with a larger context window, or compact this task before switching.`,
+        )
+      const limited = task.pause?.reason === PauseReason.UsageLimit
       const previous = sessions.get(taskId)
       if (
         previous?.turn != null ||
         task.activity === TaskActivity.Working ||
         task.asking ||
         task.awaitingPermission ||
-        task.backgroundWork ||
-        listWatchers(db, taskId).some(({ state }) => LIVE_WATCHER_STATES.includes(state))
+        (!limited &&
+          (task.backgroundWork || listWatchers(db, taskId).some(({ state }) => LIVE_WATCHER_STATES.includes(state))))
       ) {
         throw new CommandFailure(
           BridgeErrorCode.Busy,
@@ -3816,6 +3852,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       }
       switching.add(taskId)
       let candidate: LiveSession | undefined
+      let adopted = false
       try {
         const effort = effortWithModel(db, model, undefined, task.effort) ?? task.effort
         candidate = start({ ...task, model, effort }, true)
@@ -3831,8 +3868,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           current?.activity === TaskActivity.Working ||
           current?.asking ||
           current?.awaitingPermission ||
-          current?.backgroundWork ||
-          listWatchers(db, taskId).some(({ state }) => LIVE_WATCHER_STATES.includes(state))
+          (!(limited && current?.pause?.reason === PauseReason.UsageLimit) &&
+            (current?.backgroundWork ||
+              listWatchers(db, taskId).some(({ state }) => LIVE_WATCHER_STATES.includes(state))))
         )
           throw new CommandFailure(BridgeErrorCode.Busy, 'The agent started work while its new session started.')
         const changed = db.transaction(() => {
@@ -3840,14 +3878,17 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           candidate?.session.activate?.()
           return changed
         })()
+        adopted = true
+        // Install the committed destination before post-commit notifications can fail.
+        activate(changed, candidate)
         if (previous !== undefined) {
+          if (limited) sessionGone(taskId, previous, 'Background work ended when the paused task switched models.')
           previous.closed = true
           previous.session.close()
         }
         filer.sessionEnded(taskId)
         watchers.sessionEnded(taskId, 'Model changed.')
         changes.sessionEnded(taskId)
-        activate(changed, candidate)
         recordSwitch(taskId, model)
         switching.delete(taskId)
         if (changed.pause?.reason === PauseReason.UsageLimit && agentSource(model) === AgentSource.OpenRouter)
@@ -3855,7 +3896,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         else if (changed.activity === TaskActivity.Waiting) startQueued(taskId, candidate)
         return getTask(db, taskId) ?? changed
       } catch (error) {
-        if (candidate !== undefined) {
+        if (candidate !== undefined && !adopted) {
           candidate.closed = true
           candidate.session.close()
         }
