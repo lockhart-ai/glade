@@ -7,11 +7,12 @@ export interface OpenRouterSubagents {
   readonly instructions: string
 }
 
-/** Native Agent.model takes Claude aliases; named definitions accept each route's full SDK model ID. */
+// Agent.model takes Claude aliases; named definitions accept full SDK IDs. The definition name is the saved
+// route ID so each dispatch records its actual model/provider, rather than an opaque internal alias.
 export function openRouterSubagents(choices: readonly OpenRouterChoice[]): OpenRouterSubagents {
   const agents = Object.fromEntries(
     choices.map((choice) => [
-      openRouterSdkModel(choice.id),
+      choice.id,
       {
         model: openRouterSdkModel(choice.id),
         description:

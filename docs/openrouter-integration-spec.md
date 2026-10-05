@@ -28,7 +28,8 @@ choose another model to continue. A task retains its saved model/provider name.
 The durable selection ID is `openrouter:<model>@<provider>`. Claude selections retain existing IDs/aliases. Source
 is derived from this ID, so old tasks need no source backfill. There is no saved blanket subagent model or second
 input-bar picker. The parent chooses a model for each dispatch. Claude retains native Agent model selection.
-OpenRouter registers a named SDK agent definition for each enabled route, using its full opaque model ID.
+OpenRouter registers a named SDK agent definition for each enabled route. Its name is the durable model/provider
+ID, retained in dispatch history; its model field uses the full opaque SDK ID.
 Descriptions give the selected provider, context window and indicative input/output prices; the parent selects
 `subagent_type` and omits `model`, whose native schema accepts only Claude aliases.
 

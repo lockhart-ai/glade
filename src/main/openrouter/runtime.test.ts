@@ -130,13 +130,10 @@ it('allows all enabled OpenRouter models for per-dispatch selection while helper
     CLAUDE_CODE_MAX_CONTEXT_TOKENS: '64000',
   })
   expect(vi.mocked(createOpenRouterRelay).mock.calls.at(-1)?.[0].choices).toEqual([SAMPLE_CHOICE, child])
-  expect(Object.keys(prepared.agents ?? {})).toEqual([
-    openRouterSdkModel(SAMPLE_CHOICE.id),
-    openRouterSdkModel(child.id),
-  ])
+  expect(Object.keys(prepared.agents ?? {})).toEqual([SAMPLE_CHOICE.id, child.id])
   for (const choice of [SAMPLE_CHOICE, child])
-    expect(prepared.agents?.[openRouterSdkModel(choice.id)]?.model).toBe(openRouterSdkModel(choice.id))
-  expect(prepared.agents?.[openRouterSdkModel(child.id)]?.description).toContain('64000 tokens')
+    expect(prepared.agents?.[choice.id]?.model).toBe(openRouterSdkModel(choice.id))
+  expect(prepared.agents?.[child.id]?.description).toContain('64000 tokens')
   expect(prepared.subagentInstructions).toContain('Choose the model for each subagent')
   expect(vi.spyOn(service, 'endpoints')).not.toHaveBeenCalled()
 })
