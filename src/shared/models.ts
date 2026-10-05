@@ -10,9 +10,13 @@ import {
   withoutExtended,
 } from './contextWindow'
 import { Effort } from './domain'
+import type { AgentSource } from './openrouter'
 
 /** One model the pickers offer, as the SDK reports it (its `ModelInfo`), parsed at the boundary. */
 export interface ModelChoice {
+  readonly source?: AgentSource
+  readonly provider?: string
+  readonly contextLength?: number
   /** The model id, as the SDK takes it: a full id (`claude-sonnet-5`) or an alias (`sonnet`, `default`). */
   readonly id: string
   /** The full id `id` stands for (`sonnet` → `claude-sonnet-5`); null when the SDK doesn't say. */

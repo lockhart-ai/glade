@@ -1,9 +1,9 @@
 # Doc images
 
-The 26 screenshots in [README.md](../README.md) and [the user guide](user-guide.md) (everything under
+The 27 screenshots in [README.md](../README.md) and [the user guide](user-guide.md) (everything under
 `docs/images/`, `docs/images/glade-icon.png` aside) are each captured from the current app, on made-up data, from a
 recorded recipe: a seed fixture in `scripts/fixtures/` (`src/main/capture-seed.ts` has the format) and
-`npm run screenshot` (`scripts/screenshot.mjs`), or, for three of them, a small script that needs more than that.
+`npm run screenshot` (`scripts/screenshot.mjs`), or, for four of them, a small script that needs more than that.
 None of it talks to the real Claude API: capture mode always uses the scripted test backend.
 
 ## Regenerating
@@ -26,7 +26,7 @@ node scripts/fixtures/doc-images.mjs nekomata -- <nekomata>/dist/glade/nekomata
 NEKOMATA_PLUGIN=<nekomata>/dist/glade/nekomata node scripts/fixtures/doc-images.mjs
 ```
 
-Without one, `nekomata` is skipped (with a message saying why); the other 25 still regenerate. Its own page is much
+Without one, `nekomata` is skipped (with a message saying why); the other 26 still regenerate. Its own page is much
 bigger than the sample plugins in `scripts/fixtures/plugins/`, and draws its cat cafe onto a canvas it redraws from a
 `resize` its page gets once Glade places it at its slot's real size, not from the window's: a single shot is still
 mid-load when the app quits (logging a load failure that's really just that race), and even once it's loaded, a
@@ -63,6 +63,7 @@ above 0 clears it (`APPEAR_WINDOW_MS` in `src/renderer/questions/QuestionCard.ts
 | `guide/artifacts.png` | The Artifacts tab: files and links under Today and Yesterday, the All · Files · Links filter. | `--seed artifacts.json --size 1280x880` |
 | `guide/permission-card.png` | A single open permission card, for a Bash command; in the Tool calls list, an allowed call, a denied one and the one waiting. | `--seed permission-card-bash.json --size 1280x800` |
 | `guide/settings-general.png` | Settings › General, with the account. | `--seed settings-general.json --size 1280x800`, clicked to General |
+| `guide/settings-models.png` | Settings › Models, with an enabled route discovered from the offline fixture API. | `settings-models.mjs` (runs `e2e/openrouter.spec.ts` and captures its Settings dialog) |
 | `guide/settings-control.png` | Settings › Control, turned on. | `--seed settings-control.json --size 1280x800`, clicked to Control |
 | `guide/backfilled.png` | A backfilled task: its handoff note, its notes files as artifacts. | `--seed backfilled.json --size 1280x880` |
 | `guide/sandbox-folder-card.png` | Two sandbox cards: a folder to read, and a subagent's folder to write; in the Tool calls list, a read a workspace grant let through and the one waiting. | `--seed sandbox-folder-card.json --size 1280x800`, clicked to settle |
@@ -81,7 +82,7 @@ Broadcast modal, which no button does), since capture mode can't send menu accel
 A "clicked to `<section>`" recipe opens Settings by clicking, not ⌘, (capture mode can't send menu accelerators,
 `scripts/screenshot.mjs`'s header): the workspace switcher
 (`button[aria-label="Switch workspace"]`), then **Workspace settings…** (the switcher menu's 4th button), landing on
-the Workspace section; then the wanted section in the nav, General 1st, Agent 2nd and Control 7th
+the Workspace section; then the wanted section in the nav, General 1st, Models 2nd, Agent 3rd and Control 8th
 (`APP_SECTIONS` in `src/renderer/settings/sections.ts`). `scripts/fixtures/doc-images.mjs` has the exact selectors.
 
 A "clicked to settle" recipe clicks the right panel's selected tab (`[role="tab"][aria-selected="true"]`), which

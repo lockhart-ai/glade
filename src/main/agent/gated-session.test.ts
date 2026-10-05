@@ -50,7 +50,7 @@ it('holds messages and settings changes until the gate opens, then delivers them
   const gated = gatedSession(session, ready)
 
   gated.send('First.', 'uuid-1')
-  gated.configure(ASKING)
+  void gated.configure(ASKING)
   gated.send('Second.', 'uuid-2', [])
   await settle()
   expect(order).toEqual([])
@@ -67,7 +67,7 @@ it('keeps delivering in order once the gate is open', async () => {
 
   gated.send('First.', 'uuid-1')
   await settle()
-  gated.configure(ASKING)
+  void gated.configure(ASKING)
   gated.send('Second.', 'uuid-2')
   await settle()
 
@@ -80,8 +80,9 @@ it('drops everything held, and everything given later, when the gate shuts', asy
   const gated = gatedSession(session, ready)
 
   gated.send('First.', 'uuid-1')
-  gated.configure(ASKING)
+  const applied = gated.configure(ASKING)
   shut(false)
+  await expect(applied).rejects.toThrow('sandbox settings')
   await settle()
   gated.send('Second.', 'uuid-2')
   await settle()
@@ -111,4 +112,10 @@ it('passes everything else straight to the session, gate or no gate', async () =
   expect(session.interrupts).toBe(1)
   expect(session.stoppedTasks).toEqual(['task-1'])
   expect(session.closed).toBe(true)
+})
+
+it('waits for SDK readiness and rejects a closed sandbox gate', async () => {
+  const session = new FakeAgentSession(OPTIONS)
+  await expect(gatedSession(session, Promise.resolve(true)).ready?.()).resolves.toBeUndefined()
+  await expect(gatedSession(session, Promise.resolve(false)).ready?.()).rejects.toThrow('sandbox settings')
 })

@@ -13,6 +13,8 @@ import {
 import { WindowCommandId } from '../../shared/commands'
 import type { ModelChoice } from '../../shared/models'
 import { ALIAS_MODELS, SDK_MODELS } from '../../shared/test-models'
+import { SAMPLE_CHOICE } from '../../shared/test-openrouter'
+import { AgentSource } from '../../shared/openrouter'
 import { ToastProvider } from '../components'
 import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
@@ -56,6 +58,37 @@ interface Setup {
 }
 
 type Rendered = FakeBridge & { store: GladeStore }
+
+it('groups billing sources and offers native children only within the task source', async () => {
+  const model: ModelChoice = {
+    id: SAMPLE_CHOICE.id,
+    name: 'Sample Flash · Sample Host',
+    description: 'OpenRouter',
+    resolvedModel: null,
+    efforts: [],
+    source: AgentSource.OpenRouter,
+  }
+  const { invoke } = await renderBar({ models: [...SDK_MODELS, model], task: { model: SAMPLE_CHOICE.id } })
+  fireEvent.click(screen.getByRole('button', { name: 'Model: Sample Flash · Sample Host' }))
+  await settleFloating()
+  expect(screen.getByText('Anthropic account')).toBeInTheDocument()
+  expect(screen.getByText('OpenRouter')).toBeInTheDocument()
+  fireEvent.keyDown(screen.getByRole('menu', { name: 'Model' }), { key: 'Escape' })
+  await settleFloating()
+  fireEvent.click(screen.getByRole('button', { name: 'Subagents: Same as task' }))
+  await settleFloating()
+  expect(screen.queryByRole('menuitemradio', { name: 'Haiku' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('menuitemradio', { name: model.name }))
+  await act(async () => {
+    await Promise.resolve()
+  })
+  expect(invoke).toHaveBeenCalledWith(CommandName.TasksUpdate, { id: 't1', patch: { subagentModel: model.id } })
+})
+
+it('keeps a disabled OpenRouter route readable without silently replacing it', async () => {
+  await renderBar({ task: { model: SAMPLE_CHOICE.id, modelName: 'Sample Flash · Sample Host' }, models: SDK_MODELS })
+  expect(screen.getByRole('button', { name: 'Model: Sample Flash · Sample Host (unavailable)' })).toBeInTheDocument()
+})
 
 async function renderBar({
   task = {},

@@ -1,3 +1,4 @@
+import { AgentSource, agentSource } from '../../shared/openrouter'
 import { faArrowsRotate, faChevronDown, faPuzzlePiece, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Effort, PermissionMode } from '../../shared/domain'
@@ -140,14 +141,22 @@ interface ModelPickerProps {
 function ModelPicker({ models, value, onChoose }: ModelPickerProps): React.JSX.Element {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const selected = findModel(models, value)?.id ?? value
-  const entries: MenuEntry[] = modelOptions(models, value).map((option) => ({
-    kind: MenuEntryKind.Item,
-    label: option.name,
-    checked: option.id === selected,
-    onSelect: () => {
-      onChoose(option.id)
-    },
-  }))
+  const groups = models.some(({ id }) => agentSource(id) === AgentSource.OpenRouter)
+  let group: string | undefined
+  const entries: MenuEntry[] = []
+  for (const option of modelOptions(models, value)) {
+    const next = agentSource(option.id) === AgentSource.OpenRouter ? 'OpenRouter' : 'Anthropic account'
+    if (groups && next !== group) entries.push({ kind: MenuEntryKind.Heading, label: next })
+    group = next
+    entries.push({
+      kind: MenuEntryKind.Item,
+      label: option.name,
+      checked: option.id === selected,
+      onSelect: () => {
+        onChoose(option.id)
+      },
+    })
+  }
   return (
     <>
       <button
@@ -301,6 +310,22 @@ export function AgentSection(): React.JSX.Element {
       <Intro>Defaults for new tasks. Each task can change these from its input bar. Changes save automatically.</Intro>
       <SettingRow name="Model" description="Used for new tasks.">
         <ModelPicker models={models} value={settings.defaultModel} onChoose={chooseModel} />
+      </SettingRow>
+      <SettingRow name="Subagents" description="Native subagents share the task’s billing source.">
+        <SettingSelect
+          name="Subagents"
+          menuLabel="Subagents"
+          value={settings.defaultSubagentModel ?? ''}
+          options={[
+            { value: '', label: 'Same as task' },
+            ...models
+              .filter(({ id }) => agentSource(id) === agentSource(settings.defaultModel))
+              .map(({ id, name }) => ({ value: id, label: name })),
+          ]}
+          onChoose={(id) => {
+            update({ defaultSubagentModel: id === '' ? null : id })
+          }}
+        />
       </SettingRow>
       {efforts.length > 0 && (
         <SettingRow name="Effort" description="How long the agent thinks before acting.">

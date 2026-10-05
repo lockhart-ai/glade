@@ -62,6 +62,18 @@ function dialog(): HTMLElement {
 }
 
 describe('SettingsDialog', () => {
+  it('opens model curation and saves a native subagent default', async () => {
+    const { invoke } = await renderSettings(SettingsSection.Models)
+    expect(screen.getByLabelText('OpenRouter API key')).toHaveAttribute('type', 'password')
+    fireEvent.click(screen.getByRole('button', { name: 'Agent' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Subagents: Same as task' }))
+    await settleFloating()
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Haiku 4.5' }))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(settingsUpdates(invoke)).toContainEqual({ patch: { defaultSubagentModel: 'claude-haiku-4-5' } })
+  })
   it('shows nothing until Settings is opened', async () => {
     await renderSettings(null)
 
@@ -76,7 +88,17 @@ describe('SettingsDialog', () => {
       within(nav)
         .getAllByRole('button')
         .map((button) => button.textContent),
-    ).toEqual(['General', 'Agent', 'Notifications', 'Appearance', 'Keyboard', 'Plugins', 'Control', 'Acme API'])
+    ).toEqual([
+      'General',
+      'Models',
+      'Agent',
+      'Notifications',
+      'Appearance',
+      'Keyboard',
+      'Plugins',
+      'Control',
+      'Acme API',
+    ])
     expect(nav).toHaveTextContent('Workspace')
     const agent = within(nav).getByRole('button', { name: 'Agent' })
     expect(agent).toHaveAttribute('aria-current', 'page')

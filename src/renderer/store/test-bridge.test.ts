@@ -16,6 +16,21 @@ import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { ChildFilter, ChildKind, FilingSource, TODO_HUB_OFF, UNFILED_TODO_ID } from '../../shared/todoHub'
 import { fakeBridge, sampleCommit, samplePermissionRequest, sampleTask, sampleWatcher } from './test-bridge'
 
+it('keeps the OpenRouter stand-in offline for every catalog command', async () => {
+  const { bridge } = fakeBridge({ workspaces: [], tasks: [], uiState: [] })
+  expect(await bridge.invoke(CommandName.OpenRouterConnect, { key: 'fixture' })).toMatchObject({ connected: true })
+  expect(await bridge.invoke(CommandName.OpenRouterRefresh, {})).toMatchObject({ connected: true })
+  expect(await bridge.invoke(CommandName.OpenRouterEndpoints, { model: 'sample/flash' })).toEqual([])
+  expect(await bridge.invoke(CommandName.OpenRouterProviderModels, { provider: 'sample-host' })).toEqual([])
+  expect(
+    await bridge.invoke(CommandName.OpenRouterSelect, {
+      model: 'sample/flash',
+      provider: 'sample-host',
+      enabled: true,
+    }),
+  ).toMatchObject({ connected: true })
+})
+
 it('answers uiState.get from its data, and stops delivering events once unsubscribed', async () => {
   const entry = { key: UiStateKey.ActiveWorkspaceId, value: 'w1' }
   const fake = fakeBridge({ workspaces: [], tasks: [], uiState: [entry] })

@@ -3361,3 +3361,13 @@ bundled binary. What did change:
   the login.
 - **Not exercised:** the API-key path, `api_retry`, real auto-compaction (the `"auto"` trigger) and usage-limit
   errors. Their shapes above come from the types.
+
+## 16. OpenRouter inference (#551)
+
+The SDK remains the harness for both billing sources. [OpenRouter integration](openrouter-integration-spec.md)
+describes the catalog, per-session relay/environment, provider pinning, alpha transcript store, source-switch
+readiness and evidence. SDK 0.3.283 sends Messages requests with `?beta=true`; the adapter accepts that path and
+forwards to the fixed OpenRouter origin. Explicit empty environment overrides prevent the SDK from reintroducing
+inherited account/cloud credentials. Unknown-model pricing is not billed cost; actual generation metadata stays
+separate. The context-window override was checked against the real SDK. Keep these probes and mocked failure tests
+current when changing SDK versions. Native subagents share their parent's source.

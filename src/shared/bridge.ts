@@ -47,6 +47,14 @@ import type { Command, MenuState } from './commands'
 import type { AttachedFile } from './attachedFiles'
 import type { ImageData } from './images'
 import type { ModelChoice } from './models'
+import type {
+  OpenRouterStatus,
+  OpenRouterProvider,
+  OpenRouterProviderModelsRequest,
+  OpenRouterConnectRequest,
+  OpenRouterEndpointsRequest,
+  OpenRouterChoiceRequest,
+} from './openrouter'
 import type { Settings, SettingsPatch } from './settings'
 import type { SearchResult } from './search'
 import type { DoneCounts, DonePage, DonePageRequest } from './doneList'
@@ -145,6 +153,13 @@ export enum CommandName {
   SettingsGet = 'settings.get',
   SettingsUpdate = 'settings.update',
   ModelsList = 'models.list',
+  OpenRouterStatus = 'openrouter.status',
+  OpenRouterConnect = 'openrouter.connect',
+  OpenRouterRefresh = 'openrouter.refresh',
+  OpenRouterRemove = 'openrouter.remove',
+  OpenRouterEndpoints = 'openrouter.endpoints',
+  OpenRouterSelect = 'openrouter.select',
+  OpenRouterProviderModels = 'openrouter.providerModels',
   SearchQuery = 'search.query',
   PluginsList = 'plugins.list',
   PluginsSetEnabled = 'plugins.setEnabled',
@@ -325,6 +340,7 @@ export interface TaskIdRequest {
  * not this command; the state changes only through `tasks.markDone` and `tasks.reopen`.
  */
 export interface TaskUserPatch {
+  readonly subagentModel?: string | null
   readonly title?: string
   readonly pinned?: boolean
   readonly unread?: boolean
@@ -1493,6 +1509,13 @@ export interface CommandMap {
   [CommandName.SettingsGet]: CommandSpec<EmptyRequest, SettingsResponse>
   [CommandName.SettingsUpdate]: CommandSpec<SettingsUpdateRequest, SettingsResponse>
   [CommandName.ModelsList]: CommandSpec<EmptyRequest, ModelsResponse>
+  [CommandName.OpenRouterStatus]: CommandSpec<EmptyRequest, OpenRouterStatus>
+  [CommandName.OpenRouterConnect]: CommandSpec<OpenRouterConnectRequest, OpenRouterStatus>
+  [CommandName.OpenRouterRefresh]: CommandSpec<EmptyRequest, OpenRouterStatus>
+  [CommandName.OpenRouterRemove]: CommandSpec<EmptyRequest, OpenRouterStatus>
+  [CommandName.OpenRouterEndpoints]: CommandSpec<OpenRouterEndpointsRequest, readonly OpenRouterProvider[]>
+  [CommandName.OpenRouterSelect]: CommandSpec<OpenRouterChoiceRequest, OpenRouterStatus>
+  [CommandName.OpenRouterProviderModels]: CommandSpec<OpenRouterProviderModelsRequest, readonly string[]>
   [CommandName.SearchQuery]: CommandSpec<SearchQueryRequest, SearchQueryResponse>
   [CommandName.PluginsList]: CommandSpec<EmptyRequest, PluginsResponse>
   [CommandName.ControlStatus]: CommandSpec<EmptyRequest, ControlStatusResponse>

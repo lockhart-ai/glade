@@ -1,3 +1,4 @@
+import { ModelsSection } from './ModelsSection'
 import {
   FloatingFocusManager,
   FloatingOverlay,
@@ -147,6 +148,8 @@ interface SectionBodyProps {
 
 function SectionBody({ section }: SectionBodyProps): React.JSX.Element {
   switch (section) {
+    case SettingsSection.Models:
+      return <ModelsSection />
     case SettingsSection.General:
       return <GeneralSection />
     case SettingsSection.Agent:

@@ -832,6 +832,13 @@ export function fakeHandlers(
     },
     [CommandName.SettingsGet]: () => ({ settings }),
     [CommandName.ModelsList]: () => ({ models: main.models ?? BUILT_IN_MODELS }),
+    [CommandName.OpenRouterStatus]: () => ({ connected: false, models: [], providers: [], choices: [] }),
+    [CommandName.OpenRouterConnect]: () => ({ connected: true, models: [], providers: [], choices: [] }),
+    [CommandName.OpenRouterRefresh]: () => ({ connected: true, models: [], providers: [], choices: [] }),
+    [CommandName.OpenRouterRemove]: () => ({ connected: false, models: [], providers: [], choices: [] }),
+    [CommandName.OpenRouterEndpoints]: () => [],
+    [CommandName.OpenRouterProviderModels]: () => [],
+    [CommandName.OpenRouterSelect]: () => ({ connected: true, models: [], providers: [], choices: [] }),
     [CommandName.SettingsUpdate]: ({ patch }) => {
       settings = { ...settings, ...patch }
       emit({ type: EventType.SettingsChanged, settings })

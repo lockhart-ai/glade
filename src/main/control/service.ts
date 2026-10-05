@@ -1,3 +1,4 @@
+import { AgentSource, agentSource } from '../../shared/openrouter'
 /**
  * The control service (`docs/control-api.md`): one typed function per thing another agent can do to Glade, over the
  * same code the window's commands run (`../tasks/service`, the agent runner, the repositories), so a change made
@@ -433,7 +434,13 @@ export function createControlService(context: ControlServiceContext): ControlSer
       // Only the task's own fields and dates write the task, and `updateDates` says whether that moves it in the
       // sidebar; the handoff, artifacts and external id alone leave it as it is.
       const changesTask = Object.keys(change).length > 0 || updatedAt !== undefined || statusUpdatedAt !== undefined
-      const task = changesTask ? changeTask(context, id, change, dates) : current
+      const routing =
+        change.model !== undefined &&
+        (agentSource(current.model) === AgentSource.OpenRouter || agentSource(change.model) === AgentSource.OpenRouter)
+      if (routing && change.model !== undefined) await context.runner.changeModel(id, change.model)
+      const task = changesTask
+        ? changeTask(context, id, routing ? { ...change, model: undefined } : change, dates)
+        : current
       const at = now()
       db.transaction(() => {
         if (handoff !== undefined) setHandoff(db, id, handoff, at)

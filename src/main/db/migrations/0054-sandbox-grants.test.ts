@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import { openDatabase } from '../database'
 import { migrate } from '../migrate'
-import { sampleTask, sampleWorkspace } from '../repositories/test-database'
+import { sampleLegacyTask, sampleTask, sampleWorkspace } from '../repositories/test-database'
 import { MIGRATIONS } from '.'
 import { sandboxGrantsMigration } from './0054-sandbox-grants'
 
@@ -26,7 +26,7 @@ it('runs on an existing database without touching its other tables, and starts w
     db,
     MIGRATIONS.filter((migration) => migration.version < 54),
   )
-  const t1 = sampleTask(db, sampleWorkspace(db).id)
+  const t1 = sampleLegacyTask(db, sampleWorkspace(db).id)
   db.prepare(
     "INSERT INTO task_permission_rules (task_id, tool_name, rule_content, created_at) VALUES (?, 'Bash', 'npm test *', 3)",
   ).run(t1.id)

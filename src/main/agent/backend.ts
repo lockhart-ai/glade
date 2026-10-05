@@ -381,6 +381,8 @@ export interface SandboxFlagSettings {
 
 /** How to start one task's agent session. */
 export interface AgentSessionOptions extends AgentSessionSettings {
+  readonly taskId?: string
+  readonly subagentModel?: string | null
   /** The folder the agent runs in: the workspace's root. */
   readonly cwd: string
   /** The SDK session to resume, or null to start a new one. */
@@ -426,6 +428,8 @@ export interface AgentSessionOptions extends AgentSessionSettings {
  * session's whole life, across turns. It finishes when the session is closed and throws if the agent process fails.
  */
 export interface AgentSession {
+  /** Initialization and transcript loading completed, before a source handoff commits. */
+  ready?(): Promise<void>
   /** Every message the SDK emits, unparsed: the runner parses each one at the boundary. Iterate it once. */
   readonly messages: AsyncIterable<unknown>
   /**
@@ -438,7 +442,7 @@ export interface AgentSession {
    * it was given. The model and effort apply to the turns after it, so change them between turns, never mid-turn; the
    * permission mode applies from the next tool call, so it can change at any time.
    */
-  configure(settings: AgentSessionSettings): void
+  configure(settings: AgentSessionSettings): void | Promise<void>
   /**
    * Changes the session's sandbox and the permission rules set with it, from its next tool call, mid-turn too, in order
    * with the messages and changes before it (the SDK's `applyFlagSettings`, `docs/sdk-notes.md` §15). Each key given

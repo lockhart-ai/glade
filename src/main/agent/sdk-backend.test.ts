@@ -5,6 +5,7 @@ import type {
   Options,
   PermissionUpdate,
   SDKUserMessage,
+  SessionStore,
 } from '@anthropic-ai/claude-agent-sdk'
 import { beforeEach, expect, it, vi } from 'vitest'
 import {
@@ -371,7 +372,7 @@ it('changes the model and effort before delivering the next message, never after
   const session = backendIn().start(OPTIONS)
 
   session.send('Hi', 'uuid-1')
-  session.configure({ model: 'claude-sample-2', effort: Effort.Max, permissionMode: PermissionMode.AllowAll })
+  void session.configure({ model: 'claude-sample-2', effort: Effort.Max, permissionMode: PermissionMode.AllowAll })
   session.send('Fix it.', 'uuid-2')
   const pushed = await pushedMessages(2)
 
@@ -380,15 +381,16 @@ it('changes the model and effort before delivering the next message, never after
   expect(sdk.session.setModel).toHaveBeenCalledBefore(sdk.session.applyFlagSettings)
 })
 
-it('still delivers the message, on the old settings, when the SDK refuses a change', async () => {
+it('rejects a refused model change and holds input rather than running on the old model', async () => {
   sdk.session.setModel.mockRejectedValueOnce(new Error('model_not_found'))
   const log = createMemoryLog(LogScope.Agent)
   const session = createSdkBackend({ version: '1.2.3', env: Promise.resolve(ENV), log: log.logger }).start(OPTIONS)
-
-  session.configure({ model: 'claude-missing', effort: Effort.Low, permissionMode: PermissionMode.AllowAll })
+  await expect(
+    session.configure({ model: 'claude-missing', effort: Effort.Low, permissionMode: PermissionMode.AllowAll }),
+  ).rejects.toThrow('model_not_found')
   session.send('Hi', 'uuid-1')
-
-  expect(await pushedMessages(1)).toEqual(['Hi'])
+  await settle()
+  expect(sdk.session.close).toHaveBeenCalledOnce()
   expect(log.withMessage("the SDK refused the session's new settings")).toEqual([
     expect.objectContaining({
       level: LogLevel.Warn,
@@ -412,7 +414,7 @@ it("doesn't start the agent until the environment is known, then does what was a
   const session = createSdkBackend({ version: '1.2.3', env: env.promise }).start(OPTIONS)
 
   session.send('Hi', 'uuid-1')
-  session.configure({ model: 'claude-sample-2', effort: Effort.Max, permissionMode: PermissionMode.AllowAll })
+  void session.configure({ model: 'claude-sample-2', effort: Effort.Max, permissionMode: PermissionMode.AllowAll })
   session.send('Fix it.', 'uuid-2')
   const interrupted = session.interrupt()
   const stopped = session.stopTask('b7f3')
@@ -446,23 +448,48 @@ it("doesn't start the agent until the environment is known, then does what was a
   expect(streamed).toEqual([{ type: 'system', subtype: 'init' }])
 })
 
-it('closes a session closed before its environment was known once its agent starts, having given it what was sent', async () => {
+it('never spawns an agent closed before its environment was known', async () => {
   const env = deferred<Environment>()
   const session = createSdkBackend({ version: '1.2.3', env: env.promise }).start(OPTIONS)
-
   session.send('Hi', 'uuid-1')
   session.close()
-  await settle()
-  expect(sdk.session.close).not.toHaveBeenCalled()
-
   env.resolve(ENV)
-  await settle()
+  await expect(session.ready?.()).rejects.toThrow('closed before starting')
+  expect(sdk.query).not.toHaveBeenCalled()
+})
 
-  expect(sdk.session.close).toHaveBeenCalledOnce()
-  const prompt = sdk.query.mock.calls[0]?.[0].prompt as AsyncIterable<SDKUserMessage>
-  const pushed: SDKUserMessage[] = []
-  for await (const message of prompt) pushed.push(message)
-  expect(pushed).toEqual([userMessage('Hi', 'uuid-1')])
+it('passes an eager isolated transcript store and revokes prepared credentials on early close', async () => {
+  const store: SessionStore = { append: () => Promise.resolve(), load: () => Promise.resolve(null) }
+  const close = vi.fn()
+  const initializationResult = vi.fn(() => Promise.resolve({ models: [] }))
+  sdk.query.mockReturnValueOnce({ ...sdk.session, ...{ initializationResult } })
+  const backend = createSdkBackend({
+    version: '1.2.3',
+    env: Promise.resolve(ENV),
+    runtime: {
+      prepare: () =>
+        Promise.resolve({
+          env: { PATH: '/isolated', ANTHROPIC_AUTH_TOKEN: 'temporary' },
+          sessionStore: store,
+          publishModels: false,
+          close,
+        }),
+    },
+  })
+  const session = backend.start({ ...OPTIONS, env: { ANTHROPIC_API_KEY: 'must-not-return' } })
+  await session.ready?.()
+  expect(sdk.query.mock.calls.at(-1)?.[0].options).toMatchObject({
+    sessionStore: store,
+    sessionStoreFlush: 'eager',
+    env: { PATH: '/isolated', ANTHROPIC_AUTH_TOKEN: 'temporary' },
+  })
+  expect(sdk.query.mock.calls.at(-1)?.[0].options).not.toMatchObject({ env: { ANTHROPIC_API_KEY: 'must-not-return' } })
+  session.close()
+  expect(close).toHaveBeenCalled()
+  const early = backend.start(OPTIONS)
+  early.close()
+  await expect(early.ready?.()).rejects.toThrow('closed before starting')
+  expect(close).toHaveBeenCalledTimes(2)
 })
 
 it("runs each session in the environment it's given, whatever Glade's own is", async () => {
@@ -704,8 +731,8 @@ it('switches a live session’s permission mode in order with its messages, and 
   const { model, effort } = OPTIONS
 
   session.send('Hi', 'uuid-1')
-  session.configure({ model, effort, permissionMode: PermissionMode.AskBeforeEdits })
-  session.configure({ model, effort, permissionMode: PermissionMode.AllowAll })
+  void session.configure({ model, effort, permissionMode: PermissionMode.AskBeforeEdits })
+  void session.configure({ model, effort, permissionMode: PermissionMode.AllowAll })
   session.send('Fix it.', 'uuid-2')
   expect(await pushedMessages(2)).toEqual(['Hi', 'Fix it.'])
 
@@ -723,7 +750,11 @@ it('changes the model and the permission mode together, and still delivers the m
   const log = createMemoryLog(LogScope.Agent)
   const session = createSdkBackend({ version: '1.2.3', env: Promise.resolve(ENV), log: log.logger }).start(OPTIONS)
 
-  session.configure({ model: 'claude-sample-2', effort: Effort.High, permissionMode: PermissionMode.AskBeforeEdits })
+  void session.configure({
+    model: 'claude-sample-2',
+    effort: Effort.High,
+    permissionMode: PermissionMode.AskBeforeEdits,
+  })
   session.send('Hi', 'uuid-1')
 
   expect(await pushedMessages(1)).toEqual(['Hi'])

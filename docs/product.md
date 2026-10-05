@@ -378,6 +378,7 @@ Settings (⌘,) opens on Agent. Changes save as you make them.
   while it isn't signed in, or a lost login stops a task, a **Log in** row runs its login, as the logged-out card's
   does (see Logged out). How much of its usage limits is used shows in the usage meter at the foot of the sidebar (see
   Usage).
+- **Models:** the Anthropic account and encrypted OpenRouter key, API-discovered provider/model catalog, and the model/provider pairs enabled in task pickers. Provider credentials stay in OpenRouter; Glade pins each curated route to its selected host without fallback.
 - **Agent:** the defaults for new tasks (model, effort and permissions: Ask first or Allow all; **Allow edits** is shown
   but disabled, as it isn't a mode yet), and two switches for what the agent keeps current: **Status summary**
   (`set_status` every turn) and **Task titles** (`set_title` from your first message). A session started with one off

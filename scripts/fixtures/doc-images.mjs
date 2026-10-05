@@ -3,19 +3,19 @@
 //
 //   node scripts/fixtures/doc-images.mjs [name…]
 //
-// With no names, it regenerates all 26 (see docs/doc-images.md for the list and what each shows). With one or more
+// With no names, it regenerates all 27 (see docs/doc-images.md for the list and what each shows). With one or more
 // names (e.g. `node scripts/fixtures/doc-images.mjs hero control`), it regenerates only those. Each image is captured
 // in a window that's never shown, from a seed in scripts/fixtures/ (`src/main/capture-seed.ts`), and saved with a
 // 256-colour palette (ffmpeg-static), as the rest of the docs' screenshots are.
 //
-// Three images have their own script, since they need more than a seed and a size: `files-browse.mjs` (a made-up
+// Four images have their own script, since they need more than a seed and a size: `files-browse.mjs` (a made-up
 // workspace of files, built under /tmp), `menu-bar.mjs` (the popover's own small window, cropped out of the capture's
 // minimum size) and `nekomata.mjs` (the Nekomata plugin, built in its own repo: pass its folder as an extra argument,
 // or set NEKOMATA_PLUGIN, or it's skipped with a message explaining why).
 //
 // Settings pages are reached by clicking the workspace switcher then Workspace settings… (nth-of-type(4) of its menu),
 // since ⌘, can't be sent in capture mode (scripts/screenshot.mjs's header), then the wanted section in the nav
-// (General is nth-of-type(1), Control nth-of-type(7); see src/renderer/settings/sections.ts's APP_SECTIONS order).
+// (General is nth-of-type(1), Control nth-of-type(8); see src/renderer/settings/sections.ts's APP_SECTIONS order).
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -46,7 +46,7 @@ const SCREENSHOTS = {
   permission: { out: join(IMAGES, 'permission.png'), args: ['--seed', 'permission-card.json', '--size', '1600x1000'] },
   control: {
     out: join(IMAGES, 'control.png'),
-    args: ['--seed', 'settings-control.json', '--size', '1600x1000', ...OPEN_SETTINGS, ...settingsSection(7)],
+    args: ['--seed', 'settings-control.json', '--size', '1600x1000', ...OPEN_SETTINGS, ...settingsSection(8)],
   },
   window: { out: join(IMAGES, 'guide', 'window.png'), args: ['--seed', 'task-workspace.json', '--size', '1440x960'] },
   welcome: { out: join(IMAGES, 'guide', 'welcome.png'), args: ['--size', '1280x800'] },
@@ -67,7 +67,7 @@ const SCREENSHOTS = {
   },
   'settings-control': {
     out: join(IMAGES, 'guide', 'settings-control.png'),
-    args: ['--seed', 'settings-control.json', '--size', '1280x800', ...OPEN_SETTINGS, ...settingsSection(7)],
+    args: ['--seed', 'settings-control.json', '--size', '1280x800', ...OPEN_SETTINGS, ...settingsSection(8)],
   },
   backfilled: {
     out: join(IMAGES, 'guide', 'backfilled.png'),
@@ -102,7 +102,7 @@ const SCREENSHOTS = {
   },
   'settings-sandbox': {
     out: join(IMAGES, 'guide', 'settings-sandbox.png'),
-    args: ['--seed', 'settings-sandbox.json', '--size', '1280x800', ...OPEN_SETTINGS, ...settingsSection(2)],
+    args: ['--seed', 'settings-sandbox.json', '--size', '1280x800', ...OPEN_SETTINGS, ...settingsSection(3)],
   },
   // Workspace settings… opens on the workspace's own section: no nav click.
   'settings-workspace-sandbox': {
@@ -126,6 +126,7 @@ const SCREENSHOTS = {
 
 /** The scripted images: their own recipe script, run with the extra arguments given to this one. */
 const SCRIPTS = {
+  'settings-models': { script: 'settings-models.mjs', needsPlugin: false },
   'files-browse': { script: 'files-browse.mjs', needsPlugin: false },
   'menu-bar': { script: 'menu-bar.mjs', needsPlugin: false },
   nekomata: { script: 'nekomata.mjs', needsPlugin: true },

@@ -326,7 +326,7 @@ first. A `fromTurn` past the last turn gives no turns.
 
 Like New task, then sending the first message. Without `message` the task waits for one, as a new task in the window
 does. `model` is one the input bar's model picker offers, by the id the SDK takes (an alias such as `sonnet`, or the
-full id it stands for, such as `claude-sonnet-5`); any other is `invalid_input`, listing the ones offered. An `effort`
+full id it stands for, such as `claude-sonnet-5`, or an enabled `openrouter:<model>@<provider>` pair); any other is `invalid_input`, listing the ones offered. An `effort`
 the model doesn't support falls back to its default (High, where it has it), as the picker's does. The task isn't
 selected in the window.
 `created` is false only when a task already has the `externalId`: that task is returned as it is, and nothing changes
@@ -671,3 +671,12 @@ To port everything in, an agent pages through `list_claude_code_sessions { impor
   back), stopping and failing to start; the token regenerated; and refused requests (why, the status, the method and
   path), never with the token. Message texts only at debug, cut short as
   usual.
+
+## OpenRouter selections
+
+`create_task.model` and `update_task.patch.model` accept enabled `openrouter:<model>@<provider>` selections curated
+in Settings › Models. Providers and credentials are configured through Settings, not overridden in task input.
+A change involving OpenRouter restarts the SDK at a safe turn boundary with saved context; active turns, questions,
+permissions and background work must be resolved first. Initialization failure keeps the original selection.
+The task retains chat, tool results and queued input, and records the applied model change in its Tool calls history.
+Independent tasks may use different sources. Native SDK children remain within their parent's billing source.

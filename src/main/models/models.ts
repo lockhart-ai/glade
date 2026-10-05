@@ -2,7 +2,9 @@
 // keeps it, or the built-in one until a session first has.
 import type { Database } from 'better-sqlite3'
 import { EventType } from '../../shared/bridge'
-import type { Effort } from '../../shared/domain'
+import { Effort } from '../../shared/domain'
+import { AgentSource } from '../../shared/openrouter'
+import { getOpenRouterChoices, getOpenRouterConnection } from '../db/repositories/openrouter'
 import { effortFor, type ModelChoice } from '../../shared/models'
 import { parseSdkModels } from '../agent/sdk-models'
 import type { Emit } from '../bridge/events'
@@ -11,7 +13,23 @@ import { SILENT_LOGGER, type Logger } from '../logging/logger'
 
 /** The models the pickers offer: the SDK's, once a session has reported them, else the built-in ones. */
 export function listModels(db: Database): readonly ModelChoice[] {
-  return offeredModels(db)
+  const anthropic = offeredModels(db)
+  if (getOpenRouterConnection(db) === null) return anthropic
+  const choices = getOpenRouterChoices(db).filter(({ enabled }) => enabled)
+  if (choices.length === 0) return anthropic
+  return [
+    ...anthropic,
+    ...choices.map(({ id, model, provider }) => ({
+      id,
+      resolvedModel: null,
+      name: `${model.name} · ${provider.name}`,
+      description: 'OpenRouter',
+      source: AgentSource.OpenRouter,
+      provider: provider.id,
+      contextLength: model.contextLength,
+      efforts: model.parameters.includes('reasoning_effort') ? [Effort.Low, Effort.Medium, Effort.High] : [],
+    })),
+  ]
 }
 
 /** What recording the SDK's models needs: where to keep them, and whom to tell. */
@@ -39,7 +57,7 @@ export function recordSdkModels({ db, emit, log = SILENT_LOGGER }: ModelsContext
   if (sameModels(models, getSdkModels(db))) return
   setSdkModels(db, models)
   log.info('models changed', { models: models.map(({ id, efforts }) => ({ id, efforts })) })
-  emit({ type: EventType.ModelsChanged, models })
+  emit({ type: EventType.ModelsChanged, models: listModels(db) })
 }
 
 /**

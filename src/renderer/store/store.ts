@@ -377,6 +377,15 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       // Shown at once, then as main saved them.
+      openrouter: {
+        status: () => bridge.invoke(CommandName.OpenRouterStatus, {}),
+        connect: (key) => bridge.invoke(CommandName.OpenRouterConnect, { key }),
+        refresh: () => bridge.invoke(CommandName.OpenRouterRefresh, {}),
+        remove: () => bridge.invoke(CommandName.OpenRouterRemove, {}),
+        endpoints: (model) => bridge.invoke(CommandName.OpenRouterEndpoints, { model }),
+        select: (choice) => bridge.invoke(CommandName.OpenRouterSelect, choice),
+        providerModels: (provider) => bridge.invoke(CommandName.OpenRouterProviderModels, { provider }),
+      },
       async updateSettings(patch) {
         set((state) => ({ settings: { ...state.settings, ...patch } }))
         const { settings } = await bridge.invoke(CommandName.SettingsUpdate, { patch })

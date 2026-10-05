@@ -159,8 +159,12 @@ it("switches a sandboxed session's mode to acceptEdits, not bypassing, and an un
     permissionMode: PermissionMode.AskBeforeEdits,
     flagSettings: sandboxStartSettings(ROOT, '/Users/me'),
   })
-  sandboxed.configure({ model: OPTIONS.model, effort: OPTIONS.effort, permissionMode: PermissionMode.AllowAll })
-  sandboxed.configure({ model: OPTIONS.model, effort: OPTIONS.effort, permissionMode: PermissionMode.AskBeforeEdits })
+  void sandboxed.configure({ model: OPTIONS.model, effort: OPTIONS.effort, permissionMode: PermissionMode.AllowAll })
+  void sandboxed.configure({
+    model: OPTIONS.model,
+    effort: OPTIONS.effort,
+    permissionMode: PermissionMode.AskBeforeEdits,
+  })
   await settle()
   await settle()
   expect(sdk.session.setPermissionMode.mock.calls).toEqual([['acceptEdits'], ['default']])
@@ -170,7 +174,7 @@ it("switches a sandboxed session's mode to acceptEdits, not bypassing, and an un
     ...OPTIONS,
     permissionMode: PermissionMode.AskBeforeEdits,
   })
-  plain.configure({ model: OPTIONS.model, effort: OPTIONS.effort, permissionMode: PermissionMode.AllowAll })
+  void plain.configure({ model: OPTIONS.model, effort: OPTIONS.effort, permissionMode: PermissionMode.AllowAll })
   await settle()
   await settle()
   expect(sdk.session.setPermissionMode.mock.calls).toEqual([['bypassPermissions']])

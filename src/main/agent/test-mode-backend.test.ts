@@ -260,7 +260,7 @@ describe('createTestModeAgentBackend', () => {
     const backend = createTestModeAgentBackend({ script })
     const session = backend.start(OPTIONS)
     const received = drain(session.messages)
-    session.configure({ model: 'claude-sample-2', effort: OPTIONS.effort, permissionMode: OPTIONS.permissionMode })
+    void session.configure({ model: 'claude-sample-2', effort: OPTIONS.effort, permissionMode: OPTIONS.permissionMode })
     session.send('a', 'user-1')
 
     await backend.whenIdle()

@@ -139,3 +139,8 @@ sidebar status line's; the Settings headings' takes the heading's own grey, sinc
 ## Icon
 
 `../../assets/icon/glade-icon.svg` (app tile), `glade-mark.svg` (mark only), and 1024/256 PNGs.
+
+## OpenRouter integration
+
+[OpenRouter UI mockups](openrouter-mockups.md) cover connecting a key, curating the detected model catalog, choosing
+a hosting provider and using the narrow task model picker (56–59).

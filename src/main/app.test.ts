@@ -19,6 +19,8 @@ import { homeArgument, SAMPLE_HOME, shortenHomePath } from '../shared/homeFolder
 import { BUILT_IN_MODELS } from '../shared/models'
 import { CAPTURE_ENV, type CaptureSpec } from './capture'
 import { FakeAgentBackend, settle } from './agent/fake-backend'
+import { OpenRouterClient } from './openrouter/client'
+import { SAMPLE_MODEL, SAMPLE_PROVIDER } from '../shared/test-openrouter'
 import * as sdk from './agent/test-sdk-messages'
 import { RESUME_PROMPT } from './agent/runner'
 import {
@@ -285,6 +287,11 @@ const electron = vi.hoisted(() => {
 })
 
 vi.mock('electron', () => ({
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (value: string) => Buffer.from(value),
+    decryptString: (value: Buffer) => value.toString(),
+  },
   app: electron.app,
   BrowserWindow: electron.FakeWindow,
   dialog: electron.dialog,
@@ -693,6 +700,22 @@ describe('startApp', () => {
     await expect(handler?.(fromWindow(), CommandName.UiStateSet, entry)).resolves.toEqual({ ok: true, value: null })
 
     expect(window.webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, { type: EventType.UiStateChanged, entry })
+  })
+
+  it('broadcasts catalog changes from the main-owned OpenRouter service', async () => {
+    vi.spyOn(OpenRouterClient.prototype, 'catalog').mockResolvedValue({
+      models: [SAMPLE_MODEL],
+      providers: [SAMPLE_PROVIDER],
+    })
+    await startAndWaitUntilReady()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+    await expect(handler?.(fromWindow(), CommandName.OpenRouterConnect, { key: 'fixture-key' })).resolves.toMatchObject(
+      { ok: true, value: { connected: true } },
+    )
+    expect(onlyWindow().webContents.send).toHaveBeenCalledWith(
+      EVENT_CHANNEL,
+      expect.objectContaining({ type: EventType.ModelsChanged }),
+    )
   })
 
   it("refuses commands that don't come from a window's page, such as a plugin's", async () => {
@@ -1119,6 +1142,7 @@ describe('startApp', () => {
       log: expect.objectContaining({ info: expect.any(Function) as unknown }) as unknown,
       version: '0.0.0-sample',
       onModels: expect.any(Function) as unknown,
+      runtime: expect.objectContaining({ prepare: expect.any(Function) as unknown }) as unknown,
     })
     expect(resolveLoginEnv).toHaveBeenCalledExactlyOnceWith({
       shell: process.env.SHELL,

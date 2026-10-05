@@ -1,0 +1,131 @@
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.key {
+  width: 190px;
+}
+.status {
+  color: var(--color-teal);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 10px;
+}
+.heading h3 {
+  flex: 1;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+.heading > span {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-faint);
+}
+.note {
+  margin: 10px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-faint);
+}
+.error {
+  color: var(--color-pink);
+  font-size: 12px;
+}
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.search > span {
+  flex: 1;
+}
+.columns {
+  display: flex;
+  padding: 8px 12px;
+  font: 10.5px var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-faint);
+}
+.columns > span:first-child {
+  flex: 1;
+  margin-left: 30px;
+}
+.columns > span:last-child {
+  width: 132px;
+}
+.models {
+  border: 1px solid var(--color-inner-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.model {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  min-height: 62px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--color-inner-border);
+}
+.model:last-child {
+  border-bottom: 0;
+}
+.model > input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--color-blue-text);
+}
+.copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13.5px;
+}
+.copy small {
+  color: var(--color-faint);
+  font-size: 11.5px;
+}
+.provider {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 132px;
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button);
+  background: var(--color-panel);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.provider:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 2px;
+}
+.provider:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.link {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--color-blue-text);
+  font: inherit;
+  cursor: pointer;
+}

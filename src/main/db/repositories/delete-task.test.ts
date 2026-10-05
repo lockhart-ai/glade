@@ -43,6 +43,8 @@ import { setWorkspaceSelection } from './workspace-selections'
 import { addWatcher } from './watchers'
 import { addTaskCommit, CommitSource } from './task-commits'
 import { getWorkspace } from './workspaces'
+import { sqliteSessionStore } from '../../openrouter/transcripts'
+import { completeModelSwitch, stageModelSwitch } from '../../models/switches'
 
 let test: TestDatabase
 let workspace: Workspace
@@ -81,6 +83,17 @@ function attachedFile(taskId: string, name: string): AttachedFile {
 /** Gives a task a row in every table that belongs to one. */
 function fillTask(db: Database, task: Task): void {
   const taskId = task.id
+  void sqliteSessionStore(db, taskId).append({ projectKey: 'sample', sessionId: taskId }, [
+    { type: 'user', uuid: taskId },
+  ])
+  db.prepare('INSERT INTO openrouter_generations (id, task_id, choice_id) VALUES (?, ?, ?)').run(
+    `gen-${taskId}`,
+    taskId,
+    'sample-route',
+  )
+  stageModelSwitch(db, taskId, task.model, 'claude-sonnet-5')
+  completeModelSwitch(db, taskId, 'claude-sonnet-5', 1)
+  stageModelSwitch(db, taskId, 'claude-sonnet-5', 'claude-haiku-4-5')
   appendMessage(db, {
     taskId,
     role: MessageRole.User,
@@ -215,6 +228,7 @@ const FILLED_TABLES = [
   // The notifications sent about it, for the menu bar popover's Recent section.
   'notifications',
   'open_files',
+  'openrouter_generations',
   // The children its agent made that it still has to file under a todo (P16).
   'owed_filings',
   // The text pasted into its messages, sent and queued, and into its input draft.
@@ -227,6 +241,7 @@ const FILLED_TABLES = [
   // The folders and domains its sandbox was granted for it alone (#449).
   'sandbox_grants',
   // The search index's rows for its fields and messages, which a new task and `fillTask`'s message make.
+  'sdk_transcripts',
   'search_documents',
   // What its agent session has been given of Glade's instructions and its handoff note.
   'session_context',
@@ -234,6 +249,7 @@ const FILLED_TABLES = [
   'task_backfills',
   // The commits its agent made (the Changes tab).
   'task_commits',
+  'task_model_switches',
   // The permission rules granted it with Allow for this task.
   'task_permission_rules',
   // How you left each of its todos' panels in the todo hub (P16).

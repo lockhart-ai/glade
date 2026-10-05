@@ -19,6 +19,10 @@ export function gatedSession(session: AgentSession, ready: Promise<boolean>): Ag
     })
   }
   return {
+    async ready() {
+      if (!(await gate)) throw new Error('The sandbox settings could not be applied.')
+      await session.ready?.()
+    },
     messages: session.messages,
     send(text, uuid, images) {
       whenReady(() => {
@@ -26,9 +30,16 @@ export function gatedSession(session: AgentSession, ready: Promise<boolean>): Ag
       })
     },
     configure(settings) {
-      whenReady(() => {
-        session.configure(settings)
+      const applied = gate.then(async (open) => {
+        if (!open) throw new Error('The sandbox settings could not be applied.')
+        await session.configure(settings)
       })
+      gate = applied.then(
+        () => true,
+        () => false,
+      )
+      void applied.catch(() => undefined)
+      return applied
     },
     applyFlagSettings: (settings) => session.applyFlagSettings(settings),
     interrupt: () => session.interrupt(),

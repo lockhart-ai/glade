@@ -332,6 +332,8 @@ describe('a turn', () => {
     expect(backend.sessions).toHaveLength(1)
     expect(backend.session.options).toEqual({
       cwd: workspace.rootPath,
+      taskId: task.id,
+      subagentModel: null,
       model: task.model,
       effort: task.effort,
       permissionMode: PermissionMode.AllowAll,

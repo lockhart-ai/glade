@@ -27,7 +27,8 @@
 </p>
 
 Glade is a calm macOS app for running many Claude agent sessions as **tasks**. Each task has one objective and runs in
-a **workspace**, a folder you point Glade at. The agent names the task, keeps its status current as it works, asks you
+a **workspace**, a folder you point Glade at. Use your Claude account or enable OpenRouter model/provider pairs in
+Settings › Models; switch between them in an existing task while retaining its history. The agent names the task, keeps its status current as it works, asks you
 when a choice is yours, and waits for you to mark it done. Everything lives in a local SQLite database, so you can quit
 (or crash) mid-turn and pick up where you left off. The whole product is the lifecycle of a task and the panels around
 it.

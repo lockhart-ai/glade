@@ -7,6 +7,7 @@ import styles from './InputBar.module.css'
 export interface SettingOption {
   readonly id: string
   readonly name: string
+  readonly group?: string
 }
 
 export interface SettingPickerProps {
@@ -30,14 +31,22 @@ export function SettingPicker({ label, value, options, selectedId, onChoose }: S
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const open = anchor !== null
 
-  const entries: MenuEntry[] = options.map((option) => ({
-    kind: MenuEntryKind.Item,
-    label: option.name,
-    checked: option.id === selectedId,
-    onSelect: () => {
-      onChoose(option.id)
-    },
-  }))
+  const entries: MenuEntry[] = []
+  let group: string | undefined
+  for (const option of options) {
+    if (option.group !== undefined && option.group !== group) {
+      group = option.group
+      entries.push({ kind: MenuEntryKind.Heading, label: group })
+    }
+    entries.push({
+      kind: MenuEntryKind.Item,
+      label: option.name,
+      checked: option.id === selectedId,
+      onSelect: () => {
+        onChoose(option.id)
+      },
+    })
+  }
 
   return (
     <>

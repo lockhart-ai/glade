@@ -124,6 +124,8 @@ The **input bar** under the chat sets how this task runs:
   variant, where your login offers one, is listed right after it. The task's own model is always in the list, checked,
   even one your login no longer offers, and it's always named, never shown as a raw id: a task on `opus[1m]` reads
   "Opus 5.5 (1M)". A task whose agent runs with a 1M context window says so the same way, with "(1M)" after the name.
+- **Subagents:** Same as task, or another model from the same billing source. Native SDK subagents share the
+  parent’s connection; a Claude-account task cannot dispatch native OpenRouter children.
 - **Effort:** how long the agent thinks before acting: Low, Medium, High, Extra high or Max, as far as the model
   supports them. Some models, like Haiku, take no effort, and the picker hides. Switch to a model that doesn't offer
   the task's effort and the effort moves to the model's default (High, where it has it), and a toast says so. A model
@@ -724,6 +726,34 @@ To use another account, sign in again in Claude Code (`claude auth login` in a t
 picks it up.
 
 ![Settings › General, showing the account (sample data)](images/guide/settings-general.png)
+
+### OpenRouter models
+
+Settings › Models keeps your Claude account active while connecting an OpenRouter API key. Connect the key to
+discover its available tool-capable text models and hosting providers. Search or filter the catalog, select a
+provider for each model you want, then enable its checkbox. **Refresh** reads the catalog again. **Replace key**
+validates a new key before saving; **Remove** disconnects OpenRouter without deleting routes or task history.
+
+The detected provider list shows hosting options. Configured provider credentials are managed in OpenRouter;
+the link under the catalog opens its integrations page. A normal inference key cannot list those credentials.
+Prices are estimates per million tokens for the selected endpoint; OpenRouter records the actual bill.
+
+Enabled choices appear beside Claude models in the task picker and Settings › Agent defaults, grouped by billing
+source. An OpenRouter choice includes its selected provider. The task picker selects the saved pair; change its
+provider in Settings. Existing tasks retain their previous pair, and a disabled or disconnected choice is shown
+as unavailable. Enable it again or choose another model; Glade never silently substitutes a provider.
+
+Switch the model between turns, including when paused by a Claude limit. Finish or stop background work and answer
+pending questions/permissions first. The same task continues with its conversation, tool results and queued input.
+When ready, the Tool calls history adds **Switched model to …**; relaunch keeps that entry. A failed startup keeps
+the previous selection and history. After switching a paused task, **Resume now** or a message continues it.
+OpenRouter errors point to its key/provider settings and do not require a Claude login or subscription reset.
+
+The SDK provides both sources' agent tools. Native subagents can use a different model within the parent's source.
+Catalog compatibility is a starting point: individual models can still reject SDK parameters or history formats.
+Glade reports the error and retains the archived history so you can select another model.
+
+![Settings › Models with a connected OpenRouter key and one enabled route (sample data)](images/guide/settings-models.png)
 
 ### Sandbox folders and domains
 

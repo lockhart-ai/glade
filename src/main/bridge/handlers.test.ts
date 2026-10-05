@@ -54,6 +54,11 @@ import { FolderEntryKind } from '../../shared/browse'
 import type { MenuBarCommands } from '../menu-bar/menu-bar'
 import { LogLevel, LogScope } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
+import { OpenRouterClient } from '../openrouter/client'
+import { OpenRouterService } from '../openrouter/service'
+import { SAMPLE_MODEL, SAMPLE_PROVIDER, SAMPLE_CHOICE } from '../../shared/test-openrouter'
+import { MessageRole, TaskActivity } from '../../shared/domain'
+import { appendMessage } from '../db/repositories/messages'
 
 let database: TestDatabase
 let root: string
@@ -138,6 +143,45 @@ function handlerContext(): HandlerContext {
 afterEach(() => {
   database.close()
   rmSync(root, { recursive: true, force: true })
+})
+
+it('owns OpenRouter catalog commands and validates a retry destination before changing the task', async () => {
+  expect(await handlers[CommandName.OpenRouterStatus]({})).toMatchObject({ connected: false })
+  expect(() => handlers[CommandName.OpenRouterRemove]({})).toThrow('unavailable')
+  const client = new OpenRouterClient(vi.fn())
+  vi.spyOn(client, 'catalog').mockResolvedValue({ models: [SAMPLE_MODEL], providers: [SAMPLE_PROVIDER] })
+  vi.spyOn(client, 'endpoints').mockResolvedValue([SAMPLE_PROVIDER])
+  vi.spyOn(client, 'providerModels').mockResolvedValue([SAMPLE_MODEL.id])
+  const openrouter = new OpenRouterService({
+    db: database.db,
+    emit,
+    client,
+    cipher: {
+      isEncryptionAvailable: () => true,
+      encryptString: (key) => Buffer.from(key),
+      decryptString: (key) => key.toString(),
+    },
+  })
+  const connected = createHandlers({ ...context, openrouter })
+  expect(await connected[CommandName.OpenRouterConnect]({ key: 'fixture-key' })).toMatchObject({ connected: true })
+  expect(await connected[CommandName.OpenRouterRefresh]({})).toMatchObject({ connected: true })
+  expect(await connected[CommandName.OpenRouterEndpoints]({ model: SAMPLE_MODEL.id })).toEqual([SAMPLE_PROVIDER])
+  expect(await connected[CommandName.OpenRouterProviderModels]({ provider: SAMPLE_PROVIDER.id })).toEqual([
+    SAMPLE_MODEL.id,
+  ])
+  await connected[CommandName.OpenRouterSelect]({ model: SAMPLE_MODEL.id, provider: SAMPLE_PROVIDER.id, enabled: true })
+  const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+  await expect(connected[CommandName.TasksRetry]({ id: task.id, model: SAMPLE_CHOICE.id })).rejects.toMatchObject({
+    code: BridgeErrorCode.InvalidTransition,
+  })
+  expect(getTask(database.db, task.id)?.model).toBe(task.model)
+  updateTask(database.db, task.id, { activity: TaskActivity.Error })
+  appendMessage(database.db, { taskId: task.id, role: MessageRole.User, body: 'Continue', turn: 1 })
+  const retry = vi.spyOn(context.runner, 'retry').mockReturnValue(task)
+  await connected[CommandName.TasksRetry]({ id: task.id, model: SAMPLE_CHOICE.id })
+  expect(retry).toHaveBeenCalledWith(task.id)
+  expect(getTask(database.db, task.id)?.model).toBe(SAMPLE_CHOICE.id)
+  expect(await connected[CommandName.OpenRouterRemove]({})).toMatchObject({ connected: false })
 })
 
 describe('workspaces.create', () => {

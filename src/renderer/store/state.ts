@@ -12,6 +12,7 @@ import type {
   Unsubscribe,
   WorkspaceUserPatch,
 } from '../../shared/bridge'
+import type { OpenRouterActions } from '../../shared/openrouter'
 import type { BroadcastOutcome } from '../../shared/broadcast'
 import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../shared/settings'
@@ -407,6 +408,7 @@ export interface GladeData {
  * action's promise rejects with the `BridgeError` when main refuses the command.
  */
 export interface GladeActions {
+  readonly openrouter: OpenRouterActions
   /** Subscribes to main's events (once) and loads a fresh snapshot of main's state. Never rejects. */
   hydrate: () => Promise<void>
   /**

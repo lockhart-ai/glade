@@ -1,3 +1,4 @@
+import { AgentSource, agentSource } from '../../shared/openrouter'
 import { faSquare } from '@fortawesome/free-regular-svg-icons'
 import { faArrowUp } from '@fortawesome/free-solid-svg-icons'
 import {
@@ -644,8 +645,17 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   // button calls it (with "(1M)" when it runs at 1M), the options with it always among them, and the effort levels it
   // supports: none hides the effort picker.
   const selectedModel = findModel(models, task.model)?.id ?? task.model
-  const modelShown = modelLabel(models, task.model, task.contextWindowTokens)
-  const modelChoices = modelOptions(models, task.model, modelShown)
+  const modelShown =
+    findModel(models, task.model) === undefined && task.modelName !== undefined
+      ? `${task.modelName} (unavailable)`
+      : modelLabel(models, task.model, task.contextWindowTokens)
+  const hasRouter = models.some(({ id }) => agentSource(id) === AgentSource.OpenRouter)
+  const modelChoices = modelOptions(models, task.model, modelShown).map((option) => ({
+    ...option,
+    ...(hasRouter
+      ? { group: agentSource(option.id) === AgentSource.OpenRouter ? 'OpenRouter' : 'Anthropic account' }
+      : {}),
+  }))
   const efforts = effortsOf(models, task.model)
 
   /** Changes the model, and the effort with it when the new model doesn't support the task's, saying so. */
@@ -714,6 +724,21 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
           selectedId={selectedModel}
           onChoose={(model) => {
             if (model !== selectedModel) void changeModel(model)
+          }}
+        />
+        <SettingPicker
+          label="Subagents"
+          value={task.subagentModel == null ? 'Same as task' : modelLabel(models, task.subagentModel, 0)}
+          options={[
+            { id: '', name: 'Same as task' },
+            ...modelOptions(
+              models.filter(({ id }) => agentSource(id) === agentSource(task.model)),
+              task.subagentModel ?? task.model,
+            ),
+          ]}
+          selectedId={task.subagentModel ?? ''}
+          onChoose={(id) => {
+            void change('subagent model', { subagentModel: id === '' ? null : id })
           }}
         />
         {efforts.length > 0 && (

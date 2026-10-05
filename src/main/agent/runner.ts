@@ -484,6 +484,10 @@ import {
 import { namedTodo, readsTodo } from './child-calls'
 import { createExcludedCommands, type ExcludedCommands } from './excluded-commands'
 import { gatedSession } from './gated-session'
+import { AgentSource, agentSource } from '../../shared/openrouter'
+import { completeModelSwitch, validateModel, validateSubagentModel } from '../models/switches'
+import { getOpenRouterChoice } from '../db/repositories/openrouter'
+import { effortWithModel } from '../models/models'
 import { FileAccess, SANDBOX_NETWORK_TOOL } from './sandbox-requests'
 import { NO_GRANTS, sandboxOverlay, sandboxStartSettings, usableGrants, type SandboxGrants } from './sandbox'
 import { CONTROL_SERVER } from '../control/names'
@@ -615,6 +619,8 @@ export interface SandboxApplyOptions {
 }
 
 export interface AgentRunner {
+  /** Prepares a safe model/source change without consuming messages or changing history on failure. */
+  changeModel(taskId: string, model: string, subagentModel?: string | null): Promise<Task>
   /**
    * Saves the user's message and starts a turn with it. A done task is reopened first (see the module comment). Throws
    * a `CommandFailure`: `not_found` for no such task, `busy` while a turn is running or the task is paused. With
@@ -1460,8 +1466,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   /** Stops the task on an error: the chat shows its card, and the task list its "Error: …" line. */
   const stopOnError = (taskId: string, error: TaskError): void => {
-    updateTaskFromRunner(context, taskId, { activity: TaskActivity.Error, error, retrying: null, pause: null })
-    if (error.kind === AgentErrorKind.LoggedOut) options.onLoggedOut?.(taskId)
+    const stopped =
+      agentSource(getTask(db, taskId)?.model ?? '') === AgentSource.OpenRouter &&
+      (error.kind === AgentErrorKind.LoggedOut || error.kind === AgentErrorKind.UsageLimit)
+        ? { ...error, kind: AgentErrorKind.Permanent }
+        : error
+    updateTaskFromRunner(context, taskId, { activity: TaskActivity.Error, error: stopped, retrying: null, pause: null })
+    if (stopped.kind === AgentErrorKind.LoggedOut) options.onLoggedOut?.(taskId)
   }
 
   /**
@@ -1504,6 +1515,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    * Answers whether it paused: false for an error that stops the task instead.
    */
   const pauseOnError = (taskId: string, error: TaskError, limit: UsageLimit | null): boolean => {
+    if (
+      agentSource(getTask(db, taskId)?.model ?? '') === AgentSource.OpenRouter &&
+      error.kind === AgentErrorKind.UsageLimit
+    )
+      return false
     const reason = pauseReason(error)
     if (reason === null) return false
     const pause = pauseFor(reason, error.details, limit, Date.now())
@@ -2072,6 +2088,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    */
   const recordContextWindow = (taskId: string, live: LiveSession, event: TurnFinishedEvent): void => {
     const sessionModel = live.settings.model
+    const route = getOpenRouterChoice(db, sessionModel)
+    if (route !== undefined) {
+      updateTaskFromRunner(context, taskId, { contextWindowTokens: route.model.contextLength })
+      return
+    }
     const fullId = findModel(offeredModels(db), sessionModel)?.resolvedModel ?? null
     const names = [live.sdkModel, sessionModel, fullId].filter((name) => name !== null)
     const reported = matchReportedWindow(event.contextWindows, names, !live.modelChanged)
@@ -2375,6 +2396,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (event.kind === AgentEventKind.ToolResult) live.callParents.delete(event.toolUseId)
     if (event.kind === AgentEventKind.SessionStarted) {
       live.sdkModel = event.model
+      if (getTask(db, taskId)?.model === live.settings.model) recordSwitch(taskId, live.settings.model)
       if (getTask(db, taskId)?.sessionId !== event.sessionId) {
         agentLog(taskId).info('session id saved', { sessionId: event.sessionId, model: event.model })
         updateTaskFromRunner(context, taskId, { sessionId: event.sessionId })
@@ -2395,6 +2417,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return
     }
     if (event.kind === AgentEventKind.RateLimit) {
+      if (agentSource(live.settings.model) === AgentSource.OpenRouter) return
       agentLog(taskId).info('rate limit', {
         status: event.status,
         resetsAt: event.resetsAt,
@@ -2511,7 +2534,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         return
       case AgentEventKind.TurnFinished: {
         const { isError, terminalReason, durationMs, totalCostUsd, usage } = event
-        const fields = { turn: turn.number, isError, terminalReason, durationMs, totalCostUsd, usage }
+        const fields = {
+          turn: turn.number,
+          isError,
+          terminalReason,
+          durationMs,
+          totalCostUsd: agentSource(live.settings.model) === AgentSource.OpenRouter ? null : totalCostUsd,
+          usage,
+        }
         if (isError) taskLog(taskId).warn('turn result', fields)
         else taskLog(taskId).info('turn result', fields)
         recordContextWindow(taskId, live, event)
@@ -3081,7 +3111,19 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     return reason
   }
 
-  const start = (task: Task): LiveSession => {
+  const switching = new Set<string>()
+  const preparing = new Map<string, LiveSession>()
+  const recordSwitch = (taskId: string, model: string): void => {
+    const event = completeModelSwitch(db, taskId, model, lastTurn(db, taskId))
+    if (event !== null) emitToolEventAppended(emit, event)
+  }
+  const activate = (task: Task, live: LiveSession): void => {
+    sessions.set(task.id, live)
+    void pump(task.id, live)
+    readAccount(task.id, live)
+    readUsage(task.id, live)
+  }
+  const start = (task: Task, provisional = false): LiveSession => {
     const workspace = getWorkspace(db, task.workspaceId)
     if (workspace === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${task.workspaceId}`)
     const settings = getSettings(db)
@@ -3090,7 +3132,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     // So is the todo hub: its tools, its prompt's lines and its hooks are the session's from start to end.
     const todoHub = settings.todoHubEnabled
     // Whatever calls the task's last session was running went with it.
-    filer.sessionEnded(task.id)
+    if (!provisional) filer.sessionEnded(task.id)
     const taskRules = listTaskPermissionRules(db, task.id).map(({ rule }) => rule)
     // A sandboxed session isn't told of a rule for a whole tool the sandbox bounds: Claude Code would take it for every
     // folder. Glade decides those calls itself (`toolCallVerdict`).
@@ -3111,7 +3153,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const handoff = getHandoff(db, task.id) ?? null
     // A session Glade starts has everything its prompt says; one it resumes keeps the prompt it started with, and is
     // sent what it's missing with its next message (`startTurn`).
-    if (task.sessionId === null) setSessionContext(db, task.id, startedContext(handoff, sandboxed, todoHub))
+    if (!provisional && task.sessionId === null)
+      setSessionContext(db, task.id, startedContext(handoff, sandboxed, todoHub))
     // The session's calls are decided against the live session, which exists once the backend has started it.
     let decide: (call: ToolPermissionCall) => Promise<ToolPermissionAnswer> = () => Promise.resolve(WITHDRAWN)
     let verdict: (prompt: string) => PromptVerdict = () => PromptVerdict.Allow
@@ -3131,8 +3174,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       overlaid = resolve
     })
     const started = backend.start({
+      taskId: task.id,
       cwd: workspace.rootPath,
       model: task.model,
+      subagentModel: task.subagentModel ?? null,
       effort: task.effort,
       permissionMode: task.permissionMode,
       resumeSessionId: task.sessionId,
@@ -3248,12 +3293,24 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     childCall = (call) => childStarting(task.id, live, call)
     batchDone = (batch) => batchFinished(task.id, live, batch)
     ending = (turnEnd) => turnEnding(task.id, live, turnEnd)
-    sessions.set(task.id, live)
-    // The session's messages wait on its overlay, and are never sent if it won't take it.
-    if (sandboxed) void applySandbox(task.id, live).then(overlaid)
-    void pump(task.id, live)
-    readAccount(task.id, live)
-    readUsage(task.id, live)
+    // A provisional session's sandbox failure leaves the original task and pause intact.
+    if (sandboxed) {
+      if (provisional && live.sandbox !== null) {
+        void live.session
+          .applyFlagSettings(
+            sandboxOverlay(live.sandbox.root, live.settings.permissionMode, live.sandbox.grants, home, denied),
+          )
+          .then(
+            () => {
+              overlaid(true)
+            },
+            () => {
+              overlaid(false)
+            },
+          )
+      } else void applySandbox(task.id, live).then(overlaid)
+    }
+    if (!provisional) activate(task, live)
     return live
   }
 
@@ -3342,7 +3399,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   /** Asks a session that just started which account it runs on, for Settings › General (`AgentRunnerOptions.account`). */
   const readAccount = (taskId: string, live: LiveSession): void => {
     const { account } = options
-    if (account === undefined) return
+    if (account === undefined || agentSource(live.settings.model) === AgentSource.OpenRouter) return
     live.session.accountInfo().then(
       (info) => {
         if (!live.closed) account.accountRead(info)
@@ -3360,7 +3417,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    */
   const readUsage = (taskId: string, live: LiveSession): void => {
     const { account } = options
-    if (account === undefined) return
+    if (account === undefined || agentSource(live.settings.model) === AgentSource.OpenRouter) return
     live.session.usage().then(
       (usage) => {
         if (!live.closed) account.usageRead(usage)
@@ -3444,7 +3501,20 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         live.modelChanged = true
       }
       live.settings = { model, effort, permissionMode }
-      live.session.configure(live.settings)
+      const changed = live.session.configure(live.settings)
+      if (changed === undefined) {
+        if (settings.model !== model) recordSwitch(task.id, model)
+      } else
+        void changed.then(
+          () => {
+            if (!live.closed && settings.model !== model) recordSwitch(task.id, model)
+          },
+          () => {
+            live.settings = settings
+            if (getTask(db, task.id)?.model === model)
+              updateTaskFromUser(context, task.id, { model: settings.model, effort: settings.effort })
+          },
+        )
     }
   }
 
@@ -3699,7 +3769,71 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   const runner: AgentRunner = {
+    async changeModel(taskId, model, givenChild) {
+      const task = getTask(db, taskId)
+      if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
+      validateModel(db, model)
+      const child =
+        givenChild === undefined
+          ? agentSource(task.model) === agentSource(model)
+            ? (task.subagentModel ?? null)
+            : null
+          : givenChild
+      validateSubagentModel(db, model, child)
+      const childChanged = child !== (task.subagentModel ?? null)
+      if (task.model === model && !childChanged) return task
+      if (switching.has(taskId)) throw new CommandFailure(BridgeErrorCode.Busy, 'The task is switching models')
+      const crossesRouter =
+        agentSource(task.model) === AgentSource.OpenRouter || agentSource(model) === AgentSource.OpenRouter
+      if (!crossesRouter && !childChanged) return updateTaskFromUser(context, taskId, { model })
+      const previous = sessions.get(taskId)
+      if (
+        previous?.turn != null ||
+        task.activity === TaskActivity.Working ||
+        task.asking ||
+        task.awaitingPermission ||
+        task.backgroundWork
+      ) {
+        throw new CommandFailure(
+          BridgeErrorCode.Busy,
+          'Finish or stop the task and its background work before switching sources.',
+        )
+      }
+      if (task.sessionId === null) return updateTaskFromUser(context, taskId, { model, subagentModel: child })
+      switching.add(taskId)
+      let candidate: LiveSession | undefined
+      try {
+        const effort = effortWithModel(db, model, undefined, task.effort) ?? task.effort
+        candidate = start({ ...task, model, effort, subagentModel: child }, true)
+        preparing.set(taskId, candidate)
+        await candidate.session.ready?.()
+        if (candidate.closed)
+          throw new CommandFailure(BridgeErrorCode.Busy, 'The task closed while its new session started.')
+        if (getTask(db, taskId)?.model !== task.model)
+          throw new CommandFailure(BridgeErrorCode.Busy, 'The task changed while its new session started.')
+        const changed = updateTaskFromUser(context, taskId, { model, effort, subagentModel: child })
+        if (previous !== undefined) {
+          previous.closed = true
+          previous.session.close()
+        }
+        filer.sessionEnded(taskId)
+        activate(changed, candidate)
+        recordSwitch(taskId, model)
+        if (changed.activity === TaskActivity.Waiting) startQueued(taskId, candidate)
+        return getTask(db, taskId) ?? changed
+      } catch (error) {
+        if (candidate !== undefined) {
+          candidate.closed = true
+          candidate.session.close()
+        }
+        throw error
+      } finally {
+        preparing.delete(taskId)
+        switching.delete(taskId)
+      }
+    },
     send(taskId, text, images = [], pastedBlocks = [], files = [], broadcast = false) {
+      if (switching.has(taskId)) throw new CommandFailure(BridgeErrorCode.Busy, 'The task is switching models')
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
       // The agent waits on answers to its questions: the message answers them, rather than starting a turn.
@@ -3868,7 +4002,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         turn: live.turn?.number ?? null,
       })
       live.settings = { ...live.settings, permissionMode: task.permissionMode }
-      live.session.configure(live.settings)
+      void Promise.resolve(live.session.configure(live.settings)).catch(() => undefined)
       // Whether sandboxed commands ask goes with the mode. The overlay carries the session's grants as it does.
       void applySandbox(taskId, live)
     },
@@ -3909,7 +4043,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
       const queued = addQueuedMessage(context, { taskId, body: text, images, pastedBlocks, files, broadcast })
       // A paused task delivers its queue once it resumes, and one waiting on requests the app quit on once you decide.
-      if (isPaused(task) || waitsOnRestartRequests(taskId)) return queued
+      if (switching.has(taskId) || isPaused(task) || waitsOnRestartRequests(taskId)) return queued
       // So does one waiting on a question the app quit on (only a broadcast is queued then, #489): its answer carries
       // on the turn that asked, and the queue follows.
       if (getOpenQuestionSet(db, taskId) !== undefined) return queued
@@ -3974,6 +4108,17 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     },
 
     retry(taskId, model) {
+      if (switching.has(taskId)) throw new CommandFailure(BridgeErrorCode.Busy, 'The task is switching models')
+      if (model !== undefined) {
+        const before = getTask(db, taskId)
+        if (
+          before !== undefined &&
+          before.model !== model &&
+          (agentSource(before.model) === AgentSource.OpenRouter || agentSource(model) === AgentSource.OpenRouter)
+        ) {
+          throw new CommandFailure(BridgeErrorCode.InvalidRequest, 'Select the new model before retrying the task.')
+        }
+      }
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
       if ((sessions.get(taskId)?.turn ?? null) !== null) {
@@ -4121,6 +4266,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       questions.close()
       permissions.close()
       timers.close()
+      for (const live of preparing.values()) {
+        live.closed = true
+        live.session.close()
+      }
+      preparing.clear()
       for (const [taskId, live] of sessions) {
         agentLog(taskId).info('session closed', { reason: 'app closing', turn: live.turn?.number ?? null })
         live.closed = true

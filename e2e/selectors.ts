@@ -670,7 +670,7 @@ export function gallery(page: Page) {
 }
 
 /** A setting in the input bar. */
-export type InputBarSetting = 'Model' | 'Effort' | 'Permissions'
+export type InputBarSetting = 'Model' | 'Effort' | 'Permissions' | 'Subagents'
 
 /** The selected task's input bar: its settings, the message field, and Send and Stop. */
 export function inputBar(page: Page) {

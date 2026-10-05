@@ -13,6 +13,7 @@ import {
   protocol,
   screen,
   shell,
+  safeStorage,
   Tray,
   WebContentsView,
   type Point,
@@ -32,6 +33,10 @@ import { createE2eLogin, WAITING_LOGIN } from './account/test-login'
 import { AGENT_SCRIPTS, type AgentScriptName } from './agent/scripts'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './agent/test-mode-backend'
 import { recordSdkModels } from './models/models'
+import { OpenRouterService } from './openrouter/service'
+import { openRouterRuntime } from './openrouter/runtime'
+import { OpenRouterClient } from './openrouter/client'
+import { TEST_MODE_CIPHER, testModeOpenRouterRequest } from './openrouter/test-mode'
 import { registerBridge, type RegisteredBridge } from './bridge'
 import {
   captureShots,
@@ -807,7 +812,16 @@ export function startApp({
     const closeGuard = new CloseGuard((event) => {
       bridge.emit(event)
     })
+    const openrouter = new OpenRouterService({
+      db: database.db,
+      cipher: testMode === null ? safeStorage : TEST_MODE_CIPHER,
+      ...(testMode === null ? {} : { client: new OpenRouterClient(testModeOpenRouterRequest) }),
+      emit: (event) => {
+        bridge.emit(event)
+      },
+    })
     const bridge: RegisteredBridge = registerBridge({
+      openrouter,
       ipc: ipcMain,
       db: database.db,
       // The main windows: the menu bar popover is sent only what's in flight, by the menu bar itself.
@@ -819,6 +833,9 @@ export function startApp({
           log: log.scoped(LogScope.Agent),
           version: app.getVersion(),
           onModels,
+          ...(testMode === null
+            ? { runtime: openRouterRuntime({ db: database.db, service: openrouter, dataDir: app.getPath('userData') }) }
+            : {}),
         }),
       // A test can't click a native dialog, so in e2e mode it answers with the folder the test chose.
       chooseFolder:
@@ -886,6 +903,7 @@ export function startApp({
     })
 
     const { runner } = bridge
+    void openrouter.reconcileGenerations()
 
     // A spec files children under todos through main's own service, until the agent's tools do (P16).
     if (testMode?.kind === TestModeKind.E2e) {
