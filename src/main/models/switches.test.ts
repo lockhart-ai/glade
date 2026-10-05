@@ -43,7 +43,7 @@ it('coalesces pending changes, removes a cancelled switch, and labels account mo
   stageModelSwitch(database.db, task.id, 'claude-sonnet-5', 'claude-haiku-4-5')
   expect(pendingModelSwitch(database.db, task.id)).toMatchObject({
     previous: task.model,
-    label: 'Haiku 4.5 (Anthropic account)',
+    label: 'Haiku 4.5',
   })
   stageModelSwitch(database.db, task.id, 'claude-haiku-4-5', task.model)
   expect(pendingModelSwitch(database.db, task.id)).toBeNull()

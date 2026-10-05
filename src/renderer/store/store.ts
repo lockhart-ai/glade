@@ -362,6 +362,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
 
       // Shown at once, then as main saved them.
       openrouter: {
+        refreshUsage: (force = false) => bridge.invoke(CommandName.OpenRouterRefreshUsage, { force }),
         status: () => bridge.invoke(CommandName.OpenRouterStatus, {}),
         connect: (key) => bridge.invoke(CommandName.OpenRouterConnect, { key }),
         refresh: () => bridge.invoke(CommandName.OpenRouterRefresh, {}),

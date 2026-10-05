@@ -4,6 +4,7 @@ import { faArrowUp } from '@fortawesome/free-solid-svg-icons'
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ClipboardEvent,
@@ -657,6 +658,16 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
       : {}),
   }))
   const efforts = effortsOf(models, task.model)
+  const childChoices = useMemo(
+    () => [
+      { id: '', name: 'Same as task' },
+      ...modelOptions(
+        models.filter(({ id }) => agentSource(id) === agentSource(task.model)),
+        task.subagentModel ?? task.model,
+      ),
+    ],
+    [models, task.model, task.subagentModel],
+  )
 
   /** Changes the model, and the effort with it when the new model doesn't support the task's, saying so. */
   const changeModel = async (model: string): Promise<void> => {
@@ -721,6 +732,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
           label="Model"
           value={modelShown}
           options={modelChoices}
+          {...(hasRouter ? { note: 'OpenRouter uses separate user settings and memory' } : {})}
           selectedId={selectedModel}
           onChoose={(model) => {
             if (model !== selectedModel) void changeModel(model)
@@ -729,13 +741,8 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
         <SettingPicker
           label="Subagents"
           value={task.subagentModel == null ? 'Same as task' : modelLabel(models, task.subagentModel, 0)}
-          options={[
-            { id: '', name: 'Same as task' },
-            ...modelOptions(
-              models.filter(({ id }) => agentSource(id) === agentSource(task.model)),
-              task.subagentModel ?? task.model,
-            ),
-          ]}
+          options={childChoices}
+          disabled={working || task.asking || task.awaitingPermission || task.backgroundWork}
           selectedId={task.subagentModel ?? ''}
           onChoose={(id) => {
             void change('subagent model', { subagentModel: id === '' ? null : id })

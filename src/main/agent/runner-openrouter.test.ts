@@ -112,6 +112,29 @@ it('holds input until readiness and rolls back a failed destination without a su
   ).toBe(false)
 })
 
+it('times out a hung model handoff, closes its process and leaves the original task usable', async () => {
+  await previousTurn()
+  const old = backend.session
+  backend.onSessionStart = (session) => {
+    Object.assign(session, { ready: () => new Promise<void>(() => undefined) })
+  }
+  vi.useFakeTimers()
+  try {
+    const switching = runner.changeModel(task.id, SAMPLE_CHOICE.id)
+    const rejected = expect(switching).rejects.toThrow('within 30 seconds')
+    const candidate = backend.session
+    await vi.advanceTimersByTimeAsync(30_000)
+    await rejected
+    expect(candidate.closed).toBe(true)
+    expect(old.closed).toBe(false)
+    expect(getTask(database.db, task.id)?.model).toBe(task.model)
+    expect(() => runner.send(task.id, 'Continue after timeout')).not.toThrow()
+    expect(old.sent.at(-1)?.text).toBe('Continue after timeout')
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
 it('revokes a provisional session on app close before it can change the task', async () => {
   await previousTurn()
   let ready: () => void = () => undefined
@@ -203,7 +226,7 @@ it('records an ordinary model switch only after its configure promise succeeds a
   finish()
   await settle()
   expect(listToolEvents(database.db, task.id).at(-1)).toMatchObject({
-    text: 'Switched model to Sonnet 5 (Anthropic account)',
+    text: 'Switched model to Sonnet 5',
   })
   session.emit(sdk.result('Done.'))
   await settle()
@@ -276,4 +299,19 @@ it('ignores OpenRouter account readings, rate limits, fake SDK windows and list-
   expect(account.usageRead).not.toHaveBeenCalled()
   expect(account.rateLimit).not.toHaveBeenCalled()
   expect(getTask(database.db, task.id)?.contextWindowTokens).toBe(SAMPLE_MODEL.contextLength)
+})
+
+it('shows the SDK’s smaller child window before the first turn and after a result with a guessed parent window', async () => {
+  const child = {
+    ...SAMPLE_CHOICE,
+    id: 'openrouter:sample/small@sample-host',
+    model: { ...SAMPLE_MODEL, id: 'sample/small', contextLength: 64_000 },
+  }
+  setOpenRouterChoice(database.db, child)
+  expect((await runner.changeModel(task.id, SAMPLE_CHOICE.id, child.id)).contextWindowTokens).toBe(64_000)
+  runner.send(task.id, 'Echo')
+  backend.session.emit(sdk.init())
+  backend.session.emit(sdk.result('Echo', { modelUsage: { [SAMPLE_CHOICE.id]: { contextWindow: 1_000_000 } } }))
+  await settle()
+  expect(getTask(database.db, task.id)?.contextWindowTokens).toBe(64_000)
 })

@@ -1,5 +1,4 @@
 import type { Database } from 'better-sqlite3'
-import { z } from 'zod'
 import { EventType } from '../../shared/bridge'
 import {
   openRouterChoiceId,
@@ -7,6 +6,11 @@ import {
   type OpenRouterChoiceRequest,
   type OpenRouterProvider,
   type OpenRouterStatus,
+  type OpenRouterSelection,
+  type OpenRouterUsageStatus,
+  EMPTY_OPENROUTER_USAGE,
+  AgentSource,
+  agentSource,
 } from '../../shared/openrouter'
 import type { Emit } from '../bridge/events'
 import {
@@ -15,10 +19,15 @@ import {
   openRouterStatus,
   setOpenRouterChoice,
   setOpenRouterConnection,
+  openRouterEncryptedKey,
+  openRouterUsage,
+  setOpenRouterUsage,
 } from '../db/repositories/openrouter'
 import { listModels } from '../models/models'
 import { recordReportedWindow } from '../db/repositories/context-windows'
 import { OpenRouterClient } from './client'
+import { getSettings, updateSettings } from '../db/repositories/settings'
+import { DEFAULT_SETTINGS } from '../../shared/settings'
 
 export interface CredentialCipher {
   isEncryptionAvailable(): boolean
@@ -30,21 +39,18 @@ export interface OpenRouterServiceOptions {
   readonly db: Database
   readonly emit: Emit
   readonly cipher: CredentialCipher
-  readonly client?: OpenRouterClient
-}
-
-export interface OpenRouterGeneration {
-  readonly id: string
-  readonly choiceId: string
-  readonly taskId: string | null
+  readonly client: OpenRouterClient
+  readonly now?: () => number
 }
 
 /** Only main owns this service. The bridge exposes status and catalog, never the decrypted key. */
 export class OpenRouterService {
   private readonly client: OpenRouterClient
   private revision = 0
+  private usagePending: Promise<OpenRouterUsageStatus> | null = null
+  private lastUsageAttempt = -Infinity
   constructor(private readonly options: OpenRouterServiceOptions) {
-    this.client = options.client ?? new OpenRouterClient()
+    this.client = options.client
   }
 
   status(): OpenRouterStatus {
@@ -52,9 +58,9 @@ export class OpenRouterService {
   }
 
   key(): string {
-    const connection = getOpenRouterConnection(this.options.db)
-    if (connection === null) throw new Error('Connect an OpenRouter key in Settings → Models.')
-    return this.options.cipher.decryptString(connection.encryptedKey)
+    const encrypted = openRouterEncryptedKey(this.options.db)
+    if (encrypted === null) throw new Error('Connect an OpenRouter key in Settings → Models.')
+    return this.options.cipher.decryptString(encrypted)
   }
 
   private changed(): OpenRouterStatus {
@@ -68,6 +74,9 @@ export class OpenRouterService {
     const catalog = await this.client.catalog(key)
     if (revision !== this.revision) throw new Error('The OpenRouter connection changed. Connect again.')
     setOpenRouterConnection(this.options.db, { encryptedKey: this.options.cipher.encryptString(key), ...catalog })
+    this.options.db.prepare('DELETE FROM openrouter_usage').run()
+    this.usagePending = null
+    await this.refreshUsage(true)
     return this.changed()
   }
 
@@ -85,7 +94,12 @@ export class OpenRouterService {
 
   remove(): OpenRouterStatus {
     this.revision++
-    this.options.db.prepare('DELETE FROM openrouter_connection').run()
+    this.usagePending = null
+    this.options.db.transaction(() => {
+      this.options.db.prepare('DELETE FROM openrouter_connection').run()
+      this.repairDefaults()
+    })()
+    this.emitUsage()
     return this.changed()
   }
 
@@ -96,7 +110,7 @@ export class OpenRouterService {
     return this.client.endpoints(this.key(), model, status.providers)
   }
 
-  async select(request: OpenRouterChoiceRequest): Promise<OpenRouterStatus> {
+  async select(request: OpenRouterChoiceRequest): Promise<OpenRouterSelection> {
     const revision = this.revision
     const model = this.status().models.find(({ id }) => id === request.model)
     if (model === undefined) throw new Error('This model is not available to the OpenRouter key.')
@@ -124,8 +138,10 @@ export class OpenRouterService {
       }
       setOpenRouterChoice(this.options.db, choice)
       recordReportedWindow(this.options.db, [choice.id], choice.model.contextLength)
+      this.repairDefaults()
     })()
-    return this.changed()
+    this.options.emit({ type: EventType.ModelsChanged, models: listModels(this.options.db) })
+    return { choices: getOpenRouterChoices(this.options.db) }
   }
 
   async providerModels(id: string): Promise<readonly string[]> {
@@ -136,31 +152,61 @@ export class OpenRouterService {
     return status.models.filter(({ id }) => models.has(id)).map(({ id }) => id)
   }
 
-  recordGeneration(generation: OpenRouterGeneration): void {
-    if (!this.options.db.open) return
-    this.options.db
-      .prepare('INSERT OR IGNORE INTO openrouter_generations (id, task_id, choice_id) VALUES (?, ?, ?)')
-      .run(generation.id, generation.taskId, generation.choiceId)
+  /** Removing a route must leave New task usable in every workspace. Existing tasks retain their saved route. */
+  private repairDefaults(): void {
+    const { db } = this.options
+    const settings = getSettings(db)
+    const available = new Set(listModels(db).map(({ id }) => id))
+    const parentGone =
+      agentSource(settings.defaultModel) === AgentSource.OpenRouter && !available.has(settings.defaultModel)
+    const childGone = settings.defaultSubagentModel !== null && !available.has(settings.defaultSubagentModel)
+    if (!parentGone && !childGone) return
+    const updated = updateSettings(db, {
+      ...(parentGone
+        ? { defaultModel: DEFAULT_SETTINGS.defaultModel, defaultEffort: DEFAULT_SETTINGS.defaultEffort }
+        : {}),
+      defaultSubagentModel: null,
+    })
+    this.options.emit({ type: EventType.SettingsChanged, settings: updated })
   }
 
-  /** Delayed metadata stays pending in SQLite for the next request or launch. */
-  async reconcileGenerations(): Promise<void> {
-    const { db } = this.options
-    if (!db.open || getOpenRouterConnection(db) === null) return
-    const pending = db.prepare('SELECT id FROM openrouter_generations WHERE cost_usd IS NULL').all()
-    for (const raw of pending) {
-      const id = z.object({ id: z.string() }).parse(raw).id
-      try {
-        const metadata = await this.client.generation(this.key(), id)
-        if (this.options.db.open && metadata.id === id)
-          db.prepare('UPDATE openrouter_generations SET actual_provider = ?, cost_usd = ? WHERE id = ?').run(
-            metadata.provider_name,
-            metadata.total_cost,
-            id,
-          )
-      } catch {
-        // Metadata may lag a completed stream. Never substitute SDK list-price estimates.
-      }
-    }
+  usage(): OpenRouterUsageStatus {
+    return this.options.db.open ? openRouterUsage(this.options.db) : EMPTY_OPENROUTER_USAGE
+  }
+
+  private emitUsage(): OpenRouterUsageStatus {
+    const status = this.usage()
+    this.options.emit({ type: EventType.OpenRouterUsageChanged, status })
+    return status
+  }
+
+  /** At most one read per minute, even with many children completing together; explicit Refresh bypasses the cache. */
+  refreshUsage(force = false): Promise<OpenRouterUsageStatus> {
+    const status = this.usage()
+    if (!status.connected) return Promise.resolve(status)
+    if (this.usagePending !== null) return this.usagePending
+    const now = this.options.now ?? Date.now
+    if (!force && now() - this.lastUsageAttempt < 60_000) return Promise.resolve(status)
+    this.lastUsageAttempt = now()
+    const revision = this.revision
+    const pending = this.client
+      .usage(this.key(), now())
+      .then(
+        (reading): OpenRouterUsageStatus => ({ connected: true, reading, error: null }),
+        (): OpenRouterUsageStatus => ({
+          ...status,
+          error: 'Could not refresh OpenRouter usage. Showing the last reading.',
+        }),
+      )
+      .then((next) => {
+        if (!this.options.db.open || revision !== this.revision) return this.usage()
+        setOpenRouterUsage(this.options.db, next)
+        return this.emitUsage()
+      })
+      .finally(() => {
+        if (this.usagePending === pending) this.usagePending = null
+      })
+    this.usagePending = pending
+    return pending
   }
 }

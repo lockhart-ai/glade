@@ -16,6 +16,19 @@ export const openRouterMigration: Migration = {
         id TEXT PRIMARY KEY,
         choice TEXT NOT NULL CHECK (json_valid(choice))
       ) STRICT;
+      CREATE TABLE openrouter_usage (
+        id INTEGER PRIMARY KEY REFERENCES openrouter_connection (id) ON DELETE CASCADE CHECK (id = 1),
+        reading TEXT CHECK (reading IS NULL OR json_valid(reading)),
+        error TEXT
+      ) STRICT;
+      CREATE TABLE sdk_transcript_failures (
+        owner TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        task_id TEXT REFERENCES tasks (id) ON DELETE CASCADE,
+        reason TEXT NOT NULL CHECK (reason IN ('importing', 'mirror_error')),
+        CHECK (owner = coalesce(task_id, '')),
+        PRIMARY KEY (owner, session_id)
+      ) STRICT;
       CREATE TABLE sdk_transcripts (
         owner TEXT NOT NULL,
         project_key TEXT NOT NULL,
@@ -40,14 +53,6 @@ export const openRouterMigration: Migration = {
         previous_model TEXT NOT NULL,
         next_model TEXT NOT NULL,
         label TEXT NOT NULL
-      ) STRICT;
-      CREATE TABLE openrouter_generations (
-        id TEXT PRIMARY KEY,
-        task_id TEXT REFERENCES tasks (id) ON DELETE CASCADE,
-        choice_id TEXT NOT NULL,
-        actual_provider TEXT,
-        cost_usd REAL,
-        CHECK (cost_usd IS NULL OR cost_usd >= 0)
       ) STRICT;
     `)
   },

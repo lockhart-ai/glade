@@ -20,13 +20,23 @@ export interface SettingPickerProps {
   readonly selectedId: string
   /** Called with the option chosen from the menu. */
   readonly onChoose: (id: string) => void
+  readonly disabled?: boolean
+  readonly note?: string
 }
 
 /**
  * One of the input bar's settings: a "Label Value ⌄" button that opens a menu of its options above it, with the
  * current one checked.
  */
-export function SettingPicker({ label, value, options, selectedId, onChoose }: SettingPickerProps): React.JSX.Element {
+export function SettingPicker({
+  label,
+  value,
+  options,
+  selectedId,
+  onChoose,
+  disabled = false,
+  note,
+}: SettingPickerProps): React.JSX.Element {
   // The button, while its menu is open.
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const open = anchor !== null
@@ -47,6 +57,7 @@ export function SettingPicker({ label, value, options, selectedId, onChoose }: S
       },
     })
   }
+  if (note !== undefined) entries.push({ kind: MenuEntryKind.Heading, label: note })
 
   return (
     <>
@@ -56,6 +67,7 @@ export function SettingPicker({ label, value, options, selectedId, onChoose }: S
         aria-haspopup="menu"
         aria-expanded={open}
         className={styles.setting}
+        disabled={disabled}
         onClick={(event) => {
           setAnchor(event.currentTarget)
         }}

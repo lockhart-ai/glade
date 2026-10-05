@@ -265,6 +265,7 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
+      case EventType.OpenRouterUsageChanged:
       case EventType.AccountChanged:
       case EventType.LoginChanged:
       case EventType.MenuBarChanged:
@@ -3704,6 +3705,7 @@ describe('several tasks at once', () => {
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
+      case EventType.OpenRouterUsageChanged:
       case EventType.AccountChanged:
       case EventType.LoginChanged:
       case EventType.MenuBarChanged:
@@ -3760,6 +3762,7 @@ describe('several tasks at once', () => {
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
+      case EventType.OpenRouterUsageChanged:
       case EventType.AccountChanged:
       case EventType.LoginChanged:
       case EventType.MenuBarChanged:

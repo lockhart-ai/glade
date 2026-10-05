@@ -6,7 +6,7 @@ import { chooseMenuItem } from './menu'
 import { chat, firstRun, inputBar, regions, settings, taskList, taskPanel } from './selectors'
 import { MIN_WINDOW, resize } from './window-layout'
 
-test('curates an OpenRouter route and switches a task with its history intact across a relaunch', async ({
+test('curates an OpenRouter route, monitors key usage and preserves Glade chat and log history across a relaunch', async ({
   launch,
   tempFolder,
 }) => {
@@ -45,6 +45,17 @@ test('curates an OpenRouter route and switches a task with its history intact ac
     await modal.dialog.screenshot({ path: join(media, 'settings-models.png') })
   }
   await modal.close.click()
+  const usage = window.getByRole('button', { name: 'OpenRouter usage' })
+  await expect(usage).toContainText('$8.00')
+  await usage.click()
+  const usageDialog = window.getByRole('dialog', { name: 'OpenRouter usage' })
+  await expect(usageDialog.getByRole('group', { name: 'Today · UTC' })).toContainText('$0.25')
+  await expect(usageDialog.getByRole('group', { name: 'This month · UTC' })).toContainText('$12.00')
+  await expect(usageDialog.getByRole('group', { name: 'Key spending limit' })).toContainText('monthly reset')
+  await usageDialog.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await expect(usageDialog.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled()
+  if (media !== undefined) await usageDialog.screenshot({ path: join(media, 'openrouter-usage.png') })
+  await usageDialog.press('Escape')
   await bar.setting('Model').click()
   await expect(bar.options('Model')).toHaveText([
     'Default (recommended)',
@@ -78,6 +89,7 @@ test('curates an OpenRouter route and switches a task with its history intact ac
   await expect(chat(window).agentReplies.first().getByRole('paragraph').first()).toHaveText(original)
   await glade.close()
   const again = await launch({ agentScript: 'simple-reply' })
+  await expect(again.window.getByRole('button', { name: 'OpenRouter usage' })).toContainText('$8.00')
   await expect(inputBar(again.window).setting('Model')).toHaveAccessibleName('Model: Sample Flash · Sample Host')
   await expect(chat(again.window).agentReplies).toHaveCount(2)
   await taskPanel(again.window).tab('Agents').click()
@@ -87,4 +99,10 @@ test('curates an OpenRouter route and switches a task with its history intact ac
   await expect(inputBar(again.window).setting('Model')).toHaveAccessibleName('Model: Haiku')
   await expect(taskPanel(again.window).log).toContainText('Switched model to Haiku')
   await expect(chat(again.window).agentReplies).toHaveCount(2)
+  await chooseMenuItem(again, 'Glade', 'Settings…')
+  const reopened = settings(again.window)
+  await reopened.section('Models').click()
+  await reopened.dialog.getByRole('button', { name: 'Remove', exact: true }).click()
+  await reopened.close.click()
+  await expect(again.window.getByRole('button', { name: 'OpenRouter usage' })).toHaveCount(0)
 })

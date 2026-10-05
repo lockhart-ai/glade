@@ -733,6 +733,7 @@ Settings › Models keeps your Claude account active while connecting an OpenRou
 discover its available tool-capable text models and hosting providers. Search or filter the catalog, select a
 provider for each model you want, then enable its checkbox. **Refresh** reads the catalog again. **Replace key**
 validates a new key before saving; **Remove** disconnects OpenRouter without deleting routes or task history.
+Removing or disabling a default route restores a Claude default so **New task** continues to work.
 
 The detected provider list shows hosting options. Configured provider credentials are managed in OpenRouter;
 the link under the catalog opens its integrations page. A normal inference key cannot list those credentials.
@@ -745,13 +746,33 @@ as unavailable. Enable it again or choose another model; Glade never silently su
 
 Switch the model between turns, including when paused by a Claude limit. Finish or stop background work and answer
 pending questions/permissions first. The same task continues with its conversation, tool results and queued input.
-When ready, the Tool calls history adds **Switched model to …**; relaunch keeps that entry. A failed startup keeps
+When ready, the **Agents › Main** log adds **Switched model to …**; relaunch keeps that entry. A failed or timed-out startup keeps
 the previous selection and history. After switching a paused task, **Resume now** or a message continues it.
 OpenRouter errors point to its key/provider settings and do not require a Claude login or subscription reset.
 
 The SDK provides both sources' agent tools. Native subagents can use a different model within the parent's source.
 Catalog compatibility is a starting point: individual models can still reject SDK parameters or history formats.
 Glade reports the error and retains the archived history so you can select another model.
+
+OpenRouter tasks use separate Claude Code user configuration. Your Claude user instructions, skills, agents,
+commands, hooks, plugins, user MCP servers and existing auto-memory do not transfer; project configuration and Glade
+tools still load. They return when you switch back to Claude. **Same as task** also sends SDK helper/small-model
+calls to the task's OpenRouter route; choosing a cheaper subagent model sends those calls there too. The context
+meter uses the smaller parent/subagent window, matching the SDK's compaction limit.
+
+The key stays in Glade's main process. Sandboxed commands cannot read the relay URL/token from their environment.
+Unsandboxed commands and session hooks or stdio MCP servers can inherit the temporary session relay token, which
+can spend on the session's selected routes until it closes. The separate SDK cache is inside Glade's private data
+folder: sandboxed file tools cannot read cached large tool results or auto-memory there; workspace files remain usable.
+
+The sidebar's **OpenRouter** usage row shows remaining key allowance, or this month's spend when uncapped. Open it
+for API-reported USD spend today, this week, this month and all time, the configured key cap/reset, BYOK spend and
+free-request allowance when reported. UTC periods include all activity on the key, including outside Glade. The
+reading is cached across launches, refreshed on connection/launch and after requests at most once a minute, and can
+be refreshed manually. Failed reads keep the last reading and show its age/error. The account-wide credit balance
+requires a management key, which Glade does not request. Claude's subscription meter remains separate.
+
+![OpenRouter key usage in the sidebar monitor (sample data)](images/guide/openrouter-usage.png)
 
 ![Settings › Models with a connected OpenRouter key and one enabled route (sample data)](images/guide/settings-models.png)
 

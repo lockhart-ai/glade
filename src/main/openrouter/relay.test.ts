@@ -3,6 +3,35 @@ import { z } from 'zod'
 import { createOpenRouterRelay, type OpenRouterRelay } from './relay'
 import { SAMPLE_CHOICE } from '../../shared/test-openrouter'
 import { openRouterSdkModel } from './sdk-model'
+import { createMemoryLog } from '../logging/memory-sink'
+import { LogScope } from '../logging/logger'
+
+it('preserves bounded thinking/signature diagnostics, redacts credentials, explains empty credit and logs errors', async () => {
+  const log = createMemoryLog(LogScope.Agent)
+  const request = vi
+    .fn<typeof fetch>()
+    .mockResolvedValueOnce(
+      Response.json(
+        { error: { message: `Invalid signature in thinking block; private-key ${'x'.repeat(3000)}` } },
+        { status: 400 },
+      ),
+    )
+    .mockResolvedValueOnce(new Response('not JSON', { status: 402 }))
+  const relay = await createOpenRouterRelay({
+    choices: [SAMPLE_CHOICE],
+    key: () => 'private-key',
+    request,
+    log: log.logger,
+  })
+  relays.push(relay)
+  const failure = await post(relay, { model: SAMPLE_CHOICE.id })
+  const body = z.object({ error: z.object({ message: z.string() }) }).parse(await failure.json())
+  expect(body.error.message).toContain('Invalid signature in thinking block; [redacted]')
+  expect(body.error.message).toHaveLength(2048)
+  expect(await (await post(relay, { model: SAMPLE_CHOICE.id })).text()).toContain('insufficient credits')
+  expect(log.withMessage('OpenRouter inference failed')).toHaveLength(2)
+  expect(JSON.stringify(log.withMessage('OpenRouter inference failed'))).not.toContain('private-key')
+})
 
 const relays: OpenRouterRelay[] = []
 interface RecordedBody {
@@ -27,19 +56,17 @@ async function post(relay: OpenRouterRelay, body: unknown): Promise<Response> {
   })
 }
 
-it('pins models and hosting providers, preserves tool/history payloads, normalizes thinking and streams actual generation ids', async () => {
+it('pins models and hosting providers, preserves tool/history payloads, normalizes thinking and streams without inspecting each SSE frame', async () => {
   const sse =
     'event: message_start\ndata: {"type":"message_start","message":{"id":"gen-sample"}}\n\ndata: {"id":"gen-sample"}\n\ndata: {"id":"tool-call"}\n\ndata: {}\n\ndata: [DONE]\n\n'
   const request = vi
     .fn<typeof fetch>()
     .mockResolvedValue(new Response(sse, { headers: { 'content-type': 'text/event-stream' } }))
-  const onGeneration = vi.fn()
   const onComplete = vi.fn()
   const relay = await createOpenRouterRelay({
     choices: [SAMPLE_CHOICE],
     key: () => 'upstream-key',
     request,
-    onGeneration,
     onComplete,
   })
   relays.push(relay)
@@ -52,6 +79,9 @@ it('pins models and hosting providers, preserves tool/history payloads, normaliz
     models: ['unapproved'],
     route: 'fallback',
     preset: 'unapproved',
+    plugins: [{ id: 'web' }],
+    transforms: ['middle-out'],
+    unknown_extension: true,
     provider: { only: ['unapproved'], allow_fallbacks: true },
     stream: true,
     output_config: { effort: 'max', format: { type: 'json_schema' } },
@@ -67,12 +97,12 @@ it('pins models and hosting providers, preserves tool/history payloads, normaliz
     messages,
   })
   expect(sentBody(request).output_config).not.toHaveProperty('effort')
-  for (const field of ['models', 'fallbacks', 'route', 'preset']) expect(sentBody(request)).not.toHaveProperty(field)
-  expect(onGeneration).toHaveBeenCalledExactlyOnceWith('gen-sample', SAMPLE_CHOICE)
+  for (const field of ['models', 'fallbacks', 'route', 'preset', 'plugins', 'transforms', 'unknown_extension'])
+    expect(sentBody(request)).not.toHaveProperty(field)
   expect(onComplete).toHaveBeenCalledOnce()
 })
 
-it('keeps supported reasoning controls and records nonstreaming ids without exposing the account key', async () => {
+it('keeps supported reasoning controls and forwards nonstreaming responses without exposing the account key', async () => {
   const choice = {
     ...SAMPLE_CHOICE,
     model: { ...SAMPLE_CHOICE.model, parameters: ['tools', 'reasoning', 'reasoning_effort'] },
@@ -80,8 +110,7 @@ it('keeps supported reasoning controls and records nonstreaming ids without expo
   const request = vi
     .fn<typeof fetch>()
     .mockResolvedValue(Response.json({ id: 'gen-json', content: [{ type: 'text', text: 'Echo' }] }))
-  const onGeneration = vi.fn()
-  const relay = await createOpenRouterRelay({ choices: [choice], key: () => 'private-key', request, onGeneration })
+  const relay = await createOpenRouterRelay({ choices: [choice], key: () => 'private-key', request })
   relays.push(relay)
   expect(
     await (
@@ -96,7 +125,6 @@ it('keeps supported reasoning controls and records nonstreaming ids without expo
     thinking: { type: 'adaptive' },
     output_config: { effort: 'low' },
   })
-  expect(onGeneration).toHaveBeenCalledExactlyOnceWith('gen-json', choice)
 })
 
 it('rejects wrong credentials, origins, methods, arbitrary routes, unknown models and malformed bodies locally', async () => {

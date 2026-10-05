@@ -5,6 +5,7 @@ import type { EpochMs } from '../../../shared/domain'
 import { guessContextWindow } from '../../../shared/models'
 import { Row } from './rows'
 import { offeredModels } from './sdk-models'
+import { AgentSource, agentSource } from '../../../shared/openrouter'
 
 /** The window the SDK last reported for each model, by every id it went by. */
 export function getReportedWindows(db: Database): ReadonlyMap<string, number> {
@@ -39,4 +40,18 @@ export function recordReportedWindow(
  */
 export function guessModelWindow(db: Database, model: string): number {
   return guessContextWindow(offeredModels(db), getReportedWindows(db), model)
+}
+
+/** OpenRouter's SDK context override is the smallest allowed parent/child window; the meter must show the same. */
+export function taskModelWindow(db: Database, model: string, child: string | null | undefined): number {
+  if (agentSource(model) !== AgentSource.OpenRouter) return guessModelWindow(db, model)
+  const row = new Row(
+    'openrouter_choices',
+    db
+      .prepare(
+        "SELECT min(CAST(json_extract(choice, '$.model.contextLength') AS INTEGER)) AS window FROM openrouter_choices WHERE id IN (?, ?)",
+      )
+      .get(model, child ?? model),
+  )
+  return row.nullableInteger('window') ?? guessModelWindow(db, model)
 }

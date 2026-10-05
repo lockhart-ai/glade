@@ -815,7 +815,7 @@ export function startApp({
     const openrouter = new OpenRouterService({
       db: database.db,
       cipher: testMode === null ? safeStorage : TEST_MODE_CIPHER,
-      ...(testMode === null ? {} : { client: new OpenRouterClient(testModeOpenRouterRequest) }),
+      client: new OpenRouterClient(testMode === null ? fetch : testModeOpenRouterRequest),
       emit: (event) => {
         bridge.emit(event)
       },
@@ -834,7 +834,14 @@ export function startApp({
           version: app.getVersion(),
           onModels,
           ...(testMode === null
-            ? { runtime: openRouterRuntime({ db: database.db, service: openrouter, dataDir: app.getPath('userData') }) }
+            ? {
+                runtime: openRouterRuntime({
+                  db: database.db,
+                  service: openrouter,
+                  dataDir: app.getPath('userData'),
+                  request: fetch,
+                }),
+              }
             : {}),
         }),
       // A test can't click a native dialog, so in e2e mode it answers with the folder the test chose.
@@ -903,7 +910,7 @@ export function startApp({
     })
 
     const { runner } = bridge
-    void openrouter.reconcileGenerations()
+    void openrouter.refreshUsage()
 
     // A spec files children under todos through main's own service, until the agent's tools do (P16).
     if (testMode?.kind === TestModeKind.E2e) {

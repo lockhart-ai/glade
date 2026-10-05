@@ -3,7 +3,7 @@
 //
 //   node scripts/fixtures/doc-images.mjs [name…]
 //
-// With no names, it regenerates all 27 (see docs/doc-images.md for the list and what each shows). With one or more
+// With no names, it regenerates all 28 (see docs/doc-images.md for the list and what each shows). With one or more
 // names (e.g. `node scripts/fixtures/doc-images.mjs hero control`), it regenerates only those. Each image is captured
 // in a window that's never shown, from a seed in scripts/fixtures/ (`src/main/capture-seed.ts`), and saved with a
 // 256-colour palette (ffmpeg-static), as the rest of the docs' screenshots are.

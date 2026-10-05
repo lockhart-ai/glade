@@ -5,8 +5,14 @@ import type {
   OpenRouterModel,
   OpenRouterProvider,
   OpenRouterStatus,
+  OpenRouterUsageStatus,
 } from '../../../shared/openrouter'
-import { openRouterChoiceSchema, openRouterModelSchema, openRouterProviderSchema } from '../../openrouter/schemas'
+import {
+  openRouterChoiceSchema,
+  openRouterModelSchema,
+  openRouterProviderSchema,
+  openRouterUsageReadingSchema,
+} from '../../openrouter/schemas'
 import { Row } from './rows'
 
 export interface OpenRouterConnection {
@@ -27,10 +33,38 @@ export function getOpenRouterConnection(db: Database): OpenRouterConnection | nu
 }
 
 export function setOpenRouterConnection(db: Database, connection: OpenRouterConnection): void {
-  db.prepare('INSERT OR REPLACE INTO openrouter_connection VALUES (1, ?, ?, ?)').run(
-    connection.encryptedKey,
-    JSON.stringify(connection.models),
-    JSON.stringify(connection.providers),
+  db.prepare(
+    `INSERT INTO openrouter_connection VALUES (1, ?, ?, ?)
+    ON CONFLICT (id) DO UPDATE SET encrypted_key = excluded.encrypted_key, models = excluded.models, providers = excluded.providers`,
+  ).run(connection.encryptedKey, JSON.stringify(connection.models), JSON.stringify(connection.providers))
+}
+
+/** Credential and existence reads don't parse the catalog on the task/runner path. */
+export function openRouterConnected(db: Database): boolean {
+  return db.prepare('SELECT 1 FROM openrouter_connection WHERE id = 1').get() !== undefined
+}
+
+export function openRouterEncryptedKey(db: Database): Buffer | null {
+  const raw = db.prepare('SELECT encrypted_key FROM openrouter_connection WHERE id = 1').get()
+  return raw === undefined ? null : new Row('openrouter_connection', raw).blob('encrypted_key')
+}
+
+export function openRouterUsage(db: Database): OpenRouterUsageStatus {
+  const raw = db.prepare('SELECT reading, error FROM openrouter_usage WHERE id = 1').get()
+  if (raw === undefined) return { connected: openRouterConnected(db), reading: null, error: null }
+  const row = new Row('openrouter_usage', raw)
+  const reading = row.nullableText('reading') === null ? null : row.json('reading')
+  return {
+    connected: true,
+    reading: reading === null ? null : openRouterUsageReadingSchema.parse(reading),
+    error: row.nullableText('error'),
+  }
+}
+
+export function setOpenRouterUsage(db: Database, status: OpenRouterUsageStatus): void {
+  db.prepare('INSERT OR REPLACE INTO openrouter_usage VALUES (1, ?, ?)').run(
+    status.reading === null ? null : JSON.stringify(status.reading),
+    status.error,
   )
 }
 

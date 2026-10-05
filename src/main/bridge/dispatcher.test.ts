@@ -169,6 +169,8 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     },
     [CommandName.SettingsGet]: () => ({ settings: DEFAULT_SETTINGS }),
     [CommandName.ModelsList]: () => ({ models: BUILT_IN_MODELS }),
+    [CommandName.OpenRouterUsage]: () => ({ connected: false, reading: null, error: null }),
+    [CommandName.OpenRouterRefreshUsage]: () => ({ connected: false, reading: null, error: null }),
     [CommandName.OpenRouterStatus]: () => ({ connected: false, models: [], providers: [], choices: [] }),
     [CommandName.OpenRouterConnect]: () => ({ connected: true, models: [], providers: [], choices: [] }),
     [CommandName.OpenRouterRefresh]: () => ({ connected: true, models: [], providers: [], choices: [] }),

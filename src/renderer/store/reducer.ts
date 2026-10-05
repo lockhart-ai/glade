@@ -445,6 +445,8 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, controlStatus: event.status }
     case EventType.AccountChanged:
       return { ...state, accountStatus: event.status }
+    case EventType.OpenRouterUsageChanged:
+      return { ...state, openrouterUsage: event.status }
     case EventType.LoginChanged:
       return { ...state, login: event.status }
     case EventType.MenuBarChanged:

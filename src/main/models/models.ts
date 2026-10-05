@@ -4,7 +4,7 @@ import type { Database } from 'better-sqlite3'
 import { EventType } from '../../shared/bridge'
 import { Effort } from '../../shared/domain'
 import { AgentSource } from '../../shared/openrouter'
-import { getOpenRouterChoices, getOpenRouterConnection } from '../db/repositories/openrouter'
+import { getOpenRouterChoices, openRouterConnected } from '../db/repositories/openrouter'
 import { effortFor, type ModelChoice } from '../../shared/models'
 import { parseSdkModels } from '../agent/sdk-models'
 import type { Emit } from '../bridge/events'
@@ -14,7 +14,7 @@ import { SILENT_LOGGER, type Logger } from '../logging/logger'
 /** The models the pickers offer: the SDK's, once a session has reported them, else the built-in ones. */
 export function listModels(db: Database): readonly ModelChoice[] {
   const anthropic = offeredModels(db)
-  if (getOpenRouterConnection(db) === null) return anthropic
+  if (!openRouterConnected(db)) return anthropic
   const choices = getOpenRouterChoices(db).filter(({ enabled }) => enabled)
   if (choices.length === 0) return anthropic
   return [

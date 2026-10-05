@@ -1,5 +1,43 @@
 import { z } from 'zod'
-import type { OpenRouterModel, OpenRouterProvider } from '../../shared/openrouter'
+import type { OpenRouterModel, OpenRouterProvider, OpenRouterUsageReading } from '../../shared/openrouter'
+
+interface KeyUsage {
+  readonly free_model_daily_requests?: import('../../shared/openrouter').OpenRouterFreeRequests
+  readonly usage: number
+  readonly usage_daily: number
+  readonly usage_weekly: number
+  readonly usage_monthly: number
+  readonly byok_usage: number
+  readonly byok_usage_monthly: number
+  readonly limit: number | null
+  readonly limit_remaining: number | null
+  readonly limit_reset: string | null
+  readonly include_byok_in_limit: boolean
+}
+interface KeyUsageResponse {
+  readonly data: KeyUsage
+}
+const keyUsageResponse = z.object({
+  data: z.object({
+    free_model_daily_requests: z
+      .object({
+        used: z.number().int().nonnegative(),
+        limit: z.number().int().nonnegative(),
+        remaining: z.number().int().nonnegative(),
+      })
+      .optional(),
+    usage: z.number().nonnegative(),
+    usage_daily: z.number().nonnegative(),
+    usage_weekly: z.number().nonnegative(),
+    usage_monthly: z.number().nonnegative(),
+    byok_usage: z.number().nonnegative(),
+    byok_usage_monthly: z.number().nonnegative(),
+    limit: z.number().nonnegative().nullable(),
+    limit_remaining: z.number().nullable(),
+    limit_reset: z.string().nullable(),
+    include_byok_in_limit: z.boolean(),
+  }),
+}) satisfies z.ZodType<KeyUsageResponse>
 
 interface ModelArchitecture {
   readonly input_modalities: readonly string[]
@@ -79,7 +117,7 @@ export interface OpenRouterCatalog {
 
 /** Fetch is injectable; tests never send inference or catalog requests to an account. */
 export class OpenRouterClient {
-  constructor(private readonly request: typeof fetch = fetch) {}
+  constructor(private readonly request: typeof fetch) {}
 
   private async get(key: string, path: string): Promise<unknown> {
     const response = await this.request(`https://openrouter.ai/api/v1/${path}`, {
@@ -148,21 +186,21 @@ export class OpenRouterClient {
       .data.map(({ id }) => id)
   }
 
-  async generation(key: string, id: string): Promise<OpenRouterGenerationMetadata> {
-    return generationResponse.parse(await this.get(key, `generation?id=${encodeURIComponent(id)}`)).data
+  async usage(key: string, readAt: number): Promise<OpenRouterUsageReading> {
+    const value = keyUsageResponse.parse(await this.get(key, 'key')).data
+    return {
+      ...(value.free_model_daily_requests === undefined ? {} : { freeRequests: value.free_model_daily_requests }),
+      readAt,
+      total: value.usage,
+      daily: value.usage_daily,
+      weekly: value.usage_weekly,
+      monthly: value.usage_monthly,
+      byokTotal: value.byok_usage,
+      byokMonthly: value.byok_usage_monthly,
+      limit: value.limit,
+      remaining: value.limit_remaining,
+      limitReset: value.limit_reset,
+      includesByok: value.include_byok_in_limit,
+    }
   }
 }
-
-export interface OpenRouterGenerationMetadata {
-  readonly id: string
-  readonly total_cost: number
-  readonly provider_name: string
-}
-
-interface OpenRouterGenerationResponse {
-  readonly data: OpenRouterGenerationMetadata
-}
-
-const generationResponse = z.object({
-  data: z.object({ id: z.string(), total_cost: z.number().nonnegative(), provider_name: z.string() }),
-}) satisfies z.ZodType<OpenRouterGenerationResponse>

@@ -6,6 +6,7 @@ import type {
   OpenRouterProviderModelsRequest,
   OpenRouterEndpointsRequest,
   OpenRouterChoiceRequest,
+  OpenRouterUsageRefreshRequest,
 } from '../../shared/openrouter'
 import {
   CommandName,
@@ -644,6 +645,10 @@ export const REQUEST_SCHEMAS = {
   [CommandName.SettingsGet]: emptyRequest,
   [CommandName.ModelsList]: emptyRequest,
   [CommandName.OpenRouterStatus]: emptyRequest,
+  [CommandName.OpenRouterUsage]: emptyRequest,
+  [CommandName.OpenRouterRefreshUsage]: z.strictObject({
+    force: z.boolean(),
+  }) satisfies z.ZodType<OpenRouterUsageRefreshRequest>,
   [CommandName.OpenRouterProviderModels]: z.strictObject({
     provider: z.string().min(1).max(100),
   }) satisfies z.ZodType<OpenRouterProviderModelsRequest>,

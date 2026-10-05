@@ -1,5 +1,5 @@
 /** Offline catalog for capture/e2e modes. A test-mode app never reaches OpenRouter, even with a real key supplied. */
-import { SAMPLE_CATALOG_RESPONSE, SAMPLE_PROVIDER } from '../../shared/test-openrouter'
+import { SAMPLE_CATALOG_RESPONSE, SAMPLE_PROVIDER, SAMPLE_USAGE_RESPONSE } from '../../shared/test-openrouter'
 import type { CredentialCipher } from './service'
 
 export const TEST_MODE_CIPHER: CredentialCipher = {
@@ -13,6 +13,8 @@ export const testModeOpenRouterRequest: typeof fetch = (input, init) => {
   if (new Headers(init?.headers).get('authorization') === 'Bearer invalid')
     return Promise.resolve(Response.json({}, { status: 401 }))
   switch (url.pathname) {
+    case '/api/v1/key':
+      return Promise.resolve(Response.json(SAMPLE_USAGE_RESPONSE))
     case '/api/v1/models/user':
     case '/api/v1/models':
       return Promise.resolve(Response.json(SAMPLE_CATALOG_RESPONSE))

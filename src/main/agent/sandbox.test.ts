@@ -91,6 +91,8 @@ const PINNED_NETWORK = { allowLocalBinding: false, allowAllUnixSockets: false, a
 const DENIED_VARIABLES = [
   { name: 'GLADE_CONTROL_URL', mode: 'deny' },
   { name: 'GLADE_CONTROL_TOKEN', mode: 'deny' },
+  { name: 'ANTHROPIC_BASE_URL', mode: 'deny' },
+  { name: 'ANTHROPIC_AUTH_TOKEN', mode: 'deny' },
 ]
 
 describe('sandboxStartSettings', () => {
@@ -143,7 +145,9 @@ describe('sandboxStartSettings', () => {
   // #514, finding 5: with "Let agents control Glade" on, a sandboxed command had the control endpoint's URL and token
   // in its environment, and could call the control API through the sandbox's proxy once `127.0.0.1` was allowed.
   it('keeps the control endpoint’s URL and token out of sandboxed commands’ environment', () => {
-    expect([...DENIED_ENV_VARS].sort()).toEqual(Object.values(ControlEnv).sort())
+    expect([...DENIED_ENV_VARS].sort()).toEqual(
+      [...Object.values(ControlEnv), 'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN'].sort(),
+    )
     for (const settings of [
       sandboxStartSettings(ROOT, HOME),
       sandboxOverlay(ROOT, PermissionMode.AskBeforeEdits, NO_GRANTS, HOME),

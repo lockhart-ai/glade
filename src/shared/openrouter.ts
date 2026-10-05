@@ -33,6 +33,38 @@ export interface OpenRouterChoice {
   readonly enabled: boolean
 }
 
+/** Spend reported by /key, in USD. These figures cover all use of this key, including outside Glade. */
+export interface OpenRouterFreeRequests {
+  readonly used: number
+  readonly limit: number
+  readonly remaining: number
+}
+export interface OpenRouterUsageReading {
+  readonly freeRequests?: OpenRouterFreeRequests
+  readonly readAt: number
+  readonly total: number
+  readonly daily: number
+  readonly weekly: number
+  readonly monthly: number
+  readonly byokTotal: number
+  readonly byokMonthly: number
+  readonly limit: number | null
+  readonly remaining: number | null
+  readonly limitReset: string | null
+  readonly includesByok: boolean
+}
+
+export interface OpenRouterUsageStatus {
+  readonly connected: boolean
+  readonly reading: OpenRouterUsageReading | null
+  readonly error: string | null
+}
+export interface OpenRouterUsageRefreshRequest {
+  readonly force: boolean
+}
+
+export const EMPTY_OPENROUTER_USAGE: OpenRouterUsageStatus = { connected: false, reading: null, error: null }
+
 export interface OpenRouterStatus {
   readonly connected: boolean
   readonly models: readonly OpenRouterModel[]
@@ -53,18 +85,22 @@ export interface OpenRouterChoiceRequest {
   readonly provider: string
   readonly enabled: boolean
 }
+export interface OpenRouterSelection {
+  readonly choices: readonly OpenRouterChoice[]
+}
 
 export interface OpenRouterProviderModelsRequest {
   readonly provider: string
 }
 
 export interface OpenRouterActions {
+  readonly refreshUsage: (force?: boolean) => Promise<OpenRouterUsageStatus>
   status(): Promise<OpenRouterStatus>
   connect(key: string): Promise<OpenRouterStatus>
   refresh(): Promise<OpenRouterStatus>
   remove(): Promise<OpenRouterStatus>
   endpoints(model: string): Promise<readonly OpenRouterProvider[]>
-  select(choice: OpenRouterChoiceRequest): Promise<OpenRouterStatus>
+  select(choice: OpenRouterChoiceRequest): Promise<OpenRouterSelection>
   providerModels(provider: string): Promise<readonly string[]>
 }
 

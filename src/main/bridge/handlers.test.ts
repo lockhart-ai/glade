@@ -145,6 +145,7 @@ afterEach(() => {
 
 it('owns OpenRouter catalog commands and validates a retry destination before changing the task', async () => {
   expect(await handlers[CommandName.OpenRouterStatus]({})).toMatchObject({ connected: false })
+  expect(await handlers[CommandName.OpenRouterUsage]({})).toEqual({ connected: false, reading: null, error: null })
   expect(() => handlers[CommandName.OpenRouterRemove]({})).toThrow('unavailable')
   const client = new OpenRouterClient(vi.fn())
   vi.spyOn(client, 'catalog').mockResolvedValue({ models: [SAMPLE_MODEL], providers: [SAMPLE_PROVIDER] })
@@ -161,6 +162,11 @@ it('owns OpenRouter catalog commands and validates a retry destination before ch
     },
   })
   const connected = createHandlers({ ...context, openrouter })
+  expect(await connected[CommandName.OpenRouterRefreshUsage]({ force: false })).toEqual({
+    connected: false,
+    reading: null,
+    error: null,
+  })
   expect(await connected[CommandName.OpenRouterConnect]({ key: 'fixture-key' })).toMatchObject({ connected: true })
   expect(await connected[CommandName.OpenRouterRefresh]({})).toMatchObject({ connected: true })
   expect(await connected[CommandName.OpenRouterEndpoints]({ model: SAMPLE_MODEL.id })).toEqual([SAMPLE_PROVIDER])

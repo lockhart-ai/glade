@@ -318,9 +318,15 @@ export function fixedDenies(root: string, home: string, denied: readonly string[
  * The variables no sandboxed command gets (`sandbox.credentials.envVars`): the control endpoint's URL and token
  * (`ControlEnv`, `../control/endpoint`), which are in the session's environment while agents may control Glade. With
  * them a command could call the control API as no task at all, once anything let it reach the loopback address (#514).
- * The session's own control tools don't use them.
+ * The session's own control tools don't use them. The inference relay's URL and token similarly grant access to
+ * the connected OpenRouter key's allowed routes, so commands must not receive them either (#551).
  */
-export const DENIED_ENV_VARS: readonly string[] = ['GLADE_CONTROL_URL', 'GLADE_CONTROL_TOKEN']
+export const DENIED_ENV_VARS: readonly string[] = [
+  'GLADE_CONTROL_URL',
+  'GLADE_CONTROL_TOKEN',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_AUTH_TOKEN',
+]
 
 /**
  * Whether a sandboxed command runs without asking in a permission mode: in Allow all it does (the sandbox bounds it),

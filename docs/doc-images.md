@@ -1,6 +1,6 @@
 # Doc images
 
-The 27 screenshots in [README.md](../README.md) and [the user guide](user-guide.md) (everything under
+The 28 screenshots in [README.md](../README.md) and [the user guide](user-guide.md) (everything under
 `docs/images/`, `docs/images/glade-icon.png` aside) are each captured from the current app, on made-up data, from a
 recorded recipe: a seed fixture in `scripts/fixtures/` (`src/main/capture-seed.ts` has the format) and
 `npm run screenshot` (`scripts/screenshot.mjs`), or, for four of them, a small script that needs more than that.
@@ -64,6 +64,7 @@ above 0 clears it (`APPEAR_WINDOW_MS` in `src/renderer/questions/QuestionCard.ts
 | `guide/permission-card.png` | A single open permission card, for a Bash command; in the Tool calls list, an allowed call, a denied one and the one waiting. | `--seed permission-card-bash.json --size 1280x800` |
 | `guide/settings-general.png` | Settings › General, with the account. | `--seed settings-general.json --size 1280x800`, clicked to General |
 | `guide/settings-models.png` | Settings › Models, with an enabled route discovered from the offline fixture API. | `settings-models.mjs` (runs `e2e/openrouter.spec.ts` and captures its Settings dialog) |
+| `guide/openrouter-usage.png` | The sidebar’s OpenRouter key spend and allowance popover. | `settings-models.mjs` (same workflow, offline sample amounts) |
 | `guide/settings-control.png` | Settings › Control, turned on. | `--seed settings-control.json --size 1280x800`, clicked to Control |
 | `guide/backfilled.png` | A backfilled task: its handoff note, its notes files as artifacts. | `--seed backfilled.json --size 1280x880` |
 | `guide/sandbox-folder-card.png` | Two sandbox cards: a folder to read, and a subagent's folder to write; in the Tool calls list, a read a workspace grant let through and the one waiting. | `--seed sandbox-folder-card.json --size 1280x800`, clicked to settle |
@@ -112,3 +113,6 @@ this: a seed could open a permission request, but not a question. `SeedQuestionS
 a task-level `questionSet` (a preamble, questions, a turn and `minutesAgo`), applied with the same
 `appendQuestionSet` the real `ask` tool uses, so the task's `asking` flag (and so its purple dot) comes out the same
 way a real one would. Covered in `src/main/capture-seed.test.ts`.
+
+OpenRouter’s sidebar usage popover (`guide/openrouter-usage.png`) is captured with Settings › Models by
+`scripts/fixtures/settings-models.mjs`, using the same offline discovery fixture. Its amounts are invented.

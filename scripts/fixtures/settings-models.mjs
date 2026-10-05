@@ -17,21 +17,23 @@ try {
   })
   if (test.status !== 0) process.exitCode = 1
   else {
-    const palette = spawnSync(
-      createRequire(import.meta.url)('ffmpeg-static'),
-      [
-        '-y',
-        '-loglevel',
-        'error',
-        '-i',
-        join(shots, 'settings-models.png'),
-        '-vf',
-        'split[a][b];[a]palettegen=max_colors=256:stats_mode=single[p];[b][p]paletteuse=dither=none',
-        join(ROOT, 'docs/images/guide/settings-models.png'),
-      ],
-      { cwd: ROOT, stdio: 'inherit' },
-    )
-    process.exitCode = palette.status ?? 1
+    for (const name of ['settings-models', 'openrouter-usage']) {
+      const palette = spawnSync(
+        createRequire(import.meta.url)('ffmpeg-static'),
+        [
+          '-y',
+          '-loglevel',
+          'error',
+          '-i',
+          join(shots, `${name}.png`),
+          '-vf',
+          'split[a][b];[a]palettegen=max_colors=256:stats_mode=single[p];[b][p]paletteuse=dither=none',
+          join(ROOT, `docs/images/guide/${name}.png`),
+        ],
+        { cwd: ROOT, stdio: 'inherit' },
+      )
+      if (palette.status !== 0) process.exitCode = palette.status ?? 1
+    }
   }
 } finally {
   rmSync(shots, { recursive: true, force: true })

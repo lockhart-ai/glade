@@ -4,34 +4,55 @@ import { once } from 'node:events'
 import { z } from 'zod'
 import type { OpenRouterChoice } from '../../shared/openrouter'
 import { openRouterSdkModel } from './sdk-model'
+import { SILENT_LOGGER, type Logger } from '../logging/logger'
 
 interface RelayMessageRequest {
   readonly model: string
   readonly stream?: boolean
   readonly output_config?: Readonly<Record<string, unknown>>
-  [key: string]: unknown
+  readonly messages?: unknown
+  readonly max_tokens?: unknown
+  readonly metadata?: unknown
+  readonly stop_sequences?: unknown
+  readonly system?: unknown
+  readonly temperature?: unknown
+  readonly top_k?: unknown
+  readonly top_p?: unknown
+  readonly tools?: unknown
+  readonly tool_choice?: unknown
+  readonly thinking?: unknown
+  readonly service_tier?: unknown
 }
 
-const requestSchema = z
-  .object({
-    model: z.string(),
-    stream: z.boolean().optional(),
-    output_config: z.record(z.string(), z.unknown()).optional(),
-  })
-  .catchall(z.unknown()) satisfies z.ZodType<RelayMessageRequest>
+const requestSchema = z.object({
+  model: z.string(),
+  stream: z.boolean().optional(),
+  output_config: z.record(z.string(), z.unknown()).optional(),
+  messages: z.unknown().optional(),
+  max_tokens: z.unknown().optional(),
+  metadata: z.unknown().optional(),
+  stop_sequences: z.unknown().optional(),
+  system: z.unknown().optional(),
+  temperature: z.unknown().optional(),
+  top_k: z.unknown().optional(),
+  top_p: z.unknown().optional(),
+  tools: z.unknown().optional(),
+  tool_choice: z.unknown().optional(),
+  thinking: z.unknown().optional(),
+  service_tier: z.unknown().optional(),
+}) satisfies z.ZodType<RelayMessageRequest>
 
 function containsImage(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(containsImage)
   if (value === null || typeof value !== 'object') return false
-  const fields = z.record(z.string(), z.unknown()).parse(value)
-  return fields.type === 'image' || Object.values(fields).some(containsImage)
+  return ('type' in value && value.type === 'image') || Object.values(value).some(containsImage)
 }
 
 export interface OpenRouterRelayOptions {
   readonly choices: readonly OpenRouterChoice[]
   readonly key: () => string
-  readonly request?: typeof fetch
-  readonly onGeneration?: (id: string, choice: OpenRouterChoice) => void
+  readonly request: typeof fetch
+  readonly log?: Logger
   readonly onComplete?: () => void
 }
 
@@ -51,7 +72,8 @@ function failure(response: ServerResponse, status: number, message: string): voi
 export async function createOpenRouterRelay(options: OpenRouterRelayOptions): Promise<OpenRouterRelay> {
   const token = randomBytes(32).toString('hex')
   const controllers = new Set<AbortController>()
-  const request = options.request ?? fetch
+  const request = options.request
+  const log = options.log ?? SILENT_LOGGER
   const serve = async (incoming: IncomingMessage, response: ServerResponse): Promise<void> => {
     const auth = Buffer.from(incoming.headers.authorization ?? '')
     const expected = Buffer.from(`Bearer ${token}`)
@@ -103,23 +125,20 @@ export async function createOpenRouterRelay(options: OpenRouterRelayOptions): Pr
       // Translate the SDK's Messages effort. Leave structured output fields intact.
       const output = { ...body.output_config }
       if (!choice.model.parameters.includes('reasoning_effort')) delete output.effort
-      const upstreamBody: RelayMessageRequest = {
+      const upstreamBody = {
         ...body,
         model: choice.model.id,
         provider: { only: [choice.provider.id], allow_fallbacks: false },
         output_config: output,
         ...(!choice.model.parameters.includes('reasoning') ? { thinking: { type: 'disabled' } } : {}),
       }
-      // These OpenRouter extras can bypass a pinned model through request-level fallbacks or presets.
-      delete upstreamBody.models
-      delete upstreamBody.fallbacks
-      delete upstreamBody.route
-      delete upstreamBody.preset
+      // The schema strips all non-Messages fields, including plugins, transforms and future routing extensions.
+      const key = options.key()
       const upstream = await request('https://openrouter.ai/api/v1/messages', {
         method: 'POST',
         redirect: 'error',
         headers: {
-          Authorization: `Bearer ${options.key()}`,
+          Authorization: `Bearer ${key}`,
           'Content-Type': 'application/json',
           'anthropic-version': '2023-06-01',
           'X-OpenRouter-Title': 'Glade',
@@ -128,49 +147,38 @@ export async function createOpenRouterRelay(options: OpenRouterRelayOptions): Pr
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10 * 60_000)]),
       })
       if (!upstream.ok) {
-        // Never forward provider errors containing credentials or Claude-login instructions.
-        failure(
-          response,
-          upstream.status === 401 || upstream.status === 403 ? 400 : upstream.status,
-          `OpenRouter returned ${String(upstream.status)}. Check Settings → Models, the selected provider and key restrictions.`,
-        )
+        const parsed = z
+          .object({ error: z.object({ message: z.string() }) })
+          .safeParse(await upstream.json().catch(() => null))
+        const fallback =
+          upstream.status === 402
+            ? 'OpenRouter has insufficient credits. Add credits or check this key’s spending limit.'
+            : `OpenRouter returned ${String(upstream.status)}. Check Settings → Models, the selected provider and key restrictions.`
+        // Preserve provider diagnostics used by the SDK's thinking/signature recovery, with bounded redacted text.
+        const message = (parsed.success ? parsed.data.error.message : fallback)
+          .split(key)
+          .join('[redacted]')
+          .split(token)
+          .join('[redacted]')
+          .slice(0, 2048)
+        log.warn('OpenRouter inference failed', { status: upstream.status, message })
+        options.onComplete?.()
+        failure(response, upstream.status === 401 || upstream.status === 403 ? 400 : upstream.status, message)
         return
       }
       response.writeHead(upstream.status, {
         'content-type': upstream.headers.get('content-type') ?? 'application/json',
       })
-      const ids = new Set<string>()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      const generation = (raw: string): void => {
-        try {
-          const event = z
-            .object({ id: z.string().optional(), message: z.object({ id: z.string().optional() }).optional() })
-            .parse(JSON.parse(raw) as unknown)
-          const id = event.message?.id ?? event.id
-          if (id !== undefined && id.startsWith('gen-') && !ids.has(id)) {
-            ids.add(id)
-            options.onGeneration?.(id, choice)
-          }
-        } catch {
-          // SSE keepalives and [DONE] have no generation metadata.
-        }
-      }
       if (upstream.body !== null) {
         for await (const rawChunk of upstream.body) {
           const chunk = z.instanceof(Uint8Array).parse(rawChunk)
-          buffer += decoder.decode(chunk, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() ?? ''
-          for (const line of lines) if (line.startsWith('data: ')) generation(line.slice(6))
-          if (buffer.length > 64_000) buffer = ''
           if (!response.write(chunk)) await once(response, 'drain', { signal: controller.signal })
         }
       }
-      if (buffer !== '') generation(buffer)
       options.onComplete?.()
       response.end()
     } catch {
+      log.warn('OpenRouter relay request failed')
       if (response.headersSent) response.destroy()
       else failure(response, 400, 'The OpenRouter request failed. Check the connection in Settings → Models.')
     } finally {

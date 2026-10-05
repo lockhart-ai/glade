@@ -33,7 +33,7 @@ for where to start can read [`llms.txt`](../llms.txt) at the repo root.
 - [Releasing](releasing.md): cutting a release, from the version bump to the published build, checking a packaged
   build, and where dependency updates come from.
 - [OpenRouter integration](openrouter-integration-spec.md): discovery, curated routes, credential isolation, source
-  switching, transcript persistence and validation limits.
+  switching, transcript persistence, key usage monitoring and validation limits.
 - [SDK notes](sdk-notes.md): what the Claude Agent SDK does, with evidence, as Glade relies on it, its sandbox
   included (§15).
 - [Escape battery](escape-battery.md): the agent sandbox's acceptance test: what an agent with nothing granted can

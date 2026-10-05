@@ -381,7 +381,7 @@ it('changes the model and effort before delivering the next message, never after
   expect(sdk.session.setModel).toHaveBeenCalledBefore(sdk.session.applyFlagSettings)
 })
 
-it('rejects a refused model change and holds input rather than running on the old model', async () => {
+it('rejects a refused model change without closing the session or poisoning subsequent input', async () => {
   sdk.session.setModel.mockRejectedValueOnce(new Error('model_not_found'))
   const log = createMemoryLog(LogScope.Agent)
   const session = createSdkBackend({ version: '1.2.3', env: Promise.resolve(ENV), log: log.logger }).start(OPTIONS)
@@ -390,7 +390,8 @@ it('rejects a refused model change and holds input rather than running on the ol
   ).rejects.toThrow('model_not_found')
   session.send('Hi', 'uuid-1')
   await settle()
-  expect(sdk.session.close).toHaveBeenCalledOnce()
+  expect(await pushedMessages(1)).toEqual(['Hi'])
+  expect(sdk.session.close).not.toHaveBeenCalled()
   expect(log.withMessage("the SDK refused the session's new settings")).toEqual([
     expect.objectContaining({
       level: LogLevel.Warn,
@@ -398,6 +399,46 @@ it('rejects a refused model change and holds input rather than running on the ol
     }),
   ])
   expect(sdk.session.applyFlagSettings).not.toHaveBeenCalled()
+})
+
+it('delivers the next message with the old effort when the SDK refuses an effort change', async () => {
+  sdk.session.applyFlagSettings.mockRejectedValueOnce(new Error('Unsupported effort'))
+  const session = backendIn().start(OPTIONS)
+  await expect(
+    session.configure({ model: OPTIONS.model, effort: Effort.Max, permissionMode: OPTIONS.permissionMode }),
+  ).resolves.toBeUndefined()
+  session.send('Continue.', 'next')
+  expect(await pushedMessages(1)).toEqual(['Continue.'])
+  expect(sdk.session.setModel).not.toHaveBeenCalled()
+  expect(sdk.session.close).not.toHaveBeenCalled()
+})
+
+it('stops a mirrored session and marks its history unreliable when the SDK drops a transcript batch', async () => {
+  sdk.session[Symbol.asyncIterator].mockImplementationOnce(async function* () {
+    yield await Promise.resolve({
+      type: 'system',
+      subtype: 'mirror_error',
+      session_id: 'session-1',
+      error: 'write failed',
+    })
+  })
+  const onMirrorError = vi.fn()
+  const session = createSdkBackend({
+    version: '1.2.3',
+    env: Promise.resolve(ENV),
+    runtime: {
+      prepare: () => Promise.resolve({ env: ENV, publishModels: false, onMirrorError, close: vi.fn() }),
+    },
+  }).start(OPTIONS)
+  await expect(
+    (async () => {
+      const messages: unknown[] = []
+      for await (const message of session.messages) messages.push(message)
+      return messages
+    })(),
+  ).rejects.toThrow('history could not be saved')
+  expect(onMirrorError).toHaveBeenCalledExactlyOnceWith('session-1')
+  session.close()
 })
 
 /** A promise, and what settles it. */

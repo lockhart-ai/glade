@@ -13,6 +13,26 @@ import { SettingsSection } from './sections'
 
 const CATALOG: OpenRouterStatus = { connected: true, models: [SAMPLE_MODEL], providers: [SAMPLE_PROVIDER], choices: [] }
 
+it('keeps the catalog rows out of search and replacement-key keystrokes when their own props did not change', async () => {
+  const rendered = vi.fn(() => SAMPLE_MODEL.inputPrice)
+  const models = Array.from({ length: 200 }, (_, index) => ({
+    ...SAMPLE_MODEL,
+    id: `sample/flash-${String(index)}`,
+    get inputPrice() {
+      return rendered()
+    },
+  }))
+  await show({ [CommandName.OpenRouterStatus]: () => ({ ...CATALOG, models }) })
+  const initial = rendered.mock.calls.length
+  expect(initial).toBe(200)
+  for (const value of ['s', 'sa', 'sam', 'sample'])
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search models' }), { target: { value } })
+  fireEvent.click(screen.getByRole('button', { name: 'Replace key' }))
+  for (const value of ['f', 'fi', 'fix', 'fixture'])
+    fireEvent.change(screen.getByLabelText('OpenRouter API key'), { target: { value } })
+  expect(rendered).toHaveBeenCalledTimes(initial)
+})
+
 async function show(overrides: Partial<FakeHandlers> = {}) {
   const fake = fakeBridge({ tasks: [], workspaces: [], uiState: [] }, overrides)
   const store = createGladeStore(fake.bridge)

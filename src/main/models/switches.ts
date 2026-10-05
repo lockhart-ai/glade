@@ -3,7 +3,7 @@ import { BridgeErrorCode } from '../../shared/bridge'
 import { modelName, sameModel } from '../../shared/models'
 import { AgentSource, agentSource } from '../../shared/openrouter'
 import { CommandFailure } from '../bridge/errors'
-import { getOpenRouterChoice, getOpenRouterConnection } from '../db/repositories/openrouter'
+import { getOpenRouterChoice, openRouterConnected } from '../db/repositories/openrouter'
 import { Row } from '../db/repositories/rows'
 import { appendNarration } from '../db/repositories/tool-events'
 import type { NarrationEvent } from '../../shared/domain'
@@ -18,7 +18,7 @@ export interface PendingModelSwitch {
 export function validateModel(db: Database, model: string): void {
   if (agentSource(model) !== AgentSource.OpenRouter) return
   const choice = getOpenRouterChoice(db, model)
-  if (getOpenRouterConnection(db) === null || choice?.enabled !== true) {
+  if (!openRouterConnected(db) || choice?.enabled !== true) {
     throw new CommandFailure(BridgeErrorCode.InvalidRequest, 'Enable this OpenRouter model in Settings → Models.')
   }
 }
@@ -41,7 +41,7 @@ export function stageModelSwitch(db: Database, taskId: string, previous: string,
   const choice = getOpenRouterChoice(db, next)
   const label =
     choice === undefined
-      ? `${modelName(listModels(db), next)} (Anthropic account)`
+      ? modelName(listModels(db), next)
       : `${choice.model.name} · ${choice.provider.name} (OpenRouter)`
   db.prepare('INSERT OR REPLACE INTO task_model_switches VALUES (?, ?, ?, ?)').run(taskId, original, next, label)
 }

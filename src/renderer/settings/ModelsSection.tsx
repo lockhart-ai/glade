@@ -1,5 +1,5 @@
 import { faChevronDown, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
-import { memo, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import { accountKind, AccountKind } from '../../shared/account'
 import type {
   OpenRouterActions,
@@ -7,6 +7,7 @@ import type {
   OpenRouterModel,
   OpenRouterProvider,
   OpenRouterStatus,
+  OpenRouterSelection,
 } from '../../shared/openrouter'
 import {
   Button,
@@ -44,6 +45,12 @@ export function ModelsSection(): React.JSX.Element {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('')
   const [filteredIds, setFilteredIds] = useState<readonly string[] | null>(null)
+  const onError = useCallback((failure: unknown) => {
+    setError(describeFailure(failure))
+  }, [])
+  const onSelectionSaved = useCallback((selection: OpenRouterSelection) => {
+    setStatus((previous) => ({ ...previous, choices: selection.choices }))
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -107,7 +114,9 @@ export function ModelsSection(): React.JSX.Element {
     <>
       <Intro>Choose which models appear in tasks. Changes save automatically.</Intro>
       <SettingRow name="Anthropic" description="Uses your Claude Code account.">
-        <span className={styles.status}>
+        <span
+          className={account !== null && accountKind(account) !== AccountKind.NotSignedIn ? styles.status : styles.note}
+        >
           {account === null
             ? 'Not yet read'
             : accountKind(account) === AccountKind.NotSignedIn
@@ -258,10 +267,8 @@ export function ModelsSection(): React.JSX.Element {
                 choices={status.choices}
                 actions={actions}
                 disabled={busy}
-                onSaved={setStatus}
-                onError={(failure) => {
-                  setError(describeFailure(failure))
-                }}
+                onSaved={onSelectionSaved}
+                onError={onError}
               />
             ))}
           </div>
@@ -292,7 +299,7 @@ interface ModelRowProps {
   readonly choices: readonly OpenRouterChoice[]
   readonly actions: OpenRouterActions
   readonly disabled: boolean
-  readonly onSaved: (status: OpenRouterStatus) => void
+  readonly onSaved: (selection: OpenRouterSelection) => void
   readonly onError: (failure: unknown) => void
 }
 

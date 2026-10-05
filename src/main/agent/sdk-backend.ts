@@ -69,6 +69,7 @@ export interface PreparedSdkSession {
   readonly env: Environment
   readonly model?: string
   readonly sessionStore?: import('@anthropic-ai/claude-agent-sdk').SessionStore
+  readonly onMirrorError?: (sessionId: string) => void
   readonly publishModels: boolean
   close(): void
 }
@@ -957,8 +958,8 @@ export function userMessage(text: string, uuid: string, images: readonly ImageDa
  *
  * A settings change and the messages after it are delivered in order: the next message waits for `setModel` and
  * `applyFlagSettings` to finish (`docs/sdk-notes.md` §4), and for `setPermissionMode` when the permission mode changed
- * (§9), each only when what it sets changed. A refused model change closes the session and holds subsequent input;
- * a message never silently runs on the old model. Once each session's process has started, the models the SDK offers go to `onModels`, if given.
+ * (§9), each only when what it sets changed. Model refusals reject the acknowledgement; effort refusals keep the old
+ * effort. The process remains available for retry. Once started, the models the SDK offers go to `onModels`, if given.
  */
 export function createSdkBackend({
   env,
@@ -1034,7 +1035,18 @@ export function createSdkBackend({
           await (await started).initializationResult()
         },
         messages: (async function* () {
-          yield* await started
+          for await (const message of await started) {
+            if (
+              message.type === 'system' &&
+              message.subtype === 'mirror_error' &&
+              prepared?.onMirrorError !== undefined
+            ) {
+              prepared.onMirrorError(message.session_id)
+              log.warn('SDK transcript storage failed', { sessionId: message.session_id })
+              throw new Error('The SDK history could not be saved. The task stopped to protect its history.')
+            }
+            yield message
+          }
         })(),
         send(text, uuid, images) {
           then(() => {
@@ -1047,14 +1059,21 @@ export function createSdkBackend({
           const { model, effort, permissionMode } = settings
           const applied = queue.then(async () => {
             const session = await started
-            if (model !== before.model || effort !== before.effort) {
+            if (model !== before.model) {
               try {
                 await session.setModel(prepared?.model ?? model)
+              } catch (error) {
+                given = before
+                log.warn("the SDK refused the session's new settings", { model, effort, error })
+                throw error
+              }
+            }
+            if (effort !== before.effort) {
+              try {
                 await session.applyFlagSettings({ effortLevel: effort })
               } catch (error) {
-                log.warn("the SDK refused the session's new settings", { model, effort, error })
-                session.close()
-                throw error
+                given = { ...given, effort: before.effort }
+                log.warn("the SDK refused the session's new effort", { effort, error })
               }
             }
             if (permissionMode !== before.permissionMode) {
@@ -1066,7 +1085,7 @@ export function createSdkBackend({
               }
             }
           })
-          queue = applied
+          queue = applied.catch(() => undefined)
           void applied.catch(() => undefined)
           return applied
         },

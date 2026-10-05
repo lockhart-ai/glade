@@ -1,5 +1,31 @@
 import { z } from 'zod'
-import type { OpenRouterChoice, OpenRouterModel, OpenRouterProvider } from '../../shared/openrouter'
+import type {
+  OpenRouterChoice,
+  OpenRouterModel,
+  OpenRouterProvider,
+  OpenRouterUsageReading,
+} from '../../shared/openrouter'
+
+export const openRouterUsageReadingSchema = z.object({
+  freeRequests: z
+    .object({
+      used: z.number().int().nonnegative(),
+      limit: z.number().int().nonnegative(),
+      remaining: z.number().int().nonnegative(),
+    })
+    .optional(),
+  readAt: z.number().int().nonnegative(),
+  total: z.number().nonnegative(),
+  daily: z.number().nonnegative(),
+  weekly: z.number().nonnegative(),
+  monthly: z.number().nonnegative(),
+  byokTotal: z.number().nonnegative(),
+  byokMonthly: z.number().nonnegative(),
+  limit: z.number().nonnegative().nullable(),
+  remaining: z.number().nullable(),
+  limitReset: z.string().nullable(),
+  includesByok: z.boolean(),
+}) satisfies z.ZodType<OpenRouterUsageReading>
 
 export const openRouterModelSchema = z.object({
   id: z.string().min(1),

@@ -269,7 +269,12 @@ export class StandIn {
   private async answer(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const body = await readBody(request)
     const path = request.url ?? ''
-    if (request.headers['x-api-key'] !== STAND_IN_API_KEY || request.headers.authorization !== undefined) {
+    const key = request.headers['x-api-key']
+    const authorization = request.headers.authorization
+    if (
+      !(key === STAND_IN_API_KEY && authorization === undefined) &&
+      !(authorization === `Bearer ${STAND_IN_API_KEY}` && (key === undefined || key === STAND_IN_API_KEY))
+    ) {
       this.problems.push(`a request came with a login that isn't the stand-in's key: ${request.method ?? ''} ${path}`)
     }
     for (const token of this.watched) if (body.includes(token)) this.seenTokens.add(token)

@@ -511,6 +511,8 @@ it('hands the SDK every switch Glade sets off, and the variables it keeps from c
       envVars: [
         { name: 'GLADE_CONTROL_URL', mode: 'deny' },
         { name: 'GLADE_CONTROL_TOKEN', mode: 'deny' },
+        { name: 'ANTHROPIC_BASE_URL', mode: 'deny' },
+        { name: 'ANTHROPIC_AUTH_TOKEN', mode: 'deny' },
       ],
     },
     allowAppleEvents: false,
@@ -523,7 +525,14 @@ it('hands the SDK every switch Glade sets off, and the variables it keeps from c
   expect(sdkFlagSettings(overlay).sandbox).toMatchObject({
     filesystem: { disabled: false },
     allowAppleEvents: false,
-    credentials: { envVars: [{ name: 'GLADE_CONTROL_URL' }, { name: 'GLADE_CONTROL_TOKEN' }] },
+    credentials: {
+      envVars: [
+        { name: 'GLADE_CONTROL_URL' },
+        { name: 'GLADE_CONTROL_TOKEN' },
+        { name: 'ANTHROPIC_BASE_URL' },
+        { name: 'ANTHROPIC_AUTH_TOKEN' },
+      ],
+    },
   })
 })
 

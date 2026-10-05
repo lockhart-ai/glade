@@ -6,7 +6,11 @@ import { updateTask, getTask } from '../db/repositories/tasks'
 import { listModels, recordSdkModels } from '../models/models'
 import { OpenRouterClient } from './client'
 import { OpenRouterService, type CredentialCipher } from './service'
-import { SAMPLE_MODEL, SAMPLE_PROVIDER, SAMPLE_CHOICE } from '../../shared/test-openrouter'
+import { SAMPLE_MODEL, SAMPLE_PROVIDER, SAMPLE_CHOICE, SAMPLE_USAGE } from '../../shared/test-openrouter'
+import { getSettings, updateSettings } from '../db/repositories/settings'
+import { createTask } from '../tasks/service'
+import { DEFAULT_SETTINGS } from '../../shared/settings'
+import { openRouterUsage } from '../db/repositories/openrouter'
 
 let database: TestDatabase
 let service: OpenRouterService
@@ -18,6 +22,7 @@ beforeEach(() => {
   client = new OpenRouterClient(vi.fn())
   vi.spyOn(client, 'catalog').mockResolvedValue({ models: [SAMPLE_MODEL], providers: [SAMPLE_PROVIDER] })
   vi.spyOn(client, 'endpoints').mockResolvedValue([SAMPLE_PROVIDER])
+  vi.spyOn(client, 'usage').mockResolvedValue(SAMPLE_USAGE)
   cipher = {
     isEncryptionAvailable: vi.fn(() => true),
     encryptString: vi.fn((key: string) => Buffer.from(`encrypted:${key}`)),
@@ -26,31 +31,121 @@ beforeEach(() => {
   events = []
   service = new OpenRouterService({ db: database.db, cipher, client, emit: (event) => events.push(event) })
 })
-afterEach(() => {
-  database.close()
+
+it('restores a usable New task default when a default route is disabled or the key is removed', async () => {
+  await service.connect('key')
+  await service.select({ model: SAMPLE_MODEL.id, provider: SAMPLE_PROVIDER.id, enabled: true })
+  const workspace = sampleWorkspace(database.db)
+  const context = { db: database.db, emit: (event: GladeEvent) => events.push(event) }
+  updateSettings(database.db, { defaultModel: SAMPLE_CHOICE.id, defaultSubagentModel: SAMPLE_CHOICE.id })
+  await service.select({ model: SAMPLE_MODEL.id, provider: SAMPLE_PROVIDER.id, enabled: false })
+  expect(getSettings(database.db)).toMatchObject({
+    defaultModel: DEFAULT_SETTINGS.defaultModel,
+    defaultSubagentModel: null,
+  })
+  expect(createTask(context, workspace.id).model).toBe(DEFAULT_SETTINGS.defaultModel)
+  await service.select({ model: SAMPLE_MODEL.id, provider: SAMPLE_PROVIDER.id, enabled: true })
+  updateSettings(database.db, { defaultModel: SAMPLE_CHOICE.id, defaultSubagentModel: SAMPLE_CHOICE.id })
+  service.remove()
+  expect(createTask(context, workspace.id).model).toBe(DEFAULT_SETTINGS.defaultModel)
+  expect(events.some((event) => event.type === EventType.SettingsChanged)).toBe(true)
 })
 
-it('keeps actual billing metadata pending until available and tolerates shutdown during discovery', async () => {
+it('clears only a disabled child default while keeping an enabled parent', async () => {
   await service.connect('key')
-  service.recordGeneration({ id: 'gen-1', choiceId: SAMPLE_CHOICE.id, taskId: null })
-  service.recordGeneration({ id: 'gen-1', choiceId: SAMPLE_CHOICE.id, taskId: null })
-  vi.spyOn(client, 'generation')
-    .mockRejectedValueOnce(new Error('Not ready'))
-    .mockResolvedValueOnce({ id: 'wrong-id', total_cost: 999, provider_name: 'Wrong' })
-    .mockResolvedValueOnce({ id: 'gen-1', total_cost: 0.002, provider_name: 'Actual Host' })
-  await service.reconcileGenerations()
-  await service.reconcileGenerations()
-  expect(database.db.prepare('SELECT cost_usd FROM openrouter_generations').get()).toEqual({ cost_usd: null })
-  await service.reconcileGenerations()
-  expect(database.db.prepare('SELECT actual_provider, cost_usd FROM openrouter_generations').get()).toEqual({
-    actual_provider: 'Actual Host',
-    cost_usd: 0.002,
+  const child = {
+    ...SAMPLE_CHOICE,
+    id: 'openrouter:sample/child@sample-host',
+    model: { ...SAMPLE_MODEL, id: 'sample/child' },
+  }
+  setOpenRouterChoice(database.db, child)
+  updateSettings(database.db, { defaultModel: child.id, defaultSubagentModel: SAMPLE_CHOICE.id })
+  await service.select({ model: SAMPLE_MODEL.id, provider: SAMPLE_PROVIDER.id, enabled: false })
+  expect(getSettings(database.db)).toMatchObject({ defaultModel: child.id, defaultSubagentModel: null })
+})
+
+it('persists key usage, coalesces concurrent reads, throttles completions and preserves a stale reading on failure', async () => {
+  let now = 1000
+  service = new OpenRouterService({
+    db: database.db,
+    cipher,
+    client,
+    emit: (event) => events.push(event),
+    now: () => now,
   })
+  expect(await service.refreshUsage()).toEqual({ connected: false, reading: null, error: null })
+  await service.connect('key')
+  expect(openRouterUsage(database.db).reading).toEqual(SAMPLE_USAGE)
+  const read = vi.spyOn(client, 'usage')
+  await service.refreshUsage()
+  expect(read).toHaveBeenCalledOnce()
+  now += 60_000
+  let finish: (value: typeof SAMPLE_USAGE) => void = () => undefined
+  read.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  const pending = service.refreshUsage()
+  expect(service.refreshUsage(true)).toBe(pending)
+  finish({ ...SAMPLE_USAGE, readAt: now })
+  await pending
+  read.mockRejectedValueOnce(new Error('private-key must never reach the window'))
+  const failed = await service.refreshUsage(true)
+  expect(failed).toMatchObject({
+    reading: { ...SAMPLE_USAGE, readAt: now },
+    error: expect.stringContaining('Could not refresh') as unknown,
+  })
+  expect(JSON.stringify(failed)).not.toContain('private-key')
+  expect(service.usage()).toEqual(failed)
+  await service.refresh()
+  expect(service.usage()).toEqual(failed)
+  expect(events.some((event) => event.type === EventType.OpenRouterUsageChanged)).toBe(true)
+})
+
+it('never restores removed/replaced account usage or touches a closed database after an in-flight read', async () => {
+  await service.connect('first')
+  let finish: (value: typeof SAMPLE_USAGE) => void = () => undefined
+  const read = vi.spyOn(client, 'usage')
+  read.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  const old = service.refreshUsage(true)
   service.remove()
-  await service.reconcileGenerations()
+  await service.connect('replacement')
+  finish({ ...SAMPLE_USAGE, total: 999 })
+  await old
+  expect(service.usage().reading?.total).toBe(SAMPLE_USAGE.total)
+  read.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  const removed = service.refreshUsage(true)
+  service.remove()
+  finish(SAMPLE_USAGE)
+  expect(await removed).toEqual({ connected: false, reading: null, error: null })
+  read.mockRejectedValueOnce(new Error('Unavailable'))
+  await service.connect('again')
+  expect(service.usage()).toMatchObject({ reading: null, error: expect.any(String) as unknown })
+  read.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  const closed = service.refreshUsage(true)
   database.db.close()
-  service.recordGeneration({ id: 'closed', choiceId: SAMPLE_CHOICE.id, taskId: null })
-  await service.reconcileGenerations()
+  finish(SAMPLE_USAGE)
+  expect(await closed).toEqual({ connected: false, reading: null, error: null })
+})
+afterEach(() => {
+  database.close()
 })
 
 it('does not resurrect a removed key or save a route after a connection changes in flight', async () => {

@@ -25,13 +25,11 @@ import { UsageLimitKind, type UsageLimit } from '../../../shared/account'
 import { fitContextWindow } from '../../../shared/contextWindow'
 import { sameModel } from '../../../shared/models'
 import { SUBAGENT_TOOL_NAMES } from '../../../shared/subagents'
-import { guessModelWindow } from './context-windows'
+import { guessModelWindow, taskModelWindow } from './context-windows'
 import { offeredModels } from './sdk-models'
 import type { DoneCounts, DonePage, DonePageRequest } from '../../../shared/doneList'
 import { sandboxAskSchema } from '../../permissions/schema'
 import { Row, RowError } from './rows'
-import { AgentSource, agentSource } from '../../../shared/openrouter'
-import { getOpenRouterChoice } from './openrouter'
 
 export interface NewTask {
   readonly subagentModel?: string | null
@@ -99,7 +97,7 @@ const SUBAGENT_NAMES = SUBAGENT_TOOL_NAMES.map((name) => `'${name}'`).join(', ')
  * has background work running: a subagent's call (the literals match the `tool_events_running` index) or a watcher's
  * process.
  */
-const SELECTED = `${COLUMNS}, EXISTS (SELECT 1 FROM question_sets WHERE question_sets.task_id = tasks.id
+const SELECTED = `${COLUMNS}, (SELECT json_extract(choice, '$.model.name') || ' · ' || json_extract(choice, '$.provider.name') FROM openrouter_choices WHERE id = tasks.model) AS model_name, EXISTS (SELECT 1 FROM question_sets WHERE question_sets.task_id = tasks.id
   AND question_sets.state = '${QuestionSetState.Open}') AS asking,
   EXISTS (SELECT 1 FROM permission_requests WHERE permission_requests.task_id = tasks.id
   AND permission_requests.state = '${PermissionRequestState.Open}') AS awaiting_permission,
@@ -194,7 +192,7 @@ function fitContext(usedTokens: number, windowTokens: number, autoCompact: AutoC
 function parseTask(db: Database, raw: unknown): Task {
   const row = new Row('tasks', raw)
   const model = row.text('model')
-  const choice = agentSource(model) === AgentSource.OpenRouter ? getOpenRouterChoice(db, model) : undefined
+  const modelName = row.nullableText('model_name')
   const contextUsedTokens = row.integer('context_used_tokens')
   const context = fitContext(
     contextUsedTokens,
@@ -214,7 +212,7 @@ function parseTask(db: Database, raw: unknown): Task {
     pinned: row.flag('pinned'),
     unread: row.flag('unread'),
     model,
-    ...(choice === undefined ? {} : { modelName: `${choice.model.name} · ${choice.provider.name}` }),
+    ...(modelName === null ? {} : { modelName }),
     ...(row.nullableText('subagent_model') === null ? {} : { subagentModel: row.text('subagent_model') }),
     effort: row.oneOf('effort', EFFORTS),
     permissionMode: row.oneOf('permission_mode', PERMISSION_MODES),
@@ -282,7 +280,7 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     doneAt: null,
     sessionId: null,
     contextUsedTokens: 0,
-    contextWindowTokens: guessModelWindow(db, input.model),
+    contextWindowTokens: taskModelWindow(db, input.model, input.subagentModel),
     error: null,
     retrying: null,
     asking: false,
@@ -463,7 +461,10 @@ function contextAfter(
   model: string,
   patch: TaskPatch,
 ): [window: number, autoCompact: AutoCompact | null] {
-  const guess = model === current.model ? current.contextWindowTokens : guessModelWindow(db, model)
+  const child = patch.subagentModel === undefined ? current.subagentModel : patch.subagentModel
+  const childChanged = (child ?? null) !== (current.subagentModel ?? null)
+  const guess =
+    model === current.model && !childChanged ? current.contextWindowTokens : taskModelWindow(db, model, child)
   const kept = guess === current.contextWindowTokens || sameModel(offeredModels(db), model, current.model)
   const window = patch.contextWindowTokens ?? (kept ? current.contextWindowTokens : guess)
   return [window, patch.autoCompact ?? (kept ? current.autoCompact : null)]

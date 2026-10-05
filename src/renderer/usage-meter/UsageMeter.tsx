@@ -1,6 +1,6 @@
 import { faChevronUp } from '@fortawesome/free-solid-svg-icons'
 import { useState } from 'react'
-import { UsageLevel, usageLimitKey, type UsageReading } from '../../shared/account'
+import { accountKind, AccountKind, UsageLevel, usageLimitKey, type UsageReading } from '../../shared/account'
 import type { EpochMs } from '../../shared/domain'
 import { Icon, IconSize, Placement, Popover } from '../components'
 import { classNames } from '../components/classNames'
@@ -8,6 +8,7 @@ import { MeterRing } from '../context-meter'
 import { useGladeStore } from '../store/react'
 import { useNow } from '../task-list/useNow'
 import styles from './UsageMeter.module.css'
+import { OpenRouterUsageMeter } from './OpenRouterUsageMeter'
 import {
   currentReadings,
   usageBar,
@@ -143,7 +144,7 @@ export function UsageDetails({ plan, readings, now }: UsageDetailsProps): React.
  * to running out, or with extra usage and the money spent on it while the account runs on that, which opens a popover
  * with every limit. Hidden for an account plan limits don't apply to.
  */
-export function UsageMeter(): React.JSX.Element | null {
+function ClaudeUsageMeter(): React.JSX.Element | null {
   const account = useGladeStore((state) => state.accountStatus.account)
   const readings = useGladeStore((state) => state.accountStatus.usage)
   const now = useNow()
@@ -156,7 +157,7 @@ export function UsageMeter(): React.JSX.Element | null {
     state.kind === UsageMeterKind.Warning ||
     (state.kind === UsageMeterKind.ExtraUsage && state.reading.level === UsageLevel.Warning)
   return (
-    <div className={styles.footer}>
+    <>
       <button
         ref={setAnchor}
         type="button"
@@ -191,6 +192,19 @@ export function UsageMeter(): React.JSX.Element | null {
       >
         <UsageDetails plan={account?.subscriptionType ?? null} readings={currentReadings(readings, now)} now={now} />
       </Popover>
+    </>
+  )
+}
+
+export function UsageMeter(): React.JSX.Element | null {
+  const account = useGladeStore((state) => state.accountStatus.account)
+  const connected = useGladeStore((state) => state.openrouterUsage.connected)
+  const kind = account === null ? null : accountKind(account)
+  if (!connected && (kind === AccountKind.ApiKey || kind === AccountKind.CloudProvider)) return null
+  return (
+    <div className={styles.footer}>
+      <ClaudeUsageMeter />
+      <OpenRouterUsageMeter />
     </div>
   )
 }

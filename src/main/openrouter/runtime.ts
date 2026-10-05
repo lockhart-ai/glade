@@ -10,31 +10,42 @@ import { getOpenRouterChoice } from '../db/repositories/openrouter'
 import type { Environment } from '../login-env'
 import type { OpenRouterService } from './service'
 import { createOpenRouterRelay } from './relay'
-import { hasTranscript, sqliteSessionStore } from './transcripts'
+import {
+  assertTranscriptHealthy,
+  beginTranscriptImport,
+  finishTranscriptImport,
+  hasTranscript,
+  markTranscriptFailed,
+  sqliteSessionStore,
+} from './transcripts'
 import { openRouterSdkModel } from './sdk-model'
 
 export interface OpenRouterRuntimeOptions {
   readonly db: Database
   readonly service: OpenRouterService
   readonly dataDir: string
+  readonly request: typeof fetch
 }
 
 /** Credential isolation is per SDK process. Account sessions retain the ordinary Claude configuration. */
-export function openRouterRuntime({ db, service, dataDir }: OpenRouterRuntimeOptions): SdkSessionRuntime {
+export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterRuntimeOptions): SdkSessionRuntime {
   return {
     async prepare(options: AgentSessionOptions, inherited: Environment): Promise<PreparedSdkSession> {
       const store = sqliteSessionStore(db, options.taskId ?? null)
-      let mirrored = true
-      if (options.resumeSessionId !== null && !hasTranscript(db, options.resumeSessionId, options.taskId ?? null)) {
-        try {
-          await importSessionToStore(options.resumeSessionId, store, { dir: options.cwd, includeSubagents: true })
-          mirrored = hasTranscript(db, options.resumeSessionId, options.taskId ?? null)
-        } catch (error) {
-          if (agentSource(options.model) === AgentSource.OpenRouter) throw error
-          mirrored = false
-        }
-        if (!mirrored && agentSource(options.model) === AgentSource.OpenRouter)
-          throw new Error('The saved SDK history could not be loaded. The model was not switched.')
+      const router = agentSource(options.model) === AgentSource.OpenRouter
+      const sessionId = options.resumeSessionId
+      if (sessionId !== null) assertTranscriptHealthy(db, sessionId, options.taskId ?? null)
+      let mirrored = sessionId !== null && hasTranscript(db, sessionId, options.taskId ?? null)
+      // Ordinary Claude tasks keep their existing SDK files. Import only at the first OpenRouter handoff.
+      if (router && sessionId !== null && !mirrored) {
+        beginTranscriptImport(db, sessionId, options.taskId ?? null)
+        await importSessionToStore(sessionId, store, { dir: options.cwd, includeSubagents: true })
+        finishTranscriptImport(db, sessionId, options.taskId ?? null)
+        mirrored = hasTranscript(db, sessionId, options.taskId ?? null)
+        if (!mirrored) throw new Error('The saved SDK history could not be loaded. The model was not switched.')
+      }
+      const mirrorFailure = (failedSessionId: string): void => {
+        markTranscriptFailed(db, failedSessionId, options.taskId ?? null)
       }
       validateSubagentModel(db, options.model, options.subagentModel)
       if (agentSource(options.model) === AgentSource.Anthropic) {
@@ -42,10 +53,10 @@ export function openRouterRuntime({ db, service, dataDir }: OpenRouterRuntimeOpt
         for (const name of new Set([...Object.keys(process.env), ...Object.keys(inherited)]))
           if (name.startsWith('OPENROUTER_')) env[name] = ''
         env.CLAUDE_CODE_SUBAGENT_MODEL = options.subagentModel ?? ''
-        // Old account sessions can still resume from the SDK's files if its alpha importer cannot mirror them.
         return {
           env,
           ...(mirrored ? { sessionStore: store } : {}),
+          ...(mirrored ? { onMirrorError: mirrorFailure } : {}),
           publishModels: true,
           close() {
             return undefined
@@ -55,27 +66,17 @@ export function openRouterRuntime({ db, service, dataDir }: OpenRouterRuntimeOpt
       const choice = getOpenRouterChoice(db, options.model)
       if (!choice?.enabled) throw new Error('Enable this OpenRouter model in Settings → Models before continuing.')
       service.key()
-      if (!(await service.endpoints(choice.model.id)).some(({ id }) => id === choice.provider.id)) {
-        throw new Error('The saved OpenRouter provider is no longer available for this model.')
-      }
       const config = join(dataDir, 'openrouter-sdk')
       await mkdir(config, { recursive: true, mode: 0o700 })
       const child = options.subagentModel == null ? choice : getOpenRouterChoice(db, options.subagentModel)
       if (!child?.enabled) throw new Error('The subagent model is unavailable.')
-      if (
-        child.id !== choice.id &&
-        !(await service.endpoints(child.model.id)).some(({ id }) => id === child.provider.id)
-      ) {
-        throw new Error('The saved subagent provider is no longer available for this model.')
-      }
       const relay = await createOpenRouterRelay({
         choices: [choice, child],
         key: () => service.key(),
-        onGeneration: (id, route) => {
-          service.recordGeneration({ id, choiceId: route.id, taskId: options.taskId ?? null })
-        },
+        request,
+        ...(options.log === undefined ? {} : { log: options.log }),
         onComplete: () => {
-          void service.reconcileGenerations()
+          void service.refreshUsage()
         },
       })
       const model = openRouterSdkModel(choice.id)
@@ -116,6 +117,7 @@ export function openRouterRuntime({ db, service, dataDir }: OpenRouterRuntimeOpt
         model,
         env,
         sessionStore: store,
+        onMirrorError: mirrorFailure,
         publishModels: false,
         close: () => {
           relay.close()

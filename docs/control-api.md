@@ -676,7 +676,7 @@ To port everything in, an agent pages through `list_claude_code_sessions { impor
 
 `create_task.model` and `update_task.patch.model` accept enabled `openrouter:<model>@<provider>` selections curated
 in Settings › Models. Providers and credentials are configured through Settings, not overridden in task input.
-A change involving OpenRouter restarts the SDK at a safe turn boundary with saved context; active turns, questions,
+A change involving OpenRouter restarts the SDK at a safe turn boundary with saved context and a 30-second startup timeout; active turns, questions,
 permissions and background work must be resolved first. Initialization failure keeps the original selection.
-The task retains chat, tool results and queued input, and records the applied model change in its Tool calls history.
+The task retains chat, tool results and queued input, and records the applied model change in its Agents › Main log.
 Independent tasks may use different sources. Native SDK children remain within their parent's billing source.

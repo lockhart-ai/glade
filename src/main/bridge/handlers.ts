@@ -72,7 +72,7 @@ import { CommandFailure } from './errors'
 import type { Batch } from './dispatcher'
 import type { Emit } from './events'
 import type { OpenRouterService } from '../openrouter/service'
-import { openRouterStatus } from '../db/repositories/openrouter'
+import { openRouterStatus, openRouterUsage } from '../db/repositories/openrouter'
 import { validateModel, validateSubagentModel } from '../models/switches'
 import type { ControlEndpoint } from '../control/endpoint'
 import type { AccountTracker } from '../account/account'
@@ -428,6 +428,8 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.SettingsGet]: () => ({ settings: getSettings(db) }),
     [CommandName.ModelsList]: () => ({ models: listModels(db) }),
     [CommandName.OpenRouterStatus]: () => openRouterStatus(db),
+    [CommandName.OpenRouterUsage]: () => openRouterUsage(db),
+    [CommandName.OpenRouterRefreshUsage]: ({ force }) => router().refreshUsage(force),
     [CommandName.OpenRouterProviderModels]: ({ provider }) => router().providerModels(provider),
     [CommandName.OpenRouterConnect]: ({ key }) => router().connect(key),
     [CommandName.OpenRouterRefresh]: () => router().refresh(),

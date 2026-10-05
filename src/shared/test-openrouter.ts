@@ -1,6 +1,34 @@
 import type { OpenRouterChoice, OpenRouterModel, OpenRouterProvider } from './openrouter'
 import { openRouterChoiceId } from './openrouter'
 
+export const SAMPLE_USAGE_RESPONSE = {
+  data: {
+    usage: 12.345678,
+    usage_daily: 0.25,
+    usage_weekly: 1.5,
+    usage_monthly: 12,
+    byok_usage: 2,
+    byok_usage_monthly: 0.4,
+    limit: 20,
+    limit_remaining: 8,
+    limit_reset: 'monthly',
+    include_byok_in_limit: false,
+  },
+}
+export const SAMPLE_USAGE: import('./openrouter').OpenRouterUsageReading = {
+  readAt: 0,
+  total: 12.345678,
+  daily: 0.25,
+  weekly: 1.5,
+  monthly: 12,
+  byokTotal: 2,
+  byokMonthly: 0.4,
+  limit: 20,
+  remaining: 8,
+  limitReset: 'monthly',
+  includesByok: false,
+}
+
 export const SAMPLE_MODEL: OpenRouterModel = {
   id: 'sample/flash',
   name: 'Sample Flash',

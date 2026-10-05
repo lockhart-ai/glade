@@ -1,27 +1,57 @@
 import { describe, expect, it, vi } from 'vitest'
 import { OpenRouterClient } from './client'
 import { SAMPLE_CATALOG_RESPONSE, SAMPLE_MODEL, SAMPLE_PROVIDER } from '../../shared/test-openrouter'
+import { SAMPLE_USAGE, SAMPLE_USAGE_RESPONSE } from '../../shared/test-openrouter'
+
+it('reads USD key totals and nullable limits without returning credential labels or account identifiers', async () => {
+  const request = vi
+    .fn<typeof fetch>()
+    .mockResolvedValueOnce(
+      Response.json({
+        data: {
+          ...SAMPLE_USAGE_RESPONSE.data,
+          label: 'secret-label',
+          creator_user_id: 'secret-account',
+        },
+      }),
+    )
+    .mockResolvedValueOnce(
+      Response.json({
+        data: {
+          ...SAMPLE_USAGE_RESPONSE.data,
+          limit: null,
+          limit_remaining: null,
+          limit_reset: null,
+          free_model_daily_requests: { used: 1, limit: 50, remaining: 49 },
+        },
+      }),
+    )
+    .mockResolvedValueOnce(Response.json({ data: { usage: -1 } }))
+  const client = new OpenRouterClient(request)
+  expect(await client.usage('private-key', 123)).toEqual({ ...SAMPLE_USAGE, readAt: 123 })
+  expect(request.mock.calls[0]?.[0]).toBe('https://openrouter.ai/api/v1/key')
+  expect(await client.usage('private-key', 124)).toMatchObject({ limit: null, remaining: null, limitReset: null })
+  await expect(client.usage('private-key', 125)).rejects.toThrow()
+})
 
 describe('OpenRouter discovery', () => {
-  it('keeps endpoint-specific prices and context and reads billed generation metadata', async () => {
-    const request = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        Response.json({
-          data: {
-            endpoints: [
-              {
-                provider_name: SAMPLE_PROVIDER.name,
-                tag: SAMPLE_PROVIDER.id,
-                supported_parameters: ['tools'],
-                context_length: 64000,
-                pricing: { prompt: '0.000001', completion: '0.000002' },
-              },
-            ],
-          },
-        }),
-      )
-      .mockResolvedValueOnce(Response.json({ data: { id: 'gen-1', total_cost: 0.001, provider_name: 'Sample Host' } }))
+  it('keeps endpoint-specific prices and context', async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      Response.json({
+        data: {
+          endpoints: [
+            {
+              provider_name: SAMPLE_PROVIDER.name,
+              tag: SAMPLE_PROVIDER.id,
+              supported_parameters: ['tools'],
+              context_length: 64000,
+              pricing: { prompt: '0.000001', completion: '0.000002' },
+            },
+          ],
+        },
+      }),
+    )
+
     const client = new OpenRouterClient(request)
     expect(await client.endpoints('key', SAMPLE_MODEL.id, [SAMPLE_PROVIDER])).toEqual([
       {
@@ -32,11 +62,6 @@ describe('OpenRouter discovery', () => {
         parameters: ['tools'],
       },
     ])
-    expect(await client.generation('key', 'gen-1')).toEqual({
-      id: 'gen-1',
-      total_cost: 0.001,
-      provider_name: 'Sample Host',
-    })
   })
   it('reads key-filtered tool models and providers, ignoring models that cannot run agents', async () => {
     const model = SAMPLE_CATALOG_RESPONSE.data[0]

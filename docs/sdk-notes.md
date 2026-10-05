@@ -3368,6 +3368,7 @@ The SDK remains the harness for both billing sources. [OpenRouter integration](o
 describes the catalog, per-session relay/environment, provider pinning, alpha transcript store, source-switch
 readiness and evidence. SDK 0.3.283 sends Messages requests with `?beta=true`; the adapter accepts that path and
 forwards to the fixed OpenRouter origin. Explicit empty environment overrides prevent the SDK from reintroducing
-inherited account/cloud credentials. Unknown-model pricing is not billed cost; actual generation metadata stays
-separate. The context-window override was checked against the real SDK. Keep these probes and mocked failure tests
+inherited account/cloud credentials. Unknown-model pricing is not billed cost; the sidebar reads the key’s usage from OpenRouter’s API. Ordinary
+Claude tasks keep their SDK files; only OpenRouter-used tasks opt into the alpha store. A mirror error stops the
+task and makes future resume fail explicitly. Sandboxed commands cannot inherit the inference relay URL/token. The context-window override was checked against the real SDK. Keep these probes and mocked failure tests
 current when changing SDK versions. Native subagents share their parent's source.

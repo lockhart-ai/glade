@@ -20,7 +20,9 @@ it('adds optional child routing and durable records without changing existing ta
   expect(getTask(db, task.id)?.subagentModel).toBeUndefined()
   expect(db.prepare('SELECT encrypted_key FROM openrouter_connection').all()).toEqual([])
   expect(() =>
-    db.prepare('INSERT INTO openrouter_generations VALUES (?, ?, ?, ?, ?)').run('g', 'missing', 'model', null, null),
+    db
+      .prepare("INSERT INTO sdk_transcript_failures VALUES (?, ?, ?, 'mirror_error')")
+      .run('missing', 'session', 'missing'),
   ).toThrow(/FOREIGN KEY/)
   expect(() =>
     db.prepare('INSERT INTO openrouter_connection VALUES (2, ?, ?, ?)').run(Buffer.from('encrypted'), '[]', '[]'),

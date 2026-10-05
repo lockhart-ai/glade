@@ -83,11 +83,7 @@ function fillTask(db: Database, task: Task): void {
   void sqliteSessionStore(db, taskId).append({ projectKey: 'sample', sessionId: taskId }, [
     { type: 'user', uuid: taskId },
   ])
-  db.prepare('INSERT INTO openrouter_generations (id, task_id, choice_id) VALUES (?, ?, ?)').run(
-    `gen-${taskId}`,
-    taskId,
-    'sample-route',
-  )
+  db.prepare("INSERT INTO sdk_transcript_failures VALUES (?, ?, ?, 'mirror_error')").run(taskId, taskId, taskId)
   stageModelSwitch(db, taskId, task.model, 'claude-sonnet-5')
   completeModelSwitch(db, taskId, 'claude-sonnet-5', 1)
   stageModelSwitch(db, taskId, 'claude-sonnet-5', 'claude-haiku-4-5')
@@ -221,7 +217,6 @@ const FILLED_TABLES = [
   // The notifications sent about it, for the menu bar popover's Recent section.
   'notifications',
   'open_files',
-  'openrouter_generations',
   // The children its agent made that it still has to file under a todo (P16).
   'owed_filings',
   // The text pasted into its messages, sent and queued, and into its input draft.
@@ -234,6 +229,7 @@ const FILLED_TABLES = [
   // The folders and domains its sandbox was granted for it alone (#449).
   'sandbox_grants',
   // The search index's rows for its fields and messages, which a new task and `fillTask`'s message make.
+  'sdk_transcript_failures',
   'sdk_transcripts',
   'search_documents',
   // What its agent session has been given of Glade's instructions and its handoff note.

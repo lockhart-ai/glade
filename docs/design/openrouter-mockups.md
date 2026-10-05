@@ -72,10 +72,10 @@ existing tasks; selecting another source requests the safe history handoff descr
 
 ### 59 · OpenRouter task selected
 
-The existing input bar shows the selected model and a read-only provider label. Its subagents inherit the same source
+The existing input bar shows the selected model and the model/provider pair’s label. Its subagents inherit the same source
 and, by default, the same model. The implementation overrides the SDK’s unknown-model default with the selected endpoint’s actual context window;
-this approved mockup predates that verified override. Effort labels must be capability-driven when implemented; Default here does not assert a Claude effort
-mapping for DeepSeek.
+this mockup uses the verified override. Effort is hidden when the route advertises no effort capability. The picker uses the implemented source headings
+and shows the provider as part of each saved model label. The panel uses Agents · Files · Todos.
 
 ![New OpenRouter task](screens/59-task-openrouter.png)
 
@@ -83,19 +83,11 @@ mapping for DeepSeek.
 
 ## API discovery boundary
 
-Read-only discovery with the supplied inference key returned:
-
-| Endpoint | Result | Use |
-| --- | --- | --- |
-| `GET /api/v1/key` | 200; normal inference key, no provider allowlist field | Validate connection |
-| `GET /api/v1/models/user` | 200; 249 models, 230 with text output and tools | Filtered model catalog; paginate if needed |
-| `GET /api/v1/providers` | 200; 112 catalog providers | Provider names/slugs; this is not the configured-provider list |
-| `GET /api/v1/models/{author}/{slug}/endpoints` | 200 for DeepSeek V4.1 Flash; 28 distinct provider names, including Together | Model-specific provider options, capabilities and prices |
-| `GET /api/v1/byok` | 401, management key required | Cannot enumerate configured BYOK credentials with this key |
-
-The counts and prices are a discovery snapshot, not hardcoded application data. Filter the model list from the API,
-fetch endpoint details as the user browses/selects models, and cache/refresh through the existing main-process/IPC
-pattern. A catalog entry is not proof that its SDK workflow or chosen route has passed a connection test.
+Discovery is API-driven: `/models/user` supplies the key-visible catalog, `/providers` supplies hosting names,
+and model-specific `/endpoints` supplies provider capabilities/context/prices. `/key` supplies the usage monitor.
+Normal inference keys cannot list configured BYOK credentials or account-wide credit balances; those endpoints
+require management access. The mockups use illustrative data, not real-account discovery counts. A catalog entry
+is not evidence that the complete SDK workflow or chosen route has passed a connection test.
 
 The first version needs only the inference key. Link to OpenRouter's provider settings rather than asking for a second,
 more privileged credential. The UI must distinguish **catalog provider options** from **configured provider credentials**;
@@ -109,7 +101,7 @@ if credential discovery is added later, it needs separately authorized managemen
 Use the existing SDK backend, parser, task runner, Settings modal and picker components. Add a small catalog client,
 encrypted key storage, model/provider enablement settings, source fields and the request adapter already probed.
 Extend existing SQLite/IPC schemas; keep the Claude catalog separate from discovered OpenRouter models. Avoid a new
-agent harness, general backend rewrite, arbitrary connection profiles, BYOK credential management and a billing
+agent harness, general backend rewrite, arbitrary connection profiles, BYOK credential management and an account-wide billing
 dashboard. Account/error isolation and safe session routing are part of the integration.
 
 The earlier integration spec's separate connection/catalog controls are consolidated into this Models page. The

@@ -192,6 +192,7 @@ export interface FakeMain {
   /** The models `models.list` answers with; the built-in ones when left out. */
   readonly models?: readonly ModelChoice[]
   /** What `account.status` answers with: no account read and no warning when left out. */
+  readonly openrouterUsage?: import('../../shared/openrouter').OpenRouterUsageStatus
   readonly accountStatus?: AccountStatus
   /**
    * Where logging in stands, which `login.status` answers with; idle when left out. `login.start` sets it waiting (at
@@ -804,6 +805,9 @@ export function fakeHandlers(
     },
     [CommandName.SettingsGet]: () => ({ settings }),
     [CommandName.ModelsList]: () => ({ models: main.models ?? BUILT_IN_MODELS }),
+    [CommandName.OpenRouterUsage]: () => main.openrouterUsage ?? { connected: false, reading: null, error: null },
+    [CommandName.OpenRouterRefreshUsage]: () =>
+      main.openrouterUsage ?? { connected: false, reading: null, error: null },
     [CommandName.OpenRouterStatus]: () => ({ connected: false, models: [], providers: [], choices: [] }),
     [CommandName.OpenRouterConnect]: () => ({ connected: true, models: [], providers: [], choices: [] }),
     [CommandName.OpenRouterRefresh]: () => ({ connected: true, models: [], providers: [], choices: [] }),

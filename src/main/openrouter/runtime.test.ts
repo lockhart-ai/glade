@@ -75,7 +75,7 @@ afterEach(() => {
 
 it('isolates route credentials, aliases and configuration, preserving the task tools and actual metadata', async () => {
   const task = sampleTask(database.db, sampleWorkspace(database.db).id)
-  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir })
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
   const prepared = await runtime.prepare({ ...options, taskId: task.id }, inherited)
   expect(prepared.env).toMatchObject({
     PATH: '/usr/bin',
@@ -97,14 +97,9 @@ it('isolates route credentials, aliases and configuration, preserving the task t
   expect(prepared.publishModels).toBe(false)
   const relay = vi.mocked(createOpenRouterRelay).mock.calls.at(-1)?.[0]
   expect(relay?.key()).toBe('inference-key')
-  relay?.onGeneration?.('gen-sample', SAMPLE_CHOICE)
-  expect(database.db.prepare('SELECT task_id, cost_usd FROM openrouter_generations').get()).toEqual({
-    task_id: task.id,
-    cost_usd: null,
-  })
-  const reconciled = vi.spyOn(service, 'reconcileGenerations').mockResolvedValue()
+  const refreshed = vi.spyOn(service, 'refreshUsage').mockResolvedValue({ connected: true, reading: null, error: null })
   relay?.onComplete?.()
-  expect(reconciled).toHaveBeenCalled()
+  expect(refreshed).toHaveBeenCalled()
   prepared.close()
   expect(relayClose).toHaveBeenCalled()
 })
@@ -117,7 +112,7 @@ it('allows a distinct native child only within OpenRouter and pins helper aliase
   }
   setOpenRouterChoice(database.db, child)
   vi.spyOn(service, 'endpoints').mockResolvedValue([SAMPLE_PROVIDER])
-  const prepared = await openRouterRuntime({ db: database.db, service, dataDir: dir }).prepare(
+  const prepared = await openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() }).prepare(
     { ...options, subagentModel: child.id },
     inherited,
   )
@@ -127,21 +122,11 @@ it('allows a distinct native child only within OpenRouter and pins helper aliase
     CLAUDE_CODE_MAX_CONTEXT_TOKENS: '64000',
   })
   expect(vi.mocked(createOpenRouterRelay).mock.calls.at(-1)?.[0].choices).toEqual([SAMPLE_CHOICE, child])
-  vi.mocked(createOpenRouterRelay).mock.calls.at(-1)?.[0].onGeneration?.('gen-child', child)
-  expect(database.db.prepare('SELECT task_id FROM openrouter_generations').get()).toEqual({ task_id: null })
-  vi.spyOn(service, 'endpoints').mockImplementation((id) =>
-    Promise.resolve(id === child.model.id ? [] : [SAMPLE_PROVIDER]),
-  )
-  await expect(
-    openRouterRuntime({ db: database.db, service, dataDir: dir }).prepare(
-      { ...options, subagentModel: child.id },
-      inherited,
-    ),
-  ).rejects.toThrow('subagent provider is no longer')
+  expect(vi.spyOn(service, 'endpoints')).not.toHaveBeenCalled()
 })
 
 it('keeps account configuration and login intact without passing an OpenRouter key to account agents', async () => {
-  const prepared = await openRouterRuntime({ db: database.db, service, dataDir: dir }).prepare(
+  const prepared = await openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() }).prepare(
     { ...options, model: 'claude-sonnet-5', subagentModel: 'claude-haiku-4-5' },
     inherited,
   )
@@ -155,19 +140,40 @@ it('keeps account configuration and login intact without passing an OpenRouter k
   prepared.close()
 })
 
-it('preserves legacy account file resumption when the SDK importer cannot mirror history', async () => {
-  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir })
-  vi.mocked(importSessionToStore).mockRejectedValueOnce(new Error('Old transcript format'))
-  const account = await runtime.prepare({ ...options, model: 'sonnet', resumeSessionId: 'legacy' }, inherited)
-  expect(account.sessionStore).toBeUndefined()
-  vi.mocked(importSessionToStore).mockResolvedValueOnce()
-  expect(
-    (await runtime.prepare({ ...options, model: 'sonnet', resumeSessionId: 'legacy' }, inherited)).sessionStore,
-  ).toBeUndefined()
+it('leaves both new and resumed Claude-only tasks on their ordinary files, without importing history', async () => {
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  for (const resumeSessionId of [null, 'legacy']) {
+    const account = await runtime.prepare({ ...options, model: 'sonnet', resumeSessionId }, inherited)
+    expect(account.sessionStore).toBeUndefined()
+    expect(account.onMirrorError).toBeUndefined()
+  }
+  expect(importSessionToStore).not.toHaveBeenCalled()
   vi.mocked(importSessionToStore).mockRejectedValueOnce(new Error('Unreadable transcript'))
   await expect(runtime.prepare({ ...options, resumeSessionId: 'legacy' }, inherited)).rejects.toThrow(
     'Unreadable transcript',
   )
+})
+
+it('retries a partial legacy import without resuming its prefix, while Claude keeps its original files', async () => {
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  vi.mocked(importSessionToStore).mockImplementationOnce(async (id, store) => {
+    await store.append({ projectKey: 'sample', sessionId: id }, [{ type: 'user', uuid: 'partial' }])
+    throw new Error('Import interrupted')
+  })
+  await expect(runtime.prepare({ ...options, resumeSessionId: 'saved' }, inherited)).rejects.toThrow(
+    'Import interrupted',
+  )
+  expect(
+    (await runtime.prepare({ ...options, model: 'sonnet', resumeSessionId: 'saved' }, inherited)).sessionStore,
+  ).toBeUndefined()
+  vi.mocked(importSessionToStore).mockImplementationOnce(async (id, store) => {
+    await store.append({ projectKey: 'sample', sessionId: id }, [{ type: 'user', uuid: 'complete' }])
+  })
+  const prepared = await runtime.prepare({ ...options, resumeSessionId: 'saved' }, inherited)
+  expect(await prepared.sessionStore?.load({ projectKey: 'sample', sessionId: 'saved' })).toEqual([
+    { type: 'user', uuid: 'complete' },
+  ])
+  expect(importSessionToStore).toHaveBeenCalledTimes(2)
 })
 
 it('imports legacy main and child history once, and never silently starts without the saved context', async () => {
@@ -180,7 +186,7 @@ it('imports legacy main and child history once, and never silently starts withou
       },
     ])
   })
-  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir })
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
   await runtime.prepare({ ...options, resumeSessionId: 'saved-session' }, inherited)
   await runtime.prepare({ ...options, resumeSessionId: 'saved-session' }, inherited)
   expect(importSessionToStore).toHaveBeenCalledOnce()
@@ -191,29 +197,25 @@ it('imports legacy main and child history once, and never silently starts withou
   expect(
     await sqliteSessionStore(database.db).load({ projectKey: '-code-sample', sessionId: 'saved-session' }),
   ).toMatchObject([{ uuid: 'original' }])
+  const returned = await runtime.prepare({ ...options, model: 'sonnet', resumeSessionId: 'saved-session' }, inherited)
+  expect(returned.sessionStore).toBeDefined()
+  returned.onMirrorError?.('saved-session')
+  await expect(runtime.prepare({ ...options, resumeSessionId: 'saved-session' }, inherited)).rejects.toThrow(
+    'history is incomplete',
+  )
   vi.mocked(importSessionToStore).mockResolvedValue()
   await expect(runtime.prepare({ ...options, resumeSessionId: 'missing-history' }, inherited)).rejects.toThrow(
     'saved SDK history',
   )
 })
 
-it('refuses missing, disabled, withdrawn-provider and missing-child routes before spawning an SDK process', async () => {
-  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir })
+it('refuses missing, disabled and missing-child routes before spawning an SDK process', async () => {
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
   await expect(runtime.prepare({ ...options, model: 'openrouter:missing' }, inherited)).rejects.toThrow('Enable this')
   setOpenRouterChoice(database.db, { ...SAMPLE_CHOICE, enabled: false })
   await expect(runtime.prepare(options, inherited)).rejects.toThrow('Enable this')
   setOpenRouterChoice(database.db, SAMPLE_CHOICE)
-  vi.spyOn(service, 'endpoints').mockResolvedValue([])
-  await expect(runtime.prepare(options, inherited)).rejects.toThrow('provider is no longer')
-  vi.spyOn(service, 'endpoints').mockResolvedValue([SAMPLE_PROVIDER])
-  // The catalog may change between child validation and runtime resolution.
-  const child = { ...SAMPLE_CHOICE, id: 'openrouter:sample/child@sample-host' }
-  setOpenRouterChoice(database.db, child)
-  vi.spyOn(service, 'endpoints').mockImplementation(() => {
-    setOpenRouterChoice(database.db, { ...child, enabled: false })
-    return Promise.resolve([SAMPLE_PROVIDER])
-  })
-  await expect(runtime.prepare({ ...options, subagentModel: child.id }, inherited)).rejects.toThrow(
-    'subagent model is unavailable',
+  await expect(runtime.prepare({ ...options, subagentModel: 'openrouter:missing' }, inherited)).rejects.toThrow(
+    'Enable this',
   )
 })

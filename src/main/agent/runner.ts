@@ -527,6 +527,24 @@ import {
 import { summarizeTurn } from './turn-summary'
 import { createChildFiler } from '../todo-hub/filing'
 
+/** A stuck SDK initialization must release the picker and keep the original session usable. */
+export const MODEL_SWITCH_TIMEOUT_MS = 30_000
+async function waitForModelSwitch(ready: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      ready,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error('The new model session did not start within 30 seconds. The task was not switched.'))
+        }, MODEL_SWITCH_TIMEOUT_MS)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export interface AgentRunnerOptions {
   readonly db: Database
   readonly emit: Emit
@@ -2085,7 +2103,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const sessionModel = live.settings.model
     const route = getOpenRouterChoice(db, sessionModel)
     if (route !== undefined) {
-      updateTaskFromRunner(context, taskId, { contextWindowTokens: route.model.contextLength })
+      const child = getTask(db, taskId)?.subagentModel
+      const childRoute = child == null ? route : getOpenRouterChoice(db, child)
+      updateTaskFromRunner(context, taskId, {
+        contextWindowTokens: Math.min(
+          route.model.contextLength,
+          childRoute?.model.contextLength ?? route.model.contextLength,
+        ),
+      })
       return
     }
     const fullId = findModel(offeredModels(db), sessionModel)?.resolvedModel ?? null
@@ -3777,7 +3802,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       ) {
         throw new CommandFailure(
           BridgeErrorCode.Busy,
-          'Finish or stop the task and its background work before switching sources.',
+          'Finish or stop the task and its background work before switching models.',
         )
       }
       if (task.sessionId === null) return updateTaskFromUser(context, taskId, { model, subagentModel: child })
@@ -3787,7 +3812,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         const effort = effortWithModel(db, model, undefined, task.effort) ?? task.effort
         candidate = start({ ...task, model, effort, subagentModel: child }, true)
         preparing.set(taskId, candidate)
-        await candidate.session.ready?.()
+        await waitForModelSwitch(candidate.session.ready?.() ?? Promise.resolve())
         if (candidate.closed)
           throw new CommandFailure(BridgeErrorCode.Busy, 'The task closed while its new session started.')
         if (getTask(db, taskId)?.model !== task.model)

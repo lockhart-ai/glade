@@ -68,8 +68,45 @@ export function hasTranscript(db: Database, sessionId: string, taskId: string | 
   return (
     db
       .prepare(
-        "SELECT 1 FROM sdk_transcripts WHERE owner = ? AND session_id = ? AND subpath = '' AND json_extract(entry, '$.type') IN ('user', 'assistant') LIMIT 1",
+        "SELECT 1 FROM sdk_transcripts WHERE owner = ? AND session_id = ? AND subpath = '' AND json_extract(entry, '$.type') IN ('user', 'assistant') AND NOT EXISTS (SELECT 1 FROM sdk_transcript_failures f WHERE f.owner = sdk_transcripts.owner AND f.session_id = sdk_transcripts.session_id AND f.reason = 'importing') LIMIT 1",
       )
       .get(taskId ?? '', sessionId) !== undefined
+  )
+}
+
+/** Never resume a shorter mirror after the SDK reports a dropped append batch. Retained until the task is deleted. */
+export function assertTranscriptHealthy(db: Database, sessionId: string, taskId: string | null): void {
+  if (
+    db
+      .prepare("SELECT 1 FROM sdk_transcript_failures WHERE owner = ? AND session_id = ? AND reason = 'mirror_error'")
+      .get(taskId ?? '', sessionId)
+  )
+    throw new Error('The saved SDK history is incomplete after a transcript storage failure. The task was not resumed.')
+}
+
+export function markTranscriptFailed(db: Database, sessionId: string, taskId: string | null): void {
+  db.prepare("INSERT OR REPLACE INTO sdk_transcript_failures VALUES (?, ?, ?, 'mirror_error')").run(
+    taskId ?? '',
+    sessionId,
+    taskId,
+  )
+}
+
+/** An interrupted/partial import is never mistaken for a complete mirror. Claude keeps using its original files. */
+export function beginTranscriptImport(db: Database, sessionId: string, taskId: string | null): void {
+  db.transaction(() => {
+    db.prepare('DELETE FROM sdk_transcripts WHERE owner = ? AND session_id = ?').run(taskId ?? '', sessionId)
+    db.prepare("INSERT OR REPLACE INTO sdk_transcript_failures VALUES (?, ?, ?, 'importing')").run(
+      taskId ?? '',
+      sessionId,
+      taskId,
+    )
+  })()
+}
+
+export function finishTranscriptImport(db: Database, sessionId: string, taskId: string | null): void {
+  db.prepare("DELETE FROM sdk_transcript_failures WHERE owner = ? AND session_id = ? AND reason = 'importing'").run(
+    taskId ?? '',
+    sessionId,
   )
 }
