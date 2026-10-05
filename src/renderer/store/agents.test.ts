@@ -1,16 +1,12 @@
 // The store's side of the Agents tab (P16, #536): which agent's tab each task is on, remembered through main, and what
-// pointed at the Tool calls and Subagents tabs pointing at Agents while the todo hub's hidden switch is on.
+// opens the panel at an agent (the chat's tool-calls chip, a plugin's `openTask`, an `Agent` call in a list).
 import { describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import { UiStateKey } from '../../shared/domain'
-import { DEFAULT_SETTINGS } from '../../shared/settings'
-import { TODO_HUB_OFF } from '../../shared/todoHub'
 import { activePanelTab, PanelTab } from '../right-panel/panelModel'
 import { withAgentTab } from './reducer'
 import { createGladeStore } from './store'
 import { fakeBridge, refuse, sampleTask, sampleWorkspace, type FakeMain } from './test-bridge'
-
-const HUB_ON = { ...DEFAULT_SETTINGS, todoHubEnabled: true }
 
 function main(extra: Partial<FakeMain> = {}): FakeMain {
   return {
@@ -20,7 +16,6 @@ function main(extra: Partial<FakeMain> = {}): FakeMain {
       { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
       { key: UiStateKey.SelectedTaskId, value: 't1' },
     ],
-    settings: HUB_ON,
     agentTabs: {},
     ...extra,
   }
@@ -42,7 +37,6 @@ describe('withAgentTab', () => {
     const one = withAgentTab(none, 't1', 'fix-501')
     expect(one).toEqual({ t1: 'fix-501' })
     expect(withAgentTab(one, 't1', 'fix-501')).toBe(one)
-    expect(withAgentTab(one, 't1', undefined)).toBe(one)
     expect(withAgentTab(one, 't2', null)).toBe(one)
     expect(withAgentTab(one, 't2', 'docs-503')).toEqual({ t1: 'fix-501', t2: 'docs-503' })
     expect(withAgentTab(one, 't1', 'docs-503')).toEqual({ t1: 'docs-503' })
@@ -83,15 +77,6 @@ describe('selectAgentTab', () => {
 
     expect(store.getState().agentTabs).toEqual({ t1: 'fix-501' })
   })
-
-  it('is refused by main while the todo hub is off, as every hub command is', async () => {
-    const { store } = await hydrated(main({ settings: DEFAULT_SETTINGS }))
-
-    await expect(store.getState().selectAgentTab('t1', 'fix-501')).rejects.toMatchObject({
-      code: BridgeErrorCode.InvalidTransition,
-      message: TODO_HUB_OFF,
-    })
-  })
 })
 
 describe('the agent a task was left on', () => {
@@ -122,12 +107,6 @@ describe('the agent a task was left on', () => {
     expect(store.getState().agentTabs).toEqual({})
   })
 
-  it('isn’t read at all while the todo hub is off', async () => {
-    const { store } = await hydrated(main({ settings: DEFAULT_SETTINGS, agentTabs: { t1: 'fix-501' } }))
-
-    expect(store.getState().agentTabs).toEqual({})
-  })
-
   it('is forgotten with its task, and so is a todo asked for', async () => {
     const { store, emit } = await hydrated()
     await store.getState().selectAgentTab('t1', 'fix-501')
@@ -144,7 +123,7 @@ describe('the agent a task was left on', () => {
   })
 })
 
-describe('what pointed at the old tabs, with the todo hub on', () => {
+describe('what opens the panel at an agent', () => {
   it('shows a turn on Main’s tab of the Agents tab, opening the panel there', async () => {
     const { store, invoke } = await hydrated(
       main({
@@ -162,7 +141,7 @@ describe('what pointed at the old tabs, with the todo hub on', () => {
 
     expect(store.getState().toolLogFocus).toEqual({ taskId: 't1', turn: 2, request: 1 })
     expect(store.getState().agentTabs).toEqual({})
-    expect(activePanelTab(store.getState().uiState, 'w1', true)).toBe(PanelTab.Agents)
+    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Agents)
     expect(store.getState().uiState).toMatchObject({ [UiStateKey.RightPanelCollapsed]: 'false' })
     await vi.waitFor(() => {
       expect(setTabs(invoke)).toEqual([{ taskId: 't1', agentId: null }])
@@ -183,12 +162,12 @@ describe('what pointed at the old tabs, with the todo hub on', () => {
 
     store.getState().focusTurn('t2', 1)
 
-    expect(activePanelTab(store.getState().uiState, 'w1', true)).toBe(PanelTab.Files)
-    expect(activePanelTab(store.getState().uiState, 'w2', true)).toBe(PanelTab.Todos)
+    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Files)
+    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Todos)
     expect(store.getState().agentTabs).toEqual({})
   })
 
-  it('writes no tab for a workspace already on Agents, by name or because its tab is one the hub replaced', async () => {
+  it('writes no tab for a workspace already on Agents, by name or because its tab is one the panel no longer has', async () => {
     const { store, invoke } = await hydrated(
       main({
         uiState: [
@@ -204,7 +183,7 @@ describe('what pointed at the old tabs, with the todo hub on', () => {
     store.getState().showAgent('t1', 'fix-501')
 
     expect(writes()).toBe(before)
-    expect(activePanelTab(store.getState().uiState, 'w1', true)).toBe(PanelTab.Agents)
+    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Agents)
     expect(store.getState().agentTabs).toEqual({ t1: 'fix-501' })
   })
 
@@ -225,11 +204,9 @@ describe('what pointed at the old tabs, with the todo hub on', () => {
       expect(store.getState().agentTabs).toEqual({ t2: 'toolu_kitten' })
     })
     expect(store.getState().selectedTaskId).toBe('t2')
-    expect(activePanelTab(store.getState().uiState, 'w2', true)).toBe(PanelTab.Agents)
-    expect(activePanelTab(store.getState().uiState, 'w1', true)).toBe(PanelTab.Files)
+    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Agents)
+    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Files)
     expect(store.getState().uiState).toMatchObject({ [UiStateKey.RightPanelCollapsed]: 'false' })
-    // The Subagents tab isn't asked for anything: it isn't shown.
-    expect(store.getState().subagentFocus).toBeNull()
     await vi.waitFor(() => {
       expect(setTabs(invoke)).toEqual([{ taskId: 't2', agentId: 'toolu_kitten' }])
     })
@@ -257,33 +234,7 @@ describe('what pointed at the old tabs, with the todo hub on', () => {
     await Promise.resolve()
 
     expect(store.getState().agentTabs).toEqual({ t1: 'fix-501' })
-    expect(activePanelTab(store.getState().uiState, 'w1', true)).toBe(PanelTab.Agents)
-  })
-})
-
-describe('with the todo hub off', () => {
-  it('shows a turn in the Tool calls tab, and a subagent in the Subagents tab, as ever', async () => {
-    const { store, emit, invoke } = await hydrated(
-      main({
-        settings: DEFAULT_SETTINGS,
-        uiState: [
-          { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
-          { key: UiStateKey.SelectedTaskId, value: 't1' },
-          { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: 'files' }) },
-        ],
-      }),
-    )
-
-    store.getState().focusTurn('t1', 2)
-    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.ToolCalls)
-
-    emit({ type: EventType.TaskOpenRequested, taskId: 't2', subagentId: 'toolu_kitten' })
-    await vi.waitFor(() => {
-      expect(store.getState().subagentFocus).toEqual({ taskId: 't2', subagentId: 'toolu_kitten', request: 1 })
-    })
-    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Subagents)
-    expect(store.getState().agentTabs).toEqual({})
-    expect(setTabs(invoke)).toEqual([])
+    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Agents)
   })
 })
 
@@ -294,7 +245,7 @@ describe('showTodo', () => {
 
     store.getState().showTodo('t1', '2')
     expect(store.getState().todoFocus).toEqual({ taskId: 't1', todoId: '2', request: 1 })
-    expect(activePanelTab(store.getState().uiState, 'w1', true)).toBe(PanelTab.Todos)
+    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Todos)
 
     store.getState().showTodo('t1', '2')
     expect(store.getState().todoFocus?.request).toBe(2)

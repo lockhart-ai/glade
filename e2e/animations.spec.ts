@@ -33,7 +33,7 @@ const SIDEBAR_WIDTH = 300
 /** Launches the tool log sample with motion on, watching what animates. */
 async function launchMoving(launch: (options: { seed: string; motion: boolean }) => Promise<Glade>): Promise<Page> {
   const { window } = await launch({ seed: seedPath('tool-log.json'), motion: true })
-  await expect(taskPanel(window).tab(/^Tool calls/)).toHaveText('Tool calls 6')
+  await expect(taskPanel(window).tab(/^Agents/)).toHaveText('Agents 2')
   await watchMotion(window)
   return window
 }
@@ -245,7 +245,7 @@ test('animations: the question card rises in and fades to its answers; the Undo 
 test('animations: with Reduce motion on, nothing moves: every change lands at once', async ({ launch }) => {
   // The default for every spec: the app runs as with macOS's Reduce motion on.
   const { window } = await launch({ seed: seedPath('tool-log.json') })
-  await expect(taskPanel(window).tab(/^Tool calls/)).toHaveText('Tool calls 6')
+  await expect(taskPanel(window).tab(/^Agents/)).toHaveText('Agents 2')
   await watchMotion(window)
   expect(
     await window.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--motion-duration')),

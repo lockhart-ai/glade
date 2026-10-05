@@ -1,13 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { CommitFileStatus, ToolCallState, ToolEventKind, type ToolCallEvent } from '../../shared/domain'
-import { sampleCommit } from '../store/test-bridge'
+import { CommitFileStatus } from '../../shared/domain'
 import {
   additionsLabel,
   branchLabel,
-  commitMeta,
   deletionsLabel,
   filePathLabel,
-  madeBy,
   madeByTitle,
   moreFilesLabel,
   shortHash,
@@ -16,27 +13,7 @@ import {
   UNKNOWN_SUBAGENT,
 } from './changesModel'
 
-const NOW = new Date(2026, 8, 25, 13, 14).getTime()
-
-function agentCall(toolUseId: string, input: Record<string, unknown>): ToolCallEvent {
-  return {
-    id: `e-${toolUseId}`,
-    taskId: 't1',
-    turn: 1,
-    createdAt: 1,
-    kind: ToolEventKind.ToolCall,
-    name: 'Agent',
-    input,
-    output: null,
-    state: ToolCallState.Done,
-    finishedAt: null,
-    toolUseId,
-    parentToolUseId: null,
-    progressSummary: null,
-  }
-}
-
-describe('a commit’s row', () => {
+describe('a commit’s tile', () => {
   it('shows its hash short, and its lines added and removed', () => {
     expect(shortHash('a1b2c3d4e5f60718293a4b5c6d7e8f9012345678')).toBe('a1b2c3d')
     expect(additionsLabel(12)).toBe('+12')
@@ -44,30 +21,14 @@ describe('a commit’s row', () => {
     expect(deletionsLabel(3)).toBe('−3')
   })
 
-  it('says its branch, when, and that it’s a merge', () => {
-    expect(commitMeta(sampleCommit('c1', 't1'), NOW)).toBe('fix/date-test · 12m ago')
-    expect(commitMeta(sampleCommit('c1', 't1', { branch: null, merge: true, committedAt: NOW }), NOW)).toBe(
-      'detached · just now · merge',
-    )
-  })
-
   it('names its branch, or says it was made on a detached HEAD', () => {
-    expect(branchLabel(sampleCommit('c1', 't1'))).toBe('fix/date-test')
+    expect(branchLabel({ branch: 'fix/date-test' })).toBe('fix/date-test')
     expect(branchLabel({ branch: null })).toBe('detached')
   })
 
   it('says which subagent made it, in its tag’s tooltip', () => {
     expect(madeByTitle('fix-501')).toBe('Made by the subagent “fix-501”')
-    expect(madeBy(sampleCommit('c1', 't1', { subagentToolUseId: 'gone' }), [])).toBe(UNKNOWN_SUBAGENT)
-  })
-
-  it('names the subagent that made it, from its call in the tool log, and none for the task’s own agent', () => {
-    const events = [agentCall('toolu_docs', { description: 'Update the upgrade guide' })]
-    expect(madeBy(sampleCommit('c1', 't1'), events)).toBeNull()
-    expect(madeBy(sampleCommit('c1', 't1', { subagentToolUseId: 'toolu_docs' }), events)).toBe(
-      'Update the upgrade guide',
-    )
-    expect(madeBy(sampleCommit('c1', 't1', { subagentToolUseId: 'toolu_gone' }), events)).toBe('Subagent')
+    expect(UNKNOWN_SUBAGENT).toBe('Subagent')
   })
 })
 

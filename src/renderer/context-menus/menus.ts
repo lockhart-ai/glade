@@ -168,7 +168,7 @@ export function toolCallMenu(call: ToolCallMenuTarget, actions: ToolCallMenuActi
 }
 
 /**
- * What a file tab's menu can do. A file as a commit left it (opened from the Changes tab) is only in git: it has no
+ * What a file tab's menu can do. A file as a commit left it (opened from a commit's tile) is only in git: it has no
  * file to open in your editor, reveal or give the path of, so those are null.
  */
 export interface FileTabMenuActions {
@@ -209,7 +209,7 @@ export interface ArtifactMenuActions {
 }
 
 /**
- * An artifact's menu, in the Artifacts tab: its card's buttons, and more. Removing it leaves the file alone. `hints` are
+ * A file artifact's menu, on its tile: its buttons, and more. Removing it leaves the file alone. `hints` are
  * the shortcuts' current keys.
  */
 export function artifactMenu(actions: ArtifactMenuActions, hints: ShortcutHints): MenuEntry[] {
@@ -235,7 +235,7 @@ export interface LinkArtifactMenuActions {
 }
 
 /**
- * A link artifact's menu, in the Artifacts tab (#407): open it in the browser, as clicking it does, copy its address, or
+ * A link artifact's menu, on its tile (#407): open it in the browser, as clicking it does, copy its address, or
  * take it off the artifacts. `hints` are the shortcuts' current keys.
  */
 export function linkArtifactMenu(actions: LinkArtifactMenuActions, hints: ShortcutHints): MenuEntry[] {
@@ -246,32 +246,6 @@ export function linkArtifactMenu(actions: LinkArtifactMenuActions, hints: Shortc
   )
 }
 
-/** What a subagent's menu can do. */
-export interface SubagentMenuActions {
-  readonly toggleLog: MenuAction
-  readonly copyLog: MenuAction
-  /** Stops the subagent; null when it can't be stopped, because it isn't running. */
-  readonly stop: MenuAction | null
-}
-
-/** What a subagent's menu needs to know about it. */
-export interface SubagentMenuTarget {
-  /** Whether its log is open. */
-  readonly expanded: boolean
-}
-
-/** A subagent's menu, in the Subagents tab: its log opens (or closes, once open), copies, and it stops while it runs. */
-export function subagentMenu(subagent: SubagentMenuTarget, actions: SubagentMenuActions): MenuEntry[] {
-  const { stop } = actions
-  return groups(
-    [
-      item(subagent.expanded ? 'Collapse log' : 'Expand log', actions.toggleLog, ShortcutAction.Open),
-      item('Copy log', actions.copyLog),
-    ],
-    stop === null ? [] : [destructive('Stop subagent', stop)],
-  )
-}
-
 /** What the menu of a subagent's tab in the Agents tab can do; `stop` is null once it has finished. */
 export interface AgentTabMenuActions {
   readonly copyLog: MenuAction
@@ -279,8 +253,8 @@ export interface AgentTabMenuActions {
 }
 
 /**
- * The menu of a subagent's tab in the Agents tab's strip (P16, #537): what its row's menu in the Subagents tab has,
- * but for opening its log, which picking the tab does. Stop subagent is there only while it runs.
+ * The menu of a subagent's tab in the Agents tab's strip (P16, #537): Copy log, and Stop subagent, which is there only
+ * while it runs. (Picking the tab is what opens its log.)
  */
 export function agentTabMenu({ copyLog, stop }: AgentTabMenuActions): MenuEntry[] {
   return groups([item('Copy log', copyLog)], stop === null ? [] : [destructive('Stop subagent', stop)])

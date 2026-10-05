@@ -2,9 +2,9 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { PARALLEL_SUBAGENTS } from '../src/main/agent/scripts'
 import { expect, test } from './fixtures'
-import { firstRun, inputBar, subagentsTab, taskList, taskPanel } from './selectors'
+import { agentsTab, firstRun, inputBar, taskList, taskPanel } from './selectors'
 
-test('subagents: a tally and a row per subagent, running first, saying what they are doing, that open their logs and tick until stopped', async ({
+test('subagents: a tab per subagent, running first, each saying what it’s doing, that open their logs and tick until stopped', async ({
   launch,
   tempFolder,
 }) => {
@@ -18,37 +18,33 @@ test('subagents: a tally and a row per subagent, running first, saying what they
   await bar.field.press('Enter')
 
   const panel = taskPanel(window)
-  const subagents = subagentsTab(window)
-  await panel.tab(/^Subagents/).click()
+  const agents = agentsTab(window)
+  await panel.tab(/^Agents/).click()
 
-  // Three subagents ran side by side: the link check finished, the other two are still at it.
-  await expect(panel.tab(/^Subagents/)).toHaveText('Subagents 3')
-  await expect(subagents.tally).toHaveText('2 running1 done')
-  await expect(subagents.rows).toHaveCount(3)
-  expect(await subagents.rows.evaluateAll((rows) => rows.map((row) => row.getAttribute('aria-label')))).toEqual([
-    'API changes',
+  // Three subagents ran side by side: the link check finished, the other two are still at it. Wait for the link
+  // check to settle before reading the strip's order, so the snapshot is never mid-transition.
+  await expect(panel.tab(/^Agents/)).toHaveText('Agents 4')
+  await expect(agents.tab('Check links in the 2.3 notes')).not.toHaveAttribute('data-running')
+  // The running ones come first, newest first (Dashboard changes started after API changes), then the finished one.
+  expect(await agents.tabs.evaluateAll((tabs) => tabs.map((tab) => tab.getAttribute('title')))).toEqual([
+    'Main',
     'Dashboard changes',
+    'API changes',
     'Check links in the 2.3 notes',
   ])
 
-  // Each says what it's doing: its latest call, or the last thing it said, or what it finished with.
-  const api = subagents.header('API changes')
-  await expect(api).toContainText('Running')
-  await expect(api).toContainText('Readapi/throttles.py')
-  await expect(api).toContainText('3 tool calls')
-  await expect(subagents.header('Dashboard changes')).toContainText(
-    '“#1418 moves the charts onto the new query, so it belongs under features, not fixes.”',
-  )
-  const links = subagents.header('Check links in the 2.3 notes')
-  await expect(links).toContainText('Done')
+  // Each running one says what it's doing now; the finished one says how it ended, with what it found.
+  const api = agents.agentCall('API changes')
+  await expect(api).toContainText(/Running · \d+s/)
+  const links = agents.agentCall('Check links in the 2.3 notes')
+  await expect(links).toContainText(/Done · \d+s · /)
   await expect(links).toContainText('Found 2 broken links and fixed both in the draft.')
-  await expect(links).toContainText(/\d+s · 2 tool calls/)
 
   // A running one also says what it's doing now, under its name: the SDK's latest summary, on one line, whole in its
   // tooltip. The link check's summary came after it finished, so it has none.
-  const apiSummary = subagents.summary('API changes', PARALLEL_SUBAGENTS.apiSummary)
+  const apiSummary = api.getByTitle(PARALLEL_SUBAGENTS.apiSummary)
   await expect(apiSummary).toHaveText(PARALLEL_SUBAGENTS.apiSummary)
-  await expect(subagents.summary('Dashboard changes', PARALLEL_SUBAGENTS.dashboardSummary)).toBeVisible()
+  await expect(agents.agentCall('Dashboard changes').getByTitle(PARALLEL_SUBAGENTS.dashboardSummary)).toBeVisible()
   await expect(links).not.toContainText('Checking the last links')
   const clamped = await apiSummary.evaluate((element) => ({
     cut: element.scrollWidth > element.clientWidth,
@@ -57,7 +53,6 @@ test('subagents: a tally and a row per subagent, running first, saying what they
   expect(clamped).toEqual({ cut: true, lines: 1 })
 
   // A running subagent's elapsed time ticks; a finished one's has stopped.
-  await expect(api).toContainText(/\d+s · 3 tool calls/)
   const [apiBefore, linksBefore] = [await api.textContent(), await links.textContent()]
   await expect(api).not.toHaveText(apiBefore ?? '')
   await expect(links).toHaveText(linksBefore ?? '')
@@ -69,31 +64,25 @@ test('subagents: a tally and a row per subagent, running first, saying what they
   await expect(list.subagentCount(row)).toHaveAttribute('title', '2 subagents running')
   await expect(list.indicators(row)).toHaveText('2')
 
-  // Clicking a row opens its log inline, as the tool log shows it; clicking again closes it.
+  // Clicking the call opens its tab, as the log shows it; the tab stays selected until another one is.
   await api.click()
-  await expect(api).toHaveAttribute('aria-expanded', 'true')
-  const log = subagents.log('API changes')
-  await expect(log).toContainText('Reading the API PRs, newest first.')
-  await expect(log.getByRole('button')).toHaveCount(3)
-  await expect(log.getByRole('button').last()).toHaveAccessibleName(/^Running\s*Read\s*api\/throttles\.py/)
-  await log.getByRole('button').first().click()
-  await expect(log.getByLabel('Bash output')).toContainText('Rate limit the public API')
-  await api.click()
-  await expect(api).toHaveAttribute('aria-expanded', 'false')
-  await expect(log).toBeHidden()
+  await expect(agents.tab('API changes')).toHaveAttribute('aria-selected', 'true')
+  await expect(agents.list).toContainText('Reading the API PRs, newest first.')
+  await expect(agents.list.getByRole('button')).toHaveCount(3)
+  await expect(agents.list.getByRole('button').last()).toHaveAccessibleName(/^Running\s*Read\s*api\/throttles\.py/)
+  await agents.list.getByRole('button').first().click()
+  await expect(agents.list.getByLabel('Bash output')).toContainText('Rate limit the public API')
+  await agents.tab('Main').click()
+  await expect(agents.tab('Main')).toHaveAttribute('aria-selected', 'true')
 
   // Stopping the turn stops the subagents still running.
   await bar.stop.click()
-  await expect(subagents.tally).toHaveText('1 done2 failed')
-  await expect(subagents.header('API changes')).toContainText('Failed')
+  await expect(agents.agentCall('API changes')).toContainText('Failed')
+  await expect(agents.agentCall('Dashboard changes')).toContainText('Failed')
+  await expect(agents.agentCall('Check links in the 2.3 notes')).toContainText('Done')
   // A stopped subagent isn't doing anything now.
-  await expect(apiSummary).toBeHidden()
-  await expect(subagents.header('API changes')).not.toContainText(PARALLEL_SUBAGENTS.apiSummary)
-  expect(await subagents.rows.evaluateAll((rows) => rows.map((row) => row.getAttribute('data-status')))).toEqual([
-    'done',
-    'error',
-    'error',
-  ])
+  await expect(apiSummary).toHaveCount(0)
+  await expect(agents.agentCall('API changes')).not.toContainText(PARALLEL_SUBAGENTS.apiSummary)
   // With none running, the row's count goes, and its third line with it.
   await expect(list.subagentCount(row)).toHaveCount(0)
   await expect(list.indicators(row)).toHaveCount(0)

@@ -1,5 +1,5 @@
-// The Todos tab as the todo hub (P16, #497), end to end with the scripted agent and the hidden `todoHubEnabled` setting
-// on: each todo a card with what it produced under it (its files, links and commits; #535), counted closed and listed
+// The Todos tab as the todo hub (P16, #497), end to end with the scripted agent: each todo a card with what it
+// produced under it (its files, links and commits; #535), counted closed and listed
 // open, remembered across todos, tasks and a relaunch; children filed and moved while the tab shows; the placeholder
 // group; and the keyboard. No subagent or watcher is under a todo, whatever the task has going on.
 //
@@ -207,7 +207,6 @@ test('the todo hub: a commit filed and moved while the tab shows, no subagent or
   await firstRun(window).openFolder.click()
   await taskList(window).newTask.click()
   const taskId = await onlyTaskId(window)
-  await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
 
   // The agent keeps three todos, and makes a subagent, a commit and four watchers. The subagent's call and the
   // commit's each name a todo, so the commit is under its todo already; the subagent and the watchers show nowhere.
@@ -315,11 +314,4 @@ test('the todo hub: a commit filed and moved while the tab shows, no subagent or
   await expect(hub.kind(watch, '1 change')).toBeFocused()
   await window.keyboard.press('Tab')
   await expect(hub.tiles(watch).first()).toBeFocused()
-
-  // With the switch off again, the tab is the plain list it was.
-  await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: false } })
-  await expect(hub.heads).toHaveCount(0)
-  await expect(taskPanel(window).tabPanel).toContainText('The agent writes this list and checks items off as it works.')
-  await expect(taskPanel(window).todos).toHaveCount(3)
-  await expect(taskPanel(window).tabPanel.getByRole('button')).toHaveCount(0)
 })

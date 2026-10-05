@@ -3,24 +3,38 @@ import { UiStateKey } from '../../shared/domain'
 import type { UiStateValues } from '../store/state'
 import {
   activePanelTab,
-  firstPanelTab,
+  FIRST_PANEL_TAB,
   formatCount,
-  HUB_PANEL_TABS,
   PANEL_TABS,
   PanelTab,
   panelTabEntry,
-  panelTabs,
   parsePanelTab,
   parsePanelTabSelection,
   serializePanelTabSelection,
   tabForDigit,
 } from './panelModel'
 
+/** The tabs the panel had before it had three (#501), as a database from before the update may still store them. */
+const REMOVED_TABS = ['tool-calls', 'subagents', 'watchers', 'artifacts', 'changes']
+
+describe('the panel’s tabs', () => {
+  it('are Agents · Files · Todos, in tab bar order, starting on Agents', () => {
+    expect(PANEL_TABS).toEqual(['agents', 'files', 'todos'])
+    expect(Object.values(PanelTab)).toEqual([...PANEL_TABS])
+    expect(FIRST_PANEL_TAB).toBe(PanelTab.Agents)
+  })
+})
+
 describe('parsePanelTab', () => {
-  it('reads a stored tab, and falls back to Tool calls', () => {
+  it('reads a stored tab, and falls back to Agents', () => {
     expect(parsePanelTab('todos')).toBe(PanelTab.Todos)
-    expect(parsePanelTab(undefined)).toBe(PanelTab.ToolCalls)
-    expect(parsePanelTab('terminal')).toBe(PanelTab.ToolCalls)
+    expect(parsePanelTab('agents')).toBe(PanelTab.Agents)
+    expect(parsePanelTab(undefined)).toBe(PanelTab.Agents)
+    expect(parsePanelTab('terminal')).toBe(PanelTab.Agents)
+  })
+
+  it.each(REMOVED_TABS)('reads %s, a tab the panel no longer has, as Agents', (removed) => {
+    expect(parsePanelTab(removed)).toBe(PanelTab.Agents)
   })
 })
 
@@ -31,6 +45,18 @@ describe('parsePanelTabSelection', () => {
       w2: 'files',
     })
     expect(parsePanelTabSelection('{"w1":"todos","w2":"terminal","w3":7}')).toEqual({ w1: 'todos' })
+  })
+
+  it('drops a workspace left on a tab the panel no longer has, keeping the others', () => {
+    const stored = JSON.stringify({
+      w1: 'tool-calls',
+      w2: 'subagents',
+      w3: 'watchers',
+      w4: 'artifacts',
+      w5: 'changes',
+      w6: 'files',
+    })
+    expect(parsePanelTabSelection(stored)).toEqual({ w6: 'files' })
   })
 
   it('reads empty when unset, not JSON, or JSON that is not a plain object', () => {
@@ -45,7 +71,7 @@ describe('parsePanelTabSelection', () => {
 describe('activePanelTab', () => {
   it("reads a workspace's own choice over the tab stored before each workspace had its own", () => {
     const uiState: UiStateValues = {
-      [UiStateKey.RightPanelTab]: 'artifacts',
+      [UiStateKey.RightPanelTab]: 'files',
       [UiStateKey.RightPanelTabs]: serializePanelTabSelection({ w1: PanelTab.Todos }),
     }
     expect(activePanelTab(uiState, 'w1')).toBe(PanelTab.Todos)
@@ -53,57 +79,34 @@ describe('activePanelTab', () => {
 
   it('falls back to the tab stored before each workspace had its own, for a workspace with no choice', () => {
     const uiState: UiStateValues = {
-      [UiStateKey.RightPanelTab]: 'artifacts',
+      [UiStateKey.RightPanelTab]: 'files',
       [UiStateKey.RightPanelTabs]: serializePanelTabSelection({ w1: PanelTab.Todos }),
     }
-    expect(activePanelTab(uiState, 'w2')).toBe(PanelTab.Artifacts)
+    expect(activePanelTab(uiState, 'w2')).toBe(PanelTab.Files)
   })
 
-  it('falls back to Tool calls with neither stored', () => {
-    expect(activePanelTab({}, 'w1')).toBe(PanelTab.ToolCalls)
+  it('falls back to Agents with neither stored', () => {
+    expect(activePanelTab({}, 'w1')).toBe(PanelTab.Agents)
   })
 
-  describe('with the todo hub on (P16, #536)', () => {
-    const stored = (tab: PanelTab): UiStateValues => ({
-      [UiStateKey.RightPanelTabs]: serializePanelTabSelection({ w1: tab }),
-    })
-
-    it('starts on Agents, and keeps a tab the three have', () => {
-      expect(activePanelTab({}, 'w1', true)).toBe(PanelTab.Agents)
-      expect(firstPanelTab(true)).toBe(PanelTab.Agents)
-      expect(firstPanelTab(false)).toBe(PanelTab.ToolCalls)
-      for (const tab of HUB_PANEL_TABS) expect(activePanelTab(stored(tab), 'w1', true)).toBe(tab)
-    })
-
-    it('shows Agents for a workspace left on a tab the hub replaced, leaving what’s stored as it is', () => {
-      for (const tab of [
-        PanelTab.ToolCalls,
-        PanelTab.Subagents,
-        PanelTab.Watchers,
-        PanelTab.Artifacts,
-        PanelTab.Changes,
-      ]) {
-        const uiState = stored(tab)
-        expect(activePanelTab(uiState, 'w1', true)).toBe(PanelTab.Agents)
-        // The switch turned off again: the tab it was on.
-        expect(activePanelTab(uiState, 'w1')).toBe(tab)
-      }
-      expect(activePanelTab({ [UiStateKey.RightPanelTab]: 'artifacts' }, 'w2', true)).toBe(PanelTab.Agents)
-    })
-
-    it('shows Tool calls, with it off again, for a workspace left on Agents', () => {
-      expect(parsePanelTab('agents')).toBe(PanelTab.Agents)
-      expect(activePanelTab(stored(PanelTab.Agents), 'w1')).toBe(PanelTab.ToolCalls)
-      expect(activePanelTab(stored(PanelTab.Agents), 'w1', true)).toBe(PanelTab.Agents)
-    })
+  it('keeps a tab the three have', () => {
+    for (const tab of PANEL_TABS) {
+      expect(activePanelTab({ [UiStateKey.RightPanelTabs]: serializePanelTabSelection({ w1: tab }) }, 'w1')).toBe(tab)
+    }
   })
-})
 
-describe('panelTabs', () => {
-  it('is today’s seven with the todo hub off, and Agents · Files · Todos with it on', () => {
-    expect(panelTabs(false)).toBe(PANEL_TABS)
-    expect(panelTabs(true)).toEqual(['agents', 'files', 'todos'])
-    expect(PANEL_TABS).not.toContain(PanelTab.Agents)
+  it.each(REMOVED_TABS)('shows Agents for a workspace left on %s, however it was stored', (removed) => {
+    // Its own choice, from when each workspace had one.
+    expect(activePanelTab({ [UiStateKey.RightPanelTabs]: JSON.stringify({ w1: removed }) }, 'w1')).toBe(PanelTab.Agents)
+    // The one tab every workspace shared before that.
+    expect(activePanelTab({ [UiStateKey.RightPanelTab]: removed }, 'w1')).toBe(PanelTab.Agents)
+    // Both, and a removed choice doesn't hide a tab the panel still has behind it.
+    expect(
+      activePanelTab(
+        { [UiStateKey.RightPanelTab]: 'todos', [UiStateKey.RightPanelTabs]: JSON.stringify({ w1: removed }) },
+        'w1',
+      ),
+    ).toBe(PanelTab.Todos)
   })
 })
 
@@ -124,19 +127,18 @@ describe('panelTabEntry', () => {
 
     expect(parsePanelTabSelection(entry.value)).toEqual({ w1: 'files' })
   })
+
+  it('writes no tab the panel no longer has: a workspace left on one is dropped from what’s stored', () => {
+    const uiState: UiStateValues = { [UiStateKey.RightPanelTabs]: '{"w1":"artifacts","w2":"files"}' }
+
+    expect(panelTabEntry(uiState, 'w3', PanelTab.Todos).value).toBe('{"w2":"files","w3":"todos"}')
+  })
 })
 
 describe('tabForDigit', () => {
-  it('maps 1–7 to the tabs in tab bar order, and nothing else', () => {
-    expect([1, 2, 3, 4, 5, 6, 7].map((digit) => tabForDigit(digit))).toEqual([...PANEL_TABS])
-    expect(PANEL_TABS).toEqual(['tool-calls', 'files', 'todos', 'artifacts', 'subagents', 'watchers', 'changes'])
-    expect(tabForDigit(0)).toBeUndefined()
-    expect(tabForDigit(8)).toBeUndefined()
-  })
-
-  it('maps 1–3 to Agents · Files · Todos with the todo hub on, and 4–7 to nothing', () => {
-    expect([1, 2, 3].map((digit) => tabForDigit(digit, true))).toEqual([...HUB_PANEL_TABS])
-    expect([0, 4, 5, 6, 7].map((digit) => tabForDigit(digit, true))).toEqual(Array(5).fill(undefined))
+  it('maps 1–3 to Agents · Files · Todos, and nothing else', () => {
+    expect([1, 2, 3].map((digit) => tabForDigit(digit))).toEqual([...PANEL_TABS])
+    expect([0, 4, 5, 6, 7, 8].map((digit) => tabForDigit(digit))).toEqual(Array(6).fill(undefined))
   })
 })
 

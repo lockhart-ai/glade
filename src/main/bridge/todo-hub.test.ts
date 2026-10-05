@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createBridge } from '../../preload/bridge'
 import { BridgeErrorCode, CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
 import { ToolCallState, type Task } from '../../shared/domain'
-import { ChildFilter, ChildKind, FilingSource, TODO_HUB_OFF, UNFILED_TODO_ID } from '../../shared/todoHub'
+import { ChildFilter, ChildKind, FilingSource, UNFILED_TODO_ID } from '../../shared/todoHub'
 import { FakeAgentBackend } from '../agent/fake-backend'
 import { addArtifact } from '../db/repositories/artifacts'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
@@ -50,11 +50,6 @@ afterEach(() => {
   database.close()
 })
 
-async function turnOn(): Promise<void> {
-  await glade.invoke(CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
-  events = []
-}
-
 /** A todo, as Claude Code's `TaskCreate` leaves it in the tool log. */
 function createTodo(id: string, subject: string): void {
   const toolUseId = `toolu_create_${id}`
@@ -76,29 +71,30 @@ const hubRows = (): unknown =>
     .pluck()
     .get()
 
-describe('the switch, over the bridge', () => {
-  it('is off in the settings a window reads, and turns on with settings.update, telling the windows', async () => {
-    expect((await glade.invoke(CommandName.SettingsGet, {})).settings.todoHubEnabled).toBe(false)
+describe('the switch the hub was built behind (#501)', () => {
+  it('is no setting any more: the settings a window reads have none, and settings.update refuses it', async () => {
+    expect((await glade.invoke(CommandName.SettingsGet, {})).settings).not.toHaveProperty('todoHubEnabled')
 
-    const { settings } = await glade.invoke(CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
-
-    expect(settings.todoHubEnabled).toBe(true)
-    expect(events).toEqual([{ type: EventType.SettingsChanged, settings }])
-    expect((await glade.invoke(CommandName.SettingsGet, {})).settings.todoHubEnabled).toBe(true)
+    await expect(
+      // Bypassing the types, as a window from before the update could.
+      glade.invoke(CommandName.SettingsUpdate, { patch: { todoHubEnabled: false } } as never),
+    ).rejects.toMatchObject({ code: BridgeErrorCode.InvalidRequest })
+    expect(events).toEqual([])
   })
 
-  it('takes only true or false', async () => {
+  it('is ignored when a database still has it stored as off: the hub answers all the same', async () => {
+    database.db.prepare("INSERT INTO settings (key, value) VALUES ('todoHubEnabled', 'false')").run()
+
+    await expect(glade.invoke(CommandName.TodoHubGet, { taskId: task.id })).resolves.toMatchObject({ filings: [] })
     await expect(
-      // Bypassing the types, as a buggy or compromised window could.
-      glade.invoke(CommandName.SettingsUpdate, { patch: { todoHubEnabled: 'yes' } } as never),
-    ).rejects.toMatchObject({ code: BridgeErrorCode.InvalidRequest })
-    expect((await glade.invoke(CommandName.SettingsGet, {})).settings.todoHubEnabled).toBe(false)
+      glade.invoke(CommandName.TodoHubSetPanel, { taskId: task.id, todoId: '1', open: true, filter: ChildFilter.All }),
+    ).resolves.toBeNull()
+    expect((await glade.invoke(CommandName.SettingsGet, {})).settings).not.toHaveProperty('todoHubEnabled')
   })
 })
 
 describe('todoHub.get', () => {
   it('answers with the task’s children grouped by todo, its filings and its panels', async () => {
-    await turnOn()
     createTodo('1', 'Plan the move')
     createTodo('2', 'Copy the files')
     addArtifact(database.db, { taskId: task.id, path: 'docs/plan.md', title: 'The plan' }, 4_000)
@@ -137,8 +133,7 @@ describe('todoHub.get', () => {
     })
   })
 
-  it('hears what was filed as it happens: the change alone', async () => {
-    await turnOn()
+  it('hears what was filed as it happens: the change alone', () => {
     const plan = { kind: ChildKind.File, key: 'docs/plan.md' }
 
     const filed = fileChildren({ db: database.db, emit }, task.id, [
@@ -149,8 +144,6 @@ describe('todoHub.get', () => {
   })
 
   it('fails for a task that isn’t there', async () => {
-    await turnOn()
-
     await expect(glade.invoke(CommandName.TodoHubGet, { taskId: 'gone' })).rejects.toMatchObject({
       code: BridgeErrorCode.NotFound,
     })
@@ -159,7 +152,6 @@ describe('todoHub.get', () => {
 
 describe('todoHub.setPanel', () => {
   it('remembers each todo’s panel, and the placeholder’s, without telling the windows', async () => {
-    await turnOn()
     const panels = [
       { taskId: task.id, todoId: '1', open: true, filter: ChildFilter.All },
       { taskId: task.id, todoId: '3', open: false, filter: ChildFilter.Links },
@@ -175,8 +167,6 @@ describe('todoHub.setPanel', () => {
   })
 
   it('fails for a task that isn’t there', async () => {
-    await turnOn()
-
     await expect(
       glade.invoke(CommandName.TodoHubSetPanel, { taskId: 'gone', todoId: '1', open: true, filter: ChildFilter.All }),
     ).rejects.toMatchObject({ code: BridgeErrorCode.NotFound })
@@ -202,8 +192,6 @@ describe('a bad payload', () => {
   ]
 
   it.each(bad)('to %s (%j) is a bridge error naming %s, and nothing is written', async (command, request, names) => {
-    await turnOn()
-
     // Bypassing the types, as a buggy or compromised window could.
     await expect(glade.invoke(command, request as never)).rejects.toMatchObject({
       name: 'BridgeError',
@@ -215,68 +203,5 @@ describe('a bad payload', () => {
     expect(events).toEqual([])
     // Main is still there: the next command is answered.
     await expect(glade.invoke(CommandName.TodoHubGet, { taskId: task.id })).resolves.toMatchObject({ filings: [] })
-  })
-})
-
-describe('with the switch off', () => {
-  it('refuses both commands, whatever they ask, leaving the hub’s tables empty', async () => {
-    await expect(glade.invoke(CommandName.TodoHubGet, { taskId: task.id })).rejects.toEqual({
-      name: 'BridgeError',
-      code: BridgeErrorCode.InvalidTransition,
-      message: `todoHub.get: ${TODO_HUB_OFF}`,
-    })
-    await expect(
-      glade.invoke(CommandName.TodoHubSetPanel, { taskId: task.id, todoId: '1', open: true, filter: ChildFilter.All }),
-    ).rejects.toMatchObject({ code: BridgeErrorCode.InvalidTransition, message: `todoHub.setPanel: ${TODO_HUB_OFF}` })
-    // A task that isn't there is refused the same way: the switch comes first.
-    await expect(glade.invoke(CommandName.TodoHubGet, { taskId: 'gone' })).rejects.toMatchObject({
-      code: BridgeErrorCode.InvalidTransition,
-    })
-
-    expect(hubRows()).toBe(0)
-    expect(events).toEqual([])
-  })
-
-  it('refuses them again once it’s turned back off, keeping what was remembered', async () => {
-    await turnOn()
-    await glade.invoke(CommandName.TodoHubSetPanel, {
-      taskId: task.id,
-      todoId: '1',
-      open: true,
-      filter: ChildFilter.All,
-    })
-    await glade.invoke(CommandName.SettingsUpdate, { patch: { todoHubEnabled: false } })
-
-    await expect(glade.invoke(CommandName.TodoHubGet, { taskId: task.id })).rejects.toMatchObject({
-      code: BridgeErrorCode.InvalidTransition,
-    })
-    expect(hubRows()).toBe(1)
-  })
-
-  it('sends a task’s history as before, with nothing of the hub in it but each todo’s id', async () => {
-    createTodo('1', 'Plan the move')
-
-    const history = await glade.invoke(CommandName.TasksHistory, { id: task.id })
-
-    // Every part of a task's history from before the hub, and no more.
-    expect(Object.keys(history).sort()).toEqual([
-      'artifactFilter',
-      'artifactGroups',
-      'artifacts',
-      'commits',
-      'handoff',
-      'messages',
-      'openFiles',
-      'permissionMarks',
-      'permissionRequests',
-      'questionSets',
-      'queuedMessages',
-      'todos',
-      'toolEvents',
-      'watchers',
-    ])
-    expect(history.todos?.items).toEqual([
-      { id: '1', text: 'Plan the move', state: 'todo', note: null, completedAt: null },
-    ])
   })
 })

@@ -1,5 +1,5 @@
 /**
- * The Changes tab's commands: a task's commits' files, opening one in the Files tab, reading a file as a commit left it,
+ * The commit tiles' commands: a task's commits' files, opening one in the Files tab, reading a file as a commit left it,
  * and whether the task's workspace is in a repository at all. What the tab lists is kept by `./tracker`; this reads
  * git for what it doesn't keep, through the repository's common git dir, so a commit made in a worktree can still be
  * read after the worktree is removed.
@@ -20,7 +20,7 @@ import { fileContentOf, openTaskFile, resolveWorkspaceFile, workspaceRoot } from
 import type { Git } from '../git/git'
 import type { TaskServiceContext } from '../tasks/service'
 
-/** What the Changes tab's commands need: the database and events, and git. */
+/** What the commit tiles' commands need: the database and events, and git. */
 export interface ChangesContext extends TaskServiceContext {
   readonly git: Git
 }
@@ -102,9 +102,4 @@ export async function readCommitFile(
     (await git.fileAt(commit.gitDir, commit.hash, path, MAX_FILE_BYTES)) ??
     (await git.fileAt(commit.gitDir, `${commit.hash}^`, path, MAX_FILE_BYTES))
   return blob === null ? { kind: FileContentKind.Missing } : fileContentOf(blob.bytes, blob.size)
-}
-
-/** `changes.repository`: whether the task's workspace root is in a git repository. */
-export async function workspaceInRepository(context: ChangesContext, taskId: string): Promise<boolean> {
-  return (await context.git.locate(workspaceRoot(context, taskId))) !== null
 }

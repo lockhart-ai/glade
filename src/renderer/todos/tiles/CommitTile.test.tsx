@@ -105,7 +105,7 @@ describe('a commit’s tile', () => {
     await act(() => Promise.resolve())
 
     expect(store.getState().agentTabs).toEqual({ t1: 'soak' })
-    expect(activePanelTab(store.getState().uiState, 'w1', true)).toBe(PanelTab.Agents)
+    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Agents)
     expect(fake.invoke).toHaveBeenCalledWith(CommandName.AgentsSetTab, { taskId: 't1', agentId: 'soak' })
     // The click was the name's own: the tile didn't close.
     expect(screen.getByRole('list', { name: 'Files in e7f8a9b' })).toBeInTheDocument()

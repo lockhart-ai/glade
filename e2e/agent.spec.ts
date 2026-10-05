@@ -37,9 +37,9 @@ test('new task, first message, scripted reply', async ({ launch, tempFolder }) =
   await expect(header.field('Now')).toContainText('Fixed the timezone bug; the tests pass.')
   await expect(header.stateDot).toHaveAccessibleName('Active · idle')
 
-  // The tool log shows every call the agent made, all done; the subagent's are in the Subagents tab, not here.
+  // The tool log shows every call the agent made, all done; the subagent's are on its own tab in Agents, not here.
   const panel = taskPanel(window)
-  await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 10')
+  await expect(panel.tab(/^Agents/)).toHaveText('Agents 2')
   await expect(panel.log).toContainText(
     "I'll find where the date is formatted, then fix the timezone bug and run the tests.",
   )

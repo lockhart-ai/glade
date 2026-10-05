@@ -38,7 +38,7 @@ interface LinkArtifactTileProps {
 function LinkArtifactTile({ artifact, childRef }: LinkArtifactTileProps): React.JSX.Element {
   const { url, title } = artifact
   const host = useArtifactTileHost()
-  // What Open link and Copy link do: one with its row in the Artifacts tab.
+  // What Open link and Copy link do.
   const { open, copy } = useLinkArtifact(artifact)
   const menuOpen = useTileMenuOpen(childRef)
   const { menuTargetProps } = host
@@ -70,7 +70,7 @@ function LinkArtifactTile({ artifact, childRef }: LinkArtifactTileProps): React.
 }
 
 /**
- * A link artifact's tile, which does what its row in the Artifacts tab does (#498), with the row's own pieces: the icon
+ * A link artifact's tile (#498): the icon
  * of what it is (a pull request, an issue, a ticket, a page), its title, then its number, its ticket's key or its
  * domain, from its address alone with no network call, and how long ago it last changed. Clicking it, or ↵ or Space
  * while it has the focus, opens it in the browser, through main, never in Glade. Under the pointer or with the focus,

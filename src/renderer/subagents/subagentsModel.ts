@@ -1,18 +1,17 @@
 /**
- * What the Subagents tab shows, worked out from a task's tool events: each `Agent` (or `Task`) call is a subagent, and
- * the calls and notes nested under it (`parentToolUseId`) are what it did. See `docs/sdk-notes.md`, "Subagents".
+ * A task's subagents, worked out from its tool events: each `Agent` (or `Task`) call is a subagent, and the calls and
+ * notes nested under it (`parentToolUseId`) are what it did. The Agents tab gives each a tab of its own
+ * (`../agents`); the task list counts the running ones. See `docs/sdk-notes.md`, "Subagents".
  *
  * There's no "queued" subagent: nothing in the stream says a subagent is waiting for a slot (`docs/sdk-notes.md`), so
  * every subagent is running, paused, done, interrupted or failed.
  */
 import { isSubagentTool, subagentName, UNNAMED_SUBAGENT } from '../../shared/subagents'
-import { TaskIndicator } from '../../shared/taskIndicator'
 import { ToolCallState, ToolEventKind, type EpochMs, type ToolCallEvent, type ToolEvent } from '../../shared/domain'
 import type { PermissionLines } from '../permissions/permissionLineModel'
 import {
   argumentSummary,
   resultSummary,
-  sameSubagentRows,
   toolLogRows,
   type CallRow,
   type SubagentRow,
@@ -33,37 +32,6 @@ export enum SubagentStatus {
   Error = 'error',
 }
 
-/** Every status, in the order the tally and the list show them. */
-export const SUBAGENT_STATUSES: readonly SubagentStatus[] = Object.values(SubagentStatus)
-
-export enum LatestLineKind {
-  /** Its latest tool call: "Bash  gh pr view 1437". */
-  ToolCall = 'tool_call',
-  /** The last thing it said while running, quoted. */
-  Said = 'said',
-  /** What it finished with: its result, or its error. */
-  Outcome = 'outcome',
-}
-
-export interface ToolCallLine {
-  readonly kind: LatestLineKind.ToolCall
-  readonly name: string
-  readonly argument: string
-}
-
-export interface SaidLine {
-  readonly kind: LatestLineKind.Said
-  readonly text: string
-}
-
-export interface OutcomeLine {
-  readonly kind: LatestLineKind.Outcome
-  readonly text: string
-}
-
-/** The line under a subagent's name that says what it's doing, or what it came to. */
-export type LatestLine = ToolCallLine | SaidLine | OutcomeLine
-
 export interface Subagent {
   /** The `Agent` call that started it. */
   readonly call: ToolCallEvent
@@ -74,13 +42,12 @@ export interface Subagent {
    * the first, and once it has finished.
    */
   readonly summary: string | null
-  /** How many tool calls it has made. */
-  readonly toolCalls: number
-  /** What it's doing or came to; null before it has done anything. */
-  readonly latest: LatestLine | null
   /** What it did, in order: its log, as the tool log nests it. */
   readonly log: readonly SubagentRow[]
 }
+
+/** Every status, in the order subagents are listed. */
+const SUBAGENT_STATUSES: readonly SubagentStatus[] = Object.values(SubagentStatus)
 
 /** A subagent's status, from its `Agent` call's state. */
 export function subagentStatus(state: ToolCallState): SubagentStatus {
@@ -98,40 +65,12 @@ export function subagentStatus(state: ToolCallState): SubagentStatus {
   }
 }
 
-/** The first line of a text that isn't blank, trimmed; empty when it has none. */
-function firstLine(text: string): string {
-  return (text.split('\n').find((line) => line.trim() !== '') ?? '').trim()
-}
-
-/** A row of its log as the line under its name. */
-function rowLine(row: SubagentRow, rootPath: string | undefined): LatestLine {
-  switch (row.kind) {
-    case ToolEventKind.ToolCall:
-      return { kind: LatestLineKind.ToolCall, name: row.name, argument: argumentSummary(row.call, rootPath) }
-    case ToolEventKind.Narration:
-      return { kind: LatestLineKind.Said, text: row.narration.text }
-  }
-}
-
-/**
- * The line under a subagent's name: while it runs, its latest tool call or the last thing it said; once it's
- * finished, the first line of its result (or its error), or its last row when that's empty.
- */
-function latestLine(row: CallRow, rootPath: string | undefined): LatestLine | null {
-  const outcome = row.call.state === ToolCallState.Running ? '' : firstLine(row.call.output ?? '')
-  if (outcome !== '') return { kind: LatestLineKind.Outcome, text: outcome }
-  const last = row.children.at(-1)
-  return last === undefined ? null : rowLine(last, rootPath)
-}
-
-function toSubagent(row: CallRow, rootPath: string | undefined): Subagent {
+function toSubagent(row: CallRow): Subagent {
   return {
     call: row.call,
     name: subagentName(row.call),
     status: subagentStatus(row.call.state),
     summary: row.call.state === ToolCallState.Running ? row.call.progressSummary : null,
-    toolCalls: row.children.filter((child) => child.kind === ToolEventKind.ToolCall).length,
-    latest: latestLine(row, rootPath),
     log: row.children,
   }
 }
@@ -146,26 +85,16 @@ function subagentCalls(rows: readonly (ToolLogRow | SubagentRow)[]): CallRow[] {
 }
 
 /**
- * A task's subagents: running ones first, then paused, done, interrupted and failed, each in the order they started. `rootPath` makes
- * file arguments relative to the workspace root, and `permissions` gives each call in their logs its permission line.
+ * A task's subagents: running ones first, then paused, done, interrupted and failed, each in the order they started.
+ * `permissions` gives each call in their logs its permission line.
  */
-export function deriveSubagents(
-  events: readonly ToolEvent[],
-  rootPath?: string,
-  permissions?: PermissionLines,
-): Subagent[] {
-  const subagents = subagentCalls(toolLogRows(events, permissions)).map((row) => toSubagent(row, rootPath))
+export function deriveSubagents(events: readonly ToolEvent[], permissions?: PermissionLines): Subagent[] {
+  const subagents = subagentCalls(toolLogRows(events, permissions)).map(toSubagent)
   return SUBAGENT_STATUSES.flatMap((status) => subagents.filter((subagent) => subagent.status === status))
 }
 
-/** How many subagents a task has started: the Subagents tab's count. */
-export function subagentCount(events: readonly ToolEvent[]): number {
-  return events.filter((event) => event.kind === ToolEventKind.ToolCall && isSubagentTool(event.name)).length
-}
-
 /**
- * How many of a task's subagents are running now, nested ones included: the Subagents tab's "3 running", and the count
- * on the task's row in the task list. Counted from whatever of its log is loaded: all of it once the task has been
+ * How many of a task's subagents are running now, nested ones included: the count on the task's row in the task list. Counted from whatever of its log is loaded: all of it once the task has been
  * opened, else the running subagents loaded on start and what events have brought since.
  */
 export function runningSubagentCount(events: readonly ToolEvent[] | undefined): number {
@@ -193,14 +122,6 @@ export function subagentsRunningLabel(count: number): string {
 }
 
 /**
- * Whether two subagents show the same: a subagent is worked out from its call and its log (and the workspace root), so
- * it's the same when they are. `deriveSubagents` makes each one anew, so one that hasn't changed is told by them (#413).
- */
-export function sameSubagent(a: Subagent, b: Subagent): boolean {
-  return a.call === b.call && sameSubagentRows(a.log, b.log)
-}
-
-/**
  * How long a subagent has run: from its call until its result, or until `now` while it runs. Null for one that
  * finished before Glade recorded when calls finish.
  */
@@ -219,18 +140,6 @@ export function formatElapsed(ms: number): string {
   return `${String(Math.floor(minutes / 60))}h ${String(minutes % 60).padStart(2, '0')}m`
 }
 
-/** "12 tool calls", "1 tool call". */
-export function toolCallsLabel(count: number): string {
-  return `${String(count)} tool call${count === 1 ? '' : 's'}`
-}
-
-/** The line under a subagent's name and latest line: "4m 12s · 12 tool calls". */
-export function metaLine(subagent: Subagent, now: EpochMs): string {
-  const elapsed = elapsedMs(subagent, now)
-  const calls = toolCallsLabel(subagent.toolCalls)
-  return elapsed === null ? calls : `${formatElapsed(elapsed)} · ${calls}`
-}
-
 /** What a subagent's status is called: "Running", "Paused", "Done", "Interrupted", "Failed". */
 export function statusLabel(status: SubagentStatus): string {
   switch (status) {
@@ -245,40 +154,6 @@ export function statusLabel(status: SubagentStatus): string {
     case SubagentStatus.Error:
       return 'Failed'
   }
-}
-
-/** The dot a subagent shows, as its call's in the tool log: running blue, paused purple, failed pink, else slate. */
-export function statusIndicator(status: SubagentStatus): TaskIndicator {
-  switch (status) {
-    case SubagentStatus.Running:
-      return TaskIndicator.Working
-    case SubagentStatus.Paused:
-      return TaskIndicator.Waiting
-    case SubagentStatus.Done:
-    case SubagentStatus.Interrupted:
-      return TaskIndicator.Done
-    case SubagentStatus.Error:
-      return TaskIndicator.Error
-  }
-}
-
-/** One part of the tally: "3 running". */
-export interface TallyPart {
-  readonly status: SubagentStatus
-  readonly label: string
-}
-
-/** The tally at the top of the tab: "3 running · 1 done", leaving out a status no subagent has. */
-export function tally(subagents: readonly Subagent[]): TallyPart[] {
-  return SUBAGENT_STATUSES.flatMap((status) => {
-    const count = subagents.filter((subagent) => subagent.status === status).length
-    return count === 0 ? [] : [{ status, label: `${String(count)} ${statusLabel(status).toLowerCase()}` }]
-  })
-}
-
-/** Whether any subagent is still running, so its elapsed time needs to tick. */
-export function anyRunning(subagents: readonly Subagent[]): boolean {
-  return subagents.some((subagent) => subagent.status === SubagentStatus.Running)
 }
 
 /** A subagent's log rows as lines of text, each nested subagent's rows indented under its call. */

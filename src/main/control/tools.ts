@@ -199,12 +199,14 @@ const artifacts = z
           'A link instead of a file: the http or https address of a PR, an issue, a ticket or another page.',
         ).optional(),
         title: text(
-          "What to call it in the Artifacts tab; a file's name, or a link's #412, API-123 or address, by default.",
+          "What to call it in the Todos tab; a file's name, or a link's #412, API-123 or address, by default.",
         ).optional(),
       })
       .refine(pathOrUrl, PATH_OR_URL),
   )
-  .describe("Files of the task's workspace, each by absolute path, and links, to show in its Artifacts tab.")
+  .describe(
+    "Files of the task's workspace, each by absolute path, and links, to show in its Todos tab, under no todo until its agent files them.",
+  )
 
 /** An artifact's path, as it was registered: absolute, inside the workspace. */
 const artifactPath = absolutePath(
@@ -218,7 +220,7 @@ const updateArtifacts = z
       .strictObject({
         path: artifactPath.optional(),
         url: webAddress("A link artifact's url, as the task's artifacts list it.").optional(),
-        title: text('A new title for it in the Artifacts tab.').optional(),
+        title: text('A new title for it in the Todos tab.').optional(),
         newPath: absolutePath(
           "The file it's to point to instead, by absolute path, e.g. where its file moved. It must be a file inside " +
             "the task's workspace, and not another of its artifacts.",
@@ -238,7 +240,9 @@ const updateArtifacts = z
       ),
   )
   .min(1, 'is empty')
-  .describe("Artifacts to rename or point at another file or page, each keeping its place in the task's Artifacts tab.")
+  .describe(
+    "Artifacts to rename or point at another file or page, each staying under its todo in the task's Todos tab.",
+  )
 
 /** Artifacts to take off a task's list. */
 const removeArtifacts = z
@@ -250,7 +254,7 @@ const removeArtifacts = z
   )
   .min(1, 'is empty')
   .describe(
-    "Artifacts to take off the task's Artifacts tab: files by absolute path (the files are left alone), links by url.",
+    "Artifacts to take off the task's Todos tab: files by absolute path (the files are left alone), links by url.",
   )
 
 /** How the API reads a date, for the descriptions of the fields that take one. */

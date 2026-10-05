@@ -110,8 +110,7 @@ export interface ArtifactTilesProps {
 }
 
 /**
- * Around one todo's list of tiles in the hub (P16, #498): what its file and link tiles share with the Artifacts tab's
- * rows, kept once for the list. The context menu of an artifact (Open, …, Remove from artifacts, as
+ * Around one todo's list of tiles in the hub (P16, #498): what its file and link tiles share, kept once for the list. The context menu of an artifact (Open, …, Remove from artifacts, as
  * `docs/context-menus.md` has them) opens from a tile's right-click, ⇧F10 or More. The image viewer opens from an image
  * file's tile, and ← and → step only through the image files of this todo, in its list's order, never on into another
  * todo's; it closes if the image it shows leaves the todo (removed, or moved to another).

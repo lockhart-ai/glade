@@ -30,7 +30,7 @@ current binding. The menu bar answers the keys of its items; the window listens 
 | Panels | Toggle task list | ⌘B |
 | | Toggle right panel | ⌘⌥B |
 | | Toggle bottom bar | ⌘J |
-| | Tool calls · Files · Todos · Artifacts · Subagents · Watchers · Changes | ⌘⌥1 – ⌘⌥7 |
+| | Agents · Files · Todos | ⌘⌥1 – ⌘⌥3 |
 | | Close file tab (the window, when no tab has the focus) | ⌘W |
 | | Open file in editor | ⌘⇧E |
 | | Save file | ⌘S |
@@ -55,11 +55,8 @@ task search; in the editor, its own ⌘F finds in the file, and anywhere else �
 
 ## The Agents tab, and the panel's three tabs
 
-**Behind the hidden `todoHubEnabled` setting until #501** (P16, #536; `decisions.md`): with it off, ⌘⌥1 – ⌘⌥7 pick the
-right panel's seven tabs, as the table says.
-
-With it on, the right panel has three tabs, **Agents · Files · Todos**, and ⌘⌥1 – ⌘⌥3 pick them; ⌘⌥4 – ⌘⌥7 pick
-nothing. The binding is the same one (Settings ▸ Keyboard still lists it as a range of seven until #501).
+The right panel has three tabs, **Agents · Files · Todos** (P16, #536; `decisions.md`), and ⌘⌥1 – ⌘⌥3 pick them.
+⌘⌥4 – ⌘⌥7, which picked tabs the panel no longer has, are no command's.
 
 The Agents tab's strip of agents (`design/screens/50-agents.png`) is one Tab stop, on the tab of the agent showing.
 With the focus on it, ← and → pick the agent before or after, Main included, wrapping at the ends, and the focus goes
@@ -73,12 +70,9 @@ is a Tab stop: ↵ or Space stops that watcher. A watcher's row in the list isn'
 Context menu (⇧F10), or the keyboard's menu key, on a subagent's tab in the strip opens that subagent's menu (#537):
 Copy log, and Stop subagent while it runs. Main's tab has none.
 
-## The Todos tab as the todo hub
+## The Todos tab
 
-**Behind the hidden `todoHubEnabled` setting until #501** (P16, #491; `decisions.md`): with it off, the Todos tab has
-no keys of its own beyond Tab and Context menu, as now.
-
-With it on, the tab's todos answer their own keys while one has the focus (`design/screens/46-todo-hub.png`), as the
+The tab's todos answer their own keys while one has the focus (P16, #491; `design/screens/46-todo-hub.png`), as the
 Browse tree does; they're fixed. On a todo, or on **Not under a todo**, ↑↓ move to the todo before or after it,
 stopping at the first and last; → opens it, on the filter it was last on (nothing if it's open already, or has nothing
 under it); ← closes it; ↵ or Space opens or closes it, as a click does; and Context menu (⇧F10) opens a todo's menu

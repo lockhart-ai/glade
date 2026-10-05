@@ -1,16 +1,17 @@
-// The agent's tools to list and move a task's children (P16-05, #496), end to end with the scripted agent. A task makes
-// one of each kind of child with the todo hub off, as every task did before it, so nothing files them. The hidden
-// `todoHubEnabled` setting is then turned on and Glade relaunched: the task's session starts again with
+// The agent's tools to list and move a task's children (P16-05, #496), end to end with the scripted agent. A task from
+// before the filing tools shipped has none of its things filed. Relaunched, the task's session starts again with
 // `list_children` and `file_children`, and asked to, its agent sorts what it made under its todos. There's no menu for
 // any of it, and the hub's own tab isn't built yet (#497), so the spec reads where main puts each child over the bridge.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import Database from 'better-sqlite3'
 import type { Page } from '@playwright/test'
 import { SORTS_CHILDREN as SORT } from '../src/main/agent/scripts'
 import { CommandName } from '../src/shared/bridge'
 import { ToolEventKind } from '../src/shared/domain'
 import { ChildKind, type TodoChildren } from '../src/shared/todoHub'
 import { agentSessions, expect, test } from './fixtures'
+import { inMain } from './in-main'
 import { chat, firstRun, inputBar, taskList, taskPanel } from './selectors'
 import { invoke } from './task-view'
 
@@ -47,9 +48,9 @@ test('a task from before the todo hub: asked to, its agent lists what it made an
   launch,
   tempFolder,
 }) => {
-  // Before the hub: the agent keeps three todos, and makes a file, a link and a subagent, which commits. (It has two
-  // watchers too, the tests its subagent leaves running and a monitor, which are no child of a todo.) Nothing says
-  // which todo any of them belongs to.
+  // The agent keeps three todos, and makes a file, a link and a subagent, which commits. (It has two watchers too,
+  // the tests its subagent leaves running and a monitor, which are no child of a todo.) Its subagent names a todo as
+  // it starts, as every subagent's call does, so the hub files its commit under it right away.
   const glade = await launch({ agentScript: 'unsorted-children', chosenFolder: workspaceRoot(tempFolder) })
   const { window } = glade
   await firstRun(window).openFolder.click()
@@ -57,18 +58,26 @@ test('a task from before the todo hub: asked to, its agent lists what it made an
   const taskId = await onlyTaskId(window)
   await send(window, SORT.prompt)
   await expect(chat(window).agentReplies.first()).toContainText(SORT.made)
-  // Its session started with the hub off: the prompt says nothing of the tools.
-  for (const { systemPromptAppend } of await agentSessions(glade)) expect(systemPromptAppend).not.toContain('children')
-
-  // The hub is turned on by hand: there's nothing for it in Settings. Everything the task produced is under no todo;
-  // its subagent and its two watchers are under nothing.
-  await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
-  const unfiled = async () => (await invoke(window, CommandName.TodoHubGet, { taskId })).children.unfiled
   // Glade reads git for the subagent's commit once its command has run.
-  await expect.poll(async () => (await unfiled()).tallies[ChildKind.Commit]).toBe(1)
-  expect(await placed(window, taskId)).toEqual([[], [], [], ['commit unfiled', 'file unfiled', 'link unfiled']])
+  await expect
+    .poll(async () => (await invoke(window, CommandName.TasksHistory, { id: taskId })).commits)
+    .toHaveLength(1)
   expect((await invoke(window, CommandName.TasksHistory, { id: taskId })).watchers).toHaveLength(2)
+  const userDataPath = await inMain(glade.app, ({ app }) => app.getPath('userData'))
   await glade.close()
+
+  // A task from before the filing tools shipped has none of this filed: take away every filing the hub made, as a
+  // database from before the phase would have none.
+  const db = new Database(join(userDataPath, 'glade.db'))
+  db.prepare('DELETE FROM child_filings WHERE task_id = ?').run(taskId)
+  db.close()
+
+  const unfiledGlade = await launch({ agentScript: 'unsorted-children' })
+  const unfiledWindow = unfiledGlade.window
+  const unfiled = async () => (await invoke(unfiledWindow, CommandName.TodoHubGet, { taskId })).children.unfiled
+  await expect.poll(async () => (await unfiled()).tallies[ChildKind.Commit]).toBe(1)
+  expect(await placed(unfiledWindow, taskId)).toEqual([[], [], [], ['commit unfiled', 'file unfiled', 'link unfiled']])
+  await unfiledGlade.close()
 
   // Relaunched, the task's session starts again, with the two tools and the prompt's line about them.
   const relaunched = await launch({ agentScript: 'sorts-children' })

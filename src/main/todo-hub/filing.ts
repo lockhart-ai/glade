@@ -28,13 +28,9 @@
  * An artifact has a tool of Glade's own, so its todo is a field: `add_artifact` needs one (`artifactTodo`,
  * `fileArtifact`).
  *
- * What's owed is only ever what the agent made itself, in a call, with the hub on: never what a task made before the
- * hub, a link you added by hand, or an artifact added through the control API, which wait under "Not under a todo"
- * until someone asks the agent to sort them.
- *
- * Built dark, as the rest of the hub: only a session that starts with `todoHubEnabled` on is given the hooks that call
- * any of this. If the setting is turned off under such a session, a marker still comes off its calls (its prompt still
- * asks for them), and nothing is filed, asked, held or written.
+ * What's owed is only ever what the agent made itself, in a call: never what a task made before the hub, a link you
+ * added by hand, or an artifact added through the control API, which wait under "Not under a todo" until someone asks
+ * the agent to sort them.
  */
 import type { Database } from 'better-sqlite3'
 import type { Artifact, EpochMs, ToolInput } from '../../shared/domain'
@@ -68,7 +64,7 @@ import {
   type FilingTodo,
   type NamedChild,
 } from './agent-children'
-import { fileChildren, isTodoHubEnabled, taskChildren, unfileChildren, type FilingContext } from './todo-hub'
+import { fileChildren, taskChildren, unfileChildren, type FilingContext } from './todo-hub'
 
 /** How many times Glade holds the end of one turn for filings owed, before it lets the turn end. */
 export const MAX_HOLDS = 2
@@ -203,14 +199,6 @@ export function createChildFiler({ db, emit, now = Date.now }: ChildFilerOptions
     return running
   }
 
-  /** Whether the hub has been turned off under the task's session: what it was running is forgotten. */
-  const turnedOff = (taskId: string): boolean => {
-    if (isTodoHubEnabled(db)) return false
-    calls.delete(taskId)
-    holds.delete(taskId)
-    return true
-  }
-
   /** The commits each of a task's calls made, oldest first. */
   const commitsByCall = (taskId: string): Map<string, ChildRef[]> => {
     const commits = new Map<string, ChildRef[]>()
@@ -260,7 +248,7 @@ export function createChildFiler({ db, emit, now = Date.now }: ChildFilerOptions
       if (subagent) {
         // A subagent's subagent works on its parent's todo, unless its call names another of the task's: nothing is
         // remembered of the call, and nothing of it is ever owed.
-        if (named === null || !isTodoHubEnabled(db)) return named?.input ?? null
+        if (named === null) return null
         const started = subagentOf(toolUseId)
         const isFiled = listFilings(db, taskId).some((filing) => refKey(filing) === refKey(started))
         if (!isFiled && todosOf(db, taskId).some(({ id }) => id === named.todoId)) {
@@ -286,7 +274,7 @@ export function createChildFiler({ db, emit, now = Date.now }: ChildFilerOptions
 
     commitsLinked(taskId, toolUseId) {
       const todoId = calls.get(taskId)?.get(toolUseId) ?? null
-      if (todoId === null || !isTodoHubEnabled(db)) return
+      if (todoId === null) return
       const filed = new Set(listFilings(db, taskId).map(refKey))
       const commits = (commitsByCall(taskId).get(toolUseId) ?? []).filter((commit) => !filed.has(refKey(commit)))
       fileChildren(
@@ -298,7 +286,7 @@ export function createChildFiler({ db, emit, now = Date.now }: ChildFilerOptions
     },
 
     batchFinished(taskId, toolUseIds) {
-      if (toolUseIds.length === 0 || turnedOff(taskId)) return null
+      if (toolUseIds.length === 0) return null
       const owed = settle(taskId, toolUseIds)
       if (owed.length === 0) return null
       const children = taskChildren(db, taskId)
@@ -306,7 +294,6 @@ export function createChildFiler({ db, emit, now = Date.now }: ChildFilerOptions
     },
 
     turnEnding(taskId, held) {
-      if (turnedOff(taskId)) return null
       if (!held) holds.delete(taskId)
       // The calls of a message that never finished (a turn you stopped, say): what they made is owed too.
       const unsettled = [...(calls.get(taskId)?.keys() ?? [])]

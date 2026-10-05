@@ -7,9 +7,9 @@ test('tool log: rows, notes and dividers, without subagent calls; a row expands;
   const glade = await launch({ seed: seedPath('tool-log.json') })
   const panel = taskPanel(glade.window)
 
-  // Tool calls is the live tab, counting the task's own calls: a subagent's are in the Subagents tab.
-  await expect(panel.tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
-  await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 6')
+  // Agents is the live tab, on Main, which shows the task's own calls: a subagent's are on its own tab.
+  await expect(panel.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
+  await expect(panel.tab(/^Agents/)).toHaveText('Agents 2')
 
   // Each row has its name, argument (paths relative to the workspace) and short result, in the state's colour.
   await expect(panel.call(/^Done Read api\/views\.py/)).toContainText('3 lines')
@@ -36,17 +36,17 @@ test('tool log: rows, notes and dividers, without subagent calls; a row expands;
   await pytest.click()
   await expect(panel.log.getByLabel('Bash output')).toHaveCount(0)
 
-  // The chat's tool-call chip brings back Tool calls, at that turn, from any other tab.
+  // The chat's tool-call chip brings back Agents, at that turn, from any other tab.
   await panel.tab('Files').click()
   await expect(filesTab(glade.window).browse).toHaveAttribute('aria-pressed', 'true')
   await regions(glade.window).chat.getByRole('button', { name: '3 tool calls' }).click()
-  await expect(panel.tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
+  await expect(panel.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
   await expect(panel.log.locator('[data-turn-start="1"]')).toBeInViewport()
 
   // The log is read back from the database after a restart.
   await glade.close()
   const relaunched = taskPanel((await launch()).window)
-  await expect(relaunched.tab(/^Tool calls/)).toHaveText('Tool calls 6')
+  await expect(relaunched.tab(/^Agents/)).toHaveText('Agents 2')
   await expect(relaunched.call(/Read api\/views\.py/)).toContainText('3 lines')
   await expect(relaunched.dividers).toHaveCount(1)
 })

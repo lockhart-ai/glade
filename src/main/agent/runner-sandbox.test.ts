@@ -245,9 +245,12 @@ describe('starting a session', () => {
     expect(session.options).not.toHaveProperty('flagSettings')
     expect(Object.keys(session.options.hooks ?? {}).sort()).toEqual([
       'onBashStarting',
+      'onBatchFinished',
+      'onChildStarting',
       'onCompacted',
       'onPrompt',
       'onTurnEnded',
+      'onTurnEnding',
     ])
     expect(session.flagSettings).toEqual([])
   })

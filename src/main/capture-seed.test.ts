@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   AgentErrorKind,
-  ArtifactFilter,
   ArtifactKind,
   AutoCompactKind,
   CompactionTrigger,
@@ -33,7 +32,7 @@ import {
 import { SandboxAskKind } from '../shared/sandbox'
 import { listPermissionMarks } from './db/repositories/permission-marks'
 import { applySeed, readSeed, seedArtifactAt, type CaptureSeed } from './capture-seed'
-import { getArtifactFilter, listArtifacts, listFileArtifacts } from './db/repositories/artifacts'
+import { listArtifacts, listFileArtifacts } from './db/repositories/artifacts'
 import { getHandoff } from './db/repositories/backfills'
 import { listMessages } from './db/repositories/messages'
 import { listRecentNotifications } from './db/repositories/notifications'
@@ -191,9 +190,8 @@ describe('readSeed', () => {
     expect(seed.tasks.find((task) => task.selected)?.title).toBe('Move image uploads to S3')
   })
 
-  it('reads the todo hub fixture: the switch on, and children filed under the selected task’s todos (P16)', () => {
+  it('reads the todo hub fixture: children filed under the selected task’s todos (P16)', () => {
     const seed = readSeed(join(FIXTURES, 'todo-hub.json'))
-    expect(seed.settings).toEqual({ todoHubEnabled: true })
     expect(seed.panelTab).toBe('todos')
     const ship = seed.tasks.find((task) => task.selected)
     expect(ship?.title).toBe('Ship the rate-limit fixes for 2.5')
@@ -356,7 +354,8 @@ describe('readSeed', () => {
     expect(() =>
       readSeed(write(JSON.stringify(task({ artifacts: [{ url: 'not a url', title: 'X', minutesAgo: 1 }] })))),
     ).toThrow(/is invalid: /)
-    expect(() => readSeed(write(JSON.stringify(task({ artifactFilter: 'images' }))))).toThrow(/is invalid: /)
+    // What the Artifacts tab once took: a seed that still names its filter is refused.
+    expect(() => readSeed(write(JSON.stringify(task({ artifactFilter: 'links' }))))).toThrow(/is invalid: /)
   })
 
   it('reads the sandbox settings fixture: the switch on, and the grants both lists show (#451)', () => {
@@ -844,7 +843,7 @@ describe('applySeed', () => {
 
     it('files the children that name a todo under it, as main files any child, and leaves the rest under none', () => {
       const { db } = database
-      applySeed(db, { ...HUB, settings: { todoHubEnabled: true } }, now)
+      applySeed(db, HUB, now)
       const taskId = onlyTaskId()
 
       const hub = readTodoHub(db, taskId)
@@ -885,23 +884,13 @@ describe('applySeed', () => {
 
     it('leaves each todo’s panel as it says: open or closed, on its filter or all', () => {
       const { db } = database
-      applySeed(db, { ...HUB, settings: { todoHubEnabled: true } }, now)
+      applySeed(db, HUB, now)
       const taskId = onlyTaskId()
 
       expect(readTodoHub(db, taskId).panels).toEqual([
         { taskId, todoId: '1', open: true, filter: ChildFilter.Commits },
         { taskId, todoId: UNFILED_TODO_ID, open: true, filter: ChildFilter.All },
       ])
-    })
-
-    it('files nothing while the hub is off, though the children are all there', () => {
-      const { db } = database
-      applySeed(db, HUB, now)
-      const taskId = onlyTaskId()
-
-      expect(db.prepare('SELECT COUNT(*) AS filed FROM child_filings').get()).toEqual({ filed: 0 })
-      expect(listArtifacts(db, taskId)).toHaveLength(5)
-      expect(listWatchers(db, taskId)).toHaveLength(2)
     })
 
     it('applies the todo hub fixture: every todo of the selected task has what the screens show under it', () => {
@@ -1040,7 +1029,6 @@ describe('applySeed', () => {
               { url: 'https://github.com/acme/api/pull/412', title: 'Navigation refresh', minutesAgo: 6 },
               { url: 'https://acme.atlassian.net/browse/API-123', title: 'Epic', daysAgo: 1, time: '17:05' },
             ],
-            artifactFilter: ArtifactFilter.Links,
           },
           { title: 'Another', minutesAgo: 0 },
         ],
@@ -1061,8 +1049,6 @@ describe('applySeed', () => {
       [ArtifactKind.File, 'Notes', now - 30 * 60_000],
       [ArtifactKind.Link, 'Navigation refresh', now - 6 * 60_000],
     ])
-    expect(getArtifactFilter(db, idOf('Ship the navigation'))).toBe(ArtifactFilter.Links)
-    expect(getArtifactFilter(db, idOf('Another'))).toBe(ArtifactFilter.All)
   })
 
   it('declares an artifact at a time of day some days back, in the local time zone, and never after now', () => {

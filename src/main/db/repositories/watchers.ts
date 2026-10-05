@@ -27,7 +27,7 @@ export interface NewWatcher {
 export interface StoredWatcher extends Watcher {
   readonly sdkId: string | null
   readonly cron: string | null
-  /** Whether you stopped it (Stop in the Watchers tab). */
+  /** Whether you stopped it (Stop on its card in the Agents tab). */
   readonly stoppedByYou: boolean
 }
 

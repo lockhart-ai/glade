@@ -17,8 +17,8 @@ export const FILES_CLASS = styles.files
 
 /**
  * The name of the subagent that made one of a task's children (a commit), by the `tool_use` id of its `Agent` call:
- * null for a child the task's own agent made, and `Subagent` for one whose subagent the tool log hasn't got, as the
- * Changes tab says. Found in the log's index, so a tile's selector never walks the log.
+ * null for a child the task's own agent made, and `Subagent` for one whose subagent the tool log hasn't got, as its
+ * tag says. Found in the log's index, so a tile's selector never walks the log.
  */
 export function makerName(events: readonly ToolEvent[] | undefined, toolUseId: string | null): string | null {
   if (toolUseId === null) return null
@@ -37,7 +37,7 @@ export interface TileMetaProps {
 }
 
 /**
- * A line of an opened tile with the tag of the subagent that made it after it (the Changes tab's tag): a commit's
+ * A line of an opened tile with the tag of the subagent that made it after it (`SubagentTag`): a commit's
  * branch. The line is cut short before the tag is. The tag goes to the subagent's tab in the Agents tab (#537), when
  * the task's log has that subagent; else it's plain text.
  */

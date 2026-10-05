@@ -12,14 +12,12 @@ import {
   FilingSource,
   subagentTodo,
   subagentTodos,
-  TODO_HUB_OFF,
   UNFILED_TODO_ID,
   type ChildRef,
   type TodoChildren,
 } from '../../shared/todoHub'
 import { addArtifact, addLinkArtifact, removeArtifact } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
-import { updateSettings } from '../db/repositories/settings'
 import { addTaskCommit, CommitSource } from '../db/repositories/task-commits'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
@@ -68,10 +66,6 @@ beforeEach(() => {
 afterEach(() => {
   database.close()
 })
-
-function turnOn(): void {
-  updateSettings(db, { todoHubEnabled: true })
-}
 
 /** A call of the agent's (or of the subagent `parent`), logged at `at`. */
 function call(
@@ -232,7 +226,6 @@ describe('how Glade names a todo and a child to the agent', () => {
 
   it('writes a todo as its id, its text and its state, and a list of them on one line', () => {
     busyTask()
-    turnOn()
     const todos = filingTodos(taskChildren(db, task.id).todos)
 
     expect(todos.map(todoLabel)).toEqual([
@@ -269,17 +262,8 @@ describe('how Glade names a todo and a child to the agent', () => {
 })
 
 describe('list_children', () => {
-  it('is refused while the hub is off, and names nothing', () => {
-    busyTask()
-
-    expect(refusal(() => list())).toEqual({ code: BridgeErrorCode.InvalidTransition, message: TODO_HUB_OFF })
-    expect(rows('child_ids')).toBe(0)
-  })
-
   it('lists a task from before the hub: every todo, empty, then what it produced and its subagents under no todo', () => {
     busyTask()
-    turnOn()
-
     expect(list()).toBe(
       [
         '#1 Plan the move (completed), no children',
@@ -302,7 +286,6 @@ describe('list_children', () => {
 
   it('never lists a watcher: the agent’s own, one a subagent left running, or one filed before watchers left the hub', () => {
     busyTask()
-    turnOn()
     // As the hub wrote them then: the agent's watcher with an id and a filing under #3, the nested one's with an id.
     const id = db.prepare("INSERT INTO child_ids (task_id, number, kind, key) VALUES (?, ?, 'watcher', ?)")
     id.run(task.id, 1, CI_CALL)
@@ -330,8 +313,6 @@ describe('list_children', () => {
     createTodo('1', 'Watch CI on PR #511', 3_000)
     monitor(CI_CALL, 'CI on PR #511', null, 7_000)
     monitor('toolu_deploy', 'Staging deploy', null, 7_100)
-    turnOn()
-
     expect(list()).toBe('#1 Watch CI on PR #511 (pending), no children\nNot under a todo, no children')
     expect(list(NO_TODO)).toBe('Not under a todo, no children')
     expect(rows('child_ids')).toBe(0)
@@ -339,7 +320,6 @@ describe('list_children', () => {
 
   it('lists each child under its todo once filed; a subagent that has its todo isn’t listed, and its commits are', () => {
     busyTask()
-    turnOn()
     list()
     file([
       { child: 'c1', todo: '1' },
@@ -371,7 +351,6 @@ describe('list_children', () => {
     commit(NESTED_HASH, 'Fix the date tests', 'toolu_first', 5_150)
     commit(FIX_HASH, 'Fix the date helpers', 'toolu_second', 5_350)
     monitor(NESTED_CI_CALL, 'The test run', REVIEWER.key, 5_400)
-    turnOn()
     // As Glade records it when the `Agent` call names its todo.
     fileChildren(context(), task.id, [{ ...REVIEWER, todoId: '2', source: FilingSource.Named }], 5_000)
 
@@ -391,7 +370,6 @@ describe('list_children', () => {
 
   it('narrows to one todo, by its id with or without a #, and to the ones under no todo', () => {
     busyTask()
-    turnOn()
     list()
     file([{ child: 'c1', todo: '1' }])
 
@@ -410,8 +388,6 @@ describe('list_children', () => {
 
   it('refuses a todo that isn’t in the list, saying which are', () => {
     busyTask()
-    turnOn()
-
     expect(refusal(() => list('9'))).toEqual({
       code: BridgeErrorCode.NotFound,
       message: `There's no todo #9 in this task's list. ${TODOS}`,
@@ -421,8 +397,6 @@ describe('list_children', () => {
   })
 
   it('lists a task with no todos as the ones under no todo alone, and one that made nothing as none', () => {
-    turnOn()
-
     expect(list()).toBe('Not under a todo, no children')
     expect(refusal(() => list('1')).message).toBe(`There's no todo #1 in this task's list. ${NO_TODOS}`)
 
@@ -439,8 +413,6 @@ describe('list_children', () => {
     )
     finish('toolu_write', 'Todos have been modified successfully', 3_000)
     addArtifact(db, { taskId: task.id, path: PLAN.key, title: 'The plan' }, 4_000)
-    turnOn()
-
     expect(list()).toBe('Not under a todo, 1 child:\n- c1: file "The plan"')
     expect(refusal(() => file([{ child: 'c1', todo: '1' }])).message).toBe(
       `${NOTHING_FILED} There's no todo #1 in this task's list. ${NO_TODOS}`,
@@ -449,7 +421,6 @@ describe('list_children', () => {
 
   it('keeps a child’s id for good: a second listing, a new child and a removed one change no one else’s', () => {
     busyTask()
-    turnOn()
     const first = list()
 
     expect(list()).toBe(first)
@@ -467,7 +438,6 @@ describe('list_children', () => {
 
   it('lists a subagent again, with the id it had, once the todo it worked on is deleted', () => {
     busyTask()
-    turnOn()
     list()
     file([{ child: 'c3', todo: '3' }], 9_000)
     expect(list()).not.toMatch(/subagent/)
@@ -483,7 +453,6 @@ describe('list_children', () => {
   })
 
   it('gives each child a title a person would know it by, on one line, cut when it runs long', () => {
-    turnOn()
     const long = `Review ${'the date helpers and '.repeat(8)}report`
     addArtifact(db, { taskId: task.id, path: 'docs/a.md', title: 'Release\nnotes   2.4' }, 4_000)
     call('Agent', 'toolu_typed', { subagent_type: 'Explore', prompt: 'Look around.' }, 5_000)
@@ -517,8 +486,6 @@ describe('list_children', () => {
         4_000 + index,
       )
     }
-    turnOn()
-
     const lines = list().split('\n')
 
     expect(lines).toHaveLength(202)
@@ -530,23 +497,8 @@ describe('list_children', () => {
 })
 
 describe('file_children', () => {
-  it('is refused while the hub is off, with nothing filed or sent', () => {
-    busyTask()
-    turnOn()
-    list()
-    updateSettings(db, { todoHubEnabled: false })
-
-    expect(refusal(() => file([{ child: 'c1', todo: '1' }]))).toEqual({
-      code: BridgeErrorCode.InvalidTransition,
-      message: TODO_HUB_OFF,
-    })
-    expect(rows('child_filings')).toBe(0)
-    expect(events).toEqual([])
-  })
-
   it('sorts a task whose children are all unfiled: each goes under a todo, and nothing is left under none', () => {
     busyTask()
-    turnOn()
     list()
 
     const outcome = file([
@@ -598,7 +550,6 @@ describe('file_children', () => {
 
   it('moves a child between two todos, and tells the windows', () => {
     busyTask()
-    turnOn()
     list()
     file([{ child: 'c1', todo: '1' }], 9_000)
     events.length = 0
@@ -616,7 +567,6 @@ describe('file_children', () => {
 
   it('accepts a subagent: that sets the todo it works on, and nothing shows it there', () => {
     busyTask()
-    turnOn()
     list()
 
     const outcome = file([{ child: 'c4', todo: '3' }])
@@ -637,7 +587,6 @@ describe('file_children', () => {
     // The reviewer commits too, between its own subagent's commit and the agent's.
     call('Bash', 'toolu_reviewer_bash', { command: 'git commit -am "Tidy"' }, 5_550, REVIEWER.key)
     commit(TIDY_HASH, 'Tidy the helpers', 'toolu_reviewer_bash', 5_600)
-    turnOn()
     expect(list().split('\n').slice(-3)).toEqual([
       '- c5: commit "def4567 Fix the date tests" (follows c4)',
       '- c6: commit "1112223 Tidy the helpers" (follows c3)',
@@ -676,7 +625,6 @@ describe('file_children', () => {
 
   it('gives a nested subagent another todo than the one that made it, with what it committed', () => {
     busyTask()
-    turnOn()
     list()
     file([{ child: 'c3', todo: '2' }])
 
@@ -698,7 +646,6 @@ describe('file_children', () => {
 
   it('refuses a watcher, by an id one had before watchers left the hub, saying watchers aren’t filed', () => {
     busyTask()
-    turnOn()
     list()
     // As the hub named them then: the table still allows the kind.
     const id = db.prepare("INSERT INTO child_ids (task_id, number, kind, key) VALUES (?, ?, 'watcher', ?)")
@@ -735,7 +682,6 @@ describe('file_children', () => {
 
   it('changes nothing for a bad todo id, and says which, with the todos there are', () => {
     busyTask()
-    turnOn()
     list()
     file([{ child: 'c1', todo: '1' }])
     const before = listFilings(db, task.id)
@@ -761,7 +707,6 @@ describe('file_children', () => {
 
   it('changes nothing for a bad child key, and says which', () => {
     busyTask()
-    turnOn()
     list()
 
     const refused = refusal(() =>
@@ -786,7 +731,6 @@ describe('file_children', () => {
 
   it('says everything wrong with a call at once: unknown children, a todo that isn’t there, a child for two todos', () => {
     busyTask()
-    turnOn()
     list()
 
     expect(
@@ -806,7 +750,6 @@ describe('file_children', () => {
 
   it('never takes another task’s child for its own: short ids are a task’s', () => {
     busyTask()
-    turnOn()
     list()
     const mine = task
     task = sampleTask(db, mine.workspaceId)
@@ -820,7 +763,6 @@ describe('file_children', () => {
   describe('under stress', () => {
     it('leaves a child alone when it’s moved to the todo it’s already under', () => {
       busyTask()
-      turnOn()
       list()
       fileChildren(context(), task.id, [{ ...PLAN, todoId: '1', source: FilingSource.Named }], 8_000)
       events.length = 0
@@ -848,7 +790,6 @@ describe('file_children', () => {
 
     it('files a commit that only followed its subagent when it’s filed where it already shows, so it stays behind', () => {
       busyTask()
-      turnOn()
       list()
       file([{ child: 'c3', todo: '2' }])
 
@@ -864,7 +805,6 @@ describe('file_children', () => {
 
     it('counts a child named twice for the same todo once, and refuses one named for two', () => {
       busyTask()
-      turnOn()
       list()
 
       const outcome = file([
@@ -901,7 +841,6 @@ describe('file_children', () => {
           4_000 + index,
         )
       }
-      turnOn()
       list()
       const requests = Array.from({ length: 200 }, (_, index) => ({
         child: `c${String(index + 1)}`,
@@ -939,7 +878,6 @@ describe('file_children', () => {
         commit(`${n.padStart(4, '0')}${'ab'.repeat(18)}`, `Fix module ${n}`, `toolu_bash_${n}`, 6_000 + index)
         monitor(`toolu_watch_${n}`, `Tests of module ${n}`, `toolu_agent_${n}`, 7_000 + index)
       }
-      turnOn()
       const tops = Array.from({ length: 17 }, (_, index) => ({
         kind: ChildKind.Subagent,
         key: `toolu_agent_${String(index * 3)}`,
@@ -975,7 +913,6 @@ describe('file_children', () => {
 
     it('refuses a child whose artifact was removed since it was listed, and files nothing', () => {
       busyTask()
-      turnOn()
       list()
       removeArtifact(db, task.id, { kind: ArtifactKind.File, path: PLAN.key })
 
@@ -1001,7 +938,6 @@ describe('file_children', () => {
 
     it('refuses a todo deleted between the list and the move, and leaves the child where it was', () => {
       busyTask()
-      turnOn()
       list()
       file([{ child: 'c1', todo: '1' }], 9_000)
       events.length = 0
@@ -1019,7 +955,6 @@ describe('file_children', () => {
 
     it('moves a child out of a deleted todo, where it showed under no todo', () => {
       busyTask()
-      turnOn()
       list()
       file([{ child: 'c2', todo: '3' }], 9_000)
       updateTodo('3', 'deleted', 9_100)
@@ -1034,7 +969,6 @@ describe('file_children', () => {
 
     it('files a child Glade named in another way than a listing, and one filed as inherited', () => {
       busyTask()
-      turnOn()
       // An artifact a subagent declared keeps an inherited filing; filing it by hand makes it the agent's own.
       fileChildren(context(), task.id, [{ ...PLAN, todoId: '2', source: FilingSource.Inherited }], 8_000)
       list()
@@ -1046,8 +980,6 @@ describe('file_children', () => {
     })
 
     it('answers an empty call with nothing changed', () => {
-      turnOn()
-
       expect(filedText(file([]))).toBe('Nothing changed.')
       expect(events).toEqual([])
     })

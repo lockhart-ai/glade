@@ -31,7 +31,7 @@ import {
 } from '../../shared/domain'
 import { autoCompactThreshold } from '../../shared/contextWindow'
 import { FolderAccess, OtherAgents, SandboxAskKind, SandboxGrantKind, SandboxGrantScope } from '../../shared/sandbox'
-import { subagentTodo } from '../../shared/todoHub'
+import { ChildKind, FilingSource, subagentTodo } from '../../shared/todoHub'
 import { listArtifacts, listFileArtifacts } from '../db/repositories/artifacts'
 import { listMessages } from '../db/repositories/messages'
 import { getOpenQuestionSet } from '../db/repositories/question-sets'
@@ -43,6 +43,7 @@ import { listReportedServers } from '../db/repositories/reported-mcp-servers'
 import { listSandboxGrants } from '../db/repositories/sandbox-grants'
 import { taskSandboxGrants } from '../sandbox/grants'
 import { getSettings, updateSettings } from '../db/repositories/settings'
+import { listFilings } from '../db/repositories/child-filings'
 import { listTaskCommits } from '../db/repositories/task-commits'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
@@ -173,7 +174,9 @@ function activity(): TaskActivity | undefined {
 }
 
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  // `setImmediate` too: the hooks that file what a session makes wait on one before they answer (`caughtUp` in the
+  // runner), so a turn's timers and those waits run off the one clock.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setImmediate', 'clearImmediate', 'Date'] })
   database = openTestDatabase()
   task = sampleTask(database.db, sampleWorkspace(database.db).id)
 })
@@ -323,6 +326,15 @@ describe('AGENT_SCRIPTS', () => {
       return found
     }
 
+    /** The subagents and commits a call's marker filed, each as `kind #todo`. */
+    function namedFilings(): string[] {
+      return listFilings(database.db, task.id)
+        .filter(
+          ({ kind, source }) => source === FilingSource.Named && kind !== ChildKind.File && kind !== ChildKind.Link,
+        )
+        .map(({ kind, todoId }) => `${kind} #${todoId}`)
+    }
+
     it('names a todo it keeps in the Agent call and the Bash call that commits, the first turn, and in no watcher’s', async () => {
       const agent = start('files-children')
       agent.send(task.id, FILES_CHILDREN.prompt)
@@ -341,21 +353,19 @@ describe('AGENT_SCRIPTS', () => {
 
       for (const child of CHILDREN) {
         const made = FILES_CHILDREN.named[child]
-        if (typeof made === 'string') {
-          // A watcher isn't filed: its call is written with its own text alone.
-          const call = callWith(child, made)
-          expect(namedTodo(call.name, call.input)).toBeNull()
-          continue
-        }
-        const { text, todo } = made
-        const call = callWith(child, `[todo ${todo}] ${text}`)
-        // It names a todo the list has, and its own text is what's left.
-        expect(ids).toContain(todo)
-        expect(namedTodo(call.name, call.input)).toMatchObject({ todoId: todo, input: { description: text } })
+        // Each call is logged with its own text alone: Glade took the marker off the two that had one.
+        const call = callWith(child, typeof made === 'string' ? made : made.text)
+        expect(namedTodo(call.name, call.input)).toBeNull()
+        if (typeof made === 'string') continue
+        // It named a todo the list has, which is how its child came to be filed there (`Named`).
+        expect(ids).toContain(made.todo)
+        expect(namedFilings()).toContain(`${child} #${made.todo}`)
       }
+      // A watcher's call names none, so nothing of one is filed.
+      expect(namedFilings()).toHaveLength(FILED)
       // Each child is really made: the commit, the subagent that ran, and what's left running or scheduled.
       expect(commitSubjects()).toEqual([FILES_CHILDREN.named.commitSubject])
-      const subagent = callWith('subagent', `[todo 1] ${FILES_CHILDREN.named.subagent.text}`)
+      const subagent = callWith('subagent', FILES_CHILDREN.named.subagent.text)
       expect(subagent.state).toBe(ToolCallState.Done)
       expect(
         calls()
@@ -377,8 +387,9 @@ describe('AGENT_SCRIPTS', () => {
         const call = callWith(child, FILES_CHILDREN.unnamed[child])
         expect(namedTodo(call.name, call.input)).toBeNull()
       }
-      // Two calls name a todo, the first turn's `Agent` call and its commit, and no more.
-      expect(calls().filter((call) => namedTodo(call.name, call.input) !== null)).toHaveLength(FILED)
+      // Two calls named a todo, the first turn's `Agent` call and its commit, and no more: the second turn's subagent
+      // and commit are filed because Glade asked.
+      expect(namedFilings()).toHaveLength(FILED)
       expect(commitSubjects()).toEqual([FILES_CHILDREN.unnamed.commitSubject, FILES_CHILDREN.named.commitSubject])
       expect(listWatchers(database.db, task.id)).toHaveLength(8)
       // The todo list is the first turn's: the second made nothing a todo.
@@ -386,28 +397,7 @@ describe('AGENT_SCRIPTS', () => {
       expect(listMessages(database.db, task.id).at(-1)?.body).toBe(FILES_CHILDREN.unnamed.reply)
     })
 
-    it('with the hub off, declares its artifacts with no todo taken, and nothing is asked, held or filed', async () => {
-      const agent = start('files-children')
-      agent.send(task.id, FILES_CHILDREN.prompt)
-      await backend.whenIdle()
-      agent.send(task.id, 'And the order totals.')
-      await backend.whenIdle()
-
-      expect(listArtifacts(database.db, task.id).map(({ kind, title }) => [kind, title])).toEqual([
-        [ArtifactKind.File, FILES_CHILDREN.artifacts.file.title],
-        [ArtifactKind.Link, FILES_CHILDREN.artifacts.link.title],
-      ])
-      // The agent never files: nothing told it to.
-      expect(calls().filter(({ name }) => name === 'mcp__glade__file_children')).toEqual([])
-      expect(database.db.prepare('SELECT COUNT(*) FROM child_filings').pluck().get()).toBe(0)
-      expect(database.db.prepare('SELECT COUNT(*) FROM owed_filings').pluck().get()).toBe(0)
-    })
-
-    describe('with the todo hub on', () => {
-      beforeEach(() => {
-        updateSettings(database.db, { todoHubEnabled: true })
-      })
-
+    describe('as Glade files it', () => {
       /** Each todo's children, then the ones under no todo, each as `kind source`, sorted. */
       function placed(): string[][] {
         const { children } = readTodoHub(database.db, task.id)
@@ -543,11 +533,14 @@ describe('AGENT_SCRIPTS', () => {
       return maker
     }
 
-    /** Plays `unsorted-children`'s turn, then starts the task's session again on `sorts-children`, as a relaunch. */
-    async function makeThenRelaunch(todoHubEnabled: boolean): Promise<AgentRunner> {
+    /**
+     * Plays `unsorted-children`'s turn, takes away every filing it made, as a task from before the hub has none, then
+     * starts the task's session again on `sorts-children`, as a relaunch.
+     */
+    async function makeThenRelaunch(): Promise<AgentRunner> {
       const maker = await make()
       maker.close()
-      updateSettings(database.db, { todoHubEnabled })
+      database.db.exec('DELETE FROM child_filings')
       return start('sorts-children')
     }
 
@@ -571,7 +564,7 @@ describe('AGENT_SCRIPTS', () => {
       )
     }
 
-    it('makes one of each kind of child, a subagent’s commit among them, and two watchers, with nothing filed', async () => {
+    it('makes one of each kind of child, a subagent’s commit among them, and two watchers', async () => {
       await make()
 
       expect(todoListFor(database.db, task.id)?.items.map(({ id, text }) => [id, text])).toEqual(
@@ -591,12 +584,14 @@ describe('AGENT_SCRIPTS', () => {
         listTaskCommits(database.db, task.id).map(({ subject, subagentToolUseId }) => [subject, subagentToolUseId]),
       ).toEqual([[SORTS_CHILDREN.commitSubject, subagent?.toolUseId]])
       expect(reply()).toBe(SORTS_CHILDREN.made)
-      // With the hub off, the session has neither tool and nothing of the hub is written.
+      // Each is under the todo its call named, so nothing was asked of the agent and no child has a short id yet.
+      expect(placed()).toEqual([['commit inherited'], ['file named'], ['link named'], []])
       expect(database.db.prepare('SELECT COUNT(*) FROM child_ids').pluck().get()).toBe(0)
+      expect(database.db.prepare('SELECT COUNT(*) FROM owed_filings').pluck().get()).toBe(0)
     })
 
-    it('lists what the task made and files each under a todo in one call, once the hub is on', async () => {
-      const agent = await makeThenRelaunch(true)
+    it('lists what a task from before the hub made and files each under a todo in one call', async () => {
+      const agent = await makeThenRelaunch()
       // What it produced is under no todo. Its subagent and its two watchers are under nothing.
       expect(placed()).toEqual([[], [], [], ['commit unfiled', 'file unfiled', 'link unfiled']])
 
@@ -631,7 +626,7 @@ describe('AGENT_SCRIPTS', () => {
     })
 
     it('gives the subagent another todo, which brings its commit, then is refused a todo and a child that aren’t there', async () => {
-      const agent = await makeThenRelaunch(true)
+      const agent = await makeThenRelaunch()
       await say(agent, SORTS_CHILDREN.sortPrompt)
 
       await say(agent, SORTS_CHILDREN.movePrompt)
@@ -655,21 +650,6 @@ describe('AGENT_SCRIPTS', () => {
       expect(placed()).toEqual(moved)
       expect(listMessages(database.db, task.id).at(-1)?.body).toBe(SORTS_CHILDREN.refused)
     })
-
-    it('has neither tool in a session that starts with the hub off: its calls fail and nothing is filed', async () => {
-      const agent = await makeThenRelaunch(false)
-
-      await say(agent, SORTS_CHILDREN.sortPrompt)
-
-      expect(gladeCalls('list_children')).toEqual([
-        [ToolCallState.Error, expect.stringContaining('not found') as unknown],
-      ])
-      expect(gladeCalls('file_children')).toEqual([
-        [ToolCallState.Error, expect.stringContaining('not found') as unknown],
-      ])
-      expect(database.db.prepare('SELECT COUNT(*) FROM child_filings').pluck().get()).toBe(0)
-      expect(database.db.prepare('SELECT COUNT(*) FROM child_ids').pluck().get()).toBe(0)
-    })
   })
 
   it('declares-artifacts: writes release notes and an upgrade guide, and declares both as artifacts', async () => {
@@ -689,17 +669,25 @@ describe('AGENT_SCRIPTS', () => {
         ['mcp__glade__set_title', ToolCallState.Done],
         ['mcp__glade__set_objective', ToolCallState.Done],
         ['mcp__glade__set_status', ToolCallState.Done],
+        ['TaskCreate', ToolCallState.Done],
+        ['TaskUpdate', ToolCallState.Done],
         ['Write', ToolCallState.Done],
         ['Write', ToolCallState.Done],
         ['mcp__glade__add_artifact', ToolCallState.Done],
         ['mcp__glade__add_artifact', ToolCallState.Done],
+        ['TaskUpdate', ToolCallState.Done],
         ['mcp__glade__set_status', ToolCallState.Done],
+      ])
+      // Both are under the one todo it keeps, as each call said.
+      expect(listFilings(database.db, task.id).map(({ key, todoId }) => [key, todoId])).toEqual([
+        ['docs/releases/2.4.md', '1'],
+        ['docs/releases/2.4-upgrade.md', '1'],
       ])
       expect(listFileArtifacts(database.db, task.id).map(({ path, title }) => [path, title])).toEqual([
         ['docs/releases/2.4.md', 'Release notes 2.4'],
         ['docs/releases/2.4-upgrade.md', 'Upgrade guide'],
       ])
-      expect(reply()).toBe('The release notes and an upgrade guide are ready in Artifacts.')
+      expect(reply()).toBe('The release notes and an upgrade guide are ready, under their todo.')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -1998,7 +1986,11 @@ describe('AGENT_SCRIPTS', () => {
       'Read docs/releases/2.3.md (done)',
       'Bash curl -sI https://example.com/docs/limits (done)',
     ])
-    const notes = listToolEvents(database.db, task.id).filter((event) => event.kind === ToolEventKind.Narration)
+    // What the subagents narrated. (The agent's own reply is in the log too: it started its subagents for no todo and
+    // files nothing when Glade asks, so the end of its turn was held, and it wrote the reply again.)
+    const notes = listToolEvents(database.db, task.id).filter(
+      (event) => event.kind === ToolEventKind.Narration && event.parentToolUseId !== null,
+    )
     expect(notes).toMatchObject([{ text: 'Listing the merged API PRs.', parentToolUseId: idOf('API changes') }])
   })
 })

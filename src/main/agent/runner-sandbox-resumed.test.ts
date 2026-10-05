@@ -247,7 +247,7 @@ describe('a session that started before the sandbox was on', () => {
       instructionUpdates: 0,
       handoffAt: null,
       sandbox: false,
-      todoHub: false,
+      todoHub: true,
     })
     const handoff = setHandoff(database.db, task.id, '## Next\n\nShip it.', 5_000)
     if (handoff === undefined) throw new Error('No handoff')
@@ -268,7 +268,7 @@ describe('a session that started before the sandbox was on', () => {
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: 5_000,
       sandbox: true,
-      todoHub: false,
+      todoHub: true,
     })
   })
 

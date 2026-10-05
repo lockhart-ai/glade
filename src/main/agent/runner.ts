@@ -17,7 +17,7 @@
  *   turn's edits changed.
  * - Each tool call is saved as running and filled in as done or error when its result arrives. A subagent's tool calls
  *   carry their `Agent` call's id. A subagent's own text (`forwardSubagentText`) isn't held back: it goes straight to
- *   the tool log as narration carrying its `Agent` call's id, for the Subagents tab, and never to the chat.
+ *   the tool log as narration carrying its `Agent` call's id, for the Agents tab, and never to the chat.
  * - The task's activity is working for the turn, then waiting on you, or error if the turn failed.
  * - A final reply in a task you aren't viewing marks it unread (`../tasks/attention`) and is notified (`notifyReply`).
  * - The task's context usage follows the agent's latest top-level message, and its context window is what the turn's
@@ -46,13 +46,13 @@
  *
  * **Commits** (`../changes/tracker`, `docs/sdk-notes.md` §14). Each `Bash` call is put to the change tracker before it
  * runs (the session's `PreToolUse` hook, which the call waits for) and once its result is in, a subagent's and a
- * background subagent's too, so the commits a task makes are linked to it for the Changes tab. The tracker reads git in
+ * background subagent's too, so the commits a task makes are linked to it for the Todos tab's commit tiles. The tracker reads git in
  * the background; it never holds up a turn, and a failed session forgets its calls that were running.
  *
  * **Background subagents** (`docs/sdk-notes.md`, "Background subagents"). An `Agent` call with `run_in_background`
  * returns as soon as its subagent is launched, and the turn carries on and ends without waiting for it, so the task goes
  * back to waiting on you and takes messages while the subagent works. The subagent isn't done then: its `Agent` call's
- * row keeps running, for the Subagents tab, until the SDK's task notification says it ended, when it's done, or failed
+ * row keeps running, for the Agents tab, until the SDK's task notification says it ended, when it's done, or failed
  * (a stopped one fails, as a stopped turn's calls do). Its calls and notes are logged as they arrive, whether a turn is
  * running or not, with the turn its `Agent` call was made in; they never open a turn, and a turn ending doesn't cut
  * them off. Stop subagent stops it by the SDK's task id, as a foreground one. The agent then usually starts a turn of
@@ -244,10 +244,9 @@
  * Marking costs a call nothing it didn't already pay: the path is resolved once, by the classifier, and the task's
  * rules and grants are kept on the session between changes to them.
  *
- * **Filing under todos** (P16-04, #495; `../todo-hub/filing`, `docs/sdk-notes.md` §16). With the hidden `todoHubEnabled`
- * setting on as a session starts, it has the todo hub for its whole life: its prompt says so (a resumed session is
- * sent the lines once, `./session-context`), Claude Code's task tools stay on whatever the user's settings say, and
- * three hooks file what the agent produces. Each `Agent` call, and each `Bash` call of its own in the foreground (it
+ * **Filing under todos** (P16-04, #495; `../todo-hub/filing`, `docs/sdk-notes.md` §16). Every session has the todo
+ * hub: its prompt says so (a session resumed from before it is sent the lines once, `./session-context`), Claude
+ * Code's task tools stay on whatever the user's settings say, and three hooks file what the agent produces. Each `Agent` call, and each `Bash` call of its own in the foreground (it
  * may commit), is read as it streams and again before it runs (`childStarting`): `[todo N]` at the start of its
  * description names its todo, the subagent is recorded as working on it or the commits are filed under it, and the
  * marker comes off the call's row in the tool log and off the input the tool runs with, so it shows nowhere. A
@@ -256,7 +255,7 @@
  * with a filing owed is held (`turnEnding`), twice at most; the reply it had written goes to the tool log as
  * narration, since the agent writes it again (if it doesn't, that reply is the turn's after all). A turn you stopped,
  * and a compaction, are never held. A subagent is never asked to file anything: what it commits follows its todo,
- * and so does a subagent it starts, unless that call names another. With the setting off, a session has none of this.
+ * and so does a subagent it starts, unless that call names another.
  *
  * **Resume on launch.** A turn the app quit or crashed in is left working in the database: a turn's user messages and
  * its working activity are saved together, so none is left unanswered. On launch, `resumeInterrupted` carries each
@@ -555,7 +554,7 @@ export interface AgentRunnerOptions {
    */
   readonly isOnline?: () => boolean
   /**
-   * Works out the commits each task's `Bash` calls make, for the Changes tab (`../changes/tracker`). One reading the
+   * Works out the commits each task's `Bash` calls make, for the Todos tab's commit tiles (`../changes/tracker`). One reading the
    * `git` on the PATH by default.
    */
   readonly changes?: ChangeTracker
@@ -874,11 +873,6 @@ interface LiveSession {
   readonly reported: Map<string, string>
   /** Whether the session has the `glade-control` tools, which its system prompt says. */
   readonly control: boolean
-  /**
-   * Whether the session has the todo hub (#495): it started with `todoHubEnabled` on, so it has the hub's tools, its
-   * prompt's lines (or is owed them) and the hooks that file what it makes, for its whole life.
-   */
-  readonly todoHub: boolean
   /** The permission requests the session's calls wait on, by id: whether each is a background subagent's. */
   readonly requests: Map<string, boolean>
   /**
@@ -1587,27 +1581,26 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       turn.pending.push({ text, sdkUuid })
       return
     }
-    // A subagent's text is the subagent's business, not the chat's: it's what the Subagents tab says it's doing.
+    // A subagent's text is the subagent's business, not the chat's: it's what the Agents tab says it's doing.
     if (text.trim() === '') return
     emitToolEventAppended(emit, appendNarration(db, { taskId, turn: turn.number, text: text.trim(), parentToolUseId }))
   }
 
   /**
-   * A call's input as the tool log keeps it. In a session with the todo hub, a call that names its todo (an `Agent`
-   * call, or the agent's own `Bash` call in the foreground) is read there and then, before its row is written, so a
-   * subagent's todo is recorded before the subagent shows, and is logged without the marker, as the tool runs without
-   * it (`childStarting`): the marker shows nowhere. Any other call, a watcher's included, is logged as it was written.
+   * A call's input as the tool log keeps it. A call that names its todo (an `Agent` call, or the agent's own `Bash`
+   * call in the foreground) is read there and then, before its row is written, so a subagent's todo is recorded before
+   * the subagent shows, and is logged without the marker, as the tool runs without it (`childStarting`): the marker
+   * shows nowhere. Any other call, a watcher's included, is logged as it was written.
    */
-  const loggedInput = (taskId: string, live: LiveSession, event: ToolCallStartedEvent): ToolInput => {
+  const loggedInput = (taskId: string, event: ToolCallStartedEvent): ToolInput => {
     const { toolUseId, name: toolName, input, parentToolUseId } = event
-    if (!live.todoHub) return input
     return filer.callStarting(taskId, { toolName, input, toolUseId, subagent: parentToolUseId !== null }) ?? input
   }
 
-  const onToolCall = (taskId: string, live: LiveSession, turn: Turn, event: ToolCallStartedEvent): void => {
+  const onToolCall = (taskId: string, turn: Turn, event: ToolCallStartedEvent): void => {
     flushPreamble(taskId, turn)
     const { toolUseId, name, parentToolUseId, sdkUuid } = event
-    const input = loggedInput(taskId, live, event)
+    const input = loggedInput(taskId, event)
     const call = appendToolCall(db, { taskId, turn: turn.number, name, input, toolUseId, parentToolUseId })
     emitToolEventAppended(emit, call)
     turn.running.set(toolUseId, parentToolUseId)
@@ -2204,7 +2197,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         return true
       }
       const { toolUseId, name } = event
-      const input = loggedInput(taskId, live, event)
+      const input = loggedInput(taskId, event)
       emitToolEventAppended(emit, appendToolCall(db, { taskId, turn, name, input, toolUseId, parentToolUseId }))
       live.backgroundCalls.set(toolUseId, owner)
       return true
@@ -2463,7 +2456,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         return
       case AgentEventKind.ToolCallStarted:
         recovered(taskId, turn)
-        onToolCall(taskId, live, turn, event)
+        onToolCall(taskId, turn, event)
         markRuled(taskId, live, event)
         return
       case AgentEventKind.ToolResult:
@@ -3087,8 +3080,6 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const settings = getSettings(db)
     // The sandbox, when on, is the session's for its whole life: a change to the setting applies from its next start.
     const sandboxed = settings.sandboxEnabled
-    // So is the todo hub: its tools, its prompt's lines and its hooks are the session's from start to end.
-    const todoHub = settings.todoHubEnabled
     // Whatever calls the task's last session was running went with it.
     filer.sessionEnded(task.id)
     const taskRules = listTaskPermissionRules(db, task.id).map(({ rule }) => rule)
@@ -3102,7 +3093,6 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       permissionMode: task.permissionMode,
       allowedRules: allowedRules.length,
       sandboxed,
-      todoHub,
       cwd: workspace.rootPath,
       resumeSessionId: task.sessionId,
     })
@@ -3111,7 +3101,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const handoff = getHandoff(db, task.id) ?? null
     // A session Glade starts has everything its prompt says; one it resumes keeps the prompt it started with, and is
     // sent what it's missing with its next message (`startTurn`).
-    if (task.sessionId === null) setSessionContext(db, task.id, startedContext(handoff, sandboxed, todoHub))
+    if (task.sessionId === null) setSessionContext(db, task.id, startedContext(handoff, sandboxed))
     // The session's calls are decided against the live session, which exists once the backend has started it.
     let decide: (call: ToolPermissionCall) => Promise<ToolPermissionAnswer> = () => Promise.resolve(WITHDRAWN)
     let verdict: (prompt: string) => PromptVerdict = () => PromptVerdict.Allow
@@ -3142,7 +3132,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       allowedRules,
       ...(sandboxed ? { flagSettings: sandboxStartSettings(workspace.rootPath, home, denied) } : {}),
       // Nothing can be filed under a todo without an id: the session keeps the tools that give todos one.
-      ...(todoHub ? { keepTaskTools: true } : {}),
+      keepTaskTools: true,
       log: agentLog(task.id),
       onToolPermission: (call) => decide(call),
       hooks: {
@@ -3168,14 +3158,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
               onToolStarting: (call: ToolCallStarting) => starting(call),
             }
           : {}),
-        // With the todo hub, what the agent's own calls make is filed under its todos as it's made.
-        ...(todoHub
-          ? {
-              onChildStarting: (call: ChildCallStarting) => childCall(call),
-              onBatchFinished: (batch: ToolBatch) => batchDone(batch),
-              onTurnEnding: (turnEnd: TurnEnding) => ending(turnEnd),
-            }
-          : {}),
+        // What the agent's own calls make is filed under its todos as it's made.
+        onChildStarting: (call: ChildCallStarting) => childCall(call),
+        onBatchFinished: (batch: ToolBatch) => batchDone(batch),
+        onTurnEnding: (turnEnd: TurnEnding) => ending(turnEnd),
       },
     })
     // The commands the user's Claude Code settings keep out of the sandbox, read as they're first needed.
@@ -3210,7 +3196,6 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       inProcess,
       reported: new Map(),
       control,
-      todoHub,
       requests: new Map(),
       accessCalls: [],
       sdkModel: null,
@@ -3505,19 +3490,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         recorded: getSessionContext(db, taskId),
         startedElsewhere: task.importedAt !== null,
         handoff,
-        // The prompt for the session as it runs: the todo hub is the session's as it started, whatever the setting
-        // says now.
-        prompt: systemPromptAppend(
-          task,
-          { ...getSettings(db), todoHubEnabled: live.todoHub },
-          live.control,
-          handoff,
-          live.sandbox !== null,
-        ),
+        prompt: systemPromptAppend(task, getSettings(db), live.control, handoff, live.sandbox !== null),
         // A session that started before the sandbox was on, and resumed in it, is told of it once (#452).
         sandboxed: live.sandbox !== null,
-        // And one that started with the todo hub off, and resumed with it on, of the hub (#495).
-        todoHub: live.todoHub,
       }
       const missing = messages.length === 0 ? [] : missingContext(check)
       if (missing.length > 0) setSessionContext(db, taskId, contextAfter(check, missing))

@@ -1,5 +1,5 @@
 /**
- * Which commits a task made, for the Changes tab. Glade watches git and never drives it: the agents commit, branch and
+ * Which commits a task made, for the Todos tab's commit tiles. Glade watches git and never drives it: the agents commit, branch and
  * make worktrees as they like, and Glade works out afterwards what each task's `Bash` calls committed
  * (`docs/sdk-notes.md` §14), from two things it sees of each call:
  *

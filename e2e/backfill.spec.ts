@@ -9,7 +9,7 @@ import { BACKFILLS_TASKS, REPLIES_BRIEFLY, type BackfilledTaskSample } from '../
 import { CommandName } from '../src/shared/bridge'
 import { TaskState } from '../src/shared/domain'
 import { agentReceived, agentSessions, expect, test } from './fixtures'
-import { artifactsTab, chat, inputBar, taskHeader, taskList, taskPanel } from './selectors'
+import { chat, inputBar, taskHeader, taskList, taskPanel, todoHub } from './selectors'
 import { invoke } from './task-view'
 
 const PICK_UP = "Let's pick this up."
@@ -102,13 +102,15 @@ test('an agent backfills past tasks; the user opens one, sees its handoff and ar
   await conversation.handoffToggle.click()
   await expect(card.getByRole('heading', { name: 'Where it got to' })).toBeVisible()
 
-  // Its notes are its artifacts.
+  // Its notes are its artifacts; the task has no todos, so the placeholder group is the whole list, always open.
   const panel = taskPanel(window)
-  await panel.tab(/^Artifacts/).click()
-  await expect(panel.tab(/^Artifacts/)).toHaveText('Artifacts 2')
-  await expect(artifactsTab(window).rows).toHaveCount(2)
-  await expect(artifactsTab(window).open('Migration notes')).toHaveAttribute('title', 'notes/billing-webhooks/notes.md')
-  await expect(artifactsTab(window).open('Decisions')).toHaveAttribute('title', 'notes/billing-webhooks/decisions.md')
+  await panel.tab(/^Todos/).click()
+  const hub = todoHub(window)
+  await expect(hub.cards).toHaveCount(1)
+  const notes = hub.tile(hub.cards, 'File: Migration notes')
+  const decisions = hub.tile(hub.cards, 'File: Decisions')
+  await expect(notes.getByText('Markdown')).toHaveAttribute('title', 'notes/billing-webhooks/notes.md')
+  await expect(decisions.getByText('Markdown')).toHaveAttribute('title', 'notes/billing-webhooks/decisions.md')
 
   // Picking it up reopens it, and the session that starts has the handoff note; the backfilling task's had none.
   await bar.field.fill(PICK_UP)

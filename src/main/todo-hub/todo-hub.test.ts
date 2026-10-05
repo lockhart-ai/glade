@@ -1,5 +1,5 @@
 // The todo hub in main, on a real database: what it reads of a task, where it puts each child, what it tells the
-// windows when a child is filed, and that every part of it stands still while its hidden switch is off.
+// windows when a child is filed.
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,7 +7,6 @@ import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
 import { ToolCallState, WatcherKind, WatcherState, type Task } from '../../shared/domain'
-import { DEFAULT_SETTINGS } from '../../shared/settings'
 import {
   ChildFilter,
   ChildKind,
@@ -15,7 +14,6 @@ import {
   commitChildKey,
   FilingSource,
   subagentTodos,
-  TODO_HUB_OFF,
   UNFILED_TODO_ID,
   type ChildRef,
   type TodoChildren,
@@ -24,7 +22,6 @@ import { openAppDatabase } from '../db/database'
 import { addArtifact, addLinkArtifact, setArtifactFile } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
 import { listOwedFilings, oweFilings } from '../db/repositories/owed-filings'
-import { getSettings, updateSettings } from '../db/repositories/settings'
 import { addTaskCommit, CommitSource } from '../db/repositories/task-commits'
 import { deleteTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
@@ -35,7 +32,6 @@ import {
   childWithId,
   fileChildren,
   identifyChildren,
-  isTodoHubEnabled,
   readTodoHub,
   refileChild,
   rememberTodoPanel,
@@ -66,10 +62,6 @@ beforeEach(() => {
 afterEach(() => {
   database.close()
 })
-
-function turnOn(): void {
-  updateSettings(db, { todoHubEnabled: true })
-}
 
 /** A finished call of the agent's (or of the subagent `parent`), logged at `at`. */
 function call(
@@ -184,41 +176,9 @@ function refs(group: TodoChildren | undefined): string[] {
 
 const ref = ({ kind, key }: ChildRef): string => `${kind} ${key}`
 
-describe('the switch', () => {
-  it('is off until it’s turned on, and stays on once it is', () => {
-    expect(DEFAULT_SETTINGS.todoHubEnabled).toBe(false)
-    expect(isTodoHubEnabled(db)).toBe(false)
-
-    turnOn()
-
-    expect(isTodoHubEnabled(db)).toBe(true)
-    updateSettings(db, { notifications: false })
-    expect(getSettings(db).todoHubEnabled).toBe(true)
-    updateSettings(db, { todoHubEnabled: false })
-    expect(isTodoHubEnabled(db)).toBe(false)
-  })
-
-  it('survives a relaunch: the database, opened again, still has it', () => {
-    const folder = mkdtempSync(join(tmpdir(), 'glade-todo-hub-'))
-    try {
-      const first = openAppDatabase(folder).db
-      expect(getSettings(first).todoHubEnabled).toBe(false)
-      updateSettings(first, { todoHubEnabled: true })
-      first.close()
-
-      const second = openAppDatabase(folder).db
-      expect(getSettings(second).todoHubEnabled).toBe(true)
-      second.close()
-    } finally {
-      rmSync(folder, { recursive: true, force: true })
-    }
-  })
-})
-
 describe('reading a task’s hub', () => {
   it('gathers its todos, artifacts, every subagent, commits and filings, and no watcher', () => {
     busyTask()
-    turnOn()
     fileChildren(context(), task.id, [{ ...PLAN, todoId: '1', source: FilingSource.Named }], 8_000)
 
     const children = taskChildren(db, task.id)
@@ -245,8 +205,6 @@ describe('reading a task’s hub', () => {
 
   it('shows a task from before the hub with everything it produced under "Not under a todo", and nothing else', () => {
     busyTask()
-    turnOn()
-
     const hub = readTodoHub(db, task.id)
 
     expect(hub.filings).toEqual([])
@@ -272,7 +230,6 @@ describe('reading a task’s hub', () => {
     call('Agent', REVIEWER.key, { description: 'Review src/dates.js' }, 5_000)
     monitor(CI_CALL, null, 7_000)
     monitor(NESTED_CI_CALL, REVIEWER.key, 7_100)
-    turnOn()
     fileChildren(context(), task.id, [{ ...REVIEWER, todoId: '1', source: FilingSource.Named }], 8_000)
 
     const hub = readTodoHub(db, task.id)
@@ -287,7 +244,6 @@ describe('reading a task’s hub', () => {
 
   it('puts each child under the todo it’s filed under, and a subagent’s commits under the todo it works on', () => {
     busyTask()
-    turnOn()
     fileChildren(
       context(),
       task.id,
@@ -321,7 +277,6 @@ describe('reading a task’s hub', () => {
 
   it('moves a subagent’s commits with it, and drops a deleted todo’s children to the placeholder', () => {
     busyTask()
-    turnOn()
     fileChildren(context(), task.id, [{ ...REVIEWER, todoId: '2', source: FilingSource.Named }], 8_000)
 
     fileChildren(context(), task.id, [{ ...REVIEWER, todoId: '3', source: FilingSource.Moved }], 8_500)
@@ -344,8 +299,6 @@ describe('reading a task’s hub', () => {
   })
 
   it('has nothing to show for a task that has made nothing', () => {
-    turnOn()
-
     const hub = readTodoHub(db, task.id)
 
     expect(hub.children.todos).toEqual([])
@@ -356,8 +309,6 @@ describe('reading a task’s hub', () => {
   })
 
   it('fails for a task that isn’t there', () => {
-    turnOn()
-
     expect(() => readTodoHub(db, 'gone')).toThrow(
       expect.objectContaining({ code: BridgeErrorCode.NotFound, message: 'No task gone' }),
     )
@@ -367,8 +318,6 @@ describe('reading a task’s hub', () => {
 describe('a child’s short id', () => {
   it('names every child of a task from before the hub, oldest first within each kind, filed or not', () => {
     busyTask()
-    turnOn()
-
     const named = identifyChildren(db, task.id, childrenOf(taskChildren(db, task.id)))
 
     expect(named.map(({ id, kind, key }) => [id, ref({ kind, key })])).toEqual([
@@ -386,7 +335,6 @@ describe('a child’s short id', () => {
 
   it('names no child when it was a watcher’s, from before watchers left the hub, and says it was one', () => {
     busyTask()
-    turnOn()
     identifyChildren(db, task.id, [PLAN])
     // As the hub wrote a watcher's then: the table still allows the kind.
     db.prepare("INSERT INTO child_ids (task_id, number, kind, key) VALUES (?, 2, 'watcher', ?)").run(task.id, CI_CALL)
@@ -397,14 +345,10 @@ describe('a child’s short id', () => {
     expect(wasWatcherId(db, task.id, 'c3')).toBe(false)
     // The next child named doesn't take its number.
     expect(identifyChildren(db, task.id, [PR])).toEqual([{ ...PR, id: 'c3' }])
-    // And with the hub off, nothing is read.
-    updateSettings(db, { todoHubEnabled: false })
-    expect(wasWatcherId(db, task.id, 'c2')).toBe(false)
   })
 
   it('stays the child’s for the life of the task: as it’s filed, moved, removed and declared again', () => {
     busyTask()
-    turnOn()
     expect(identifyChildren(db, task.id, [NESTED, PLAN])).toEqual([
       { ...NESTED, id: 'c1' },
       { ...PLAN, id: 'c2' },
@@ -432,7 +376,6 @@ describe('a child’s short id', () => {
   })
 
   it('names nothing for an id that was never given, or for another task’s', () => {
-    turnOn()
     identifyChildren(db, task.id, [PLAN])
     const other = sampleTask(db, task.workspaceId)
 
@@ -447,7 +390,6 @@ describe('a child’s short id', () => {
     try {
       const first = openAppDatabase(folder).db
       const kept = sampleTask(first, sampleWorkspace(first).id)
-      updateSettings(first, { todoHubEnabled: true })
       identifyChildren(first, kept.id, [PLAN, PR])
       first.close()
 
@@ -466,7 +408,6 @@ describe('a child’s short id', () => {
 
 describe('filing', () => {
   it('tells the windows what changed, and only that: the filings made, not the task’s whole list', () => {
-    turnOn()
     fileChildren(context(), task.id, [{ ...PLAN, todoId: '1', source: FilingSource.Named }], 8_000)
 
     const filed = fileChildren(
@@ -496,7 +437,6 @@ describe('filing', () => {
   })
 
   it('sends one event for 200 children filed in one call', () => {
-    turnOn()
     const children = Array.from({ length: 200 }, (_, index) => ({
       kind: ChildKind.File,
       key: `docs/file-${String(index)}.md`,
@@ -511,8 +451,6 @@ describe('filing', () => {
   })
 
   it('files nothing, and says nothing, when there’s nothing to file or the filing can’t be kept', () => {
-    turnOn()
-
     expect(fileChildren(context(), task.id, [])).toEqual([])
     expect(() => fileChildren(context(), 'gone', [{ ...PLAN, todoId: '1', source: FilingSource.Named }])).toThrow(
       /FOREIGN KEY/,
@@ -529,7 +467,6 @@ describe('filing', () => {
   })
 
   it('takes filings away, telling the windows which children lost one', () => {
-    turnOn()
     fileChildren(
       context(),
       task.id,
@@ -550,7 +487,6 @@ describe('filing', () => {
   })
 
   it('settles what the agent owed a filing for, but for a child that only follows its subagent', () => {
-    turnOn()
     oweFilings(db, task.id, [REVIEWER, FIX, PR], 7_000)
 
     fileChildren(
@@ -573,7 +509,6 @@ describe('filing', () => {
   })
 
   it('moves a child’s filing to its new key, as it was filed, telling the windows both', () => {
-    turnOn()
     fileChildren(context(), task.id, [{ ...PLAN, todoId: '2', source: FilingSource.Named }], 8_000)
     fileChildren(context(), task.id, [{ ...PR, todoId: '3', source: FilingSource.Asked }], 8_100)
     events = []
@@ -596,7 +531,6 @@ describe('filing', () => {
   })
 
   it('goes with the task when it’s deleted', () => {
-    turnOn()
     fileChildren(context(), task.id, [{ ...PLAN, todoId: '1', source: FilingSource.Named }])
     rememberTodoPanel(db, { taskId: task.id, todoId: '1', open: true, filter: ChildFilter.Files })
 
@@ -609,7 +543,6 @@ describe('filing', () => {
 
 describe('a todo’s panel', () => {
   it('is remembered for the task, the placeholder’s and a deleted todo’s too, and read back with the hub', () => {
-    turnOn()
     createTodo('1', 'Plan the move', 3_000)
 
     rememberTodoPanel(db, { taskId: task.id, todoId: '1', open: true, filter: ChildFilter.Commits })
@@ -625,7 +558,6 @@ describe('a todo’s panel', () => {
   })
 
   it('is read back as showing all when it was left on a filter that’s gone, with no error', () => {
-    turnOn()
     createTodo('1', 'Plan the move', 3_000)
     // As the hub wrote one then: the table still allows both.
     const left = db.prepare('INSERT INTO todo_panels (task_id, todo_id, open, filter) VALUES (?, ?, 1, ?)')
@@ -642,8 +574,6 @@ describe('a todo’s panel', () => {
   })
 
   it('fails for a task that isn’t there', () => {
-    turnOn()
-
     expect(() => {
       rememberTodoPanel(db, { taskId: 'gone', todoId: '1', open: true, filter: ChildFilter.All })
     }).toThrow(expect.objectContaining({ code: BridgeErrorCode.NotFound }))
@@ -656,7 +586,6 @@ describe('filings and panels survive a relaunch', () => {
     try {
       const first = openAppDatabase(folder).db
       const kept = sampleTask(first, sampleWorkspace(first).id)
-      updateSettings(first, { todoHubEnabled: true })
       addArtifact(first, { taskId: kept.id, path: PLAN.key, title: 'The plan' }, 4_000)
       fileChildren(
         { db: first, emit: () => undefined },
@@ -677,91 +606,5 @@ describe('filings and panels survive a relaunch', () => {
     } finally {
       rmSync(folder, { recursive: true, force: true })
     }
-  })
-})
-
-describe('with the switch off', () => {
-  /** Every statement run on the database from here on. */
-  function statements(): string[] {
-    const run: string[] = []
-    const prepare = db.prepare.bind(db)
-    db.prepare = (sql: string) => {
-      run.push(sql)
-      return prepare(sql)
-    }
-    return run
-  }
-
-  const touchesTheHub = (sql: string): boolean => /child_ids|child_filings|todo_panels|owed_filings/.test(sql)
-
-  it('gathers a task’s children with no filings, without reading any of the hub’s tables', () => {
-    turnOn()
-    busyTask()
-    fileChildren(context(), task.id, [{ ...PLAN, todoId: '1', source: FilingSource.Named }], 8_000)
-    updateSettings(db, { todoHubEnabled: false })
-    const run = statements()
-
-    const children = taskChildren(db, task.id)
-
-    expect(children.filings).toEqual([])
-    expect(children.artifacts).toHaveLength(2)
-    expect(run.filter(touchesTheHub)).toEqual([])
-  })
-
-  it('gives no child an id, and names none back, writing and reading nothing', () => {
-    turnOn()
-    identifyChildren(db, task.id, [PLAN])
-    updateSettings(db, { todoHubEnabled: false })
-    const run = statements()
-
-    expect(identifyChildren(db, task.id, [PLAN, PR])).toEqual([])
-    expect(childWithId(db, task.id, 'c1')).toBeUndefined()
-
-    expect(run.filter(touchesTheHub)).toEqual([])
-    // The id given while it was on is still the child's, for when it's on again.
-    updateSettings(db, { todoHubEnabled: true })
-    expect(identifyChildren(db, task.id, [PR, PLAN])).toEqual([
-      { ...PR, id: 'c2' },
-      { ...PLAN, id: 'c1' },
-    ])
-  })
-
-  it('refuses to read a task’s hub, without reading either of its tables', () => {
-    busyTask()
-    const run = statements()
-
-    expect(() => readTodoHub(db, task.id)).toThrow(
-      expect.objectContaining({ code: BridgeErrorCode.InvalidTransition, message: TODO_HUB_OFF }),
-    )
-
-    expect(run.filter(touchesTheHub)).toEqual([])
-  })
-
-  it('refuses to remember a panel, writing nothing', () => {
-    const run = statements()
-
-    expect(() => {
-      rememberTodoPanel(db, { taskId: task.id, todoId: '1', open: true, filter: ChildFilter.Files })
-    }).toThrow(expect.objectContaining({ code: BridgeErrorCode.InvalidTransition, message: TODO_HUB_OFF }))
-
-    expect(run.filter(touchesTheHub)).toEqual([])
-    expect(db.prepare('SELECT COUNT(*) FROM todo_panels').pluck().get()).toBe(0)
-  })
-
-  it('files nothing and unfiles nothing, sending no event and touching neither table', () => {
-    turnOn()
-    fileChildren(context(), task.id, [{ ...PLAN, todoId: '1', source: FilingSource.Named }], 8_000)
-    updateSettings(db, { todoHubEnabled: false })
-    events = []
-    const run = statements()
-
-    expect(fileChildren(context(), task.id, [{ ...PR, todoId: '1', source: FilingSource.Named }])).toEqual([])
-    expect(unfileChildren(context(), task.id, [PLAN])).toEqual([])
-    refileChild(context(), task.id, PLAN, { kind: ChildKind.File, key: 'docs/the-plan.md' })
-
-    expect(events).toEqual([])
-    expect(run.filter(touchesTheHub)).toEqual([])
-    // What was filed while it was on is still there, for when it's on again.
-    expect(db.prepare('SELECT key FROM child_filings').pluck().all()).toEqual([PLAN.key])
   })
 })

@@ -3,14 +3,7 @@ import { CommandName, RendererErrorKind } from '../../shared/bridge'
 import { AttachedFileKind } from '../../shared/attachedFiles'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
 import { MAX_SEARCH_QUERY, MAX_WATCHED_FOLDERS } from '../../shared/browse'
-import {
-  ArtifactFilter,
-  ArtifactKind,
-  Effort,
-  PermissionDecisionKind,
-  PermissionMode,
-  UiStateKey,
-} from '../../shared/domain'
+import { ArtifactKind, Effort, PermissionDecisionKind, PermissionMode, UiStateKey } from '../../shared/domain'
 import { MAX_IMAGE_BASE64_LENGTH, MAX_IMAGE_BYTES } from '../../shared/images'
 import { GIF, JPEG, PNG, WEBP } from '../../shared/test-images'
 import { describeIssues, REQUEST_SCHEMAS } from './requests'
@@ -178,12 +171,6 @@ describe('REQUEST_SCHEMAS', () => {
     // Its scheme is main's to check, as it adds it.
     expect(add.parse(request)).toEqual(request)
     expect(add.safeParse({ taskId: 't', url: 'https://example.com' }).success).toBe(false)
-
-    const filter = REQUEST_SCHEMAS[CommandName.ArtifactsSetFilter]
-    for (const chosen of Object.values(ArtifactFilter)) {
-      expect(filter.parse({ taskId: 't', filter: chosen })).toEqual({ taskId: 't', filter: chosen })
-    }
-    expect(filter.safeParse({ taskId: 't', filter: 'images' }).success).toBe(false)
   })
 
   it('refuses a Done page of no tasks, too many, a filter (the chips are gone, #411) or a malformed cursor', () => {
@@ -682,8 +669,6 @@ describe('the Changes tab’s requests', () => {
     const open = { taskId: 't', id: 'c1', path: 'docs/upgrading.md' }
     expect(REQUEST_SCHEMAS[CommandName.ChangesOpenFile].parse(open)).toEqual(open)
     expect(REQUEST_SCHEMAS[CommandName.ChangesOpenFile].safeParse({ ...open, path: '../x' }).success).toBe(false)
-    expect(REQUEST_SCHEMAS[CommandName.ChangesRepository].parse({ taskId: 't' })).toEqual({ taskId: 't' })
-    expect(REQUEST_SCHEMAS[CommandName.ChangesRepository].safeParse({ id: 't' }).success).toBe(false)
   })
 })
 

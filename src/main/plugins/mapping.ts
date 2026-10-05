@@ -40,7 +40,7 @@ import {
 import { isSubagentTool, subagentName, UNNAMED_SUBAGENT } from '../../shared/subagents'
 import { toolDisplayName } from '../../shared/toolName'
 
-// What a subagent is called when its call names neither a description nor a type, as the Subagents tab has it.
+// What a subagent is called when its call names neither a description nor a type, as the Agents tab has it.
 export { UNNAMED_SUBAGENT }
 
 /** The tools whose argument is the file they work on, and the input field that names it. */
@@ -208,7 +208,7 @@ export function pluginSubagent(call: ToolCallEvent, latest: string | null): Plug
   return {
     id: call.toolUseId,
     taskId: call.taskId,
-    // Its call's description, else its type, as the Subagents tab has it.
+    // Its call's description, else its type, as the Agents tab has it.
     name: cutText(subagentName(call)),
     state: subagentState(call.state),
     latest,

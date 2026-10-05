@@ -1,19 +1,10 @@
 /**
- * What the Changes tab says about a task's commits and their files (`docs/design/html/24-changes.html`). Pure, so it's
- * tested on its own.
+ * What a commit's tile says about the commit and its files (`../todos/tiles/CommitTile`). Pure, so it's tested on its
+ * own.
  */
-import {
-  CommitFileStatus,
-  ToolEventKind,
-  type CommitFile,
-  type EpochMs,
-  type TaskCommit,
-  type ToolEvent,
-} from '../../shared/domain'
-import { subagentName } from '../subagents/subagentsModel'
-import { formatAgo } from '../task-header/headerModel'
+import { CommitFileStatus, type CommitFile, type TaskCommit } from '../../shared/domain'
 
-/** How many characters of a hash the tab shows, as git's short hashes are. */
+/** How many characters of a hash a tile shows, as git's short hashes are. */
 export const SHORT_HASH_LENGTH = 7
 
 /** A commit's hash as the tab shows it: `a1b2c3d`. */
@@ -33,16 +24,6 @@ export function deletionsLabel(lines: number): string {
   return `−${NUMBER.format(lines)}`
 }
 
-/**
- * The line under a commit's message: its branch (or `detached`), when it was made, and `merge` for a merge commit:
- * `main · 12m ago`, `fix/date-test · just now · merge`.
- */
-export function commitMeta(commit: TaskCommit, now: EpochMs): string {
-  const parts = [branchLabel(commit), formatAgo(commit.committedAt, now)]
-  if (commit.merge) parts.push(MERGE_LABEL)
-  return parts.join(' · ')
-}
-
 /** The branch a commit was made on, as it's shown: its name, or `detached` for one made on a detached HEAD. */
 export function branchLabel({ branch }: Pick<TaskCommit, 'branch'>): string {
   return branch ?? 'detached'
@@ -53,17 +34,6 @@ export const MERGE_LABEL = 'merge'
 
 /** What a subagent the tool log hasn't got is called, where something says which subagent made it. */
 export const UNKNOWN_SUBAGENT = 'Subagent'
-
-/**
- * Who made a commit, when a subagent did: the subagent's name, from its `Agent` call in the tool log (a subagent the
- * log hasn't got says `Subagent`). Null when the task's own agent made it.
- */
-export function madeBy(commit: TaskCommit, events: readonly ToolEvent[]): string | null {
-  const { subagentToolUseId } = commit
-  if (subagentToolUseId === null) return null
-  const call = events.find((event) => event.kind === ToolEventKind.ToolCall && event.toolUseId === subagentToolUseId)
-  return call?.kind === ToolEventKind.ToolCall ? subagentName(call) : UNKNOWN_SUBAGENT
-}
 
 /** The tooltip of the tag that says which subagent made a commit. */
 export function madeByTitle(name: string): string {

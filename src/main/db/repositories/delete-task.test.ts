@@ -2,8 +2,6 @@ import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { setAgentTab } from './agent-tabs'
 import {
-  ArtifactDateGroup,
-  ArtifactFilter,
   DividerKind,
   PermissionMarkKind,
   MessageRole,
@@ -16,14 +14,13 @@ import {
 import { AttachedFileKind, type AttachedFile } from '../../../shared/attachedFiles'
 import { SandboxGrantKind, SandboxGrantScope } from '../../../shared/sandbox'
 import { GIF, PNG } from '../../../shared/test-images'
-import { setArtifactGroupOpen } from './artifact-groups'
 import { setBrowseFolderExpanded } from './browse-folders'
 import { putFilings } from './child-filings'
 import { assignChildIds } from './child-ids'
 import { oweFilings } from './owed-filings'
 import { setTodoPanel } from './todo-panels'
 import { ChildFilter, ChildKind, FilingSource } from '../../../shared/todoHub'
-import { addArtifact, addLinkArtifact, setArtifactFilter } from './artifacts'
+import { addArtifact, addLinkArtifact } from './artifacts'
 import { setExternalId, setHandoff } from './backfills'
 import { setSessionContext } from './session-context'
 import { setInputDraft } from './input-drafts'
@@ -109,8 +106,6 @@ function fillTask(db: Database, task: Task): void {
   setOpenFiles(db, { taskId, paths: ['api/views.py'], activePath: 'api/views.py' })
   addArtifact(db, { taskId, path: 'docs/rate-limits.md', title: 'Rate limits' })
   addLinkArtifact(db, { taskId, url: 'https://github.com/acme/api/pull/412', title: '#412' })
-  setArtifactFilter(db, taskId, ArtifactFilter.Links)
-  setArtifactGroupOpen(db, { taskId, group: ArtifactDateGroup.Today, open: false })
   setBrowseFolderExpanded(db, { taskId, path: 'api', expanded: true })
   assignChildIds(db, taskId, [{ kind: ChildKind.File, key: 'docs/plan.md' }])
   putFilings(db, taskId, [{ kind: ChildKind.File, key: 'docs/plan.md', todoId: '1', source: FilingSource.Named }])
@@ -195,9 +190,7 @@ const FILLED_TABLES = [
   // The agent's tab its Agents tab was left on (#536).
   'agent_tabs',
   // The Artifacts tab's filter, as you last chose it (#407).
-  'artifact_filters',
   // The Artifacts tab's date groups you opened or folded.
-  'artifact_groups',
   'artifacts',
   // The files attached to its messages, sent and queued, and to its input draft.
   'attached_files',

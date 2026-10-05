@@ -193,7 +193,7 @@
   font-size: 12px;
 }
 
-/* The commit a file as a commit left it is from (opened from the Changes tab). */
+/* The commit a file as a commit left it is from (opened from a commit's tile). */
 .version {
   font-family: var(--font-mono);
   font-size: var(--font-size-label);

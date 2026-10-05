@@ -1,5 +1,5 @@
-// Filing what an agent produces under its todos as it's made (P16-04, #495), end to end with the scripted agent and
-// the hidden `todoHubEnabled` setting on. The agent's first turn names a todo in the `Agent` call that starts a
+// Filing what an agent produces under its todos as it's made (P16-04, #495), end to end with the scripted agent.
+// The agent's first turn names a todo in the `Agent` call that starts a
 // subagent and in the `Bash` call that commits: Glade records the subagent's todo, files the commit, and takes each
 // marker off, so it shows nowhere. Its second turn names none: Glade tells it what its calls made, and it files that
 // itself, before its turn ends; the artifacts it declares give `add_artifact` their todo. Its watchers are never
@@ -70,7 +70,6 @@ test('the todo hub on: a commit is under a todo, and a subagent has one, by the 
   const panel = taskPanel(window)
   await firstRun(window).openFolder.click()
   // The hub is turned on by hand, before the task's session starts: there's nothing for it in Settings.
-  await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
   await taskList(window).newTask.click()
   const taskId = await onlyTaskId(window)
 

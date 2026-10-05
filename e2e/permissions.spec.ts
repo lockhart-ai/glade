@@ -14,7 +14,7 @@ import { CommandName } from '../src/shared/bridge'
 import { PermissionMode, TaskActivity, ToolEventKind, type Task, type ToolCallEvent } from '../src/shared/domain'
 import { expect, test } from './fixtures'
 import { chooseMenuItem } from './menu'
-import { chat, firstRun, inputBar, settings, subagentsTab, taskHeader, taskList, taskPanel } from './selectors'
+import { agentsTab, chat, firstRun, inputBar, settings, taskHeader, taskList, taskPanel } from './selectors'
 import { invoke } from './task-view'
 
 const ASK = 'Ask before edits and commands'
@@ -362,17 +362,17 @@ test("a subagent's card says which subagent, opens on Deny when a stray key must
 
   await expect(conversation.agentReplies.first()).toContainText(SUBAGENT_PERMISSION.reply)
   expect((await toolCall(window, 'Write'))?.output).toBe(`File created successfully at: ${SUBAGENT_PERMISSION.file}`)
-  // Both cards left the chat. The subagent's decision isn't in the Tool calls list, whose rows are the agent's own:
-  // it's on the row its Write already has, in the subagent's log.
+  // Both cards left the chat. The subagent's decision isn't on Main's own tab, whose log is the agent's own: it's on
+  // the row its Write already has, on the subagent's own tab.
   await expect(conversation.permissionRequests).toHaveCount(0)
   await expect(taskPanel(window).permissionLines).toHaveText(['Denied'])
   await taskPanel(window)
-    .tab(/^Subagents/)
+    .tab(/^Agents/)
     .click()
-  const subagents = subagentsTab(window)
-  await subagents.header(SUBAGENT_PERMISSION.subagent).click()
-  await expect(subagents.log(SUBAGENT_PERMISSION.subagent)).toContainText(SUBAGENT_PERMISSION.file)
-  await expect(subagents.permissionLines(SUBAGENT_PERMISSION.subagent)).toHaveText(['Allowed once'])
+  const agents = agentsTab(window)
+  await agents.tab(SUBAGENT_PERMISSION.subagent).click()
+  await expect(agents.list).toContainText(SUBAGENT_PERMISSION.file)
+  await expect(taskPanel(window).permissionLines).toHaveText(['Allowed once'])
 })
 
 test('stopping the task withdraws an open card: it leaves the chat, and its row says Withdrawn, across a relaunch', async ({

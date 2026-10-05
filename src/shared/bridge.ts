@@ -12,9 +12,6 @@
  */
 import type {
   Artifact,
-  ArtifactDateGroup,
-  ArtifactFilter,
-  ArtifactGroupFold,
   ArtifactRef,
   CommitFiles,
   TaskCommit,
@@ -102,7 +99,6 @@ export enum CommandName {
   WatchersStop = 'watchers.stop',
   ChangesFiles = 'changes.files',
   ChangesOpenFile = 'changes.openFile',
-  ChangesRepository = 'changes.repository',
   TasksHistory = 'tasks.history',
   QueueAdd = 'queue.add',
   QueueEdit = 'queue.edit',
@@ -132,8 +128,6 @@ export enum CommandName {
   FilesWatchFolders = 'files.watchFolders',
   ArtifactsRemove = 'artifacts.remove',
   ArtifactsAddLink = 'artifacts.addLink',
-  ArtifactsSetFilter = 'artifacts.setFilter',
-  ArtifactsSetGroupOpen = 'artifacts.setGroupOpen',
   ArtifactsWatch = 'artifacts.watch',
   ArtifactsUnwatch = 'artifacts.unwatch',
   TodoHubGet = 'todoHub.get',
@@ -511,7 +505,7 @@ export interface WatchersListLiveResponse {
 }
 
 /**
- * Stops one of a task's live watchers (Stop, in the Watchers tab), the SDK's own way where it has one: a monitor or
+ * Stops one of a task's live watchers (Stop, on its card in the Agents tab), the SDK's own way where it has one: a monitor or
  * background command's process is stopped (`stopTask`), and answers once the SDK has been asked; its end arrives as
  * `watchers.changed`. A wakeup or cron job is stopped at once: it stays in the agent's session, but its fires are
  * turned away (`docs/sdk-notes.md` §13). Broadcasts `watchers.changed`. Fails with `invalid_transition` for a watcher
@@ -524,14 +518,14 @@ export interface WatchersStopRequest {
 }
 
 /**
- * The files one of a task's commits changed (a commit expanded in the Changes tab), read from git through the
+ * The files one of a task's commits changed (a commit's tile opened in the Todos tab), read from git through the
  * repository's common git dir, so they can be read after the commit's worktree is removed. Capped at `MAX_COMMIT_FILES`
  * (`./files`), with how many there are in all. Fails with `not_found` when the task has no such commit, and `internal`
  * when its repository no longer has it.
  */
 export interface ChangesFilesRequest {
   readonly taskId: string
-  /** The commit's id, as the Changes tab has it (`TaskCommit.id`). */
+  /** The commit's id, as its tile has it (`TaskCommit.id`). */
   readonly id: string
 }
 
@@ -540,7 +534,7 @@ export interface ChangesFilesResponse {
 }
 
 /**
- * Opens a file one of a task's commits changed in its Files tab, and shows it (a file clicked in the Changes tab): the
+ * Opens a file one of a task's commits changed in its Files tab, and shows it (a file clicked in a commit's opened tile): the
  * file as it is now, when it's still at that path in the task's workspace; otherwise (deleted since, its worktree
  * removed, or outside the workspace) the file as the commit left it, read-only, under its commit file key
  * (`commitFileKey` in `./files`). Broadcasts `openFiles.changed`. Fails with `not_found` when the task has no such
@@ -552,18 +546,6 @@ export interface ChangesOpenFileRequest {
   readonly id: string
   /** The file's path, relative to the top of the commit's repository, as the commit's files list it. */
   readonly path: string
-}
-
-/**
- * Whether a task's workspace root is in a git repository: the Changes tab says so when it isn't, rather than that the
- * task has made no commits yet.
- */
-export interface ChangesRepositoryRequest {
-  readonly taskId: string
-}
-
-export interface ChangesRepositoryResponse {
-  readonly repository: boolean
 }
 
 /**
@@ -585,24 +567,19 @@ export interface TasksHistoryResponse {
   readonly openFiles: OpenFiles
   /** The agent's todo list (the Todos tab), as its tool log leaves it; null when it has kept none. */
   readonly todos: TodoList | null
-  /** The files and links declared as its artifacts (the Artifacts tab), in the order they were first declared. */
+  /** The files and links declared as its artifacts (the Todos tab's tiles), in the order they were first declared. */
   readonly artifacts: readonly Artifact[]
-  /** The Artifacts tab's date groups you opened or folded, as you left them. */
-  readonly artifactGroups: readonly ArtifactGroupFold[]
-  /** Which of its artifacts the Artifacts tab shows, as you last chose (#407): all of them until you choose. */
-  readonly artifactFilter: ArtifactFilter
   /** Its handoff note, from a backfill through the control API (the Backfilled card); null when it has none. */
   readonly handoff: TaskHandoff | null
-  /** What its agent left running or scheduled (the Watchers tab), live or ended, in the order they started. */
+  /** What its agents left running or scheduled (the Agents tab's watchers), live or ended, in the order they started. */
   readonly watchers: readonly Watcher[]
-  /** The commits its agent and subagents made (the Changes tab), newest first. */
+  /** The commits its agent and subagents made (the Todos tab's commit tiles), newest first. */
   readonly commits: readonly TaskCommit[]
   /**
    * Which agent's tab its Agents tab was left on (P16, #536): a subagent's `Agent` call's `tool_use` id, or null for
-   * Main. Only there while the todo hub is on (the hidden `todoHubEnabled` setting): with it off, a task's history is
-   * what it was before the hub.
+   * Main, which is also where a task that never picked one is.
    */
-  readonly agentTab?: string | null
+  readonly agentTab: string | null
 }
 
 /**
@@ -771,7 +748,7 @@ export interface FileRequest {
   /**
    * Relative to the task's workspace root, normalized: no `.` or `..` parts, no leading or trailing `/`. `files.read`,
    * `files.open` and `files.close` also take a commit file's key (`commitFileKey` in `./files`): a file as one of the
-   * task's commits left it, which the Changes tab opens read-only.
+   * task's commits left it, which a commit's tile opens read-only.
    */
   readonly path: string
 }
@@ -825,7 +802,7 @@ export interface OpenFilesResponse {
 export type FilesOpenInEditorRequest = FileRequest
 
 /**
- * A file's thumbnail, for its row in the Artifacts tab: a small PNG of an image (PNG, JPEG, GIF, WebP or SVG), made
+ * A file's thumbnail, for its tile in the Todos tab: a small PNG of an image (PNG, JPEG, GIF, WebP or SVG), made
  * once and kept on disk until the file changes; none for any other file, or an image that can't be read or is too
  * large; or that it's missing. Never fails for a file that isn't there, or can't be read.
  */
@@ -942,16 +919,7 @@ export interface ArtifactsAddLinkRequest {
 }
 
 /**
- * Shows all of a task's artifacts in its Artifacts tab, or only its files or its links (#407), and remembers it for the
- * task. Fails with `not_found` when there's no such task.
- */
-export interface ArtifactsSetFilterRequest {
-  readonly taskId: string
-  readonly filter: ArtifactFilter
-}
-
-/**
- * The Artifacts tab shows a task (`artifacts.watch`), or no longer does (`artifacts.unwatch`). While it does, main
+ * The Todos tab shows a task (`artifacts.watch`), or no longer does (`artifacts.unwatch`). While it does, main
  * watches the folders its artifacts' files are in, so an edit from outside the agent (the terminal, an editor) moves
  * the artifact; opening it looks at every file again. Each `watch` is ended by an `unwatch`. Changes broadcast
  * `artifacts.changed`.
@@ -961,22 +929,11 @@ export interface ArtifactsWatchRequest {
 }
 
 /**
- * Opens or folds one of a task's artifact date groups (its header in the Artifacts tab), and remembers it for the task.
- * Fails with `not_found` when there's no such task.
- */
-export interface ArtifactsSetGroupOpenRequest {
-  readonly taskId: string
-  readonly group: ArtifactDateGroup
-  readonly open: boolean
-}
-
-/**
  * Reads a task's todo hub (P16, #491; `./todoHub`): its children grouped by todo, as main works them out, with what
  * the window needs to keep them current itself. What changes after arrives as `filings.changed`, and as the events
  * the children already have (`artifacts.changed`, `watchers.changed`, `commits.changed`, the tool log's).
  *
- * Fails with `invalid_transition` while the hub is off (the hidden `todoHubEnabled` setting), reading nothing, and
- * `not_found` when there's no such task.
+ * Fails with `not_found` when there's no such task.
  */
 export interface TodoHubGetRequest {
   readonly taskId: string
@@ -994,16 +951,15 @@ export interface TodoHubGetResponse {
 /**
  * Remembers how you left a todo's panel in the hub, for the task: whether it's open, and which of its children it
  * shows. `UNFILED_TODO_ID` names the placeholder group's. The todo needn't be in the task's list. Nothing is
- * broadcast. Fails with `invalid_transition` while the hub is off, writing nothing, and `not_found` when there's no
- * such task.
+ * broadcast. Fails with `not_found` when there's no such task.
  */
 export type TodoHubSetPanelRequest = TodoPanel
 
 /**
  * Remembers which agent's tab a task's Agents tab is on (P16, #536), for the task: a subagent's, by the `tool_use` id
  * of the `Agent` call that started it, or null for Main, the task's own agent. The subagent needn't be in the task's
- * log: the window falls back to Main for one that isn't. Nothing is broadcast. Fails with `invalid_transition` while
- * the hub is off (the hidden `todoHubEnabled` setting), writing nothing, and `not_found` when there's no such task.
+ * log: the window falls back to Main for one that isn't. Nothing is broadcast. Fails with `not_found` when there's no
+ * such task.
  */
 export interface AgentsSetTabRequest {
   readonly taskId: string
@@ -1450,7 +1406,6 @@ export interface CommandMap {
   [CommandName.WatchersStop]: CommandSpec<WatchersStopRequest, null>
   [CommandName.ChangesFiles]: CommandSpec<ChangesFilesRequest, ChangesFilesResponse>
   [CommandName.ChangesOpenFile]: CommandSpec<ChangesOpenFileRequest, OpenFilesResponse>
-  [CommandName.ChangesRepository]: CommandSpec<ChangesRepositoryRequest, ChangesRepositoryResponse>
   [CommandName.TasksHistory]: CommandSpec<TaskIdRequest, TasksHistoryResponse>
   [CommandName.QueueAdd]: CommandSpec<QueueAddRequest, QueuedMessageResponse>
   [CommandName.QueueEdit]: CommandSpec<QueueEditRequest, QueuedMessageResponse>
@@ -1480,8 +1435,6 @@ export interface CommandMap {
   [CommandName.FilesWatchFolders]: CommandSpec<FilesWatchFoldersRequest, null>
   [CommandName.ArtifactsRemove]: CommandSpec<ArtifactsRemoveRequest, null>
   [CommandName.ArtifactsAddLink]: CommandSpec<ArtifactsAddLinkRequest, null>
-  [CommandName.ArtifactsSetFilter]: CommandSpec<ArtifactsSetFilterRequest, null>
-  [CommandName.ArtifactsSetGroupOpen]: CommandSpec<ArtifactsSetGroupOpenRequest, null>
   [CommandName.ArtifactsWatch]: CommandSpec<ArtifactsWatchRequest, null>
   [CommandName.ArtifactsUnwatch]: CommandSpec<ArtifactsWatchRequest, null>
   [CommandName.TodoHubGet]: CommandSpec<TodoHubGetRequest, TodoHubGetResponse>
@@ -1665,7 +1618,7 @@ export interface ToolEventRemovedEvent {
 export interface TaskOpenRequestedEvent {
   readonly type: EventType.TaskOpenRequested
   readonly taskId: string
-  /** A subagent of the task to show in the Subagents tab, as picking it there does; null for none. */
+  /** A subagent of the task to show on its own tab of the Agents tab, as picking it there does; null for none. */
   readonly subagentId: string | null
 }
 
@@ -1804,7 +1757,7 @@ export interface CommitsChangedEvent {
 /**
  * Children of a task were filed under todos, moved between them, or lost their filing (the todo hub, `./todoHub`).
  * Carries the change alone, never the task's whole list: the filings made, each as it now is (one for a child that
- * already had a filing replaces it), and the children whose filing was taken away. Never sent while the hub is off.
+ * already had a filing replaces it), and the children whose filing was taken away.
  */
 export interface FilingsChangedEvent {
   readonly type: EventType.FilingsChanged

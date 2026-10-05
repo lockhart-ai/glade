@@ -45,7 +45,7 @@ function panelId(tabsId: string, value: string): string {
 }
 
 /**
- * A row of tabs, like the right panel's "Tool calls 7 · Files · Todos 3/4". The selected tab holds the one tab stop;
+ * A row of tabs, like the right panel's "Agents 4 · Files · Todos 3/4". The selected tab holds the one tab stop;
  * the left and right arrow keys select the previous or next tab, wrapping at the ends. Render the selected tab's
  * content in a `TabPanel` with the same `tabsId`.
  *

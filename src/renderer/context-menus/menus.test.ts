@@ -11,7 +11,6 @@ import {
   linkMenu,
   pinLabel,
   queuedMessageMenu,
-  subagentMenu,
   taskMenu,
   terminalTabMenu,
   todoMenu,
@@ -130,11 +129,6 @@ const CASES: readonly Case[] = [
     leftOut: [],
   },
   {
-    target: 'Subagent',
-    entries: subagentMenu({ expanded: false }, { ...spies('toggleLog', 'copyLog'), stop: vi.fn() }),
-    leftOut: [],
-  },
-  {
     target: 'Subagent’s tab (Agents tab)',
     entries: agentTabMenu({ ...spies('copyLog'), stop: vi.fn() }),
     leftOut: [],
@@ -189,7 +183,6 @@ describe('the context menus', () => {
       'Remove',
       'Remove from artifacts',
       'Remove from artifacts',
-      'Stop subagent',
       'Stop subagent',
       'Kill process',
     ])
@@ -298,14 +291,5 @@ describe('agentTabMenu', () => {
     expect(items(entries)[1]?.variant).toBe(MenuItemVariant.Destructive)
     items(entries)[1]?.onSelect()
     expect(stop).toHaveBeenCalledOnce()
-  })
-})
-
-describe('subagentMenu', () => {
-  it('collapses an open log, and can’t stop a subagent that isn’t running', () => {
-    expect(written(subagentMenu({ expanded: true }, { ...spies('toggleLog', 'copyLog'), stop: null }))).toEqual([
-      'Collapse log ↵',
-      'Copy log',
-    ])
   })
 })

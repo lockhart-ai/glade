@@ -6,7 +6,6 @@ import {
   ToolEventKind,
   UiStateKey,
   type Artifact,
-  type ArtifactGroupFold,
   type TaskHandoff,
   type Message,
   type PermissionMark,
@@ -167,32 +166,27 @@ export function withHistory(
         artifactsVersionAtLoad,
       ),
     },
-    // Only this window changes them, and it has by the time a load that follows its change answers.
-    artifactGroups: { ...state.artifactGroups, [taskId]: history.artifactGroups },
-    // The same: only this window chooses it.
-    artifactFilters: { ...state.artifactFilters, [taskId]: history.artifactFilter },
     todos: { ...state.todos, [taskId]: newerTodos(history.todos, state.todos[taskId]) },
     handoffs: { ...state.handoffs, [taskId]: newerHandoff(history.handoff, state.handoffs[taskId]) },
     // Like the queue, watchers change in place: the loaded ones are as new as any event before them.
     watchers: withWatchers(state.watchers, taskId, history.watchers),
     // Commits, too: the loaded list is the task's whole list as it was then.
     commits: { ...state.commits, [taskId]: history.commits },
-    // Like the Artifacts tab's filter, only this window picks it. A history without one (the todo hub is off) leaves
-    // it as it is.
+    // Only this window picks it, and it has by the time a load that follows its pick answers.
     agentTabs: withAgentTab(state.agentTabs, taskId, history.agentTab),
   }
 }
 
 /**
  * Each task's agent tab, with `taskId`'s as loaded or picked: a subagent's, or null for Main, which is kept as no
- * entry. Undefined leaves them as they are.
+ * entry.
  */
 export function withAgentTab(
   agentTabs: GladeData['agentTabs'],
   taskId: string,
-  agentId: string | null | undefined,
+  agentId: string | null,
 ): GladeData['agentTabs'] {
-  if (agentId === undefined || (agentTabs[taskId] ?? null) === agentId) return agentTabs
+  if ((agentTabs[taskId] ?? null) === agentId) return agentTabs
   return agentId === null ? without(agentTabs, taskId) : { ...agentTabs, [taskId]: agentId }
 }
 
@@ -286,11 +280,6 @@ export function withTodoHub(state: GladeData, taskId: string, hub: TodoHubGetRes
   }
 }
 
-/** A task's artifact date groups opened or folded, with one more: `fold` in place of what it replaces. */
-export function withGroupFold(folds: readonly ArtifactGroupFold[], fold: ArtifactGroupFold): ArtifactGroupFold[] {
-  return [...folds.filter(({ group }) => group !== fold.group), fold]
-}
-
 /**
  * What `workspaces.open` does, as main broadcasts it: the workspace as it now is, shown, with the task main selected
  * in it (the one last selected there), or none.
@@ -328,8 +317,6 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     openFiles: without(state.openFiles, taskId),
     artifacts: without(state.artifacts, taskId),
     artifactsVersion: without(state.artifactsVersion, taskId),
-    artifactGroups: without(state.artifactGroups, taskId),
-    artifactFilters: without(state.artifactFilters, taskId),
     watchers: without(state.watchers, taskId),
     commits: without(state.commits, taskId),
     handoffs: without(state.handoffs, taskId),
@@ -340,7 +327,6 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     inputDrafts: without(state.inputDrafts, taskId),
     fileFocus: state.fileFocus?.taskId === taskId ? null : state.fileFocus,
     toolLogFocus: state.toolLogFocus?.taskId === taskId ? null : state.toolLogFocus,
-    subagentFocus: state.subagentFocus?.taskId === taskId ? null : state.subagentFocus,
     todoFocus: state.todoFocus?.taskId === taskId ? null : state.todoFocus,
     renamingTaskId: state.renamingTaskId === taskId ? null : state.renamingTaskId,
     deletingTaskId: state.deletingTaskId === taskId ? null : state.deletingTaskId,
@@ -430,7 +416,7 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, watchers: withWatchers(state.watchers, event.taskId, event.watchers) }
     case EventType.CommitsChanged:
       return { ...state, commits: { ...state.commits, [event.taskId]: event.commits } }
-    // The todo hub's (P16), which main never sends while the hub is off.
+    // The todo hub's (P16).
     case EventType.FilingsChanged:
       return withFilingsChange(state, event)
     case EventType.TerminalTabsChanged: {

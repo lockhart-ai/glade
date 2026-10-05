@@ -1,5 +1,5 @@
 /**
- * Link artifacts (#407): the PRs, issues, tickets and other web pages a task is about, kept in its Artifacts tab next to
+ * Link artifacts (#407): the PRs, issues, tickets and other web pages a task is about, kept in its Todos tab next to
  * its files. Which addresses may be one (`checkArtifactUrl`: a whole `http:` or `https:` URL, nothing else), the one
  * form each is kept under (its normalised URL, so the same page given twice is one artifact), and what it is, from the
  * URL alone with no network call (`recogniseLink`): a GitHub pull request or issue, a Jira ticket, or any other page.

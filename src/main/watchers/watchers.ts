@@ -1,5 +1,5 @@
 /**
- * The watchers: what a task's agent left running or scheduled with the SDK's own tools, for the Watchers tab
+ * The watchers: what a task's agent left running or scheduled with the SDK's own tools, for the Agents tab
  * (`docs/sdk-notes.md` §13). Glade builds no watching of its own: the agent writes whatever script it likes and runs
  * it with `Monitor` or `Bash`'s `run_in_background`, or schedules itself with `ScheduleWakeup` or `CronCreate`, and
  * Glade follows each one from what the SDK reports:
@@ -24,7 +24,7 @@
  * long as the session keeps it. A message of yours is never turned away: the runner checks its own prompts first.
  *
  * **Subagents.** A watcher belongs to whoever's call started it: the task's own agent, or one of its subagents (the
- * call's `parentToolUseId`, which the Subagents tab shows it under). A subagent's are followed just as the task's own,
+ * call's `parentToolUseId`, whose tab in the Agents tab pins it). A subagent's are followed just as the task's own,
  * and end the same ways: the SDK reports their ends to the task's session, even once the subagent itself has finished
  * (it keeps them running, and wakes the subagent again when they end). A subagent that's stopped takes its monitors
  * and commands with it (`subagentStopped`): they end as "Ended with its subagent.", and the runner stops their tasks.

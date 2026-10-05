@@ -8,8 +8,6 @@ import {
   type TasksHistoryResponse,
 } from '../../shared/bridge'
 import {
-  ArtifactDateGroup,
-  ArtifactFilter,
   ArtifactKind,
   DividerKind,
   Effort,
@@ -31,7 +29,7 @@ import { AppCommandId, CommandScope } from '../../shared/commands'
 import { noOpenFiles } from '../../shared/files'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { GIF, JPEG, PNG } from '../../shared/test-images'
-import { ChildFilter, ChildKind, FilingSource, TODO_HUB_OFF, UNFILED_TODO_ID, type Filing } from '../../shared/todoHub'
+import { ChildFilter, ChildKind, FilingSource, UNFILED_TODO_ID, type Filing } from '../../shared/todoHub'
 import { activePanelTab, PanelTab, panelTabEntry, parsePanelTabSelection } from '../right-panel/panelModel'
 import { SettingsSection } from '../settings/sections'
 import { HydrationStatus, selectSelectedTask, selectSelectedWorkspace } from './state'
@@ -435,7 +433,7 @@ describe('a task main asks to open', () => {
     ])
   })
 
-  it('with a subagent, also opens the Subagents tab of its workspace on that subagent, opening the panel', async () => {
+  it('with a subagent, also opens the Agents tab of its workspace on that subagent’s tab, opening the panel', async () => {
     const { store, emit } = await hydrated(
       main([
         { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
@@ -447,20 +445,14 @@ describe('a task main asks to open', () => {
     emit({ type: EventType.TaskOpenRequested, taskId: 't2', subagentId: 'toolu_kitten' })
 
     await vi.waitFor(() => {
-      expect(store.getState().subagentFocus).toEqual({ taskId: 't2', subagentId: 'toolu_kitten', request: 1 })
+      expect(store.getState().agentTabs).toEqual({ t2: 'toolu_kitten' })
     })
     expect(selectSelectedTask(store.getState())).toEqual(sampleTask('t2', 'w2'))
     expect(selectSelectedWorkspace(store.getState())).toEqual(sampleWorkspace('w2'))
     // The tab is that workspace's own (#436): the one you were looking at in w1 stays as it was.
-    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Subagents)
+    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Agents)
     expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Files)
     expect(store.getState().uiState).toMatchObject({ [UiStateKey.RightPanelCollapsed]: 'false' })
-
-    // Asking for it again is a new request, so the tab shows it again.
-    emit({ type: EventType.TaskOpenRequested, taskId: 't2', subagentId: 'toolu_kitten' })
-    await vi.waitFor(() => {
-      expect(store.getState().subagentFocus?.request).toBe(2)
-    })
   })
 
   it('without a subagent, leaves the panel as it is', async () => {
@@ -477,7 +469,7 @@ describe('a task main asks to open', () => {
       expect(store.getState().selectedTaskId).toBe('t2')
     })
     expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Todos)
-    expect(store.getState().subagentFocus).toBeNull()
+    expect(store.getState().agentTabs).toEqual({})
   })
 
   it('with a subagent, shows it once loaded when it is asked for while the store loads', async () => {
@@ -496,20 +488,8 @@ describe('a task main asks to open', () => {
     await store.getState().hydrate()
 
     expect(selectSelectedTask(store.getState())).toEqual(sampleTask('t2', 'w2'))
-    expect(store.getState().subagentFocus).toEqual({ taskId: 't2', subagentId: 'toolu_kitten', request: 1 })
-    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Subagents)
-  })
-
-  it('forgets the subagent asked for once its task is deleted', async () => {
-    const { store, emit } = await hydrated(main([{ key: UiStateKey.ActiveWorkspaceId, value: 'w1' }]))
-    emit({ type: EventType.TaskOpenRequested, taskId: 't2', subagentId: 'toolu_kitten' })
-    await vi.waitFor(() => {
-      expect(store.getState().subagentFocus).not.toBeNull()
-    })
-
-    emit({ type: EventType.TaskDeleted, taskId: 't2' })
-
-    expect(store.getState().subagentFocus).toBeNull()
+    expect(store.getState().agentTabs).toEqual({ t2: 'toolu_kitten' })
+    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Agents)
   })
 })
 
@@ -1179,17 +1159,6 @@ describe('context menu actions', () => {
     )
   })
 
-  it('shows a task’s artifact filter at once and remembers it through main (#407)', async () => {
-    const data: FakeMain = { ...main(), artifactFilters: {} }
-    const { store, invoke } = await hydrated(data)
-
-    await store.getState().setArtifactFilter('t1', ArtifactFilter.Links)
-
-    expect(store.getState().artifactFilters).toEqual({ t1: ArtifactFilter.Links })
-    expect(data.artifactFilters).toEqual({ t1: ArtifactFilter.Links })
-    expect(invoke).toHaveBeenCalledWith(CommandName.ArtifactsSetFilter, { taskId: 't1', filter: ArtifactFilter.Links })
-  })
-
   it('asks the input bar to add text, as a new request each time, without calling main', async () => {
     const { store, invoke } = await hydrated()
     const calls = invoke.mock.calls.length
@@ -1372,7 +1341,7 @@ describe("a task's artifacts", () => {
 
     // The load starts while the artifact is still declared...
     const load = store.getState().loadHistory('t1')
-    // ...but the Artifacts tab's own Remove (or the agent's `remove_artifact`) lands its `artifacts.changed` first.
+    // ...but a tile's own Remove (or the agent's `remove_artifact`) lands its `artifacts.changed` first.
     await store.getState().removeArtifact('t1', { kind: ArtifactKind.File, path: 'docs/notes.md' })
     expect(store.getState().artifacts.t1).toEqual([])
 
@@ -1387,11 +1356,10 @@ describe("a task's artifacts", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [declared],
-      artifactGroups: [],
-      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
+      agentTab: null,
     })
     await load
 
@@ -1399,40 +1367,7 @@ describe("a task's artifacts", () => {
   })
 })
 
-describe('artifact groups and watching', () => {
-  it('opens or folds a group at once, and has main remember it', async () => {
-    const data: FakeMain = { ...main(), artifactGroups: { t1: [{ group: ArtifactDateGroup.Older, open: true }] } }
-    const { store, invoke } = await hydrated(data)
-    await store.getState().loadHistory('t1')
-    expect(store.getState().artifactGroups.t1).toEqual([{ group: ArtifactDateGroup.Older, open: true }])
-
-    const folding = store.getState().setArtifactGroupOpen('t1', ArtifactDateGroup.Today, false)
-    // Before main answers.
-    expect(store.getState().artifactGroups.t1).toEqual([
-      { group: ArtifactDateGroup.Older, open: true },
-      { group: ArtifactDateGroup.Today, open: false },
-    ])
-    await folding
-    await store.getState().setArtifactGroupOpen('t1', ArtifactDateGroup.Older, false)
-
-    expect(invoke).toHaveBeenLastCalledWith(CommandName.ArtifactsSetGroupOpen, {
-      taskId: 't1',
-      group: ArtifactDateGroup.Older,
-      open: false,
-    })
-    expect(store.getState().artifactGroups.t1).toEqual([
-      { group: ArtifactDateGroup.Today, open: false },
-      { group: ArtifactDateGroup.Older, open: false },
-    ])
-    expect(data.artifactGroups?.t1).toEqual(store.getState().artifactGroups.t1)
-  })
-
-  it('opens a group for a task whose logs haven’t loaded', async () => {
-    const { store } = await hydrated({ ...main() })
-    await store.getState().setArtifactGroupOpen('t9', ArtifactDateGroup.LastWeek, true)
-    expect(store.getState().artifactGroups.t9).toEqual([{ group: ArtifactDateGroup.LastWeek, open: true }])
-  })
-
+describe('watching a task’s artifacts', () => {
   it('asks main to watch a task’s artifacts, and to stop', async () => {
     const data: FakeMain = { ...main(), watchedArtifacts: [] }
     const { store } = await hydrated(data)
@@ -1508,42 +1443,42 @@ describe('right panel tab per workspace', () => {
 
     await store.getState().setUiState(panelTabEntry(store.getState().uiState, 'w1', PanelTab.Todos))
     await store.getState().openWorkspace('w2')
-    // w2 has never chosen one: it starts from Tool calls, not w1's Todos.
-    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.ToolCalls)
+    // w2 has never chosen one: it starts from Agents, not w1's Todos.
+    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Agents)
 
-    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 'w2', PanelTab.Artifacts))
+    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 'w2', PanelTab.Files))
     await store.getState().openWorkspace('w1')
 
     expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Todos)
     await store.getState().openWorkspace('w2')
-    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Artifacts)
+    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Files)
   })
 
   it('starts a workspace with no choice of its own from the tab stored before each workspace had one', async () => {
-    const data = main([{ key: UiStateKey.RightPanelTab, value: 'subagents' }])
+    const data = main([{ key: UiStateKey.RightPanelTab, value: 'todos' }])
     const { store } = await hydrated(data)
 
-    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Subagents)
-    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Subagents)
+    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Todos)
+    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Todos)
 
-    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 'w1', PanelTab.Watchers))
+    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 'w1', PanelTab.Files))
     // w1 now has its own; w2 still starts from the old global value.
-    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Watchers)
-    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Subagents)
+    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Files)
+    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Todos)
   })
 
   it('survives a relaunch, keeping every workspace that chose one', async () => {
     const data = main()
     const { store } = await hydrated(data)
     await store.getState().setUiState(panelTabEntry(store.getState().uiState, 'w1', PanelTab.Todos))
-    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 'w2', PanelTab.Artifacts))
+    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 'w2', PanelTab.Files))
 
     // The window relaunches: a fresh store, hydrated from what main kept.
     const relaunched = createGladeStore(fakeBridge(data).bridge)
     await relaunched.getState().hydrate()
 
     expect(activePanelTab(relaunched.getState().uiState, 'w1')).toBe(PanelTab.Todos)
-    expect(activePanelTab(relaunched.getState().uiState, 'w2')).toBe(PanelTab.Artifacts)
+    expect(activePanelTab(relaunched.getState().uiState, 'w2')).toBe(PanelTab.Files)
   })
 })
 
@@ -1676,7 +1611,6 @@ describe('a batch of events from main (#489)', () => {
 })
 
 describe('the todo hub (P16)', () => {
-  const ON = { ...DEFAULT_SETTINGS, todoHubEnabled: true }
   const filing = (key: string, todoId: string, filedAt = 1): Filing => ({
     taskId: 't1',
     kind: ChildKind.File,
@@ -1691,7 +1625,6 @@ describe('the todo hub (P16)', () => {
     const other = { taskId: 't2', todoId: '2', open: true, filter: ChildFilter.All }
     const data: FakeMain = {
       ...main(),
-      settings: ON,
       filings: [filing('docs/plan.md', '2'), { ...filing('docs/other.md', '1'), taskId: 't2' }],
       todoPanels: [panel, other],
       todoHubReads: [],
@@ -1705,14 +1638,8 @@ describe('the todo hub (P16)', () => {
     expect(data.todoHubReads).toEqual(['t1'])
   })
 
-  it('fails to load while the hub is off, keeping nothing', async () => {
-    const { store } = await hydrated()
-    await expect(store.getState().loadTodoHub('t1')).rejects.toMatchObject({ message: TODO_HUB_OFF })
-    expect(store.getState().filings).toEqual({})
-  })
-
   it('reads again when a filing lands while it loads, so the change is never lost to an answer made before it', async () => {
-    const data: FakeMain = { ...main(), settings: ON, filings: [filing('docs/plan.md', '1')], todoHubReads: [] }
+    const data: FakeMain = { ...main(), filings: [filing('docs/plan.md', '1')], todoHubReads: [] }
     const { store, emit } = await hydrated(data)
     const late = filing('docs/late.md', '2', 9)
 
@@ -1727,7 +1654,7 @@ describe('the todo hub (P16)', () => {
   })
 
   it('keeps a loaded task’s filings current from the events alone', async () => {
-    const { store, emit } = await hydrated({ ...main(), settings: ON, filings: [filing('docs/plan.md', '1')] })
+    const { store, emit } = await hydrated({ ...main(), filings: [filing('docs/plan.md', '1')] })
     await store.getState().loadTodoHub('t1')
 
     emit({ type: EventType.FilingsChanged, taskId: 't1', filed: [filing('docs/plan.md', '3', 4)], removed: [] })
@@ -1736,7 +1663,7 @@ describe('the todo hub (P16)', () => {
   })
 
   it('opens, closes and filters a todo’s panel at once, and has main remember it', async () => {
-    const data: FakeMain = { ...main(), settings: ON, todoPanels: [] }
+    const data: FakeMain = { ...main(), todoPanels: [] }
     const { store, invoke } = await hydrated(data)
     await store.getState().loadTodoHub('t1')
     const opened = { taskId: 't1', todoId: '4', open: true, filter: ChildFilter.Commits }
@@ -1759,9 +1686,13 @@ describe('the todo hub (P16)', () => {
   })
 
   it('shows a todo’s panel as you set it even when main can’t remember it', async () => {
-    const { store } = await hydrated()
+    const fake = fakeBridge(main(), {
+      [CommandName.TodoHubSetPanel]: () => refuse(bridgeError(BridgeErrorCode.Internal, 'disk full')),
+    })
+    const store = createGladeStore(fake.bridge)
+    await store.getState().hydrate()
     const opened = { taskId: 't1', todoId: '4', open: true, filter: ChildFilter.All }
-    await expect(store.getState().setTodoPanel(opened)).rejects.toMatchObject({ message: TODO_HUB_OFF })
+    await expect(store.getState().setTodoPanel(opened)).rejects.toMatchObject({ message: 'disk full' })
     expect(store.getState().todoPanels.t1).toEqual({ '4': opened })
   })
 })

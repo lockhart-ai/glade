@@ -3,8 +3,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import {
-  ArtifactDateGroup,
-  ArtifactFilter,
   ArtifactKind,
   CommitFileStatus,
   Effort,
@@ -453,7 +451,6 @@ describe('the changes commands', () => {
       await expect(handlers[CommandName.FilesRead]({ taskId, path: key })).resolves.toEqual({
         content: { kind: FileContentKind.Text, text: '# Upgrading\n', truncated: false, size: 12 },
       })
-      await expect(handlers[CommandName.ChangesRepository]({ taskId })).resolves.toEqual({ repository: true })
       await expect(handlers[CommandName.ChangesFiles]({ taskId, id: 'nope' })).rejects.toMatchObject({
         code: BridgeErrorCode.NotFound,
       })
@@ -537,7 +534,6 @@ describe('the files commands', () => {
         missing: false,
       },
     ])
-    expect(history.artifactGroups).toEqual([])
   })
 
   it('make an image’s thumbnail with the thumbnails they’re given', async () => {
@@ -683,37 +679,6 @@ describe('link artifacts (#407)', () => {
       expect.objectContaining({ code: BridgeErrorCode.NotFound }),
     )
     expect(emit).not.toHaveBeenCalled()
-  })
-
-  it('remembers the Artifacts tab’s filter for the task, which its history carries', async () => {
-    const taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
-    expect((await handlers[CommandName.TasksHistory]({ id: taskId })).artifactFilter).toBe(ArtifactFilter.All)
-
-    expect(handlers[CommandName.ArtifactsSetFilter]({ taskId, filter: ArtifactFilter.Links })).toBeNull()
-
-    expect((await handlers[CommandName.TasksHistory]({ id: taskId })).artifactFilter).toBe(ArtifactFilter.Links)
-    expect(() => handlers[CommandName.ArtifactsSetFilter]({ taskId: 'gone', filter: ArtifactFilter.Files })).toThrow(
-      expect.objectContaining({ code: BridgeErrorCode.NotFound }),
-    )
-  })
-})
-
-describe('artifacts.setGroupOpen', () => {
-  it('remembers a date group opened or folded for the task, which its history carries', async () => {
-    const taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
-
-    expect(
-      handlers[CommandName.ArtifactsSetGroupOpen]({ taskId, group: ArtifactDateGroup.Today, open: false }),
-    ).toBeNull()
-    void handlers[CommandName.ArtifactsSetGroupOpen]({ taskId, group: ArtifactDateGroup.Older, open: true })
-
-    expect((await handlers[CommandName.TasksHistory]({ id: taskId })).artifactGroups).toEqual([
-      { group: ArtifactDateGroup.Today, open: false },
-      { group: ArtifactDateGroup.Older, open: true },
-    ])
-    expect(() =>
-      handlers[CommandName.ArtifactsSetGroupOpen]({ taskId: 'gone', group: ArtifactDateGroup.Today, open: true }),
-    ).toThrow(expect.objectContaining({ code: BridgeErrorCode.NotFound }))
   })
 })
 

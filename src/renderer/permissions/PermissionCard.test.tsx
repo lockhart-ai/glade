@@ -861,15 +861,15 @@ describe("the decision on its call's row (#459)", () => {
     ]
     await renderChat([write], events)
     expect(within(card()).getByText('subagent · Upgrade guide')).toBeInTheDocument()
-    // The Tool calls list has the Agent call alone, which no permission was asked about.
+    // Main's list has the Agent call alone, which no permission was asked about.
     expect(decisions()).toEqual([])
 
-    fireEvent.click(screen.getByRole('tab', { name: /^Subagents/ }))
-    await settle()
+    // The subagent's own tab of the Agents tab has its calls.
     fireEvent.click(
-      within(screen.getByRole('group', { name: 'Upgrade guide' })).getByRole('button', { expanded: false }),
+      within(screen.getByRole('tablist', { name: 'Agents' })).getByRole('tab', { name: /Upgrade guide$/ }),
     )
-    const subagentLog = (): HTMLElement => screen.getByRole('log', { name: 'Upgrade guide log' })
+    await settle()
+    const subagentLog = (): HTMLElement => screen.getByRole('log', { name: 'Tool log' })
     const line = (): Element | null => subagentLog().querySelector(`[${PERMISSION_LINE_STATE}]`)
     expect(line()).toHaveTextContent(/^Waiting on you$/)
     expect(within(subagentLog()).getByRole('img', { name: 'Waiting' })).toHaveAttribute('data-state', 'waiting')

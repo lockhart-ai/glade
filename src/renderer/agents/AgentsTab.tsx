@@ -66,15 +66,14 @@ export interface AgentsTabProps {
 }
 
 /**
- * The Agents tab (P16, #536; `docs/design/html/50-agents.html` to `54-agents-overflow.html`), shown in place of the
- * Tool calls and Subagents tabs while the hidden `todoHubEnabled` setting is on: a strip with a tab for every agent in
- * the task (`AgentStrip`), and under it that agent's tool calls, its notes between them and their output, exactly as
- * the Tool calls tab draws them (`ToolLog`). Main's list shows each subagent it started as an `Agent` call, live while
+ * The Agents tab (P16, #536; `docs/design/html/50-agents.html` to `54-agents-overflow.html`): a strip with a tab for
+ * every agent in the task (`AgentStrip`), and under it that agent's tool calls, its notes between them and their
+ * output (`ToolLog`). Main's list shows each subagent it started as an `Agent` call, live while
  * the subagent runs; clicking it goes to that subagent's tab. A subagent's tab says which todo it's working on in a
  * line under the strip (`AgentLine`).
  *
  * What the agent showing is watching is pinned under its tool calls, outside their scroll (`PinnedWatchers`, #537), and
- * takes the place of the Watchers tab: each watcher is on the tab of the agent that started it, a subagent's on that
+ * is where a task's watchers are: each watcher is on the tab of the agent that started it, a subagent's on that
  * subagent's, where it stays after the subagent finishes. Once a watcher ends it's a row of the list instead.
  *
  * Which agent's tab a task is on is remembered for the task (`selectAgentTab`), across tasks and relaunches; one

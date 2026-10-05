@@ -15,7 +15,6 @@ import { Effort, PermissionMode, ToolCallState, type Task } from '../../shared/d
 import { addArtifact } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
 import { getOpenQuestionSet } from '../db/repositories/question-sets'
-import { updateSettings } from '../db/repositories/settings'
 import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
@@ -164,16 +163,9 @@ describe.each([
   })
 
   it("refuses a subagent's list_children and file_children, the todo hub's tools, and runs the main agent's", async () => {
-    // A session that started with the hub on has the two tools (P16-05, #496); the task has a todo and a file.
+    // A session has the two tools (P16-05, #496); the task has a todo and a file.
     const { db } = database
-    updateSettings(db, { todoHubEnabled: true })
-    const hub = createMcpToolCaller({
-      [GLADE_SERVER]: createGladeMcpServer(context, task.id, {
-        statusSummary: true,
-        taskTitles: true,
-        todoHubEnabled: true,
-      }),
-    })
+    const hub = createMcpToolCaller({ [GLADE_SERVER]: createGladeMcpServer(context, task.id) })
     const todo = { taskId: task.id, toolUseId: 'toolu_create_1' }
     appendToolCall(db, { ...todo, turn: 1, name: 'TaskCreate', input: { subject: 'Plan' }, parentToolUseId: null })
     updateToolCall(db, { ...todo, state: ToolCallState.Done, output: 'Task #1 created successfully: Plan' })

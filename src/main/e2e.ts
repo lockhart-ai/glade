@@ -214,7 +214,7 @@ export function createE2eAgentEnvs(): (env: Environment) => void {
  */
 export const E2E_TODO_HUB_GLOBAL = '__gladeE2eTodoHub'
 
-/** Main's filing service in e2e mode (`E2E_TODO_HUB_GLOBAL`). Each does nothing while the hub is off. */
+/** Main's filing service in e2e mode (`E2E_TODO_HUB_GLOBAL`). */
 export interface E2eTodoHub {
   /** Files children of a task under todos, replacing any filing they had (`fileChildren`). Answers with the filings. */
   file(taskId: string, filings: readonly NewFiling[]): Filing[]

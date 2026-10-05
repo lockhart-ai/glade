@@ -26,11 +26,11 @@ test('shortcuts: the window’s work, one rebound in Settings › Keyboard works
   await expect(list.rows('Active')).toHaveCount(1)
   await expect(field).toBeFocused()
 
-  // ⌘⌥2 picks the right panel's Files tab, even from the input bar; ⌘⌥1 goes back to Tool calls.
+  // ⌘⌥2 picks the right panel's Files tab, even from the input bar; ⌘⌥1 goes back to Agents.
   await window.keyboard.press('Meta+Alt+Digit2')
   await expect(taskPanel.getByRole('tab', { name: /^Files/ })).toHaveAttribute('aria-selected', 'true')
   await window.keyboard.press('Meta+Alt+Digit1')
-  await expect(taskPanel.getByRole('tab', { name: /^Tool calls/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(taskPanel.getByRole('tab', { name: /^Agents/ })).toHaveAttribute('aria-selected', 'true')
 
   // ⌘P (Jump to task) puts the focus in the task search; ⌘L puts it back in the input bar; ⌘F searches again.
   await window.keyboard.press('Meta+KeyP')

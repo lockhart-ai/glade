@@ -9,7 +9,6 @@ import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
 import {
   AgentErrorKind,
-  ArtifactFilter,
   AutoCompactKind,
   CompactionTrigger,
   DividerKind,
@@ -46,7 +45,7 @@ import { setPermissionMark } from './db/repositories/permission-marks'
 import { preambleSchema, questionsSchema } from './questions/schema'
 import { appendQuestionSet } from './db/repositories/question-sets'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
-import { addArtifact, addLinkArtifact, setArtifactFile, setArtifactFilter } from './db/repositories/artifacts'
+import { addArtifact, addLinkArtifact, setArtifactFile } from './db/repositories/artifacts'
 import { standInForWorkspaceRoot, workspaceFilesRoot } from './files/files'
 import { setHandoff } from './db/repositories/backfills'
 import { appendMessage } from './db/repositories/messages'
@@ -158,9 +157,8 @@ export interface SeedToolCall {
 
 /**
  * The todo a sample child is filed under in the todo hub (P16; `../shared/todoHub`), by the id Claude Code gave it:
- * the `N` of the `Task #N` its sample `TaskCreate` call answers with. Filed as main files any child (`fileChildren`),
- * so it needs the hub on (`settings.todoHubEnabled`); with it off, nothing is filed. A file, a link, a commit and a
- * subagent take one; a watcher doesn't, since watchers aren't filed.
+ * the `N` of the `Task #N` its sample `TaskCreate` call answers with. Filed as main files any child (`fileChildren`).
+ * A file, a link, a commit and a subagent take one; a watcher doesn't, since watchers aren't filed.
  */
 export type SeedTodoId = string
 
@@ -274,10 +272,8 @@ export interface SeedTask {
   readonly openFiles?: SeedOpenFiles | undefined
   /** The folders open in its Files tab's Browse tab, relative to the workspace root; none unless given. */
   readonly browseFolders?: readonly string[] | undefined
-  /** The files and links declared as its artifacts (the Artifacts tab), in the order they were declared. */
+  /** The files and links declared as its artifacts (the Todos tab's tiles), in the order they were declared. */
   readonly artifacts?: readonly SeedArtifact[] | undefined
-  /** Which of them the Artifacts tab shows (#407); all of them unless given. */
-  readonly artifactFilter?: ArtifactFilter | undefined
   /** Its handoff note, from a backfill through the control API (the Backfilled card); none unless given. */
   readonly handoff?: SeedHandoff | undefined
   /** What its agent may do without asking; Allow all unless given. */
@@ -288,9 +284,9 @@ export interface SeedTask {
   readonly permissionMarks?: readonly SeedPermissionMark[] | undefined
   /** An open question set (the question card) its agent asked; none unless given. */
   readonly questionSet?: SeedQuestionSet | undefined
-  /** What its agent left running or scheduled (the Watchers tab), in the order it started them. */
+  /** What its agents left running or scheduled (the Agents tab's watchers), in the order they started them. */
   readonly watchers?: readonly SeedWatcher[] | undefined
-  /** The commits it made (the Changes tab); none unless given. */
+  /** The commits it made (the Todos tab's commit tiles); none unless given. */
   readonly commits?: readonly SeedCommit[] | undefined
   /** How its todos' panels were left in the todo hub; each closed, showing all, unless given. */
   readonly todoPanels?: readonly SeedTodoPanel[] | undefined
@@ -754,7 +750,6 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
           ]),
         )
         .optional(),
-      artifactFilter: z.enum(ArtifactFilter).optional(),
       handoff: z.strictObject({ body: z.string().min(1), minutesAgo }).optional(),
       permissionMode: z.enum(PermissionMode).optional(),
       workspace: z.strictObject({ name: z.string(), rootPath: z.string() }).optional(),
@@ -1185,7 +1180,6 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
           file: there ? { missing: false, modifiedAt: declaredAt } : { missing: true },
         })
       }
-      if (sample.artifactFilter !== undefined) setArtifactFilter(db, task.id, sample.artifactFilter)
       if (sample.handoff !== undefined) setHandoff(db, task.id, sample.handoff.body, ago(sample.handoff.minutesAgo))
       for (const request of sample.permissionRequests ?? []) {
         seedPermissionRequest(db, task.id, request, ago(request.minutesAgo))
@@ -1201,7 +1195,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       for (const commit of sample.commits ?? []) {
         fileUnder(commit.todo, seedCommit(db, task.id, seed.workspace.rootPath, commit, now))
       }
-      // Filed as main files any child, with no window to tell yet. Nothing is filed while the hub is off.
+      // Filed as main files any child, with no window to tell yet.
       fileChildren({ db, emit: () => undefined }, task.id, filings, now)
       for (const { todo, open, filter } of sample.todoPanels ?? []) {
         setTodoPanel(db, { taskId: task.id, todoId: todo, open, filter: filter ?? ChildFilter.All })

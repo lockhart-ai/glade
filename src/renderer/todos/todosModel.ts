@@ -18,7 +18,7 @@ export interface ProgressBar {
 
 /**
  * The progress bar: the done items' share of the list, then half an item's share for each item being worked on, as
- * 09-todos.html shows it (3 of 7 done, one doing: 43% then 6%, about half of one item's 14%).
+ * 46-todo-hub.html shows it (with 3 of 7 done and one doing: 43% then 6%, about half of one item's 14%).
  */
 export function progressBar({ done, doing, total }: TodoProgress): ProgressBar {
   if (total === 0) return { done: 0, doing: 0 }

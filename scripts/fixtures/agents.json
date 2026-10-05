@@ -3,9 +3,6 @@
     "name": "Acme API",
     "rootPath": "/Users/sample/code/api"
   },
-  "settings": {
-    "todoHubEnabled": true
-  },
   "panelTab": "agents",
   "tasks": [
     {

@@ -41,7 +41,6 @@ import {
   showsCallState,
   showsResult,
   withdrawnUnrun,
-  toolCallCount,
   toolLogRows,
   type AgentLogRow,
   type CallRow,
@@ -322,10 +321,9 @@ describe('compactions', () => {
     ...change,
   })
 
-  it('sit in the log as rows of their own, and count as no tool call', () => {
+  it('sit in the log as rows of their own', () => {
     const rows = toolLogRows([narration('n1', 1), compaction()])
     expect(rows[1]).toEqual({ kind: ToolEventKind.Compaction, compaction: compaction() })
-    expect(toolCallCount([compaction()])).toBe(0)
   })
 
   it('show the tokens before and after once done', () => {
@@ -344,22 +342,6 @@ describe('compactions', () => {
     expect(compactionResult(compaction({ trigger: CompactionTrigger.Auto }))).toBe(
       'Automatic · resuming from a summary',
     )
-  })
-})
-
-describe('toolCallCount', () => {
-  it('counts only the task’s own calls: a subagent’s, a nested one’s included, are the Subagents tab’s', () => {
-    expect(
-      toolCallCount([
-        narration('n1', 1),
-        call({ id: 'a', name: 'Agent', toolUseId: 'a' }),
-        call({ id: 'b', toolUseId: 'b', parentToolUseId: 'a' }),
-        call({ id: 'c', name: 'Agent', toolUseId: 'c', parentToolUseId: 'a' }),
-        call({ id: 'd', toolUseId: 'd', parentToolUseId: 'c' }),
-        divider('d', 2),
-        call({ id: 'e', toolUseId: 'e' }),
-      ]),
-    ).toBe(2)
   })
 })
 
@@ -492,6 +474,27 @@ describe('permission lines', () => {
     expect(sameSubagentRow(agent, agentNested ?? agent)).toBe(false)
     expect(sameSubagentRow(bash, bashNested ?? agent)).toBe(true)
     expect(sameSubagentRows(agent.children, agentNested?.children ?? [])).toBe(false)
+  })
+
+  it('tell a subagent’s note from another, and from a call, by the event it holds', () => {
+    const said = { ...narration('n1', 1), parentToolUseId: 'use-agent' }
+    const events = [
+      call({ id: 'agent', name: 'Agent', toolUseId: 'use-agent' }),
+      said,
+      call({ id: 'write', name: 'Write', toolUseId: 'use-write', parentToolUseId: 'use-agent' }),
+    ]
+    const nested = (log: readonly ToolEvent[]) => onlyCall(toolLogRows(log)).children
+    const [note, write] = nested(events)
+    if (note === undefined || write === undefined) throw new Error('Rows missing')
+
+    // The same events, their rows made anew: each is the same row.
+    expect(sameSubagentRows(nested(events), nested([...events]))).toBe(true)
+    expect(sameSubagentRow(note, nested([...events])[0] ?? write)).toBe(true)
+    // A note isn't a call, and another note isn't this one.
+    expect(sameSubagentRow(note, write)).toBe(false)
+    expect(sameSubagentRow(write, note)).toBe(false)
+    const reworded = nested([events[0] ?? said, { ...said, text: 'Something else.' }])
+    expect(sameSubagentRow(note, reworded[0] ?? write)).toBe(false)
   })
 
   it('show a running call that waits on its card as waiting on you; a call that ended keeps its own dot', () => {

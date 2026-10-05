@@ -1,12 +1,13 @@
 import { act, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName } from '../../shared/bridge'
+import { FileContentKind } from '../../shared/domain'
 import { imageDataUrl, ImageMediaType } from '../../shared/images'
 import { GIF, PNG } from '../../shared/test-images'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore } from '../store/store'
 import { fakeBridge, type FakeBridge } from '../store/test-bridge'
-import { IMAGE_LABEL, MISSING_IMAGE_LABEL, StoredImage } from './StoredImage'
+import { IMAGE_LABEL, MISSING_IMAGE_LABEL, StoredImage, StoredImageStatus, useWorkspaceImage } from './StoredImage'
 
 function setup(): { fake: FakeBridge; show: (id: string) => void } {
   const fake = fakeBridge({ workspaces: [], tasks: [], uiState: [], images: { gif: GIF, png: PNG } })
@@ -110,5 +111,41 @@ describe('StoredImage', () => {
       await Promise.resolve()
     })
     expect(screen.queryByRole('img')).toBeNull()
+  })
+})
+
+describe('useWorkspaceImage', () => {
+  /** Says how a workspace file's image stands, as the image viewer reads it. */
+  function Status({ path }: { readonly path: string }): React.JSX.Element {
+    return <output>{useWorkspaceImage('t1', path).status}</output>
+  }
+
+  it('is missing when the file can’t be read at all, and when it isn’t an image', async () => {
+    const fake = fakeBridge(
+      { workspaces: [], tasks: [], uiState: [] },
+      {
+        [CommandName.FilesRead]: ({ path }) => {
+          // A plain object, not an Error, same as the real bridge throws (see `src/preload/bridge.ts`).
+          // eslint-disable-next-line @typescript-eslint/only-throw-error
+          if (path === 'screens/gone.png') throw bridgeError(BridgeErrorCode.NotFound, 'gone')
+          return { content: { kind: FileContentKind.Text, text: 'not a picture', truncated: false, size: 13 } }
+        },
+      },
+    )
+    const store = createGladeStore(fake.bridge)
+    const ui = (path: string) => (
+      <GladeStoreProvider store={store}>
+        <Status path={path} />
+      </GladeStoreProvider>
+    )
+
+    const { rerender } = render(ui('screens/gone.png'))
+    expect(screen.getByRole('status')).toHaveTextContent(StoredImageStatus.Loading)
+    await act(() => Promise.resolve())
+    expect(screen.getByRole('status')).toHaveTextContent(StoredImageStatus.Missing)
+
+    rerender(ui('notes/plan.md'))
+    await act(() => Promise.resolve())
+    expect(screen.getByRole('status')).toHaveTextContent(StoredImageStatus.Missing)
   })
 })

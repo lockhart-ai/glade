@@ -36,7 +36,7 @@ export interface FileActionsProps extends ActionsProps {
 
 /**
  * A file artifact's icon buttons, which take its age's place under the pointer or with the focus: Open, Reveal in
- * folder and More. The same three in its row in the Artifacts tab and on its tile in the todo hub (P16, #498).
+ * folder and More, on its tile in the Todos tab (P16, #498).
  */
 export function FileActions({
   missing,

@@ -1,5 +1,5 @@
 /**
- * Reading git, for the Changes tab (`../changes`): what Glade needs to know of a repository, over plain `git` commands
+ * Reading git, for the Todos tab's commit tiles (`../changes`): what Glade needs to know of a repository, over plain `git` commands
  * run with `execFile` (no library), each one's output parsed here, at the boundary, into typed values. Glade only ever
  * reads: nothing here writes to a repository, its index or its refs, and every command runs with optional locks off
  * (`GIT_OPTIONAL_LOCKS=0`), so reading never gets in the way of an agent's own git.
@@ -94,7 +94,7 @@ export interface ReflogEntry {
   readonly at: EpochMs
 }
 
-/** A commit as the Changes tab's row shows it. */
+/** A commit as its tile shows it. */
 export interface CommitSummary {
   readonly hash: string
   readonly parents: readonly string[]
@@ -192,7 +192,7 @@ export const COMMAND_ARGS: Readonly<Record<GitCommand, readonly string[]>> = {
   [GitCommand.SymbolicRef]: [],
 }
 
-/** A commit's diff, as the Changes tab counts it: renames found, and a merge's against its first parent. */
+/** A commit's diff, as a commit's tile counts it: renames found, and a merge's against its first parent. */
 const DIFF_ARGS = ['-M', '--diff-merges=first-parent']
 
 /** The unit separator, between a record's fields, and the record separator, before each record. */
@@ -319,7 +319,7 @@ export function parseSummaries(output: string): CommitSummary[] {
   })
 }
 
-/** A `--raw` status letter as the Changes tab tells it. */
+/** A `--raw` status letter as a commit's tile tells it. */
 function fileStatus(letter: string): CommitFileStatus {
   switch (letter) {
     case 'A':

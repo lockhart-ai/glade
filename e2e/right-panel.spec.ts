@@ -17,16 +17,8 @@ test('right panel: ⌘⌥2 picks a tab; dragging the handle resizes it, kept on 
   const { window } = glade
   const panel = taskPanel(window)
 
-  // Seven tabs, with counts only where there's something to count.
-  await expect(panel.panel.getByRole('tab')).toHaveText([
-    'Tool calls 6',
-    'Files',
-    'Todos',
-    'Artifacts',
-    'Subagents 1',
-    'Watchers',
-    'Changes',
-  ])
+  // Three tabs, with counts only where there's something to count.
+  await expect(panel.tabs).toHaveText(['Agents 2', 'Files', 'Todos'])
 
   // ⌘⌥2 picks Files, wherever the focus is.
   await window.keyboard.press('Meta+Alt+Digit2')
@@ -97,18 +89,18 @@ test('right panel: each workspace keeps its own tab, switching back and forth an
   await firstRun(window).openFolder.click()
   await expect(workspace).toContainText('acme-api')
 
-  // A's task starts at Tool calls, the default; pick Todos there.
+  // A's task starts at Agents, the default; pick Todos there.
   await list.newTask.click()
-  await expect(panel.tab('Tool calls')).toHaveAttribute('aria-selected', 'true')
+  await expect(panel.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
   await window.keyboard.press('Meta+Alt+Digit3')
   await expect(panel.tab('Todos')).toHaveAttribute('aria-selected', 'true')
 
-  // A new workspace B, with its own task, starts at Tool calls too: A's choice doesn't leak into it. Pick Files there.
+  // A new workspace B, with its own task, starts at Agents too: A's choice doesn't leak into it. Pick Files there.
   await chooseFolder(glade, rootB)
   await chooseMenuItem(glade, 'Workspace', 'New workspace…')
   await expect(workspace).toContainText('acme-web')
   await list.newTask.click()
-  await expect(panel.tab('Tool calls')).toHaveAttribute('aria-selected', 'true')
+  await expect(panel.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
   await window.keyboard.press('Meta+Alt+Digit2')
   await expect(panel.tab('Files')).toHaveAttribute('aria-selected', 'true')
 

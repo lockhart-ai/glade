@@ -296,21 +296,19 @@ export enum SelectedHistory {
 
 /**
  * Writes the fixture into `folder` and returns its path: the long task and the small one in one workspace, with
- * `selected` showing and the right panel on `panelTab`. With `hub`, the todo hub is on (the hidden `todoHubEnabled`
- * setting), the tasks' artifacts are filed under their todos, `HUB_CHILDREN_UNDER_FIRST` of the long task's under its
- * first, and each subagent has the todo it works on; each task also has a link artifact for the PR each of its todos
- * names.
+ * `selected` showing and the right panel on `panelTab`. With `hub`, the tasks' artifacts are filed under their todos,
+ * `HUB_CHILDREN_UNDER_FIRST` of the long task's under its first, and each subagent has the todo it works on; each
+ * task also has a link artifact for the PR each of its todos names.
  */
 export function writeLongHistorySeed(
   folder: string,
   selected: SelectedHistory,
-  panelTab = 'tool-calls',
+  panelTab = 'agents',
   hub = false,
 ): string {
   const seed = {
     workspace: { name: 'Acme API', rootPath: '/Users/sample/code/api' },
     panelTab,
-    ...(hub ? { settings: { todoHubEnabled: true } } : {}),
     tasks: [
       historyTask(SHORT_TASK_TITLE, SHORT_HISTORY, selected === SelectedHistory.Short, hub),
       historyTask(LONG_TASK_TITLE, LONG_HISTORY, selected === SelectedHistory.Long, hub),

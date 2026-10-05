@@ -7,7 +7,7 @@
 import type { Task, TaskHandoff } from '../../shared/domain'
 import { FILE_CHILDREN_TOOL } from '../../shared/toolName'
 import { CONTROL_SERVER } from '../control/names'
-import { ALL_UPKEEP, GladeTool, type GladeToolSettings } from './glade-tools'
+import { ALL_UPKEEP, GladeTool, type AgentUpkeep } from './glade-tools'
 
 /**
  * What the prompt says of the `glade-control` tools (`docs/control-api.md`), when the session has them: that they
@@ -20,12 +20,13 @@ export const CONTROL_TOOLS_LINE =
 
 /**
  * What the prompt says of long-lived watch scripts: to run them with the SDK's own background tools, which Glade
- * follows in the Watchers tab (`docs/sdk-notes.md` §13), and not to background them in a shell, which nothing tracks.
+ * follows as watchers in the Agents tab (`docs/sdk-notes.md` §13), and not to background them in a shell, which
+ * nothing tracks.
  */
 export const WATCHERS_LINE =
   'When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the Monitor ' +
   "tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows in the task's " +
-  'Watchers tab.'
+  'Agents tab.'
 
 /**
  * What the prompt says of the agent's replies (#301): the chat shows only the final one of each turn, and the rest goes
@@ -39,11 +40,11 @@ export const FINAL_REPLY_LINE =
 
 /**
  * What the prompt says of link artifacts (#407): the PRs the agent opens or works on, and the issues or tickets the task
- * is about, go in the Artifacts tab too, by URL, so they aren't scattered through the chat and the tool log.
+ * is about, are artifacts too, by URL, so they aren't scattered through the chat and the tool log.
  */
 export const LINK_ARTIFACTS_LINE =
   `When you open or work on a pull request, or the task is about an issue or a ticket (GitHub, Jira), call ` +
-  `${GladeTool.AddArtifact} with its url and a short title, so the user finds it in the Artifacts tab next to the ` +
+  `${GladeTool.AddArtifact} with its url and a short title, so the user finds it in the Todos tab next to the ` +
   'files.'
 
 /**
@@ -61,9 +62,8 @@ export const SANDBOX_LINE =
   'allowed, run the command again.'
 
 /**
- * What the prompt says of the todo hub's tools (P16-05, #496), in a session that has them: one that started with the
- * hidden `todoHubEnabled` setting on. That they exist and what they're for, which is all a task needs to sort what it
- * made before the hub when asked to ("file your things under your todos").
+ * What the prompt says of the todo hub's tools (P16-05, #496): that they exist and what they're for, which is all a
+ * task needs to sort what it made before the hub when asked to ("file your things under your todos").
  */
 export const TODO_HUB_TOOLS_LINE =
   'What this task has produced (its artifacts and commits) shows to the user under its todos. ' +
@@ -72,8 +72,7 @@ export const TODO_HUB_TOOLS_LINE =
   'made, list them, then file them all in one call.'
 
 /**
- * What the prompt says of filing what the agent produces as it's made (P16-04, #495), in a session with the todo hub
- * on: to name the todo in the `Agent` call that starts a subagent and in the `Bash` call that commits, and what Glade
+ * What the prompt says of filing what the agent produces as it's made (P16-04, #495): to name the todo in the `Agent` call that starts a subagent and in the `Bash` call that commits, and what Glade
  * does when a call names none. The wording is the one #492 probed (`docs/sdk-notes.md` §16), with the filing tool's
  * real name, cut down to those two calls when the phase split into Agents and Todos: it asks for no marker on a
  * watcher's call (`Monitor`, background `Bash`, `ScheduleWakeup`, `CronCreate`), which Glade leaves as it is.
@@ -86,23 +85,23 @@ export const TODO_HUB_FILING_LINE =
   `${FILE_CHILDREN_TOOL}: do that at once, before your next step. What a subagent commits goes under its todo by ` +
   'itself: leave those.'
 
-/** What the prompt says of an artifact's todo, in a session with the todo hub on: `add_artifact` needs one. */
+/** What the prompt says of an artifact's todo: `add_artifact` needs one. */
 export const TODO_HUB_ARTIFACTS_LINE = `An artifact goes under a todo too: give ${GladeTool.AddArtifact} the todo's id as todo, for a file and for a link.`
 
 /**
- * Everything the prompt says of the todo hub, in a session with it on, a paragraph each. They aren't in
- * `INSTRUCTION_UPDATES`, being only for sessions with the hub on: a session that started without them, and resumes
- * with the hub on, is sent them once, ahead of its next message, and that's tracked by itself, as the sandbox's line
- * is (`./session-context`).
+ * Everything the prompt says of the todo hub, a paragraph each. They aren't in `INSTRUCTION_UPDATES`: the hub was built
+ * behind a switch, so whether a session has them is tracked by itself, as the sandbox's line is. A session that started
+ * without them (before the hub, or while it was behind its switch) is sent them once, ahead of its next message
+ * (`./session-context`).
  */
 export const TODO_HUB_LINES: readonly string[] = [TODO_HUB_FILING_LINE, TODO_HUB_ARTIFACTS_LINE, TODO_HUB_TOOLS_LINE]
 
 /**
  * The instructions added to the prompt after sessions had started with it, oldest first. Claude Code keeps a session's
  * prompt when it resumes it, so a session that started before one was added is sent it once, ahead of its next message
- * (`./session-context`). Only ever append: a session's place in this list is saved as a count. Only what every session
- * is told goes here: `SANDBOX_LINE` is for sandboxed sessions alone, and `TODO_HUB_LINES` for sessions with the todo
- * hub on, and each is tracked by itself.
+ * (`./session-context`). Only ever append: a session's place in this list is saved as a count. `SANDBOX_LINE` (for
+ * sandboxed sessions alone) and `TODO_HUB_LINES` (some sessions had them before every session did) aren't here: each is
+ * tracked by itself.
  */
 export const INSTRUCTION_UPDATES: readonly string[] = [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE]
 
@@ -128,16 +127,15 @@ export function handoffSection(handoff: TaskHandoff): string {
 
 /**
  * The prompt for `task`'s session. With upkeep turned off in `settings`, it leaves out asking for a title or a status,
- * as the session's Glade tools leave out the tools for them; with the todo hub on in them, it says how what the
- * session makes is filed under its todos and that it has the hub's tools (`TODO_HUB_LINES`), and otherwise nothing of
- * either. With `control`, the session has the `glade-control`
- * tools, and the prompt says so in one line. With a `handoff`, the prompt ends with it (`handoffSection`). In a
+ * as the session's Glade tools leave out the tools for them. It says how what the session makes is filed under its
+ * todos and that it has the hub's tools (`TODO_HUB_LINES`). With `control`, the session has the `glade-control` tools,
+ * and the prompt says so in one line. With a `handoff`, the prompt ends with it (`handoffSection`). In a
  * `sandboxed` session it says what the sandbox is and to ask with `request_access` (`SANDBOX_LINE`); with the sandbox
  * off it doesn't mention it.
  */
 export function systemPromptAppend(
   task: Task,
-  settings: GladeToolSettings = ALL_UPKEEP,
+  settings: AgentUpkeep = ALL_UPKEEP,
   control = false,
   handoff: TaskHandoff | null = null,
   sandboxed = false,
@@ -176,14 +174,14 @@ export function systemPromptAppend(
       'to it in preamble, then ask.',
     '',
     `When you make a deliverable the user asked for (a report, a document, a draft), call ${GladeTool.AddArtifact} ` +
-      'with its path and a short title, so it shows in the Artifacts tab and stays with the task after it is done. ' +
+      'with its path and a short title, so it shows in the Todos tab and stays with the task after it is done. ' +
       `Keep that list current: if its file moves or it needs a new title, call ${GladeTool.UpdateArtifact}; if it's no ` +
       `longer a deliverable, call ${GladeTool.RemoveArtifact}.`,
     LINK_ARTIFACTS_LINE,
     '',
     WATCHERS_LINE,
   )
-  if (settings.todoHubEnabled === true) lines.push(...TODO_HUB_LINES.flatMap((line) => ['', line]))
+  lines.push(...TODO_HUB_LINES.flatMap((line) => ['', line]))
   if (sandboxed) lines.push('', SANDBOX_LINE)
   if (control) lines.push('', CONTROL_TOOLS_LINE)
   if (handoff !== null) lines.push('', handoffSection(handoff))

@@ -1,7 +1,7 @@
-// The Agents tab (P16, #536), end to end with the hidden `todoHubEnabled` setting on: the right panel's three tabs, a
-// tab for every agent in the task, each agent's tool calls, the line that names a subagent's todo, what pointed at the
-// Tool calls tab pointing here, the keyboard, and the agent a task was left on across tasks and a relaunch. Then, with
-// the scripted agent, the switch turned on mid-task and a subagent's tab moving as it finishes.
+// The Agents tab (P16, #536), end to end: the right panel's three tabs, a tab for every agent in the task, each
+// agent's tool calls, the line that names a subagent's todo, what pointed at the old Tool calls tab now pointing here,
+// the keyboard, and the agent a task was left on across tasks and a relaunch. Then, with the scripted agent, a
+// subagent's tab moving as it finishes.
 import { mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
@@ -146,10 +146,7 @@ const BISECT = 'Bisect the slowdown'
 const CACHE = 'Check the cart cache'
 const QUERIES = 'Profile the checkout queries'
 
-test('the Agents tab: the switch turned on mid-task, and a subagent’s tab moving to the finished ones as it ends', async ({
-  launch,
-  tempFolder,
-}) => {
+test('the Agents tab: a subagent’s tab moving to the finished ones as it ends', async ({ launch, tempFolder }) => {
   const root = join(tempFolder(), 'acme-api')
   mkdirSync(root)
   const { window } = await launch({ agentScript: 'background-subagents', chosenFolder: root })
@@ -161,13 +158,7 @@ test('the Agents tab: the switch turned on mid-task, and a subagent’s tab movi
   const panel = taskPanel(window)
   const agents = agentsTab(window)
 
-  // With the switch off, the panel is today's seven tabs, with no strip of agents.
-  await expect(panel.tabs).toHaveCount(7)
-  await expect(panel.tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
-  await expect(agents.strip).toHaveCount(0)
-
-  // Turned on while the task runs, the panel is the three tabs, on Agents, with a tab for each agent it has.
-  await invoke(window, CommandName.SettingsUpdate, { patch: { todoHubEnabled: true } })
+  // The panel is the three tabs, on Agents, with a tab for each agent it has.
   await expect(panel.tabs).toHaveText(['Agents 4', 'Files', 'Todos'])
   await expect(panel.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
   await expect(agents.tab('Main')).toHaveAttribute('aria-selected', 'true')

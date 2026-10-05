@@ -14,6 +14,7 @@
  * own. `docs/escape-battery.md` says how to check that it bites.
  */
 import { dirname, join, relative } from 'node:path'
+import { nameTodo } from '../../src/main/agent/child-calls'
 import { StepKind, type Conversation, type Results, type Step, type StepInput } from './stand-in'
 import { MARKER, MCP_SERVERS, MCP_TOOLS, volumePath, type Canary, type World } from './world'
 
@@ -1114,14 +1115,50 @@ export function subagentCall(group: string): string {
   return `start-subagent-${group}`
 }
 
+/** The id of the step that makes the todo a subagent group's `Agent` call names (`subagentTodoStep`). */
+const SUBAGENT_TODO_STEP = 'subagent-todo'
+
+/** What the one todo every subagent group's `Agent` call names is created as. */
+const SUBAGENT_TODO_SUBJECT = 'Run the battery groups a subagent makes'
+
+/**
+ * The todo `SUBAGENT_TODO_STEP`'s `TaskCreate` got, from Claude Code's own result text (`Task #2 created
+ * successfully: …`); `1` if it's somehow missing, since the battery never makes another todo before it.
+ */
+function subagentTodoId(results: Results): string {
+  return /Task #(\d+)/.exec(results.get(SUBAGENT_TODO_STEP)?.text ?? '')?.[1] ?? '1'
+}
+
 /**
  * The conversations the stand-in plays for `groups`: the agent's own, a turn for each group, ending on `groupDone`; and
  * one for each subagent group, which the agent's turn for it starts and waits on.
+ *
+ * **The todo hub is on for every session** (P16-10, #538; `docs/sdk-notes.md` §16): an `Agent` call that doesn't name
+ * a todo is filed by asking, and a turn can't end with a filing owed, for up to two holds. The battery's stand-in
+ * plays a fixed list of requests, not a real model, so it can't play along with being asked or held: either leaves it
+ * answering a request the list didn't plan for. So, when a group's attacks run from a subagent, the agent makes one
+ * todo first (`SUBAGENT_TODO_STEP`) and names it in the `Agent` call that starts the subagent
+ * (`child-calls.ts`'s `nameTodo`), which files it there and then: nothing is ever asked or held, and the attacks
+ * themselves are exactly as they were.
  */
 export function conversations(groups: readonly AttackGroup[]): Conversation[] {
-  const main: Step[] = []
+  const runnableGroups = runnable(groups)
+  const main: Step[] = runnableGroups.some(({ caller }) => caller === Caller.Subagent)
+    ? [
+        {
+          kind: StepKind.Tool,
+          id: SUBAGENT_TODO_STEP,
+          tool: 'TaskCreate',
+          input: {
+            subject: SUBAGENT_TODO_SUBJECT,
+            description: SUBAGENT_TODO_SUBJECT,
+            activeForm: 'Running the battery groups a subagent makes',
+          },
+        },
+      ]
+    : []
   const subagents: Conversation[] = []
-  for (const group of runnable(groups)) {
+  for (const group of runnableGroups) {
     switch (group.caller) {
       case Caller.Agent:
         main.push(...group.attacks.map(toolStep))
@@ -1132,12 +1169,16 @@ export function conversations(groups: readonly AttackGroup[]): Conversation[] {
           kind: StepKind.Tool,
           id: subagentCall(group.name),
           tool: 'Agent',
-          input: {
-            description: `Battery ${group.name}`,
-            prompt: `${marker} Run the group ${group.name}.`,
-            subagent_type: 'general-purpose',
-            run_in_background: false,
-          },
+          input: (results) =>
+            nameTodo(
+              {
+                description: `Battery ${group.name}`,
+                prompt: `${marker} Run the group ${group.name}.`,
+                subagent_type: 'general-purpose',
+                run_in_background: false,
+              },
+              subagentTodoId(results),
+            ),
         })
         subagents.push({
           marker,

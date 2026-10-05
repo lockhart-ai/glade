@@ -17,17 +17,15 @@ import { addTaskLinkByHand, removeTaskArtifact } from '../artifacts/artifacts'
 import { listArtifacts } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
 import { listOwedFilings } from '../db/repositories/owed-filings'
-import { updateSettings } from '../db/repositories/settings'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
 import { createQuestionBroker } from '../questions/questions'
 import { NO_TODOS } from '../todo-hub/agent-children'
 import { ARTIFACT_NEEDS_TODO, NOTHING_ADDED } from '../todo-hub/filing'
 import { readTodoHub } from '../todo-hub/todo-hub'
-import { ADD_ARTIFACT_TODO, createGladeMcpServer, GLADE_SERVER, type GladeToolContext } from './glade-tools'
+import { createGladeMcpServer, GLADE_SERVER, type GladeToolContext } from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller, type McpToolOutcome } from './mcp-tool-caller'
 
-const HUB_ON = { statusSummary: true, taskTitles: true, todoHubEnabled: true }
 const PR = 'https://github.com/acme/api/pull/412'
 const TODOS = 'Your todos: #1 Write the release notes (pending) · #2 Open the pull request (pending)'
 
@@ -52,8 +50,7 @@ beforeEach(() => {
   writeFileSync(join(root, 'docs', 'releases', '2.4.md'), '# Release notes 2.4\n')
   writeFileSync(join(root, 'docs', 'releases', '2.4-final.md'), '# Release notes 2.4\n')
   taskId = sampleTask(db, sampleWorkspace(db, root).id).id
-  updateSettings(db, { todoHubEnabled: true })
-  tools = createMcpToolCaller({ [GLADE_SERVER]: createGladeMcpServer(context, taskId, HUB_ON) })
+  tools = createMcpToolCaller({ [GLADE_SERVER]: createGladeMcpServer(context, taskId) })
 })
 
 afterEach(async () => {
@@ -105,10 +102,8 @@ function placed(): string[][] {
 }
 
 /** What the model is shown of a server's `add_artifact`: its description, and the fields it takes. */
-async function addArtifactTool(
-  settings: typeof HUB_ON | undefined,
-): Promise<{ description: string; fields: string[] }> {
-  const server = createGladeMcpServer(context, taskId, settings)
+async function addArtifactTool(): Promise<{ description: string; fields: string[] }> {
+  const server = createGladeMcpServer(context, taskId)
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
   await server.instance.connect(serverSide)
   const client = new Client({ name: 'test', version: '1.0.0' })
@@ -118,15 +113,13 @@ async function addArtifactTool(
   return { description: tool?.description ?? '', fields: Object.keys(tool?.inputSchema.properties ?? {}) }
 }
 
-describe('add_artifact with the todo hub on', () => {
-  it('takes the todo, and says it needs it; with the hub off it has no such field and reads as before', async () => {
-    const on = await addArtifactTool(HUB_ON)
-    const off = await addArtifactTool(undefined)
+describe('add_artifact', () => {
+  it('takes the todo, and says to give it', async () => {
+    const { fields, description } = await addArtifactTool()
 
-    expect(on.fields).toEqual(['path', 'url', 'title', 'todo'])
-    expect(off.fields).toEqual(['path', 'url', 'title'])
-    expect(on.description).toBe(`${off.description} ${ADD_ARTIFACT_TODO}`)
-    expect(off.description).not.toMatch(/todo/i)
+    expect(fields).toEqual(['path', 'url', 'title', 'todo'])
+    expect(description).toContain('Give the id of the todo it belongs under as todo')
+    expect(description).not.toContain('Artifacts tab')
   })
 
   it('files a file and a link under the todo each call names, before the windows hear of the artifact', async () => {
@@ -294,40 +287,5 @@ describe('update_artifact and remove_artifact with the todo hub on', () => {
     expect(filings()).toEqual([])
     expect(placed()).toEqual([[], [], ['link unfiled']])
     expect(listOwedFilings(db, taskId)).toEqual([])
-  })
-})
-
-describe('a session that has the hub’s add_artifact, once the hub is turned off', () => {
-  it('adds the artifact as before, with or without a todo, filing nothing', async () => {
-    updateSettings(db, { todoHubEnabled: false })
-
-    expect(await add({ url: PR, title: 'Docs navigation' })).toEqual({
-      output: `Added ${PR} to the artifacts as "Docs navigation".`,
-      isError: false,
-    })
-    expect((await add({ path: 'docs/releases/2.4.md', title: 'Release notes 2.4', todo: '7' })).output).toBe(
-      'Added docs/releases/2.4.md to the artifacts as "Release notes 2.4".',
-    )
-
-    expect(db.prepare('SELECT COUNT(*) FROM child_filings').pluck().get()).toBe(0)
-    expect(events.map(({ type }) => type)).toEqual([EventType.ArtifactsChanged, EventType.ArtifactsChanged])
-  })
-})
-
-describe('a session that started with the hub off', () => {
-  it('has an add_artifact that takes no todo and files nothing, though the hub is on now', async () => {
-    await tools.close()
-    tools = createMcpToolCaller({ [GLADE_SERVER]: createGladeMcpServer(context, taskId) })
-    twoTodos()
-
-    // The SDK drops a field the tool doesn't have, so a todo given anyway changes nothing.
-    expect(await add({ url: PR, title: 'Docs navigation', todo: '1' })).toEqual({
-      output: `Added ${PR} to the artifacts as "Docs navigation".`,
-      isError: false,
-    })
-    expect((await add({ path: 'docs/releases/2.4.md', title: 'Release notes 2.4' })).isError).toBe(false)
-
-    expect(filings()).toEqual([])
-    expect(placed()).toEqual([[], [], ['file unfiled', 'link unfiled']])
   })
 })

@@ -48,8 +48,7 @@ export interface ArtifactImageViewerProps {
 }
 
 /**
- * The image viewer over a list's image artifacts (#372), wherever the list is: the Artifacts tab's rows, or one todo's
- * tiles in the todo hub (P16, #498). ← and → step through `images` and no further; over each, its artifact's title,
+ * The image viewer over a list's image artifacts (#372): one todo's tiles in the Todos tab (P16, #498). ← and → step through `images` and no further; over each, its artifact's title,
  * Open in Files (which closes the viewer) and Reveal in Finder. Nothing while it's shut.
  */
 export function ArtifactImageViewer({ taskId, images, viewed }: ArtifactImageViewerProps): React.JSX.Element | null {

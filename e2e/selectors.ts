@@ -180,7 +180,7 @@ export function taskPanel(page: Page) {
     collapse: panel.getByRole('button', { name: 'Collapse side panel' }),
     /** One of the panel's own tabs, by its name: not an agent's tab in the Agents tab's strip (`agentsTab`). */
     tab: (name: string | RegExp) => panel.getByRole('tablist', { name: 'Task panels' }).getByRole('tab', { name }),
-    /** The panel's own tabs, in tab bar order: seven, or Agents · Files · Todos with the todo hub on. */
+    /** The panel's own tabs, in tab bar order: Agents · Files · Todos. */
     tabs: panel.getByRole('tablist', { name: 'Task panels' }).getByRole('tab'),
     /** The selected tab's content. (The Agents tab has a panel of its own inside it, for the agent showing.) */
     tabPanel: panel.getByRole('tabpanel').first(),
@@ -208,9 +208,9 @@ export function taskPanel(page: Page) {
 }
 
 /**
- * The right panel's Agents tab (P16, #536), which takes the place of Tool calls, Subagents and Watchers while the
- * hidden `todoHubEnabled` setting is on: a strip with a tab for every agent in the task, under it the tool calls of the
- * agent showing (`taskPanel(page).log`, as the Tool calls tab's), and under those what that agent is watching (#537).
+ * The right panel's Agents tab (P16, #536), which takes the place of the old Tool calls, Subagents and Watchers tabs:
+ * a strip with a tab for every agent in the task, under it the tool calls of the agent showing (`taskPanel(page).log`,
+ * as the old Tool calls tab's), and under those what that agent is watching (#537).
  */
 export function agentsTab(page: Page) {
   const panel = regions(page).taskPanel
@@ -268,9 +268,9 @@ export function agentsTab(page: Page) {
 }
 
 /**
- * The Todos tab as the todo hub (P16), which it is while the hidden `todoHubEnabled` setting is on: a card per todo,
- * each with what it produced under it (files, links and commits), then the placeholder group for what no todo has.
- * No subagent or watcher is under either, and nothing there is ever live (#535).
+ * The Todos tab as the todo hub (P16): a card per todo, each with what it produced under it (files, links and
+ * commits), then the placeholder group for what no todo has. No subagent or watcher is under either, and nothing
+ * there is ever live (#535).
  */
 export function todoHub(page: Page) {
   const panel = regions(page).taskPanel.getByRole('tabpanel')
@@ -329,73 +329,6 @@ export function todoHub(page: Page) {
   }
 }
 
-/** The right panel's Subagents tab: the tally by status and a row per subagent, which opens its log. */
-export function subagentsTab(page: Page) {
-  const panel = regions(page).taskPanel.getByRole('tabpanel')
-  /** A subagent's row, by its name; `data-status` is running, done or error. */
-  const row = (name: string) => panel.getByRole('group', { name, exact: true })
-  return {
-    /** "3 running 1 done". */
-    tally: panel.getByRole('group', { name: 'Subagents by status' }),
-    /** Every subagent's row, top to bottom. */
-    rows: panel.locator('[data-status][role="group"]'),
-    row,
-    /** A row's header: its dot, name, status, latest line, elapsed time and tool call count. Click it to open its log. */
-    header: (name: string) => row(name).getByRole('button').first(),
-    /** A running row's progress summary (what it's doing now), by its text, which its tooltip carries whole. */
-    summary: (name: string, text: string) => row(name).getByTitle(text, { exact: true }),
-    /** A row's log, while it's open. */
-    log: (name: string) => panel.getByRole('log', { name: `${name} log` }),
-    /** The permission lines on the calls in a row's open log, top to bottom, as the Tool calls list shows them. */
-    permissionLines: (name: string) => panel.getByRole('log', { name: `${name} log` }).locator('[data-permission]'),
-    /** A row's eye and count of its live background work, named "2 watchers running". */
-    watching: (name: string) => row(name).getByRole('img', { name: /watchers? running$/ }),
-    /** What a subagent left running or scheduled, under its log while it's open: a watcher row each. */
-    background: (name: string) => panel.getByRole('group', { name: `${name} background work` }),
-  }
-}
-
-/**
- * The right panel's Watchers tab: the tally by state and a row per watcher (what the agent left running or scheduled),
- * each with Stop while it's live.
- */
-export function watchersTab(page: Page) {
-  const panel = regions(page).taskPanel.getByRole('tabpanel')
-  /** A watcher's row, by its name; `data-state` is running, scheduled, suspended, finished, failed or stopped. */
-  const row = (name: string) => panel.getByRole('group', { name, exact: true })
-  return {
-    /** "2 running2 scheduled1 ended". */
-    tally: panel.getByRole('group', { name: 'Watchers by state' }),
-    /** Every watcher's row, top to bottom. */
-    rows: panel.locator('[data-state][role="group"]'),
-    row,
-    /** A live watcher's Stop. */
-    stop: (name: string) => row(name).getByRole('button', { name: `Stop ${name}` }),
-  }
-}
-
-/**
- * The right panel's Changes tab: a row per commit the task made, newest first, each opening to the files it changed.
- */
-export function changesTab(page: Page) {
-  const panel = regions(page).taskPanel.getByRole('tabpanel')
-  /** A commit's row, by its message; `data-hash` is its full hash. */
-  const row = (subject: string) => panel.getByRole('group', { name: subject, exact: true })
-  return {
-    panel,
-    /** Every commit's row, top to bottom. */
-    rows: panel.locator('[data-hash][role="group"]'),
-    row,
-    /** A row's header: its hash, message, lines, branch, when and subagent. Click it to open its files. */
-    header: (subject: string) => row(subject).getByRole('button').first(),
-    /** A commit's files, while it's open, by its short hash. */
-    files: (hash: string) => panel.getByRole('list', { name: `Files in ${hash}` }),
-    /** A file in an open commit's list, by its path (a renamed one's, from and to). */
-    file: (subject: string, path: string | RegExp) =>
-      row(subject).getByRole('listitem').getByRole('button', { name: path }),
-  }
-}
-
 /**
  * A task row's watcher count, on its indicators line: an eye and how many live watchers its agent has, named
  * "2 watchers running" (its tooltip too).
@@ -425,48 +358,6 @@ export function workspaceSwitcher(page: Page) {
     action: (name: WorkspaceActionName) => menu.getByRole('menuitem', { name: new RegExp(`^${name}`) }),
     /** The closed switcher's own count pill (#472, #480): how many tasks need you across every workspace. */
     pill: trigger.getByTestId('switcher-pill'),
-  }
-}
-
-/** Text for a regular expression that matches it as it is. */
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-/**
- * The right panel's Artifacts tab (#307): date groups (Today, Yesterday, This week, Last week, This month, Older), each
- * a header that folds it and a row per artifact. A row's Open, Reveal in folder and More show only while it's hovered
- * or has the focus, so hover the row first.
- */
-export function artifactsTab(page: Page) {
-  const panel = regions(page).taskPanel.getByRole('group', { name: 'Artifacts', exact: true })
-  const row = (title: string) => panel.getByRole('listitem', { name: title, exact: true })
-  const group = (name: string) => panel.getByRole('region', { name, exact: true })
-  return {
-    panel,
-    /** Every row showing, in every open group, top to bottom. */
-    rows: panel.getByRole('listitem'),
-    /** An artifact's row, by its title. */
-    row,
-    /** The date groups, top to bottom. */
-    groups: panel.getByRole('region'),
-    group,
-    /** A group's header: its name, then its count; `aria-expanded` while it's open. */
-    header: (name: string) => group(name).getByRole('button', { name: new RegExp(`^${name}\\s?\\d+$`) }),
-    /** The rows of a group, while it's open. */
-    groupRows: (name: string) => group(name).getByRole('listitem'),
-    /** The main part of a row, which opens its file. */
-    open: (title: string) => row(title).getByRole('button', { name: new RegExp(`^${escapeRegExp(title)}`) }),
-    /** One of a row's buttons, shown while it's hovered: Open, Reveal in folder or More; a link's Open link, Copy link. */
-    action: (title: string, name: 'Open' | 'Reveal in folder' | 'More' | 'Open link' | 'Copy link') =>
-      row(title).getByRole('button', { name, exact: true }),
-    /** The All · Files · Links filter (#407), which shows while the task has both files and links. */
-    filter: panel.getByRole('group', { name: 'Show', exact: true }),
-    /** One of the filter's chips: its name, then its count; `aria-pressed` while it's the one chosen. */
-    chip: (name: 'All' | 'Files' | 'Links') =>
-      panel.getByRole('group', { name: 'Show', exact: true }).getByRole('button', { name: new RegExp(`^${name}`) }),
-    /** A row's thumbnail, once there is one. */
-    thumbnail: (title: string) => row(title).locator('img'),
   }
 }
 

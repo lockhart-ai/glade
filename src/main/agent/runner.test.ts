@@ -7,7 +7,6 @@ import { BridgeErrorCode, CommandName, EventType, type GladeBridge, type GladeEv
 import {
   AgentErrorKind,
   API_TOOL_NAME,
-  ArtifactFilter,
   CompactionTrigger,
   DividerKind,
   Effort,
@@ -78,6 +77,7 @@ import {
   INSTRUCTION_UPDATES,
   LINK_ARTIFACTS_LINE,
   systemPromptAppend,
+  TODO_HUB_LINES,
 } from './system-prompt'
 import { updateSettings } from '../db/repositories/settings'
 import { setHandoff } from '../db/repositories/backfills'
@@ -340,6 +340,8 @@ describe('a turn', () => {
       mcpServers: { [GLADE_SERVER]: expect.objectContaining({ type: 'sdk', name: GLADE_SERVER }) as unknown },
       env: {},
       allowedRules: [],
+      // Claude Code's todo tools stay on: nothing can be filed under a todo without an id.
+      keepTaskTools: true,
       log: expect.objectContaining({ info: expect.any(Function) as unknown }) as unknown,
       onToolPermission: expect.any(Function) as unknown,
       hooks: {
@@ -347,6 +349,9 @@ describe('a turn', () => {
         onPrompt: expect.any(Function) as unknown,
         onTurnEnded: expect.any(Function) as unknown,
         onCompacted: expect.any(Function) as unknown,
+        onChildStarting: expect.any(Function) as unknown,
+        onBatchFinished: expect.any(Function) as unknown,
+        onTurnEnding: expect.any(Function) as unknown,
       },
     })
     const [userMessage] = listMessages(database.db, task.id)
@@ -438,11 +443,10 @@ describe('a turn', () => {
       openFiles: { taskId: task.id, paths: [], activePath: null },
       todos: null,
       artifacts: [],
-      artifactGroups: [],
-      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
+      agentTab: null,
     })
   })
 
@@ -3234,7 +3238,7 @@ describe("a task's handoff note", () => {
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: 1_000,
       sandbox: false,
-      todoHub: false,
+      todoHub: true,
     })
   })
 
@@ -3305,7 +3309,7 @@ describe("a task's handoff note", () => {
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: 2_000,
       sandbox: false,
-      todoHub: false,
+      todoHub: true,
     })
   })
 
@@ -3398,7 +3402,7 @@ describe('instructions added to the prompt since a session started', () => {
         instructionUpdates: 0,
         handoffAt: null,
         sandbox: false,
-        todoHub: false,
+        todoHub: true,
       })
   }
 
@@ -3415,7 +3419,7 @@ describe('instructions added to the prompt since a session started', () => {
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: null,
       sandbox: false,
-      todoHub: false,
+      todoHub: true,
     })
   })
 
@@ -3433,7 +3437,10 @@ describe('instructions added to the prompt since a session started', () => {
 
       expect(backend.sessions).toHaveLength(1)
       expect(backend.session.options.resumeSessionId).toBe('old-session')
-      expect(sentTexts()).toEqual([`${UPDATE}\n\nWhy is the login test flaky?`, 'And the logout test?'])
+      // One from before anything was recorded hasn't been told of the todo hub either (#501).
+      const hub = `[Glade: this session now files what it makes under its todos]\n${TODO_HUB_LINES.join('\n\n')}\n[end]`
+      const blocks = recorded ? UPDATE : `${UPDATE}\n\n${hub}`
+      expect(sentTexts()).toEqual([`${blocks}\n\nWhy is the login test flaky?`, 'And the logout test?'])
       // The chat keeps only what you wrote.
       expect(chat()).toEqual([
         { role: MessageRole.User, body: 'Why is the login test flaky?', turn: 1 },
@@ -3445,7 +3452,7 @@ describe('instructions added to the prompt since a session started', () => {
         instructionUpdates: INSTRUCTION_UPDATES.length,
         handoffAt: null,
         sandbox: false,
-        todoHub: false,
+        todoHub: true,
       })
     },
   )
@@ -3498,7 +3505,7 @@ describe('instructions added to the prompt since a session started', () => {
       instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: 5_000,
       sandbox: false,
-      todoHub: false,
+      todoHub: true,
     })
   })
 

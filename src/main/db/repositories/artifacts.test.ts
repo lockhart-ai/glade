@@ -1,17 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ArtifactFilter, ArtifactKind, type ArtifactRef, type FileArtifact } from '../../../shared/domain'
+import { ArtifactKind, type ArtifactRef, type FileArtifact } from '../../../shared/domain'
 import {
   addArtifact,
   addLinkArtifact,
   changeArtifact,
   changeLinkArtifact,
   getArtifact,
-  getArtifactFilter,
   listArtifacts,
   listFileArtifacts,
   removeArtifact,
   setArtifactFile,
-  setArtifactFilter,
 } from './artifacts'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 
@@ -236,27 +234,5 @@ describe('link artifacts (#407)', () => {
     insert('link', null, PR)
     expect(() => insert('link', null, PR)).toThrow(/UNIQUE/)
     expect(() => db.prepare('UPDATE artifacts SET missing = 1 WHERE url = ?').run(PR)).toThrow(/CHECK/)
-  })
-})
-
-describe('the Artifacts tab’s filter (#407)', () => {
-  it('is All until chosen, remembered for each task, forgotten again for All, and goes with its task', () => {
-    const { db } = database
-    const other = sampleTask(db, sampleWorkspace(db, '/code/other').id).id
-
-    expect(getArtifactFilter(db, taskId)).toBe(ArtifactFilter.All)
-    setArtifactFilter(db, taskId, ArtifactFilter.Links)
-    setArtifactFilter(db, other, ArtifactFilter.Files)
-    expect(getArtifactFilter(db, taskId)).toBe(ArtifactFilter.Links)
-    setArtifactFilter(db, taskId, ArtifactFilter.Files)
-    expect(getArtifactFilter(db, taskId)).toBe(ArtifactFilter.Files)
-    setArtifactFilter(db, taskId, ArtifactFilter.All)
-    expect(getArtifactFilter(db, taskId)).toBe(ArtifactFilter.All)
-    expect(db.prepare('SELECT COUNT(*) FROM artifact_filters WHERE task_id = ?').pluck().get(taskId)).toBe(0)
-    expect(getArtifactFilter(db, other)).toBe(ArtifactFilter.Files)
-
-    db.prepare('DELETE FROM tasks WHERE id = ?').run(other)
-    expect(db.prepare('SELECT COUNT(*) FROM artifact_filters').pluck().get()).toBe(0)
-    expect(() => db.prepare("INSERT INTO artifact_filters VALUES (?, 'all')").run(taskId)).toThrow(/CHECK/)
   })
 })

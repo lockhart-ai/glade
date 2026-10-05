@@ -1,6 +1,5 @@
 /**
- * What an artifact does, wherever it shows: in its row in the Artifacts tab, and on its tile in the todo hub (P16,
- * #498). One of each, so the two can't drift: how a file is looked at (its thumbnail, whether it's gone), what opening
+ * What an artifact does on its tile in the Todos tab (P16, #498), kept apart from how the tile is drawn: how a file is looked at (its thumbnail, whether it's gone), what opening
  * and revealing it do, what a link's Open and Copy do, and the items of an artifact's context menu.
  */
 import { useCallback, useEffect, useState } from 'react'

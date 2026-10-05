@@ -152,7 +152,7 @@ export interface PluginTask {
    * during the agent's turn or after it, until it finishes, fails, is stopped, or dies with its session (Glade
    * quitting, or the session failing).
    *
-   * Not counted: a wakeup or cron job, which the Watchers tab lists too but which runs nothing until it fires, and
+   * Not counted: a wakeup or cron job, which the Agents tab pins too but which runs nothing until it fires, and
    * subagents, which have their own events. Only the count: nothing of a watcher's command, name or output.
    *
    * With the running subagents, it's everything Glade itself counts as the task's background work: a task whose turn
@@ -181,12 +181,12 @@ export interface PluginToolCall {
   readonly endedAt: number | null
 }
 
-/** A subagent, as the Subagents tab sums it up. */
+/** A subagent, as its tab in the Agents tab sums it up. */
 export interface PluginSubagent {
   /** The tool_use id of the `Agent` call that started it. */
   readonly id: string
   readonly taskId: string
-  /** Its description, as the Subagents tab shows it. */
+  /** Its description, as its tab in the Agents tab shows it. */
   readonly name: string
   readonly state: PluginSubagentState
   /** The last thing it said or did: a note, or a tool and its summary. Null before it does anything. */
@@ -415,7 +415,7 @@ export interface PluginOpenTaskMessage {
   readonly type: PluginMessageType.OpenTask
   /** A task the plugin has been told of (its snapshot or later events) that's still active. */
   readonly taskId: string
-  /** One of that task's subagents the plugin has been told of (`PluginSubagent.id`), to show in the Subagents tab. */
+  /** One of that task's subagents the plugin has been told of (`PluginSubagent.id`), to show on its own tab of the Agents tab. */
   readonly subagentId?: string | null | undefined
 }
 
