@@ -12,8 +12,10 @@ fonts, design tokens and menu shapes. Rendered screens are 1920×1200 at 1×.
    include it in the task picker. A model cannot be enabled without an explicit provider choice.
 4. The task picker contains the normal Claude choices plus only enabled OpenRouter models. Source headings identify
    the account used; the provider appears in the saved model label.
-5. There is no subagent picker. The parent chooses a model at each dispatch, from Claude models in a Claude task or
-   enabled OpenRouter routes in an OpenRouter task. Provider choices stay in Settings.
+5. There is no subagent picker. The parent chooses a model at each dispatch, including an enabled OpenRouter route
+   for a Claude-account parent. Provider choices stay in Settings. Native dispatch currently shares the parent's
+   connection; a separate-session SDK probe proved the mixed-source path, whose production adapter is still pending.
+   See [Mixed-source subagent dispatch](../openrouter-integration-spec.md#mixed-source-subagent-dispatch).
 6. In an existing Claude task, including one paused by an Anthropic limit, use the same picker to select an enabled
    OpenRouter model and continue in the same task. A minimal Claude-to-OpenRouter probe retained the SDK session ID
    and recalled the original code from text history. Live OpenRouter tool-history resumption and automated limit recovery now pass; cross-source signed thinking remains

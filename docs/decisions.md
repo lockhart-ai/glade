@@ -23,6 +23,10 @@
   log entry. Native children share their parent's source. OpenRouter uses separate user configuration and memory;
   project configuration and Glade tools still load. Subscription billing and the OpenRouter key's API-reported USD
   spend/allowance stay separate in the sidebar usage monitor. No management key is requested.
+  Jared subsequently required Claude-account parents to dispatch OpenRouter children. A live separate-session SDK
+  probe proved that connection through an in-process MCP tool. The existing native-only draft does not yet meet this
+  requirement; the additional dispatch adapter and its history, permissions and lifecycle guarantees are specified
+  in [Mixed-source subagent dispatch](openrouter-integration-spec.md#mixed-source-subagent-dispatch).
 - **State:** everything in SQLite — workspaces, tasks, chat, tool log, todos, artifacts, queue, UI state. Reopening
   after a crash resumes from the database.
 - **Agent sessions run in the workspace root** (the SDK session's `cwd`), so the workspace's own `CLAUDE.md` (the

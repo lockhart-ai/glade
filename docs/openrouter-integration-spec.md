@@ -37,13 +37,63 @@ Descriptions give the selected provider, context window and indicative input/out
 | --- | --- |
 | Claude account | The parent chooses a Claude model for each dispatch |
 | OpenRouter | The parent chooses an enabled OpenRouter route for each dispatch |
-| Claude account with OpenRouter children | Not supported in this version |
+| Claude account with OpenRouter children | Required; separate-session dispatch proved live, production wiring pending |
 
 Definitions and route metadata are captured when the SDK process starts; a later catalog change applies when a
 process next starts. Existing native children retain their prepared routes and context limit.
 
 Native SDK children inherit the parent's endpoint and credentials. Helpers and built-in subagent types use the
 parent's OpenRouter route; named subagents use their own enabled routes. Independent Glade tasks can use different sources concurrently.
+
+## Mixed-source subagent dispatch
+
+Mixed-source dispatch is required by Jared's latest instruction. The earlier same-source allowance no longer defines
+the target. The existing draft implementation still uses native children; this section describes the additional
+adapter, not shipped behavior.
+
+A live SDK 0.3.283 probe established an Anthropic-account Haiku parent invoking an in-process MCP dispatch tool,
+whose handler started a second SDK `query()` on DeepSeek V4.1 Flash through Together. The child used the production
+OpenRouter relay, an isolated configuration directory and no Anthropic credentials. Its text result returned through
+the tool; the parent continued on Claude and reported that result. No Claude credential was read, copied or stored
+by the probe. Both agent loops were the SDK's unmodified loops.
+
+Native `AgentDefinition.model` selects a model, but supplies no child-specific endpoint or credentials. Native
+`Agent.model` accepts Claude aliases. `spawnClaudeCodeProcess` customizes the top-level process; it is not a native
+child-process callback. Changing the parent's environment or credentials around a dispatch would change a shared
+connection and race concurrent calls. Separate SDK sessions avoid that shared connection.
+
+The narrow implementation is an in-process Glade dispatch tool backed by the existing `AgentBackend.start()` and
+`SdkSessionRuntime.prepare()`. The parent supplies the child's model, prompt and description per call. The model is
+an enabled durable route such as `openrouter:<model>@<provider>`; the tool has no provider or credential argument.
+Glade validates the saved pair and retains provider pinning in the relay. The tool's description/prompt lists the
+curated models, their providers, context windows and indicative prices so the parent can choose for the job. There
+is no subagent picker or blanket default. Native Claude children and existing native OpenRouter children can keep
+their current path; cross-source children use the adapter.
+
+Production wiring must preserve the behavior of a subagent, rather than create a second visible task:
+
+- Associate each dispatch call with an immutable child model/provider, separate SDK session ID and owning task in
+  SQLite. Reuse the transcript store for child history; do not overwrite the parent's session ID or rewrite its
+  conversation. Retrying a persisted dispatch after relaunch must not silently start duplicate work.
+- Attach child text and tool events to the dispatch call so the existing Agents view, todo filing and plugin events
+  see it as a subagent. Register the dispatch tool in the existing shared subagent/tool classifiers. Resolve the
+  calling tool ID through the SDK hooks; do not depend solely on the unprobed MCP metadata field.
+- Start the child in the same workspace with the task's permission and sandbox settings. A separate SDK session
+  considers itself a main agent, so explicitly retain Glade's main-agent-only restrictions and attribute its access
+  and permission requests to the child. Create fresh in-process MCP server instances for each SDK connection.
+- Route Stop subagent to the child's session and its work. Route task/session shutdown and foreground cancellation
+  to the affected children. Track background work, completion delivery and child continuation explicitly so source
+  switching cannot leave a child running unseen. Native `SendMessage` cannot address an independent SDK session;
+  the adapter needs its own continuation path if that behavior is exposed.
+- Keep child initialization, context, turn completion, errors and rate limits out of the parent's session/account
+  state. An OpenRouter child failure returns to the parent as a child/tool failure. Its inference still refreshes
+  the OpenRouter usage row through the existing relay callback; the parent retains Claude usage reporting.
+
+The probe proves the connection and return path, not these lifecycle guarantees. Mocked integration tests must
+cover concurrent children with different routes, permission attribution, main-only tool refusal, foreground and
+background stop, child failure, persistence/relaunch and unchanged parent history. Hidden Electron coverage must
+show the child in the existing Agents view with its selected route and working stop control. No new model selector
+or general backend abstraction is needed.
 
 ## Switching an existing task
 
@@ -139,6 +189,13 @@ Isolated probes on Oct 5 established direct/SDK echo, native children, an MCP to
 context override and persisted OpenRouter resume on DeepSeek V4.1 Flash / Together. One separately authorized
 minimal subscription probe established basic Claude-to-OpenRouter text recall on the same session ID. Private
 probe logs retain the account figures; no real-account counts or billing totals are committed.
+
+The mixed-source probe described above exercised an actual parent tool call, one provider-pinned child inference
+request, the child result and a subsequent Claude parent reply. An initial parent prompt omitted the child task and
+returned a clarification instead; the corrected prompt dispatched successfully. The private audit accepts the
+parent's formatting around the returned marker. No additional inference was run just to enforce exact formatting.
+Thinking and filesystem tools were disabled, output was capped and live probing stopped after the successful
+dispatch. This is feasibility evidence; the production managed-child adapter has not been implemented or validated.
 
 A no-inference SDK initialization check registered two named agents with distinct full opaque model IDs. It
 submitted no prompt and used no live inference endpoint or account credentials. Mocked runtime and relay tests
