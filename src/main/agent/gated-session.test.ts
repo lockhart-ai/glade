@@ -1,6 +1,6 @@
 // A session whose messages and settings wait on a gate (#448): nothing reaches a sandboxed session before its overlay,
 // or at all if it won't take it.
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { Effort, PermissionMode } from '../../shared/domain'
 import type { AgentSessionOptions } from './backend'
 import { FakeAgentSession, settle } from './fake-backend'
@@ -74,6 +74,20 @@ it('keeps delivering in order once the gate is open', async () => {
   expect(order).toEqual(['send First.', `configure ${PermissionMode.AskBeforeEdits}`, 'send Second.'])
 })
 
+it('keeps an open sandbox gate after a refused model change and delivers subsequent input', async () => {
+  const { session, order } = recorded()
+  const configure = vi.spyOn(session, 'configure').mockRejectedValueOnce(new Error('Model refused'))
+  const gated = gatedSession(session, Promise.resolve(true))
+  await expect(gated.configure(ASKING)).rejects.toThrow('Model refused')
+  gated.send('Continue on the old model.', 'after-refusal')
+  await gated.ready?.()
+  await gated.configure(ASKING)
+  await settle()
+  expect(order).toEqual(['send Continue on the old model.', `configure ${PermissionMode.AskBeforeEdits}`])
+  expect(session.sent[0]?.uuid).toBe('after-refusal')
+  expect(configure).toHaveBeenCalledTimes(2)
+})
+
 it('drops everything held, and everything given later, when the gate shuts', async () => {
   const { session, order } = recorded()
   const { ready, settle: shut } = gate()
@@ -94,12 +108,16 @@ it('drops everything held, and everything given later, when the gate shuts', asy
 
 it('passes everything else straight to the session, gate or no gate', async () => {
   const session = new FakeAgentSession(OPTIONS)
+  const activate = vi.fn()
+  Object.assign(session, { activate })
   session.onAccountInfo = () => Promise.resolve({ email: 'sam@acme.dev' })
   session.onUsage = () => Promise.resolve({ limits: [] })
   session.onContextUsage = () => Promise.resolve({ totalTokens: 1200 })
   const gated = gatedSession(session, gate().ready)
 
   expect(gated.messages).toBe(session.messages)
+  gated.activate?.()
+  expect(activate).toHaveBeenCalledOnce()
   await gated.applyFlagSettings({ sandbox: null })
   await gated.interrupt()
   await gated.stopTask('task-1')

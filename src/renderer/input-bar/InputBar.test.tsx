@@ -85,6 +85,32 @@ it('groups billing sources and offers native children only within the task sourc
   expect(invoke).toHaveBeenCalledWith(CommandName.TasksUpdate, { id: 't1', patch: { subagentModel: model.id } })
 })
 
+it('shows a pending model switch, preserves typed input and restores the picker after a refused handoff', async () => {
+  let reject: (error: Error) => void = () => undefined
+  await renderBar({
+    overrides: {
+      [CommandName.TasksUpdate]: () =>
+        new Promise((_, fail) => {
+          reject = fail
+        }),
+    },
+  })
+  fireEvent.change(field(), { target: { value: 'Keep this draft.' } })
+  fireEvent.click(screen.getByRole('button', { name: /^Model:/ }))
+  await settleFloating()
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Haiku 4.5' }))
+  expect(await screen.findByRole('button', { name: 'Model: Switching…' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /^Subagents:/ })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /^Permissions:/ })).toBeDisabled()
+  expect(sendButton()).toBeDisabled()
+  act(() => {
+    reject(new Error('Destination unavailable'))
+  })
+  expect(await screen.findByText('Couldn’t change the model: Destination unavailable')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /^Model:/ })).toBeEnabled()
+  expect(field()).toHaveValue('Keep this draft.')
+})
+
 it('keeps a disabled OpenRouter route readable without silently replacing it', async () => {
   await renderBar({ task: { model: SAMPLE_CHOICE.id, modelName: 'Sample Flash · Sample Host' }, models: SDK_MODELS })
   expect(screen.getByRole('button', { name: 'Model: Sample Flash · Sample Host (unavailable)' })).toBeInTheDocument()

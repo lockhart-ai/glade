@@ -747,7 +747,10 @@ as unavailable. Enable it again or choose another model; Glade never silently su
 Switch the model between turns, including when paused by a Claude limit. Finish or stop background work and answer
 pending questions/permissions first. The same task continues with its conversation, tool results and queued input.
 When ready, the **Agents › Main** log adds **Switched model to …**; relaunch keeps that entry. A failed or timed-out startup keeps
-the previous selection and history. After switching a paused task, **Resume now** or a message continues it.
+the previous selection and history. Switching a task paused by a Claude usage limit to OpenRouter resumes the held turn immediately. The picker shows
+**Switching…** while the destination starts; your draft stays in place. Scheduled wakeups and cron jobs count as
+background work and must be stopped before switching sources. If a Claude model change is refused, the Main log
+names the model the task continues with.
 OpenRouter errors point to its key/provider settings and do not require a Claude login or subscription reset.
 
 The SDK provides both sources' agent tools. Native subagents can use a different model within the parent's source.

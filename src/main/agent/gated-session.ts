@@ -24,19 +24,21 @@ export function gatedSession(session: AgentSession, ready: Promise<boolean>): Ag
       await session.ready?.()
     },
     messages: session.messages,
+    activate: () => session.activate?.(),
     send(text, uuid, images) {
       whenReady(() => {
         session.send(text, uuid, images)
       })
     },
     configure(settings) {
-      const applied = gate.then(async (open) => {
+      const before = gate
+      const applied = before.then(async (open) => {
         if (!open) throw new Error('The sandbox settings could not be applied.')
         await session.configure(settings)
       })
       gate = applied.then(
         () => true,
-        () => false,
+        () => before,
       )
       void applied.catch(() => undefined)
       return applied

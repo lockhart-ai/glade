@@ -71,6 +71,19 @@ it('rejects malformed transcript entries rather than resuming with incomplete hi
   expect(() => store.load(key)).toThrow()
 })
 
+it('rejects append failures asynchronously so the SDK can observe and mark mirror failures', async () => {
+  const key = { projectKey: 'sample', sessionId: 'broken' }
+  const store = sqliteSessionStore(database.db)
+  database.db.exec(
+    "CREATE TEMP TRIGGER reject_transcript BEFORE INSERT ON sdk_transcripts BEGIN SELECT RAISE(ABORT, 'Disk write failed'); END;",
+  )
+  try {
+    await expect(store.append(key, [{ type: 'user', uuid: 'u1' }])).rejects.toThrow('Disk write failed')
+  } finally {
+    database.db.exec('DROP TRIGGER reject_transcript')
+  }
+})
+
 it('isolates tasks that resume the same SDK session', async () => {
   const workspace = sampleWorkspace(database.db)
   const first = sampleTask(database.db, workspace.id)

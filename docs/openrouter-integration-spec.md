@@ -41,7 +41,7 @@ allowed OpenRouter choices. Independent Glade tasks can use different sources co
 ## Switching an existing task
 
 A source change, OpenRouter model change or child-model change needs a stopped or waiting task, with no active
-turn, question, permission or background work. Stop or finish that work first. Ordinary Claude model changes keep
+turn, question, permission or background work, including scheduled wakeups and cron jobs. Stop or finish that work first. Ordinary Claude model changes keep
 the existing next-turn behavior.
 
 For a task with a session, the runner prepares a provisional process with the same SDK session ID, persisted
@@ -49,8 +49,9 @@ transcript, workspace, tools and permissions. Queued input waits for SDK initial
 then does the runner commit the selection and close the previous session. Startup failure or a 30-second initialization timeout closes the candidate and keeps the original
 selection, history and pause. A task without a session simply saves its initial selection.
 
-A limit-paused Claude task can switch to OpenRouter; **Resume now** or a new message continues it without waiting
-for the Claude subscription reset. OpenRouter failures do not update Claude account usage, trigger Claude login
+Switching a limit-paused Claude task to OpenRouter resumes its held turn immediately, without waiting for the
+Claude subscription reset. The picker displays **Switching…** and holds sending until preparation completes.
+The banner switches paused tasks sequentially, avoiding simultaneous transcript imports. OpenRouter failures do not update Claude account usage, trigger Claude login
 or enter the Anthropic plan-resume scheduler.
 
 Once applied, a change adds one quiet, timestamped Agents › Main log entry: **Switched model to Sample Flash · Sample Host
@@ -69,7 +70,9 @@ parent/child choices and pins `provider.only` with `allow_fallbacks: false`. The
 routing fields. Provider error messages are bounded/redacted and preserved for SDK recovery; 402 gets an explicit
 insufficient-credit fallback. HTTP status and message are logged in the task’s agent scope. No catalog request gates
 session startup: a withdrawn provider fails honestly on the first inference request. Caller credentials/headers and arbitrary URLs are never forwarded. Browser-origin
-requests are refused. Streams use backpressure and cancellation; closing the session revokes the route.
+requests are refused. Malformed requests fail locally with 400; a removed key receives a Settings-specific message. Transport failures
+close the connection so SDK retries and Glade’s Offline pause can work; logs retain a bounded, redacted reason.
+Streams use backpressure and cancellation; closing the session revokes the route.
 
 OpenRouter processes have a separate configuration directory. Credential/cloud variables are explicitly cleared:
 the SDK merges the parent process environment underneath its overrides, so omission is insufficient. Claude
@@ -94,11 +97,17 @@ explicit child also supplies SDK small-model aliases. SDK fallback Claude pricin
 Ordinary Claude tasks retain SDK transcript files, without an import or a mirror. Only tasks that use OpenRouter
 opt into SDK 0.3.283’s alpha `sessionStore` with eager flush. Main/child entries retain UUIDs, tool results,
 thinking/signatures and metadata. `importSessionToStore` imports legacy history at the first OpenRouter handoff;
-missing history fails explicitly. Returning to Claude uses the existing mirror for that task.
+missing history fails explicitly. A provisional import is adopted in the same database transaction as the
+selection; failure or cancellation discards it. An uncommitted copy after a crash is never treated as the task’s
+active history. A retry reimports the latest Claude files. Returning to Claude uses the adopted mirror for that task.
+An inherited login-shell `CLAUDE_CONFIG_DIR` is honored when importing local JSONL history, including child entries
+and metadata sidecars. Ordinary Claude **Same as task** preserves an inherited subagent-model setting.
 
 Append writes only incoming entries, preserving order. Separate owners isolate copied SDK IDs. Mirrored entries
 and switch records remain until task deletion, which cascades them. `mirror_error` stops the task and persists an
-unreliable-history marker; later resume fails rather than loading a shorter transcript. There is no time-based
+unreliable-history marker with the SDK config directory. The next start rebuilds the mirror from complete local SDK
+files and clears the marker only on adoption. If recovery fails, the error explains how to restore the file or carry
+the saved Glade chat into a new task; a shorter mirror is never loaded. There is no time-based
 truncation. Closing before environment resolution never spawns a process: cancelled handoff candidates must not
 start or deliver input after rollback. Saved chat/queued input remains available for retry.
 
@@ -126,11 +135,14 @@ probe logs retain the account figures; no real-account counts or billing totals 
 A fresh OpenRouter process recalled its genuine random tool result through the production SQLite store. Artificial
 transcript injection was insufficient evidence because SDK replay checkpoints can exclude appended entries.
 Cross-source signed thinking, reverse paid Claude inference and sandboxed SDK-cache reads were not live-probed;
-they require manual validation before release.
+they require manual validation before release. Provider context-overflow recovery and withdrawn-provider errors also need
+a manual run. Native subagent progress summaries remain enabled and generate inference requests; their cost and
+cache behavior should be checked in a provider generation log before recommending a route for cheap work.
 
 Automated tests mock catalog/inference traffic and use the existing fake agent. They cover credential/source
 isolation, discovery, key races, route failures, opaque history, deletion, switch entries, sandbox readiness,
-queue holding, rollback, limit recovery and same-source children. Hidden Electron tests cover the UI’s connection errors, curation, provider filtering, usage monitor, persisted Glade
+queue holding, rollback, mirror recovery, deferred pause timers, scheduled-work refusal, mixed-source usage refresh,
+limit recovery and same-source children. Hidden Electron tests cover the UI’s connection errors, curation, provider filtering, usage monitor, persisted Glade
 chat/log rows, relaunch and selections in both directions. Test mode uses the fake backend, so Playwright does not
 prove SDK transcript handoff; mocked SDK/runtime integration tests and the private live probes provide that evidence. Capture/e2e mode uses an offline catalog,
 even if supplied a real key.

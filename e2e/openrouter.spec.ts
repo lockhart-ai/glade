@@ -1,9 +1,10 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { E2E_WINDOW_SIZE } from '../src/main/e2e'
-import { expect, test } from './fixtures'
+import { expect, holdCommand, test } from './fixtures'
+import { CommandName } from '../src/shared/bridge'
 import { chooseMenuItem } from './menu'
-import { chat, firstRun, inputBar, regions, settings, taskList, taskPanel } from './selectors'
+import { chat, firstRun, inputBar, pauseBanner, regions, settings, taskList, taskPanel } from './selectors'
 import { MIN_WINDOW, resize } from './window-layout'
 
 test('curates an OpenRouter route, monitors key usage and preserves Glade chat and log history across a relaunch', async ({
@@ -23,7 +24,12 @@ test('curates an OpenRouter route, monitors key usage and preserves Glade chat a
   const original = await chat(window).agentReplies.first().getByRole('paragraph').first().innerText()
   await chooseMenuItem(glade, 'Glade', 'Settings…')
   const modal = settings(window)
+  const loading = await holdCommand(glade, CommandName.OpenRouterStatus)
   await modal.section('Models').click()
+  await loading.reached()
+  await expect(modal.dialog.getByText('Loading models…')).toBeVisible()
+  await expect(modal.dialog.getByLabel('OpenRouter API key')).toHaveCount(0)
+  await loading.release()
   await modal.dialog.getByLabel('OpenRouter API key').fill('invalid')
   await modal.dialog.getByRole('button', { name: 'Connect', exact: true }).click()
   await expect(modal.dialog.getByRole('alert')).toContainText('OpenRouter returned 401')
@@ -56,6 +62,7 @@ test('curates an OpenRouter route, monitors key usage and preserves Glade chat a
   await expect(usageDialog.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled()
   if (media !== undefined) await usageDialog.screenshot({ path: join(media, 'openrouter-usage.png') })
   await usageDialog.press('Escape')
+  await bar.field.fill('Keep this draft during the switch.')
   await bar.setting('Model').click()
   await expect(bar.options('Model')).toHaveText([
     'Default (recommended)',
@@ -63,8 +70,15 @@ test('curates an OpenRouter route, monitors key usage and preserves Glade chat a
     'Haiku',
     'Sample Flash · Sample Host',
   ])
+  const switching = await holdCommand(glade, CommandName.TasksUpdate)
   await bar.option('Sample Flash · Sample Host').click()
+  await switching.reached()
+  await expect(bar.setting('Model')).toHaveAccessibleName('Model: Switching…')
+  await expect(bar.setting('Model')).toBeDisabled()
+  if (media !== undefined) await regions(window).inputBar.screenshot({ path: join(media, 'model-switch-pending.png') })
+  await switching.release()
   await expect(bar.setting('Model')).toHaveAccessibleName('Model: Sample Flash · Sample Host')
+  await expect(bar.field).toHaveValue('Keep this draft during the switch.')
   await bar.setting('Subagents').click()
   await bar.option('Sample Flash · Sample Host').click()
   await expect(bar.setting('Subagents')).toHaveAccessibleName('Subagents: Sample Flash · Sample Host')
@@ -106,3 +120,48 @@ test('curates an OpenRouter route, monitors key usage and preserves Glade chat a
   await reopened.close.click()
   await expect(again.window.getByRole('button', { name: 'OpenRouter usage' })).toHaveCount(0)
 })
+
+for (const fromBanner of [false, true]) {
+  test(`resumes ${fromBanner ? 'several limit-paused tasks from the banner' : 'a limit-paused task from its picker'} on OpenRouter immediately`, async ({
+    launch,
+    tempFolder,
+  }) => {
+    const root = join(tempFolder(), 'acme-api')
+    mkdirSync(root)
+    const glade = await launch({ agentScript: 'usage-limit-hour', chosenFolder: root })
+    const { window } = glade
+    await firstRun(window).openFolder.click()
+    await chooseMenuItem(glade, 'Glade', 'Settings…')
+    const modal = settings(window)
+    await modal.section('Models').click()
+    await modal.dialog.getByLabel('OpenRouter API key').fill('fixture-key')
+    await modal.dialog.getByRole('button', { name: 'Connect', exact: true }).click()
+    await modal.dialog.getByRole('button', { name: 'Provider for Sample Flash: Select provider' }).click()
+    await window.getByRole('menuitemradio', { name: 'Sample Host', exact: true }).click()
+    await modal.dialog.getByRole('checkbox', { name: 'Enable Sample Flash' }).click()
+    await expect(modal.dialog.getByText('1 enabled', { exact: true })).toBeVisible()
+    await modal.close.click()
+    for (let i = 0; i < (fromBanner ? 2 : 1); i++) {
+      await taskList(window).newTask.click()
+      await inputBar(window).field.fill(`Copy sample files ${String(i + 1)}.`)
+      await inputBar(window).field.press('Enter')
+      await expect(pauseBanner(window).banner).toContainText(
+        `${String(i + 1)} ${i === 0 ? 'task is' : 'tasks are'} paused`,
+      )
+    }
+    if (fromBanner) await pauseBanner(window).banner.getByRole('button', { name: 'Switch model', exact: true }).click()
+    else await inputBar(window).setting('Model').click()
+    await expect(window.getByRole('menu').getByText('OpenRouter', { exact: true })).toBeVisible()
+    await window.getByRole('menuitemradio', { name: 'Sample Flash · Sample Host', exact: true }).click()
+    await expect(pauseBanner(window).banner).toHaveCount(0)
+    await expect(chat(window).agentReplies.last()).toContainText(
+      'The copy finished: all 3,900 files are in the bucket.',
+    )
+    await expect(inputBar(window).setting('Model')).toHaveAccessibleName('Model: Sample Flash · Sample Host')
+    await taskPanel(window).tab('Agents').click()
+    await expect(taskPanel(window).log).toContainText('Switched model to Sample Flash · Sample Host (OpenRouter)')
+    await inputBar(window).field.fill('Continue now.')
+    await inputBar(window).field.press('Enter')
+    await expect(chat(window).agentReplies).toHaveCount(2)
+  })
+}

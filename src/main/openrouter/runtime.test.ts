@@ -1,5 +1,5 @@
 import { importSessionToStore } from '@anthropic-ai/claude-agent-sdk'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -12,7 +12,7 @@ import { createOpenRouterRelay } from './relay'
 import { openRouterRuntime } from './runtime'
 import { OpenRouterService } from './service'
 import { SAMPLE_CHOICE, SAMPLE_MODEL, SAMPLE_PROVIDER } from '../../shared/test-openrouter'
-import { sqliteSessionStore } from './transcripts'
+import { beginTranscriptImport, hasTranscript, markTranscriptFailed, sqliteSessionStore } from './transcripts'
 import { openRouterSdkModel } from './sdk-model'
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ importSessionToStore: vi.fn() }))
@@ -143,15 +143,18 @@ it('keeps account configuration and login intact without passing an OpenRouter k
 it('leaves both new and resumed Claude-only tasks on their ordinary files, without importing history', async () => {
   const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
   for (const resumeSessionId of [null, 'legacy']) {
-    const account = await runtime.prepare({ ...options, model: 'sonnet', resumeSessionId }, inherited)
+    const account = await runtime.prepare(
+      { ...options, model: 'sonnet', resumeSessionId },
+      { ...inherited, CLAUDE_CONFIG_DIR: '' },
+    )
     expect(account.sessionStore).toBeUndefined()
     expect(account.onMirrorError).toBeUndefined()
   }
   expect(importSessionToStore).not.toHaveBeenCalled()
   vi.mocked(importSessionToStore).mockRejectedValueOnce(new Error('Unreadable transcript'))
-  await expect(runtime.prepare({ ...options, resumeSessionId: 'legacy' }, inherited)).rejects.toThrow(
-    'Unreadable transcript',
-  )
+  await expect(
+    runtime.prepare({ ...options, resumeSessionId: 'legacy' }, { ...inherited, CLAUDE_CONFIG_DIR: '' }),
+  ).rejects.toThrow('Unreadable transcript')
 })
 
 it('retries a partial legacy import without resuming its prefix, while Claude keeps its original files', async () => {
@@ -160,16 +163,24 @@ it('retries a partial legacy import without resuming its prefix, while Claude ke
     await store.append({ projectKey: 'sample', sessionId: id }, [{ type: 'user', uuid: 'partial' }])
     throw new Error('Import interrupted')
   })
-  await expect(runtime.prepare({ ...options, resumeSessionId: 'saved' }, inherited)).rejects.toThrow(
-    'Import interrupted',
-  )
+  await expect(
+    runtime.prepare({ ...options, resumeSessionId: 'saved' }, { ...inherited, CLAUDE_CONFIG_DIR: '' }),
+  ).rejects.toThrow('Import interrupted')
   expect(
-    (await runtime.prepare({ ...options, model: 'sonnet', resumeSessionId: 'saved' }, inherited)).sessionStore,
+    (
+      await runtime.prepare(
+        { ...options, model: 'sonnet', resumeSessionId: 'saved' },
+        { ...inherited, CLAUDE_CONFIG_DIR: '' },
+      )
+    ).sessionStore,
   ).toBeUndefined()
   vi.mocked(importSessionToStore).mockImplementationOnce(async (id, store) => {
     await store.append({ projectKey: 'sample', sessionId: id }, [{ type: 'user', uuid: 'complete' }])
   })
-  const prepared = await runtime.prepare({ ...options, resumeSessionId: 'saved' }, inherited)
+  const prepared = await runtime.prepare(
+    { ...options, resumeSessionId: 'saved' },
+    { ...inherited, CLAUDE_CONFIG_DIR: '' },
+  )
   expect(await prepared.sessionStore?.load({ projectKey: 'sample', sessionId: 'saved' })).toEqual([
     { type: 'user', uuid: 'complete' },
   ])
@@ -187,8 +198,8 @@ it('imports legacy main and child history once, and never silently starts withou
     ])
   })
   const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
-  await runtime.prepare({ ...options, resumeSessionId: 'saved-session' }, inherited)
-  await runtime.prepare({ ...options, resumeSessionId: 'saved-session' }, inherited)
+  await runtime.prepare({ ...options, resumeSessionId: 'saved-session' }, { ...inherited, CLAUDE_CONFIG_DIR: '' })
+  await runtime.prepare({ ...options, resumeSessionId: 'saved-session' }, { ...inherited, CLAUDE_CONFIG_DIR: '' })
   expect(importSessionToStore).toHaveBeenCalledOnce()
   expect(importSessionToStore).toHaveBeenCalledWith('saved-session', expect.anything(), {
     dir: options.cwd,
@@ -197,16 +208,100 @@ it('imports legacy main and child history once, and never silently starts withou
   expect(
     await sqliteSessionStore(database.db).load({ projectKey: '-code-sample', sessionId: 'saved-session' }),
   ).toMatchObject([{ uuid: 'original' }])
-  const returned = await runtime.prepare({ ...options, model: 'sonnet', resumeSessionId: 'saved-session' }, inherited)
+  const returned = await runtime.prepare(
+    { ...options, model: 'sonnet', resumeSessionId: 'saved-session' },
+    { ...inherited, CLAUDE_CONFIG_DIR: join(dir, 'unreadable-claude') },
+  )
   expect(returned.sessionStore).toBeDefined()
   returned.onMirrorError?.('saved-session')
-  await expect(runtime.prepare({ ...options, resumeSessionId: 'saved-session' }, inherited)).rejects.toThrow(
-    'history is incomplete',
-  )
+  await expect(
+    runtime.prepare({ ...options, resumeSessionId: 'saved-session' }, { ...inherited, CLAUDE_CONFIG_DIR: '' }),
+  ).rejects.toThrow('history could not be recovered')
   vi.mocked(importSessionToStore).mockResolvedValue()
-  await expect(runtime.prepare({ ...options, resumeSessionId: 'missing-history' }, inherited)).rejects.toThrow(
-    'saved SDK history',
+  await expect(
+    runtime.prepare({ ...options, resumeSessionId: 'missing-history' }, { ...inherited, CLAUDE_CONFIG_DIR: '' }),
+  ).rejects.toThrow('saved SDK history')
+})
+
+it('discards uncommitted handoff copies and reimports Claude turns written after a cancelled handoff', async () => {
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  const env = { ...inherited, CLAUDE_CONFIG_DIR: '' }
+  vi.mocked(importSessionToStore).mockImplementation(async (id, store) => {
+    await store.append({ projectKey: 'sample', sessionId: id }, [{ type: 'user', uuid: 'first' }])
+  })
+  const pending = await runtime.prepare({ ...options, resumeSessionId: 'saved', provisional: true }, env)
+  expect(hasTranscript(database.db, 'saved')).toBe(false)
+  expect(
+    (await runtime.prepare({ ...options, model: 'sonnet', resumeSessionId: 'saved' }, env)).sessionStore,
+  ).toBeUndefined()
+  pending.close()
+  expect(await sqliteSessionStore(database.db).load({ projectKey: 'sample', sessionId: 'saved' })).toBeNull()
+  vi.mocked(importSessionToStore).mockImplementation(async (id, store) => {
+    await store.append({ projectKey: 'sample', sessionId: id }, [
+      { type: 'user', uuid: 'first' },
+      { type: 'assistant', uuid: 'later-Claude-turn' },
+    ])
+  })
+  const restarted = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  const accepted = await restarted.prepare({ ...options, resumeSessionId: 'saved', provisional: true }, env)
+  accepted.activate?.()
+  accepted.close()
+  expect(hasTranscript(database.db, 'saved')).toBe(true)
+  expect(await accepted.sessionStore?.load({ projectKey: 'sample', sessionId: 'saved' })).toHaveLength(2)
+  vi.mocked(createOpenRouterRelay).mockRejectedValueOnce(new Error('Relay failed after import'))
+  await expect(runtime.prepare({ ...options, resumeSessionId: 'other', provisional: true }, env)).rejects.toThrow(
+    'Relay failed',
   )
+  expect(hasTranscript(database.db, 'other')).toBe(false)
+})
+
+it('recovers a failed mirror from complete local SDK history and honors a login-shell config directory', async () => {
+  const config = join(dir, 'custom-claude')
+  mkdirSync(join(config, 'projects', 'sample'), { recursive: true })
+  writeFileSync(
+    join(config, 'projects', 'sample', 'saved.jsonl'),
+    '{"type":"user","uuid":"u1"}\n{"type":"assistant","uuid":"a1","thinking":{"signature":"sample"}}\n',
+  )
+  markTranscriptFailed(database.db, 'saved', null, config)
+  // A crash during recovery must retain the complete-file source for another attempt.
+  beginTranscriptImport(database.db, 'saved', null, config)
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  const pending = await runtime.prepare({ ...options, resumeSessionId: 'saved', provisional: true }, inherited)
+  pending.close()
+  expect(database.db.prepare('SELECT reason FROM sdk_transcript_failures').get()).toEqual({ reason: 'mirror_error' })
+  const recovered = await runtime.prepare({ ...options, model: 'sonnet', resumeSessionId: 'saved' }, inherited)
+  expect(await recovered.sessionStore?.load({ projectKey: 'sample', sessionId: 'saved' })).toHaveLength(2)
+  expect(database.db.prepare('SELECT reason FROM sdk_transcript_failures').get()).toBeUndefined()
+  expect(importSessionToStore).not.toHaveBeenCalled()
+  writeFileSync(join(config, 'projects', 'sample', 'legacy.jsonl'), '{"type":"user","uuid":"u2"}')
+  const imported = await runtime.prepare(
+    { ...options, resumeSessionId: 'legacy' },
+    { ...inherited, CLAUDE_CONFIG_DIR: config },
+  )
+  expect(await imported.sessionStore?.load({ projectKey: 'sample', sessionId: 'legacy' })).toEqual([
+    { type: 'user', uuid: 'u2' },
+  ])
+  const account = await runtime.prepare(
+    { ...options, model: 'sonnet' },
+    { ...inherited, CLAUDE_CODE_SUBAGENT_MODEL: 'haiku' },
+  )
+  expect(account.env.CLAUDE_CODE_SUBAGENT_MODEL).toBe('haiku')
+})
+
+it('serializes imports for one task while keeping incomplete copies out of ordinary Claude sessions', async () => {
+  let finish: () => void = () => undefined
+  vi.mocked(importSessionToStore).mockImplementation(async (id, store) => {
+    await new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    await store.append({ projectKey: 'sample', sessionId: id }, [{ type: 'user', uuid: 'u1' }])
+  })
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  const env = { ...inherited, CLAUDE_CONFIG_DIR: '' }
+  const first = runtime.prepare({ ...options, resumeSessionId: 'saved' }, env)
+  await expect(runtime.prepare({ ...options, resumeSessionId: 'saved' }, env)).rejects.toThrow('still being loaded')
+  finish()
+  await first
 })
 
 it('refuses missing, disabled and missing-child routes before spawning an SDK process', async () => {

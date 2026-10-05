@@ -21,7 +21,9 @@ it('adds optional child routing and durable records without changing existing ta
   expect(db.prepare('SELECT encrypted_key FROM openrouter_connection').all()).toEqual([])
   expect(() =>
     db
-      .prepare("INSERT INTO sdk_transcript_failures VALUES (?, ?, ?, 'mirror_error')")
+      .prepare(
+        "INSERT INTO sdk_transcript_failures (owner, session_id, task_id, reason) VALUES (?, ?, ?, 'mirror_error')",
+      )
       .run('missing', 'session', 'missing'),
   ).toThrow(/FOREIGN KEY/)
   expect(() =>

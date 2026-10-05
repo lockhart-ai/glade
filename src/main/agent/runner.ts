@@ -386,7 +386,7 @@ import { getTask, listPausedTasks, listWorkingTasks } from '../db/repositories/t
 import { recordReportedWindow } from '../db/repositories/context-windows'
 import { offeredModels } from '../db/repositories/sdk-models'
 import { matchReportedWindow } from '../../shared/contextWindow'
-import { findModel } from '../../shared/models'
+import { findModel, modelName } from '../../shared/models'
 import {
   appendCompaction,
   appendDivider,
@@ -486,7 +486,7 @@ import { gatedSession } from './gated-session'
 import { AgentSource, agentSource } from '../../shared/openrouter'
 import { completeModelSwitch, validateModel, validateSubagentModel } from '../models/switches'
 import { getOpenRouterChoice } from '../db/repositories/openrouter'
-import { effortWithModel } from '../models/models'
+import { effortWithModel, listModels } from '../models/models'
 import { FileAccess, SANDBOX_NETWORK_TOOL } from './sandbox-requests'
 import { NO_GRANTS, sandboxOverlay, sandboxStartSettings, usableGrants, type SandboxGrants } from './sandbox'
 import { CONTROL_SERVER } from '../control/names'
@@ -1542,6 +1542,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const onPauseDue = (taskId: string): void => {
     const task = getTask(db, taskId)
     if (task === undefined || !isPaused(task) || task.pause === null) return
+    if (switching.has(taskId)) {
+      deferredPauses.add(taskId)
+      return
+    }
     // A request the app quit on waits on you: the pause is over, and your decision carries the turn on.
     if (waitsOnRestartRequests(taskId)) {
       taskLog(taskId).info('pause due, waiting on permission requests left by a restart')
@@ -3138,6 +3142,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   const switching = new Set<string>()
   const preparing = new Map<string, LiveSession>()
+  const deferredPauses = new Set<string>()
   const recordSwitch = (taskId: string, model: string): void => {
     const event = completeModelSwitch(db, taskId, model, lastTurn(db, taskId))
     if (event !== null) emitToolEventAppended(emit, event)
@@ -3196,6 +3201,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     })
     const started = backend.start({
       taskId: task.id,
+      ...(provisional ? { provisional: true } : {}),
       cwd: workspace.rootPath,
       model: task.model,
       subagentModel: task.subagentModel ?? null,
@@ -3529,6 +3535,15 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
             live.settings = settings
             if (getTask(db, task.id)?.model === model)
               updateTaskFromUser(context, task.id, { model: settings.model, effort: settings.effort })
+            if (!live.closed && settings.model !== model)
+              emitToolEventAppended(
+                emit,
+                appendNarration(db, {
+                  taskId: task.id,
+                  turn: Math.max(1, lastTurn(db, task.id)),
+                  text: `Could not switch model to ${modelName(listModels(db), model)}. Continuing with ${modelName(listModels(db), settings.model)}.`,
+                }),
+              )
           },
         )
     }
@@ -3798,14 +3813,18 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         task.activity === TaskActivity.Working ||
         task.asking ||
         task.awaitingPermission ||
-        task.backgroundWork
+        task.backgroundWork ||
+        listWatchers(db, taskId).some(({ state }) => LIVE_WATCHER_STATES.includes(state))
       ) {
         throw new CommandFailure(
           BridgeErrorCode.Busy,
           'Finish or stop the task and its background work before switching models.',
         )
       }
-      if (task.sessionId === null) return updateTaskFromUser(context, taskId, { model, subagentModel: child })
+      if (task.sessionId === null) {
+        if (previous !== undefined) restartSession(taskId, 'model changed before the session initialized')
+        return updateTaskFromUser(context, taskId, { model, subagentModel: child })
+      }
       switching.add(taskId)
       let candidate: LiveSession | undefined
       try {
@@ -3817,15 +3836,34 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           throw new CommandFailure(BridgeErrorCode.Busy, 'The task closed while its new session started.')
         if (getTask(db, taskId)?.model !== task.model)
           throw new CommandFailure(BridgeErrorCode.Busy, 'The task changed while its new session started.')
-        const changed = updateTaskFromUser(context, taskId, { model, effort, subagentModel: child })
+        const current = getTask(db, taskId)
+        if (
+          previous?.turn != null ||
+          current?.activity === TaskActivity.Working ||
+          current?.asking ||
+          current?.awaitingPermission ||
+          current?.backgroundWork ||
+          listWatchers(db, taskId).some(({ state }) => LIVE_WATCHER_STATES.includes(state))
+        )
+          throw new CommandFailure(BridgeErrorCode.Busy, 'The agent started work while its new session started.')
+        const changed = db.transaction(() => {
+          const changed = updateTaskFromUser(context, taskId, { model, effort, subagentModel: child })
+          candidate?.session.activate?.()
+          return changed
+        })()
         if (previous !== undefined) {
           previous.closed = true
           previous.session.close()
         }
         filer.sessionEnded(taskId)
+        watchers.sessionEnded(taskId, 'Model changed.')
+        changes.sessionEnded(taskId)
         activate(changed, candidate)
         recordSwitch(taskId, model)
-        if (changed.activity === TaskActivity.Waiting) startQueued(taskId, candidate)
+        switching.delete(taskId)
+        if (changed.pause?.reason === PauseReason.UsageLimit && agentSource(model) === AgentSource.OpenRouter)
+          runner.retry(taskId)
+        else if (changed.activity === TaskActivity.Waiting) startQueued(taskId, candidate)
         return getTask(db, taskId) ?? changed
       } catch (error) {
         if (candidate !== undefined) {
@@ -3836,6 +3874,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       } finally {
         preparing.delete(taskId)
         switching.delete(taskId)
+        if (deferredPauses.delete(taskId)) onPauseDue(taskId)
       }
     },
     send(taskId, text, images = [], pastedBlocks = [], files = [], broadcast = false) {
@@ -4158,7 +4197,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     },
 
     refreshUsage() {
-      const [asked] = sessions
+      const asked = [...sessions].find(
+        ([, live]) => !live.closed && agentSource(live.settings.model) === AgentSource.Anthropic,
+      )
       if (asked === undefined) return false
       readUsage(...asked)
       return true

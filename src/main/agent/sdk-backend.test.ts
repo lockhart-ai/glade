@@ -533,6 +533,24 @@ it('passes an eager isolated transcript store and revokes prepared credentials o
   expect(close).toHaveBeenCalledTimes(2)
 })
 
+it('adopts a provisional transcript only when its handoff commits, including activation before preparation completes', async () => {
+  sdk.query.mockReturnValue({ ...sdk.session, ...{ initializationResult: () => Promise.resolve({ models: [] }) } })
+  const activate = vi.fn()
+  const prepare = vi.fn(() => Promise.resolve({ env: ENV, publishModels: false, activate, close: vi.fn() }))
+  const backend = createSdkBackend({ version: '1.2.3', env: Promise.resolve(ENV), runtime: { prepare } })
+  const pending = backend.start({ ...OPTIONS, provisional: true })
+  await pending.ready?.()
+  expect(activate).not.toHaveBeenCalled()
+  pending.activate?.()
+  expect(activate).toHaveBeenCalledOnce()
+  pending.close()
+  const early = backend.start({ ...OPTIONS, provisional: true })
+  early.activate?.()
+  await early.ready?.()
+  expect(activate).toHaveBeenCalledTimes(2)
+  early.close()
+})
+
 it("runs each session in the environment it's given, whatever Glade's own is", async () => {
   vi.stubEnv('PATH', '/usr/bin:/bin:/usr/sbin:/sbin')
   backendIn({ PATH: '/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin' }).start(OPTIONS)

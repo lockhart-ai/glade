@@ -70,6 +70,7 @@ export interface PreparedSdkSession {
   readonly model?: string
   readonly sessionStore?: import('@anthropic-ai/claude-agent-sdk').SessionStore
   readonly onMirrorError?: (sessionId: string) => void
+  activate?(): void
   readonly publishModels: boolean
   close(): void
 }
@@ -974,12 +975,14 @@ export function createSdkBackend({
       const input = new AsyncQueue<SDKUserMessage>()
       let prepared: PreparedSdkSession | undefined
       let closed = false
+      let active = options.provisional !== true
       const started: Promise<Query> = env
         .then(async (resolved) => {
           prepared = await runtime?.prepare(options, { ...resolved, ...options.env })
           if (closed) {
             throw new Error('The agent session was closed before starting.')
           }
+          if (active) prepared?.activate?.()
           const sdk = sdkOptions(
             { ...options, ...(prepared === undefined ? {} : { env: {}, model: prepared.model ?? options.model }), log },
             { ...(prepared?.env ?? resolved), ...clientAppEnv(version) },
@@ -1033,6 +1036,10 @@ export function createSdkBackend({
       return {
         async ready() {
           await (await started).initializationResult()
+        },
+        activate() {
+          active = true
+          prepared?.activate?.()
         },
         messages: (async function* () {
           for await (const message of await started) {

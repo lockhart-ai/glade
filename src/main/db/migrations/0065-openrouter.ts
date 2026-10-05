@@ -26,6 +26,7 @@ export const openRouterMigration: Migration = {
         session_id TEXT NOT NULL,
         task_id TEXT REFERENCES tasks (id) ON DELETE CASCADE,
         reason TEXT NOT NULL CHECK (reason IN ('importing', 'mirror_error')),
+        config_dir TEXT,
         CHECK (owner = coalesce(task_id, '')),
         PRIMARY KEY (owner, session_id)
       ) STRICT;

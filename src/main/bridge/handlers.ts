@@ -256,8 +256,8 @@ export function createHandlers(context: HandlerContext): Handlers {
         !listMessages(db, id).some(({ role }) => role === MessageRole.User)
       )
         throw new CommandFailure(BridgeErrorCode.InvalidTransition, 'The agent is not paused or stopped by an error')
-      await runner.changeModel(id, model)
-      return { task: runner.retry(id) }
+      const changed = await runner.changeModel(id, model)
+      return { task: changed.activity === TaskActivity.Working ? changed : runner.retry(id) }
     },
     [CommandName.TasksRetryLoggedOut]: () => ({ tasks: retryLoggedOutTasks({ db, runner, log: ipcLog }) }),
     // However many tasks a usage limit paused, their changes reach the windows as one batch.

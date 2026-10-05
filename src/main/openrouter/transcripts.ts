@@ -23,30 +23,31 @@ export function sqliteSessionStore(db: Database, taskId: string | null = null): 
   }
   return {
     append(key, incoming) {
-      db.transaction(() => {
-        const scope = [owner, key.projectKey, key.sessionId, key.subpath ?? '']
-        const ordinal = new Row(
-          'sdk_transcripts',
-          db
-            .prepare(
-              'SELECT coalesce(max(ordinal), -1) + 1 AS next FROM sdk_transcripts WHERE owner = ? AND project_key = ? AND session_id = ? AND subpath = ?',
-            )
-            .get(...scope),
-        ).integer('next')
-        const insert = db.prepare(`INSERT INTO sdk_transcripts VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      return Promise.resolve().then(() => {
+        db.transaction(() => {
+          const scope = [owner, key.projectKey, key.sessionId, key.subpath ?? '']
+          const ordinal = new Row(
+            'sdk_transcripts',
+            db
+              .prepare(
+                'SELECT coalesce(max(ordinal), -1) + 1 AS next FROM sdk_transcripts WHERE owner = ? AND project_key = ? AND session_id = ? AND subpath = ?',
+              )
+              .get(...scope),
+          ).integer('next')
+          const insert = db.prepare(`INSERT INTO sdk_transcripts VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT (owner, project_key, session_id, subpath, entry_key) DO UPDATE SET entry = excluded.entry`)
-        for (const [index, value] of incoming.entries()) {
-          const entry = entrySchema.parse(value)
-          insert.run(
-            ...scope,
-            entry.uuid === undefined ? `row:${randomUUID()}` : `uuid:${entry.uuid}`,
-            JSON.stringify(entry),
-            ordinal + index,
-            taskId,
-          )
-        }
-      })()
-      return Promise.resolve()
+          for (const [index, value] of incoming.entries()) {
+            const entry = entrySchema.parse(value)
+            insert.run(
+              ...scope,
+              entry.uuid === undefined ? `row:${randomUUID()}` : `uuid:${entry.uuid}`,
+              JSON.stringify(entry),
+              ordinal + index,
+              taskId,
+            )
+          }
+        })()
+      })
     },
     load(key) {
       return Promise.resolve(load(key))
@@ -64,43 +65,49 @@ export function sqliteSessionStore(db: Database, taskId: string | null = null): 
   }
 }
 
-export function hasTranscript(db: Database, sessionId: string, taskId: string | null = null): boolean {
+export function hasTranscript(
+  db: Database,
+  sessionId: string,
+  taskId: string | null = null,
+  importing = false,
+): boolean {
   return (
     db
       .prepare(
-        "SELECT 1 FROM sdk_transcripts WHERE owner = ? AND session_id = ? AND subpath = '' AND json_extract(entry, '$.type') IN ('user', 'assistant') AND NOT EXISTS (SELECT 1 FROM sdk_transcript_failures f WHERE f.owner = sdk_transcripts.owner AND f.session_id = sdk_transcripts.session_id AND f.reason = 'importing') LIMIT 1",
+        "SELECT 1 FROM sdk_transcripts WHERE owner = ? AND session_id = ? AND subpath = '' AND json_extract(entry, '$.type') IN ('user', 'assistant') AND (? OR NOT EXISTS (SELECT 1 FROM sdk_transcript_failures f WHERE f.owner = sdk_transcripts.owner AND f.session_id = sdk_transcripts.session_id AND f.reason = 'importing')) LIMIT 1",
       )
-      .get(taskId ?? '', sessionId) !== undefined
+      .get(taskId ?? '', sessionId, importing ? 1 : 0) !== undefined
   )
 }
 
-/** Never resume a shorter mirror after the SDK reports a dropped append batch. Retained until the task is deleted. */
-export function assertTranscriptHealthy(db: Database, sessionId: string, taskId: string | null): void {
-  if (
-    db
-      .prepare("SELECT 1 FROM sdk_transcript_failures WHERE owner = ? AND session_id = ? AND reason = 'mirror_error'")
-      .get(taskId ?? '', sessionId)
-  )
-    throw new Error('The saved SDK history is incomplete after a transcript storage failure. The task was not resumed.')
+/** Recovery's source survives a crash during import as well as the original mirror failure. */
+export function failedTranscriptConfig(db: Database, sessionId: string, taskId: string | null): string | null {
+  const raw = db
+    .prepare(
+      'SELECT config_dir FROM sdk_transcript_failures WHERE owner = ? AND session_id = ? AND config_dir IS NOT NULL',
+    )
+    .get(taskId ?? '', sessionId)
+  return raw === undefined ? null : new Row('sdk_transcript_failures', raw).text('config_dir')
 }
 
-export function markTranscriptFailed(db: Database, sessionId: string, taskId: string | null): void {
-  db.prepare("INSERT OR REPLACE INTO sdk_transcript_failures VALUES (?, ?, ?, 'mirror_error')").run(
-    taskId ?? '',
-    sessionId,
-    taskId,
-  )
+export function markTranscriptFailed(db: Database, sessionId: string, taskId: string | null, configDir: string): void {
+  db.prepare(
+    "INSERT OR REPLACE INTO sdk_transcript_failures (owner, session_id, task_id, reason, config_dir) VALUES (?, ?, ?, 'mirror_error', ?)",
+  ).run(taskId ?? '', sessionId, taskId, configDir)
 }
 
 /** An interrupted/partial import is never mistaken for a complete mirror. Claude keeps using its original files. */
-export function beginTranscriptImport(db: Database, sessionId: string, taskId: string | null): void {
+export function beginTranscriptImport(
+  db: Database,
+  sessionId: string,
+  taskId: string | null,
+  configDir: string | null = null,
+): void {
   db.transaction(() => {
     db.prepare('DELETE FROM sdk_transcripts WHERE owner = ? AND session_id = ?').run(taskId ?? '', sessionId)
-    db.prepare("INSERT OR REPLACE INTO sdk_transcript_failures VALUES (?, ?, ?, 'importing')").run(
-      taskId ?? '',
-      sessionId,
-      taskId,
-    )
+    db.prepare(
+      "INSERT OR REPLACE INTO sdk_transcript_failures (owner, session_id, task_id, reason, config_dir) VALUES (?, ?, ?, 'importing', ?)",
+    ).run(taskId ?? '', sessionId, taskId, configDir)
   })()
 }
 
@@ -109,4 +116,12 @@ export function finishTranscriptImport(db: Database, sessionId: string, taskId: 
     taskId ?? '',
     sessionId,
   )
+}
+
+/** A rejected handoff must not replace subsequent turns written by the original Claude process. */
+export function discardTranscriptImport(db: Database, sessionId: string, taskId: string | null): void {
+  db.transaction(() => {
+    db.prepare('DELETE FROM sdk_transcripts WHERE owner = ? AND session_id = ?').run(taskId ?? '', sessionId)
+    finishTranscriptImport(db, sessionId, taskId)
+  })()
 }

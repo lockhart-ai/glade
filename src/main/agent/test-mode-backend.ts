@@ -135,6 +135,7 @@ export function createTestModeAgentBackend(
   // How many turns each conversation a closed session was in has played, by its SDK session id: a session started
   // again on it carries on from there.
   const played = new Map<string, number>()
+  const live = new Map<string, ScriptedSession>()
   const settle = (): void => {
     busy -= 1
     if (busy > 0) return
@@ -168,7 +169,8 @@ export function createTestModeAgentBackend(
       const resumedFirst = resumeSessionId === null ? undefined : scripts.firstMessageOf?.(resumeSessionId)
       const script: ScriptChooser = resumedFirst === undefined ? choose : () => choose(resumedFirst)
       // A turn the agent starts on its own keeps the session busy, like a message sent.
-      const turnsRun = resumeSessionId === null ? undefined : played.get(resumeSessionId)
+      const turnsRun =
+        resumeSessionId === null ? undefined : (live.get(resumeSessionId)?.turnsPlayed ?? played.get(resumeSessionId))
       const session = new ScriptedSession({
         script,
         session: options,
@@ -180,6 +182,7 @@ export function createTestModeAgentBackend(
         ...(scripts.onSandboxLog === undefined ? {} : { onSandboxLog: scripts.onSandboxLog }),
         ...(scripts.extraUsageOn === undefined ? {} : { extraUsageOn: scripts.extraUsageOn }),
       })
+      live.set(session.id, session)
       return {
         messages: session.messages,
         send(text, uuid, images) {
@@ -201,6 +204,7 @@ export function createTestModeAgentBackend(
         usage: () => session.usage(),
         close: () => {
           played.set(session.id, session.turnsPlayed)
+          if (live.get(session.id) === session) live.delete(session.id)
           session.close()
         },
       }

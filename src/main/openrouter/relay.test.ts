@@ -172,8 +172,40 @@ it('reports source-specific errors, suppresses upstream secrets, and handles dro
   expect(await unauthorized.text()).not.toMatch(/private-key|log in to Claude/)
   expect((await post(relay, { model: SAMPLE_CHOICE.id })).status).toBe(400)
   expect((await post(relay, { model: SAMPLE_CHOICE.id })).status).toBe(429)
-  expect((await post(relay, { model: SAMPLE_CHOICE.id })).status).toBe(400)
+  await expect(post(relay, { model: SAMPLE_CHOICE.id })).rejects.toThrow('fetch failed')
   expect(await (await post(relay, { model: SAMPLE_CHOICE.id })).text()).toBe('')
+})
+
+it('keeps transport failures retryable, logs their redacted cause and distinguishes a removed key from invalid input', async () => {
+  const log = createMemoryLog(LogScope.Agent)
+  const key = vi.fn(() => 'private-key')
+  const request = vi.fn<typeof fetch>().mockRejectedValueOnce(new TypeError('DNS lookup failed private-key'))
+  const relay = await createOpenRouterRelay({ choices: [SAMPLE_CHOICE], key, request, log: log.logger })
+  relays.push(relay)
+  await expect(post(relay, { model: SAMPLE_CHOICE.id })).rejects.toThrow('fetch failed')
+  expect(JSON.stringify(log.withMessage('OpenRouter relay transport failed'))).toContain('DNS lookup failed [redacted]')
+  key.mockImplementationOnce(() => {
+    throw new Error('Key removed')
+  })
+  expect(await (await post(relay, { model: SAMPLE_CHOICE.id })).text()).toContain('key is no longer available')
+  expect(request).toHaveBeenCalledOnce()
+  request.mockResolvedValue(new Response('Echo'))
+  const messages = [{ role: 'assistant', content: [{ type: 'tool_use', input: { type: 'image', content: 'data' } }] }]
+  expect(await (await post(relay, { model: SAMPLE_CHOICE.id, messages })).text()).toBe('Echo')
+  const nested = await post(relay, {
+    model: SAMPLE_CHOICE.id,
+    messages: [{ role: 'user', content: [{ type: 'tool_result', content: [{ type: 'image' }] }] }],
+  })
+  expect(nested.status).toBe(400)
+  expect(
+    (
+      await fetch(`${relay.url}/v1/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${relay.token}` },
+        body: '{broken',
+      })
+    ).status,
+  ).toBe(400)
 })
 
 it('bounds payload size and revokes in-flight requests when the SDK session closes', async () => {

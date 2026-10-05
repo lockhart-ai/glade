@@ -185,6 +185,12 @@ it('owns OpenRouter catalog commands and validates a retry destination before ch
   await connected[CommandName.TasksRetry]({ id: task.id, model: SAMPLE_CHOICE.id })
   expect(retry).toHaveBeenCalledWith(task.id)
   expect(getTask(database.db, task.id)?.model).toBe(SAMPLE_CHOICE.id)
+  retry.mockClear()
+  const running = { ...task, model: SAMPLE_CHOICE.id, activity: TaskActivity.Working, pause: null }
+  vi.spyOn(context.runner, 'changeModel').mockResolvedValueOnce(running)
+  updateTask(database.db, task.id, { model: 'sonnet', activity: TaskActivity.Paused })
+  expect(await connected[CommandName.TasksRetry]({ id: task.id, model: SAMPLE_CHOICE.id })).toEqual({ task: running })
+  expect(retry).not.toHaveBeenCalled()
   expect(await connected[CommandName.OpenRouterRemove]({})).toMatchObject({ connected: false })
 })
 

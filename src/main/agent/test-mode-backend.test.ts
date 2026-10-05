@@ -34,6 +34,37 @@ function drain(messages: AsyncIterable<unknown>): () => unknown[] {
 }
 
 describe('createTestModeAgentBackend', () => {
+  it('continues a provisional handoff from the live original session’s scripted turn count', async () => {
+    const backend = createTestModeAgentBackend({
+      script: {
+        name: 'test',
+        turns: [
+          [init(), say('First.'), result()],
+          [say('Continued.'), result()],
+        ],
+      },
+    })
+    const original = backend.start(OPTIONS)
+    const before = drain(original.messages)
+    original.send('Start', 'u1')
+    await backend.whenIdle()
+    const id = (
+      before().find((message) => (message as { type: string; subtype?: string }).subtype === 'init') as {
+        session_id: string
+      }
+    ).session_id
+    const candidate = backend.start({ ...OPTIONS, resumeSessionId: id, provisional: true })
+    const after = drain(candidate.messages)
+    original.close()
+    candidate.send('Resume', 'u2')
+    await backend.whenIdle()
+    expect(
+      after()
+        .filter((message) => (message as { type: string }).type === 'result')
+        .map((message) => (message as { result: string }).result),
+    ).toEqual(['Continued.'])
+    candidate.close()
+  })
   it('tells whoever listens what each message hands the agent, images and all', async () => {
     const script: AgentScript = {
       name: 'test',

@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { BridgeErrorCode, type GladeEvent } from '../../shared/bridge'
-import { AgentErrorKind, PauseReason, TaskActivity, type Task, type TaskPause } from '../../shared/domain'
+import {
+  AgentErrorKind,
+  PauseReason,
+  TaskActivity,
+  WatcherKind,
+  WatcherState,
+  type Task,
+  type TaskPause,
+} from '../../shared/domain'
+import { addWatcher, listWatchers } from '../db/repositories/watchers'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { listMessages } from '../db/repositories/messages'
 import { listToolEvents } from '../db/repositories/tool-events'
@@ -61,16 +70,18 @@ it('continues the same limit-paused task on OpenRouter without rewriting chat, c
   updateTask(database.db, task.id, { activity: TaskActivity.Paused, pause })
   runner.queue(task.id, 'Also check its tests.')
   const changed = await runner.changeModel(task.id, SAMPLE_CHOICE.id)
-  expect(changed).toMatchObject({ id: task.id, model: SAMPLE_CHOICE.id, pause })
+  expect(changed).toMatchObject({ id: task.id, model: SAMPLE_CHOICE.id, pause: null, activity: TaskActivity.Working })
   expect(old.closed).toBe(true)
   expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
   expect(listMessages(database.db, task.id)).toEqual(history)
   expect(listQueuedMessages(database.db, task.id)).toHaveLength(1)
   expect(listToolEvents(database.db, task.id).slice(0, calls.length)).toEqual(calls)
-  expect(listToolEvents(database.db, task.id).at(-1)).toMatchObject({
-    text: 'Switched model to Sample Flash · Sample Host (OpenRouter)',
-  })
-  runner.retry(task.id)
+  expect(listToolEvents(database.db, task.id)).toContainEqual(
+    expect.objectContaining({
+      text: 'Switched model to Sample Flash · Sample Host (OpenRouter)',
+    }),
+  )
+  runner.resumePaused(task.id)
   expect(backend.session.sent.at(-1)?.settings.model).toBe(SAMPLE_CHOICE.id)
   expect(getTask(database.db, task.id)?.pause).toBeNull()
   backend.session.emit(sdk.init())
@@ -79,6 +90,17 @@ it('continues the same limit-paused task on OpenRouter without rewriting chat, c
   expect(
     listToolEvents(database.db, task.id).filter((event) => 'text' in event && event.text.startsWith('Switched model')),
   ).toHaveLength(1)
+})
+
+it('accepts a new message after a paused picker switch without waiting for the Claude reset', async () => {
+  await previousTurn()
+  updateTask(database.db, task.id, { activity: TaskActivity.Paused, pause })
+  await runner.changeModel(task.id, SAMPLE_CHOICE.id)
+  expect(backend.session.sent).toHaveLength(1)
+  backend.session.emit(sdk.result('Resumed on OpenRouter.'))
+  await settle()
+  expect(() => runner.send(task.id, 'Continue now.')).not.toThrow()
+  expect(backend.session.sent.at(-1)?.text).toBe('Continue now.')
 })
 
 it('holds input until readiness and rolls back a failed destination without a success entry', async () => {
@@ -208,6 +230,28 @@ it('stops on OpenRouter quota errors without pausing for a Claude subscription r
   })
 })
 
+it('pauses an OpenRouter task offline after the SDK exhausts connection retries', async () => {
+  await runner.changeModel(task.id, SAMPLE_CHOICE.id)
+  runner.send(task.id, 'Echo')
+  backend.session.emit(sdk.init())
+  backend.session.fail(new TypeError('fetch failed'))
+  await settle()
+  expect(getTask(database.db, task.id)).toMatchObject({
+    activity: TaskActivity.Paused,
+    pause: { reason: PauseReason.Offline },
+  })
+})
+
+it('closes an idle live session with no saved session ID before changing its source', async () => {
+  await previousTurn()
+  const original = backend.session
+  updateTask(database.db, task.id, { sessionId: null })
+  await runner.changeModel(task.id, SAMPLE_CHOICE.id)
+  expect(original.closed).toBe(true)
+  runner.send(task.id, 'Start the new source')
+  expect(backend.session.options.model).toBe(SAMPLE_CHOICE.id)
+})
+
 it('records an ordinary model switch only after its configure promise succeeds and rolls back a refusal', async () => {
   await previousTurn()
   const session = backend.session
@@ -235,9 +279,128 @@ it('records an ordinary model switch only after its configure promise succeeds a
   runner.send(task.id, 'Continue again')
   await settle()
   expect(getTask(database.db, task.id)?.model).toBe('claude-sonnet-5')
+  expect(listToolEvents(database.db, task.id)).toContainEqual(
+    expect.objectContaining({ text: 'Could not switch model to Haiku 4.5. Continuing with Sonnet 5.' }),
+  )
   expect(
     listToolEvents(database.db, task.id).filter((event) => 'text' in event && event.text.startsWith('Switched model')),
   ).toHaveLength(1)
+})
+
+it('refreshes Claude usage when OpenRouter was started first, and returns false for OpenRouter alone', async () => {
+  const account = { accountRead: vi.fn(), usageRead: vi.fn(), rateLimit: vi.fn() }
+  runner.close()
+  runner = createAgentRunner({ db: database.db, backend, emit: (event) => events.push(event), account })
+  backend.onUsage = () => Promise.resolve({ limits: [] })
+  await runner.changeModel(task.id, SAMPLE_CHOICE.id)
+  runner.send(task.id, 'Start cheap task')
+  await settle()
+  expect(runner.refreshUsage()).toBe(false)
+  const claude = sampleTask(database.db, task.workspaceId)
+  runner.send(claude.id, 'Start Claude task')
+  await settle()
+  account.usageRead.mockClear()
+  expect(runner.refreshUsage()).toBe(true)
+  await settle()
+  expect(account.usageRead).toHaveBeenCalledOnce()
+})
+
+it('refuses a switch while a scheduled watcher is live, even though backgroundWork is false', async () => {
+  await previousTurn()
+  const original = backend.session
+  addWatcher(database.db, {
+    taskId: task.id,
+    kind: WatcherKind.Wakeup,
+    toolUseId: 'wake-1',
+    parentToolUseId: null,
+    sdkId: 'job-1',
+    label: 'Follow up',
+    detail: 'Check tests',
+    cron: null,
+    schedule: '1h',
+    recurring: false,
+    state: WatcherState.Scheduled,
+    nextDueAt: Date.now() + 3600_000,
+    expiresAt: null,
+  })
+  expect(getTask(database.db, task.id)?.backgroundWork).toBe(false)
+  await expect(runner.changeModel(task.id, SAMPLE_CHOICE.id)).rejects.toMatchObject({ code: BridgeErrorCode.Busy })
+  expect(listWatchers(database.db, task.id)[0]?.state).toBe(WatcherState.Scheduled)
+  expect(original.closed).toBe(false)
+})
+
+it('keeps the original session if it starts an automatic turn during destination preparation', async () => {
+  await previousTurn()
+  const original = backend.session
+  let ready: () => void = () => undefined
+  backend.onSessionStart = (session) =>
+    Object.assign(session, {
+      ready: () =>
+        new Promise<void>((resolve) => {
+          ready = resolve
+        }),
+    })
+  const switching = runner.changeModel(task.id, SAMPLE_CHOICE.id)
+  original.emit(sdk.text('An automatic follow-up started.'))
+  await settle()
+  ready()
+  await expect(switching).rejects.toThrow('started work')
+  expect(original.closed).toBe(false)
+  expect(getTask(database.db, task.id)?.activity).toBe(TaskActivity.Working)
+})
+
+it('keeps scheduled work added during destination preparation on the original session', async () => {
+  await previousTurn()
+  const original = backend.session
+  let ready: () => void = () => undefined
+  backend.onSessionStart = (session) =>
+    Object.assign(session, {
+      ready: () =>
+        new Promise<void>((resolve) => {
+          ready = resolve
+        }),
+    })
+  const switching = runner.changeModel(task.id, SAMPLE_CHOICE.id)
+  addWatcher(database.db, {
+    taskId: task.id,
+    kind: WatcherKind.Wakeup,
+    toolUseId: 'wake-late',
+    parentToolUseId: null,
+    sdkId: 'job-late',
+    label: 'Follow up',
+    detail: 'Check tests',
+    cron: null,
+    schedule: '1h',
+    recurring: false,
+    state: WatcherState.Scheduled,
+    nextDueAt: Date.now() + 3600_000,
+    expiresAt: null,
+  })
+  await settle()
+  ready()
+  await expect(switching).rejects.toThrow('started work')
+  expect(original.closed).toBe(false)
+  expect(listWatchers(database.db, task.id)[0]?.state).toBe(WatcherState.Scheduled)
+})
+
+it('defers a due pause until the handoff settles and resumes only once on the destination', async () => {
+  await previousTurn()
+  updateTask(database.db, task.id, { activity: TaskActivity.Paused, pause })
+  let ready: () => void = () => undefined
+  backend.onSessionStart = (session) =>
+    Object.assign(session, {
+      ready: () =>
+        new Promise<void>((resolve) => {
+          ready = resolve
+        }),
+    })
+  const switching = runner.changeModel(task.id, SAMPLE_CHOICE.id)
+  runner.resumePaused(task.id)
+  expect(getTask(database.db, task.id)?.activity).toBe(TaskActivity.Paused)
+  ready()
+  await switching
+  expect(backend.session.sent).toHaveLength(1)
+  expect(getTask(database.db, task.id)?.pause).toBeNull()
 })
 
 it('rejects unsafe, unavailable and mixed-source switches; first-turn selection starts no process', async () => {

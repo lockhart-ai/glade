@@ -78,12 +78,16 @@ function attachedFile(taskId: string, name: string): AttachedFile {
 }
 
 /** Gives a task a row in every table that belongs to one. */
-function fillTask(db: Database, task: Task): void {
+async function fillTask(db: Database, task: Task): Promise<void> {
   const taskId = task.id
-  void sqliteSessionStore(db, taskId).append({ projectKey: 'sample', sessionId: taskId }, [
+  await sqliteSessionStore(db, taskId).append({ projectKey: 'sample', sessionId: taskId }, [
     { type: 'user', uuid: taskId },
   ])
-  db.prepare("INSERT INTO sdk_transcript_failures VALUES (?, ?, ?, 'mirror_error')").run(taskId, taskId, taskId)
+  db.prepare("INSERT INTO sdk_transcript_failures VALUES (?, ?, ?, 'mirror_error', '/sample/claude')").run(
+    taskId,
+    taskId,
+    taskId,
+  )
   stageModelSwitch(db, taskId, task.model, 'claude-sonnet-5')
   completeModelSwitch(db, taskId, 'claude-sonnet-5', 1)
   stageModelSwitch(db, taskId, 'claude-sonnet-5', 'claude-haiku-4-5')
@@ -254,13 +258,13 @@ describe('deleteTask', () => {
     expect(taskTables(test.db)).toEqual(FILLED_TABLES)
   })
 
-  it('leaves no row in any table that belongs to the task, and every other task as it was', () => {
+  it('leaves no row in any table that belongs to the task, and every other task as it was', async () => {
     // In two workspaces, as a workspace has one selected task.
     const other = sampleWorkspace(test.db, '/code/acme-web')
     const doomed = sampleTask(test.db, workspace.id)
     const kept = sampleTask(test.db, other.id)
-    fillTask(test.db, doomed)
-    fillTask(test.db, kept)
+    await fillTask(test.db, doomed)
+    await fillTask(test.db, kept)
     for (const table of FILLED_TABLES) expect(rowsOf(test.db, table, doomed.id), table).toBeGreaterThan(0)
 
     expect(deleteTask(test.db, doomed.id)).toBe(true)

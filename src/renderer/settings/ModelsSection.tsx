@@ -38,6 +38,7 @@ export function ModelsSection(): React.JSX.Element {
   const openSettings = useGladeStore((state) => state.openSettings)
   const openLink = useGladeStore((state) => state.openLink)
   const [status, setStatus] = useState(EMPTY)
+  const [loading, setLoading] = useState(true)
   const [key, setKey] = useState('')
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -45,9 +46,6 @@ export function ModelsSection(): React.JSX.Element {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('')
   const [filteredIds, setFilteredIds] = useState<readonly string[] | null>(null)
-  const onError = useCallback((failure: unknown) => {
-    setError(describeFailure(failure))
-  }, [])
   const onSelectionSaved = useCallback((selection: OpenRouterSelection) => {
     setStatus((previous) => ({ ...previous, choices: selection.choices }))
   }, [])
@@ -56,10 +54,16 @@ export function ModelsSection(): React.JSX.Element {
     let active = true
     void actions.status().then(
       (value) => {
-        if (active) setStatus(value)
+        if (active) {
+          setStatus(value)
+          setLoading(false)
+        }
       },
       (failure: unknown) => {
-        if (active) setError(describeFailure(failure))
+        if (active) {
+          setError(describeFailure(failure))
+          setLoading(false)
+        }
       },
     )
     return () => {
@@ -134,7 +138,9 @@ export function ModelsSection(): React.JSX.Element {
         </Button>
       </SettingRow>
       <SettingRow name="OpenRouter" description="Use an API key for models billed through OpenRouter.">
-        {status.connected && !editing ? (
+        {loading ? (
+          <span className={styles.note}>Loading models…</span>
+        ) : status.connected && !editing ? (
           <div className={styles.actions}>
             <span className={styles.status}>Connected</span>
             <Button
@@ -268,7 +274,6 @@ export function ModelsSection(): React.JSX.Element {
                 actions={actions}
                 disabled={busy}
                 onSaved={onSelectionSaved}
-                onError={onError}
               />
             ))}
           </div>
@@ -300,7 +305,6 @@ interface ModelRowProps {
   readonly actions: OpenRouterActions
   readonly disabled: boolean
   readonly onSaved: (selection: OpenRouterSelection) => void
-  readonly onError: (failure: unknown) => void
 }
 
 const ModelRow = memo(function ModelRow({
@@ -309,7 +313,6 @@ const ModelRow = memo(function ModelRow({
   actions,
   disabled,
   onSaved,
-  onError,
 }: ModelRowProps): React.JSX.Element {
   const saved =
     choices.find((choice) => choice.model.id === model.id && choice.enabled) ??
@@ -323,8 +326,13 @@ const ModelRow = memo(function ModelRow({
   const [providers, setProviders] = useState<readonly OpenRouterProvider[]>([])
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const onError = (failure: unknown): void => {
+    setError(describeFailure(failure))
+  }
   const change = (next: OpenRouterProvider, enabled: boolean): void => {
     setBusy(true)
+    setError(null)
     void actions
       .select({ model: model.id, provider: next.id, enabled })
       .then((value) => {
@@ -360,6 +368,11 @@ const ModelRow = memo(function ModelRow({
           {Math.round(metadata.contextLength / 1000)}K context · ${price(metadata.inputPrice)} in / $
           {price(metadata.outputPrice)} out{model.inputs.includes('image') ? ' · Images' : ''}
         </small>
+        {error !== null && (
+          <span role="alert" className={styles.error}>
+            {error}
+          </span>
+        )}
       </div>
       <button
         type="button"
@@ -371,6 +384,7 @@ const ModelRow = memo(function ModelRow({
         onClick={(event) => {
           const element = event.currentTarget
           setBusy(true)
+          setError(null)
           void actions
             .endpoints(model.id)
             .then((value) => {

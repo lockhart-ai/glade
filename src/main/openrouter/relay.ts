@@ -45,7 +45,9 @@ const requestSchema = z.object({
 function containsImage(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(containsImage)
   if (value === null || typeof value !== 'object') return false
-  return ('type' in value && value.type === 'image') || Object.values(value).some(containsImage)
+  if ('type' in value && value.type === 'image') return true
+  // Inspect message and tool-result content, never arbitrary tool inputs that happen to name an image.
+  return 'content' in value && containsImage(value.content)
 }
 
 export interface OpenRouterRelayOptions {
@@ -96,6 +98,7 @@ export async function createOpenRouterRelay(options: OpenRouterRelayOptions): Pr
       if (!response.writableEnded) controller.abort()
     }
     response.on('close', disconnect)
+    let key = ''
     try {
       const chunks: Buffer[] = []
       let size = 0
@@ -108,7 +111,16 @@ export async function createOpenRouterRelay(options: OpenRouterRelayOptions): Pr
         }
         chunks.push(bytes)
       }
-      const body = requestSchema.parse(JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown)
+      const parsedBody = requestSchema.safeParse(
+        await Promise.resolve()
+          .then(() => JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown)
+          .catch(() => null),
+      )
+      if (!parsedBody.success) {
+        failure(response, 400, 'Invalid Messages request.')
+        return
+      }
+      const body = parsedBody.data
       const choice = options.choices.find(({ id }) => id === body.model || openRouterSdkModel(id) === body.model)
       if (choice === undefined) {
         failure(response, 400, 'This model is not enabled for the Glade session.')
@@ -133,7 +145,13 @@ export async function createOpenRouterRelay(options: OpenRouterRelayOptions): Pr
         ...(!choice.model.parameters.includes('reasoning') ? { thinking: { type: 'disabled' } } : {}),
       }
       // The schema strips all non-Messages fields, including plugins, transforms and future routing extensions.
-      const key = options.key()
+      try {
+        key = options.key()
+      } catch {
+        log.warn('OpenRouter inference key unavailable')
+        failure(response, 400, 'The OpenRouter key is no longer available. Connect it in Settings → Models.')
+        return
+      }
       const upstream = await request('https://openrouter.ai/api/v1/messages', {
         method: 'POST',
         redirect: 'error',
@@ -177,10 +195,16 @@ export async function createOpenRouterRelay(options: OpenRouterRelayOptions): Pr
       }
       options.onComplete?.()
       response.end()
-    } catch {
-      log.warn('OpenRouter relay request failed')
-      if (response.headersSent) response.destroy()
-      else failure(response, 400, 'The OpenRouter request failed. Check the connection in Settings → Models.')
+    } catch (error) {
+      const reason = (error instanceof Error ? `${error.name}: ${error.message}` : 'Unknown transport failure')
+        .split(key || token)
+        .join('[redacted]')
+        .split(token)
+        .join('[redacted]')
+        .slice(0, 2048)
+      log.warn('OpenRouter relay transport failed', { reason })
+      // A connection error lets the SDK retry, then reach Glade's Offline flow if it persists.
+      response.destroy()
     } finally {
       controllers.delete(controller)
       response.off('close', disconnect)

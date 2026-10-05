@@ -153,6 +153,8 @@ it('reports connection/status failures and ignores a status response after unmou
         resolve = done
       }),
   })
+  expect(screen.getByText('Loading models…')).toBeInTheDocument()
+  expect(screen.queryByLabelText('OpenRouter API key')).not.toBeInTheDocument()
   pending.unmount()
   act(() => {
     resolve(CATALOG)

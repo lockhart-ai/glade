@@ -11,7 +11,7 @@ fonts, design tokens and menu shapes. Rendered screens are 1920×1200 at 1×.
 3. Search/filter the detected models. Pick a provider from that model's detected endpoints, then check the model to
    include it in the task picker. A model cannot be enabled without an explicit provider choice.
 4. The task picker contains the normal Claude choices plus only enabled OpenRouter models. Source headings identify
-   the account used; the provider appears as secondary text, not another task-picker menu.
+   the account used; the provider appears in the saved model label.
 5. Subagents default to **Same as task**. Their optional model override uses the enabled choices from the task's source.
 6. In an existing Claude task, including one paused by an Anthropic limit, use the same picker to select an enabled
    OpenRouter model and continue in the same task. A minimal Claude-to-OpenRouter probe retained the SDK session ID
@@ -23,9 +23,11 @@ enforces the selected provider for parent, child and helper requests. No provide
 routing-profile editor in the first version. Changing a provider applies from the next safe idle turn, never to an
 in-flight request or a running background subagent. A task can change source at a safe turn boundary or while paused
 by a limit, after live work has stopped. The task and its history remain; the SDK session is restarted for the selected
-source. A failed history handoff preserves the prior selection and reports the problem.
+source. A failed history handoff preserves the prior selection and reports the problem. The picker shows
+**Switching…** during preparation. A task paused by a Claude limit resumes immediately on OpenRouter; the
+banner switches several paused tasks one at a time.
 
-When the switch takes effect, the **Tool calls** timeline appends a quiet timestamped line, for example
+When the switch takes effect, the **Agents › Main** log appends a quiet timestamped line, for example
 **Switched model to DeepSeek V4.1 Flash · Together (OpenRouter)**. Earlier history stays in place with its original
 content and order. The line persists across relaunches, appears once per effective switch, and is not added when a
 switch fails.
@@ -62,8 +64,8 @@ provider credentials are configured on this inference key. OpenRouter applies ac
 
 ### 58 · Narrow task model picker
 
-Three Claude models and the single enabled OpenRouter model. Manage models opens the Settings section; the full
-OpenRouter catalog never appears here. A task's model choice also determines its source. This picker also applies to
+Three Claude models and the single enabled OpenRouter model, grouped by source. The full
+OpenRouter catalog stays in Settings › Models. A task's model choice also determines its source. This picker also applies to
 existing tasks; selecting another source requests the safe history handoff described above.
 
 ![Task model picker](screens/58-task-model-picker.png)

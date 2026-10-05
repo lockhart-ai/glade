@@ -383,6 +383,8 @@ export interface SandboxFlagSettings {
 export interface AgentSessionOptions extends AgentSessionSettings {
   readonly taskId?: string
   readonly subagentModel?: string | null
+  /** A handoff candidate must not adopt its imported transcript until the runner commits the selection. */
+  readonly provisional?: boolean
   /** The folder the agent runs in: the workspace's root. */
   readonly cwd: string
   /** The SDK session to resume, or null to start a new one. */
@@ -430,6 +432,8 @@ export interface AgentSessionOptions extends AgentSessionSettings {
 export interface AgentSession {
   /** Initialization and transcript loading completed, before a source handoff commits. */
   ready?(): Promise<void>
+  /** Commit a prepared handoff's transcript ownership. */
+  activate?(): void
   /** Every message the SDK emits, unparsed: the runner parses each one at the boundary. Iterate it once. */
   readonly messages: AsyncIterable<unknown>
   /**
