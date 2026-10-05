@@ -1,8 +1,10 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { E2E_WINDOW_SIZE } from '../src/main/e2e'
 import { expect, test } from './fixtures'
 import { chooseMenuItem } from './menu'
 import { chat, firstRun, inputBar, regions, settings, taskList, taskPanel } from './selectors'
+import { MIN_WINDOW, resize } from './window-layout'
 
 test('curates an OpenRouter route and switches a task with its history intact across a relaunch', async ({
   launch,
@@ -52,6 +54,17 @@ test('curates an OpenRouter route and switches a task with its history intact ac
   ])
   await bar.option('Sample Flash · Sample Host').click()
   await expect(bar.setting('Model')).toHaveAccessibleName('Model: Sample Flash · Sample Host')
+  await bar.setting('Subagents').click()
+  await bar.option('Sample Flash · Sample Host').click()
+  await expect(bar.setting('Subagents')).toHaveAccessibleName('Subagents: Sample Flash · Sample Host')
+  await resize(glade, MIN_WINDOW.width, MIN_WINDOW.height)
+  const row = regions(window).inputBar.getByTestId('context-meter-slot').locator('..')
+  expect(await row.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  for (const name of ['Model', 'Subagents', 'Permissions'] as const) {
+    await expect(bar.setting(name)).toBeInViewport({ ratio: 1 })
+  }
+  if (media !== undefined) await regions(window).inputBar.screenshot({ path: join(media, 'narrow-model-pickers.png') })
+  await resize(glade, E2E_WINDOW_SIZE.width, E2E_WINDOW_SIZE.height)
   await expect(chat(window).agentReplies.first().getByRole('paragraph').first()).toHaveText(original)
   await taskPanel(window).tab('Agents').click()
   await expect(taskPanel(window).log).toContainText('Switched model to Sample Flash · Sample Host (OpenRouter)')

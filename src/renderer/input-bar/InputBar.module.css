@@ -14,7 +14,7 @@
   border-color: var(--color-blue);
 }
 
-/* Model, Effort and Permissions, with the context meter at the right. */
+/* Model, Subagents, Effort and Permissions, with the context meter at the right. */
 .settings {
   display: flex;
   align-items: center;
@@ -25,6 +25,7 @@
 
 .setting {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: var(--space-sm);
   height: var(--touch-target-dense);
@@ -54,6 +55,9 @@
 }
 
 .settingValue {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--color-text);
   font-weight: 500;
 }
@@ -71,6 +75,7 @@
 /* The context meter's place (P1-14). */
 .meter {
   margin-left: auto;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 7px;
