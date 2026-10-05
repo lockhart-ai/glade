@@ -232,8 +232,9 @@ capabilities; the initial change keeps native same-source delegation and Claude-
 - **Provider changes:** choosing another provider disables the previous pair for existing tasks and resets a default
   using that pair to Claude, rather than migrating those selections.
 - **Usage gaps:** a one-request turn may precede OpenRouter's accounting update; a Claude child's final usage read
-  races process shutdown; an uncapped empty key is only marked blocked after a failed request. Refresh/accounting
-  timing and child usage need further coverage.
+  races process shutdown; an uncapped empty key is only marked blocked after a failed request; remaining allowance
+  can display a negative amount; and a malformed cached usage row can throw before the refresh promise starts.
+  Refresh/accounting timing, child usage and cached-row validation need further coverage.
 - **Preview schema cleanup:** earlier preview databases may retain unused `tasks.subagent_model` and
   `openrouter_generations`; removing them is deferred.
 - **Workflow validation:** production-prompt dispatch in both directions with real tools, permission cards and the
