@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { BridgeErrorCode, type GladeEvent } from '../../shared/bridge'
-import { PauseReason, TaskActivity, type Task, type TaskPause } from '../../shared/domain'
+import { AgentErrorKind, PauseReason, TaskActivity, type Task, type TaskPause } from '../../shared/domain'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { listMessages } from '../db/repositories/messages'
 import { listToolEvents } from '../db/repositories/tool-events'
@@ -142,6 +142,47 @@ it('keeps the original session when a provisional sandbox overlay fails', async 
   await expect(runner.changeModel(task.id, SAMPLE_CHOICE.id)).rejects.toThrow('sandbox settings')
   expect(original.closed).toBe(false)
   expect(getTask(database.db, task.id)?.model).toBe(task.model)
+})
+
+it('commits a source switch after its provisional sandbox overlay succeeds', async () => {
+  await previousTurn()
+  updateSettings(database.db, { sandboxEnabled: true })
+  await runner.changeModel(task.id, SAMPLE_CHOICE.id)
+  expect(getTask(database.db, task.id)?.model).toBe(SAMPLE_CHOICE.id)
+  expect(backend.session.closed).toBe(false)
+})
+
+it('does not overwrite a task selection changed while its destination starts', async () => {
+  await previousTurn()
+  const original = backend.session
+  let ready: () => void = () => undefined
+  backend.onSessionStart = (session) => {
+    Object.assign(session, {
+      ready: () =>
+        new Promise<void>((resolve) => {
+          ready = resolve
+        }),
+    })
+  }
+  const switching = runner.changeModel(task.id, SAMPLE_CHOICE.id)
+  await settle()
+  updateTask(database.db, task.id, { model: 'claude-haiku-4-5' })
+  ready()
+  await expect(switching).rejects.toThrow('task changed')
+  expect(original.closed).toBe(false)
+  expect(getTask(database.db, task.id)?.model).toBe('claude-haiku-4-5')
+})
+
+it('stops on OpenRouter quota errors without pausing for a Claude subscription reset', async () => {
+  await runner.changeModel(task.id, SAMPLE_CHOICE.id)
+  runner.send(task.id, 'Echo')
+  backend.session.emit(sdk.init(), ...sdk.usageLimitTurnEnd(Math.ceil(Date.now() / 1000) + 3600))
+  await settle()
+  expect(getTask(database.db, task.id)).toMatchObject({
+    activity: TaskActivity.Error,
+    pause: null,
+    error: { kind: AgentErrorKind.Permanent },
+  })
 })
 
 it('records an ordinary model switch only after its configure promise succeeds and rolls back a refusal', async () => {

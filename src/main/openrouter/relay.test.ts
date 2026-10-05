@@ -176,3 +176,42 @@ it('bounds payload size and revokes in-flight requests when the SDK session clos
   relay.close()
   await failed
 })
+
+it('cancels upstream inference when the SDK disconnects', async () => {
+  let started: () => void = () => undefined
+  const pending = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  let cancelled: () => void = () => undefined
+  const aborted = new Promise<void>((resolve) => {
+    cancelled = resolve
+  })
+  const request = vi.fn<typeof fetch>().mockImplementation(async (_, init) => {
+    started()
+    await new Promise<void>((_, reject) =>
+      init?.signal?.addEventListener(
+        'abort',
+        () => {
+          cancelled()
+          reject(new Error('SDK disconnected'))
+        },
+        { once: true },
+      ),
+    )
+    return new Response()
+  })
+  const relay = await createOpenRouterRelay({ choices: [SAMPLE_CHOICE], key: () => 'key', request })
+  relays.push(relay)
+  const controller = new AbortController()
+  const response = fetch(`${relay.url}/v1/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${relay.token}` },
+    body: JSON.stringify({ model: SAMPLE_CHOICE.id }),
+    signal: controller.signal,
+  })
+  const failed = expect(response).rejects.toThrow()
+  await pending
+  controller.abort()
+  await failed
+  await aborted
+})

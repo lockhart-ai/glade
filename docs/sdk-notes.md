@@ -3362,7 +3362,7 @@ bundled binary. What did change:
 - **Not exercised:** the API-key path, `api_retry`, real auto-compaction (the `"auto"` trigger) and usage-limit
   errors. Their shapes above come from the types.
 
-## 16. OpenRouter inference (#551)
+## 17. OpenRouter inference (#551)
 
 The SDK remains the harness for both billing sources. [OpenRouter integration](openrouter-integration-spec.md)
 describes the catalog, per-session relay/environment, provider pinning, alpha transcript store, source-switch

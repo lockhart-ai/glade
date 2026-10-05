@@ -1444,6 +1444,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    * usage limit, which tells a spent limit from a passing rate limit.
    */
   const withRetries = (
+    taskId: string,
     turn: Turn | null,
     error: Omit<TaskError, 'kind' | 'retries' | 'retryingMs'>,
     limit: UsageLimit | null = null,
@@ -1452,7 +1453,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const facts = { status: error.status, code: error.code, message: error.details, limitRejected: limit?.rejected }
     return {
       ...error,
-      kind: classifyAgentError(facts),
+      kind:
+        agentSource(getTask(db, taskId)?.model ?? '') === AgentSource.OpenRouter &&
+        [AgentErrorKind.LoggedOut, AgentErrorKind.UsageLimit].includes(classifyAgentError(facts))
+          ? AgentErrorKind.Permanent
+          : classifyAgentError(facts),
       retries: retrying?.attempt ?? 0,
       retryingMs: retrying === null ? 0 : Math.max(0, Date.now() - retrying.since),
     }
@@ -1460,13 +1465,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   /** Stops the task on an error: the chat shows its card, and the task list its "Error: …" line. */
   const stopOnError = (taskId: string, error: TaskError): void => {
-    const stopped =
-      agentSource(getTask(db, taskId)?.model ?? '') === AgentSource.OpenRouter &&
-      (error.kind === AgentErrorKind.LoggedOut || error.kind === AgentErrorKind.UsageLimit)
-        ? { ...error, kind: AgentErrorKind.Permanent }
-        : error
-    updateTaskFromRunner(context, taskId, { activity: TaskActivity.Error, error: stopped, retrying: null, pause: null })
-    if (stopped.kind === AgentErrorKind.LoggedOut) options.onLoggedOut?.(taskId)
+    updateTaskFromRunner(context, taskId, { activity: TaskActivity.Error, error, retrying: null, pause: null })
+    if (error.kind === AgentErrorKind.LoggedOut) options.onLoggedOut?.(taskId)
   }
 
   /**
@@ -1509,11 +1509,6 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    * Answers whether it paused: false for an error that stops the task instead.
    */
   const pauseOnError = (taskId: string, error: TaskError, limit: UsageLimit | null): boolean => {
-    if (
-      agentSource(getTask(db, taskId)?.model ?? '') === AgentSource.OpenRouter &&
-      error.kind === AgentErrorKind.UsageLimit
-    )
-      return false
     const reason = pauseReason(error)
     if (reason === null) return false
     const pause = pauseFor(reason, error.details, limit, Date.now())
@@ -1548,7 +1543,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     } catch (error) {
       taskLog(taskId).error('failed to resume paused task', { error })
       const details = `Glade couldn't resume the agent: ${describeError(error)}`
-      stopOnError(taskId, withRetries(null, { source: TaskErrorSource.Session, status: null, code: null, details }))
+      stopOnError(
+        taskId,
+        withRetries(taskId, null, { source: TaskErrorSource.Session, status: null, code: null, details }),
+      )
     }
   }
 
@@ -2006,7 +2004,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const details = reported === '' ? `Claude Code couldn't start (${startupFailureReason}).` : reported
       emitToolEventAppended(emit, appendNarration(db, { taskId, turn: turn.number, text: details }))
       const failure = { source: TaskErrorSource.Startup, status: null, code: startupFailureReason, details }
-      stopOnError(taskId, withRetries(turn, failure))
+      stopOnError(taskId, withRetries(taskId, turn, failure))
       return
     }
     const isApiError = apiError !== null || event.apiErrorStatus !== null || event.terminalReason === 'api_error'
@@ -2014,11 +2012,15 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       failRunning(taskId, turn, STOPPED_BY_ERROR_NOTE)
       const details = reported === '' ? `The turn failed (${event.terminalReason ?? 'unknown'}).` : reported
       emitToolEventAppended(emit, appendNarration(db, { taskId, turn: turn.number, text: details }))
-      stopOnError(taskId, withRetries(turn, { source: TaskErrorSource.Turn, status: null, code: null, details }))
+      stopOnError(
+        taskId,
+        withRetries(taskId, turn, { source: TaskErrorSource.Turn, status: null, code: null, details }),
+      )
       return
     }
     const details = [apiError?.message ?? '', event.result, reported].find((text) => text.trim() !== '') ?? ''
     const error = withRetries(
+      taskId,
       turn,
       {
         source: TaskErrorSource.Api,
@@ -2171,7 +2173,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     failCompaction(turn)
     turn.pending.push({ text: message, sdkUuid: null })
     flushPreamble(taskId, turn)
-    const error = withRetries(turn, { source: TaskErrorSource.Session, status: null, code: null, details: message })
+    const error = withRetries(taskId, turn, {
+      source: TaskErrorSource.Session,
+      status: null,
+      code: null,
+      details: message,
+    })
     failRunning(taskId, turn, message, pauseReason(error) === null ? ToolCallState.Error : ToolCallState.Paused)
     if (!pauseOnError(taskId, error, live.limit)) stopOnError(taskId, error)
   }
@@ -4195,7 +4202,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
             appendNarration(db, { taskId: task.id, turn: Math.max(1, lastTurn(db, task.id)), text }),
           )
           const failure = { source: TaskErrorSource.Session, status: null, code: null, details: text }
-          stopOnError(task.id, withRetries(null, failure))
+          stopOnError(task.id, withRetries(task.id, null, failure))
         }
       }
       // Decisions made on requests the app quit on that never reached the agent (it quit again first) go now.
