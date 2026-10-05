@@ -9,7 +9,7 @@ import { AgentSource, agentSource } from '../../shared/openrouter'
 import type { AccountSink } from '../account/account'
 import { listModels } from '../models/models'
 import { validateModel } from '../models/switches'
-import { getOpenRouterChoice } from '../db/repositories/openrouter'
+import { getOpenRouterChoice, openRouterConnected } from '../db/repositories/openrouter'
 import { Row } from '../db/repositories/rows'
 import {
   AgentEventKind,
@@ -85,7 +85,7 @@ function childRecord(raw: unknown): ChildRecord {
 /** Each delegated agent runs the existing backend on its own connection, with the task's permissions and tools. */
 export function managedBackend({ db, backend, account }: ManagedBackendOptions): AgentBackend {
   const wrap = (options: AgentSessionOptions): AgentSession => {
-    if (options.taskId === undefined) return backend.start(options)
+    if (options.taskId === undefined || !openRouterConnected(db)) return backend.start(options)
     const taskId = options.taskId
     const log = options.log ?? SILENT_LOGGER
     const runs = new Map<string, ChildRun>()
@@ -153,6 +153,10 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
       validateModel(db, input.model)
       if (findModel(listModels(db), input.model) === undefined)
         throw new Error('Choose a currently available model id from list_models.')
+      if (agentSource(input.model) === agentSource(settings.model))
+        throw new Error(
+          'Use the built-in Agent tool for children on the same source. Dispatch is only for the other source.',
+        )
       const parsed = extraSchema.safeParse(extra)
       const metaId = parsed.success ? parsed.data._meta?.[TOOL_USE_ID_META] : undefined
       const key = JSON.stringify(input)
@@ -404,7 +408,7 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
         ),
         tool(
           'dispatch',
-          'Delegate work to a child SDK agent on any available Claude or OpenRouter model. Call list_models first. Use resume with a child id to continue its saved conversation, including after the parent changes model.',
+          'Delegate work to a child on the other source (Claude account or OpenRouter). Use the built-in Agent tool for same-source children. Call list_models first. Use resume with a child id to continue its saved conversation while its source differs from the parent.',
           dispatchInput.shape,
           dispatch,
         ),
@@ -420,7 +424,7 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
     const parent = backend.start({
       ...options,
       mcpServers: { ...options.mcpServers, [AGENTS_SERVER]: server },
-      systemPromptAppend: `${options.systemPromptAppend}\nChoose each subagent model for its job. Call mcp__glade-agents__list_models for current models and OpenRouter prices, then use ${DISPATCH_AGENT_TOOL} for any Claude/OpenRouter combination. Provider selection is controlled by Settings. Native Agent children share this process's connection; under OpenRouter they always use its current route. Resume independently routed children with dispatch's resume id, not SendMessage.`,
+      systemPromptAppend: `${options.systemPromptAppend}\nUse the built-in Agent tool for subagents on your own source, retaining its agent types, worktree isolation and SendMessage. Only to start a child on the other source (Claude account or OpenRouter), call mcp__glade-agents__list_models for current models and OpenRouter prices, then use ${DISPATCH_AGENT_TOOL}. Choose that child's model for its job; provider selection is controlled by Settings. Native Agent children under OpenRouter use this process's current route; another OpenRouter route is not supported for a child. Resume cross-source children with dispatch's resume id while their source differs from yours; SendMessage only addresses native children.`,
       hooks: {
         onPrompt: () => PromptVerdict.Allow,
         onTurnEnded: () => undefined,

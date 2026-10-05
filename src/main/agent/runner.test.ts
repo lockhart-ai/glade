@@ -338,10 +338,9 @@ describe('a turn', () => {
       effort: task.effort,
       permissionMode: PermissionMode.AllowAll,
       resumeSessionId: null,
-      systemPromptAppend: expect.stringContaining(systemPromptAppend(task)) as unknown,
+      systemPromptAppend: systemPromptAppend(task),
       mcpServers: {
         [GLADE_SERVER]: expect.objectContaining({ type: 'sdk', name: GLADE_SERVER }) as unknown,
-        'glade-agents': expect.objectContaining({ type: 'sdk', name: 'glade-agents' }) as unknown,
       },
       createMcpServers: expect.any(Function) as unknown,
       onSubagentEvent: expect.any(Function) as unknown,

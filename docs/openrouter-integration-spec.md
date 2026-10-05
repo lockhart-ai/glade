@@ -33,13 +33,15 @@ There is no blanket subagent model or second input-bar picker. The parent choose
 `mcp__glade-agents__list_models` returns the current Claude models and enabled OpenRouter routes, including their
 context windows and OpenRouter input/output prices in USD per token. `mcp__glade-agents__dispatch` takes `model`,
 `prompt`, `description`, optional `run_in_background`, and optional `resume` (a previously returned child ID).
-It starts the existing SDK backend in another session, in the same workspace, with its own connection. It accepts
-only currently offered models; provider selection remains in Settings. Curation changes apply to the next dispatch.
+These tools are added only when an OpenRouter key is connected; a keyless Claude session's prompt and tools are
+unchanged. Use native `Agent` for same-source children, preserving native agent types, worktree isolation and
+`SendMessage`. `dispatch` starts the existing SDK backend in another session, in the same workspace, on the
+**other source only**; same-source requests are rejected. It accepts only currently offered models; provider selection remains in Settings. Curation changes apply to the next dispatch.
 
 | Parent | Claude child | OpenRouter child |
 | --- | --- | --- |
-| Claude account | Supported | Supported |
-| OpenRouter | Supported | Supported |
+| Claude account | Native `Agent` | Glade `dispatch` |
+| OpenRouter | Glade `dispatch` | Native `Agent`, parent route only |
 
 The adapter retains the full SDK coding prompt and agent loop, and adds delegation instructions. It creates fresh
 MCP servers for each process, forwards the task's permissions and sandbox grants, and gives separate sessions a
@@ -56,14 +58,14 @@ failure back to the parent. Stop subagent works through the existing Agents cont
 Stopping a foreground turn ends its foreground children. Closing a session ends all its children; finishing a
 child ends its remaining descendants and watchers. The adapter does not leave independently billed work orphaned.
 
-Resume a child with another dispatch using its returned ID and original model, including after the parent switches
-source or Glade relaunches. The same task owns the saved conversation; other tasks cannot resume it. Replaying a
+Resume a child with another dispatch using its returned ID and original model after Glade relaunches or the parent
+changes model, provided its source still differs from the parent's. The same task owns the saved conversation; other tasks cannot resume it. Replaying a
 persisted tool call returns its saved state instead of starting duplicate work. A process interrupted by relaunch
 is marked stopped; resumption is explicit. `SendMessage` continues to address native SDK children only.
 
 Native `Agent` is still available: Claude children share the Claude account; under OpenRouter every native model
-alias and built-in type uses that process's selected route. For a different route or source, the parent uses Glade's
-dispatch tool. Native child wakeups remain tied to their source process; the portable continuation path is managed
+alias and built-in type uses that process's selected route. Glade's dispatch selects the other source only; a
+child on another OpenRouter route is deferred. Native child wakeups remain tied to their source process; the portable continuation path is managed
 dispatch. SDK helpers such as compaction use the process's selected route too.
 
 ## Switching an existing task
@@ -71,13 +73,16 @@ dispatch. SDK helpers such as compaction use the process's selected route too.
 A source change or OpenRouter model change needs a stopped or waiting task, with no active
 turn, question or permission request. Ordinary waiting tasks must also finish or stop their background work. A task
 paused on a usage limit may switch immediately: its old children, watchers and scheduled work end with a recorded
-reason, and its held turn resumes on OpenRouter. Ordinary Claude model changes keep
+reason. The destination’s first prompt names those stopped children, watchers and wakeups by their Agents labels
+and commands, says they will not report back and asks the agent to restart needed work. Its held turn resumes on OpenRouter. Ordinary Claude model changes keep
 the existing next-turn behavior.
 
 If known context usage exceeds the destination window, the switch is refused before preparation; choose a larger
-model or compact first. The SDK todo list, its identifiers and high-water mark are shared across both configurations
-and independently routed children through a task-specific list. Existing lists seed that list without overwriting
-the original files.
+model or compact first. Only the first cross-source session creates the shared SDK todo list, retaining identifiers
+and high-water marks by seeding from the original list without overwriting it. Later sessions reuse that shared
+list. Tasks that never use another source keep the original SDK list. Link setup failures are logged and the
+session starts with its original SDK list; todo continuity is not guaranteed in that fallback. The shared-list
+filesystem behavior is unit tested; the bundled binary's use of the links remains unverified.
 
 For a task with a session, the runner prepares a provisional process with the same SDK session ID, persisted
 transcript, workspace, tools and permissions. Queued input waits for SDK initialization and sandbox setup. Only
@@ -116,7 +121,7 @@ tool permissions and Glade hooks continue through the existing backend. Claude u
 commands, hooks, plugins, user MCP servers and existing auto-memory do not transfer to the isolated OpenRouter
 configuration. The task picker names the separate user settings/memory; the guide lists what is omitted.
 The private SDK cache is inside the denied Glade data folder, so sandboxed file tools cannot read large tool results
-or auto-memory saved there. This limitation needs a manual sandboxed workflow check before release.
+or auto-memory saved there. A manual sandboxed workflow check remains a follow-up.
 Sandbox credentials deny `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`. Unsandboxed commands, session hooks and
 stdio MCP servers can inherit the short-lived relay token; it grants inference on the session’s routes until close.
 
@@ -175,9 +180,9 @@ request, the child result and a subsequent Claude parent reply. An initial paren
 returned a clarification instead; the corrected prompt dispatched successfully. The private audit accepts the
 parent's formatting around the returned marker. No additional inference was run just to enforce exact formatting.
 Thinking and filesystem tools were disabled and output was capped. Production dispatch now has mocked integration
-coverage for all four source combinations, concurrency, nested stop, saved-child resume after parent switching,
+coverage for both cross-source directions, native same-source preservation, concurrency, nested stop, saved-child resume,
 live route curation, account isolation and main-only tool guards. Hidden Electron tests exercise both kinds of
-parent dispatching one child on each source and display both model labels. A subsequent bounded live probe ran the
+parent using native same-source and managed cross-source children, displaying both model labels. A subsequent bounded live probe ran the
 production dispatch adapter, SDK backend, runtime and child persistence in both cross-source directions: Claude
 Haiku → DeepSeek Flash / Together, and DeepSeek Flash / Together → Claude Haiku. Each parent received its child's
 echo and each child was saved as completed. The probe reduced the system prompt, disabled thinking and filesystem
@@ -192,9 +197,8 @@ models recalled that token, and SQLite retained the thinking blocks. The SDK nor
 OpenRouter history to text/tool blocks; DeepSeek returned no thinking blocks on this trivial request. This proves
 that tested round trip, not arbitrary providers' reasoning formats. The probe made one OpenRouter request and used
 1,024-token thinking budgets with 1,280-token output caps; actual generated output was 241 tokens across the three
-turns. OpenRouter-origin reasoning signatures and sandboxed SDK-cache reads still require manual validation before
-release. Provider context-overflow recovery and withdrawn-provider errors also need
-a manual run. Native subagent progress summaries remain enabled and generate inference requests; their cost and
+turns. OpenRouter-origin reasoning signatures, sandboxed SDK-cache reads, provider context-overflow recovery and
+withdrawn-provider errors remain follow-up validation; none is claimed as proven by these probes. Native subagent progress summaries remain enabled and generate inference requests; their cost and
 cache behavior should be checked in a provider generation log before recommending a route for cheap work.
 
 Automated tests mock catalog/inference traffic and use the existing fake agent. They cover credential/source
@@ -207,3 +211,42 @@ even if supplied a real key.
 
 Approved UI references are [screens 56–59](design/openrouter-mockups.md). Migrations 65–66 (including upgrades from earlier preview schemas) and typed bridge commands
 extend existing repositories and Settings/picker surfaces without a general backend refactor.
+
+
+## Landing limitations and follow-ups
+
+The landing review deliberately defers the following work. These are limitations and validation gaps, not shipped
+capabilities; the initial change keeps native same-source delegation and Claude-only todo storage intact.
+
+- **Child effort:** dispatched children start at Low. Inherit the parent's effort or expose a per-dispatch argument
+  in a follow-up; subsequent session configuration can currently update their effort.
+- **Child prompt/tools:** dispatched children inherit the main Glade prompt and tools, with metadata/control calls
+  refused by the main-only guard. A child-specific prompt/tool set, agent types and native worktree isolation are
+  not implemented.
+- **Limit-switch survival:** all children stop, including children on the source unaffected by the limit. The resumed
+  agent is told what stopped, but retaining those processes is deferred.
+- **Busy switches:** a running turn, open question/permission card, or idle task with live background work prevents
+  a source/route switch. Saving the choice until a safe boundary is not built.
+- **Claude-to-Claude limit recovery:** changing Claude models from the picker leaves a usage-limit pause in place.
+- **Cost attribution:** neither per-task nor per-child billed cost is available for either source.
+- **Provider changes:** choosing another provider disables the previous pair for existing tasks and resets a default
+  using that pair to Claude, rather than migrating those selections.
+- **Usage gaps:** a one-request turn may precede OpenRouter's accounting update; a Claude child's final usage read
+  races process shutdown; an uncapped empty key is only marked blocked after a failed request. Refresh/accounting
+  timing and child usage need further coverage.
+- **Preview schema cleanup:** earlier preview databases may retain unused `tasks.subagent_model` and
+  `openrouter_generations`; removing them is deferred.
+- **Workflow validation:** production-prompt dispatch in both directions with real tools, permission cards and the
+  sandbox; upgraded SDK todos across a switch; completion while the parent is paused/busy/starting queued input;
+  relaunch with a running child then resume; child wakeup/cron lifecycle; relaunch of an OpenRouter task with a
+  saved usage pause; and full SDK runtime/UI integration remain follow-ups. Existing Electron dispatch tests use
+  scripted models, and filesystem todo tests do not validate the bundled binary. The landing regression does cover
+  a limit-switch with an actual managed child in the fake backend, a native child, monitor and scheduled wakeup.
+- **Other OpenRouter child routes:** only the parent's route is supported by native `Agent`. Cross-route support and
+  a live OpenRouter → OpenRouter run on distinct routes remain follow-ups. A thinking block written on an
+  OpenRouter route returning to Claude is also not yet verified.
+
+Before relying on this build, back up the data folder: migrations 65–66 are forward-only and v0.25.0 cannot safely
+reopen the upgraded database. The remaining real smoke run should include an OpenRouter tool call with a permission
+card, one production-prompt dispatch each way, a limit-switch with a watcher alive, and pre-existing todos surviving
+a source switch. These are separate from the completed minimal echo/history probes above.

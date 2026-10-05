@@ -6,31 +6,39 @@ freezing them.
 
 ## Choosing subagent models
 
-The parent chooses each child's model at dispatch. There is no blanket subagent picker or saved child default.
-Every task receives the in-process `glade-agents` server, which runs each delegation through the existing SDK
-backend on its selected connection. Claude → Claude, Claude → OpenRouter, OpenRouter → Claude and
-OpenRouter → OpenRouter all use the same tools:
+The parent chooses each child's model; there is no blanket subagent picker or saved child default.
+Use the built-in `Agent` tool for children on the parent's own source. Claude-only tasks retain the native agent
+types, worktree isolation and `SendMessage` behavior. With no OpenRouter key connected, Glade adds no delegation
+tools or instructions to the session.
+
+With a key connected, the in-process `glade-agents` server offers **cross-source** delegation only:
+Claude account → OpenRouter or OpenRouter → Claude account. Same-source dispatch is refused with instructions to
+use `Agent`. Native OpenRouter children use the parent's current route; another OpenRouter route is not supported
+for a child in this version.
 
 | Tool | Input | Result |
 | --- | --- | --- |
-| `mcp__glade-agents__list_models` | `{}` | Current Claude models and enabled OpenRouter model/provider selections, including their context windows and indicative OpenRouter input/output prices in USD per token. |
-| `mcp__glade-agents__dispatch` | `{ model, prompt, description, run_in_background?, resume? }` | The child's id and result, or its id immediately for background work. |
+| `mcp__glade-agents__list_models` | `{}` | Current Claude models and enabled OpenRouter model/provider selections, including context windows and indicative OpenRouter prices in USD per token. Choose a model on the other source for dispatch. |
+| `mcp__glade-agents__dispatch` | `{ model, prompt, description, run_in_background?, resume? }` | The cross-source child's id and result, or its id immediately for background work. |
 
 `model` is an exact id from `list_models`; `prompt` supplies the delegated task and necessary context.
-Prefix `description` with `[todo N]` to file the child under that todo. Curation is checked on every dispatch, so
-newly enabled routes are available without restarting the parent. Provider choice remains in Settings.
-`resume` continues a saved child id from this task on its original model, including after the parent switches source;
-it must have finished first. Duplicate dispatch tool calls return the saved outcome without starting another child.
+Prefix `description` with `[todo N]` to file the child under that todo. Curation is checked on every dispatch;
+provider choice remains in Settings. `resume` continues a finished child from this task on its original model,
+provided its source still differs from the parent's. Native `SendMessage` cannot address these children.
+Duplicate dispatch tool calls return the saved outcome without starting another child.
 
-Children retain the SDK coding preset, workspace, sandbox and task permissions. Their chat and tool calls appear under
-their dispatch in Agents, alongside their model. A background child's result is delivered to the live parent when it
-finishes. Stop works for the child and its descendants; ending a delegation ends any descendants it left running.
-After a session ends, an unfinished saved child can be resumed explicitly. Only the main task agent may use the
-metadata and control tools below; independently routed children are subject to the same guard as native children.
+Dispatched children run the SDK coding preset, workspace, sandbox and task permissions in separate sessions.
+They currently start at Low effort and inherit the parent's Glade prompt/tools; the main-only guard refuses their
+metadata/control calls. Child-specific prompts/tools and an effort choice are follow-ups. Dispatched children have
+no agent-type selection or native worktree isolation. Their text and tool calls appear under their dispatch in
+Agents, alongside the model. A background result is delivered to the live parent when it finishes. Stop covers the
+child and descendants; ending a delegation ends remaining descendants. An unfinished saved child can be resumed
+explicitly after a relaunch, with the same cross-source restriction.
 
-Native `Agent` remains available on the process's own connection. Under OpenRouter, its aliases and helper calls use
-that process's route. Use `glade-agents.dispatch` to select another connection or route, and its `resume` argument
-to continue that child; native `SendMessage` cannot address an independently routed child.
+On a usage-limit source switch, the resumed agent's first message names the children, watchers and wakeups stopped
+by the switch, using their Agents labels and commands. It can restart what it needs; even children on the other
+source are stopped today. See [landing limitations and follow-ups](openrouter-integration-spec.md#landing-limitations-and-follow-ups)
+for the remaining behavior and validation gaps.
 
 ## Main agent only (#366)
 

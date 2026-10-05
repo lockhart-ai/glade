@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { CompactionTrigger, Effort, PermissionMode } from '../../shared/domain'
-import { DISPATCH_AGENT_TOOL } from '../../shared/managed-agents'
+import { AGENTS_SERVER, DISPATCH_AGENT_TOOL } from '../../shared/managed-agents'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
+import { SAMPLE_CHOICE, SAMPLE_MODEL, SAMPLE_PROVIDER } from '../../shared/test-openrouter'
+import { setOpenRouterConnection, setOpenRouterChoice } from '../db/repositories/openrouter'
 import { Row } from '../db/repositories/rows'
 import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
 import { PromptVerdict, ToolPermissionBehavior, type AgentSession, type AgentSessionOptions } from './backend'
@@ -22,6 +24,12 @@ let events: AgentEvent[]
 const account = { accountRead: vi.fn(), usageRead: vi.fn(), rateLimit: vi.fn() }
 beforeEach(() => {
   database = openTestDatabase()
+  setOpenRouterConnection(database.db, {
+    encryptedKey: Buffer.from('ciphertext'),
+    models: [SAMPLE_MODEL],
+    providers: [SAMPLE_PROVIDER],
+  })
+  setOpenRouterChoice(database.db, SAMPLE_CHOICE)
   const workspace = sampleWorkspace(database.db)
   const task = sampleTask(database.db, workspace.id)
   backend = new FakeAgentBackend()
@@ -30,7 +38,7 @@ beforeEach(() => {
   options = {
     taskId: task.id,
     cwd: workspace.rootPath,
-    model: MODEL,
+    model: SAMPLE_CHOICE.id,
     effort: Effort.Low,
     permissionMode: PermissionMode.AskBeforeEdits,
     resumeSessionId: null,
@@ -93,7 +101,7 @@ it('keeps permission ownership and sandbox changes on the child without running 
   expect(prompt).not.toHaveBeenCalled()
   expect(ended).not.toHaveBeenCalled()
   expect(compacted).not.toHaveBeenCalled()
-  await session.configure({ model: 'claude-sonnet-5', effort: Effort.High, permissionMode: PermissionMode.AllowAll })
+  await session.configure({ model: SAMPLE_CHOICE.id, effort: Effort.High, permissionMode: PermissionMode.AllowAll })
   expect(agent.settings).toMatchObject({ model: MODEL, permissionMode: PermissionMode.AllowAll })
   await session.applyFlagSettings({ permissions: null })
   expect(agent.flagSettings).toEqual([{ permissions: null }])
@@ -184,4 +192,38 @@ it('retains the child result when usage reads and delivery to its parent fail', 
   expect(log.withMessage('could not read child account')).toHaveLength(1)
   expect(log.withMessage('could not read child account usage')).toHaveLength(2)
   expect(log.withMessage('could not deliver child completion')).toHaveLength(1)
+})
+
+it('passes Claude-only sessions through with exactly their existing prompt, tools and hooks', () => {
+  database.db.exec('DELETE FROM openrouter_connection')
+  options = { ...options, model: MODEL, systemPromptAppend: 'Original Glade prompt.' }
+  session = managedBackend({ db: database.db, backend }).start(options)
+  expect(backend.session.options).toBe(options)
+  expect(session).toBe(backend.session)
+  expect(backend.session.options.mcpServers).not.toHaveProperty(AGENTS_SERVER)
+})
+
+it('adds only cross-source delegation instructions when an OpenRouter key is connected', () => {
+  start({ model: MODEL, systemPromptAppend: 'Original Glade prompt.' })
+  expect(parent.options.systemPromptAppend.startsWith('Original Glade prompt.\n')).toBe(true)
+  expect(parent.options.systemPromptAppend).toContain('Use the built-in Agent tool for subagents on your own source')
+  expect(parent.options.systemPromptAppend).toContain('Only to start a child on the other source')
+  expect(parent.options.mcpServers).toHaveProperty(AGENTS_SERVER)
+})
+
+it('interrupts foreground cross-source work while leaving background children running', async () => {
+  start()
+  await parent.callTool('background', DISPATCH_AGENT_TOOL, { ...INPUT, run_in_background: true })
+  const background = await child()
+  const foregroundCall = parent.callTool('foreground', DISPATCH_AGENT_TOOL, INPUT)
+  await vi.waitFor(() => {
+    expect(backend.sessions).toHaveLength(3)
+  })
+  const foreground = backend.session
+  await session.interrupt()
+  await foregroundCall
+  expect(foreground.closed).toBe(true)
+  expect(background.closed).toBe(false)
+  expect(parent.interrupts).toBe(1)
+  expect(parent.closed).toBe(false)
 })

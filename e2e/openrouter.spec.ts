@@ -202,14 +202,14 @@ for (const fromBanner of [false, true]) {
 }
 
 for (const source of ['Claude', 'OpenRouter'] as const) {
-  test(`${source} parent dispatches Claude and OpenRouter children and shows their chosen models`, async ({
+  test(`${source} parent uses native same-source and dispatched cross-source children with their chosen models`, async ({
     launch,
     tempFolder,
   }) => {
     const root = join(tempFolder(), 'acme-mixed')
     mkdirSync(root)
     const glade = await launch({
-      agentScript: 'mixed-models',
+      agentScript: source === 'Claude' ? 'mixed-models' : 'mixed-models-router',
       agentScriptsByFirstMessage: { 'Report from the routed child.': 'replies-briefly' },
       chosenFolder: root,
     })

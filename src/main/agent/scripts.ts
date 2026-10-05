@@ -4500,6 +4500,7 @@ const sharesCode: AgentScript = {
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
   'mixed-models',
+  'mixed-models-router',
   'makes-commits',
   'makes-another-commit',
   'files-children',
@@ -4571,10 +4572,25 @@ export const AGENT_SCRIPT_NAMES = [
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
 
-/** Every script a test mode can run, by name. */
-export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
-  'mixed-models': {
-    name: 'mixed-models',
+/** Same-source delegation uses native Agent; only the other source uses Glade's dispatcher. */
+function mixedModels(routerParent: boolean): AgentScript {
+  const child = (routerChild: boolean): ScriptTurn => {
+    const id = routerChild ? 'router-child' : 'claude-child'
+    const input = {
+      model: routerChild ? 'openrouter:sample/flash@sample-host' : 'haiku',
+      description: routerChild ? '[todo 1] Check the sample file' : '[todo 1] Review the sample test',
+      prompt: 'Report from the routed child.',
+    }
+    if (routerParent !== routerChild)
+      return [{ kind: ScriptStepKind.GladeTool, server: 'glade-agents', tool: 'dispatch', id, input }]
+    return [
+      toolUse(id, 'Agent', { ...input, model: 'haiku', subagent_type: 'general-purpose' }),
+      say('Here is a first draft of the release notes.', id),
+      toolResult(id, 'The native child finished.'),
+    ]
+  }
+  return {
+    name: routerParent ? 'mixed-models-router' : 'mixed-models',
     turns: [
       [
         init(),
@@ -4584,33 +4600,19 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
           { subject: 'Check the implementation' },
           'Task #1 created successfully: Check the implementation',
         ),
-        {
-          kind: ScriptStepKind.GladeTool,
-          server: 'glade-agents',
-          tool: 'dispatch',
-          id: 'router-child',
-          input: {
-            model: 'openrouter:sample/flash@sample-host',
-            description: '[todo 1] Check the sample file',
-            prompt: 'Report from the routed child.',
-          },
-        },
-        {
-          kind: ScriptStepKind.GladeTool,
-          server: 'glade-agents',
-          tool: 'dispatch',
-          id: 'claude-child',
-          input: {
-            model: 'haiku',
-            description: '[todo 1] Review the sample test',
-            prompt: 'Report from the routed child.',
-          },
-        },
+        ...child(true),
+        ...child(false),
         say('Both children finished on their selected models.'),
         result(),
       ],
     ],
-  },
+  }
+}
+
+/** Every script a test mode can run, by name. */
+export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
+  'mixed-models': mixedModels(false),
+  'mixed-models-router': mixedModels(true),
   'makes-commits': makesCommits,
   'makes-another-commit': makesAnotherCommit,
   'files-children': filesChildren,

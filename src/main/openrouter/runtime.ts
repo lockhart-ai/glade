@@ -23,6 +23,7 @@ import { openRouterSdkModel } from './sdk-model'
 import { importLocalTranscript } from './local-transcripts'
 import { sdkTaskList } from './task-list'
 import { getTask } from '../db/repositories/tasks'
+import { SILENT_LOGGER } from '../logging/logger'
 
 export interface OpenRouterRuntimeOptions {
   readonly db: Database
@@ -36,6 +37,7 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
   const imports = new Set<string>()
   return {
     async prepare(options: AgentSessionOptions, inherited: Environment): Promise<PreparedSdkSession> {
+      const log = options.log ?? SILENT_LOGGER
       const store = sqliteSessionStore(db, options.taskId ?? null)
       const router = agentSource(options.model) === AgentSource.OpenRouter
       const sessionId = options.resumeSessionId
@@ -79,6 +81,10 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
                 configDir,
                 dataDir,
                 legacyConfigDir: originalConfig,
+                create: originalTask !== undefined && agentSource(originalTask.model) !== agentSource(options.model),
+              }).catch((error: unknown) => {
+                log.warn('could not share SDK todos; continuing with the SDK task list', { error })
+                return undefined
               })
         let mirrored = sessionId !== null && hasTranscript(db, sessionId, options.taskId ?? null)
         // Ordinary Claude tasks keep their existing SDK files. Import only at the first OpenRouter handoff.

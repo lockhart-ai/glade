@@ -18,6 +18,7 @@ import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from
 import { setOpenRouterChoice, setOpenRouterConnection } from '../db/repositories/openrouter'
 import { updateSettings } from '../db/repositories/settings'
 import { SAMPLE_CHOICE, SAMPLE_MODEL, SAMPLE_PROVIDER } from '../../shared/test-openrouter'
+import { DISPATCH_AGENT_TOOL } from '../../shared/managed-agents'
 import { FakeAgentBackend, settle } from './fake-backend'
 import { createAgentRunner, type AgentRunner } from './runner'
 import * as sdk from './test-sdk-messages'
@@ -461,6 +462,13 @@ it('keeps the prepared parent limit when the catalog changes and ignores guessed
 it('ends background work when a usage-paused task switches and retries the held turn immediately', async () => {
   await previousTurn()
   const original = backend.session
+  await original.callTool('managed-call', DISPATCH_AGENT_TOOL, {
+    model: SAMPLE_CHOICE.id,
+    prompt: 'Check the file.',
+    description: 'Read sample implementation',
+    run_in_background: true,
+  })
+  const child = backend.session
   original.emit(...sdk.backgroundLaunch('bg-call', 'bg-sdk', 'Watch progress'))
   await settle()
   original.emit(sdk.result('Watching.'))
@@ -480,15 +488,43 @@ it('ends background work when a usage-paused task switches and retries the held 
     nextDueAt: Date.now() + 3600_000,
     expiresAt: null,
   })
+  addWatcher(database.db, {
+    taskId: task.id,
+    kind: WatcherKind.Monitor,
+    toolUseId: 'monitor',
+    parentToolUseId: null,
+    sdkId: 'monitor-sdk',
+    label: 'Watch tests',
+    detail: 'tail -f test.log',
+    cron: null,
+    schedule: null,
+    recurring: true,
+    state: WatcherState.Running,
+    nextDueAt: null,
+    expiresAt: null,
+  })
   updateTask(database.db, task.id, { activity: TaskActivity.Paused, pause })
   await runner.changeModel(task.id, SAMPLE_CHOICE.id)
   expect(original.closed).toBe(true)
+  expect(child.closed).toBe(true)
+  const firstMessage = backend.session.sent[0]?.text ?? ''
+  expect(firstMessage).toContain('wakeup: Follow up — Check tests')
+  expect(firstMessage).toContain('monitor: Watch tests — tail -f test.log')
+  expect(firstMessage).toContain('Child: Watch progress')
+  expect(firstMessage).toContain('Child: Read sample implementation')
+  expect(firstMessage).toContain('will not report back')
+  expect(firstMessage).toContain('Read the sample file and remember its contents.')
+  expect(backend.session.submitPrompt(firstMessage)).toBe('allow')
   expect(backend.session.sent).toHaveLength(1)
   expect(getTask(database.db, task.id)).toMatchObject({ model: SAMPLE_CHOICE.id, pause: null, backgroundWork: false })
   expect(listWatchers(database.db, task.id).every(({ state }) => state !== WatcherState.Scheduled)).toBe(true)
   expect(listToolEvents(database.db, task.id)).toContainEqual(
     expect.objectContaining({ output: 'Background work ended when the paused task switched models.' }),
   )
+  backend.session.emit(sdk.result('I will restart the required work.'))
+  await settle()
+  runner.send(task.id, 'Continue.')
+  expect(backend.session.sent.at(-1)?.text).toBe('Continue.')
 })
 
 it('rejects a smaller context window before preparing or committing a handoff', async () => {

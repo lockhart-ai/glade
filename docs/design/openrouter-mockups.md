@@ -15,7 +15,8 @@ fonts, design tokens and menu shapes. Rendered screens are 1920×1200 at 1×.
 5. There is no subagent picker. The parent chooses a model at each dispatch, including an enabled OpenRouter route
    for a Claude-account parent. Provider choices stay in Settings. Glade's dispatch tool starts a separate SDK
    session on the chosen connection; both cross-source directions have passed bounded production-adapter probes.
-   Native SDK dispatch shares its process's connection.
+   Same-source children use native `Agent`; Glade dispatch is for the other source only. Native OpenRouter
+   children use the parent's route; another OpenRouter child route is deferred.
    See [Mixed-source subagent dispatch](../openrouter-integration-spec.md#mixed-source-subagent-dispatch).
 6. In an existing Claude task, including one paused by an Anthropic limit, use the same picker to select an enabled
    OpenRouter model and continue in the same task. A production runtime round trip through Claude, OpenRouter and

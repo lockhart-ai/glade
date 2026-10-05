@@ -1,5 +1,5 @@
 import { importSessionToStore } from '@anthropic-ai/claude-agent-sdk'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -9,6 +9,9 @@ import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from
 import { setOpenRouterChoice } from '../db/repositories/openrouter'
 import { OpenRouterClient } from './client'
 import { createOpenRouterRelay } from './relay'
+import { sdkTaskList } from './task-list'
+import { createMemoryLog } from '../logging/memory-sink'
+import { updateTask } from '../db/repositories/tasks'
 import { openRouterRuntime } from './runtime'
 import { OpenRouterService } from './service'
 import { SAMPLE_CHOICE, SAMPLE_MODEL, SAMPLE_PROVIDER } from '../../shared/test-openrouter'
@@ -16,6 +19,7 @@ import { beginTranscriptImport, hasTranscript, markTranscriptFailed, sqliteSessi
 import { openRouterSdkModel } from './sdk-model'
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ importSessionToStore: vi.fn() }))
+vi.mock('./task-list', { spy: true })
 vi.mock('./relay', () => ({ createOpenRouterRelay: vi.fn() }))
 
 let database: TestDatabase
@@ -351,5 +355,40 @@ it('retains the previous mirror when rebuilding fails, through repeated starts, 
   const prepared = await runtime.prepare({ ...options, resumeSessionId: key.sessionId }, inherited)
   expect(await store.load(key)).toHaveLength(3)
   expect(database.db.prepare('SELECT * FROM sdk_transcript_backups').all()).toEqual([])
+  prepared.close()
+})
+
+it('does not create shared todos or override the SDK list for a Claude-only task, new or resumed', async () => {
+  const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  const config = join(dir, 'claude')
+  for (const resumeSessionId of [null, 'legacy-session']) {
+    const prepared = await runtime.prepare(
+      { ...options, taskId: task.id, model: task.model, resumeSessionId },
+      {
+        CLAUDE_CONFIG_DIR: config,
+        CLAUDE_CODE_TASK_LIST_ID: 'user-list',
+      },
+    )
+    expect(prepared.env.CLAUDE_CODE_TASK_LIST_ID).toBe('user-list')
+    expect(existsSync(join(dir, 'sdk-task-lists'))).toBe(false)
+    expect(existsSync(join(config, 'tasks'))).toBe(false)
+    prepared.close()
+  }
+})
+
+it.each(['claude', 'openrouter'])('logs a todo-link failure but still prepares a %s session', async (source) => {
+  const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+  const model = source === 'claude' ? task.model : SAMPLE_CHOICE.id
+  updateTask(database.db, task.id, { model: source === 'claude' ? SAMPLE_CHOICE.id : task.model })
+  vi.mocked(sdkTaskList).mockRejectedValueOnce(new Error('Cannot create the task-list link'))
+  const log = createMemoryLog()
+  const prepared = await openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() }).prepare(
+    { ...options, taskId: task.id, model, log: log.logger },
+    { ...inherited, CLAUDE_CODE_TASK_LIST_ID: 'original-list' },
+  )
+  expect(prepared.env.CLAUDE_CODE_TASK_LIST_ID).toBe('original-list')
+  expect(log.withMessage('could not share SDK todos; continuing with the SDK task list')).toHaveLength(1)
+  expect(prepared.publishModels).toBe(source === 'claude')
   prepared.close()
 })

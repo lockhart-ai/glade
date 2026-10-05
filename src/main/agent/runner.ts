@@ -349,7 +349,8 @@ import { agentText } from '../../shared/pastedContent'
 import { withAttachedFiles, type AttachedFile } from '../../shared/attachedFiles'
 import { attachedImagesOf } from '../attachments/attachments'
 import { checkAnswers, tidyAnythingElse } from '../../shared/questions'
-import { isSubagentTool } from '../../shared/subagents'
+import { openRouterConnected } from '../db/repositories/openrouter'
+import { isSubagentTool, subagentName, SUBAGENT_TOOL_NAMES } from '../../shared/subagents'
 import { managedBackend } from './managed-backend'
 import { AGENTS_SERVER, DISPATCH_AGENT_TOOL } from '../../shared/managed-agents'
 import { sandboxFailureReason } from '../../shared/sandboxFailure'
@@ -950,6 +951,8 @@ interface LiveSession {
    * prompt of Glade's own is never a wake, nor turned away.
    */
   readonly handed: string[]
+  /** Background work ended by a limit-switch, prepended once to the destination's next prompt. */
+  stoppedWorkNote: string | null
   /**
    * What the compaction under way carried over, from its `PostCompact` hook, until the SDK reports it done
    * (`compact_boundary`), which comes just after; null otherwise.
@@ -1686,6 +1689,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    * takes it for a wake (`promptVerdict`).
    */
   const give = (live: LiveSession, text: string, uuid: string, images: readonly ImageData[] = []): void => {
+    if (live.stoppedWorkNote !== null) {
+      text = `${live.stoppedWorkNote}\n\n${text}`
+      live.stoppedWorkNote = null
+    }
     live.handed.push(text)
     live.handed.splice(0, Math.max(0, live.handed.length - MAX_HANDED))
     live.session.send(text, uuid, images)
@@ -3278,7 +3285,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       log: agentLog(task.id),
     })
     // The servers the session was given in-process: Glade's own, whose tools need no grant.
-    const inProcess = [...Object.keys(servers), AGENTS_SERVER]
+    const delegationServers = openRouterConnected(db) ? [AGENTS_SERVER] : []
+    const inProcess = [...Object.keys(servers), ...delegationServers]
     // A sandboxed session's messages and settings wait on its overlay: whether its commands ask is in the overlay
     // alone, so nothing reaches the agent before it, or at all if the session won't take it.
     const session = sandboxed ? gatedSession(started, overlay) : started
@@ -3300,7 +3308,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           }
         : null,
       rules: null,
-      gladeServers: [...gladeOwnServers(servers), AGENTS_SERVER],
+      gladeServers: [...gladeOwnServers(servers), ...delegationServers],
       inProcess,
       reported: new Map(),
       control,
@@ -3317,6 +3325,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       unknownWakes: new Map(),
       callParents: new Map(),
       handed: [],
+      stoppedWorkNote: null,
       compactSummary: null,
     }
     decide = (call) => decideToolCall(task.id, live, call)
@@ -3873,6 +3882,18 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
               listWatchers(db, taskId).some(({ state }) => LIVE_WATCHER_STATES.includes(state))))
         )
           throw new CommandFailure(BridgeErrorCode.Busy, 'The agent started work while its new session started.')
+        if (limited) {
+          const endedWork = [
+            ...listWatchers(db, taskId)
+              .filter(({ state }) => LIVE_WATCHER_STATES.includes(state))
+              .map(({ kind, label, detail }) => `${kind}: ${label}${detail === label ? '' : ` — ${detail}`}`),
+            ...listToolCallsNamed(db, taskId, SUBAGENT_TOOL_NAMES)
+              .filter(({ state }) => state === ToolCallState.Running)
+              .map((call) => `Child: ${subagentName(call)}`),
+          ]
+          if (endedWork.length > 0)
+            candidate.stoppedWorkNote = `Glade stopped the following background work when this usage-limit-paused task switched models:\n${endedWork.map((name) => `- ${name}`).join('\n')}\nThese watchers, wakeups and children will not report back. Restart any work you still need.`
+        }
         const changed = db.transaction(() => {
           const changed = updateTaskFromUser(context, taskId, { model, effort })
           candidate?.session.activate?.()

@@ -7,6 +7,8 @@ interface TaskListOptions {
   readonly dataDir: string
   readonly configDir: string
   readonly legacyConfigDir: string
+  /** Only a cross-source session creates the shared list; ordinary starts may reuse one already present. */
+  readonly create?: boolean
 }
 async function exists(path: string): Promise<boolean> {
   try {
@@ -20,12 +22,13 @@ async function exists(path: string): Promise<boolean> {
 const cleanId = (id: string): string => id.replace(/[^a-zA-Z0-9_-]/g, '-')
 
 /** Both SDK configurations use one task list, including its high-water mark and locks. Auth stays separate. */
-export async function sdkTaskList(options: TaskListOptions): Promise<string> {
+export async function sdkTaskList(options: TaskListOptions): Promise<string | undefined> {
   const { dataDir, configDir, taskId, sessionId, legacyConfigDir } = options
   const root = join(dataDir, 'sdk-task-lists')
   const target = join(root, cleanId(taskId))
-  await mkdir(root, { recursive: true, mode: 0o700 })
   if (!(await exists(target))) {
+    if (options.create === false) return undefined
+    await mkdir(root, { recursive: true, mode: 0o700 })
     const stage = await mkdtemp(join(root, '.seed-'))
     try {
       if (sessionId !== null) {

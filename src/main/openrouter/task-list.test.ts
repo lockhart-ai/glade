@@ -69,6 +69,7 @@ it.each(['claude', 'router'])(
       configDir: other,
     }
     const id = await sdkTaskList(options)
+    if (id === undefined) throw new Error('Shared task list missing')
     const path = join(other, 'tasks', id)
     expect(await readFile(join(path, '.highwatermark'), 'utf8')).toBe('9')
     await writeFile(join(path, '7.json'), '{"id":"7","status":"completed"}')
@@ -93,8 +94,24 @@ it('shares a fresh list between concurrent parents and children and rejects an u
   const [first, second] = await Promise.all([sdkTaskList(options), sdkTaskList(options)])
   expect(first).toBe('glade-task-1')
   expect(second).toBe(first)
+  if (first === undefined) throw new Error('Shared task list missing')
   await sdkTaskList({ ...options, sessionId: 'absent' })
   await mkdir(join(dir, 'wrong', 'tasks'), { recursive: true })
   await symlink(dir, join(dir, 'wrong', 'tasks', first))
   await expect(sdkTaskList({ ...options, configDir: join(dir, 'wrong') })).rejects.toThrow('different task')
+})
+
+it('leaves an ordinary task alone until a cross-source session creates its shared list', async () => {
+  const options = {
+    taskId: 'ordinary',
+    sessionId: 'session',
+    dataDir: dir,
+    configDir: join(dir, 'claude'),
+    legacyConfigDir: join(dir, 'claude'),
+    create: false,
+  }
+  expect(await sdkTaskList(options)).toBeUndefined()
+  await expect(readFile(join(dir, 'sdk-task-lists', 'ordinary'))).rejects.toThrow('ENOENT')
+  expect(await sdkTaskList({ ...options, configDir: join(dir, 'router'), create: true })).toBe('glade-ordinary')
+  expect(await sdkTaskList(options)).toBe('glade-ordinary')
 })

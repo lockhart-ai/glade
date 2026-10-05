@@ -64,10 +64,8 @@ function childId(call: string): string {
 }
 
 it.each([
-  [CLAUDE, CLAUDE],
   [CLAUDE, SAMPLE_CHOICE.id],
   [SAMPLE_CHOICE.id, CLAUDE],
-  [SAMPLE_CHOICE.id, SAMPLE_CHOICE.id],
 ])('routes %s → %s independently and keeps child activity out of the main chat', async (parentModel, childModel) => {
   const parent = start(parentModel)
   const dispatched = callTool(parent, DISPATCH_AGENT_TOOL, input(childModel), 'dispatch-1')
@@ -144,7 +142,7 @@ it('keeps concurrent background children running after the parent turn and deliv
   const parent = start()
   await callTool(parent, DISPATCH_AGENT_TOOL, input(SAMPLE_CHOICE.id, true), 'background-1')
   const first = backend.session
-  await callTool(parent, DISPATCH_AGENT_TOOL, input(CLAUDE, true), 'background-2')
+  await callTool(parent, DISPATCH_AGENT_TOOL, input(SAMPLE_CHOICE.id, true), 'background-2')
   const second = await launched(3)
   parent.emit(sdk.result('The work is in progress.'))
   await settle()
@@ -179,7 +177,7 @@ it('stops a nested mixed-source child through the existing Agents control', asyn
   await settle()
 })
 
-it('resumes a saved child on its own model after switching the parent source', async () => {
+it('resumes a saved cross-source child and refuses same-source dispatch after a parent switch', async () => {
   const parent = start()
   const dispatched = callTool(parent, DISPATCH_AGENT_TOOL, input(), 'first')
   const child = await launched()
@@ -189,15 +187,27 @@ it('resumes a saved child on its own model after switching the parent source', a
   await settle()
   const previous = childId('first')
   await runner.changeModel(task.id, SAMPLE_CHOICE.id)
+  await callTool(backend.session, DISPATCH_AGENT_TOOL, { ...input(), resume: previous }, 'same-source')
+  await settle()
+  expect(getToolCall(database.db, task.id, 'same-source')?.output).toContain('built-in Agent')
+  backend.session.emit(sdk.result('Use the native tool for this source.'))
+  await settle()
+  await runner.changeModel(task.id, CLAUDE)
   const switched = backend.session
   runner.send(task.id, 'Continue the child')
   const resumed = callTool(switched, DISPATCH_AGENT_TOOL, { ...input(), resume: previous }, 'resume')
-  const next = await launched(4)
+  const next = await launched(5)
   expect(next.options.resumeSessionId).toBe('child-session')
   expect(next.options.model).toBe(SAMPLE_CHOICE.id)
   next.emit(sdk.result('Still 42'))
   await resumed
-  await callTool(switched, DISPATCH_AGENT_TOOL, { ...input(CLAUDE), resume: previous }, 'wrong-model')
+  const alternate = {
+    ...SAMPLE_CHOICE,
+    id: 'openrouter:sample/other@sample-host',
+    model: { ...SAMPLE_MODEL, id: 'sample/other' },
+  }
+  setOpenRouterChoice(database.db, alternate)
+  await callTool(switched, DISPATCH_AGENT_TOOL, { ...input(alternate.id), resume: previous }, 'wrong-model')
   await callTool(switched, DISPATCH_AGENT_TOOL, { ...input(), resume: 'another-task-child' }, 'missing-child')
   await settle()
   expect(getToolCall(database.db, task.id, 'wrong-model')?.output).toContain('original model')
@@ -258,4 +268,16 @@ it('logs a failed child event without killing its parent or losing later child e
   await settle()
   expect(getToolCall(database.db, task.id, 'retry-write')?.state).toBe(ToolCallState.Done)
   expect(parent.closed).toBe(false)
+})
+
+it.each([CLAUDE, SAMPLE_CHOICE.id])('keeps same-source children on the native Agent tool for %s', async (model) => {
+  const parent = start(model)
+  await callTool(parent, DISPATCH_AGENT_TOOL, input(model), 'same-source')
+  await settle()
+  expect(backend.sessions).toHaveLength(1)
+  expect(getToolCall(database.db, task.id, 'same-source')?.output).toContain('built-in Agent tool')
+  parent.emit(...sdk.backgroundLaunch('native', 'native-sdk', 'Check with the native agent'))
+  await settle()
+  await runner.stopSubagent(task.id, 'native')
+  expect(parent.stoppedTasks).toEqual(['native-sdk'])
 })
