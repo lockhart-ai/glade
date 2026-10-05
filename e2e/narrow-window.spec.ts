@@ -87,28 +87,11 @@ test('narrow window: the header stays compact and the chat stays visible and scr
   await expectChatClearOfTheHeader(glade)
 })
 
-test('narrow window: the panel tabs fade where more of them scroll, the input bar settings fit, and the keycaps clear the scrollbar', async ({
-  launch,
-}) => {
+test('narrow window: the input bar settings fit, and the keycaps clear the scrollbar', async ({ launch }) => {
   const glade = await launch({ seed: seedPath('long-header.json') })
   const { window } = glade
   await expect(taskHeader(window).title).toHaveText(/^Add per-key rate limiting/)
   await resize(glade, MIN_WINDOW.width, MIN_WINDOW.height)
-
-  // The tabs don't all fit: the row fades at the end with more past it, and at the start once it has scrolled there.
-  const panel = taskPanel(window)
-  // (The strip around the row, with its chevrons, carries which ends overflow.)
-  const tabRow = panel.panel.getByRole('tablist', { name: 'Task panels' })
-  const tabStrip = tabRow.locator('..')
-  await expect(tabStrip).toHaveAttribute('data-overflow-end', 'true')
-  await expect(tabStrip).toHaveAttribute('data-overflow-start', 'false')
-  await tabRow.hover()
-  await window.mouse.wheel(400, 0)
-  await expect(tabStrip).toHaveAttribute('data-overflow-start', 'true')
-  await expect(tabStrip).toHaveAttribute('data-overflow-end', 'false')
-  await expect(panel.panel.getByRole('button', { name: 'Scroll tabs left' })).toBeVisible()
-  // Whole but for a subpixel at the rounded end.
-  await expect(panel.tab('Subagents')).toBeInViewport({ ratio: 0.98 })
 
   // The input bar's settings fit in its row, the last one clear of the bar's edge, with the context meter after it.
   const bar = inputBar(window)

@@ -4,6 +4,7 @@
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Page } from '@playwright/test'
+import { DECLARES_ARTIFACTS_TODO } from '../src/main/agent/scripts'
 import { desktop, expect, test, type Glade } from './fixtures'
 import { agentsTab, chat, contextMenu, filesTab, firstRun, inputBar, taskList, taskPanel, todoHub } from './selectors'
 
@@ -174,9 +175,10 @@ test('context menus: open, copy, reveal and remove an artifact', async ({ launch
   const panel = taskPanel(window)
   const hub = todoHub(window)
   await panel.tab(/^Todos/).click()
-  await expect(hub.cards).toHaveCount(1)
-  const upgradeGuide = hub.tile(hub.cards, 'File: Upgrade guide')
-  const releaseNotes = hub.tile(hub.cards, 'File: Release notes 2.4')
+  const card = hub.card(DECLARES_ARTIFACTS_TODO.subject)
+  await hub.head(DECLARES_ARTIFACTS_TODO.subject).click()
+  const upgradeGuide = hub.tile(card, 'File: Upgrade guide')
+  const releaseNotes = hub.tile(card, 'File: Release notes 2.4')
 
   const menu = contextMenu(window, 'Artifact actions')
   await upgradeGuide.hover()

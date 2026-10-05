@@ -37,17 +37,18 @@ async function checkEveryAgent(window: Page): Promise<void> {
   await expect(agents.list).not.toContainText(/gh pr|redis-cli|throttles|charts\.ts|2\.3\.md|curl|Listing the merged/)
   await expect(agents.list.getByRole('group')).toHaveCount(0)
 
-  // Each subagent's own tab lists its own calls, in order, with how each went.
+  // Each subagent's own tab lists its own calls, in order, with how each went. The nested subagent's calls aren't
+  // among them: only the Agent call that started it is, same as Main never shows API changes's own calls.
   await agents.tab('API changes').click()
   await expect(agents.list).toContainText('Listing the merged API PRs.')
-  await expect(agents.list.getByRole('button')).toHaveCount(4)
+  await expect(agents.list.getByRole('button')).toHaveCount(2)
   await expect(agents.list.getByRole('button').nth(0)).toHaveAccessibleName(/^Done Bash gh pr list --label api/)
   await expect(agents.list.getByRole('button').nth(1)).toHaveAccessibleName(/^Done Agent Read PR 1402/)
-  // The nested subagent's calls sit under its Agent call there, and on its own tab.
-  await expect(agents.list.getByRole('button').nth(2)).toHaveAccessibleName(/^Done Bash gh pr view 1402/)
-  await expect(agents.list.getByRole('button').nth(3)).toHaveAccessibleName(/^Done Read api\/throttles\.py/)
+  // The nested subagent's own calls are on its own tab.
   await agents.tab('Read PR 1402').click()
   await expect(agents.list.getByRole('button')).toHaveCount(2)
+  await expect(agents.list.getByRole('button').nth(0)).toHaveAccessibleName(/^Done Bash gh pr view 1402/)
+  await expect(agents.list.getByRole('button').nth(1)).toHaveAccessibleName(/^Done Read api\/throttles\.py/)
 
   // The dashboard one's failed call is pink, and opens on its error.
   await agents.tab('Dashboard changes').click()

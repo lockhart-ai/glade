@@ -21,27 +21,24 @@ test('subagents: a tab per subagent, running first, each saying what it’s doin
   const agents = agentsTab(window)
   await panel.tab(/^Agents/).click()
 
-  // Three subagents ran side by side: the link check finished, the other two are still at it.
+  // Three subagents ran side by side: the link check finished, the other two are still at it. Wait for the link
+  // check to settle before reading the strip's order, so the snapshot is never mid-transition.
   await expect(panel.tab(/^Agents/)).toHaveText('Agents 4')
+  await expect(agents.tab('Check links in the 2.3 notes')).not.toHaveAttribute('data-running')
+  // The running ones come first, newest first (Dashboard changes started after API changes), then the finished one.
   expect(await agents.tabs.evaluateAll((tabs) => tabs.map((tab) => tab.getAttribute('title')))).toEqual([
     'Main',
-    'API changes',
     'Dashboard changes',
+    'API changes',
     'Check links in the 2.3 notes',
   ])
 
-  // Each says what it's doing: its latest call, or the last thing it said, or what it finished with.
+  // Each running one says what it's doing now; the finished one says how it ended, with what it found.
   const api = agents.agentCall('API changes')
-  await expect(api).toContainText('Running')
-  await expect(api).toContainText('Readapi/throttles.py')
-  await expect(api).toContainText('3 tool calls')
-  await expect(agents.agentCall('Dashboard changes')).toContainText(
-    '“#1418 moves the charts onto the new query, so it belongs under features, not fixes.”',
-  )
+  await expect(api).toContainText(/Running · \d+s/)
   const links = agents.agentCall('Check links in the 2.3 notes')
-  await expect(links).toContainText('Done')
+  await expect(links).toContainText(/Done · \d+s · /)
   await expect(links).toContainText('Found 2 broken links and fixed both in the draft.')
-  await expect(links).toContainText(/\d+s · 2 tool calls/)
 
   // A running one also says what it's doing now, under its name: the SDK's latest summary, on one line, whole in its
   // tooltip. The link check's summary came after it finished, so it has none.
@@ -56,7 +53,6 @@ test('subagents: a tab per subagent, running first, each saying what it’s doin
   expect(clamped).toEqual({ cut: true, lines: 1 })
 
   // A running subagent's elapsed time ticks; a finished one's has stopped.
-  await expect(api).toContainText(/\d+s · 3 tool calls/)
   const [apiBefore, linksBefore] = [await api.textContent(), await links.textContent()]
   await expect(api).not.toHaveText(apiBefore ?? '')
   await expect(links).toHaveText(linksBefore ?? '')

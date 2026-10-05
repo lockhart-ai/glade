@@ -40,7 +40,8 @@ test('a subagent the agent messages after it finished runs again, then ends agai
   await expect(list.subagentCount(list.taskRow(title))).toHaveAccessibleName('1 subagent running')
   // What it did before is still in its log, with what it does now.
   await agents.tab(SUBAGENT).click()
-  await expect(agents.list).toContainText(/4 tool calls/)
+  await expect(agents.list.getByRole('button')).toHaveCount(4)
+  await agents.tab('Main').click()
 
   // Its new run ends: done again, with what it came to, and the agent reports it.
   await expect(call).toContainText('Done', { timeout: 20_000 })
