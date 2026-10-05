@@ -96,7 +96,7 @@
   text-overflow: ellipsis;
 }
 
-/* The row's third line (09-todos.html), shown only while it has something: the task's todo progress, running
+/* The row's third line (task-workspace.html), shown only while it has something: the task's todo progress, running
    subagents and live watchers, in that order, each an icon and a count, lined up with the title and the status in the
    time's small, faint type. */
 .indicators {

@@ -522,7 +522,7 @@ export interface CompactionEvent extends ToolEventBase {
  */
 export type ToolEvent = NarrationEvent | ToolCallEvent | DividerEvent | CompactionEvent | RefusalFallbackEvent
 
-/** Where an item on the agent's todo list stands (`docs/design/html/09-todos.html`). */
+/** Where an item on the agent's todo list stands (`docs/design/html/46-todo-hub.html`). */
 export enum TodoState {
   Todo = 'todo',
   /** Being worked on now. */

@@ -1,6 +1,6 @@
 /*
- * The files a commit changed, and the lines it added and removed, from docs/design/html/24-changes.html: under a commit
- * in a commit's opened tile in the Todos tab (48-todo-hub-tiles.html).
+ * The files a commit changed, and the lines it added and removed, from docs/design/html/48-todo-hub-tiles.html: in a
+ * commit's opened tile in the Todos tab.
  */
 .stats {
   flex-shrink: 0;

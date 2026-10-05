@@ -125,6 +125,8 @@ describe('useWorkspaceImage', () => {
       { workspaces: [], tasks: [], uiState: [] },
       {
         [CommandName.FilesRead]: ({ path }) => {
+          // A plain object, not an Error, same as the real bridge throws (see `src/preload/bridge.ts`).
+          // eslint-disable-next-line @typescript-eslint/only-throw-error
           if (path === 'screens/gone.png') throw bridgeError(BridgeErrorCode.NotFound, 'gone')
           return { content: { kind: FileContentKind.Text, text: 'not a picture', truncated: false, size: 13 } }
         },
