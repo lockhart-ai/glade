@@ -28,8 +28,9 @@ provided its source still differs from the parent's. Native `SendMessage` cannot
 Duplicate dispatch tool calls return the saved outcome without starting another child.
 
 Dispatched children run the SDK coding preset, workspace, sandbox and task permissions in separate sessions.
-They currently start at Low effort and inherit the parent's Glade prompt/tools; the main-only guard refuses their
-metadata/control calls. Child-specific prompts/tools and an effort choice are follow-ups. Dispatched children have
+They take the parent's effort at the time of the dispatch, or the model's default when the model doesn't offer that
+one (#556), and inherit the parent's Glade prompt/tools; the main-only guard refuses their metadata/control calls.
+Child-specific prompts/tools and an effort choice are follow-ups. Dispatched children have
 no agent-type selection or native worktree isolation. Their text and tool calls appear under their dispatch in
 Agents, alongside the model. A background result is delivered to the live parent when it finishes. Stop covers the
 child and descendants; ending a delegation ends remaining descendants. An unfinished saved child can be resumed
