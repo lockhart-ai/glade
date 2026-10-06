@@ -2,8 +2,13 @@ import type { Database } from 'better-sqlite3'
 import { COMMAND_CHANNEL, EVENT_CHANNEL, type GladeEvent } from '../../shared/bridge'
 import type { MenuState } from '../../shared/commands'
 import type { Task } from '../../shared/domain'
-import type { AgentBackend } from '../agent/backend'
-import { createGladeMcpServer, GLADE_SERVER } from '../agent/glade-tools'
+import { McpServerAudience, type AgentBackend } from '../agent/backend'
+import {
+  createGladeAccessMcpServer,
+  createGladeMcpServer,
+  GLADE_SERVER,
+  type GladeToolContext,
+} from '../agent/glade-tools'
 import { createControl, type Control } from '../control/control'
 import { controlEnv, createControlEndpoint, type ControlEndpoint } from '../control/endpoint'
 import { CONTROL_SERVER } from '../control/names'
@@ -303,6 +308,14 @@ export function registerBridge({
       usageResume.usageRead(usage)
     },
   })
+  // What the Glade tools are built on, the main agent's and a dispatched child's alike: `request_access` asks through
+  // the runner, which knows the session's sandbox and applies the grant.
+  const gladeToolContext: GladeToolContext = {
+    db,
+    emit,
+    questions,
+    requestAccess: (taskId, request, call) => runner.requestAccess(taskId, request, call),
+  }
   const runner = createAgentRunner({
     db,
     emit,
@@ -322,21 +335,16 @@ export function registerBridge({
     ...(dataDir === undefined ? {} : { dataDir }),
     ...(claudeSettings === undefined ? {} : { claudeSettings }),
     // Each session gets its own Glade tools, built for its task, with the upkeep Settings has on as it starts, and,
-    // while agents may control Glade, the control tools, calling as its task.
-    mcpServers: (task) => {
+    // while agents may control Glade, the control tools, calling as its task. A dispatched child instead gets only
+    // what it may use (#560): in a sandboxed session a `glade` server holding just `request_access`, the one Glade
+    // tool the main-only guard lets a subagent call, and nothing in an unsandboxed one.
+    mcpServers: (task, request) => {
       const settings = getSettings(db)
+      if (request.audience === McpServerAudience.DispatchedChild) {
+        return request.sandboxed ? { [GLADE_SERVER]: createGladeAccessMcpServer(gladeToolContext, task.id) } : {}
+      }
       return {
-        [GLADE_SERVER]: createGladeMcpServer(
-          // `request_access` asks through the runner, which knows the session's sandbox and applies the grant.
-          {
-            db,
-            emit,
-            questions,
-            requestAccess: (taskId, request, call) => runner.requestAccess(taskId, request, call),
-          },
-          task.id,
-          settings,
-        ),
+        [GLADE_SERVER]: createGladeMcpServer(gladeToolContext, task.id, settings),
         ...(settings.controlEnabled ? { [CONTROL_SERVER]: control.sdkServer(task.id) } : {}),
       }
     },

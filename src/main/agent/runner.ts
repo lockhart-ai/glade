@@ -475,6 +475,8 @@ import {
   type BashFinishedAnswer,
   type ChildCallStarting,
   type CompactSummary,
+  McpServerAudience,
+  type McpServerRequest,
   type SessionJob,
   type ToolBatch,
   type ToolCallStarting,
@@ -560,8 +562,11 @@ export interface AgentRunnerOptions {
   readonly questions?: QuestionBroker
   /** The permission requests the ask mode's tool calls wait on. A broker of its own by default. */
   readonly permissions?: PermissionBroker
-  /** The in-process MCP servers to give a task's session, such as the Glade tools (`./glade-tools`). None by default. */
-  readonly mcpServers?: (task: Task) => AgentMcpServers
+  /**
+   * The in-process MCP servers to give a task's session, such as the Glade tools (`./glade-tools`), or, when asked
+   * for a dispatched child's, only what the child may use (#560). None by default.
+   */
+  readonly mcpServers?: (task: Task, request: McpServerRequest) => AgentMcpServers
   /** Variables to add to a task's session's environment as it starts. None by default. */
   readonly sessionEnv?: (task: Task) => Readonly<Record<string, string>>
   /**
@@ -3201,7 +3206,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       cwd: workspace.rootPath,
       resumeSessionId: task.sessionId,
     })
-    const servers = mcpServers(task)
+    const servers = mcpServers(task, { audience: McpServerAudience.Main, sandboxed })
     const control = CONTROL_SERVER in servers
     const handoff = getHandoff(db, task.id) ?? null
     // A session Glade starts has everything its prompt says; one it resumes keeps the prompt it started with, and is
@@ -3227,7 +3232,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     })
     const started = backend.start({
       taskId: task.id,
-      createMcpServers: () => mcpServers(getTask(db, task.id) ?? task),
+      createMcpServers: (request) => mcpServers(getTask(db, task.id) ?? task, request),
       onSubagentEvent: (event) => {
         try {
           onEvent(task.id, live, event)

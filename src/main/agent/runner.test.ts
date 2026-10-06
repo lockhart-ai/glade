@@ -56,6 +56,7 @@ import { setUiState } from '../db/repositories/ui-state'
 import { addWatcher } from '../db/repositories/watchers'
 import { FakeAgentBackend, settle, type FakeAgentSession } from './fake-backend'
 import { GLADE_SERVER } from './glade-tools'
+import { McpServerAudience } from './backend'
 import { needsYou } from '../../shared/attention'
 import { todoProgress } from '../../shared/todoSummary'
 import {
@@ -1334,7 +1335,7 @@ describe('the session', () => {
 
     own.send(task.id, 'Hi')
 
-    expect(mcpServers).toHaveBeenCalledWith(task)
+    expect(mcpServers).toHaveBeenCalledWith(task, { audience: McpServerAudience.Main, sandboxed: false })
     expect(backend.session.options.mcpServers).toMatchObject(servers)
     own.close()
   })

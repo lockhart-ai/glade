@@ -29,8 +29,11 @@ Duplicate dispatch tool calls return the saved outcome without starting another 
 
 Dispatched children run the SDK coding preset, workspace, sandbox and task permissions in separate sessions.
 They take the parent's effort at the time of the dispatch, or the model's default when the model doesn't offer that
-one (#556), and inherit the parent's Glade prompt/tools; the main-only guard refuses their metadata/control calls.
-Child-specific prompts/tools and an effort choice are follow-ups. Dispatched children have no agent-type selection.
+one (#556). Each gets its own short prompt (#560): that it is a subagent started by the task's agent, that its final
+message is what the parent reads, that only the parent talks to the user or changes Glade's metadata, and that it
+finishes its own descendants before returning — plus the sandbox line in a sandboxed session. It is offered none of
+the Glade metadata tools; in a sandboxed session it gets a `glade` server holding only `request_access`, the one
+tool the main-only guard lets a subagent call. Dispatched children have no agent-type selection.
 `isolation: "worktree"` starts the child in its own git worktree (#558): Claude Code makes it, as its `--worktree`
 flag does, at `.claude/worktrees/<child id>` in the repository on branch `worktree-<child id>`, from the remote's
 default branch unless the `worktree.baseRef` setting says `head`. The worktree and branch are kept when the child
