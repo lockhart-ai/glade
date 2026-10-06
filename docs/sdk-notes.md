@@ -3380,6 +3380,16 @@ selecting another OpenRouter child route is deferred. Cross-source child continu
 and original model while the source still differs from the parent's. Managed child hooks retain the main-agent-only
 guard even without a native `agent_id`. Low initial effort and inherited main-agent prompt/tools remain limitations.
 
+**A dispatched child's worktree (#558) [probed on Claude Code 2.1.283, no model call].** `dispatch` with
+`isolation: "worktree"` starts the child's session with `extraArgs: { worktree: <child id> }`, Claude Code's
+`--worktree <name>` flag. Run headless in throwaway repositories against an unreachable API: the worktree is
+`<repository>/.claude/worktrees/<name>` on branch `worktree-<name>`, and `system/init`'s `cwd` is that folder; it
+starts from the remote's default branch when there is a remote (the `worktree.baseRef` setting's default, `fresh`)
+and from local `HEAD` when there is none; the same name with `--resume <session>` goes back into it and finds the
+session; when the session ends the worktree and branch are kept, locked (`git worktree remove` refuses until
+`git worktree unlock`), even with nothing changed; outside a git repository Claude Code exits at once with
+"Can only use --worktree in a git repository".
+
 SDK todo lists are left in their original location until a cross-source session first seeds a shared task-specific
 directory. Later sessions reuse it. Filesystem tests cover seeding, IDs, high-water marks and both links; **the real
 bundled binary has not yet been verified creating, reading and updating todos through these links**. A setup failure

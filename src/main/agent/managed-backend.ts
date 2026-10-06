@@ -2,7 +2,12 @@ import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import type { Database } from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { AGENTS_SERVER, DISPATCH_AGENT_TOOL, type DispatchAgentInput } from '../../shared/managed-agents'
+import {
+  AGENTS_SERVER,
+  DISPATCH_AGENT_TOOL,
+  DispatchIsolation,
+  type DispatchAgentInput,
+} from '../../shared/managed-agents'
 import { effortFor, findModel } from '../../shared/models'
 import { AgentSource, agentSource } from '../../shared/openrouter'
 import type { AccountSink } from '../account/account'
@@ -27,6 +32,7 @@ import {
 import { SILENT_LOGGER } from '../logging/logger'
 import { TOOL_USE_ID_META } from './mcp-tool-caller'
 import { isSubagentTool } from '../../shared/subagents'
+import { isSandboxed } from './sdk-backend'
 
 interface ManagedBackendOptions {
   readonly db: Database
@@ -40,6 +46,8 @@ interface ChildRecord {
   readonly state: TaskOutcome | 'running'
   readonly result: string
   readonly toolUseId: string
+  /** The git worktree it works in, by name (#558); null in the workspace root. */
+  readonly worktree: string | null
 }
 interface ChildRun {
   readonly record: ChildRecord
@@ -58,6 +66,12 @@ const dispatchInput = z.object({
   description: z.string().min(1).describe('A short task label. Prefix with [todo N] to file it under that todo.'),
   run_in_background: z.boolean().optional(),
   resume: z.string().min(1).optional().describe('A returned child id to continue on its original model.'),
+  isolation: z
+    .enum(DispatchIsolation)
+    .optional()
+    .describe(
+      '"worktree" starts the child in its own git worktree, kept afterwards. A resumed child keeps what it had.',
+    ),
 }) satisfies z.ZodType<DispatchAgentInput>
 const extraSchema = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).optional(),
@@ -78,7 +92,18 @@ function childRecord(raw: unknown): ChildRecord {
     state: row.oneOf('state', ['running', ...Object.values(TaskOutcome)]),
     result: row.text('result'),
     toolUseId: row.text('tool_use_id'),
+    worktree: row.nullableText('worktree'),
   }
+}
+
+/**
+ * What a child's result says of the worktree it works in (#558). Claude Code keeps the worktree and its branch when
+ * the session ends, changed or not, and Glade's git only reads (#487): removing them is the parent's to do.
+ */
+function worktreeNote(worktree: string | null): string {
+  return worktree === null
+    ? ''
+    : ` Its git worktree is .claude/worktrees/${worktree} in the repository, on branch worktree-${worktree}. Both are kept when it ends: use them, then remove them yourself (git worktree unlock, git worktree remove, git branch -D).`
 }
 
 /** Each delegated agent runs the existing backend on its own connection, with the task's permissions and tools. */
@@ -138,7 +163,10 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
       run.finish(result)
       if (run.background && !closed) {
         try {
-          parent.send(`Child ${run.record.id} (${run.record.model}) ${state}: ${result}`, randomUUID())
+          parent.send(
+            `Child ${run.record.id} (${run.record.model}) ${state}: ${result}${worktreeNote(run.record.worktree)}`,
+            randomUUID(),
+          )
         } catch (error) {
           log.warn('could not deliver child completion', { childId: run.record.id, error })
         }
@@ -172,7 +200,14 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
         .get(taskId, toolUseId)
       if (duplicate !== undefined) {
         const prior = childRecord(duplicate)
-        return { content: [{ type: 'text' as const, text: `Child ${prior.id}: ${prior.state}. ${prior.result}` }] }
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Child ${prior.id}: ${prior.state}. ${prior.result}${worktreeNote(prior.worktree)}`,
+            },
+          ],
+        }
       }
       const previous = input.resume === undefined ? null : readChild(db, taskId, input.resume)
       if (input.resume !== undefined && previous?.sessionId == null)
@@ -180,9 +215,16 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
       if (previous !== null && (previous.model !== input.model || previous.state === 'running'))
         throw new Error('Resume the child on its original model after it has finished.')
       const id = `glade-child-${randomUUID()}`
+      // A resumed child goes back into the worktree its first run had, whatever this call says: its session is there.
+      const fresh = input.isolation === DispatchIsolation.Worktree ? id : null
+      const worktree = previous === null ? fresh : previous.worktree
+      if (worktree !== null && isSandboxed({ flagSettings: flags }))
+        throw new Error(
+          'A sandboxed session cannot give a child a git worktree, as it is not offered EnterWorktree. Dispatch without isolation.',
+        )
       db.prepare(
-        "INSERT INTO managed_agents (id, task_id, tool_use_id, model, state) VALUES (?, ?, ?, ?, 'running')",
-      ).run(id, taskId, toolUseId, input.model)
+        "INSERT INTO managed_agents (id, task_id, tool_use_id, model, state, worktree) VALUES (?, ?, ?, ?, 'running', ?)",
+      ).run(id, taskId, toolUseId, input.model, worktree)
       const active: { run?: ChildRun } = {}
       const onToolPermission = options.onToolPermission
       const { onAccessRequested, onToolStarting, onChildStarting } = options.hooks ?? {}
@@ -190,6 +232,8 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
         ...options,
         provisional: false,
         managedAgentId: id,
+        // Its own worktree, or else the one this session works in (from `options`): a child's children share its folder.
+        ...(worktree === null ? {} : { worktree }),
         model: input.model,
         resumeSessionId: previous?.sessionId ?? null,
         effort: effortFor(listModels(db), input.model, settings.effort),
@@ -242,7 +286,7 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
       })
       const background = input.run_in_background === true
       const run: ChildRun = {
-        record: { id, model: input.model, sessionId: null, state: 'running', result: '', toolUseId },
+        record: { id, model: input.model, sessionId: null, state: 'running', result: '', toolUseId, worktree },
         session: child,
         background,
         done,
@@ -363,14 +407,14 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
           content: [
             {
               type: 'text' as const,
-              text: `Started child ${id} on ${input.model}. Its completion will be delivered to this session.`,
+              text: `Started child ${id} on ${input.model}. Its completion will be delivered to this session.${worktreeNote(worktree)}`,
             },
           ],
         }
       const result = await done
       return {
         isError: run.outcome !== TaskOutcome.Completed,
-        content: [{ type: 'text' as const, text: `Child ${id} (${input.model}): ${result}` }],
+        content: [{ type: 'text' as const, text: `Child ${id} (${input.model}): ${result}${worktreeNote(worktree)}` }],
       }
     }
     const server = createSdkMcpServer({
@@ -423,7 +467,7 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
     const parent = backend.start({
       ...options,
       mcpServers: { ...options.mcpServers, [AGENTS_SERVER]: server },
-      systemPromptAppend: `${options.systemPromptAppend}\nUse the built-in Agent tool for subagents on your own source, retaining its agent types, worktree isolation and SendMessage. Only to start a child on the other source (Claude account or OpenRouter), call mcp__glade-agents__list_models for current models and OpenRouter prices, then use ${DISPATCH_AGENT_TOOL}. Choose that child's model for its job; provider selection is controlled by Settings. Native Agent children under OpenRouter use this process's current route; another OpenRouter route is not supported for a child. Resume cross-source children with dispatch's resume id while their source differs from yours; SendMessage only addresses native children.`,
+      systemPromptAppend: `${options.systemPromptAppend}\nUse the built-in Agent tool for subagents on your own source, retaining its agent types, worktree isolation and SendMessage. Only to start a child on the other source (Claude account or OpenRouter), call mcp__glade-agents__list_models for current models and OpenRouter prices, then use ${DISPATCH_AGENT_TOOL}. Pass isolation: "worktree" to start that child in its own git worktree, which is kept afterwards for you to use and remove. Choose that child's model for its job; provider selection is controlled by Settings. Native Agent children under OpenRouter use this process's current route; another OpenRouter route is not supported for a child. Resume cross-source children with dispatch's resume id while their source differs from yours; SendMessage only addresses native children.`,
       hooks: {
         onPrompt: () => PromptVerdict.Allow,
         onTurnEnded: () => undefined,

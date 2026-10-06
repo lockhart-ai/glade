@@ -32,7 +32,8 @@ There is no blanket subagent model or second input-bar picker. The parent choose
 
 `mcp__glade-agents__list_models` returns the current Claude models and enabled OpenRouter routes, including their
 context windows and OpenRouter input/output prices in USD per token. `mcp__glade-agents__dispatch` takes `model`,
-`prompt`, `description`, optional `run_in_background`, and optional `resume` (a previously returned child ID).
+`prompt`, `description`, optional `run_in_background`, optional `resume` (a previously returned child ID), and optional `isolation`
+(`"worktree"`: the child starts in its own git worktree, #558).
 These tools are added only when an OpenRouter key is connected; a keyless Claude session's prompt and tools are
 unchanged. Use native `Agent` for same-source children, preserving native agent types, worktree isolation and
 `SendMessage`. `dispatch` starts the existing SDK backend in another session, in the same workspace, on the
@@ -221,8 +222,11 @@ capabilities; the initial change keeps native same-source delegation and Claude-
 - **Child effort:** a dispatched child takes its parent's effort at the time of the dispatch, or its model's default
   effort when the model doesn't offer that one (#556). A per-dispatch effort argument is not built.
 - **Child prompt/tools:** dispatched children inherit the main Glade prompt and tools, with metadata/control calls
-  refused by the main-only guard. A child-specific prompt/tool set, agent types and native worktree isolation are
-  not implemented.
+  refused by the main-only guard. A child-specific prompt/tool set and agent types are not implemented.
+- **Child worktrees:** a dispatched child's worktree (`isolation: "worktree"`, #558) is kept when it ends, even
+  unchanged: Glade's git only reads (#487), so removing it is left to the parent. Outside a git repository the child
+  fails with Claude Code's own exit. Not yet run with a real model: a child working in one, and a child and its own
+  child in one worktree at once.
 - **Limit-switch survival:** all children stop, including children on the source unaffected by the limit. The resumed
   agent is told what stopped, but retaining those processes is deferred.
 - **Busy switches:** a running turn, open question/permission card, or idle task with live background work prevents

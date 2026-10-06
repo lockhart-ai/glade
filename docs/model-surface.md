@@ -19,7 +19,7 @@ for a child in this version.
 | Tool | Input | Result |
 | --- | --- | --- |
 | `mcp__glade-agents__list_models` | `{}` | Current Claude models and enabled OpenRouter model/provider selections, including context windows and indicative OpenRouter prices in USD per token. Choose a model on the other source for dispatch. |
-| `mcp__glade-agents__dispatch` | `{ model, prompt, description, run_in_background?, resume? }` | The cross-source child's id and result, or its id immediately for background work. |
+| `mcp__glade-agents__dispatch` | `{ model, prompt, description, run_in_background?, resume?, isolation? }` | The cross-source child's id and result, or its id immediately for background work. |
 
 `model` is an exact id from `list_models`; `prompt` supplies the delegated task and necessary context.
 Prefix `description` with `[todo N]` to file the child under that todo. Curation is checked on every dispatch;
@@ -30,8 +30,14 @@ Duplicate dispatch tool calls return the saved outcome without starting another 
 Dispatched children run the SDK coding preset, workspace, sandbox and task permissions in separate sessions.
 They take the parent's effort at the time of the dispatch, or the model's default when the model doesn't offer that
 one (#556), and inherit the parent's Glade prompt/tools; the main-only guard refuses their metadata/control calls.
-Child-specific prompts/tools and an effort choice are follow-ups. Dispatched children have
-no agent-type selection or native worktree isolation. Their text and tool calls appear under their dispatch in
+Child-specific prompts/tools and an effort choice are follow-ups. Dispatched children have no agent-type selection.
+`isolation: "worktree"` starts the child in its own git worktree (#558): Claude Code makes it, as its `--worktree`
+flag does, at `.claude/worktrees/<child id>` in the repository on branch `worktree-<child id>`, from the remote's
+default branch unless the `worktree.baseRef` setting says `head`. The worktree and branch are kept when the child
+ends, changed or not; the result names them, and the parent uses and removes them. A resumed child goes back into
+the worktree its first run had, and a child's own children share it unless they ask for one. It needs a git
+repository, and a sandboxed session refuses it, as it isn't offered `EnterWorktree` (#514). Their text and tool
+calls appear under their dispatch in
 Agents, alongside the model. A background result is delivered to the live parent when it finishes. Stop covers the
 child and descendants; ending a delegation ends remaining descendants. An unfinished saved child can be resumed
 explicitly after a relaunch, with the same cross-source restriction.
