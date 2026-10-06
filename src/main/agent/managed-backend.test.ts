@@ -4,6 +4,7 @@ import { AGENTS_SERVER, DISPATCH_AGENT_TOOL } from '../../shared/managed-agents'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { SAMPLE_CHOICE, SAMPLE_MODEL, SAMPLE_PROVIDER } from '../../shared/test-openrouter'
 import { setOpenRouterConnection, setOpenRouterChoice } from '../db/repositories/openrouter'
+import { setSdkModels } from '../db/repositories/sdk-models'
 import { Row } from '../db/repositories/rows'
 import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
 import { PromptVerdict, ToolPermissionBehavior, type AgentSession, type AgentSessionOptions } from './backend'
@@ -137,6 +138,33 @@ it('routes native descendant stops to the owning session and ends leftover desce
     events.filter((event) => event.kind === AgentEventKind.TaskFinished && event.sdkTaskId === 'native-sdk'),
   ).toHaveLength(1)
   expect(agent.closed).toBe(true)
+})
+
+it('starts a dispatched child at its parent effort when the model offers it', async () => {
+  start({ effort: Effort.High })
+  const dispatched = parent.callTool('dispatch', DISPATCH_AGENT_TOOL, INPUT)
+  const agent = await child()
+  expect(agent.options.effort).toBe(Effort.High)
+  agent.emit(sdk.result('Checked'))
+  await dispatched
+})
+
+it('starts a dispatched child at the model default when it does not offer the parent effort', async () => {
+  setSdkModels(database.db, [
+    {
+      id: 'claude-opus-5-5',
+      resolvedModel: 'claude-opus-5-5',
+      name: 'Opus 5.5',
+      description: '',
+      efforts: [Effort.Low, Effort.Medium, Effort.High],
+    },
+  ])
+  start({ effort: Effort.Max })
+  const dispatched = parent.callTool('dispatch', DISPATCH_AGENT_TOOL, { ...INPUT, model: 'claude-opus-5-5' })
+  const agent = await child()
+  expect(agent.options.effort).toBe(Effort.High)
+  agent.emit(sdk.result('Checked'))
+  await dispatched
 })
 
 it('does not start a second child when a saved dispatch is replayed', async () => {

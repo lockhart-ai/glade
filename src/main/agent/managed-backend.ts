@@ -3,7 +3,6 @@ import type { Database } from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { AGENTS_SERVER, DISPATCH_AGENT_TOOL, type DispatchAgentInput } from '../../shared/managed-agents'
-import { Effort } from '../../shared/domain'
 import { effortFor, findModel } from '../../shared/models'
 import { AgentSource, agentSource } from '../../shared/openrouter'
 import type { AccountSink } from '../account/account'
@@ -193,7 +192,7 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
         managedAgentId: id,
         model: input.model,
         resumeSessionId: previous?.sessionId ?? null,
-        effort: effortFor(listModels(db), input.model, Effort.Low),
+        effort: effortFor(listModels(db), input.model, settings.effort),
         permissionMode: settings.permissionMode,
         flagSettings: flags,
         mcpServers: options.createMcpServers?.() ?? {},

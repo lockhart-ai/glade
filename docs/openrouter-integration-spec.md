@@ -218,8 +218,8 @@ extend existing repositories and Settings/picker surfaces without a general back
 The landing review deliberately defers the following work. These are limitations and validation gaps, not shipped
 capabilities; the initial change keeps native same-source delegation and Claude-only todo storage intact.
 
-- **Child effort:** dispatched children start at Low. Inherit the parent's effort or expose a per-dispatch argument
-  in a follow-up; subsequent session configuration can currently update their effort.
+- **Child effort:** a dispatched child takes its parent's effort at the time of the dispatch, or its model's default
+  effort when the model doesn't offer that one (#556). A per-dispatch effort argument is not built.
 - **Child prompt/tools:** dispatched children inherit the main Glade prompt and tools, with metadata/control calls
   refused by the main-only guard. A child-specific prompt/tool set, agent types and native worktree isolation are
   not implemented.
