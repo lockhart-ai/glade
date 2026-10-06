@@ -81,7 +81,7 @@ function attachedFile(taskId: string, name: string): AttachedFile {
 async function fillTask(db: Database, task: Task): Promise<void> {
   const taskId = task.id
   db.prepare(
-    "INSERT INTO managed_agents VALUES (?, ?, 'dispatch', 'sonnet', 'child-session', 'completed', 'Done')",
+    "INSERT INTO managed_agents (id, task_id, tool_use_id, model, session_id, state, result) VALUES (?, ?, 'dispatch', 'sonnet', 'child-session', 'completed', 'Done')",
   ).run(`child-${taskId}`, taskId)
   db.prepare("INSERT INTO sdk_transcript_backups VALUES (?, 'session', ?, '[]')").run(taskId, taskId)
   await sqliteSessionStore(db, taskId).append({ projectKey: 'sample', sessionId: taskId }, [

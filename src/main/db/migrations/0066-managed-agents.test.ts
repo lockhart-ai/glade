@@ -28,7 +28,7 @@ it.each(['absent', 'without-config', 'current'])(
       })
     db.prepare("INSERT INTO sdk_transcript_failures VALUES (?, 's', ?, 'importing', NULL)").run(task.id, task.id)
     db.prepare(
-      "INSERT INTO managed_agents VALUES ('child', ?, 'dispatch', 'sonnet', 'session', 'completed', 'Done')",
+      "INSERT INTO managed_agents (id, task_id, tool_use_id, model, session_id, state, result) VALUES ('child', ?, 'dispatch', 'sonnet', 'session', 'completed', 'Done')",
     ).run(task.id)
     db.prepare("INSERT INTO sdk_transcript_backups VALUES (?, 's', ?, '[]')").run(task.id, task.id)
     db.prepare('DELETE FROM tasks WHERE id = ?').run(task.id)

@@ -391,6 +391,12 @@ export interface AgentSessionOptions extends AgentSessionSettings {
   readonly provisional?: boolean
   /** The folder the agent runs in: the workspace's root. */
   readonly cwd: string
+  /**
+   * The git worktree the session works in, by name: Claude Code makes it, or goes back into it, as its `--worktree`
+   * flag does (`<repository>/.claude/worktrees/<name>`, on branch `worktree-<name>`), and the session's folder is
+   * that one, not `cwd` (#558). None for a session that works in `cwd`.
+   */
+  readonly worktree?: string
   /** The SDK session to resume, or null to start a new one. */
   readonly resumeSessionId: string | null
   /** Appended to Claude Code's own system prompt. */
