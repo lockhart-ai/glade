@@ -159,8 +159,12 @@ it("switches a sandboxed session's mode to acceptEdits, not bypassing, and an un
     permissionMode: PermissionMode.AskBeforeEdits,
     flagSettings: sandboxStartSettings(ROOT, '/Users/me'),
   })
-  sandboxed.configure({ model: OPTIONS.model, effort: OPTIONS.effort, permissionMode: PermissionMode.AllowAll })
-  sandboxed.configure({ model: OPTIONS.model, effort: OPTIONS.effort, permissionMode: PermissionMode.AskBeforeEdits })
+  void sandboxed.configure({ model: OPTIONS.model, effort: OPTIONS.effort, permissionMode: PermissionMode.AllowAll })
+  void sandboxed.configure({
+    model: OPTIONS.model,
+    effort: OPTIONS.effort,
+    permissionMode: PermissionMode.AskBeforeEdits,
+  })
   await settle()
   await settle()
   expect(sdk.session.setPermissionMode.mock.calls).toEqual([['acceptEdits'], ['default']])
@@ -170,7 +174,7 @@ it("switches a sandboxed session's mode to acceptEdits, not bypassing, and an un
     ...OPTIONS,
     permissionMode: PermissionMode.AskBeforeEdits,
   })
-  plain.configure({ model: OPTIONS.model, effort: OPTIONS.effort, permissionMode: PermissionMode.AllowAll })
+  void plain.configure({ model: OPTIONS.model, effort: OPTIONS.effort, permissionMode: PermissionMode.AllowAll })
   await settle()
   await settle()
   expect(sdk.session.setPermissionMode.mock.calls).toEqual([['bypassPermissions']])
@@ -507,6 +511,8 @@ it('hands the SDK every switch Glade sets off, and the variables it keeps from c
       envVars: [
         { name: 'GLADE_CONTROL_URL', mode: 'deny' },
         { name: 'GLADE_CONTROL_TOKEN', mode: 'deny' },
+        { name: 'ANTHROPIC_BASE_URL', mode: 'deny' },
+        { name: 'ANTHROPIC_AUTH_TOKEN', mode: 'deny' },
       ],
     },
     allowAppleEvents: false,
@@ -519,7 +525,14 @@ it('hands the SDK every switch Glade sets off, and the variables it keeps from c
   expect(sdkFlagSettings(overlay).sandbox).toMatchObject({
     filesystem: { disabled: false },
     allowAppleEvents: false,
-    credentials: { envVars: [{ name: 'GLADE_CONTROL_URL' }, { name: 'GLADE_CONTROL_TOKEN' }] },
+    credentials: {
+      envVars: [
+        { name: 'GLADE_CONTROL_URL' },
+        { name: 'GLADE_CONTROL_TOKEN' },
+        { name: 'ANTHROPIC_BASE_URL' },
+        { name: 'ANTHROPIC_AUTH_TOKEN' },
+      ],
+    },
   })
 })
 

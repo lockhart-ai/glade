@@ -14,6 +14,7 @@ import type {
 } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
 import type { Logger } from '../logging/logger'
+import type { AgentEvent } from './events'
 
 /**
  * In-process MCP servers to give a session, by server name, e.g. `{ glade: createSdkMcpServer({ name: 'glade', … }) }`.
@@ -381,6 +382,13 @@ export interface SandboxFlagSettings {
 
 /** How to start one task's agent session. */
 export interface AgentSessionOptions extends AgentSessionSettings {
+  /** A separately routed child is still a subagent for permissions and main-only tools. */
+  readonly managedAgentId?: string
+  readonly createMcpServers?: () => AgentMcpServers
+  readonly onSubagentEvent?: (event: AgentEvent) => void
+  readonly taskId?: string
+  /** A handoff candidate must not adopt its imported transcript until the runner commits the selection. */
+  readonly provisional?: boolean
   /** The folder the agent runs in: the workspace's root. */
   readonly cwd: string
   /** The SDK session to resume, or null to start a new one. */
@@ -426,6 +434,12 @@ export interface AgentSessionOptions extends AgentSessionSettings {
  * session's whole life, across turns. It finishes when the session is closed and throws if the agent process fails.
  */
 export interface AgentSession {
+  /** The context limit this process was prepared with, when its inference route supplies one. */
+  readonly contextWindowTokens?: number
+  /** Initialization and transcript loading completed, before a source handoff commits. */
+  ready?(): Promise<void>
+  /** Commit a prepared handoff's transcript ownership. */
+  activate?(): void
   /** Every message the SDK emits, unparsed: the runner parses each one at the boundary. Iterate it once. */
   readonly messages: AsyncIterable<unknown>
   /**
@@ -438,7 +452,7 @@ export interface AgentSession {
    * it was given. The model and effort apply to the turns after it, so change them between turns, never mid-turn; the
    * permission mode applies from the next tool call, so it can change at any time.
    */
-  configure(settings: AgentSessionSettings): void
+  configure(settings: AgentSessionSettings): void | Promise<void>
   /**
    * Changes the session's sandbox and the permission rules set with it, from its next tool call, mid-turn too, in order
    * with the messages and changes before it (the SDK's `applyFlagSettings`, `docs/sdk-notes.md` §15). Each key given

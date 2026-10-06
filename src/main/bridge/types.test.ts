@@ -146,6 +146,15 @@ const TASK_HANDLERS = {
   [CommandName.WorkspacesUpdate]: () => ({ workspace: WORKSPACE }),
   [CommandName.SettingsGet]: () => ({ settings: DEFAULT_SETTINGS }),
   [CommandName.ModelsList]: () => ({ models: BUILT_IN_MODELS }),
+  [CommandName.OpenRouterUsage]: () => ({ connected: false, reading: null, error: null }),
+  [CommandName.OpenRouterRefreshUsage]: () => ({ connected: false, reading: null, error: null }),
+  [CommandName.OpenRouterStatus]: () => ({ connected: false, models: [], providers: [], choices: [] }),
+  [CommandName.OpenRouterConnect]: () => ({ connected: true, models: [], providers: [], choices: [] }),
+  [CommandName.OpenRouterRefresh]: () => ({ connected: true, models: [], providers: [], choices: [] }),
+  [CommandName.OpenRouterRemove]: () => ({ connected: false, models: [], providers: [], choices: [] }),
+  [CommandName.OpenRouterEndpoints]: () => [],
+  [CommandName.OpenRouterProviderModels]: () => [],
+  [CommandName.OpenRouterSelect]: () => ({ connected: true, models: [], providers: [], choices: [] }),
   [CommandName.SettingsUpdate]: () => ({ settings: DEFAULT_SETTINGS }),
   [CommandName.ArtifactsRemove]: () => null,
   [CommandName.ArtifactsAddLink]: () => null,
@@ -574,6 +583,9 @@ describe('events', () => {
           break
         case EventType.ControlChanged:
           expectTypeOf(event.status).toEqualTypeOf<ControlStatus>()
+          break
+        case EventType.OpenRouterUsageChanged:
+          expectTypeOf(event.status).toEqualTypeOf<import('../../shared/openrouter').OpenRouterUsageStatus>()
           break
         case EventType.AccountChanged:
           expectTypeOf(event.status).toEqualTypeOf<AccountStatus>()

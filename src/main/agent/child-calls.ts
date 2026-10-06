@@ -17,6 +17,7 @@ import type { ToolInput } from '../../shared/domain'
 /** The tools of Claude Code's own a todo is read off: `Agent`, and `Bash`, which may commit. */
 export enum ChildTool {
   Agent = 'Agent',
+  Dispatch = 'mcp__glade-agents__dispatch',
   Bash = 'Bash',
 }
 
@@ -96,6 +97,7 @@ export function readsTodo({ toolName, input, subagent }: TodoCall): boolean {
   if (!isChildTool(toolName)) return false
   switch (toolName) {
     case ChildTool.Agent:
+    case ChildTool.Dispatch:
       return true
     case ChildTool.Bash:
       return !subagent && input.run_in_background !== true

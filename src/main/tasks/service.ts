@@ -31,6 +31,7 @@ import { getWorkspace } from '../db/repositories/workspaces'
 import { getSettings } from '../db/repositories/settings'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
 import { effortWithModel } from '../models/models'
+import { stageModelSwitch, validateModel } from '../models/switches'
 import { applyTransition, TaskTransition } from './taskLifecycle'
 
 export interface TaskServiceContext {
@@ -118,6 +119,7 @@ export function insertNewTask(
   }
   const { defaultModel, defaultEffort, defaultPermissionMode } = getSettings(db)
   const model = fields.model ?? defaultModel
+  validateModel(db, model)
   return insertTask(
     db,
     {
@@ -157,6 +159,7 @@ export function reopenTask(context: TaskServiceContext, id: string): Task {
  */
 export function updateTaskFromUser(context: TaskServiceContext, id: string, patch: TaskUserPatch): Task {
   const { title, pinned, unread, model, permissionMode } = patch
+  prepareModelChange(context.db, id, model)
   const effort = effortWithModel(context.db, model, patch.effort, requireTask(context.db, id).effort)
   return write(context, id, { title, pinned, unread, model, effort, permissionMode })
 }
@@ -191,6 +194,7 @@ export interface TaskChangeContext extends TaskServiceContext {
  */
 export function changeTask(context: TaskChangeContext, id: string, change: TaskChange, dates: TaskDates = {}): Task {
   const { title, objective, status, pinned, unread, model, permissionMode } = change
+  prepareModelChange(context.db, id, model)
   const { updatedAt, statusUpdatedAt } = dates
   // A new model keeps the task's effort only if it supports it.
   const effort = effortWithModel(context.db, model, change.effort, requireTask(context.db, id).effort)
@@ -268,4 +272,11 @@ export function deleteTask(context: TaskDeletionContext, id: string): void {
   if (workspace !== undefined) deleteTaskAttachments(workspace.rootPath, id, context.log ?? SILENT_LOGGER)
   if (deselect) emit({ type: EventType.UiStateChanged, entry: { key: UiStateKey.SelectedTaskId, value: '' } })
   emit({ type: EventType.TaskDeleted, taskId: id })
+}
+
+function prepareModelChange(db: Database, id: string, model: string | undefined): void {
+  if (model === undefined) return
+  validateModel(db, model)
+  const previous = requireTask(db, id)
+  if (previous.model !== model && previous.sessionId !== null) stageModelSwitch(db, id, previous.model, model)
 }

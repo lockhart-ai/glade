@@ -36,6 +36,20 @@ export function sampleTask(db: Database, workspaceId: string, now = 2_000): Task
   return createTask(db, { workspaceId, model: 'claude-sample-1', effort: Effort.Medium }, now)
 }
 
+/** Seed an older schema without using the current task repository's columns. Migration tests name its id only. */
+export interface LegacySampleTask {
+  readonly id: string
+}
+
+export function sampleLegacyTask(db: Database, workspaceId: string): LegacySampleTask {
+  const id = 'legacy-task'
+  db.prepare(
+    `INSERT INTO tasks (id, workspace_id, title, objective, status, state, pinned, unread, model, effort, created_at, updated_at)
+    VALUES (?, ?, '', '', '', 'active', 0, 0, 'claude-sample-1', 'medium', 1000, 1000)`,
+  ).run(id, workspaceId)
+  return { id }
+}
+
 /**
  * A todo in a task's list, as Claude Code's `TaskCreate` leaves it in the tool log: `id` is the N of the `Task #N` it
  * answers with, which is what a child is filed under.

@@ -21,8 +21,8 @@ const WATCHER_CALLS: [string, Record<string, unknown>][] = [
 
 describe('isChildTool', () => {
   it('knows the two tools a todo is read off, and no other: no tool that starts a watcher but Bash', () => {
-    expect(Object.values(ChildTool)).toEqual(['Agent', 'Bash'])
-    expect(TODO_TOOLS).toEqual([ChildTool.Agent, ChildTool.Bash])
+    expect(Object.values(ChildTool)).toEqual(['Agent', 'mcp__glade-agents__dispatch', 'Bash'])
+    expect(TODO_TOOLS).toEqual([ChildTool.Agent, ChildTool.Dispatch, ChildTool.Bash])
     for (const tool of TODO_TOOLS) expect(isChildTool(tool)).toBe(true)
     for (const tool of ['Monitor', 'ScheduleWakeup', 'CronCreate', 'Read', 'TaskCreate', 'agent', 'bash', '']) {
       expect(isChildTool(tool), tool).toBe(false)

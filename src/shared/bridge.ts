@@ -44,6 +44,17 @@ import type { Command, MenuState } from './commands'
 import type { AttachedFile } from './attachedFiles'
 import type { ImageData } from './images'
 import type { ModelChoice } from './models'
+import type {
+  OpenRouterStatus,
+  OpenRouterUsageStatus,
+  OpenRouterUsageRefreshRequest,
+  OpenRouterProvider,
+  OpenRouterProviderModelsRequest,
+  OpenRouterConnectRequest,
+  OpenRouterEndpointsRequest,
+  OpenRouterChoiceRequest,
+  OpenRouterSelection,
+} from './openrouter'
 import type { Settings, SettingsPatch } from './settings'
 import type { SearchResult } from './search'
 import type { DoneCounts, DonePage, DonePageRequest } from './doneList'
@@ -139,6 +150,15 @@ export enum CommandName {
   SettingsGet = 'settings.get',
   SettingsUpdate = 'settings.update',
   ModelsList = 'models.list',
+  OpenRouterStatus = 'openrouter.status',
+  OpenRouterUsage = 'openrouter.usage',
+  OpenRouterRefreshUsage = 'openrouter.refreshUsage',
+  OpenRouterConnect = 'openrouter.connect',
+  OpenRouterRefresh = 'openrouter.refresh',
+  OpenRouterRemove = 'openrouter.remove',
+  OpenRouterEndpoints = 'openrouter.endpoints',
+  OpenRouterSelect = 'openrouter.select',
+  OpenRouterProviderModels = 'openrouter.providerModels',
   SearchQuery = 'search.query',
   PluginsList = 'plugins.list',
   PluginsSetEnabled = 'plugins.setEnabled',
@@ -1446,6 +1466,15 @@ export interface CommandMap {
   [CommandName.SettingsGet]: CommandSpec<EmptyRequest, SettingsResponse>
   [CommandName.SettingsUpdate]: CommandSpec<SettingsUpdateRequest, SettingsResponse>
   [CommandName.ModelsList]: CommandSpec<EmptyRequest, ModelsResponse>
+  [CommandName.OpenRouterStatus]: CommandSpec<EmptyRequest, OpenRouterStatus>
+  [CommandName.OpenRouterUsage]: CommandSpec<EmptyRequest, OpenRouterUsageStatus>
+  [CommandName.OpenRouterRefreshUsage]: CommandSpec<OpenRouterUsageRefreshRequest, OpenRouterUsageStatus>
+  [CommandName.OpenRouterConnect]: CommandSpec<OpenRouterConnectRequest, OpenRouterStatus>
+  [CommandName.OpenRouterRefresh]: CommandSpec<EmptyRequest, OpenRouterStatus>
+  [CommandName.OpenRouterRemove]: CommandSpec<EmptyRequest, OpenRouterStatus>
+  [CommandName.OpenRouterEndpoints]: CommandSpec<OpenRouterEndpointsRequest, readonly OpenRouterProvider[]>
+  [CommandName.OpenRouterSelect]: CommandSpec<OpenRouterChoiceRequest, OpenRouterSelection>
+  [CommandName.OpenRouterProviderModels]: CommandSpec<OpenRouterProviderModelsRequest, readonly string[]>
   [CommandName.SearchQuery]: CommandSpec<SearchQueryRequest, SearchQueryResponse>
   [CommandName.PluginsList]: CommandSpec<EmptyRequest, PluginsResponse>
   [CommandName.ControlStatus]: CommandSpec<EmptyRequest, ControlStatusResponse>
@@ -1545,6 +1574,7 @@ export enum EventType {
   PluginStatusChanged = 'plugin.statusChanged',
   ControlChanged = 'control.changed',
   AccountChanged = 'account.changed',
+  OpenRouterUsageChanged = 'openrouter.usageChanged',
   LoginChanged = 'login.changed',
   MenuBarChanged = 'menuBar.changed',
   SandboxGrantsChanged = 'sandbox.grantsChanged',
@@ -1859,6 +1889,11 @@ export interface AccountChangedEvent {
   readonly status: AccountStatus
 }
 
+export interface OpenRouterUsageChangedEvent {
+  readonly type: EventType.OpenRouterUsageChanged
+  readonly status: OpenRouterUsageStatus
+}
+
 /** Logging in to Claude started, finished, failed or was cancelled, or a task stopped logged out again since. */
 export interface LoginChangedEvent {
   readonly type: EventType.LoginChanged
@@ -1924,6 +1959,7 @@ export type GladeEvent =
   | PluginStatusChangedEvent
   | ControlChangedEvent
   | AccountChangedEvent
+  | OpenRouterUsageChangedEvent
   | LoginChangedEvent
   | MenuBarChangedEvent
   | SandboxGrantsChangedEvent

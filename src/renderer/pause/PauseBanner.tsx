@@ -1,6 +1,7 @@
 import { faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
 import { useMemo, useState } from 'react'
 import { findModel } from '../../shared/models'
+import { AgentSource, agentSource } from '../../shared/openrouter'
 import {
   Button,
   ButtonSize,
@@ -80,6 +81,7 @@ export function PauseBanner(): React.JSX.Element | null {
   const [detailsShown, setDetailsShown] = useState(false)
   // The Switch model button, while its menu is open.
   const [modelAnchor, setModelAnchor] = useState<HTMLElement | null>(null)
+  const [switching, setSwitching] = useState(false)
   const paused = useMemo(() => pausedTasks(tasks), [tasks])
   const text = bannerText(paused, now)
   if (text === null) return null
@@ -90,21 +92,37 @@ export function PauseBanner(): React.JSX.Element | null {
     })
   }
   const switchable = switchableTasks(paused)
-  const switchTo = (model: string): void => {
+  const switchTo = async (model: string): Promise<void> => {
+    setSwitching(true)
     for (const task of switchable) {
-      retryTask(task.id, model).catch((error: unknown) => {
+      try {
+        await retryTask(task.id, model)
+      } catch (error) {
         toast.show({ message: switchFailureMessage(error) })
-      })
+      }
     }
+    setSwitching(false)
   }
-  const models: MenuEntry[] = offered.map((option) => ({
-    kind: MenuEntryKind.Item,
-    label: option.name,
-    checked: switchable.every((task) => findModel(offered, task.model)?.id === option.id),
-    onSelect: () => {
-      switchTo(option.id)
-    },
-  }))
+  const models: MenuEntry[] = []
+  let group: AgentSource | null = null
+  for (const option of offered) {
+    const source = agentSource(option.id)
+    if (offered.some(({ id }) => agentSource(id) === AgentSource.OpenRouter) && group !== source) {
+      models.push({
+        kind: MenuEntryKind.Heading,
+        label: source === AgentSource.OpenRouter ? 'OpenRouter' : 'Anthropic account',
+      })
+      group = source
+    }
+    models.push({
+      kind: MenuEntryKind.Item,
+      label: option.name,
+      checked: switchable.every((task) => findModel(offered, task.model)?.id === option.id),
+      onSelect: () => {
+        void switchTo(option.id)
+      },
+    })
+  }
 
   return (
     <div role="status" aria-label="Paused tasks" className={styles.banner}>
@@ -117,7 +135,7 @@ export function PauseBanner(): React.JSX.Element | null {
         </span>
         <span className={styles.spacer} />
         {offersResumeNow(paused) && (
-          <Button variant={ButtonVariant.Dark} size={ButtonSize.Small} onClick={resumeNow}>
+          <Button variant={ButtonVariant.Dark} size={ButtonSize.Small} disabled={switching} onClick={resumeNow}>
             Resume now
           </Button>
         )}
@@ -127,11 +145,12 @@ export function PauseBanner(): React.JSX.Element | null {
             size={ButtonSize.Small}
             aria-haspopup="menu"
             aria-expanded={modelAnchor !== null}
+            disabled={switching}
             onClick={(event) => {
               setModelAnchor(event.currentTarget)
             }}
           >
-            Switch model
+            {switching ? 'Switching…' : 'Switch model'}
           </Button>
         )}
         <Button

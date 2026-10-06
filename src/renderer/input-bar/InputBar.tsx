@@ -1,3 +1,4 @@
+import { AgentSource, agentSource } from '../../shared/openrouter'
 import { faSquare } from '@fortawesome/free-regular-svg-icons'
 import { faArrowUp } from '@fortawesome/free-solid-svg-icons'
 import {
@@ -298,6 +299,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   const [refusals, setRefusals] = useState(NO_REFUSALS)
   const attached = useRef(kept?.images.length ?? 0)
   const [sending, setSending] = useState(false)
+  const [changing, setChanging] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const insertion = useGladeStore((state) => state.inputInsertion)
   // The last request to add text that the draft has taken, so a request is only ever taken once.
@@ -309,7 +311,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   // A paused turn resumes on its own: messages wait in the queue until then.
   const paused = task.state === TaskState.Active && task.activity === TaskActivity.Paused
   // An empty draft doesn't disable Send (the design shows it ready); sending one just does nothing.
-  const canSend = !sending
+  const canSend = !sending && changing === null
   // The message being edited has left the queue: delivered, or removed elsewhere.
   if (editingId !== null && !queue.some(({ id }) => id === editingId)) setEditingId(null)
 
@@ -631,12 +633,15 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
 
   /** Changes the task's settings; answers whether they changed. */
   const change = async (setting: string, patch: Parameters<typeof updateTask>[1]): Promise<boolean> => {
+    if (setting === 'model') setChanging(setting)
     try {
       await updateTask(task.id, patch)
       return true
     } catch (error) {
       toast.show({ message: `Couldn’t change the ${setting}: ${describeFailure(error)}` })
       return false
+    } finally {
+      if (setting === 'model') setChanging(null)
     }
   }
 
@@ -644,8 +649,17 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   // button calls it (with "(1M)" when it runs at 1M), the options with it always among them, and the effort levels it
   // supports: none hides the effort picker.
   const selectedModel = findModel(models, task.model)?.id ?? task.model
-  const modelShown = modelLabel(models, task.model, task.contextWindowTokens)
-  const modelChoices = modelOptions(models, task.model, modelShown)
+  const modelShown =
+    findModel(models, task.model) === undefined && task.modelName !== undefined
+      ? `${task.modelName} (unavailable)`
+      : modelLabel(models, task.model, task.contextWindowTokens)
+  const hasRouter = models.some(({ id }) => agentSource(id) === AgentSource.OpenRouter)
+  const modelChoices = modelOptions(models, task.model, modelShown).map((option) => ({
+    ...option,
+    ...(hasRouter
+      ? { group: agentSource(option.id) === AgentSource.OpenRouter ? 'OpenRouter' : 'Anthropic account' }
+      : {}),
+  }))
   const efforts = effortsOf(models, task.model)
 
   /** Changes the model, and the effort with it when the new model doesn't support the task's, saying so. */
@@ -709,8 +723,10 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
       <div className={styles.settings}>
         <SettingPicker
           label="Model"
-          value={modelShown}
+          value={changing === 'model' ? 'Switching…' : modelShown}
+          disabled={changing !== null}
           options={modelChoices}
+          {...(hasRouter ? { note: 'OpenRouter uses separate user settings and memory' } : {})}
           selectedId={selectedModel}
           onChoose={(model) => {
             if (model !== selectedModel) void changeModel(model)
@@ -719,6 +735,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
         {efforts.length > 0 && (
           <SettingPicker
             label="Effort"
+            disabled={changing !== null}
             value={EFFORT_NAMES[task.effort]}
             options={efforts.map((effort) => ({ id: effort, name: EFFORT_NAMES[effort] }))}
             selectedId={task.effort}
@@ -729,6 +746,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
         )}
         <SettingPicker
           label="Permissions"
+          disabled={changing !== null}
           value={PERMISSION_MODE_NAMES[task.permissionMode]}
           options={PERMISSION_OPTIONS}
           selectedId={task.permissionMode}

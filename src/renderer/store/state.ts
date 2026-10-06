@@ -12,6 +12,7 @@ import type {
   Unsubscribe,
   WorkspaceUserPatch,
 } from '../../shared/bridge'
+import { EMPTY_OPENROUTER_USAGE, type OpenRouterUsageStatus, type OpenRouterActions } from '../../shared/openrouter'
 import type { BroadcastOutcome } from '../../shared/broadcast'
 import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../shared/settings'
@@ -315,6 +316,7 @@ export interface GladeData {
    * answered at launch (`account.status`) or last broadcast them.
    */
   readonly accountStatus: AccountStatus
+  readonly openrouterUsage: OpenRouterUsageStatus
   /**
    * Where logging in to Claude stands (`../../shared/login`): the logged-out card and Settings › General show it, as
    * main answered at launch (`login.status`) or last broadcast it.
@@ -376,6 +378,7 @@ export interface GladeData {
  * action's promise rejects with the `BridgeError` when main refuses the command.
  */
 export interface GladeActions {
+  readonly openrouter: OpenRouterActions
   /** Subscribes to main's events (once) and loads a fresh snapshot of main's state. Never rejects. */
   hydrate: () => Promise<void>
   /**
@@ -851,6 +854,7 @@ export const INITIAL_DATA: GladeData = {
   pluginStatuses: {},
   controlStatus: null,
   accountStatus: { account: null, usage: [] },
+  openrouterUsage: EMPTY_OPENROUTER_USAGE,
   login: IDLE_LOGIN,
   inputInsertion: null,
   inputDrafts: {},

@@ -265,6 +265,7 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
+      case EventType.OpenRouterUsageChanged:
       case EventType.AccountChanged:
       case EventType.LoginChanged:
       case EventType.MenuBarChanged:
@@ -332,12 +333,17 @@ describe('a turn', () => {
     expect(backend.sessions).toHaveLength(1)
     expect(backend.session.options).toEqual({
       cwd: workspace.rootPath,
+      taskId: task.id,
       model: task.model,
       effort: task.effort,
       permissionMode: PermissionMode.AllowAll,
       resumeSessionId: null,
       systemPromptAppend: systemPromptAppend(task),
-      mcpServers: { [GLADE_SERVER]: expect.objectContaining({ type: 'sdk', name: GLADE_SERVER }) as unknown },
+      mcpServers: {
+        [GLADE_SERVER]: expect.objectContaining({ type: 'sdk', name: GLADE_SERVER }) as unknown,
+      },
+      createMcpServers: expect.any(Function) as unknown,
+      onSubagentEvent: expect.any(Function) as unknown,
       env: {},
       allowedRules: [],
       // Claude Code's todo tools stay on: nothing can be filed under a todo without an id.
@@ -1264,7 +1270,7 @@ describe('the session', () => {
   it('gives a task that never had a handoff note none', async () => {
     await send('Find out why the login test is flaky.')
 
-    expect(backend.session.options.systemPromptAppend).toBe(systemPromptAppend(task))
+    expect(backend.session.options.systemPromptAppend).toContain(systemPromptAppend(task))
     expect(backend.session.options.systemPromptAppend).not.toContain(HANDOFF_HEADING)
   })
 
@@ -1329,7 +1335,7 @@ describe('the session', () => {
     own.send(task.id, 'Hi')
 
     expect(mcpServers).toHaveBeenCalledWith(task)
-    expect(backend.session.options.mcpServers).toBe(servers)
+    expect(backend.session.options.mcpServers).toMatchObject(servers)
     own.close()
   })
 
@@ -1338,7 +1344,7 @@ describe('the session', () => {
 
     await send('Find out why the login test is flaky.')
 
-    expect(backend.session.options.systemPromptAppend).toBe(
+    expect(backend.session.options.systemPromptAppend).toContain(
       systemPromptAppend(task, { statusSummary: false, taskTitles: false }),
     )
   })
@@ -3231,7 +3237,7 @@ describe("a task's handoff note", () => {
     await send('Carry on.')
 
     expect(backend.sessions).toHaveLength(1)
-    expect(backend.session.options.systemPromptAppend).toBe(systemPromptAppend(task, undefined, false, handoff))
+    expect(backend.session.options.systemPromptAppend).toContain(systemPromptAppend(task, undefined, false, handoff))
     expect(sentTexts()).toEqual(["Let's pick this up.", 'Carry on.'])
     expect(getSessionContext(database.db, task.id)).toEqual({
       instructions: true,
@@ -3702,6 +3708,7 @@ describe('several tasks at once', () => {
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
+      case EventType.OpenRouterUsageChanged:
       case EventType.AccountChanged:
       case EventType.LoginChanged:
       case EventType.MenuBarChanged:
@@ -3758,6 +3765,7 @@ describe('several tasks at once', () => {
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
+      case EventType.OpenRouterUsageChanged:
       case EventType.AccountChanged:
       case EventType.LoginChanged:
       case EventType.MenuBarChanged:

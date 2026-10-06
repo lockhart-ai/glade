@@ -41,6 +41,7 @@ import { createQuestionBroker } from '../questions/questions'
 import { createBroadcast, createDispatcher, type EventTarget } from './dispatcher'
 import type { Emit } from './events'
 import { createHandlers } from './handlers'
+import type { OpenRouterService } from '../openrouter/service'
 import { REQUEST_SCHEMAS } from './requests'
 import type { SpawnPty } from '../terminal/pty'
 import type { TerminalShell } from '../terminal/shell'
@@ -75,6 +76,7 @@ export interface BridgeOptions {
   readonly thumbnails?: Thumbnails
   /** What runs the tasks' agents: the Claude Agent SDK in the app, a scripted stand-in in tests. */
   readonly agentBackend: AgentBackend
+  readonly openrouter?: OpenRouterService
   /** Notifies an agent reply in a task you aren't viewing (`../notifications`). Nothing by default. */
   readonly notifyReply?: NotifyReply
   /** Whether the network is up, for resuming a task paused offline (the runner's `isOnline`). Always up by default. */
@@ -204,6 +206,7 @@ export function registerBridge({
   openExternal,
   thumbnails,
   agentBackend,
+  openrouter,
   notifyReply,
   isOnline,
   terminal,
@@ -393,6 +396,7 @@ export function registerBridge({
   })
   const dispatch = createDispatcher(
     createHandlers({
+      ...(openrouter === undefined ? {} : { openrouter }),
       db,
       emit,
       batch: windows.batch,

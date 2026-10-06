@@ -3361,3 +3361,37 @@ bundled binary. What did change:
   the login.
 - **Not exercised:** the API-key path, `api_retry`, real auto-compaction (the `"auto"` trigger) and usage-limit
   errors. Their shapes above come from the types.
+
+## 17. OpenRouter inference (#551)
+
+The SDK remains the harness for both billing sources. [OpenRouter integration](openrouter-integration-spec.md)
+describes the catalog, per-session relay/environment, provider pinning, alpha transcript store, source-switch
+readiness and evidence. SDK 0.3.283 sends Messages requests with `?beta=true`; the adapter accepts that path and
+forwards to the fixed OpenRouter origin. Explicit empty environment overrides prevent the SDK from reintroducing
+inherited account/cloud credentials. Unknown-model pricing is not billed cost; the sidebar reads the key’s usage from OpenRouter’s API. Ordinary
+Claude parent tasks keep their SDK files; OpenRouter-used tasks and independently routed children opt into the alpha store. A mirror error stops the
+task; the next start attempts recovery from the complete local SDK transcript and fails explicitly if unavailable. Sandboxed commands cannot inherit the inference relay URL/token. The context-window override was checked against the real SDK. Keep these probes and mocked failure tests
+current when changing SDK versions.
+
+Same-source children use native `Agent`, with its agent types, worktree isolation and `SendMessage`. No OpenRouter
+key means no added delegation tools or prompt. With a key, `glade-agents.dispatch` starts a separate SDK session
+**only on the other source**, rejecting same-source choices. Native OpenRouter children stay on the parent's route;
+selecting another OpenRouter child route is deferred. Cross-source child continuations use dispatch's saved ID
+and original model while the source still differs from the parent's. Managed child hooks retain the main-agent-only
+guard even without a native `agent_id`. Low initial effort and inherited main-agent prompt/tools remain limitations.
+
+SDK todo lists are left in their original location until a cross-source session first seeds a shared task-specific
+directory. Later sessions reuse it. Filesystem tests cover seeding, IDs, high-water marks and both links; **the real
+bundled binary has not yet been verified creating, reading and updating todos through these links**. A setup failure
+is logged and preparation continues with the original SDK list, so it cannot prevent a Claude-only task from
+starting. Todo continuity after a setup failure is not guaranteed. No live claim is made from these filesystem tests.
+Failed transcript rebuilds retain the prior mirror for recovery.
+
+A limit-switch snapshots the live watcher labels/commands and child names before stopping them, and prepends the
+list once to the destination's first prompt alongside the retried message. Stored chat remains unchanged. A runner
+regression covers a live managed cross-source child, native child, monitor and scheduled wakeup. All are stopped,
+even when the Claude limit did not affect the child's source.
+
+See [landing limitations and follow-ups](openrouter-integration-spec.md#landing-limitations-and-follow-ups) for
+unbuilt behavior and outstanding smoke tests. Existing bounded live dispatch probes used reduced prompts and no
+filesystem tools; they do not establish production-prompt, sandbox or permission-card compatibility.

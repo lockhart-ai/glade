@@ -1,4 +1,6 @@
 import type { Migration } from '../migrate'
+import { openRouterMigration } from './0065-openrouter'
+import { managedAgentsMigration } from './0066-managed-agents'
 import { schemaVersionMigration } from './0001-schema-version'
 import { coreTablesMigration } from './0002-core-tables'
 import { taskActivityMigration } from './0003-task-activity'
@@ -128,6 +130,8 @@ export const MIGRATIONS: readonly Migration[] = [
   fileAtCreationMigration,
   agentTabsMigration,
   threeTabsMigration,
+  openRouterMigration,
+  managedAgentsMigration,
 ]
 
 /** The version a database is at once every migration has run: the last one's, which can skip versions still in flight. */

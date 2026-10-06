@@ -13,6 +13,8 @@ import {
 import { WindowCommandId } from '../../shared/commands'
 import type { ModelChoice } from '../../shared/models'
 import { ALIAS_MODELS, SDK_MODELS } from '../../shared/test-models'
+import { SAMPLE_CHOICE } from '../../shared/test-openrouter'
+import { AgentSource } from '../../shared/openrouter'
 import { ToastProvider } from '../components'
 import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
@@ -56,6 +58,55 @@ interface Setup {
 }
 
 type Rendered = FakeBridge & { store: GladeStore }
+
+it('groups task billing sources without a blanket subagent picker', async () => {
+  const model: ModelChoice = {
+    id: SAMPLE_CHOICE.id,
+    name: 'Sample Flash · Sample Host',
+    description: 'OpenRouter',
+    resolvedModel: null,
+    efforts: [],
+    source: AgentSource.OpenRouter,
+  }
+  await renderBar({ models: [...SDK_MODELS, model], task: { model: SAMPLE_CHOICE.id } })
+  fireEvent.click(screen.getByRole('button', { name: 'Model: Sample Flash · Sample Host' }))
+  await settleFloating()
+  expect(screen.getByText('Anthropic account')).toBeInTheDocument()
+  expect(screen.getByText('OpenRouter')).toBeInTheDocument()
+  fireEvent.keyDown(screen.getByRole('menu', { name: 'Model' }), { key: 'Escape' })
+  await settleFloating()
+  expect(screen.queryByRole('button', { name: /^Subagents:/ })).not.toBeInTheDocument()
+})
+
+it('shows a pending model switch, preserves typed input and restores the picker after a refused handoff', async () => {
+  let reject: (error: Error) => void = () => undefined
+  await renderBar({
+    overrides: {
+      [CommandName.TasksUpdate]: () =>
+        new Promise((_, fail) => {
+          reject = fail
+        }),
+    },
+  })
+  fireEvent.change(field(), { target: { value: 'Keep this draft.' } })
+  fireEvent.click(screen.getByRole('button', { name: /^Model:/ }))
+  await settleFloating()
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Haiku 4.5' }))
+  expect(await screen.findByRole('button', { name: 'Model: Switching…' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /^Permissions:/ })).toBeDisabled()
+  expect(sendButton()).toBeDisabled()
+  act(() => {
+    reject(new Error('Destination unavailable'))
+  })
+  expect(await screen.findByText('Couldn’t change the model: Destination unavailable')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /^Model:/ })).toBeEnabled()
+  expect(field()).toHaveValue('Keep this draft.')
+})
+
+it('keeps a disabled OpenRouter route readable without silently replacing it', async () => {
+  await renderBar({ task: { model: SAMPLE_CHOICE.id, modelName: 'Sample Flash · Sample Host' }, models: SDK_MODELS })
+  expect(screen.getByRole('button', { name: 'Model: Sample Flash · Sample Host (unavailable)' })).toBeInTheDocument()
+})
 
 async function renderBar({
   task = {},

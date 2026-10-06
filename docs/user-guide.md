@@ -725,6 +725,75 @@ picks it up.
 
 ![Settings › General, showing the account (sample data)](images/guide/settings-general.png)
 
+### OpenRouter models
+
+Settings › Models keeps your Claude account active while connecting an OpenRouter API key. Connect the key to
+discover its available tool-capable text models and hosting providers. Search or filter the catalog, select a
+provider for each model you want, then enable its checkbox. **Refresh** reads the catalog again. **Replace key**
+validates a new key before saving; **Remove** disconnects OpenRouter without deleting routes or task history.
+Removing or disabling a default route restores a Claude default so **New task** continues to work.
+
+The detected provider list shows hosting options. Configured provider credentials are managed in OpenRouter;
+the link under the catalog opens its integrations page. A normal inference key cannot list those credentials.
+Prices are estimates per million tokens for the selected endpoint; OpenRouter records the actual bill.
+
+Enabled choices appear beside Claude models in the task picker and Settings › Agent defaults, grouped by billing
+source. An OpenRouter choice includes its selected provider. The task picker selects the saved pair; change its
+provider in Settings. Existing tasks retain their previous pair, and a disabled or disconnected choice is shown
+as unavailable. Enable it again or choose another model; Glade never silently substitutes a provider.
+
+Switch the model between turns, including when paused by a Claude limit. Answer pending questions/permissions
+first. On a usage-limit pause, switching ends old background work with a recorded reason and tells the resumed agent
+which children, watchers and wakeups stopped, by name or command, so it can restart them. Otherwise finish or stop
+that work first. The same task continues with its conversation, tool results and queued input.
+When ready, the **Agents › Main** log adds **Switched model to …**; relaunch keeps that entry. A failed or timed-out startup keeps
+the previous selection and history. Switching a task paused by a Claude usage limit to OpenRouter resumes the held turn immediately. The picker shows
+**Switching…** while the destination starts; your draft stays in place. At the first cross-source session, Glade sets up a shared SDK todo list to retain IDs across sources.
+Claude-only tasks keep their original list. If shared-list setup fails, Glade logs it and still starts the session
+with its original SDK list; todo continuity is then not guaranteed. A destination whose context window is too small is refused before the
+switch; choose a larger model or compact first. If a Claude model change is refused, the Main log
+names the model the task continues with.
+OpenRouter errors point to its key/provider settings and do not require a Claude login or subscription reset.
+
+The parent chooses each subagent's model; there is no blanket subagent picker or default. Ask it to choose for the
+job, or name a model for a particular child. Same-source children use Claude Code's built-in `Agent`, preserving
+its agent types, worktree isolation and `SendMessage`. When an OpenRouter key is connected, Glade's dispatch tool
+can start a child on the other source: Claude → OpenRouter or OpenRouter → Claude. Without a key, the delegation
+tools and prompt are unchanged. Settings controls providers. Cross-source children's Agents tabs show their model,
+text and tool history. They currently start at Low effort, inherit the main agent's prompt/tools with metadata
+calls refused, and have no native agent types or worktree isolation. Those improvements are follow-ups.
+A finished dispatched child can be resumed on its original model with its returned ID, including after a relaunch,
+while its source differs from the parent's. Stop also stops its remaining descendants.
+Catalog compatibility is a starting point: individual models can still reject SDK parameters or history formats.
+Glade reports the error and retains the archived history so you can select another model.
+
+OpenRouter tasks use separate Claude Code user configuration. Your Claude user instructions, skills, agents,
+commands, hooks, plugins, user MCP servers and existing auto-memory do not transfer; project configuration and Glade
+tools still load. They return when you switch back to Claude. Built-in subagent types and SDK helper/small-model
+calls use the task's OpenRouter route. Glade's dispatch tool selects the other source only; an OpenRouter child on another OpenRouter route is not supported yet. Each separately dispatched child has its
+own context window; enabling a smaller model does not shrink the parent's window. Changes to the catalog do not alter the prepared limit of a running process.
+
+The key stays in Glade's main process. Sandboxed commands cannot read the relay URL/token from their environment.
+Unsandboxed commands and session hooks or stdio MCP servers can inherit the temporary session relay token, which
+can spend on the session's selected routes until it closes. The separate SDK cache is inside Glade's private data
+folder: sandboxed file tools cannot read cached large tool results or auto-memory there; workspace files remain usable.
+
+The sidebar's **OpenRouter** usage row marks credit failures as blocked and refreshes after the final requests of
+a turn. It shows remaining key allowance, or this month's spend when uncapped. Open it
+for API-reported USD spend today, this week, this month and all time, the configured key cap/reset, BYOK spend and
+free-request allowance when reported. UTC periods include all activity on the key, including outside Glade. The
+reading is cached across launches, refreshed on connection/launch and after requests at most once a minute, and can
+be refreshed manually. Failed reads keep the last reading and show its age/error. The account-wide credit balance
+requires a management key, which Glade does not request. Claude's subscription meter remains separate.
+
+Current limits and unverified workflows are listed in [landing limitations and follow-ups](openrouter-integration-spec.md#landing-limitations-and-follow-ups).
+In particular, all background children stop on a limit-switch, busy/open-card switches are refused, a Claude-to-Claude
+picker change does not clear a usage pause, and per-task/per-child costs are not available.
+
+![OpenRouter key usage in the sidebar monitor (sample data)](images/guide/openrouter-usage.png)
+
+![Settings › Models with a connected OpenRouter key and one enabled route (sample data)](images/guide/settings-models.png)
+
 ### Sandbox folders and domains
 
 Settings › Agent › **Sandbox** has the switch, **Run agents in a sandbox**: with it on, an agent can use only its

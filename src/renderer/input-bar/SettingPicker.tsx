@@ -7,6 +7,7 @@ import styles from './InputBar.module.css'
 export interface SettingOption {
   readonly id: string
   readonly name: string
+  readonly group?: string
 }
 
 export interface SettingPickerProps {
@@ -19,25 +20,44 @@ export interface SettingPickerProps {
   readonly selectedId: string
   /** Called with the option chosen from the menu. */
   readonly onChoose: (id: string) => void
+  readonly disabled?: boolean
+  readonly note?: string
 }
 
 /**
  * One of the input bar's settings: a "Label Value ⌄" button that opens a menu of its options above it, with the
  * current one checked.
  */
-export function SettingPicker({ label, value, options, selectedId, onChoose }: SettingPickerProps): React.JSX.Element {
+export function SettingPicker({
+  label,
+  value,
+  options,
+  selectedId,
+  onChoose,
+  disabled = false,
+  note,
+}: SettingPickerProps): React.JSX.Element {
   // The button, while its menu is open.
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const open = anchor !== null
 
-  const entries: MenuEntry[] = options.map((option) => ({
-    kind: MenuEntryKind.Item,
-    label: option.name,
-    checked: option.id === selectedId,
-    onSelect: () => {
-      onChoose(option.id)
-    },
-  }))
+  const entries: MenuEntry[] = []
+  let group: string | undefined
+  for (const option of options) {
+    if (option.group !== undefined && option.group !== group) {
+      group = option.group
+      entries.push({ kind: MenuEntryKind.Heading, label: group })
+    }
+    entries.push({
+      kind: MenuEntryKind.Item,
+      label: option.name,
+      checked: option.id === selectedId,
+      onSelect: () => {
+        onChoose(option.id)
+      },
+    })
+  }
+  if (note !== undefined) entries.push({ kind: MenuEntryKind.Heading, label: note })
 
   return (
     <>
@@ -47,6 +67,7 @@ export function SettingPicker({ label, value, options, selectedId, onChoose }: S
         aria-haspopup="menu"
         aria-expanded={open}
         className={styles.setting}
+        disabled={disabled}
         onClick={(event) => {
           setAnchor(event.currentTarget)
         }}

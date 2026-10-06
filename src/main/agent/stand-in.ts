@@ -71,6 +71,7 @@ export function standInEnv(env: Environment, standIn: StandInModel): Environment
     ...kept,
     ANTHROPIC_BASE_URL: standIn.baseUrl,
     ANTHROPIC_API_KEY: STAND_IN_API_KEY,
+    ANTHROPIC_AUTH_TOKEN: STAND_IN_API_KEY,
     HTTP_PROXY: standIn.deadEndProxy,
     HTTPS_PROXY: standIn.deadEndProxy,
     http_proxy: standIn.deadEndProxy,

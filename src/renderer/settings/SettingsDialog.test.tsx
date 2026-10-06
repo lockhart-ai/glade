@@ -62,6 +62,12 @@ function dialog(): HTMLElement {
 }
 
 describe('SettingsDialog', () => {
+  it('opens model curation without a blanket subagent default', async () => {
+    await renderSettings(SettingsSection.Models)
+    expect(screen.getByLabelText('OpenRouter API key')).toHaveAttribute('type', 'password')
+    fireEvent.click(screen.getByRole('button', { name: 'Agent' }))
+    expect(screen.queryByRole('button', { name: /^Subagents:/ })).not.toBeInTheDocument()
+  })
   it('shows nothing until Settings is opened', async () => {
     await renderSettings(null)
 
@@ -76,7 +82,17 @@ describe('SettingsDialog', () => {
       within(nav)
         .getAllByRole('button')
         .map((button) => button.textContent),
-    ).toEqual(['General', 'Agent', 'Notifications', 'Appearance', 'Keyboard', 'Plugins', 'Control', 'Acme API'])
+    ).toEqual([
+      'General',
+      'Models',
+      'Agent',
+      'Notifications',
+      'Appearance',
+      'Keyboard',
+      'Plugins',
+      'Control',
+      'Acme API',
+    ])
     expect(nav).toHaveTextContent('Workspace')
     const agent = within(nav).getByRole('button', { name: 'Agent' })
     expect(agent).toHaveAttribute('aria-current', 'page')

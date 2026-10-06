@@ -1,0 +1,359 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="utf-8">
+<title>Settings › Models</title>
+
+<style>
+.or-content{flex:1;min-width:0;padding:22px 32px;display:flex;flex-direction:column;overflow:visible;font-size:14px}
+.or-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.or-title h2{margin:0;font-size:20px;font-weight:700;color:#E6E8F0}
+.or-icon{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border:0;border-radius:7px;background:transparent;color:#999DB0;cursor:pointer}
+.or-intro{margin:0 0 8px;font-size:13px;line-height:1.45;color:#999DB0}
+.or-source{display:flex;align-items:center;gap:16px;padding:14px 0;border-bottom:1px solid #373C4F}
+.or-source-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.or-source-name{font-size:14px;font-weight:500;color:#E6E8F0}
+.or-desc{font-size:12.5px;line-height:1.45;color:#999DB0}
+.or-status{display:flex;align-items:center;gap:6px;font-size:12.5px;color:#7FD1C7;white-space:nowrap}
+.or-dot{width:6px;height:6px;border-radius:3px;background:currentColor}
+.or-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.or-button{height:32px;padding:0 12px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid #3D425E;border-radius:8px;background:#232531;color:#E6E8F0;font:inherit;font-size:12.5px;font-weight:500;white-space:nowrap;cursor:pointer}
+.or-button.primary{background:#5B8DEF;border-color:#5B8DEF;color:#0A0B0F;font-weight:600}
+.or-button.quiet{border-color:transparent;background:transparent;color:#AEB3C3}
+.or-button:focus-visible{outline:2px solid #8FB2F5;outline-offset:2px}
+.or-key{box-sizing:border-box;width:190px;height:32px;border:1px solid #3D425E;border-radius:8px;padding:0 10px;background:#0A0B0F;font-family:'Geist Mono',monospace;font-size:12px;color:#AEB3C3}
+.or-key::placeholder{font-family:Geist,sans-serif;font-size:12.5px;color:#999DB0}
+.or-block-title{display:flex;align-items:center;gap:12px;margin:16px 0 10px}
+.or-block-title h3{margin:0;flex:1;font-size:14px;font-weight:500;color:#E6E8F0}
+.or-small{font-family:'Geist Mono',monospace;font-size:11px;color:#999DB0}
+.or-tools{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.or-search{flex:1;min-width:0;box-sizing:border-box;height:34px;border:1px solid #3D425E;border-radius:8px;background:#0A0B0F;display:flex;align-items:center;gap:8px;padding:0 10px;color:#999DB0}
+.or-search input{width:100%;border:0;outline:0;background:transparent;color:#E6E8F0;font:inherit;font-size:13px}
+.or-search input::placeholder{color:#999DB0}
+.or-columns{display:flex;align-items:center;margin:0;padding:8px 12px;font-family:'Geist Mono',monospace;font-size:10.5px;font-weight:400;text-transform:uppercase;letter-spacing:.08em;color:#999DB0}
+.or-columns .model{flex:1;margin-left:30px}
+.or-columns .provider{width:132px;text-align:left}
+.or-table{border:1px solid #373C4F;border-radius:10px;position:relative}
+.or-model-row{box-sizing:border-box;display:flex;align-items:center;gap:12px;padding:10px 12px;min-height:62px;border-bottom:1px solid #373C4F}
+.or-model-row:last-child{border-bottom:0}
+.or-model-row.selected{background:#282B39;border-radius:9px 9px 0 0}
+.or-checkbox{box-sizing:border-box;width:18px;height:18px;border:1px solid #5C6378;border-radius:4px;background:#181921;color:#0A0B0F;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.or-checkbox.checked{background:#5B8DEF;border-color:#5B8DEF}
+.or-checkbox svg{width:13px;height:13px;stroke-width:2.5}
+.or-model-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.or-model-name{font-size:13.5px;font-weight:500;color:#E6E8F0}
+.or-model-meta{font-size:11.5px;color:#999DB0;line-height:1.4;white-space:nowrap}
+.or-provider-slot{position:relative;flex-shrink:0;width:132px}
+.or-provider-button{width:132px;justify-content:space-between;padding:0 10px;font-weight:400}
+.or-provider-button.open{background:#2E3243;border-color:#5C6378}
+.or-foot{margin:10px 0 0;font-size:12px;line-height:1.5;color:#999DB0}
+.or-foot a{color:#8FB2F5;text-decoration:none}
+.or-empty{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;min-height:250px}
+.or-empty h3{margin:0 0 8px;font-size:16px;font-weight:600;color:#E6E8F0}
+.or-empty p{margin:0;max-width:360px;font-size:13px;line-height:1.6;color:#999DB0}
+.or-menu{box-sizing:border-box;padding:6px;background:#262935;border:1px solid #3D425E;border-radius:10px;box-shadow:0 16px 40px rgba(0,0,0,.55);color:#E6E8F0;font-size:13px;z-index:20}
+.or-menu-head{display:flex;align-items:center;gap:8px;padding:6px 8px 10px}
+.or-menu-head span{flex:1;font-size:13.5px;font-weight:600}
+.or-menu-group{padding:8px 10px 6px;font-family:'Geist Mono',monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:#999DB0}
+.or-menu-item{box-sizing:border-box;width:100%;min-height:43px;border:0;border-radius:6px;background:transparent;color:#E6E8F0;display:flex;align-items:center;gap:12px;padding:7px 10px;font:inherit;text-align:left;cursor:pointer}
+.or-menu-item.chosen{background:#2E3243}
+.or-menu-item .copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.or-menu-item .name{font-size:13.5px;font-weight:500}
+.or-menu-item .detail{font-size:11.5px;line-height:1.35;color:#999DB0}
+.or-menu-item .tick{display:flex;color:#8FB2F5}
+.or-menu-divider{height:1px;background:#3D425E;margin:6px 4px}
+.or-menu-footer{display:flex;align-items:center;gap:8px;padding:10px;border-top:1px solid #3D425E;margin-top:6px;color:#AEB3C3;font-size:12px;text-decoration:none}
+.or-provider-menu{position:absolute;right:0;bottom:38px;width:278px}
+.or-provider-menu .or-menu-item{min-height:34px;padding:7px 10px}
+.or-provider-menu .or-menu-footnote{padding:8px 10px;font-size:11.5px;line-height:1.5;color:#999DB0}
+.or-source-badge{font-size:11px;line-height:1.5;font-weight:400;color:#999DB0}
+</style></head>
+<body>
+<x-dc>
+<helmet><style>@font-face{font-family:Geist;src:url(geist.woff2) format("woff2");font-weight:100 900}@font-face{font-family:"Geist Mono";src:url(geist-mono.woff2) format("woff2");font-weight:100 900}</style>
+
+
+<style>
+body{margin:0;background:#0A0B0F}
+a{color:#8FB2F5}a:hover{color:#B5CBF8}
+</style>
+</helmet>
+<div style="position: relative; width: 1920px; height: 1200px; box-sizing: border-box; padding: 8px 8px 8px 8px; gap: 8px; display: flex; flex-direction: column; background: #0A0B0F; color: #E6E8F0; font-family: Geist, system-ui, sans-serif; overflow: hidden">
+<div aria-label="Window controls" style="position: absolute; left: 16px; top: 16px; display: flex; gap: 9px; z-index: 9"><span style="flex-shrink: 0; width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; background: #FF5F57; border: 0.5px solid #E0443E"></span><span style="flex-shrink: 0; width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; background: #FEBC2E; border: 0.5px solid #DEA123"></span><span style="flex-shrink: 0; width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; background: #28C840; border: 0.5px solid #1AAB29"></span></div>
+<div style="flex-grow: 1; min-height: 0; display: flex; gap: 8px">
+<aside style="flex-shrink: 0; width: 300px; box-sizing: border-box; background: #181921; border: 1px solid #2F3343; border-radius: 16px; overflow: hidden; display: flex; flex-direction: column">
+<div aria-label="Traffic light strip (drags the window)" style="flex-shrink: 0; height: 28px"></div>
+<div style="display: flex; align-items: center; gap: 4px; padding: 0 8px 8px 8px">
+<button type="button" aria-haspopup="menu" aria-expanded="false" style="flex-grow: 1; min-width: 0; display: flex; align-items: center; gap: 8px; margin-left: -5px; padding: 4px 8px 4px 4px; background: transparent; border: 1px solid transparent; border-radius: 12px; font: inherit; color: inherit; text-align: left; cursor: pointer">
+<span aria-hidden="true" style="flex-shrink: 0; width: 30px; height: 30px; border-radius: 8px; background: #26314F; color: #8FB2F5; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700">A</span><span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px"><span style="font-size: 15px; font-weight: 700; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Acme API</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: #999DB0">~/code/api</span></span><span style="display: flex; color: #999DB0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></span></button><button type="button" aria-label="Collapse task list" title="Collapse task list" style="flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-right: -5.73px; background: transparent; border: 0; border-radius: 7px; color: #999DB0; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"></rect><path d="M9 4.5v15"></path></svg></button>
+</div>
+<div style="display: flex; gap: 8px; padding: 0 8px 8px 8px">
+<label style="flex-grow: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px; background: #0A0B0F; border: 1px solid #2F3343; border-radius: 8px; color: #999DB0">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+<input type="search" placeholder="Search" aria-label="Search tasks" style="flex-grow: 1; min-width: 0; background: transparent; border: 0; outline: none; font: inherit; font-size: 13.5px; color: #E6E8F0">
+</label>
+<button type="button" aria-label="New task" title="New task (⌘N)" style="flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: #232531; color: #E6E8F0; border: 1px solid #3D425E; border-radius: 8px; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg></button>
+</div>
+<div style="flex-grow: 1; overflow: hidden; padding: 0 8px 8px 8px; display: flex; flex-direction: column; gap: 4px">
+<button type="button" aria-expanded="true" style="display: flex; align-items: center; gap: 6px; width: 100%; height: 24px; padding: 0 8px; background: transparent; border: 1px solid transparent; border-radius: 6px; font: inherit; cursor: pointer; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #999DB0"><span style="display: flex; width: 12px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></span><span style="display: flex; align-items: center; gap: 6px; flex-grow: 1; text-align: left"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"></path><path d="M9 3h6l-1 6 4 4v2H6v-2l4-4z"></path></svg>Pinned</span><span>2</span></button>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<button type="button" style="display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
+<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #C8B2FF"></span><span style="font-size: 14px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Draft release notes for 2.4</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">25m</span></span>
+<span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Waiting on you: two questions</span>
+</button>
+<button type="button" style="display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
+<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span><span style="font-size: 14px; font-weight: 500; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Investigate slow dashboard query</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">5d</span></span>
+<span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Added an index; 2.1s down to 90ms</span>
+</button>
+</div>
+<div style="height: 8px"></div>
+<button type="button" aria-expanded="true" style="display: flex; align-items: center; gap: 6px; width: 100%; height: 24px; padding: 0 8px; background: transparent; border: 1px solid transparent; border-radius: 6px; font: inherit; cursor: pointer; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #999DB0"><span style="display: flex; width: 12px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></span><span style="display: flex; align-items: center; gap: 6px; flex-grow: 1; text-align: left">Active</span><span>3</span></button>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<button type="button" style="display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; padding: 8px; background: #232531; border: 1px solid #2F3343; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
+<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #C8B2FF"></span><span style="font-size: 14px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Add rate limiting to public API</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">4m</span></span>
+<span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Waiting on you: pick a limit for /search</span>
+</button>
+<button type="button" style="display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
+<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5B8DEF"></span><span style="font-size: 14px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Move image uploads to S3</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">now</span></span>
+<span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Copying existing files, 1,240 of 3,900</span>
+</button>
+<button type="button" style="display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
+<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5B8DEF"></span><span style="font-size: 14px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Fix flaky login test</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">9m</span></span>
+<span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Found the race; fix passes 200 local runs</span>
+</button>
+</div>
+<div style="height: 8px"></div>
+<button type="button" aria-expanded="true" style="display: flex; align-items: center; gap: 6px; width: 100%; height: 24px; padding: 0 8px; background: transparent; border: 1px solid transparent; border-radius: 6px; font: inherit; cursor: pointer; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #999DB0"><span style="display: flex; width: 12px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></span><span style="display: flex; align-items: center; gap: 6px; flex-grow: 1; text-align: left">Done</span><span>22</span></button>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<button type="button" style="display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
+<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span><span style="font-size: 14px; font-weight: 500; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Upgrade Django to 5.2</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">2d</span></span>
+<span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Upgraded; two deprecations fixed</span>
+</button>
+<button type="button" style="display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
+<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span><span style="font-size: 14px; font-weight: 500; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Remove unused feature flags</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">4d</span></span>
+<span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Removed 9 flags and their checks</span>
+</button>
+<button type="button" style="display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
+<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span><span style="font-size: 14px; font-weight: 500; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Set up nightly backups</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">1w</span></span>
+<span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Nightly dump, 14-day retention</span>
+</button>
+<button type="button" style="display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
+<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span><span style="font-size: 14px; font-weight: 500; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; min-width: 0">Add CSV export to reports</span><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">3w</span></span>
+<span style="display: block; width: 100%; box-sizing: border-box; padding-left: 16px; font-size: 12.5px; line-height: 1.4; color: #999DB0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Export endpoint and button shipped</span>
+</button>
+</div>
+</div>
+<div style="flex-shrink: 0; border-top: 1px solid #373C4F; padding: 8px"><button type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="Usage" style="display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; box-sizing: border-box; padding: 0 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; font: inherit; color: inherit; cursor: pointer; text-align: left"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex-shrink: 0"><circle cx="8.0" cy="8.0" r="6" fill="none" stroke="#3D425E" stroke-width="2.4"></circle><circle cx="8.0" cy="8.0" r="6" fill="none" stroke="#8FB2F5" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="14.3 37.7" transform="rotate(-90 8.0 8.0)"></circle></svg><span style="font-size: 12.5px; font-weight: 400; color: #AEB3C3; white-space: nowrap">Session</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; font-weight: 500; color: #E6E8F0">38%</span><span style="flex-grow: 1"></span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0; white-space: nowrap">resets 15:40</span><span style="display: flex; color: #999DB0"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"></path></svg></span></button><button type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="OpenRouter usage" style="display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; box-sizing: border-box; padding: 0 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; font: inherit; color: inherit; cursor: pointer; text-align: left"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex-shrink: 0"><circle cx="8" cy="8" r="6" fill="none" stroke="#3D425E" stroke-width="2.4"></circle><circle cx="8" cy="8" r="6" fill="none" stroke="#8FB2F5" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="22.6 37.7" transform="rotate(-90 8 8)"></circle></svg><span style="font-size: 12.5px; color: #AEB3C3">OpenRouter</span><span style="font-family: 'Geist Mono', monospace; font-size: 11.5px; font-weight: 500; color: #E6E8F0">$8.00</span><span style="flex-grow: 1"></span><span style="font-family: 'Geist Mono', monospace; font-size: 11px; color: #999DB0">left</span><span style="display: flex; color: #999DB0"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"></path></svg></span></button></div>
+</aside>
+<div style="flex-grow: 1; min-width: 0; box-sizing: border-box; padding: 8px; background: #181921; border: 1px solid #2F3343; border-radius: 16px; display: flex; gap: 8px">
+<div style="position: relative; flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+<header style="position: absolute; top: 0; left: 0; right: 0; z-index: 1; box-sizing: border-box; padding: 8px 16px 8px 16px; background: #222430; border: 1px solid #373C4F; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.25); display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: center; gap: 8px">
+<div style="flex-grow: 1; min-width: 0; display: flex; align-items: center; gap: 8px">
+<span role="img" aria-label="Active · waiting on you" title="Active · waiting on you" style="flex-shrink: 0; width: 10px; height: 10px; border-radius: 5px; background: #C8B2FF"></span>
+<h1 style="margin: 0; min-width: 0; font-family: Geist, system-ui, sans-serif; font-size: 17px; font-weight: 700; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Add rate limiting to public API</h1>
+<span title="Started Sep 23, 2026, 10:42 AM" style="flex-shrink: 1000; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #999DB0">· 42m</span>
+</div>
+<button type="button" aria-label="Pin task" aria-pressed="false" title="Pin task" style="flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: transparent; border: 1px solid transparent; color: #999DB0; border-radius: 7px; cursor: pointer"><svg width="16" height="16" viewBox="0 0 384 512" aria-hidden="true"><path fill="currentColor" d="M32 32C32 14.3 46.3 0 64 0L320 0c17.7 0 32 14.3 32 32s-14.3 32-32 32l-29.5 0 10.3 134.1c37.1 21.2 65.8 56.4 78.2 99.7l3.8 13.4c2.8 9.7 .8 20-5.2 28.1S362 352 352 352L32 352c-10 0-19.5-4.7-25.5-12.7s-8-18.4-5.2-28.1L5 297.8c12.4-43.3 41-78.5 78.2-99.7L93.5 64 64 64C46.3 64 32 49.7 32 32zM160 400l64 0 0 112c0 17.7-14.3 32-32 32s-32-14.3-32-32l0-112z"></path></svg></button>
+<button type="button" aria-label="Mark done" title="Mark done" style="flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: transparent; border: 1px solid transparent; color: #999DB0; border-radius: 7px; cursor: pointer"><svg width="16" height="16" viewBox="0 0 512 512" aria-hidden="true"><path fill="currentColor" d="M256 512a256 256 0 1 1 0-512 256 256 0 1 1 0 512zM374 145.7c-10.7-7.8-25.7-5.4-33.5 5.3L221.1 315.2 169 263.1c-9.4-9.4-24.6-9.4-33.9 0s-9.4 24.6 0 33.9l72 72c5 5 11.8 7.5 18.8 7s13.4-4.1 17.5-9.8L379.3 179.2c7.8-10.7 5.4-25.7-5.3-33.5z"></path></svg></button>
+</div>
+<div style="display: flex; flex-direction: column; gap: 2px; padding-left: 18px">
+<div style="display: flex; align-items: baseline; gap: 8px">
+<div style="flex-shrink: 0; width: 52px; margin-left: 8px; white-space: nowrap; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #999DB0">Goal</div>
+<p style="margin: 0; flex-grow: 1; min-width: 0; font-size: 14px; line-height: 1.5; color: #AEB3C3">Add per-key rate limiting to the public API so one client can't starve the others. Over the limit, return 429 with a Retry-After header.</p>
+</div>
+<div style="display: flex; align-items: baseline; gap: 8px">
+<div style="flex-shrink: 0; width: 52px; margin-left: 8px; white-space: nowrap; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #999DB0">Now</div>
+<p style="margin: 0; flex-grow: 1; min-width: 0; font-size: 14px; line-height: 1.5; color: #E6E8F0">Throttle class written and applied to the three public viewsets; 14 new tests pass. Needs a decision on the /search limit before finishing.</p><span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: #999DB0">4m</span>
+</div>
+</div>
+</header>
+<main style="position: relative; flex-grow: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column">
+<div style="flex-grow: 1; min-height: 0; overflow: hidden; margin: 50px 8px 51px 8px; padding: 66px 0 60px 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 16px">
+<div style="flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 4px">
+<div style="max-width: 520px; padding: 12px 16px; background: #22304D; border-radius: 14px 14px 4px 14px; font-size: 14.5px; line-height: 1.55; color: #E6E8F0">Add per-key rate limiting to the public API so one client can't starve the others. Over the limit, return 429 with a Retry-After header.</div>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">you · 10:42</span>
+</div>
+<div style="flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; max-width: 720px">
+<div style="display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; background: #1E1B33; border: 1px solid #3B3366; border-radius: 12px; font-size: 14.5px; line-height: 1.6; color: #E6E8F0"><p style="margin: 0">Tests pass — 14 new ones cover the limit, the 429 response and the Retry-After header.</p><p style="margin: 0">One decision before I finish: <strong style="font-weight: 600">/search</strong> is much heavier than the other endpoints. Should it get a tighter limit of 60 a minute, or share the default 120?</p></div>
+<div style="display: flex; align-items: center; gap: 12px"><button type="button" style="display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; background: transparent; border: 1px solid #2F3343; border-radius: 6px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: #AEB3C3; cursor: pointer"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"></path></svg>7 tool calls</button><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: #999DB0">Finished in 24m 10s · 4 files <span style="color: #7FD1C7">+61</span> <span style="color: #E58FA8">−3</span></span></div>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">agent · 11:06</span>
+</div>
+</div>
+<div style="position: absolute; bottom: 0; left: 0; right: 0; z-index: 1; padding: 0">
+<div style="display: flex; flex-direction: column; background: #232531; border: 1px solid #3D425E; border-radius: 12px">
+<div style="display: flex; align-items: center; gap: 2px; padding: 4px 8px; border-bottom: 1px solid #373C4F">
+<button type="button" aria-label="Model: [MODEL NAME]" style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 7px; background: transparent; border: 1px solid transparent; border-radius: 6px; font: inherit; font-size: 12.5px; color: #AEB3C3; cursor: pointer"><span style="color: #999DB0">Model</span><span style="color: #E6E8F0; font-weight: 500">[MODEL NAME]</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></button><button type="button" aria-label="Effort: High" style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 7px; background: transparent; border: 1px solid transparent; border-radius: 6px; font: inherit; font-size: 12.5px; color: #AEB3C3; cursor: pointer"><span style="color: #999DB0">Effort</span><span style="color: #E6E8F0; font-weight: 500">High</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></button><button type="button" aria-label="Permissions: Allow all" style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 7px; background: transparent; border: 1px solid transparent; border-radius: 6px; font: inherit; font-size: 12.5px; color: #AEB3C3; cursor: pointer"><span style="color: #999DB0">Permissions</span><span style="color: #E6E8F0; font-weight: 500">Allow all</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></button><span title="Context used" style="margin-left: auto; display: flex; align-items: center; gap: 7px; padding: 0 6px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: #999DB0">
+<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="#3D425E" stroke-width="2.4"></circle><circle cx="8" cy="8" r="6" fill="none" stroke="#8FB2F5" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="14.3 37.7" transform="rotate(-90 8 8)"></circle></svg>
+<span><span style="color: #E6E8F0">38%</span> · 76k / 200k</span>
+</span>
+</div>
+<div style="display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 16px">
+<textarea aria-label="Message the agent" placeholder="Reply…" rows="2" style="flex-grow: 1; resize: none; background: transparent; border: 0; outline: none; font: inherit; font-size: 14.5px; line-height: 1.5; color: #E6E8F0"></textarea>
+<button type="button" aria-label="Send" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; background: #E6E8F0; color: #0A0B0F; border: 0; border-radius: 9px; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"></path></svg></button>
+</div>
+</div>
+</div>
+</main>
+</div>
+<aside style="flex-shrink: 0; width: 440px; box-sizing: border-box; background: #222430; border: 1px solid #373C4F; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.25); overflow: hidden; display: flex; flex-direction: column">
+<div style="display: flex; align-items: center; gap: 2px; padding: 8px 8px; border-bottom: 1px solid #373C4F">
+<button type="button" aria-pressed="true" style="height: 28px; padding: 0 8px; background: #2E3243; color: #E6E8F0; border: 1px solid #373C4F; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Agents</button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Files</button><button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap">Todos <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">3/4</span></button>
+<span style="flex-grow: 1"></span><button type="button" aria-label="Collapse side panel" title="Collapse side panel" style="flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: transparent; border: 0; border-radius: 7px; color: #999DB0; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"></rect><path d="M15 4.5v15"></path></svg></button>
+</div>
+<div style="padding: 6px 8px; border-bottom: 1px solid #373C4F"><span style="display:inline-block;padding:4px 8px;background:#2E3243;border:1px solid #373C4F;border-radius:6px;font-size:12px;color:#E6E8F0">Main</span></div>
+<div style="flex-grow: 1; overflow: hidden; padding: 8px; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px">
+<div data-narr="1" style="flex-shrink: 0; margin: 6px 4px 6px 12px; padding: 2px 0 2px 12px; border-left: 2px solid #3D425E; font-size: 13px; line-height: 1.5; color: #AEB3C3">Looking at how the API views are set up. <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">10:43</span></div>
+<div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: #E6E8F0">Read</span>
+<span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">api/views.py</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">10:44</span>
+</div>
+<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">212 lines</div>
+
+</div>
+<div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: #E6E8F0">Grep</span>
+<span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">throttle</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">10:45</span>
+</div>
+<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">No matches</div>
+
+</div>
+<div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: #E6E8F0">Read</span>
+<span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">config/settings.py</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">10:46</span>
+</div>
+<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">318 lines</div>
+
+</div>
+<div data-narr="1" style="flex-shrink: 0; margin: 6px 4px 6px 12px; padding: 2px 0 2px 12px; border-left: 2px solid #3D425E; font-size: 13px; line-height: 1.5; color: #AEB3C3">The API already uses DRF, so I'll use its throttling rather than adding middleware. <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">10:47</span></div>
+<div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: #E6E8F0">Write</span>
+<span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">api/throttles.py</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">10:49</span>
+</div>
+<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">New file, 38 lines</div>
+
+</div>
+<div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: #E6E8F0">Edit</span>
+<span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">api/views.py</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">10:50</span>
+</div>
+<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">+6 −0 across 3 viewsets</div>
+
+</div>
+<div data-narr="1" style="flex-shrink: 0; margin: 6px 4px 6px 12px; padding: 2px 0 2px 12px; border-left: 2px solid #3D425E; font-size: 13px; line-height: 1.5; color: #AEB3C3">Throttle applied to the three public viewsets at 120 a minute. Running the tests. <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">10:51</span></div>
+<div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: #E6E8F0">Bash</span>
+<span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">pytest api/tests -q</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">11:03</span>
+</div>
+<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">14 passed in 3.2s</div>
+
+</div>
+<div data-narr="1" style="flex-shrink: 0; margin: 6px 4px 6px 12px; padding: 2px 0 2px 12px; border-left: 2px solid #3D425E; font-size: 13px; line-height: 1.5; color: #AEB3C3">Tests pass. Checking how heavy /search is before deciding its limit. <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">11:04</span></div>
+<div style="flex-shrink: 0; padding: 8px; background: transparent; border: 1px solid transparent; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #5C6378"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: #E6E8F0">Read</span>
+<span style="flex-grow: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #AEB3C3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">api/search.py</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">11:05</span>
+</div>
+<div style="padding-left: 18px; margin-top: 3px; font-size: 12.5px; color: #999DB0">96 lines</div>
+
+</div>
+</div>
+</aside>
+</div>
+</div>
+<div style="flex-shrink: 0; height: 300px; display: flex; gap: 12px">
+<section aria-label="Terminal" style="flex-grow: 1; min-width: 0; background: #181921; border: 1px solid #2F3343; border-radius: 16px; overflow: hidden; display: flex; flex-direction: column">
+<div style="flex-shrink: 0; display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid #373C4F">
+<span style="display: flex; color: #999DB0; padding: 0 6px 0 2px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 4 4-4 4"></path><path d="M12 16h7"></path></svg></span>
+<button type="button" aria-pressed="true" style="display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 8px 0 10px; background: #2E3243; color: #E6E8F0; border: 1px solid #373C4F; border-radius: 7px; font: inherit; cursor: pointer; white-space: nowrap"><span style="flex-shrink: 0; width: 6px; height: 6px; border-radius: 3px; background: #5B8DEF"></span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px">runserver</span><span aria-label="Close" style="display: flex; color: #999DB0"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></span></button><button type="button" aria-pressed="false" style="display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 8px 0 10px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; cursor: pointer; white-space: nowrap"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px">zsh</span><span aria-label="Close" style="display: flex; color: #999DB0"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></span></button><button type="button" aria-pressed="false" style="display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 8px 0 10px; background: transparent; color: #AEB3C3; border: 1px solid transparent; border-radius: 7px; font: inherit; cursor: pointer; white-space: nowrap"><span style="flex-shrink: 0; width: 6px; height: 6px; border-radius: 3px; background: #5B8DEF"></span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px">pytest -f</span><span aria-label="Close" style="display: flex; color: #999DB0"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></span></button>
+<button type="button" aria-label="New terminal" style="display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: transparent; border: 0; border-radius: 6px; color: #999DB0; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg></button>
+<span style="flex-grow: 1"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: #999DB0; padding-right: 4px">~/code/api</span><button type="button" aria-label="Collapse bottom panel" title="Collapse bottom panel" style="flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: transparent; border: 0; border-radius: 7px; color: #999DB0; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"></rect><path d="M3.5 14h17"></path></svg></button>
+</div>
+<div style="flex-grow: 1; overflow: hidden; padding: 12px 16px; background: #0A0B0F; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; line-height: 1.65; display: flex; flex-direction: column; justify-content: flex-end">
+<div style="color: #AEB3C3; white-space: pre"><span style="color: #7FD1C7">~/code/api</span> <span style="color: #C8B2FF">$</span> <span style="color: #E6E8F0">python manage.py runserver</span></div><div style="color: #AEB3C3; white-space: pre">Watching for file changes with StatReloader</div><div style="color: #AEB3C3; white-space: pre">System check identified no issues (0 silenced).</div><div style="color: #AEB3C3; white-space: pre">Django version 5.2, using settings 'config.settings.dev'</div><div style="color: #AEB3C3; white-space: pre">Starting development server at http://127.0.0.1:8000/</div><div style="color: #AEB3C3; white-space: pre">[23/Sep/2026 11:24:10] "GET /api/search?q=cats HTTP/1.1" <span style="color: #7FD1C7">200</span> 1843</div><div style="color: #AEB3C3; white-space: pre">[23/Sep/2026 11:24:10] "GET /api/search?q=cats HTTP/1.1" <span style="color: #7FD1C7">200</span> 1843</div><div style="color: #AEB3C3; white-space: pre">[23/Sep/2026 11:24:11] "GET /api/search?q=cats HTTP/1.1" <span style="color: #C8B2FF">429</span> 57</div><div style="color: #AEB3C3; white-space: pre">[23/Sep/2026 11:24:11] "GET /api/items/ HTTP/1.1" <span style="color: #7FD1C7">200</span> 5210</div><div style="color: #E6E8F0; white-space: pre"><span style="display: inline-block; width: 8px; height: 15px; background: #E6E8F0; vertical-align: text-bottom"></span></div></div>
+</section>
+<section aria-label="Nekomata" style="flex-shrink: 0; width: 680px; background: #181921; border: 1px solid #2F3343; border-radius: 16px; overflow: hidden; display: flex; flex-direction: column">
+<div style="flex-shrink: 0; display: flex; align-items: center; gap: 8px; height: 45px; box-sizing: border-box; padding: 0 8px 0 14px; border-bottom: 1px solid #373C4F">
+<span style="display: flex; color: #C8B2FF"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="15" r="4"></circle><circle cx="6.5" cy="9.5" r="1.8"></circle><circle cx="10" cy="6.5" r="1.8"></circle><circle cx="14" cy="6.5" r="1.8"></circle><circle cx="17.5" cy="9.5" r="1.8"></circle></svg></span>
+<span style="font-size: 13px; font-weight: 600; color: #E6E8F0">Nekomata</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #999DB0; padding: 2px 6px; border: 1px solid #373C4F; border-radius: 4px">plugin</span>
+<span style="flex-grow: 1"></span>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #AEB3C3"><span style="flex-shrink: 0; width: 6px; height: 6px; border-radius: 3px; background: #5FD08F"></span>5 cats · 4 kittens</span>
+<button type="button" aria-label="Pop out" style="display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: transparent; border: 0; border-radius: 6px; color: #999DB0; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9"></path><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"></path></svg></button>
+</div>
+<div style="flex-grow: 1; min-height: 0; background: #2A2320">
+<img src="nekomata.png" alt="Nekomata: pixel-art cats at desks, one per running agent, with speech bubbles showing what each is doing" style="display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 55%">
+</div>
+</section>
+</div>
+<div style="position: absolute; left: 0; top: 0; width: 1920px; height: 1200px; background: rgba(5,6,10,0.66); display: flex; align-items: center; justify-content: center; z-index: 5">
+<div role="dialog" aria-label="Settings" style="width: 980px; height: 700px; box-sizing: border-box; background: #222430; border: 1px solid #3D425E; border-radius: 16px; box-shadow: 0 30px 80px rgba(0,0,0,0.6); display: flex; overflow: hidden">
+<nav style="flex-shrink: 0; width: 220px; box-sizing: border-box; padding: 20px 12px; background: #181921; border-right: 1px solid #373C4F; display: flex; flex-direction: column; gap: 2px">
+<div style="padding: 0 12px 10px 12px; font-size: 18px; font-weight: 700; color: #E6E8F0">Settings</div>
+<button type="button" aria-current="false" style="display: flex; width: 100%; height: 34px; align-items: center; padding: 0 12px; background: transparent; border: 0; border-radius: 7px; font: inherit; font-size: 13.5px; font-weight: 500; color: #AEB3C3; text-align: left; cursor: pointer">General</button><button type="button" aria-current="page" style="display: flex; width: 100%; height: 34px; align-items: center; padding: 0 12px; background: #2E3243; border: 0; border-radius: 7px; font: inherit; font-size: 13.5px; font-weight: 600; color: #E6E8F0; text-align: left; cursor: pointer">Models</button><button type="button" aria-current="false" style="display: flex; width: 100%; height: 34px; align-items: center; padding: 0 12px; background: transparent; border: 0; border-radius: 7px; font: inherit; font-size: 13.5px; font-weight: 500; color: #AEB3C3; text-align: left; cursor: pointer">Agent</button><button type="button" aria-current="false" style="display: flex; width: 100%; height: 34px; align-items: center; padding: 0 12px; background: transparent; border: 0; border-radius: 7px; font: inherit; font-size: 13.5px; font-weight: 500; color: #AEB3C3; text-align: left; cursor: pointer">Notifications</button><button type="button" aria-current="false" style="display: flex; width: 100%; height: 34px; align-items: center; padding: 0 12px; background: transparent; border: 0; border-radius: 7px; font: inherit; font-size: 13.5px; font-weight: 500; color: #AEB3C3; text-align: left; cursor: pointer">Appearance</button><button type="button" aria-current="false" style="display: flex; width: 100%; height: 34px; align-items: center; padding: 0 12px; background: transparent; border: 0; border-radius: 7px; font: inherit; font-size: 13.5px; font-weight: 500; color: #AEB3C3; text-align: left; cursor: pointer">Keyboard</button><button type="button" aria-current="false" style="display: flex; width: 100%; height: 34px; align-items: center; padding: 0 12px; background: transparent; border: 0; border-radius: 7px; font: inherit; font-size: 13.5px; font-weight: 500; color: #AEB3C3; text-align: left; cursor: pointer">Plugins</button><button type="button" aria-current="false" style="display: flex; width: 100%; height: 34px; align-items: center; padding: 0 12px; background: transparent; border: 0; border-radius: 7px; font: inherit; font-size: 13.5px; font-weight: 500; color: #AEB3C3; text-align: left; cursor: pointer">Control</button>
+<div style="padding: 18px 12px 6px 12px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #999DB0">Workspace</div>
+<button type="button" aria-current="false" style="display: flex; width: 100%; height: 34px; align-items: center; padding: 0 12px; background: transparent; border: 0; border-radius: 7px; font: inherit; font-size: 13.5px; font-weight: 500; color: #AEB3C3; text-align: left; cursor: pointer">Acme API</button>
+</nav>
+<div class="or-content">
+    <div class="or-title"><h2>Models</h2><button class="or-icon" aria-label="Close settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button></div>
+    <p class="or-intro">Choose which models appear in tasks. Changes save automatically.</p>
+    <section class="or-source" aria-label="Anthropic account">
+      <div class="or-source-info"><span class="or-source-name">Anthropic</span><span class="or-desc">Uses your Claude Code account.</span></div>
+      <span class="or-status"><span class="or-dot"></span>Connected</span><button class="or-button quiet">Manage</button>
+    </section>
+    <section class="or-source" aria-label="OpenRouter connection">
+      <div class="or-source-info"><span class="or-source-name">OpenRouter</span><span class="or-desc">Use an API key for models billed through OpenRouter.</span></div>
+      <div class="or-actions"><span class="or-status">Connected</span>
+        <button class="or-button ">Replace key</button>
+        <button class="or-button quiet">Remove</button>
+      </div>
+    </section>
+    <div class="or-block-title"><h3>OpenRouter models</h3><span class="or-small">1 enabled</span><button class="or-button" aria-label="Refresh models"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 8a8 8 0 1 0 1 5M20 3v5h-5"></path></svg>Refresh</button></div>
+      <div class="or-tools"><label class="or-search"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 4 4"></path></svg><input aria-label="Search models" value="deepseek" readonly=""></label><button class="or-button">All providers<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
+      <div class="or-columns"><span class="model">Model · USD per 1M tokens</span><span class="provider">Provider</span></div>
+      <div class="or-table" aria-label="OpenRouter models"><div class="or-model-row selected">
+      <span class="or-checkbox checked" role="checkbox" aria-checked="true" aria-label="Show DeepSeek V4.1 Flash in task model picker"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 10 17l9-10"></path></svg></span>
+      <div class="or-model-copy"><span class="or-model-name">DeepSeek V4.1 Flash</span><span class="or-model-meta">1M context · $0.30 in / $1.20 out</span></div>
+      <div class="or-provider-slot"><button class="or-button or-provider-button " aria-label="Provider for DeepSeek V4.1 Flash" aria-haspopup="menu" aria-expanded="false">Together<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
+    </div><div class="or-model-row ">
+      <span class="or-checkbox " role="checkbox" aria-checked="false" aria-label="Show DeepSeek V4 Pro 0813 in task model picker"></span>
+      <div class="or-model-copy"><span class="or-model-name">DeepSeek V4 Pro 0813</span><span class="or-model-meta">1M context · $1.12 in / $3.37 out</span></div>
+      <div class="or-provider-slot"><button class="or-button or-provider-button " aria-label="Provider for DeepSeek V4 Pro 0813" aria-haspopup="menu" aria-expanded="false">Select provider<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
+    </div><div class="or-model-row ">
+      <span class="or-checkbox " role="checkbox" aria-checked="false" aria-label="Show DeepSeek V4 Flash 0731 in task model picker"></span>
+      <div class="or-model-copy"><span class="or-model-name">DeepSeek V4 Flash 0731</span><span class="or-model-meta">1M context · $0.14 in / $0.28 out</span></div>
+      <div class="or-provider-slot"><button class="or-button or-provider-button " aria-label="Provider for DeepSeek V4 Flash 0731" aria-haspopup="menu" aria-expanded="false">Select provider<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
+    </div><div class="or-model-row ">
+      <span class="or-checkbox " role="checkbox" aria-checked="false" aria-label="Show DeepSeek V3.2 in task model picker"></span>
+      <div class="or-model-copy"><span class="or-model-name">DeepSeek V3.2</span><span class="or-model-meta">160k context · $0.37 in / $1.11 out</span></div>
+      <div class="or-provider-slot"><button class="or-button or-provider-button " aria-label="Provider for DeepSeek V3.2" aria-haspopup="menu" aria-expanded="false">Select provider<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
+    </div><span aria-hidden="true" style="position:absolute;right:3px;top:8px;width:6px;height:112px;border-radius:3px;background:#3D425E"></span></div>
+      <p class="or-foot">7 matching models<br>Tasks use the provider selected here. <a href="https://openrouter.ai/settings/integrations">Manage provider credentials in OpenRouter ↗</a></p>
+  </div>
+</div>
+</div>
+</div>
+</x-dc>
+
+
+
+</body></html>

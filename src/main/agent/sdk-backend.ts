@@ -45,6 +45,7 @@ import { userContent } from './user-content'
 
 /** How to make the real backend. */
 export interface SdkBackendOptions {
+  readonly runtime?: SdkSessionRuntime
   /**
    * The environment Claude Code runs in: the user's login shell's (`resolveLoginEnv`), which a session waits for before
    * its agent process starts.
@@ -62,6 +63,21 @@ export interface SdkBackendOptions {
    * session's agent process has started. Nothing by default.
    */
   readonly onModels?: (models: unknown) => void
+}
+
+export interface PreparedSdkSession {
+  readonly env: Environment
+  readonly model?: string
+  readonly contextWindowTokens?: number
+  readonly sessionStore?: import('@anthropic-ai/claude-agent-sdk').SessionStore
+  readonly onMirrorError?: (sessionId: string) => void
+  activate?(): void
+  readonly publishModels: boolean
+  close(): void
+}
+
+export interface SdkSessionRuntime {
+  prepare(options: AgentSessionOptions, env: Environment): Promise<PreparedSdkSession>
 }
 
 /** The flag settings `applyFlagSettings` takes. */
@@ -352,11 +368,13 @@ const preToolUseInput = z.looseObject({
 export function subagentGladeToolGuard(
   log: Logger = SILENT_LOGGER,
   onAccessRequested?: SessionHooks['onAccessRequested'],
+  managedAgentId?: string,
 ): HookCallback {
   return (input) => {
     const parsed = preToolUseInput.safeParse(input)
     if (!parsed.success) return Promise.resolve({})
-    const { agent_id: agentId, mcp_server: mcpServer, tool_name: toolName } = parsed.data
+    const { agent_id: nativeAgentId, mcp_server: mcpServer, tool_name: toolName } = parsed.data
+    const agentId = nativeAgentId ?? managedAgentId
     if (mcpServer === undefined) return Promise.resolve({})
     if (mcpServer.source !== 'sdk' || !isGladeServer(mcpServer.name)) return Promise.resolve({})
     if (mcpServer.name === GLADE_SERVER && toolName === ACCESS_TOOL_NAME) {
@@ -600,9 +618,10 @@ export function sdkHooks(
   hooks: SessionHooks | undefined,
   log: Logger = SILENT_LOGGER,
   bashTimeoutMs: number = BASH_HOOK_TIMEOUT_MS,
+  managedAgentId?: string,
 ): NonNullable<Options['hooks']> {
   const preToolUse: NonNullable<Options['hooks']>['PreToolUse'] = [
-    { hooks: [subagentGladeToolGuard(log, hooks?.onAccessRequested)] },
+    { hooks: [subagentGladeToolGuard(log, hooks?.onAccessRequested, managedAgentId)] },
   ]
   if (hooks === undefined) return { PreToolUse: preToolUse }
   const { onToolStarting } = hooks
@@ -856,7 +875,7 @@ export function sdkOptions(
     // Always given: a subagent's call to one of Glade's own tools is refused whether or not the session tells the
     // runner anything else (#366). What the session's watchers do, when it does, is in here too (the Agents tab,
     // docs/sdk-notes.md §13).
-    hooks: sdkHooks(options.hooks, options.log ?? SILENT_LOGGER),
+    hooks: sdkHooks(options.hooks, options.log ?? SILENT_LOGGER, BASH_HOOK_TIMEOUT_MS, options.managedAgentId),
   }
 }
 
@@ -944,40 +963,67 @@ export function userMessage(text: string, uuid: string, images: readonly ImageDa
  *
  * A settings change and the messages after it are delivered in order: the next message waits for `setModel` and
  * `applyFlagSettings` to finish (`docs/sdk-notes.md` §4), and for `setPermissionMode` when the permission mode changed
- * (§9), each only when what it sets changed. If the SDK refuses a change, the message still goes, on the settings the
- * session had. Once each session's process has started, the models the SDK offers go to `onModels`, if given.
+ * (§9), each only when what it sets changed. Model refusals reject the acknowledgement; effort refusals keep the old
+ * effort. The process remains available for retry. Once started, the models the SDK offers go to `onModels`, if given.
  */
 export function createSdkBackend({
   env,
   log: backendLog = SILENT_LOGGER,
   version,
   onModels,
+  runtime,
 }: SdkBackendOptions): AgentBackend {
   return {
     start(options): AgentSession {
       const log = options.log ?? backendLog
       const input = new AsyncQueue<SDKUserMessage>()
-      const started: Promise<Query> = env.then((resolved) => {
-        const sdk = sdkOptions({ ...options, log }, { ...resolved, ...clientAppEnv(version) })
-        log.info('agent process starting', {
-          executable: sdk.pathToClaudeCodeExecutable ?? null,
-          cwd: options.cwd,
-          model: options.model,
-          effort: options.effort,
-          permissionMode: options.permissionMode,
-          resumeSessionId: options.resumeSessionId,
-          mcpServers: Object.keys(options.mcpServers),
-          allowedTools: sdk.allowedTools ?? [],
-          PATH: resolved.PATH ?? null,
+      let prepared: PreparedSdkSession | undefined
+      let closed = false
+      let active = options.provisional !== true
+      const started: Promise<Query> = env
+        .then(async (resolved) => {
+          prepared = await runtime?.prepare(options, { ...resolved, ...options.env })
+          if (closed) {
+            throw new Error('The agent session was closed before starting.')
+          }
+          if (active) prepared?.activate?.()
+          const sdk = sdkOptions(
+            {
+              ...options,
+              ...(prepared === undefined ? {} : { env: {}, model: prepared.model ?? options.model }),
+              log,
+            },
+            { ...(prepared?.env ?? resolved), ...clientAppEnv(version) },
+          )
+          if (prepared?.sessionStore !== undefined) {
+            sdk.sessionStore = prepared.sessionStore
+            sdk.sessionStoreFlush = 'eager'
+          }
+          log.info('agent process starting', {
+            executable: sdk.pathToClaudeCodeExecutable ?? null,
+            cwd: options.cwd,
+            model: options.model,
+            effort: options.effort,
+            permissionMode: options.permissionMode,
+            resumeSessionId: options.resumeSessionId,
+            mcpServers: Object.keys(options.mcpServers),
+            allowedTools: sdk.allowedTools ?? [],
+            PATH: resolved.PATH ?? null,
+          })
+          return query({ prompt: input, options: sdk })
         })
-        return query({ prompt: input, options: sdk })
-      })
+        .catch((error: unknown) => {
+          prepared?.close()
+          throw error
+        })
+      // Observe failures even when a caller closes without consuming the stream.
+      void started.catch(() => undefined)
       // The models the user's login offers, as the process reports them once it has started.
       if (onModels !== undefined) {
         started
           .then((session) => session.initializationResult())
           .then(({ models }) => {
-            onModels(models)
+            if (prepared?.publishModels !== false) onModels(models)
           })
           .catch((error: unknown) => {
             log.warn("couldn't read the models the SDK offers", { error })
@@ -993,10 +1039,32 @@ export function createSdkBackend({
       }
       const then = (step: () => Promise<void> | void): void => {
         queue = queue.then(step)
+        void queue.catch(() => undefined)
       }
       return {
+        get contextWindowTokens() {
+          return prepared?.contextWindowTokens
+        },
+        async ready() {
+          await (await started).initializationResult()
+        },
+        activate() {
+          active = true
+          prepared?.activate?.()
+        },
         messages: (async function* () {
-          yield* await started
+          for await (const message of await started) {
+            if (
+              message.type === 'system' &&
+              message.subtype === 'mirror_error' &&
+              prepared?.onMirrorError !== undefined
+            ) {
+              prepared.onMirrorError(message.session_id)
+              log.warn('SDK transcript storage failed', { sessionId: message.session_id })
+              throw new Error('The SDK history could not be saved. The task stopped to protect its history.')
+            }
+            yield message
+          }
         })(),
         send(text, uuid, images) {
           then(() => {
@@ -1007,14 +1075,23 @@ export function createSdkBackend({
           const before = given
           given = settings
           const { model, effort, permissionMode } = settings
-          then(async () => {
+          const applied = queue.then(async () => {
             const session = await started
-            if (model !== before.model || effort !== before.effort) {
+            if (model !== before.model) {
               try {
-                await session.setModel(model)
+                await session.setModel(prepared?.model ?? model)
+              } catch (error) {
+                given = before
+                log.warn("the SDK refused the session's new settings", { model, effort, error })
+                throw error
+              }
+            }
+            if (effort !== before.effort) {
+              try {
                 await session.applyFlagSettings({ effortLevel: effort })
               } catch (error) {
-                log.warn("the SDK refused the session's new settings", { model, effort, error })
+                given = { ...given, effort: before.effort }
+                log.warn("the SDK refused the session's new effort", { effort, error })
               }
             }
             if (permissionMode !== before.permissionMode) {
@@ -1026,6 +1103,9 @@ export function createSdkBackend({
               }
             }
           })
+          queue = applied.catch(() => undefined)
+          void applied.catch(() => undefined)
+          return applied
         },
         applyFlagSettings(settings) {
           // In order with what was asked of the session before it; what comes after waits for it, refused or not.
@@ -1062,13 +1142,17 @@ export function createSdkBackend({
           return answer
         },
         close() {
+          closed = true
+          prepared?.close()
           log.info('agent process closing')
           then(() => {
             input.end()
           })
-          void started.then((session) => {
-            session.close()
-          })
+          void started
+            .then((session) => {
+              session.close()
+            })
+            .catch(() => undefined)
         },
       }
     },

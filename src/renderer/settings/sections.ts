@@ -2,6 +2,7 @@
 export enum SettingsSection {
   General = 'general',
   Agent = 'agent',
+  Models = 'models',
   Notifications = 'notifications',
   Appearance = 'appearance',
   Keyboard = 'keyboard',
@@ -18,6 +19,7 @@ export type AppSection = Exclude<SettingsSection, SettingsSection.Workspace>
 /** The app-wide sections, above the Workspace heading. */
 export const APP_SECTIONS: readonly AppSection[] = [
   SettingsSection.General,
+  SettingsSection.Models,
   SettingsSection.Agent,
   SettingsSection.Notifications,
   SettingsSection.Appearance,
@@ -29,6 +31,7 @@ export const APP_SECTIONS: readonly AppSection[] = [
 /** Each app-wide section's name, as the nav and its heading show it. */
 export const SECTION_TITLES: Readonly<Record<AppSection, string>> = {
   [SettingsSection.General]: 'General',
+  [SettingsSection.Models]: 'Models',
   [SettingsSection.Agent]: 'Agent',
   [SettingsSection.Notifications]: 'Notifications',
   [SettingsSection.Appearance]: 'Appearance',

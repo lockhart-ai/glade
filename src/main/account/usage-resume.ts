@@ -22,6 +22,7 @@
  */
 import type { Database } from 'better-sqlite3'
 import type { UsageSnapshot } from '../../shared/account'
+import { AgentSource, agentSource } from '../../shared/openrouter'
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import { PauseReason, TaskActivity, TaskState, type EpochMs, type Task, type TaskPause } from '../../shared/domain'
 import { canRunAgain, USAGE_RECHECK_MIN_GAP_MS, USAGE_RECHECK_MS } from '../agent/pauses'
@@ -38,6 +39,7 @@ interface LimitedTask extends Task {
 /** Whether a usage limit paused the task's turn. */
 function isLimited(task: Task): task is LimitedTask {
   return (
+    agentSource(task.model) === AgentSource.Anthropic &&
     task.state === TaskState.Active &&
     task.activity === TaskActivity.Paused &&
     task.pause?.reason === PauseReason.UsageLimit

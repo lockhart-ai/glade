@@ -798,6 +798,8 @@ describe('Glade’s own data folder', () => {
     const denied = [
       { name: 'GLADE_CONTROL_URL', mode: 'deny' },
       { name: 'GLADE_CONTROL_TOKEN', mode: 'deny' },
+      { name: 'ANTHROPIC_BASE_URL', mode: 'deny' },
+      { name: 'ANTHROPIC_AUTH_TOKEN', mode: 'deny' },
     ]
     expect(session.options.flagSettings?.sandbox?.credentials?.envVars).toEqual(denied)
     expect(session.flagSettings.at(-1)?.sandbox?.credentials?.envVars).toEqual(denied)

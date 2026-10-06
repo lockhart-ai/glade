@@ -25,6 +25,7 @@ import {
 } from './backend'
 import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
 import { REQUEST_ACCESS_TOOL } from '../../shared/toolName'
+import { DISPATCH_AGENT_TOOL } from '../../shared/managed-agents'
 import { toolResult, toolUse } from './test-sdk-messages'
 
 /** What a test says of a tool call it asks the runner about: the rest is a plain top-level call, suggesting nothing. */
@@ -318,6 +319,15 @@ export class FakeAgentSession implements AgentSession {
     caller: ToolCaller = {},
   ): Promise<void> {
     this.emit(toolUse(toolUseId, name, input, caller.parent ?? null))
+    if (name === DISPATCH_AGENT_TOOL) {
+      const updated = await this.options.hooks?.onChildStarting?.({
+        toolName: name,
+        toolUseId,
+        input,
+        agentId: caller.agentId ?? null,
+      })
+      input = { ...input, ...updated }
+    }
     if (name === REQUEST_ACCESS_TOOL) {
       this.options.hooks?.onAccessRequested?.({ toolUseId, agentId: caller.agentId ?? null, input })
     }

@@ -67,6 +67,12 @@ One JSON object per line:
   `*_SECRET`, `*PASSWORD*`, `authorization`, `cookie`, …) is logged as `[redacted]`, however deep it is. Glade never
   handles your Claude credentials itself, so they never reach the log.
 - **Never logged:** what you type into a terminal tab, its output, and the requests the window sends main.
+- **OpenRouter:** failed inference logs its HTTP status and bounded provider message in the task's `agent` scope.
+  The relay redacts its key and session token from that text; it never logs request bodies, headers, transcript
+  payloads, API key labels or spend/allowance readings. A dropped SDK transcript mirror batch logs the session ID
+  and stops the task; the next start recovers from the complete SDK file or refuses the incomplete mirror.
+  Transport failures log a bounded, redacted reason and close the relay connection so SDK retries and Glade’s
+  Offline pause remain available. Unavailable keys log a distinct message; invalid Messages bodies receive a local 400.
 
 ## The agent's error output
 

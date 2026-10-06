@@ -45,6 +45,7 @@ function StoppedCard({ task }: ErrorCardProps): React.JSX.Element {
   const retryTask = useGladeStore((state) => state.retryTask)
   const toast = useToast()
   const offered = useGladeStore((state) => state.models)
+  const [busy, setBusy] = useState(false)
   const [detailsShown, setDetailsShown] = useState(false)
   // The Retry with another model button, while its menu is open.
   const [modelAnchor, setModelAnchor] = useState<HTMLElement | null>(null)
@@ -52,9 +53,14 @@ function StoppedCard({ task }: ErrorCardProps): React.JSX.Element {
   const opening = errorOpening(error)
 
   const retry = (model?: string): void => {
-    retryTask(task.id, model).catch((failure: unknown) => {
-      toast.show({ message: retryFailureMessage(failure) })
-    })
+    setBusy(true)
+    void retryTask(task.id, model)
+      .catch((failure: unknown) => {
+        toast.show({ message: retryFailureMessage(failure) })
+      })
+      .finally(() => {
+        setBusy(false)
+      })
   }
 
   const current = findModel(offered, task.model)?.id ?? task.model
@@ -87,16 +93,18 @@ function StoppedCard({ task }: ErrorCardProps): React.JSX.Element {
           variant={ButtonVariant.Dark}
           size={ButtonSize.Small}
           className={styles.action}
+          disabled={busy}
           onClick={() => {
             retry()
           }}
         >
-          Retry
+          {busy ? 'Retrying…' : 'Retry'}
         </Button>
         <Button
           variant={ButtonVariant.Ghost}
           size={ButtonSize.Small}
           className={styles.action}
+          disabled={busy}
           aria-haspopup="menu"
           aria-expanded={modelAnchor !== null}
           onClick={(event) => {

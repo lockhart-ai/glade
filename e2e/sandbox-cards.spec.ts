@@ -345,5 +345,7 @@ test('the sandbox stops what Claude Code’s own settings would allow: a card th
   expect(last?.sandbox?.credentials?.envVars).toEqual([
     { name: 'GLADE_CONTROL_URL', mode: 'deny' },
     { name: 'GLADE_CONTROL_TOKEN', mode: 'deny' },
+    { name: 'ANTHROPIC_BASE_URL', mode: 'deny' },
+    { name: 'ANTHROPIC_AUTH_TOKEN', mode: 'deny' },
   ])
 })

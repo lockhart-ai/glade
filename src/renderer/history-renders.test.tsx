@@ -9,6 +9,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsageLevel, UsageLimitKind, type UsageReading } from '../shared/account'
 import { EventType } from '../shared/bridge'
+import { SAMPLE_USAGE } from '../shared/test-openrouter'
 import {
   MessageRole,
   PermissionRequestState,
@@ -444,6 +445,25 @@ describe('the task list, with many tasks', () => {
       expect(renders(usageMeterState)).toBe(index + 1)
     }
     expect(renders(rowStatus)).toBe(0)
+    act(() => {
+      fake.emit({
+        type: EventType.OpenRouterUsageChanged,
+        status: { connected: true, reading: SAMPLE_USAGE, error: null },
+      })
+    })
+    vi.mocked(rowStatus).mockClear()
+    vi.mocked(usageMeterState).mockClear()
+    for (const remaining of [16, 15, 14]) {
+      act(() => {
+        fake.emit({
+          type: EventType.OpenRouterUsageChanged,
+          status: { connected: true, reading: { ...SAMPLE_USAGE, remaining }, error: null },
+        })
+      })
+      expect(screen.getByRole('button', { name: 'OpenRouter usage' })).toHaveTextContent(`$${remaining.toFixed(2)}left`)
+    }
+    expect(renders(rowStatus)).toBe(0)
+    expect(renders(usageMeterState)).toBe(0)
   })
 })
 

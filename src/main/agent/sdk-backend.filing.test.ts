@@ -101,7 +101,7 @@ it('gives a session with the todo hub its three hooks, and any other session exa
   expect(Object.keys(hub)).toEqual(['PreToolUse', 'UserPromptSubmit', 'Stop', 'PostCompact', 'PostToolBatch'])
   expect(hub.PreToolUse?.map(({ matcher }) => matcher)).toEqual([undefined, CHILD_TOOLS])
   // A subagent, and a command that may commit: no watcher's tool is matched at all.
-  expect(CHILD_TOOLS).toBe('Agent|Bash')
+  expect(CHILD_TOOLS).toBe('Agent|mcp__glade-agents__dispatch|Bash')
   // Every message's calls, whatever the tools: no matcher.
   expect(hub.PostToolBatch).toMatchObject([{ hooks: [expect.any(Function)] }])
   expect(hub.PostToolBatch?.[0]?.matcher).toBeUndefined()

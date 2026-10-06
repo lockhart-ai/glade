@@ -1,3 +1,5 @@
+import { MessageRole, TaskActivity, TaskState } from '../../shared/domain'
+import { AgentSource, agentSource } from '../../shared/openrouter'
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, CommandName, EventType, type CommandRequest, type CommandResponse } from '../../shared/bridge'
 import type { MenuState } from '../../shared/commands'
@@ -69,6 +71,9 @@ import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import { CommandFailure } from './errors'
 import type { Batch } from './dispatcher'
 import type { Emit } from './events'
+import type { OpenRouterService } from '../openrouter/service'
+import { openRouterStatus, openRouterUsage } from '../db/repositories/openrouter'
+import { validateModel } from '../models/switches'
 import type { ControlEndpoint } from '../control/endpoint'
 import type { AccountTracker } from '../account/account'
 import { retryLoggedOutTasks, type LoginService } from '../account/login'
@@ -92,6 +97,7 @@ export type Handlers = {
 }
 
 export interface HandlerContext {
+  readonly openrouter?: OpenRouterService
   readonly db: Database
   readonly emit: Emit
   /**
@@ -167,6 +173,11 @@ export function createHandlers(context: HandlerContext): Handlers {
   const workspaceGit = context.workspaceGit ?? createWorkspaceGit()
   // Settings' sandbox lists: each change is saved, broadcast and applied to the running sessions it covers.
   const sandboxGrants = { db, runner, emit }
+  const router = (): OpenRouterService => {
+    if (context.openrouter === undefined)
+      throw new CommandFailure(BridgeErrorCode.InvalidRequest, 'OpenRouter is unavailable')
+    return context.openrouter
+  }
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
     [CommandName.WorkspacesCreate]: ({ rootPath }) => {
@@ -210,7 +221,16 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.TasksCreate]: ({ workspaceId }) => ({ task: createTask(context, workspaceId) }),
     [CommandName.TasksMarkDone]: ({ id }) => ({ task: markTaskDone(context, id) }),
     [CommandName.TasksReopen]: ({ id }) => ({ task: reopenTask(context, id) }),
-    [CommandName.TasksUpdate]: ({ id, patch }) => ({ task: changeTask(context, id, patch) }),
+    [CommandName.TasksUpdate]: async ({ id, patch }) => {
+      const task = requireTask(db, id)
+      const routing =
+        patch.model !== undefined &&
+        (agentSource(task.model) === AgentSource.OpenRouter || agentSource(patch.model) === AgentSource.OpenRouter)
+      if (routing) await runner.changeModel(id, patch.model)
+      return {
+        task: changeTask(context, id, routing ? { ...patch, model: undefined } : patch),
+      }
+    },
     [CommandName.TasksDelete]: ({ id }) => {
       deleteTask(context, id)
       return null
@@ -223,7 +243,21 @@ export function createHandlers(context: HandlerContext): Handlers {
       recipients: batch(() => broadcastMessage({ db, runner, log: chatLog }, text)),
     }),
     [CommandName.TasksStop]: async ({ id }) => ({ task: await runner.stop(id) }),
-    [CommandName.TasksRetry]: ({ id, model }) => ({ task: runner.retry(id, model) }),
+    [CommandName.TasksRetry]: async ({ id, model }) => {
+      const task = requireTask(db, id)
+      const routing =
+        model !== undefined &&
+        (agentSource(task.model) === AgentSource.OpenRouter || agentSource(model) === AgentSource.OpenRouter)
+      if (!routing) return { task: runner.retry(id, model) }
+      if (
+        task.state !== TaskState.Active ||
+        (task.activity !== TaskActivity.Paused && task.activity !== TaskActivity.Error) ||
+        !listMessages(db, id).some(({ role }) => role === MessageRole.User)
+      )
+        throw new CommandFailure(BridgeErrorCode.InvalidTransition, 'The agent is not paused or stopped by an error')
+      const changed = await runner.changeModel(id, model)
+      return { task: changed.activity === TaskActivity.Working ? changed : runner.retry(id) }
+    },
     [CommandName.TasksRetryLoggedOut]: () => ({ tasks: retryLoggedOutTasks({ db, runner, log: ipcLog }) }),
     // However many tasks a usage limit paused, their changes reach the windows as one batch.
     [CommandName.TasksResumePaused]: () => ({
@@ -392,11 +426,25 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.SettingsGet]: () => ({ settings: getSettings(db) }),
     [CommandName.ModelsList]: () => ({ models: listModels(db) }),
+    [CommandName.OpenRouterStatus]: () => openRouterStatus(db),
+    [CommandName.OpenRouterUsage]: () => openRouterUsage(db),
+    [CommandName.OpenRouterRefreshUsage]: ({ force }) => router().refreshUsage(force),
+    [CommandName.OpenRouterProviderModels]: ({ provider }) => router().providerModels(provider),
+    [CommandName.OpenRouterConnect]: ({ key }) => router().connect(key),
+    [CommandName.OpenRouterRefresh]: () => router().refresh(),
+    [CommandName.OpenRouterRemove]: () => router().remove(),
+    [CommandName.OpenRouterEndpoints]: ({ model }) => router().endpoints(model),
+    [CommandName.OpenRouterSelect]: (request) => router().select(request),
     [CommandName.SettingsUpdate]: async ({ patch }) => {
       // A new default model keeps the default effort only if it supports it.
       const { defaultModel, defaultEffort } = patch
-      const effort = effortWithModel(db, defaultModel, defaultEffort, getSettings(db).defaultEffort)
-      const settings = updateSettings(db, effort === undefined ? patch : { ...patch, defaultEffort: effort })
+      if (defaultModel !== undefined) validateModel(db, defaultModel)
+      const current = getSettings(db)
+      const effort = effortWithModel(db, defaultModel, defaultEffort, current.defaultEffort)
+      const settings = updateSettings(db, {
+        ...patch,
+        ...(effort === undefined ? {} : { defaultEffort: effort }),
+      })
       emit({ type: EventType.SettingsChanged, settings })
       // The endpoint follows the switch and the port: answered once it has started, stopped or moved.
       if (patch.controlEnabled !== undefined || patch.controlPort !== undefined) await endpoint.sync()

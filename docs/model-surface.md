@@ -4,6 +4,42 @@ The app gives the agent a small set of tools so the model can drive the UI. Expo
 in-process MCP server (e.g. `createSdkMcpServer`). Names and schemas are a **draft** — confirm with Jared before
 freezing them.
 
+## Choosing subagent models
+
+The parent chooses each child's model; there is no blanket subagent picker or saved child default.
+Use the built-in `Agent` tool for children on the parent's own source. Claude-only tasks retain the native agent
+types, worktree isolation and `SendMessage` behavior. With no OpenRouter key connected, Glade adds no delegation
+tools or instructions to the session.
+
+With a key connected, the in-process `glade-agents` server offers **cross-source** delegation only:
+Claude account → OpenRouter or OpenRouter → Claude account. Same-source dispatch is refused with instructions to
+use `Agent`. Native OpenRouter children use the parent's current route; another OpenRouter route is not supported
+for a child in this version.
+
+| Tool | Input | Result |
+| --- | --- | --- |
+| `mcp__glade-agents__list_models` | `{}` | Current Claude models and enabled OpenRouter model/provider selections, including context windows and indicative OpenRouter prices in USD per token. Choose a model on the other source for dispatch. |
+| `mcp__glade-agents__dispatch` | `{ model, prompt, description, run_in_background?, resume? }` | The cross-source child's id and result, or its id immediately for background work. |
+
+`model` is an exact id from `list_models`; `prompt` supplies the delegated task and necessary context.
+Prefix `description` with `[todo N]` to file the child under that todo. Curation is checked on every dispatch;
+provider choice remains in Settings. `resume` continues a finished child from this task on its original model,
+provided its source still differs from the parent's. Native `SendMessage` cannot address these children.
+Duplicate dispatch tool calls return the saved outcome without starting another child.
+
+Dispatched children run the SDK coding preset, workspace, sandbox and task permissions in separate sessions.
+They currently start at Low effort and inherit the parent's Glade prompt/tools; the main-only guard refuses their
+metadata/control calls. Child-specific prompts/tools and an effort choice are follow-ups. Dispatched children have
+no agent-type selection or native worktree isolation. Their text and tool calls appear under their dispatch in
+Agents, alongside the model. A background result is delivered to the live parent when it finishes. Stop covers the
+child and descendants; ending a delegation ends remaining descendants. An unfinished saved child can be resumed
+explicitly after a relaunch, with the same cross-source restriction.
+
+On a usage-limit source switch, the resumed agent's first message names the children, watchers and wakeups stopped
+by the switch, using their Agents labels and commands. It can restart what it needs; even children on the other
+source are stopped today. See [landing limitations and follow-ups](openrouter-integration-spec.md#landing-limitations-and-follow-ups)
+for the remaining behavior and validation gaps.
+
 ## Main agent only (#366)
 
 Jared only ever talks to a task's main agent, never its subagents, so both of Glade's own in-process MCP servers —
@@ -15,8 +51,8 @@ or filed under a todo (`list_children` and `file_children`, behind the todo hub'
 changes, reads or messages no task.
 
 Decided by a `PreToolUse` hook (`src/main/agent/sdk-backend.ts`'s `subagentGladeToolGuard`, `docs/sdk-notes.md` §9)
-that denies the call before it ever dispatches, keyed on the SDK's `agent_id` (set only for a subagent's call, never
-the main agent's) and `mcp_server.source: 'sdk'` (so only Glade's own in-process servers are covered, never a
+that denies the call before it ever dispatches, keyed on the SDK's `agent_id` or Glade's managed child id, and
+`mcp_server.source: 'sdk'` (so only Glade's own in-process servers are covered, never a
 configured server whose author names it `glade` too). This can't be `canUseTool`: `glade`'s tools are pre-approved in
 `allowedTools`, so Claude Code never asks about them, and Allow all (`bypassPermissions`) skips `canUseTool` for every
 tool, `glade-control`'s included; a `PreToolUse` hook fires regardless of permission mode, and is asked first.

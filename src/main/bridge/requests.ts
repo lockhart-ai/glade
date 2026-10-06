@@ -1,6 +1,13 @@
 // Request schemas live on the main side only, so the renderer never bundles zod for them.
 import { isAbsolute } from 'node:path'
 import { z } from 'zod'
+import type {
+  OpenRouterConnectRequest,
+  OpenRouterProviderModelsRequest,
+  OpenRouterEndpointsRequest,
+  OpenRouterChoiceRequest,
+  OpenRouterUsageRefreshRequest,
+} from '../../shared/openrouter'
 import {
   CommandName,
   MAX_RENDERER_ERROR_TEXT,
@@ -636,6 +643,27 @@ export const REQUEST_SCHEMAS = {
   [CommandName.UiStateSet]: uiStateSetRequest,
   [CommandName.SettingsGet]: emptyRequest,
   [CommandName.ModelsList]: emptyRequest,
+  [CommandName.OpenRouterStatus]: emptyRequest,
+  [CommandName.OpenRouterUsage]: emptyRequest,
+  [CommandName.OpenRouterRefreshUsage]: z.strictObject({
+    force: z.boolean(),
+  }) satisfies z.ZodType<OpenRouterUsageRefreshRequest>,
+  [CommandName.OpenRouterProviderModels]: z.strictObject({
+    provider: z.string().min(1).max(100),
+  }) satisfies z.ZodType<OpenRouterProviderModelsRequest>,
+  [CommandName.OpenRouterConnect]: z.strictObject({
+    key: z.string().trim().min(1).max(4096),
+  }) satisfies z.ZodType<OpenRouterConnectRequest>,
+  [CommandName.OpenRouterRefresh]: emptyRequest,
+  [CommandName.OpenRouterRemove]: emptyRequest,
+  [CommandName.OpenRouterEndpoints]: z.strictObject({
+    model: z.string().min(1).max(300),
+  }) satisfies z.ZodType<OpenRouterEndpointsRequest>,
+  [CommandName.OpenRouterSelect]: z.strictObject({
+    model: z.string().min(1).max(300),
+    provider: z.string().min(1).max(100),
+    enabled: z.boolean(),
+  }) satisfies z.ZodType<OpenRouterChoiceRequest>,
   [CommandName.SettingsUpdate]: settingsUpdateRequest,
   [CommandName.SearchQuery]: searchQueryRequest,
   [CommandName.PluginsList]: emptyRequest,

@@ -2,7 +2,8 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { STARTUP_FAILURE_ERROR } from '../src/main/agent/scripts'
-import { expect, test } from './fixtures'
+import { expect, holdCommand, test } from './fixtures'
+import { CommandName } from '../src/shared/bridge'
 import { chat, firstRun, inputBar, taskHeader, taskList, taskPanel } from './selectors'
 
 /** Opens a workspace, starts a task and sends it its first message, which the `flaky-api` script fails. */
@@ -67,7 +68,8 @@ test('an error stops the agent with a card, and Retry resumes the same turn', as
 test('Retry with another model picks the model, then retries on it', async ({ launch, tempFolder }) => {
   const root = join(tempFolder(), 'acme-api')
   mkdirSync(root)
-  const { window } = await launch({ agentScript: 'flaky-api', chosenFolder: root })
+  const glade = await launch({ agentScript: 'flaky-api', chosenFolder: root })
+  const { window } = glade
   await startFailingTask(window)
   await expectStoppedByError(window)
   const bar = inputBar(window)
@@ -75,7 +77,17 @@ test('Retry with another model picks the model, then retries on it', async ({ la
   await expect(bar.setting('Model')).toHaveAccessibleName('Model: Default (recommended)')
 
   await chat(window).errorButton('Retry with another model').click()
+  const retrying = await holdCommand(glade, CommandName.TasksRetry)
   await window.getByRole('menuitemradio', { name: 'Sonnet', exact: true }).click()
+  await retrying.reached()
+  await expect(chat(window).errorCard.getByRole('button', { name: 'Retrying…' })).toBeDisabled()
+  await expect(chat(window).errorButton('Retry with another model')).toBeDisabled()
+  const media = process.env.GLADE_OPENROUTER_MEDIA_DIR
+  if (media !== undefined) {
+    mkdirSync(media, { recursive: true })
+    await chat(window).errorCard.screenshot({ path: join(media, 'model-retry-pending.png') })
+  }
+  await retrying.release()
 
   await expectRecovered(window)
   await expect(bar.setting('Model')).toHaveAccessibleName('Model: Sonnet')

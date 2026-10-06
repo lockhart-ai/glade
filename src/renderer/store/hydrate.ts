@@ -49,6 +49,7 @@ export async function loadSnapshot(bridge: GladeBridge): Promise<GladeData> {
     { calls },
     { models },
     { status: accountStatus },
+    openrouterUsage,
     { status: login },
   ] = await Promise.all([
     bridge.invoke(CommandName.WorkspacesList, {}),
@@ -59,6 +60,7 @@ export async function loadSnapshot(bridge: GladeBridge): Promise<GladeData> {
     bridge.invoke(CommandName.SubagentsListRunning, {}),
     bridge.invoke(CommandName.ModelsList, {}),
     bridge.invoke(CommandName.AccountStatus, {}),
+    bridge.invoke(CommandName.OpenRouterUsage, {}),
     bridge.invoke(CommandName.LoginStatus, {}),
   ])
   const lists = await Promise.all(
@@ -85,6 +87,7 @@ export async function loadSnapshot(bridge: GladeBridge): Promise<GladeData> {
           settings,
           models,
           accountStatus,
+          openrouterUsage,
           login,
         } satisfies GladeData,
         watchers,

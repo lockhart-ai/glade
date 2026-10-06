@@ -8,7 +8,7 @@ import {
   closePermissionRequest,
   getPermissionRequest,
 } from '../repositories/permission-requests'
-import { sampleTask, sampleWorkspace } from '../repositories/test-database'
+import { sampleLegacyTask, sampleWorkspace } from '../repositories/test-database'
 import { MIGRATIONS } from '.'
 import { sandboxPermissionRequestsMigration } from './0056-sandbox-permission-requests'
 
@@ -23,7 +23,7 @@ it('leaves existing requests asking nothing of the sandbox, granted to nobody, a
     db,
     MIGRATIONS.filter((migration) => migration.version < 56),
   )
-  const task = sampleTask(db, sampleWorkspace(db).id)
+  const task = sampleLegacyTask(db, sampleWorkspace(db).id)
   db.prepare(
     `INSERT INTO permission_requests (id, task_id, turn, tool_use_id, tool_name, input, suggestions, default_to_no,
       suppress_always_allow_rule, state, created_at, closed_at)

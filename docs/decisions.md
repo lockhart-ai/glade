@@ -7,12 +7,28 @@
 - **Desktop shell:** Electron. macOS first.
 - **Agent runtime:** Claude Agent SDK (TypeScript), running in Electron's main process. It streams typed events, takes
   custom tools in-process, resumes sessions and reads CLAUDE.md files. (Recommended over driving the Claude Code CLI.)
-- **Auth:** login-based. Glade runs on the user's own Claude Code login. Glade never handles credentials itself: no
+- **Claude auth:** login-based. Glade runs on the user's own Claude Code login. Glade never handles Claude credentials itself: no
   claude.ai login screen, no reading or storing OAuth tokens. It runs the SDK's unmodified bundled Claude Code binary,
   which still uses `ANTHROPIC_API_KEY` if one happens to be set. When that login expires or goes, **Log in** (#409) runs
   the same binary's own `claude auth login`, which opens Anthropic's sign-in page in the browser and saves the login
   itself: Glade sees only whether it worked. Policy risk: Anthropic's docs don't clearly permit subscription use by a
   third-party app (see `sdk-notes.md` §1 and Open risks).
+- **OpenRouter inference (#551, user requirements):** keep the SDK harness and add an optional encrypted inference
+  key while Claude login stays active. Discover and curate model/provider pairs in Settings. The parent chooses each
+  child's model; no blanket child picker or default. For the initial landing, same-source children use native `Agent`,
+  preserving agent types, worktree isolation and `SendMessage`. With no key, no delegation tools or instructions are
+  added. Glade's separate-session dispatch is only for the other source (Claude ↔ OpenRouter); a different
+  OpenRouter child route is deferred. Each route pins its provider and keeps its own context window. Dispatched
+  children start at Low effort and inherit the main prompt/tools behind the main-only guard; better child defaults
+  and tool sets are follow-ups. Child history, identity and model live in SQLite; Agents shows the model.
+  Model switches retain history and add an Agents/Main log entry. Shared SDK todos are first set up for a
+  cross-source session; ordinary Claude tasks keep their SDK list, and link failures are logged without preventing
+  startup. A limit-paused switch ends all old background work, names it in the new session's first message and
+  resumes the held turn on OpenRouter. Ordinary busy tasks must stop before switching source. OpenRouter has
+  separate user configuration and memory; project configuration and Glade tools still load. Subscription usage and
+  OpenRouter key USD spend remain separate in the sidebar. No management key is requested.
+  See [landing limitations and follow-ups](openrouter-integration-spec.md#landing-limitations-and-follow-ups) for
+  deferred behavior and validation; these are not shipped capabilities.
 - **State:** everything in SQLite — workspaces, tasks, chat, tool log, todos, artifacts, queue, UI state. Reopening
   after a crash resumes from the database.
 - **Agent sessions run in the workspace root** (the SDK session's `cwd`), so the workspace's own `CLAUDE.md` (the

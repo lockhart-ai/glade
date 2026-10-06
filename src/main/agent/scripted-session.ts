@@ -807,8 +807,9 @@ export class ScriptedSession implements AgentSession {
         this.toolResult(turn, step.id, step.output, step.isError ?? false, step.details)
         return
       case ScriptStepKind.GladeTool: {
-        this.toolUse(turn, step.id, gladeToolName(step.tool), step.input, null, uuid)
-        const outcome = await this.tools.call(gladeToolName(step.tool), step.input)
+        const name = step.server === undefined ? gladeToolName(step.tool) : `mcp__${step.server}__${step.tool}`
+        const input = await this.called(turn, step.id, name, step.input, null, uuid)
+        const outcome = await this.tools.call(name, input, undefined, this.sdkToolId(turn, step.id))
         this.toolResult(turn, step.id, outcome.output, outcome.isError)
         return
       }

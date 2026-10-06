@@ -1,5 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { SAMPLE_CHOICE } from '../../shared/test-openrouter'
+import { AgentSource } from '../../shared/openrouter'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import { PauseReason, TaskActivity, UiStateKey, type Task, type TaskPause } from '../../shared/domain'
 import type { ModelChoice } from '../../shared/models'
@@ -32,13 +34,16 @@ function paused(
   }
 }
 
-async function renderBanner(tasks: Task[], models?: readonly ModelChoice[]) {
-  const fake = fakeBridge({
-    workspaces: [sampleWorkspace('w1'), sampleWorkspace('w2', 'Billing')],
-    tasks,
-    uiState: [{ key: UiStateKey.ActiveWorkspaceId, value: 'w1' }],
-    ...(models === undefined ? {} : { models }),
-  })
+async function renderBanner(tasks: Task[], models?: readonly ModelChoice[], retry?: () => Promise<{ task: Task }>) {
+  const fake = fakeBridge(
+    {
+      workspaces: [sampleWorkspace('w1'), sampleWorkspace('w2', 'Billing')],
+      tasks,
+      uiState: [{ key: UiStateKey.ActiveWorkspaceId, value: 'w1' }],
+      ...(models === undefined ? {} : { models }),
+    },
+    retry === undefined ? {} : { [CommandName.TasksRetry]: retry },
+  )
   const store = createGladeStore(fake.bridge)
   render(
     <GladeStoreProvider store={store}>
@@ -181,11 +186,46 @@ describe('PauseBanner', () => {
     // They all run on Opus now.
     expect(await screen.findByRole('menuitemradio', { name: 'Opus 5.5' })).toHaveAttribute('aria-checked', 'true')
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Sonnet 5' }))
+    await act(() => Promise.resolve())
 
     for (const id of ['t1', 't2', 't3']) {
       expect(invoke).toHaveBeenCalledWith(CommandName.TasksRetry, { id, model: 'claude-sonnet-5' })
     }
     expect(invoke).not.toHaveBeenCalledWith(CommandName.TasksRetry, expect.objectContaining({ id: 't9' }))
+  })
+
+  it('groups the sources and switches paused tasks one at a time with pending feedback', async () => {
+    const model: ModelChoice = {
+      id: SAMPLE_CHOICE.id,
+      name: 'Sample Flash · Sample Host',
+      description: '',
+      resolvedModel: null,
+      efforts: [],
+      source: AgentSource.OpenRouter,
+    }
+    let finish: (value: { task: Task }) => void = () => undefined
+    const retry = vi.fn(
+      () =>
+        new Promise<{ task: Task }>((resolve) => {
+          finish = resolve
+        }),
+    )
+    await renderBanner(LIMITED.slice(0, 2), [...SDK_MODELS, model], retry)
+    fireEvent.click(screen.getByRole('button', { name: 'Switch model' }))
+    expect(await screen.findByText('OpenRouter')).toBeInTheDocument()
+    expect(screen.getByText('Anthropic account')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitemradio', { name: model.name }))
+    expect(await screen.findByRole('button', { name: 'Switching…' })).toBeDisabled()
+    expect(retry).toHaveBeenCalledOnce()
+    await act(() => {
+      finish({ task: { ...sampleTask('t1', 'w1'), activity: TaskActivity.Working, pause: null } })
+      return Promise.resolve()
+    })
+    expect(retry).toHaveBeenCalledTimes(2)
+    await act(() => {
+      finish({ task: { ...sampleTask('t2', 'w1'), activity: TaskActivity.Working, pause: null } })
+      return Promise.resolve()
+    })
   })
 
   it('offers the SDK’s models, checking the one the tasks run on, whether saved by its alias or its full id', async () => {
@@ -206,6 +246,7 @@ describe('PauseBanner', () => {
         .map((item) => item.textContent),
     ).toEqual(['Sonnet'])
     fireEvent.click(within(menu).getByRole('menuitemradio', { name: 'Haiku' }))
+    await act(() => Promise.resolve())
 
     expect(invoke).toHaveBeenCalledWith(CommandName.TasksRetry, { id: 't1', model: 'haiku' })
     expect(invoke).toHaveBeenCalledWith(CommandName.TasksRetry, { id: 't2', model: 'haiku' })

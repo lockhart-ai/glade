@@ -40,6 +40,8 @@ import { setWorkspaceSelection } from './workspace-selections'
 import { addWatcher } from './watchers'
 import { addTaskCommit, CommitSource } from './task-commits'
 import { getWorkspace } from './workspaces'
+import { sqliteSessionStore } from '../../openrouter/transcripts'
+import { completeModelSwitch, stageModelSwitch } from '../../models/switches'
 
 let test: TestDatabase
 let workspace: Workspace
@@ -76,8 +78,23 @@ function attachedFile(taskId: string, name: string): AttachedFile {
 }
 
 /** Gives a task a row in every table that belongs to one. */
-function fillTask(db: Database, task: Task): void {
+async function fillTask(db: Database, task: Task): Promise<void> {
   const taskId = task.id
+  db.prepare(
+    "INSERT INTO managed_agents VALUES (?, ?, 'dispatch', 'sonnet', 'child-session', 'completed', 'Done')",
+  ).run(`child-${taskId}`, taskId)
+  db.prepare("INSERT INTO sdk_transcript_backups VALUES (?, 'session', ?, '[]')").run(taskId, taskId)
+  await sqliteSessionStore(db, taskId).append({ projectKey: 'sample', sessionId: taskId }, [
+    { type: 'user', uuid: taskId },
+  ])
+  db.prepare("INSERT INTO sdk_transcript_failures VALUES (?, ?, ?, 'mirror_error', '/sample/claude')").run(
+    taskId,
+    taskId,
+    taskId,
+  )
+  stageModelSwitch(db, taskId, task.model, 'claude-sonnet-5')
+  completeModelSwitch(db, taskId, 'claude-sonnet-5', 1)
+  stageModelSwitch(db, taskId, 'claude-sonnet-5', 'claude-haiku-4-5')
   appendMessage(db, {
     taskId,
     role: MessageRole.User,
@@ -204,6 +221,7 @@ const FILLED_TABLES = [
   'images',
   // Its unsent input draft.
   'input_drafts',
+  'managed_agents',
   'messages',
   // The notifications sent about it, for the menu bar popover's Recent section.
   'notifications',
@@ -220,6 +238,9 @@ const FILLED_TABLES = [
   // The folders and domains its sandbox was granted for it alone (#449).
   'sandbox_grants',
   // The search index's rows for its fields and messages, which a new task and `fillTask`'s message make.
+  'sdk_transcript_backups',
+  'sdk_transcript_failures',
+  'sdk_transcripts',
   'search_documents',
   // What its agent session has been given of Glade's instructions and its handoff note.
   'session_context',
@@ -227,6 +248,7 @@ const FILLED_TABLES = [
   'task_backfills',
   // The commits its agent made (the Changes tab).
   'task_commits',
+  'task_model_switches',
   // The permission rules granted it with Allow for this task.
   'task_permission_rules',
   // How you left each of its todos' panels in the todo hub (P16).
@@ -242,13 +264,13 @@ describe('deleteTask', () => {
     expect(taskTables(test.db)).toEqual(FILLED_TABLES)
   })
 
-  it('leaves no row in any table that belongs to the task, and every other task as it was', () => {
+  it('leaves no row in any table that belongs to the task, and every other task as it was', async () => {
     // In two workspaces, as a workspace has one selected task.
     const other = sampleWorkspace(test.db, '/code/acme-web')
     const doomed = sampleTask(test.db, workspace.id)
     const kept = sampleTask(test.db, other.id)
-    fillTask(test.db, doomed)
-    fillTask(test.db, kept)
+    await fillTask(test.db, doomed)
+    await fillTask(test.db, kept)
     for (const table of FILLED_TABLES) expect(rowsOf(test.db, table, doomed.id), table).toBeGreaterThan(0)
 
     expect(deleteTask(test.db, doomed.id)).toBe(true)

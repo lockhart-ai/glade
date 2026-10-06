@@ -5,6 +5,7 @@ import type { EpochMs } from '../../../shared/domain'
 import { guessContextWindow } from '../../../shared/models'
 import { Row } from './rows'
 import { offeredModels } from './sdk-models'
+import { AgentSource, agentSource } from '../../../shared/openrouter'
 
 /** The window the SDK last reported for each model, by every id it went by. */
 export function getReportedWindows(db: Database): ReadonlyMap<string, number> {
@@ -39,4 +40,15 @@ export function recordReportedWindow(
  */
 export function guessModelWindow(db: Database, model: string): number {
   return guessContextWindow(offeredModels(db), getReportedWindows(db), model)
+}
+
+/** Independently routed children have their own windows; the task retains its selected model's window. */
+export function taskModelWindow(db: Database, model: string): number {
+  if (agentSource(model) !== AgentSource.OpenRouter) return guessModelWindow(db, model)
+  const raw = db
+    .prepare(
+      "SELECT CAST(json_extract(choice, '$.model.contextLength') AS INTEGER) AS window FROM openrouter_choices WHERE id = ?",
+    )
+    .get(model)
+  return raw === undefined ? guessModelWindow(db, model) : new Row('openrouter_choices', raw).integer('window')
 }

@@ -631,6 +631,12 @@ function commandNetwork(world: World, targets: Targets): AttackGroup {
       'curl -s -S -m 3 "$ANTHROPIC_BASE_URL/x/cmd-net-model"',
     ),
     bash(
+      'cmd-net-relay-token',
+      "a command reads the inference relay's URL and token from its environment",
+      'printenv ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL; set | grep -E "ANTHROPIC_(AUTH_TOKEN|BASE_URL)="',
+      { escapedIf: /glade-stand-in-not-a-key|ANTHROPIC_BASE_URL=http/ },
+    ),
+    bash(
       'cmd-net-control-token',
       "a command reads the control endpoint's token from its environment",
       'printenv GLADE_CONTROL_TOKEN GLADE_CONTROL_URL; set | grep -i glade_control',
