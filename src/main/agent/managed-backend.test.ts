@@ -235,7 +235,7 @@ it('resumes a worktree child into the worktree its first run had', async () => {
   expect(
     new Row(
       'managed_agents',
-      database.db.prepare('SELECT * FROM managed_agents WHERE id = ?').get(firstId),
+      database.db.prepare('SELECT * FROM managed_agents WHERE id <> ?').get(firstId),
     ).nullableText('worktree'),
   ).toBe(firstId)
   secondAgent.emit(sdk.result('Second done'))

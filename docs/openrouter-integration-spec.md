@@ -32,8 +32,8 @@ There is no blanket subagent model or second input-bar picker. The parent choose
 
 `mcp__glade-agents__list_models` returns the current Claude models and enabled OpenRouter routes, including their
 context windows and OpenRouter input/output prices in USD per token. `mcp__glade-agents__dispatch` takes `model`,
-`prompt`, `description`, optional `run_in_background`, optional `resume` (a previously returned child ID), and optional `isolation`
-(`"worktree"`: the child starts in its own git worktree, #558).
+`prompt`, `description`, optional `run_in_background`, optional `resume` (a previously returned child ID), and
+optional `isolation` (`"worktree"`: the child starts in its own git worktree, #558).
 These tools are added only when an OpenRouter key is connected; a keyless Claude session's prompt and tools are
 unchanged. Use native `Agent` for same-source children, preserving native agent types, worktree isolation and
 `SendMessage`. `dispatch` starts the existing SDK backend in another session, in the same workspace, on the

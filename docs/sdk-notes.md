@@ -3382,7 +3382,8 @@ guard even without a native `agent_id`. Low initial effort and inherited main-ag
 
 **A dispatched child's worktree (#558) [probed on Claude Code 2.1.283, no model call].** `dispatch` with
 `isolation: "worktree"` starts the child's session with `extraArgs: { worktree: <child id> }`, Claude Code's
-`--worktree <name>` flag. Run headless in throwaway repositories against an unreachable API: the worktree is
+`--worktree <name>` flag (checked through the SDK's bundled binary too, 0.3.283: `system/init` names the worktree).
+Run headless in throwaway repositories against an unreachable API: the worktree is
 `<repository>/.claude/worktrees/<name>` on branch `worktree-<name>`, and `system/init`'s `cwd` is that folder; it
 starts from the remote's default branch when there is a remote (the `worktree.baseRef` setting's default, `fresh`)
 and from local `HEAD` when there is none; the same name with `--resume <session>` goes back into it and finds the
