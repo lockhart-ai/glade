@@ -19,7 +19,7 @@ import { setOpenRouterChoice, setOpenRouterConnection } from '../db/repositories
 import { updateSettings } from '../db/repositories/settings'
 import { SAMPLE_CHOICE, SAMPLE_MODEL, SAMPLE_PROVIDER } from '../../shared/test-openrouter'
 import { DISPATCH_AGENT_TOOL } from '../../shared/managed-agents'
-import { FakeAgentBackend, settle } from './fake-backend'
+import { FakeAgentBackend, FakeAgentSession, settle } from './fake-backend'
 import { createAgentRunner, type AgentRunner } from './runner'
 import * as sdk from './test-sdk-messages'
 
@@ -91,6 +91,15 @@ it('continues the same limit-paused task on OpenRouter without rewriting chat, c
   expect(
     listToolEvents(database.db, task.id).filter((event) => 'text' in event && event.text.startsWith('Switched model')),
   ).toHaveLength(1)
+})
+
+it('sends the first prompt of a quiet limit-paused switch unchanged', async () => {
+  await previousTurn()
+  updateTask(database.db, task.id, { activity: TaskActivity.Paused, pause })
+  runner.queue(task.id, 'Also check its tests.')
+  await runner.changeModel(task.id, SAMPLE_CHOICE.id)
+  expect(backend.session.sent).toHaveLength(1)
+  expect(backend.session.sent[0]?.text).toBe('Read the sample file and remember its contents.')
 })
 
 it('accepts a new message after a paused picker switch without waiting for the Claude reset', async () => {
@@ -525,6 +534,139 @@ it('ends background work when a usage-paused task switches and retries the held 
   await settle()
   runner.send(task.id, 'Continue.')
   expect(backend.session.sent.at(-1)?.text).toBe('Continue.')
+})
+
+/**
+ * Leaves a limit-paused task with a dispatched child, a native background child, a scheduled wakeup and a running
+ * monitor, as the "ends background work" test sets them up, and snapshots the stored chat and tool calls. With
+ * `onOpenRouter`, the task runs a turn on OpenRouter first, so the switch under test can go back to a Claude model.
+ */
+async function limitPausedWithWork(onOpenRouter = false): Promise<{
+  original: FakeAgentSession
+  child: FakeAgentSession
+  history: ReturnType<typeof listMessages>
+  calls: ReturnType<typeof listToolEvents>
+}> {
+  await previousTurn()
+  if (onOpenRouter) {
+    await runner.changeModel(task.id, SAMPLE_CHOICE.id)
+    runner.send(task.id, 'Note what the tests cover.')
+    backend.session.emit(sdk.init())
+    backend.session.emit(sdk.result('Noted.'))
+    await settle()
+  }
+  const original = backend.session
+  // Dispatch starts a child on the other source: a Claude model when the parent runs on OpenRouter, and vice versa.
+  await original.callTool('managed-call', DISPATCH_AGENT_TOOL, {
+    model: onOpenRouter ? 'claude-sonnet-5' : SAMPLE_CHOICE.id,
+    prompt: 'Check the file.',
+    description: 'Read sample implementation',
+    run_in_background: true,
+  })
+  const child = backend.session
+  expect(child).not.toBe(original)
+  original.emit(...sdk.backgroundLaunch('bg-call', 'bg-sdk', 'Watch progress'))
+  await settle()
+  original.emit(sdk.result('Watching.'))
+  await settle()
+  addWatcher(database.db, {
+    taskId: task.id,
+    kind: WatcherKind.Wakeup,
+    toolUseId: 'pause-wake',
+    parentToolUseId: null,
+    sdkId: 'pause-job',
+    label: 'Follow up',
+    detail: 'Check tests',
+    cron: null,
+    schedule: '1h',
+    recurring: false,
+    state: WatcherState.Scheduled,
+    nextDueAt: Date.now() + 3600_000,
+    expiresAt: null,
+  })
+  addWatcher(database.db, {
+    taskId: task.id,
+    kind: WatcherKind.Monitor,
+    toolUseId: 'monitor',
+    parentToolUseId: null,
+    sdkId: 'monitor-sdk',
+    label: 'Watch tests',
+    detail: 'tail -f test.log',
+    cron: null,
+    schedule: null,
+    recurring: true,
+    state: WatcherState.Running,
+    nextDueAt: null,
+    expiresAt: null,
+  })
+  updateTask(database.db, task.id, { activity: TaskActivity.Paused, pause })
+  return { original, child, history: listMessages(database.db, task.id), calls: listToolEvents(database.db, task.id) }
+}
+
+it('keeps the stored chat unchanged when the switch note is prepended', async () => {
+  const { original, child, history, calls } = await limitPausedWithWork()
+  await runner.changeModel(task.id, SAMPLE_CHOICE.id)
+  expect(original.closed).toBe(true)
+  expect(child.closed).toBe(true)
+  expect(backend.session.sent[0]?.text).toContain('will not report back')
+  expect(listMessages(database.db, task.id)).toEqual(history)
+  // The children's own tool-call rows are ended by the switch; every earlier row keeps its place.
+  expect(listToolEvents(database.db, task.id).slice(0, calls.length - 2)).toEqual(calls.slice(0, calls.length - 2))
+})
+
+it('names cron jobs in the switch note and omits the dash when a detail repeats its label', async () => {
+  await limitPausedWithWork()
+  addWatcher(database.db, {
+    taskId: task.id,
+    kind: WatcherKind.Cron,
+    toolUseId: 'cron-call',
+    parentToolUseId: null,
+    sdkId: 'cron-job',
+    label: 'Nightly sweep',
+    detail: 'Report status',
+    cron: '0 9 * * *',
+    schedule: null,
+    recurring: true,
+    state: WatcherState.Scheduled,
+    nextDueAt: Date.now() + 3600_000,
+    expiresAt: null,
+  })
+  addWatcher(database.db, {
+    taskId: task.id,
+    kind: WatcherKind.Command,
+    toolUseId: 'command',
+    parentToolUseId: null,
+    sdkId: 'command-sdk',
+    label: 'Watch logs',
+    detail: 'Watch logs',
+    cron: null,
+    schedule: null,
+    recurring: false,
+    state: WatcherState.Running,
+    nextDueAt: null,
+    expiresAt: null,
+  })
+  await runner.changeModel(task.id, SAMPLE_CHOICE.id)
+  const firstMessage = backend.session.sent[0]?.text ?? ''
+  expect(firstMessage).toContain('cron: Nightly sweep — Report status')
+  expect(firstMessage).toContain('command: Watch logs')
+  expect(firstMessage).not.toContain('Watch logs —')
+})
+
+it('gives the switch note to a limit-paused task switched back to a Claude model', async () => {
+  const { original, child } = await limitPausedWithWork(true)
+  await runner.changeModel(task.id, 'claude-sonnet-5')
+  expect(getTask(database.db, task.id)).toMatchObject({ model: 'claude-sonnet-5', pause })
+  expect(original.closed).toBe(true)
+  expect(child.closed).toBe(true)
+  runner.resumePaused(task.id)
+  const firstMessage = backend.session.sent[0]?.text ?? ''
+  expect(firstMessage).toContain('Glade stopped the following background work')
+  expect(firstMessage).toContain('wakeup: Follow up — Check tests')
+  expect(firstMessage).toContain('monitor: Watch tests — tail -f test.log')
+  expect(firstMessage).toContain('Child: Watch progress')
+  expect(firstMessage).toContain('Child: Read sample implementation')
+  expect(firstMessage).toContain('Note what the tests cover.')
 })
 
 it('rejects a smaller context window before preparing or committing a handoff', async () => {
