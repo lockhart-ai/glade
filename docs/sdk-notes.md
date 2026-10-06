@@ -3378,7 +3378,8 @@ key means no added delegation tools or prompt. With a key, `glade-agents.dispatc
 **only on the other source**, rejecting same-source choices. Native OpenRouter children stay on the parent's route;
 selecting another OpenRouter child route is deferred. Cross-source child continuations use dispatch's saved ID
 and original model while the source still differs from the parent's. Managed child hooks retain the main-agent-only
-guard even without a native `agent_id`. Low initial effort and inherited main-agent prompt/tools remain limitations.
+guard even without a native `agent_id`. A dispatched child gets its own short prompt and only the tools it may use
+(#560): no Glade metadata tools, `request_access` alone in a sandboxed session, its own dispatch tools kept.
 
 **A dispatched child's worktree (#558) [probed on Claude Code 2.1.283, no model call].** `dispatch` with
 `isolation: "worktree"` starts the child's session with `extraArgs: { worktree: <child id> }`, Claude Code's

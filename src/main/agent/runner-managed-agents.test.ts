@@ -11,6 +11,7 @@ import { Row } from '../db/repositories/rows'
 import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
 import { FakeAgentBackend, type FakeAgentSession, settle } from './fake-backend'
 import { createAgentRunner, type AgentRunner } from './runner'
+import { DELEGATED_CHILD_PROMPT } from './system-prompt'
 import * as sdk from './test-sdk-messages'
 
 const CLAUDE = 'claude-haiku-4-5'
@@ -72,7 +73,7 @@ it.each([
   const child = await launched()
   expect(child.options.model).toBe(childModel)
   expect(child.options.managedAgentId).toBe(childId('dispatch-1'))
-  expect(child.options.systemPromptAppend).toContain('delegated subagent')
+  expect(child.options.systemPromptAppend.startsWith(DELEGATED_CHILD_PROMPT)).toBe(true)
   expect(child.sent[0]?.text).toBe('Read the sample file.')
   child.emit(
     sdk.init('saved-child'),

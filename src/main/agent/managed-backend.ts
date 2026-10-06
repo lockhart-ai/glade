@@ -23,6 +23,7 @@ import {
   type SubagentStartedEvent,
 } from './events'
 import {
+  McpServerAudience,
   PromptVerdict,
   type AgentBackend,
   type AgentSession,
@@ -33,6 +34,7 @@ import { SILENT_LOGGER } from '../logging/logger'
 import { TOOL_USE_ID_META } from './mcp-tool-caller'
 import { isSubagentTool } from '../../shared/subagents'
 import { isSandboxed } from './sdk-backend'
+import { delegatedChildPrompt } from './system-prompt'
 
 interface ManagedBackendOptions {
   readonly db: Database
@@ -226,6 +228,9 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
         "INSERT INTO managed_agents (id, task_id, tool_use_id, model, state, worktree) VALUES (?, ?, ?, ?, 'running', ?)",
       ).run(id, taskId, toolUseId, input.model, worktree)
       const active: { run?: ChildRun } = {}
+      // The child runs in the sandbox its parent runs in, if any, and gets the servers and prompt built for a child:
+      // only what it may use, and none of the main agent's Glade instructions (#560).
+      const sandboxed = isSandboxed({ flagSettings: flags })
       const onToolPermission = options.onToolPermission
       const { onAccessRequested, onToolStarting, onChildStarting } = options.hooks ?? {}
       const childOptions: AgentSessionOptions = {
@@ -239,8 +244,8 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
         effort: effortFor(listModels(db), input.model, settings.effort),
         permissionMode: settings.permissionMode,
         flagSettings: flags,
-        mcpServers: options.createMcpServers?.() ?? {},
-        systemPromptAppend: `${options.systemPromptAppend}\nYou are a delegated subagent. Complete the parent's task and report back. Only the parent may change Glade metadata, ask the user, or control other tasks. Finish your descendants before returning; remaining work ends with this delegation.`,
+        mcpServers: options.createMcpServers?.({ audience: McpServerAudience.DispatchedChild, sandboxed }) ?? {},
+        systemPromptAppend: delegatedChildPrompt(sandboxed),
         onSubagentEvent: (event) => {
           if (event.kind === AgentEventKind.SubagentStarted) active.run?.tasks.set(event.sdkTaskId, event)
           if (event.kind === AgentEventKind.TaskFinished) active.run?.tasks.delete(event.sdkTaskId)

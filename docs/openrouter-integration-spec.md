@@ -221,8 +221,8 @@ capabilities; the initial change keeps native same-source delegation and Claude-
 
 - **Child effort:** a dispatched child takes its parent's effort at the time of the dispatch, or its model's default
   effort when the model doesn't offer that one (#556). A per-dispatch effort argument is not built.
-- **Child prompt/tools:** dispatched children inherit the main Glade prompt and tools, with metadata/control calls
-  refused by the main-only guard. A child-specific prompt/tool set and agent types are not implemented.
+- **Child prompt/tools:** a dispatched child gets its own short prompt and only the tools it may use (#560); agent
+  types are not implemented.
 - **Child worktrees:** a dispatched child's worktree (`isolation: "worktree"`, #558) is kept when it ends, even
   unchanged: Glade's git only reads (#487), so removing it is left to the parent. Outside a git repository the child
   fails with Claude Code's own exit. Not yet run with a real model: a child working in one, and a child and its own

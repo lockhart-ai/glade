@@ -126,6 +126,25 @@ export function handoffSection(handoff: TaskHandoff): string {
 }
 
 /**
+ * What a dispatched child's prompt is instead of the main agent's (#560): everything a child needs and nothing of its
+ * parent's Glade instructions, whose tools it isn't offered. It says the same on every start, a resumed child
+ * included, so resuming doesn't change what a child is told. In a sandboxed session it also says what the sandbox is
+ * and to ask with `request_access` (`SANDBOX_LINE`); an unsandboxed child's doesn't mention the sandbox.
+ */
+export const DELEGATED_CHILD_PROMPT = [
+  "You are a subagent started by a Glade task's agent to do one task for it.",
+  'Do the task you were given.',
+  'Your final message is the only thing the parent reads, so report there what you did and found.',
+  "Only the parent talks to the user and changes Glade's metadata.",
+  'Finish your own descendants before returning: remaining work ends with you.',
+].join('\n')
+
+/** The prompt a dispatched child starts with: the child's own instructions, plus the sandbox's line when sandboxed. */
+export function delegatedChildPrompt(sandboxed: boolean): string {
+  return sandboxed ? `${DELEGATED_CHILD_PROMPT}\n\n${SANDBOX_LINE}` : DELEGATED_CHILD_PROMPT
+}
+
+/**
  * The prompt for `task`'s session. With upkeep turned off in `settings`, it leaves out asking for a title or a status,
  * as the session's Glade tools leave out the tools for them. It says how what the session makes is filed under its
  * todos and that it has the hub's tools (`TODO_HUB_LINES`). With `control`, the session has the `glade-control` tools,

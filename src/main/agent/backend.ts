@@ -380,11 +380,26 @@ export interface SandboxFlagSettings {
   readonly permissions?: SettingsPermissions | null
 }
 
+/**
+ * Whom a call for MCP servers is for: the task's main agent, or one of its dispatched children (#560). A child uses
+ * none of the metadata tools, so it's built a different set.
+ */
+export enum McpServerAudience {
+  Main = 'main',
+  DispatchedChild = 'dispatched-child',
+}
+
+/** Which session the asked-for servers are for: its audience, and whether it runs in the sandbox (#445). */
+export interface McpServerRequest {
+  readonly audience: McpServerAudience
+  readonly sandboxed: boolean
+}
+
 /** How to start one task's agent session. */
 export interface AgentSessionOptions extends AgentSessionSettings {
   /** A separately routed child is still a subagent for permissions and main-only tools. */
   readonly managedAgentId?: string
-  readonly createMcpServers?: () => AgentMcpServers
+  readonly createMcpServers?: (request: McpServerRequest) => AgentMcpServers
   readonly onSubagentEvent?: (event: AgentEvent) => void
   readonly taskId?: string
   /** A handoff candidate must not adopt its imported transcript until the runner commits the selection. */
