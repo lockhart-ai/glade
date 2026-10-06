@@ -3,6 +3,8 @@ import type { Task } from '../../shared/domain'
 import { openTestDatabase, sampleTask, sampleWorkspace } from '../db/repositories/test-database'
 import {
   CONTROL_TOOLS_LINE,
+  DELEGATED_CHILD_PROMPT,
+  delegatedChildPrompt,
   FINAL_REPLY_LINE,
   HANDOFF_HEADING,
   handoffSection,
@@ -165,6 +167,34 @@ describe('the sandbox line', () => {
       expect(prompt).not.toContain('sandbox')
       expect(prompt).not.toContain('request_access')
     }
+  })
+})
+
+describe("a dispatched child's prompt (#560)", () => {
+  it("says everything a child needs and nothing of the main agent's Glade instructions", () => {
+    expect(DELEGATED_CHILD_PROMPT).toBe(
+      [
+        "You are a subagent started by a Glade task's agent to do one task for it.",
+        'Do the task you were given.',
+        'Your final message is the only thing the parent reads, so report there what you did and found.',
+        "Only the parent talks to the user and changes Glade's metadata.",
+        'Finish your own descendants before returning: remaining work ends with you.',
+      ].join('\n'),
+    )
+    for (const line of [FINAL_REPLY_LINE, WATCHERS_LINE, ...TODO_HUB_LINES]) {
+      expect(DELEGATED_CHILD_PROMPT).not.toContain(line)
+    }
+    expect(DELEGATED_CHILD_PROMPT).not.toContain('set_title')
+    expect(DELEGATED_CHILD_PROMPT).not.toContain('set_status')
+    expect(DELEGATED_CHILD_PROMPT).not.toContain('add_artifact')
+    expect(DELEGATED_CHILD_PROMPT).not.toContain('questions')
+  })
+
+  it('mentions the sandbox to a sandboxed child only', () => {
+    expect(delegatedChildPrompt(false)).toBe(DELEGATED_CHILD_PROMPT)
+    expect(delegatedChildPrompt(false)).not.toContain(SANDBOX_LINE)
+    expect(delegatedChildPrompt(true)).toBe(`${DELEGATED_CHILD_PROMPT}\n\n${SANDBOX_LINE}`)
+    expect(delegatedChildPrompt(true)).toContain('request_access')
   })
 })
 

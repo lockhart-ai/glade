@@ -33,6 +33,7 @@ import {
   ACCESS_PATH_MAX,
   ACCESS_REASON_MAX,
   ACCESS_TOOL_NAME,
+  createGladeAccessMcpServer,
   createGladeMcpServer,
   createGladeToolHandlers,
   GLADE_SERVER,
@@ -733,6 +734,56 @@ describe('add_artifact', () => {
 
     expect(listFileArtifacts(database.db, taskId)).toEqual([])
     expect(changes()).toEqual([])
+  })
+})
+
+describe("the dispatched child's access server (#560)", () => {
+  it('holds only request_access, and only when there is someone to ask', async () => {
+    const requestAccess = vi.fn<RequestAccess>(() => Promise.resolve({ kind: AccessOutcomeKind.SandboxOff }))
+    const asking = createGladeAccessMcpServer({ ...context, requestAccess }, task.id)
+    // Built without anyone to ask, as the bridge does in an unsandboxed session: the server holds no tools, and the
+    // SDK's in-process server answers no `tools/list` for an empty set, so only its shape is checked.
+    const bare = createGladeAccessMcpServer(context, task.id)
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
+    await asking.instance.connect(serverSide)
+    const client = new Client({ name: 'test', version: '1.0.0' })
+    await client.connect(clientSide)
+
+    const { tools } = await client.listTools()
+
+    expect(asking).toMatchObject({ type: 'sdk', name: GLADE_SERVER })
+    expect(tools.map((listed) => listed.name)).toEqual([GladeTool.RequestAccess])
+    for (const listed of tools) expect(listed._meta).toEqual({ 'anthropic/alwaysLoad': true })
+    expect(bare).toMatchObject({ type: 'sdk', name: GLADE_SERVER })
+    await client.close()
+  })
+
+  it('hands its one call to the same handler the main server uses', async () => {
+    const requestAccess = vi.fn<RequestAccess>(() =>
+      Promise.resolve({
+        kind: AccessOutcomeKind.Allowed,
+        folder: '/Users/me/.cache/uv',
+        access: FolderAccess.ReadWrite,
+        scope: SandboxGrantScope.Task,
+      }),
+    )
+    const tools = createMcpToolCaller({
+      [GLADE_SERVER]: createGladeAccessMcpServer({ ...context, requestAccess }, task.id),
+    })
+
+    await expect(
+      tools.call(ACCESS_TOOL_NAME, { path: '/Users/me/.cache/uv', access: FileAccess.Write, reason: 'Cache.' }),
+    ).resolves.toEqual({
+      output:
+        'Allowed for this task: you can now read and write /Users/me/.cache/uv. Run the command that was blocked again.',
+      isError: false,
+    })
+    expect(requestAccess).toHaveBeenCalledWith(
+      task.id,
+      { path: '/Users/me/.cache/uv', access: FileAccess.Write, reason: 'Cache.' },
+      { toolUseId: null, signal: expect.any(AbortSignal) as unknown },
+    )
+    await tools.close()
   })
 })
 

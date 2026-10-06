@@ -600,6 +600,33 @@ function toolUseIdOf(extra: unknown): string | null {
 }
 
 /**
+ * The `glade` server a dispatched child gets (#560): `request_access` and nothing else, the one Glade tool a subagent
+ * may call (#450). A child's work never touches Glade's metadata, so it's offered none of the metadata tools. The
+ * tool is in only when there's someone to ask (`GladeToolContext.requestAccess`), as in the main server.
+ */
+export function createGladeAccessMcpServer(context: GladeToolContext, taskId: string): McpSdkServerConfigWithInstance {
+  const handlers = createGladeToolHandlers(context, taskId)
+  return createSdkMcpServer({
+    name: GLADE_SERVER,
+    alwaysLoad: true,
+    timeout: GLADE_TOOL_TIMEOUT_MS,
+    tools: [
+      ...(context.requestAccess === undefined
+        ? []
+        : [
+            tool(
+              GladeTool.RequestAccess,
+              DESCRIPTIONS[GladeTool.RequestAccess],
+              requestAccessInput.shape,
+              (input, extra) =>
+                handlers.requestAccess(input, { toolUseId: toolUseIdOf(extra), signal: signalOf(extra) }),
+            ),
+          ]),
+    ],
+  })
+}
+
+/**
  * The Glade MCP server for one task's session, without the tools for any upkeep that's off in `settings`, and with
  * `request_access` when there's someone to ask (`GladeToolContext.requestAccess`).
  */

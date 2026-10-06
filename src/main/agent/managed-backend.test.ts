@@ -7,10 +7,21 @@ import { setOpenRouterConnection, setOpenRouterChoice } from '../db/repositories
 import { setSdkModels } from '../db/repositories/sdk-models'
 import { Row } from '../db/repositories/rows'
 import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
-import { PromptVerdict, ToolPermissionBehavior, type AgentSession, type AgentSessionOptions } from './backend'
+import {
+  McpServerAudience,
+  PromptVerdict,
+  ToolPermissionBehavior,
+  type AgentMcpServers,
+  type AgentSession,
+  type AgentSessionOptions,
+} from './backend'
 import { AgentEventKind, TaskOutcome, type AgentEvent } from './events'
 import { FakeAgentBackend, type FakeAgentSession, settle } from './fake-backend'
 import { managedBackend } from './managed-backend'
+import { DELEGATED_CHILD_PROMPT, delegatedChildPrompt } from './system-prompt'
+import { createGladeAccessMcpServer, GLADE_SERVER } from './glade-tools'
+import { createQuestionBroker } from '../questions/questions'
+import { CONTROL_SERVER } from '../control/names'
 import * as sdk from './test-sdk-messages'
 
 const MODEL = 'claude-haiku-4-5'
@@ -381,4 +392,81 @@ it('interrupts foreground cross-source work while leaving background children ru
   expect(background.closed).toBe(false)
   expect(parent.interrupts).toBe(1)
   expect(parent.closed).toBe(false)
+})
+
+it("gives a dispatched child its own prompt, none of the main agent's Glade instructions", async () => {
+  start({ systemPromptAppend: "The main agent's Glade instructions." })
+  const dispatched = parent.callTool('dispatch', DISPATCH_AGENT_TOOL, INPUT)
+  const agent = await child()
+  // The child carries its own prompt, then the delegation paragraph its dispatch tool needs (added for any session
+  // the managed backend starts), and nothing of its parent's Glade instructions.
+  expect(agent.options.systemPromptAppend.startsWith(DELEGATED_CHILD_PROMPT)).toBe(true)
+  expect(agent.options.systemPromptAppend).toContain('mcp__glade-agents__dispatch')
+  expect(agent.options.systemPromptAppend).not.toContain("The main agent's Glade instructions.")
+  expect(agent.options.systemPromptAppend).not.toContain('set_title')
+  expect(agent.options.systemPromptAppend).not.toContain('request_access')
+  agent.emit(sdk.result('Checked'))
+  await dispatched
+})
+
+it('tells a sandboxed child of the sandbox and asks the factory for its servers', async () => {
+  const createMcpServers = vi.fn<NonNullable<AgentSessionOptions['createMcpServers']>>(() => ({}))
+  start({ flagSettings: { sandbox: { enabled: true } }, createMcpServers })
+  const dispatched = parent.callTool('dispatch', DISPATCH_AGENT_TOOL, INPUT)
+  const agent = await child()
+  expect(agent.options.systemPromptAppend.startsWith(delegatedChildPrompt(true))).toBe(true)
+  expect(createMcpServers).toHaveBeenCalledWith({
+    audience: McpServerAudience.DispatchedChild,
+    sandboxed: true,
+  })
+  agent.emit(sdk.result('Checked'))
+  await dispatched
+})
+
+it('tells an unsandboxed child nothing of the sandbox and gives it no Glade metadata server', async () => {
+  const createMcpServers = vi.fn<NonNullable<AgentSessionOptions['createMcpServers']>>(() => ({}))
+  start({ createMcpServers })
+  const dispatched = parent.callTool('dispatch', DISPATCH_AGENT_TOOL, INPUT)
+  const agent = await child()
+  expect(agent.options.systemPromptAppend.startsWith(delegatedChildPrompt(false))).toBe(true)
+  expect(createMcpServers).toHaveBeenCalledWith({
+    audience: McpServerAudience.DispatchedChild,
+    sandboxed: false,
+  })
+  expect(agent.options.mcpServers).not.toHaveProperty(GLADE_SERVER)
+  expect(agent.options.mcpServers).not.toHaveProperty(CONTROL_SERVER)
+  // The child keeps its own delegation tools: it can start children on the other source too.
+  expect(agent.options.mcpServers).toHaveProperty(AGENTS_SERVER)
+  agent.emit(sdk.result('Checked'))
+  await dispatched
+})
+
+it('gives a sandboxed child a glade server holding only request_access', async () => {
+  // What the bridge builds for a sandboxed child, asked for the way the managed backend asks for it (#560).
+  const taskId = new Row('tasks', database.db.prepare('SELECT * FROM tasks').get()).text('id')
+  const base = { db: database.db, emit: () => undefined }
+  const createMcpServers: NonNullable<AgentSessionOptions['createMcpServers']> = (request): AgentMcpServers => {
+    if (request.audience !== McpServerAudience.DispatchedChild || !request.sandboxed) return {}
+    return { [GLADE_SERVER]: createGladeAccessMcpServer({ ...base, questions: createQuestionBroker(base) }, taskId) }
+  }
+  start({ flagSettings: { sandbox: { enabled: true } }, createMcpServers })
+  const dispatched = parent.callTool('dispatch', DISPATCH_AGENT_TOOL, INPUT)
+  const agent = await child()
+  expect(agent.options.mcpServers).toMatchObject({ [GLADE_SERVER]: { type: 'sdk', name: GLADE_SERVER } })
+  expect(agent.options.mcpServers).toHaveProperty(AGENTS_SERVER)
+  agent.emit(sdk.result('Checked'))
+  await dispatched
+})
+
+it('resumes a child with the same child prompt', async () => {
+  start()
+  const first = parent.callTool('first', DISPATCH_AGENT_TOOL, INPUT)
+  const agent = await child()
+  agent.emit(sdk.init('child-session'), sdk.result('Remember 42'))
+  await first
+  const resumed = parent.callTool('resume', DISPATCH_AGENT_TOOL, { ...INPUT, resume: record().text('id') })
+  const next = await child()
+  expect(next.options.systemPromptAppend.startsWith(DELEGATED_CHILD_PROMPT)).toBe(true)
+  next.emit(sdk.result('Still 42'))
+  await resumed
 })
