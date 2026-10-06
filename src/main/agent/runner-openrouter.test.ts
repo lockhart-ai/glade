@@ -556,13 +556,15 @@ async function limitPausedWithWork(onOpenRouter = false): Promise<{
     await settle()
   }
   const original = backend.session
+  // Dispatch starts a child on the other source: a Claude model when the parent runs on OpenRouter, and vice versa.
   await original.callTool('managed-call', DISPATCH_AGENT_TOOL, {
-    model: SAMPLE_CHOICE.id,
+    model: onOpenRouter ? 'claude-sonnet-5' : SAMPLE_CHOICE.id,
     prompt: 'Check the file.',
     description: 'Read sample implementation',
     run_in_background: true,
   })
   const child = backend.session
+  expect(child).not.toBe(original)
   original.emit(...sdk.backgroundLaunch('bg-call', 'bg-sdk', 'Watch progress'))
   await settle()
   original.emit(sdk.result('Watching.'))
@@ -652,15 +654,18 @@ it('names cron jobs in the switch note and omits the dash when a detail repeats 
 })
 
 it('gives the switch note to a limit-paused task switched back to a Claude model', async () => {
-  await limitPausedWithWork(true)
+  const { original, child } = await limitPausedWithWork(true)
   await runner.changeModel(task.id, 'claude-sonnet-5')
   expect(getTask(database.db, task.id)).toMatchObject({ model: 'claude-sonnet-5', pause })
+  expect(original.closed).toBe(true)
+  expect(child.closed).toBe(true)
   runner.resumePaused(task.id)
   const firstMessage = backend.session.sent[0]?.text ?? ''
   expect(firstMessage).toContain('Glade stopped the following background work')
   expect(firstMessage).toContain('wakeup: Follow up — Check tests')
   expect(firstMessage).toContain('monitor: Watch tests — tail -f test.log')
   expect(firstMessage).toContain('Child: Watch progress')
+  expect(firstMessage).toContain('Child: Read sample implementation')
   expect(firstMessage).toContain('Note what the tests cover.')
 })
 
