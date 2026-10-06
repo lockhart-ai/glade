@@ -116,6 +116,16 @@ it('runs the session in the workspace root, allowing all, with the workspace and
   })
 })
 
+it("starts a session in the git worktree it names, with Claude Code's own --worktree flag", () => {
+  const options = sdkOptions({ ...OPTIONS, worktree: 'glade-child-sample' }, ENV)
+  expect(options.extraArgs).toEqual({ worktree: 'glade-child-sample' })
+})
+
+it('passes no extra arguments for a session that works in its own folder', () => {
+  const options = sdkOptions(OPTIONS, ENV)
+  expect(options).not.toHaveProperty('extraArgs')
+})
+
 it('declares its own Stop for each background task, so Stop on a turn leaves background subagents running', () => {
   // Without it, the SDK fails closed: an interrupt kills every background subagent with the turn (docs/sdk-notes.md
   // §7), though the Subagents and Watchers tabs stop each one with `stopTask`.

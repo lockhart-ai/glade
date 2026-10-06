@@ -178,6 +178,132 @@ it('does not start a second child when a saved dispatch is replayed', async () =
   expect(record().text('result')).toBe('Saved result')
 })
 
+it('dispatches an isolated foreground child into its own worktree and names it in the result', async () => {
+  start()
+  const emitted = vi.spyOn(parent, 'emit')
+  const dispatched = parent.callTool('iso', DISPATCH_AGENT_TOOL, { ...INPUT, isolation: 'worktree' })
+  const agent = await child()
+  const row = record()
+  expect(agent.options.worktree).toBe(row.text('id'))
+  expect(row.text('worktree')).toBe(row.text('id'))
+  agent.emit(sdk.result('Checked'))
+  await dispatched
+  expect(JSON.stringify(emitted.mock.calls)).toContain(`.claude/worktrees/${row.text('id')}`)
+  expect(JSON.stringify(emitted.mock.calls)).toContain(`worktree-${row.text('id')}`)
+})
+
+it('dispatches a plain child without a worktree and says nothing of one', async () => {
+  start()
+  const emitted = vi.spyOn(parent, 'emit')
+  const dispatched = parent.callTool('plain', DISPATCH_AGENT_TOOL, INPUT)
+  const agent = await child()
+  expect(agent.options.worktree).toBeUndefined()
+  expect(record().nullableText('worktree')).toBeNull()
+  agent.emit(sdk.result('Checked'))
+  await dispatched
+  expect(JSON.stringify(emitted.mock.calls)).not.toContain('.claude/worktrees')
+})
+
+it('names an isolated background child worktree at start and in the delivered completion', async () => {
+  start()
+  const emitted = vi.spyOn(parent, 'emit')
+  await parent.callTool('bg', DISPATCH_AGENT_TOOL, { ...INPUT, run_in_background: true, isolation: 'worktree' })
+  const agent = await child()
+  const id = record().text('id')
+  expect(JSON.stringify(emitted.mock.calls)).toContain(`.claude/worktrees/${id}`)
+  agent.emit(sdk.result('Checked'))
+  await settle()
+  expect(parent.sent.at(-1)?.text).toContain(`.claude/worktrees/${id}`)
+})
+
+it('resumes a worktree child into the worktree its first run had', async () => {
+  start()
+  const first = parent.callTool('first', DISPATCH_AGENT_TOOL, { ...INPUT, isolation: 'worktree' })
+  const firstAgent = await child()
+  firstAgent.emit(sdk.result('First done'))
+  await first
+  const firstId = record().text('id')
+  database.db.prepare("UPDATE managed_agents SET session_id = 'saved-session'").run()
+  const second = parent.callTool('second', DISPATCH_AGENT_TOOL, { ...INPUT, resume: firstId })
+  await vi.waitFor(() => {
+    expect(backend.sessions).toHaveLength(3)
+  })
+  await settle()
+  const secondAgent = backend.session
+  expect(secondAgent.options.worktree).toBe(firstId)
+  expect(secondAgent.options.resumeSessionId).toBe('saved-session')
+  expect(
+    new Row(
+      'managed_agents',
+      database.db.prepare('SELECT * FROM managed_agents WHERE id <> ?').get(firstId),
+    ).nullableText('worktree'),
+  ).toBe(firstId)
+  secondAgent.emit(sdk.result('Second done'))
+  await second
+})
+
+it('ignores isolation when resuming a child that had no worktree', async () => {
+  start()
+  const first = parent.callTool('first', DISPATCH_AGENT_TOOL, INPUT)
+  const firstAgent = await child()
+  firstAgent.emit(sdk.result('First done'))
+  await first
+  const firstId = record().text('id')
+  database.db.prepare("UPDATE managed_agents SET session_id = 'saved-session'").run()
+  const second = parent.callTool('second', DISPATCH_AGENT_TOOL, { ...INPUT, resume: firstId, isolation: 'worktree' })
+  await vi.waitFor(() => {
+    expect(backend.sessions).toHaveLength(3)
+  })
+  await settle()
+  const secondAgent = backend.session
+  expect(secondAgent.options.worktree).toBeUndefined()
+  const secondRow = database.db.prepare('SELECT * FROM managed_agents WHERE id <> ?').get(firstId)
+  expect(new Row('managed_agents', secondRow).nullableText('worktree')).toBeNull()
+  secondAgent.emit(sdk.result('Second done'))
+  await second
+})
+
+it('refuses a worktree dispatch from a sandboxed session', async () => {
+  start({ flagSettings: { sandbox: { enabled: true } } })
+  const emitted = vi.spyOn(parent, 'emit')
+  await parent.callTool('sandboxed', DISPATCH_AGENT_TOOL, { ...INPUT, isolation: 'worktree' })
+  expect(JSON.stringify(emitted.mock.calls)).toContain('A sandboxed session cannot give a child a git worktree')
+  expect(backend.sessions).toHaveLength(1)
+  expect(database.db.prepare('SELECT * FROM managed_agents').get()).toBeUndefined()
+})
+
+it('replays a finished worktree dispatch with its worktree note and no new session', async () => {
+  start()
+  const first = parent.callTool('iso', DISPATCH_AGENT_TOOL, { ...INPUT, isolation: 'worktree' })
+  const agent = await child()
+  agent.emit(sdk.result('Checked'))
+  await first
+  const id = record().text('id')
+  const emitted = vi.spyOn(parent, 'emit')
+  emitted.mockClear()
+  await parent.callTool('iso', DISPATCH_AGENT_TOOL, { ...INPUT, isolation: 'worktree' })
+  expect(JSON.stringify(emitted.mock.calls)).toContain(`.claude/worktrees/${id}`)
+  expect(backend.sessions).toHaveLength(2)
+})
+
+it('gives a child dispatched by an isolated child the same worktree', async () => {
+  start()
+  const childCall = parent.callTool('child', DISPATCH_AGENT_TOOL, { ...INPUT, isolation: 'worktree' })
+  const agent = await child()
+  const childId = record().text('id')
+  void agent.callTool('grandchild', DISPATCH_AGENT_TOOL, { ...INPUT, model: SAMPLE_CHOICE.id })
+  await vi.waitFor(() => {
+    expect(backend.sessions).toHaveLength(3)
+  })
+  await settle()
+  const grandchild = backend.session
+  expect(grandchild.options.worktree).toBe(childId)
+  grandchild.emit(sdk.result('Grandchild done'))
+  await settle()
+  agent.emit(sdk.result('Child done'))
+  await childCall
+})
+
 it('persists startup failures and keeps the parent usable', async () => {
   start()
   backend.onSessionStart = (agent) => {
@@ -236,6 +362,7 @@ it('adds only cross-source delegation instructions when an OpenRouter key is con
   expect(parent.options.systemPromptAppend.startsWith('Original Glade prompt.\n')).toBe(true)
   expect(parent.options.systemPromptAppend).toContain('Use the built-in Agent tool for subagents on your own source')
   expect(parent.options.systemPromptAppend).toContain('Only to start a child on the other source')
+  expect(parent.options.systemPromptAppend).toContain('Pass isolation: "worktree"')
   expect(parent.options.mcpServers).toHaveProperty(AGENTS_SERVER)
 })
 

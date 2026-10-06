@@ -824,6 +824,8 @@ export function sdkOptions(
     // since the SDK adds to it. No credentials of Glade's: the bundled Claude Code binary finds the user's login itself.
     env: { ...env, ...options.env, ...SESSION_ENV },
     cwd: options.cwd,
+    // A dispatched child kept apart from its parent's checkout: Claude Code's own `--worktree <name>` (#558).
+    ...(options.worktree === undefined ? {} : { extraArgs: { worktree: options.worktree } }),
     model: options.model,
     effort: options.effort,
     ...(options.resumeSessionId === null ? {} : { resume: options.resumeSessionId }),
