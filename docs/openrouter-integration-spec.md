@@ -228,7 +228,8 @@ capabilities; the initial change keeps native same-source delegation and Claude-
   fails with Claude Code's own exit. Not yet run with a real model: a child working in one, and a child and its own
   child in one worktree at once.
 - **Limit-switch survival:** all children stop, including children on the source unaffected by the limit. The resumed
-  agent is told what stopped, but retaining those processes is deferred.
+  agent is told what stopped, but retaining those processes is deferred. The note is kept in memory only, so quitting
+  Glade after the switch and before the next prompt loses it (#562).
 - **Busy switches:** a running turn, open question/permission card, or idle task with live background work prevents
   a source/route switch. Saving the choice until a safe boundary is not built.
 - **Claude-to-Claude limit recovery:** changing Claude models from the picker leaves a usage-limit pause in place.
