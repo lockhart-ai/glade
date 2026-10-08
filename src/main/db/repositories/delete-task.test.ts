@@ -1,6 +1,7 @@
 import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { setAgentTab } from './agent-tabs'
+import { addAgentTokens } from './agent-tokens'
 import {
   DividerKind,
   PermissionMarkKind,
@@ -83,6 +84,8 @@ async function fillTask(db: Database, task: Task): Promise<void> {
   db.prepare(
     "INSERT INTO managed_agents (id, task_id, tool_use_id, model, session_id, state, result) VALUES (?, ?, 'dispatch', 'sonnet', 'child-session', 'completed', 'Done')",
   ).run(`child-${taskId}`, taskId)
+  addAgentTokens(db, { taskId, agentId: null, inputTokens: 1_000, outputTokens: 20 })
+  addAgentTokens(db, { taskId, agentId: `sub-${taskId}`, inputTokens: 2_000, outputTokens: 300 })
   db.prepare("INSERT INTO sdk_transcript_backups VALUES (?, 'session', ?, '[]')").run(taskId, taskId)
   await sqliteSessionStore(db, taskId).append({ projectKey: 'sample', sessionId: taskId }, [
     { type: 'user', uuid: taskId },
@@ -206,6 +209,8 @@ async function fillTask(db: Database, task: Task): Promise<void> {
 const FILLED_TABLES = [
   // The agent's tab its Agents tab was left on (#536).
   'agent_tabs',
+  // The token totals its agent tabs show (#566).
+  'agent_token_totals',
   // The Artifacts tab's filter, as you last chose it (#407).
   // The Artifacts tab's date groups you opened or folded.
   'artifacts',

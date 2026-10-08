@@ -22,6 +22,7 @@ import {
   PermissionDecisionKind,
   TaskState,
   UiStateKey,
+  type AgentTokenTotal,
   type Artifact,
   type Message,
   type OpenFiles,
@@ -108,6 +109,7 @@ const TASK_HANDLERS = {
     watchers: [],
     commits: [],
     agentTab: null,
+    agentTokens: [],
   }),
   [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
@@ -364,6 +366,7 @@ describe('the command map', () => {
       readonly watchers: readonly Watcher[]
       readonly commits: readonly TaskCommit[]
       readonly agentTab: string | null
+      readonly agentTokens: readonly AgentTokenTotal[]
     }>()
     expectTypeOf(glade.invoke(CommandName.QueueAdd, { taskId: 't', text: 'Hi' })).resolves.toEqualTypeOf<{
       readonly queuedMessage: QueuedMessage
@@ -638,6 +641,10 @@ describe('events', () => {
           // A scope Settings lists, never a task's.
           expectTypeOf(event.target).toEqualTypeOf<SettingsGrantTarget>()
           expectTypeOf(event.grants).toEqualTypeOf<readonly Grant[]>()
+          break
+        case EventType.AgentTokensChanged:
+          expectTypeOf(event.taskId).toEqualTypeOf<string>()
+          expectTypeOf(event.total).toEqualTypeOf<AgentTokenTotal>()
           break
       }
     })

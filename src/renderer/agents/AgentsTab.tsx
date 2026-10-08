@@ -112,7 +112,7 @@ export const AgentsTab = memo(function AgentsTab({
     <div className={styles.agents}>
       <AgentStrip taskId={taskId} rootPath={rootPath} />
       <div role="tabpanel" id={AGENT_PANEL_ID} aria-labelledby={agentTabId(agentId)} className={styles.panel}>
-        {agentId !== null && <AgentLine taskId={taskId} agentId={agentId} />}
+        <AgentLine taskId={taskId} agentId={agentId} rootPath={rootPath} />
         {/* Keyed by its agent, so each agent's list starts at its own end, and keeps to it as it grows. */}
         <AgentLog
           key={agentId ?? ''}

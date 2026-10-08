@@ -112,18 +112,27 @@
   flex-direction: column;
 }
 
-/* Under the strip, on a subagent's tab: the todo it's working on, a link to that todo in the Todos tab, and its state. */
+/* Under the strip, on an agent's tab (#566, designs 64–65): two rows — the model · provider it runs on with its token
+   totals at the right, then what it's working on and its state. Main's line has the same shape. */
 .line {
   flex-shrink: 0;
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-lg);
-  padding: var(--space-md) 17px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  padding: 6px 17px;
   border-bottom: 1px solid var(--color-inner-border);
   font-size: var(--font-size-secondary-sm);
   line-height: 1.4;
   color: var(--color-muted);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  min-width: 0;
 }
 
 .working {
@@ -133,11 +142,23 @@
   text-overflow: ellipsis;
 }
 
-/* Keep the chosen model visible even when the todo's title fills the line. */
+/* The model and provider the agent runs on ("Z.ai: GLM 5.3 Flash · Together"), kept whole while the line fills. */
 .model {
-  display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+/* The agent's token totals, right-aligned ("1.2M in · 45K out", #566). */
+.tokens {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+  white-space: nowrap;
 }
 
 .todo {

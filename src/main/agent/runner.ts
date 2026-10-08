@@ -287,7 +287,7 @@
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import type { Database } from 'better-sqlite3'
-import { BridgeErrorCode, type GladeEvent } from '../../shared/bridge'
+import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
 import {
   API_TOOL_NAME,
   AgentErrorKind,
@@ -385,6 +385,7 @@ import { getOpenQuestionSet, getQuestionSet, listOpenQuestionSets } from '../db/
 import { listTaskPermissionRules } from '../db/repositories/task-permission-rules'
 import { listQueuedMessages, listTasksWithQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
 import { getSettings } from '../db/repositories/settings'
+import { addAgentTokens } from '../db/repositories/agent-tokens'
 import { getTask, listPausedTasks, listWorkingTasks } from '../db/repositories/tasks'
 import { recordReportedWindow } from '../db/repositories/context-windows'
 import { offeredModels } from '../db/repositories/sdk-models'
@@ -1360,11 +1361,13 @@ function startsTurn(event: AgentEvent): boolean {
     case AgentEventKind.SubagentStarted:
     case AgentEventKind.SubagentBackgrounded:
     case AgentEventKind.SubagentProgress:
+    case AgentEventKind.AgentUsage:
     case AgentEventKind.TaskFinished:
     case AgentEventKind.ModelRefusalFallback:
     case AgentEventKind.ModelRefusalNoFallback:
     case AgentEventKind.MessagesEvicted:
-      // A refusal-fallback notice, the eviction it (or a superseding message) carries, and a no-fallback refusal all
+      // A message's token count belongs to whatever turn (or background agent) it arrived in; it starts none. A
+      // refusal-fallback notice, the eviction it (or a superseding message) carries, and a no-fallback refusal all
       // belong to a turn already under way: with none running, there's nothing to attribute them to.
       return false
   }
@@ -2528,6 +2531,20 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       )
         onSubagentStopped(taskId, live, finished.toolUseId)
       onTaskFinished(taskId, live, finished)
+      return
+    }
+    // An assistant message's tokens go to the tab totals of the agent it answered, whether it runs in a turn or in
+    // the background (#566): nothing here opens a turn.
+    if (event.kind === AgentEventKind.AgentUsage) {
+      if (event.inputTokens !== 0 || event.outputTokens !== 0) {
+        const total = addAgentTokens(db, {
+          taskId,
+          agentId: event.parentToolUseId,
+          inputTokens: event.inputTokens,
+          outputTokens: event.outputTokens,
+        })
+        emit({ type: EventType.AgentTokensChanged, taskId, total })
+      }
       return
     }
     if (event.kind === AgentEventKind.Text || event.kind === AgentEventKind.ToolCallStarted) {

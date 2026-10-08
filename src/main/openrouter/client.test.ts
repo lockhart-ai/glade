@@ -88,6 +88,30 @@ describe('OpenRouter discovery', () => {
     })
   })
 
+  it('lists the providers it discovers alphabetised, however the API named them', async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(SAMPLE_CATALOG_RESPONSE))
+      .mockResolvedValueOnce(
+        Response.json({
+          data: [
+            { slug: 'z-host', name: 'Z.ai' },
+            { slug: 'a-host', name: 'AkashML' },
+            { slug: 'n-host', name: 'Novita' },
+          ],
+        }),
+      )
+    const client = new OpenRouterClient(request)
+    expect(await client.catalog('key')).toEqual({
+      models: [SAMPLE_MODEL],
+      providers: [
+        { id: 'a-host', name: 'AkashML' },
+        { id: 'n-host', name: 'Novita' },
+        { id: 'z-host', name: 'Z.ai' },
+      ],
+    })
+  })
+
   it('discovers only tool-capable hosting providers and encodes model paths', async () => {
     const request = vi
       .fn<typeof fetch>()

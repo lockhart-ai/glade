@@ -367,7 +367,8 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
         terminal.debug('terminal cleared', { tabId: event.tabId })
         return
       case EventType.TerminalOutput:
-        // Too much to log, and it's what the terminal shows, not what Glade did.
+      case EventType.AgentTokensChanged:
+        // Too much to log, and it's what the terminal and the Agents tab show, not what Glade did.
         return
     }
   }

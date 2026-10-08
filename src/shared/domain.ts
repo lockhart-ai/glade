@@ -465,6 +465,18 @@ export interface ToolCallEvent extends ToolEventBase {
   readonly progressSummary: string | null
 }
 
+/**
+ * An agent tab's total input and output tokens (#566): every assistant message the agent's model answered with, added
+ * up in the runner and kept in SQLite, so the line under the tab can show the spend across relaunches. No cost in USD:
+ * the messages carry no price.
+ */
+export interface AgentTokenTotal {
+  /** The agent the messages ran on: its `Agent` call's `tool_use` id, or null for Main, the task's own agent. */
+  readonly agentId: string | null
+  readonly inputTokens: number
+  readonly outputTokens: number
+}
+
 export interface DividerEvent extends ToolEventBase {
   readonly kind: ToolEventKind.Divider
   readonly dividerKind: DividerKind

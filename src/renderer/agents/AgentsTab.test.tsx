@@ -1,13 +1,21 @@
 // The Agents tab (P16, #536): a tab for every agent in the task, each showing that agent's tool calls. On the fake
 // main with the todo hub's hidden switch on.
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandName, EventType } from '../../shared/bridge'
-import { TodoState, ToolCallState, ToolEventKind, type NarrationEvent, type ToolCallEvent } from '../../shared/domain'
+import {
+  TaskActivity,
+  TodoState,
+  ToolCallState,
+  ToolEventKind,
+  type NarrationEvent,
+  type ToolCallEvent,
+} from '../../shared/domain'
 import { SECONDS_REFRESH_MS } from './useElapsedNow'
 import { NOW_REFRESH_MS } from '../task-list/useNow'
 import { activePanelTab, PanelTab } from '../right-panel/panelModel'
 import { storeWrapper } from '../store/test-wrapper'
+import { sampleTask } from '../store/test-bridge'
 import {
   HUB_NOW,
   hubAgent,
@@ -253,9 +261,10 @@ describe('an agent’s tool calls', () => {
       'Agentdocs-50314:01Running · 29m',
       'Agentlimits-50214:24Running · 6m',
     ])
-    // Nothing a subagent did is in Main's list, and Main has no line about a todo.
+    // Nothing a subagent did is in Main's list, and Main's line names the model it runs on, with no todo about it.
     expect(panel()).not.toHaveTextContent('test_throttle')
-    expect(line()).toBeNull()
+    expect(line()).toHaveTextContent(/^Sample 1$/)
+    expect(line()).not.toHaveTextContent('Working on')
     // A running subagent's call is live: the running call's highlight.
     expect(panel().querySelector('[data-agent-call="docs-503"]')).toHaveAttribute('data-state', 'running')
     expect(panel().querySelector('[data-agent-call="fix-501"]')).toHaveAttribute('data-state', 'done')
@@ -714,4 +723,122 @@ it('shows the chosen child model with or without a todo and keeps the saved rout
   fireEvent.click(tab('docs-503'))
   expect(line()).toHaveTextContent('openrouter:sample/flash@sample-host')
   expect(line()).toHaveTextContent('Running')
+})
+
+describe('the line under the strip on Main’s tab (#566)', () => {
+  /** Main working, with its status summary set, and the totals its tab shows. */
+  async function renderMainLine(fields: Partial<ReturnType<typeof sampleTask>> = {}): Promise<HubStore> {
+    const main = {
+      ...hubMain(SHIP),
+      tasks: [
+        {
+          ...sampleTask('t1', 'w1'),
+          createdAt: minutesAgo(42),
+          activity: TaskActivity.Working,
+          status: 'Throttles applied to the three viewsets; measuring /search',
+          ...fields,
+        },
+      ],
+      agentTokens: [{ agentId: null, inputTokens: 312_000, outputTokens: 18_000 }],
+    }
+    const hub: HubStore = { ...storeWrapper(main), main }
+    await act(() => hub.store.getState().hydrate())
+    render(<AgentsTab taskId="t1" rootPath="/Users/sample/code/api" />, { wrapper: hub.wrapper })
+    await act(() => Promise.resolve())
+    return hub
+  }
+
+  it('names the model it runs on with its totals at the right, and its status and state under that', async () => {
+    await renderMainLine()
+    expect(line()).toHaveTextContent('Sample 1')
+    expect(line()).toHaveTextContent('312K in · 18K out')
+    expect(line()).toHaveTextContent('Throttles applied to the three viewsets; measuring /search')
+    expect(line()).toHaveTextContent('Running · 42m')
+  })
+
+  it('takes a new total in place, as it lands, and no longer says Running when it stops', async () => {
+    const { fake } = await renderMainLine()
+    act(() => {
+      fake.emit({
+        type: EventType.AgentTokensChanged,
+        taskId: 't1',
+        total: { agentId: null, inputTokens: 1_200_000, outputTokens: 45_000 },
+      })
+    })
+    expect(line()).toHaveTextContent('1.2M in · 45K out')
+
+    act(() => {
+      fake.emit({
+        type: EventType.TaskUpdated,
+        task: { ...sampleTask('t1', 'w1'), createdAt: minutesAgo(42), activity: TaskActivity.Waiting },
+      })
+    })
+    expect(line()).not.toHaveTextContent('Running · 42m')
+  })
+
+  it('falls back to the tool call Main is working on while it has set no status, and says nothing then when it waits', async () => {
+    // Main has set no status, and is only waiting: no fallback, and no state.
+    await renderMainLine({ status: '' })
+    expect(line()).not.toHaveTextContent('Grep throttle')
+    expect(line()).not.toHaveTextContent('Running · 42m')
+    cleanup()
+
+    // Working, its running Grep is the line, beside the state.
+    const events = [
+      ...(SHIP.toolEvents ?? []),
+      call('main-grep', 1, {
+        name: 'Grep',
+        input: { pattern: 'throttle' },
+        state: ToolCallState.Running,
+        output: null,
+      }),
+    ]
+    const working = {
+      ...hubMain({ ...SHIP, toolEvents: events }),
+      tasks: [
+        {
+          ...sampleTask('t1', 'w1'),
+          createdAt: minutesAgo(42),
+          activity: TaskActivity.Working,
+          status: '',
+        },
+      ],
+      agentTokens: [{ agentId: null, inputTokens: 312_000, outputTokens: 18_000 }],
+    }
+    const hub: HubStore = { ...storeWrapper(working), main: working }
+    await act(() => hub.store.getState().hydrate())
+    render(<AgentsTab taskId="t1" rootPath="/Users/sample/code/api" />, { wrapper: hub.wrapper })
+    await act(() => Promise.resolve())
+    expect(line()).toHaveTextContent('Grep throttle')
+    expect(line()).toHaveTextContent('Running · 42m')
+  })
+
+  it('shows a subagent’s model · provider and totals above its working-on line, as its tokens land', async () => {
+    const routed = {
+      ...LIMITS,
+      input: { ...LIMITS.input, model: 'zai/glm-5.3-flash' },
+    }
+    const main = {
+      ...hubMain({ ...SHIP, toolEvents: [routed] }),
+      agentTokens: [{ agentId: 'limits-502', inputTokens: 45_000, outputTokens: 2_000 }],
+    }
+    const hub: HubStore = { ...storeWrapper(main), main }
+    await act(() => hub.store.getState().hydrate())
+    render(<AgentsTab taskId="t1" />, { wrapper: hub.wrapper })
+    await act(() => Promise.resolve())
+    fireEvent.click(tab('limits-502'))
+    expect(line()).toHaveTextContent('zai/glm-5.3-flash')
+    expect(line()).toHaveTextContent('45K in · 2K out')
+    expect(line()).toHaveTextContent('Working on #502 Per-key limits for /search')
+    expect(line()).toHaveTextContent('Running · 6m')
+
+    act(() => {
+      hub.fake.emit({
+        type: EventType.AgentTokensChanged,
+        taskId: 't1',
+        total: { agentId: 'limits-502', inputTokens: 45_500, outputTokens: 2_400 },
+      })
+    })
+    expect(line()).toHaveTextContent('45.5K in · 2.4K out')
+  })
 })

@@ -106,6 +106,13 @@ it('connects a masked key, discovers a host, curates the picker and filters the 
   await screen.findByRole('button', { name: 'Remove' })
   fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
   await screen.findByRole('button', { name: 'Connect' })
+  // The fake's own management-key commands, which a store reaches without the section.
+  await expect(store.getState().openrouter.connectManagementKey('k')).resolves.toMatchObject({
+    managementConnected: true,
+  })
+  await expect(store.getState().openrouter.removeManagementKey()).resolves.toMatchObject({
+    managementConnected: false,
+  })
 })
 
 it('surfaces discovery and save failures and handles an empty provider list', async () => {
@@ -194,6 +201,30 @@ it('searches with every word across id, name and description, lists the Selected
   fireEvent.change(search, { target: { value: '  fast   cheap  ' } })
   expect(screen.getByText('Grok 5')).toBeInTheDocument()
   expect(await screen.findByText(/^1 matching models/)).toBeInTheDocument()
+})
+
+it('lists the Selected models alphabetically, however the choices were saved (#566)', async () => {
+  const zai = { ...SAMPLE_MODEL, id: 'zai/glm', name: 'Z.ai GLM' }
+  const akai = { ...SAMPLE_MODEL, id: 'akai/qwen', name: 'Akai Qwen' }
+  await show({
+    [CommandName.OpenRouterStatus]: () => ({
+      connected: true,
+      managementConnected: false,
+      models: [zai, akai],
+      providers: [SAMPLE_PROVIDER],
+      choices: [
+        { ...SAMPLE_CHOICE, id: 'zai', model: zai, enabled: true },
+        { ...SAMPLE_CHOICE, id: 'akai', model: akai, enabled: true },
+      ],
+    }),
+  })
+  expect(screen.getByText('Selected · 2')).toBeInTheDocument()
+  expect(
+    screen
+      .getAllByText(/^(Z\.ai GLM|Akai Qwen)$/)
+      .map((element) => element.textContent)
+      .filter((name, index, all) => all.indexOf(name) === index),
+  ).toEqual(['Akai Qwen', 'Z.ai GLM'])
 })
 
 it('connects the optional management key, shows it connected and removes it, surfacing what main refuses (#566)', async () => {

@@ -21,6 +21,14 @@ import {
 import { AgentEventKind, createSdkMessageParser, TaskOutcome, type AgentEvent } from './events'
 import { answeredAfterRestart, COMPACT_COMMAND, RESUME_PROMPT } from './runner'
 import { NO_ONE_TO_ASK } from './sdk-backend'
+
+/** The tokens every assistant message the script plays carries (`MESSAGE_USAGE` in `./scripted-session`), parsed. */
+const usage = (parent: string | null = null) => ({
+  kind: AgentEventKind.AgentUsage,
+  parentToolUseId: parent,
+  inputTokens: 10,
+  outputTokens: 1,
+})
 import { CONTROL_SERVER } from '../control/names'
 import {
   controlToolName,
@@ -213,6 +221,7 @@ describe('ScriptedSession', () => {
     played.session.send('Fix it', 'user-1')
     await flush()
     expect(played.events).toEqual([
+      usage(),
       { kind: AgentEventKind.Text, text: 'Looking.', parentToolUseId: null, sdkUuid: expect.any(String) as string },
     ])
 
@@ -330,7 +339,9 @@ describe('ScriptedSession', () => {
 
     const prefix = 'toolu_id2_1_'
     expect(played.events).toEqual([
+      usage(),
       { kind: AgentEventKind.Text, text: 'Checking.', parentToolUseId: null, sdkUuid: expect.any(String) as string },
+      usage(),
       {
         kind: AgentEventKind.ToolCallStarted,
         toolUseId: `${prefix}read`,
@@ -347,6 +358,7 @@ describe('ScriptedSession', () => {
         launched: false,
         details: { stdout: 'contents', stderr: '', interrupted: false },
       },
+      usage(),
       {
         kind: AgentEventKind.ToolCallStarted,
         toolUseId: `${prefix}agent`,
@@ -365,6 +377,7 @@ describe('ScriptedSession', () => {
         isBackgrounded: false,
         description: 'Look',
       },
+      usage(`${prefix}agent`),
       {
         kind: AgentEventKind.ToolCallStarted,
         toolUseId: `${prefix}inner`,
@@ -381,6 +394,7 @@ describe('ScriptedSession', () => {
         launched: false,
         details: { stdout: 'hit', stderr: '', interrupted: false },
       },
+      usage(`${prefix}agent`),
       {
         kind: AgentEventKind.Text,
         text: 'Subagent text',
@@ -429,9 +443,11 @@ describe('ScriptedSession', () => {
     await flush()
 
     expect(titles).toEqual(['Fix it'])
-    expect(played.events.slice(0, 4)).toEqual([
+    expect(played.events.slice(0, 6)).toEqual([
+      usage(),
       expect.objectContaining({ kind: AgentEventKind.ToolCallStarted, name: 'mcp__glade__set_title' }),
       expect.objectContaining({ kind: AgentEventKind.ToolResult, output: 'Title set.', isError: false }),
+      usage(),
       expect.objectContaining({ kind: AgentEventKind.ToolCallStarted, input: { title: 42 } }),
       expect.objectContaining({
         kind: AgentEventKind.ToolResult,
@@ -450,7 +466,10 @@ describe('ScriptedSession', () => {
     played.session.send('Again', 'user-2')
     await flush()
     expect((await played.ended)?.message).toBe('No in-process MCP server named glade')
-    expect(played.events.map((event) => event.kind)).toEqual([AgentEventKind.ToolCallStarted])
+    expect(played.events.map((event) => event.kind)).toEqual([
+      AgentEventKind.AgentUsage,
+      AgentEventKind.ToolCallStarted,
+    ])
     expect(played.idles()).toBe(2)
     expect(gladeToolName('set_status')).toBe('mcp__glade__set_status')
   })
@@ -464,6 +483,7 @@ describe('ScriptedSession', () => {
       await flush()
 
       expect(played.events.slice(1)).toEqual([
+        usage(),
         expect.objectContaining({
           kind: AgentEventKind.ToolCallStarted,
           name: 'mcp__glade__ask',
@@ -475,8 +495,9 @@ describe('ScriptedSession', () => {
       asked?.answer('{"0":"No."}')
       await flush()
 
-      expect(played.events.slice(2)).toEqual([
+      expect(played.events.slice(3)).toEqual([
         expect.objectContaining({ kind: AgentEventKind.ToolResult, output: '{"0":"No."}', isError: false }),
+        usage(),
         expect.objectContaining({ kind: AgentEventKind.Text, text: 'Thanks.' }),
         expect.objectContaining({ kind: AgentEventKind.TurnFinished, result: 'Thanks.' }),
       ])
@@ -493,7 +514,7 @@ describe('ScriptedSession', () => {
       await flush()
 
       expect(asked?.signal.aborted).toBe(true)
-      expect(played.events.slice(2)).toEqual([
+      expect(played.events.slice(3)).toEqual([
         expect.objectContaining({ kind: AgentEventKind.ToolResult, output: REJECTED_TOOL_OUTPUT, isError: true }),
         expect.objectContaining({ kind: AgentEventKind.TurnFinished, terminalReason: 'aborted_tools' }),
       ])
@@ -640,7 +661,7 @@ describe('ScriptedSession', () => {
 
       expect(decide).not.toHaveBeenCalled()
       expect(played.raw[0]).toMatchObject({ permissionMode: 'bypassPermissions' })
-      expect(played.events.slice(1, 5)).toEqual([
+      expect(played.events.slice(2, 6)).toEqual([
         expect.objectContaining({ kind: AgentEventKind.ToolCallStarted, name: 'Bash', input: TEST }),
         // It ran in the foreground, as a task of the SDK's own.
         expect.objectContaining({ kind: AgentEventKind.SubagentStarted, isBackgrounded: false }),
@@ -698,7 +719,7 @@ describe('ScriptedSession', () => {
         expect.objectContaining({
           toolName: 'Bash',
           input: TEST,
-          toolUseId: (played.events[1] as { toolUseId: string }).toolUseId,
+          toolUseId: (played.events[2] as { toolUseId: string }).toolUseId,
           agentId: null,
           title: null,
           displayName: 'Bash',
@@ -707,15 +728,16 @@ describe('ScriptedSession', () => {
           defaultToNo: false,
         }),
       ])
-      expect(played.events.slice(2)).toEqual([])
+      expect(played.events.slice(3)).toEqual([])
 
       give({ behavior: ToolPermissionBehavior.Allow, byUser: true })
       await flush()
 
-      expect(played.events.slice(2)).toEqual([
+      expect(played.events.slice(3)).toEqual([
         expect.objectContaining({ kind: AgentEventKind.SubagentStarted, isBackgrounded: false }),
         expect.objectContaining({ kind: AgentEventKind.TaskFinished, summary: 'Run the test suite' }),
         expect.objectContaining({ kind: AgentEventKind.ToolResult, output: 'All passed.', isError: false }),
+        usage(),
         expect.objectContaining({ kind: AgentEventKind.Text, text: 'Done.' }),
         expect.objectContaining({ kind: AgentEventKind.TurnFinished, result: 'Done.' }),
       ])
@@ -734,8 +756,9 @@ describe('ScriptedSession', () => {
       give({ behavior: ToolPermissionBehavior.Deny, message: 'Denied: use pnpm.', byUser: true })
       await flush()
 
-      expect(played.events.slice(2)).toEqual([
+      expect(played.events.slice(3)).toEqual([
         expect.objectContaining({ kind: AgentEventKind.ToolResult, output: 'Denied: use pnpm.', isError: true }),
+        usage(),
         expect.objectContaining({ kind: AgentEventKind.Text, text: 'Understood.' }),
         expect.objectContaining({ kind: AgentEventKind.TurnFinished }),
       ])
@@ -833,7 +856,7 @@ describe('ScriptedSession', () => {
       await flush()
 
       expect(calls[0]?.signal.aborted).toBe(true)
-      expect(played.events.slice(2)).toEqual([
+      expect(played.events.slice(3)).toEqual([
         expect.objectContaining({ kind: AgentEventKind.ToolResult, output: REJECTED_TOOL_OUTPUT, isError: true }),
         expect.objectContaining({ kind: AgentEventKind.TurnFinished, terminalReason: 'aborted_tools' }),
       ])
@@ -896,7 +919,7 @@ describe('ScriptedSession', () => {
 
       expect(decide).not.toHaveBeenCalled()
       expect(created).toEqual([{ workspaceId: 'w-1' }])
-      expect(played.events.slice(1, 3)).toEqual([
+      expect(played.events.slice(2, 4)).toEqual([
         expect.objectContaining({
           kind: AgentEventKind.ToolCallStarted,
           name: controlToolName('create_task'),
@@ -1122,11 +1145,13 @@ describe('ScriptedSession', () => {
     await vi.advanceTimersByTimeAsync(1_000)
 
     expect(played.events.filter((event) => event.kind !== AgentEventKind.SessionStarted)).toEqual([
+      usage(),
       expect.objectContaining({ kind: AgentEventKind.Text, text: 'Full.' }),
       expect.objectContaining({ kind: AgentEventKind.TurnFinished, result: 'Full.' }),
       { kind: AgentEventKind.Compacting },
       { kind: AgentEventKind.Compacted, trigger: CompactionTrigger.Manual, preTokens: 194_000, postTokens: 38_800 },
       expect.objectContaining({ kind: AgentEventKind.TurnFinished, result: '', userMessageUuids: ['compact-1'] }),
+      usage(),
       expect.objectContaining({ kind: AgentEventKind.Text, text: 'After.' }),
       expect.objectContaining({ kind: AgentEventKind.TurnFinished, result: 'After.' }),
     ])
@@ -1145,9 +1170,11 @@ describe('ScriptedSession', () => {
 
     await vi.advanceTimersByTimeAsync(1_000)
     expect(played.events.filter((event) => event.kind !== AgentEventKind.SessionStarted)).toEqual([
+      usage(),
       expect.objectContaining({ kind: AgentEventKind.Text, text: 'Full.' }),
       { kind: AgentEventKind.Compacting },
       { kind: AgentEventKind.Compacted, trigger: CompactionTrigger.Auto, preTokens: 194_000, postTokens: 38_800 },
+      usage(),
       expect.objectContaining({ kind: AgentEventKind.Text, text: 'Carrying on.' }),
       expect.objectContaining({ kind: AgentEventKind.TurnFinished, result: 'Carrying on.' }),
     ])
@@ -1282,7 +1309,7 @@ describe('ScriptedSession', () => {
 
       await played.session.interrupt()
       await flush()
-      expect(played.events.slice(3)).toEqual([
+      expect(played.events.slice(5)).toEqual([
         {
           kind: AgentEventKind.ToolResult,
           toolUseId: 'toolu_id2_1_agent',
@@ -1356,6 +1383,7 @@ describe('ScriptedSession', () => {
 
     expect((await played.ended)?.message).toBe('The agent process exited with code 1')
     expect(played.events).toEqual([
+      usage(),
       { kind: AgentEventKind.Text, text: 'Starting.', parentToolUseId: null, sdkUuid: expect.any(String) as string },
     ])
     expect(played.idles()).toBe(2)
@@ -1371,6 +1399,7 @@ describe('ScriptedSession', () => {
 
     expect(await played.ended).toBeNull()
     expect(played.events).toEqual([
+      usage(),
       { kind: AgentEventKind.Text, text: 'Starting.', parentToolUseId: null, sdkUuid: expect.any(String) as string },
     ])
     expect(played.idles()).toBe(2)

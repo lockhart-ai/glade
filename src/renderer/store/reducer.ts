@@ -5,6 +5,7 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  type AgentTokenTotal,
   type Artifact,
   type TaskHandoff,
   type Message,
@@ -174,6 +175,9 @@ export function withHistory(
     commits: { ...state.commits, [taskId]: history.commits },
     // Only this window picks it, and it has by the time a load that follows its pick answers.
     agentTabs: withAgentTab(state.agentTabs, taskId, history.agentTab),
+    // Like the watchers, the loaded totals stand, whatever an event that landed meanwhile said: each carries a
+    // tab's whole count, and only the tab's own entry keeps its object when it didn't change.
+    agentTokens: withAgentTokens(state.agentTokens, taskId, history.agentTokens),
   }
 }
 
@@ -188,6 +192,50 @@ export function withAgentTab(
 ): GladeData['agentTabs'] {
   if ((agentTabs[taskId] ?? null) === agentId) return agentTabs
   return agentId === null ? without(agentTabs, taskId) : { ...agentTabs, [taskId]: agentId }
+}
+
+/** The key a task's agent tab totals sit under: the agent's id, or the empty string for Main. */
+export function agentTokensKey(agentId: string | null): string {
+  return agentId ?? ''
+}
+
+/**
+ * A task's agent tab totals, as its history loaded them: each tab's entry keeps the object it had while its count is
+ * the same, so the line showing one tab's totals doesn't render for another's.
+ */
+export function withAgentTokens(
+  agentTokens: GladeData['agentTokens'],
+  taskId: string,
+  sent: readonly AgentTokenTotal[],
+): GladeData['agentTokens'] {
+  const byKey: Record<string, AgentTokenTotal> = {}
+  let same = true
+  for (const total of sent) {
+    const key = agentTokensKey(total.agentId)
+    const before = agentTokens[taskId]?.[key]
+    if (before !== undefined && shallow(before, total)) byKey[key] = before
+    else {
+      byKey[key] = total
+      same = false
+    }
+  }
+  if (
+    same &&
+    agentTokens[taskId] !== undefined &&
+    Object.keys(byKey).length === Object.keys(agentTokens[taskId]).length
+  )
+    return agentTokens
+  return { ...agentTokens, [taskId]: byKey }
+}
+
+/** One tab's cumulative total, into its task's map: an unchanged count keeps the entry, and the map, it had. */
+function withAgentTokenTotal(
+  agentTokens: GladeData['agentTokens'],
+  { taskId, total }: { readonly taskId: string; readonly total: AgentTokenTotal },
+): GladeData['agentTokens'] {
+  const before = agentTokens[taskId]?.[agentTokensKey(total.agentId)]
+  if (before !== undefined && shallow(before, total)) return agentTokens
+  return { ...agentTokens, [taskId]: { ...(agentTokens[taskId] ?? {}), [agentTokensKey(total.agentId)]: total } }
 }
 
 /**
@@ -447,6 +495,8 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, accountStatus: event.status }
     case EventType.OpenRouterUsageChanged:
       return { ...state, openrouterUsage: event.status }
+    case EventType.AgentTokensChanged:
+      return { ...state, agentTokens: withAgentTokenTotal(state.agentTokens, event) }
     case EventType.LoginChanged:
       return { ...state, login: event.status }
     case EventType.MenuBarChanged:

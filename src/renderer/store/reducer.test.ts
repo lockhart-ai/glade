@@ -33,6 +33,7 @@ import {
   type SandboxFolderAsk,
 } from '../../shared/sandbox'
 import {
+  agentTokensKey,
   applyEvent,
   idFromUiState,
   withHistory,
@@ -304,6 +305,7 @@ describe("a task's logs", () => {
       watchers: [],
       commits: [],
       agentTab: null,
+      agentTokens: [],
     })
 
     expect(applyEvent(loaded, { type: EventType.ToolEventUpdated, toolEvent: done }).toolEvents).toEqual({
@@ -327,6 +329,7 @@ describe("a task's logs", () => {
       watchers: [],
       commits: [],
       agentTab: null,
+      agentTokens: [],
     })
 
     expect(
@@ -360,6 +363,7 @@ describe("a task's logs", () => {
       watchers: [],
       commits: [],
       agentTab: null,
+      agentTokens: [],
     })
 
     expect(next.messages.t1).toEqual([early, late])
@@ -379,6 +383,7 @@ describe("a task's logs", () => {
         watchers: [],
         commits: [],
         agentTab: null,
+        agentTokens: [],
       }).messages,
     ).toEqual({ t2: [] })
   })
@@ -409,6 +414,7 @@ describe("a task's queue", () => {
       watchers: [],
       commits: [],
       agentTab: null,
+      agentTokens: [],
     })
     expect(loaded.queuedMessages).toEqual({ t1: [second] })
   })
@@ -452,6 +458,7 @@ describe("a task's questions", () => {
       watchers: [],
       commits: [],
       agentTab: null,
+      agentTokens: [],
     }
     expect(withHistory(state, 't1', { ...empty, questionSets: [answered] }).questionSets).toEqual({ t1: [answered] })
   })
@@ -498,6 +505,7 @@ describe("a task's permission requests", () => {
       watchers: [],
       commits: [],
       agentTab: null,
+      agentTokens: [],
     }
     // A request opened while the history loaded stays, after the loaded ones.
     const loaded = withHistory(asked, 't1', { ...empty, permissionRequests: [denied], permissionMarks: [] })
@@ -541,6 +549,7 @@ describe("a task's permission marks", () => {
       watchers: [],
       commits: [],
       agentTab: null,
+      agentTokens: [],
     }
     // The load read `a` before it was named, and a call the window hadn't heard of; `b` came after the load was read.
     const loaded = withHistory(marked, 't1', { ...history, permissionMarks: [mark('earlier'), mark('a')] })
@@ -571,6 +580,7 @@ describe("a task's open files", () => {
       watchers: [],
       commits: [],
       agentTab: null,
+      agentTokens: [],
     }
     expect(withHistory(changed, 't1', { ...empty, openFiles: noOpenFiles('t1') }).openFiles).toEqual({
       t1: noOpenFiles('t1'),
@@ -617,6 +627,7 @@ describe("a task's artifacts", () => {
     watchers: [],
     commits: [],
     agentTab: null,
+    agentTokens: [],
   })
 
   it('takes the whole list from each change, and from a history load that started at or after the last one', () => {
@@ -687,6 +698,7 @@ describe("a task's watchers", () => {
     watchers,
     commits: [],
     agentTab: null,
+    agentTokens: [],
   })
 
   it('takes every task’s live ones on start, by task, over none', () => {
@@ -800,6 +812,7 @@ describe("every task's running subagents", () => {
       watchers: [],
       commits: [],
       agentTab: null,
+      agentTokens: [],
     })
     expect(loaded.toolEvents.t1).toEqual([divider, finished])
   })
@@ -840,6 +853,7 @@ describe("a task's commits", () => {
     watchers: [],
     commits,
     agentTab: null,
+    agentTokens: [],
   })
 
   it('takes a task’s whole list with its history, and from each change, each task’s its own', () => {
@@ -873,6 +887,7 @@ describe("a task's handoff note", () => {
     watchers: [],
     commits: [],
     agentTab: null,
+    agentTokens: [],
   })
 
   it('takes the note from each change, and a cleared one as none', () => {
@@ -913,6 +928,7 @@ describe("a task's todo list", () => {
     watchers: [],
     commits: [],
     agentTab: null,
+    agentTokens: [],
   })
 
   it('takes the list from each change, whole', () => {
@@ -1065,5 +1081,63 @@ describe('the todo hub’s filings (P16)', () => {
     expect(next.filings).toEqual({})
     expect(next.filingsVersion).toEqual({})
     expect(next.todoPanels).toEqual({})
+  })
+})
+
+describe('the token totals an agent tab shows (#566)', () => {
+  const total = { agentId: null, inputTokens: 1_200, outputTokens: 45 }
+
+  it('takes a tab’s cumulative total into place, keeping the map it had when nothing changed', () => {
+    const first = applyEvent(state, { type: EventType.AgentTokensChanged, taskId: 't1', total })
+    expect(first.agentTokens).toEqual({ t1: { '': total } })
+    // The same total again changes nothing, so the line reading it doesn't render.
+    expect(applyEvent(first, { type: EventType.AgentTokensChanged, taskId: 't1', total }).agentTokens).toBe(
+      first.agentTokens,
+    )
+    // A subagent's total sits under its own key, next to Main's.
+    const second = applyEvent(first, {
+      type: EventType.AgentTokensChanged,
+      taskId: 't1',
+      total: { agentId: 'sub-1', inputTokens: 500, outputTokens: 10 },
+    })
+    expect(second.agentTokens.t1).toEqual({
+      '': total,
+      'sub-1': { agentId: 'sub-1', inputTokens: 500, outputTokens: 10 },
+    })
+    // Another task keeps its own.
+    expect(applyEvent(first, { type: EventType.AgentTokensChanged, taskId: 't2', total }).agentTokens.t1).toEqual(
+      first.agentTokens.t1,
+    )
+  })
+
+  it('loads the totals with the task’s history, keeping the entries it has when their counts are the same', () => {
+    const evented = applyEvent(state, { type: EventType.AgentTokensChanged, taskId: 't1', total })
+    const load = (agentTokens: readonly import('../../shared/domain').AgentTokenTotal[]) =>
+      withHistory(evented, 't1', {
+        messages: [],
+        toolEvents: [],
+        queuedMessages: [],
+        questionSets: [],
+        permissionRequests: [],
+        permissionMarks: [],
+        openFiles: noOpenFiles('t1'),
+        todos: null,
+        artifacts: [],
+        handoff: null,
+        watchers: [],
+        commits: [],
+        agentTab: null,
+        agentTokens,
+      })
+    expect(load([{ agentId: null, inputTokens: 1_200, outputTokens: 45 }]).agentTokens.t1?.['']).toBe(
+      evented.agentTokens.t1?.[''],
+    )
+    // A count the load read before an event landed takes the load's place, whatever the event said.
+    expect(load([]).agentTokens.t1).toEqual({})
+  })
+
+  it('keys a tab by its agent, Main by the empty string', () => {
+    expect(agentTokensKey(null)).toBe('')
+    expect(agentTokensKey('sub-1')).toBe('sub-1')
   })
 })

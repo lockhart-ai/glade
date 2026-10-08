@@ -321,7 +321,7 @@ export function Menu({
 /**
  * The entries a menu shows for a search query: with none, all of them; with one, the items whose label every word of
  * the query matches (`matchesWords`), the headings that still lead kept items, and the separators between things that
- * are still there.
+ * are still there, collapsed into one where the filtering left them side by side.
  */
 function filterEntries(entries: readonly MenuEntry[], query: string): readonly MenuEntry[] {
   if (query.trim() === '') return entries
@@ -330,7 +330,7 @@ function filterEntries(entries: readonly MenuEntry[], query: string): readonly M
       entry.kind === MenuEntryKind.Item && matchesWords(query, entry.label) ? [index] : [],
     ),
   )
-  return entries.flatMap((entry, index): readonly MenuEntry[] => {
+  const kept = entries.flatMap((entry, index): readonly MenuEntry[] => {
     switch (entry.kind) {
       case MenuEntryKind.Item:
         return keptItems.has(index) ? [entry] : []
@@ -350,4 +350,11 @@ function filterEntries(entries: readonly MenuEntry[], query: string): readonly M
       }
     }
   })
+  // Runs of separators the filtering left next to each other collapse into one, and none leads or trails.
+  const collapsed = kept.filter(
+    (entry, index) =>
+      entry.kind !== MenuEntryKind.Separator || (index > 0 && kept[index - 1]?.kind !== MenuEntryKind.Separator),
+  )
+  while (collapsed.at(-1)?.kind === MenuEntryKind.Separator) collapsed.pop()
+  return collapsed
 }

@@ -408,6 +408,32 @@ describe('Menu with a search field (#566)', () => {
     expect(screen.getAllByRole('menuitemradio')).toHaveLength(3)
   })
 
+  it('keeps the separators that sit between items that are still there', async () => {
+    const choose = vi.fn()
+    render(
+      <Menu
+        label="Task actions"
+        open
+        searchPlaceholder="Search…"
+        onClose={() => undefined}
+        anchor={{ kind: MenuAnchorKind.Point, x: 0, y: 0 }}
+        entries={[
+          { kind: MenuEntryKind.Item, label: 'Open docs', onSelect: choose },
+          { kind: MenuEntryKind.Separator },
+          { kind: MenuEntryKind.Item, label: 'Pin to top', onSelect: choose },
+          { kind: MenuEntryKind.Separator },
+          { kind: MenuEntryKind.Item, label: 'Delete docs', onSelect: choose },
+        ]}
+      />,
+    )
+    await settleFloating()
+
+    // A query that keeps the first and last items keeps the separator between them, and drops the other.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search…' }), { target: { value: 'docs' } })
+    expect(screen.getAllByRole('menuitem')).toHaveLength(2)
+    expect(screen.getAllByRole('separator')).toHaveLength(1)
+  })
+
   it('caps and scrolls the items when scrollable, without one otherwise', async () => {
     await openSearch(true)
     expect(screen.getByRole('menu', { name: 'Filter providers' }).querySelector(`.${cls('list')}`)).not.toBeNull()
