@@ -159,6 +159,8 @@ export enum CommandName {
   OpenRouterEndpoints = 'openrouter.endpoints',
   OpenRouterSelect = 'openrouter.select',
   OpenRouterProviderModels = 'openrouter.providerModels',
+  OpenRouterConnectManagementKey = 'openrouter.connectManagementKey',
+  OpenRouterRemoveManagementKey = 'openrouter.removeManagementKey',
   SearchQuery = 'search.query',
   PluginsList = 'plugins.list',
   PluginsSetEnabled = 'plugins.setEnabled',
@@ -1475,6 +1477,8 @@ export interface CommandMap {
   [CommandName.OpenRouterEndpoints]: CommandSpec<OpenRouterEndpointsRequest, readonly OpenRouterProvider[]>
   [CommandName.OpenRouterSelect]: CommandSpec<OpenRouterChoiceRequest, OpenRouterSelection>
   [CommandName.OpenRouterProviderModels]: CommandSpec<OpenRouterProviderModelsRequest, readonly string[]>
+  [CommandName.OpenRouterConnectManagementKey]: CommandSpec<OpenRouterConnectRequest, OpenRouterStatus>
+  [CommandName.OpenRouterRemoveManagementKey]: CommandSpec<EmptyRequest, OpenRouterStatus>
   [CommandName.SearchQuery]: CommandSpec<SearchQueryRequest, SearchQueryResponse>
   [CommandName.PluginsList]: CommandSpec<EmptyRequest, PluginsResponse>
   [CommandName.ControlStatus]: CommandSpec<EmptyRequest, ControlStatusResponse>

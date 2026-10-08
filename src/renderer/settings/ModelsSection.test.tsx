@@ -11,7 +11,13 @@ import { fakeBridge, type FakeHandlers } from '../store/test-bridge'
 import { ModelsSection } from './ModelsSection'
 import { SettingsSection } from './sections'
 
-const CATALOG: OpenRouterStatus = { connected: true, models: [SAMPLE_MODEL], providers: [SAMPLE_PROVIDER], choices: [] }
+const CATALOG: OpenRouterStatus = {
+  connected: true,
+  managementConnected: false,
+  models: [SAMPLE_MODEL],
+  providers: [SAMPLE_PROVIDER],
+  choices: [],
+}
 
 it('keeps the catalog rows out of search and replacement-key keystrokes when their own props did not change', async () => {
   const rendered = vi.fn(() => SAMPLE_MODEL.inputPrice)
@@ -145,6 +151,7 @@ it('searches with every word across id, name and description, lists the Selected
   await show({
     [CommandName.OpenRouterStatus]: () => ({
       connected: true,
+      managementConnected: false,
       models: [glm, kim, grok],
       providers: [
         { id: 'z-host', name: 'Z.ai' },
@@ -187,6 +194,47 @@ it('searches with every word across id, name and description, lists the Selected
   fireEvent.change(search, { target: { value: '  fast   cheap  ' } })
   expect(screen.getByText('Grok 5')).toBeInTheDocument()
   expect(await screen.findByText(/^1 matching models/)).toBeInTheDocument()
+})
+
+it('connects the optional management key, shows it connected and removes it, surfacing what main refuses (#566)', async () => {
+  const { invoke } = await show({
+    [CommandName.OpenRouterStatus]: () => CATALOG,
+    [CommandName.OpenRouterConnectManagementKey]: ({ key }: { key: string }) =>
+      key === 'bad'
+        ? Promise.reject(new Error('OpenRouter returned 401. Check the management key.'))
+        : { ...CATALOG, managementConnected: true },
+    [CommandName.OpenRouterRemoveManagementKey]: () => CATALOG,
+  })
+  await screen.findByText('Selected · 0')
+  // The optional management key sits nested under the OpenRouter key, with its own field. Its row's buttons sit
+  // after the OpenRouter row's, which has a Replace key and a Remove of its own.
+  expect(screen.getByText('Management key')).toBeInTheDocument()
+  expect(screen.getByText('Optional')).toBeInTheDocument()
+  expect(screen.getByText(/Reads your guardrails/)).toBeInTheDocument()
+  const field = screen.getByLabelText('OpenRouter management key')
+  expect(field).toHaveAttribute('type', 'password')
+  fireEvent.change(field, { target: { value: 'bad' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+  await screen.findByText('OpenRouter returned 401. Check the management key.')
+  expect(invoke).toHaveBeenCalledWith(CommandName.OpenRouterConnectManagementKey, { key: 'bad' })
+  expect(screen.getByText('Management key')).toBeInTheDocument()
+
+  fireEvent.change(field, { target: { value: ' good-key ' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+  await screen.findByText('Connected')
+  expect(invoke).toHaveBeenCalledWith(CommandName.OpenRouterConnectManagementKey, { key: 'good-key' })
+  expect(screen.queryByLabelText('OpenRouter management key')).not.toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: 'Replace key' })).toHaveLength(2)
+
+  const replaceKey = screen.getAllByRole('button', { name: 'Replace key' }).at(-1) as HTMLButtonElement
+  fireEvent.click(replaceKey)
+  expect(screen.getByLabelText('OpenRouter management key')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Save key' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByLabelText('OpenRouter management key')).not.toBeInTheDocument()
+  fireEvent.click(screen.getAllByRole('button', { name: 'Remove' }).at(-1) as HTMLButtonElement)
+  await screen.findByRole('button', { name: 'Connect' })
+  expect(invoke).toHaveBeenCalledWith(CommandName.OpenRouterRemoveManagementKey, {})
 })
 
 it('reports connection/status failures and ignores a status response after unmount', async () => {

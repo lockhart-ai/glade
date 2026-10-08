@@ -426,11 +426,18 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.SettingsGet]: () => ({ settings: getSettings(db) }),
     [CommandName.ModelsList]: () => ({ models: listModels(db) }),
-    [CommandName.OpenRouterStatus]: () => openRouterStatus(db),
+    [CommandName.OpenRouterStatus]: () => {
+      // A status read may be the first since launch: it also asks for the guardrails again, without waiting on them.
+      context.openrouter?.refreshGuardrails().catch(() => undefined)
+      return openRouterStatus(db)
+    },
     [CommandName.OpenRouterUsage]: () => openRouterUsage(db),
     [CommandName.OpenRouterRefreshUsage]: ({ force }) => router().refreshUsage(force),
     [CommandName.OpenRouterProviderModels]: ({ provider }) => router().providerModels(provider),
     [CommandName.OpenRouterConnect]: ({ key }) => router().connect(key),
+    // A status read may be the first since launch: it also asks for the guardrails again, without waiting on them.
+    [CommandName.OpenRouterConnectManagementKey]: ({ key }) => router().connectManagementKey(key),
+    [CommandName.OpenRouterRemoveManagementKey]: () => router().removeManagementKey(),
     [CommandName.OpenRouterRefresh]: () => router().refresh(),
     [CommandName.OpenRouterRemove]: () => router().remove(),
     [CommandName.OpenRouterEndpoints]: ({ model }) => router().endpoints(model),

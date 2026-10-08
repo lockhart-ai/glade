@@ -110,6 +110,21 @@ const endpointsResponse = z.object({
   }),
 }) satisfies z.ZodType<EndpointsResponse>
 
+/** A guardrail read from a management key (`GET /api/v1/guardrails`); it may not name any providers. */
+interface CatalogGuardrail {
+  readonly allowed_providers?: readonly string[]
+}
+interface GuardrailsResponse {
+  readonly data: readonly CatalogGuardrail[]
+}
+const guardrailsResponse = z.object({
+  data: z.array(
+    z.object({
+      allowed_providers: z.array(z.string()).optional().catch(undefined),
+    }),
+  ),
+}) satisfies z.ZodType<GuardrailsResponse>
+
 export interface OpenRouterCatalog {
   readonly models: readonly OpenRouterModel[]
   readonly providers: readonly OpenRouterProvider[]
@@ -212,5 +227,17 @@ export class OpenRouterClient {
       limitReset: value.limit_reset,
       includesByok: value.include_byok_in_limit,
     }
+  }
+
+  /**
+   * The providers a management key's guardrails allow, read from the account's guardrails, alphabetised; null when
+   * none restricts the account (`data` empty, or no guardrail names any), which leaves both provider lists whole.
+   */
+  async guardrails(key: string): Promise<readonly string[] | null> {
+    const { data } = guardrailsResponse.parse(await this.get(key, 'guardrails'))
+    const allowed = [...new Set(data.flatMap(({ allowed_providers }) => allowed_providers ?? []))].sort((a, b) =>
+      a.localeCompare(b),
+    )
+    return allowed.length === 0 ? null : allowed
   }
 }

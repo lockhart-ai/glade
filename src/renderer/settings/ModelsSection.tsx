@@ -31,7 +31,7 @@ import { SettingSelect } from './SettingSelect'
 import { SettingsSection } from './sections'
 import styles from './ModelsSection.module.css'
 
-const EMPTY: OpenRouterStatus = { connected: false, models: [], providers: [], choices: [] }
+const EMPTY: OpenRouterStatus = { connected: false, managementConnected: false, models: [], providers: [], choices: [] }
 
 /** Key entry and model curation in the existing Settings surface, designs 56–57. */
 export function ModelsSection(): React.JSX.Element {
@@ -45,6 +45,10 @@ export function ModelsSection(): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [managementKey, setManagementKey] = useState('')
+  const [managementEditing, setManagementEditing] = useState(false)
+  const [managementBusy, setManagementBusy] = useState(false)
+  const [managementError, setManagementError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('')
   const [filteredIds, setFilteredIds] = useState<readonly string[] | null>(null)
@@ -91,6 +95,25 @@ export function ModelsSection(): React.JSX.Element {
       )
       .finally(() => {
         setBusy(false)
+      })
+  }
+
+  const runManagement = (operation: () => Promise<OpenRouterStatus>): void => {
+    setManagementBusy(true)
+    setManagementError(null)
+    void operation()
+      .then(
+        (value) => {
+          setStatus(value)
+          setManagementKey('')
+          setManagementEditing(false)
+        },
+        (failure: unknown) => {
+          setManagementError(describeFailure(failure))
+        },
+      )
+      .finally(() => {
+        setManagementBusy(false)
       })
   }
 
@@ -226,6 +249,89 @@ export function ModelsSection(): React.JSX.Element {
           </form>
         )}
       </SettingRow>
+      {status.connected && (
+        <div className={styles.management}>
+          <div className={styles.managementText}>
+            <span className={styles.managementName}>
+              Management key <span className={styles.optional}>Optional</span>
+            </span>
+            <span className={styles.managementNote}>
+              Reads your guardrails, so the provider lists show only what this key may use.
+            </span>
+          </div>
+          {status.managementConnected && !managementEditing ? (
+            <div className={styles.actions}>
+              <span className={styles.status}>Connected</span>
+              <Button
+                size={ButtonSize.Small}
+                disabled={managementBusy}
+                onClick={() => {
+                  setManagementEditing(true)
+                }}
+              >
+                Replace key
+              </Button>
+              <Button
+                size={ButtonSize.Small}
+                variant={ButtonVariant.Ghost}
+                disabled={managementBusy}
+                onClick={() => {
+                  runManagement(() => actions.removeManagementKey())
+                }}
+              >
+                Remove
+              </Button>
+            </div>
+          ) : (
+            <form
+              className={styles.actions}
+              onSubmit={(event) => {
+                event.preventDefault()
+                runManagement(() => actions.connectManagementKey(managementKey.trim()))
+              }}
+            >
+              <Input
+                className={styles.key}
+                label="OpenRouter management key"
+                type="password"
+                placeholder="Management key"
+                autoComplete="off"
+                value={managementKey}
+                onChange={(event) => {
+                  setManagementKey(event.target.value)
+                }}
+                disabled={managementBusy}
+              />
+              <Button
+                type="submit"
+                size={ButtonSize.Small}
+                variant={ButtonVariant.Primary}
+                disabled={managementBusy || managementKey.trim() === ''}
+              >
+                {managementBusy ? 'Connecting…' : status.managementConnected ? 'Save key' : 'Connect'}
+              </Button>
+              {managementEditing && (
+                <Button
+                  size={ButtonSize.Small}
+                  variant={ButtonVariant.Ghost}
+                  disabled={managementBusy}
+                  onClick={() => {
+                    setManagementKey('')
+                    setManagementEditing(false)
+                  }}
+                >
+                  Cancel
+                </Button>
+              )}
+            </form>
+          )}
+          {managementError !== null && (
+            <p className={styles.error} role="alert">
+              {managementError}
+            </p>
+          )}
+        </div>
+      )}
       {error !== null && (
         <p className={styles.error} role="alert">
           {error}

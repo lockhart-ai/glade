@@ -67,6 +67,8 @@ export const EMPTY_OPENROUTER_USAGE: OpenRouterUsageStatus = { connected: false,
 
 export interface OpenRouterStatus {
   readonly connected: boolean
+  /** Whether an OpenRouter management key is connected beside the inference key (#566). */
+  readonly managementConnected: boolean
   readonly models: readonly OpenRouterModel[]
   readonly providers: readonly OpenRouterProvider[]
   readonly choices: readonly OpenRouterChoice[]
@@ -99,6 +101,9 @@ export interface OpenRouterActions {
   connect(key: string): Promise<OpenRouterStatus>
   refresh(): Promise<OpenRouterStatus>
   remove(): Promise<OpenRouterStatus>
+  /** Connects the optional management key, reading the account's guardrails (#566). */
+  connectManagementKey(key: string): Promise<OpenRouterStatus>
+  removeManagementKey(): Promise<OpenRouterStatus>
   endpoints(model: string): Promise<readonly OpenRouterProvider[]>
   select(choice: OpenRouterChoiceRequest): Promise<OpenRouterSelection>
   providerModels(provider: string): Promise<readonly string[]>

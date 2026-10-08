@@ -25,7 +25,9 @@ it('adds durable OpenRouter records without changing existing tasks or history',
       .run('missing', 'session', 'missing'),
   ).toThrow(/FOREIGN KEY/)
   expect(() =>
-    db.prepare('INSERT INTO openrouter_connection VALUES (2, ?, ?, ?)').run(Buffer.from('encrypted'), '[]', '[]'),
+    db
+      .prepare('INSERT INTO openrouter_connection VALUES (2, ?, ?, ?, NULL, NULL)')
+      .run(Buffer.from('encrypted'), '[]', '[]'),
   ).toThrow(/CHECK/)
   db.close()
 })
