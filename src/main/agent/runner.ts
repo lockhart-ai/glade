@@ -21,7 +21,9 @@
  * - The task's activity is working for the turn, then waiting on you, or error if the turn failed.
  * - A final reply in a task you aren't viewing marks it unread (`../tasks/attention`) and is notified (`notifyReply`).
  * - The task's context usage follows the agent's latest top-level message, and its context window is what the turn's
- *   `result` reports for the session's model (`docs/sdk-notes.md`, "Usage and context size").
+ *   `result` reports for the session's model (`docs/sdk-notes.md`, "Usage and context size"). An OpenRouter session's
+ *   streamed messages carry no usable usage until the stream ends (the gateway reports it only there), so a turn whose
+ *   messages reported nothing takes the figure from the turn's own `result` usage instead.
  *
  * **Turns the agent starts itself.** The SDK starts a turn with no message from you when a background command or
  * subagent finishes, a `Monitor` reports an event or ends, or a `ScheduleWakeup` or `CronCreate` job fires: the SDK's
@@ -802,12 +804,20 @@ interface Turn {
   readonly awaiting: Set<string>
   /** Whether the user asked to stop the turn. */
   stopping: boolean
+  /**
+   * Whether a top-level assistant message has reported the context it answered from (`ContextUsed` above zero). An
+   * OpenRouter session's streamed frames carry the gateway's `message_start` zero until it reports at the stream's end,
+   * so a turn that ends with this false takes its context figure from the turn's `result` usage instead.
+   */
+  contextReported: boolean
   /** The automatic retry of a failed API request in progress, as saved on the task; null when none is. */
   retrying: ApiRetry | null
   /** The API error the SDK gave up on, which the turn's error result follows. */
   apiError: ApiErrorEvent | null
   /** The id of the running Compact row, until the SDK reports how the compaction went; null otherwise. */
   compaction: string | null
+  /** Whether the turn reported a compaction (`compact_boundary`): its `post_tokens` stands as the context figure. */
+  compacted: boolean
   /** Whether the turn is a compaction you asked for (`compact`), not a turn of the agent's: its end is never held. */
   compactOnly: boolean
   /**
@@ -1381,9 +1391,11 @@ function newTurn(number: number): Turn {
     running: new Map(),
     awaiting: new Set(),
     stopping: false,
+    contextReported: false,
     retrying: null,
     apiError: null,
     compaction: null,
+    compacted: false,
     compactOnly: false,
     heldReply: null,
     sdkRows: new Map(),
@@ -1899,6 +1911,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const onCompacted = (taskId: string, live: LiveSession, turn: Turn, event: CompactedEvent): void => {
     const task = getTask(db, taskId)
     if (task === undefined) return
+    turn.compacted = true
     const summary = live.compactSummary
     live.compactSummary = null
     const outcome = { state: ToolCallState.Done, preTokens: event.preTokens, postTokens: event.postTokens, summary }
@@ -1957,6 +1970,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   const onTurnFinished = (taskId: string, live: LiveSession, turn: Turn, event: TurnFinishedEvent): void => {
+    // `failCompaction` clears the row's id: whether the turn compacted is read before it.
+    const compacted = turn.compactOnly || turn.compacted || turn.compaction !== null
     failCompaction(turn)
     if (event.isError && (turn.stopping || isAborted(event.terminalReason))) {
       endTurn(taskId, live, turn)
@@ -1976,6 +1991,20 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return
     }
     recovered(taskId, turn)
+    // OpenRouter's streamed messages carry the gateway's `message_start` zero until the usage arrives at the stream's
+    // end, which the CLI keeps for its own turn accounting but never re-sends: the frames' usage never recovers. The
+    // turn's `result` usage is that same end-of-stream figure — the last request's prompt, as the context now stands —
+    // so a turn whose messages reported nothing takes the figure from there. A compaction's turn keeps the boundary's
+    // own `post_tokens`, which is already the figure after it.
+    if (
+      !compacted &&
+      !turn.contextReported &&
+      agentSource(live.settings.model) === AgentSource.OpenRouter &&
+      event.usage !== null
+    ) {
+      const used = event.usage.inputTokens + event.usage.cacheReadInputTokens + event.usage.cacheCreationInputTokens
+      if (used > 0) onContextUsed(taskId, used)
+    }
     const held = turn.pending
       .splice(0)
       .map((part) => part.text)
@@ -2165,6 +2194,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const onContextUsed = (taskId: string, tokens: number): void => {
     const task = getTask(db, taskId)
     if (task === undefined || task.contextUsedTokens === tokens) return
+    // A zero report says nothing: every request's prompt holds tokens. OpenRouter's streamed frames carry the
+    // gateway's `message_start` zero until it reports the usage at the stream's end, and a real figure is kept
+    // rather than erased; the turn's `result` usage fills the gap when the messages reported nothing.
+    if (tokens === 0) return
     if (tokens > task.contextWindowTokens) {
       agentLog(taskId).warn('more context used than the window holds; trusting the larger size', {
         used: tokens,
@@ -2561,6 +2594,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         return
       case AgentEventKind.ContextUsed:
         recovered(taskId, turn)
+        if (event.tokens > 0) turn.contextReported = true
         onContextUsed(taskId, event.tokens)
         return
       case AgentEventKind.Compacting:
