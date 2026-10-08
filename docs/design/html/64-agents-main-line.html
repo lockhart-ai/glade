@@ -4,13 +4,7 @@
 <meta charset="utf-8">
 <title>Agents, a subagent’s tab</title>
 <script src="./support.js"></script>
-<style>
-.aline{flex-direction:column;align-items:stretch;gap:3px;padding:6px 17px}
-.arow{display:flex;align-items:baseline;justify-content:space-between;gap:12px;min-width:0}
-.amd{flex-grow:1;flex-shrink:1;flex-basis:0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500;color:#E6E8F0}
-.at{flex-shrink:0;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;white-space:nowrap}
-.arow .aw{flex-grow:1;flex-shrink:1;flex-basis:0}
-</style></head>
+</head>
 <body>
 <x-dc>
 <helmet><style>@font-face{font-family:Geist;src:url(geist.woff2) format("woff2");font-weight:100 900}@font-face{font-family:"Geist Mono";src:url(geist-mono.woff2) format("woff2");font-weight:100 900}</style>
@@ -214,7 +208,7 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 </div>
 <div class="aline">
 <div class="arow"><span class="amd">Z.ai: GLM 5.3 Flash · Together</span><span class="at">1.2M in · 45K out</span></div>
-<div class="arow"><span class="aw">Throttles applied; /search limit measured next</span><span class="am">Running · 42m</span></div>
+<div class="arow"><span class="aw">Throttles applied to the three public viewsets; measuring /search before picking its limit</span><span class="am">Running · 42m</span></div>
 </div>
 <div class="calls">
 <div data-narr="1" style="flex-shrink: 0; margin: 6px 4px 6px 12px; padding: 2px 0 2px 12px; border-left: 2px solid #3D425E; font-size: 13px; line-height: 1.5; color: #AEB3C3"><code style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px; padding: 1px 5px; background: #232531; border-radius: 4px">api/throttle.py</code> builds the 429 response, so the header goes there. <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">13:04</span></div>
@@ -315,5 +309,10 @@ return {};
 }
 }
 </script>
-</body>
+<style>
+.aline{flex-direction:column;align-items:stretch;gap:3px;padding:6px 17px}
+.arow{display:flex;align-items:baseline;justify-content:space-between;gap:12px;min-width:0}
+.amd{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500;color:#E6E8F0}
+.at{flex-shrink:0;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;white-space:nowrap}
+</style></body>
 </html>

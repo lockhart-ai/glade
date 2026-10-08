@@ -4,13 +4,7 @@
 <meta charset="utf-8">
 <title>Agents, a subagent’s tab</title>
 <script src="./support.js"></script>
-<style>
-.aline{flex-direction:column;align-items:stretch;gap:3px;padding:6px 17px}
-.arow{display:flex;align-items:baseline;justify-content:space-between;gap:12px;min-width:0}
-.amd{flex-grow:1;flex-shrink:1;flex-basis:0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500;color:#E6E8F0}
-.at{flex-shrink:0;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;white-space:nowrap}
-.arow .aw{flex-grow:1;flex-shrink:1;flex-basis:0}
-</style></head>
+</head>
 <body>
 <x-dc>
 <helmet><style>@font-face{font-family:Geist;src:url(geist.woff2) format("woff2");font-weight:100 900}@font-face{font-family:"Geist Mono";src:url(geist-mono.woff2) format("woff2");font-weight:100 900}</style>
@@ -315,5 +309,10 @@ return {};
 }
 }
 </script>
-</body>
+<style>
+.aline{flex-direction:column;align-items:stretch;gap:3px;padding:6px 17px}
+.arow{display:flex;align-items:baseline;justify-content:space-between;gap:12px;min-width:0}
+.amd{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500;color:#E6E8F0}
+.at{flex-shrink:0;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#999DB0;white-space:nowrap}
+</style></body>
 </html>

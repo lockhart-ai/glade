@@ -115,8 +115,8 @@ name or description; **glm flash** matches both GLM flash models here. The count
 ### 62 · Provider filter, restricted by guardrails
 
 With a management key connected and provider restrictions on it, the filter lists only the allowed providers,
-alphabetised, with **All providers** on top. The footnote carries the degraded variant: without a management key, or
-with no provider restrictions on it, every provider in the catalog is listed, alphabetised.
+alphabetised, with **All providers** on top. Without a management key, or with no provider restrictions on it, the
+filter instead lists every provider in the catalog, alphabetised.
 
 ![Settings → Models, provider filter](screens/62-settings-models-providers.png)
 
@@ -124,9 +124,9 @@ with no provider restrictions on it, every provider in the catalog is listed, al
 
 ### 63 · Per-model provider menu, unrestricted
 
-The per-model menu lists this model's tool-capable providers alphabetised. This screen shows the degraded state — no
-provider restrictions are on the key, so nothing is filtered; its footnote carries the restricted variant, where the
-menu shows only the providers the management key's guardrails allow.
+The per-model menu lists this model's tool-capable providers alphabetised, entries only. This screen shows the
+degraded state — no provider restrictions are on the key, so nothing is filtered; with provider restrictions on a
+connected management key, the menu shows only the providers those guardrails allow.
 
 ![Per-model provider menu](screens/63-model-provider-full.png)
 
