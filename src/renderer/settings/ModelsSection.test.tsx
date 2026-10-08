@@ -70,11 +70,13 @@ it('connects a masked key, discovers a host, curates the picker and filters the 
   fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Sample Host' }))
   await screen.findByRole('button', { name: 'Provider for Sample Flash: Sample Host' })
   fireEvent.click(screen.getByRole('checkbox', { name: 'Enable Sample Flash' }))
-  await screen.findByText('1 enabled')
+  await screen.findByText('Selected · 1')
   expect(screen.getByRole('checkbox')).toBeChecked()
   expect(screen.getByText(/128K context/)).toHaveTextContent('$0.1 in / $0.2 out')
   fireEvent.change(screen.getByRole('textbox', { name: 'Search models' }), { target: { value: 'missing' } })
-  expect(screen.queryByText('Sample Flash')).not.toBeInTheDocument()
+  // The selected model keeps its place above the catalog, which reports no matches.
+  expect(screen.getByText('Sample Flash')).toBeInTheDocument()
+  expect(await screen.findByText(/^0 matching models/)).toBeInTheDocument()
   fireEvent.change(screen.getByRole('textbox', { name: 'Search models' }), { target: { value: '' } })
   fireEvent.click(screen.getByRole('button', { name: 'Filter providers: All providers' }))
   await settleFloating()
@@ -111,7 +113,7 @@ it('surfaces discovery and save failures and handles an empty provider list', as
     [CommandName.OpenRouterStatus]: () => ({
       ...CATALOG,
       models: [{ ...SAMPLE_MODEL, inputs: ['text', 'image'] }],
-      choices: [SAMPLE_CHOICE],
+      choices: [{ ...SAMPLE_CHOICE, model: { ...SAMPLE_MODEL, inputs: ['text', 'image'] } }],
     }),
     [CommandName.OpenRouterEndpoints]: endpoints,
     [CommandName.OpenRouterSelect]: select,
@@ -134,6 +136,57 @@ it('surfaces discovery and save failures and handles an empty provider list', as
   await screen.findByText('Filter failed')
   fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
   await screen.findByText('Refresh failed')
+})
+
+it('searches with every word across id, name and description, lists the Selected models first, and alphabetises the provider menus (#566)', async () => {
+  const kim = { ...SAMPLE_MODEL, id: 'moonshot/kimi', name: 'Kimi Café', description: 'For routine work' }
+  const glm = { ...SAMPLE_MODEL, id: 'zai/glm', name: 'GLM 5.3', description: 'Fast and cheap' }
+  const grok = { ...SAMPLE_MODEL, id: 'xai/grok', name: 'Grok 5', description: 'Fast and cheap' }
+  await show({
+    [CommandName.OpenRouterStatus]: () => ({
+      connected: true,
+      models: [glm, kim, grok],
+      providers: [
+        { id: 'z-host', name: 'Z.ai' },
+        { id: 'a-host', name: 'AkashML' },
+        { id: 'n-host', name: 'Novita' },
+      ],
+      choices: [{ ...SAMPLE_CHOICE, model: glm, provider: { id: 'z-host', name: 'Z.ai' }, enabled: true }],
+    }),
+  })
+  // The Selected model leads, named, with the catalog below it, and the filter options are alphabetised.
+  expect(screen.getByText('Selected · 1')).toBeInTheDocument()
+  expect(screen.getAllByText('GLM 5.3').length).toBeGreaterThan(0)
+  fireEvent.click(screen.getByRole('button', { name: 'Filter providers: All providers' }))
+  await settleFloating()
+  expect(screen.getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
+    'All providers',
+    'AkashML',
+    'Novita',
+    'Z.ai',
+  ])
+  // The filter menu's own search filters its list too.
+  fireEvent.change(screen.getByRole('textbox', { name: 'Search providers…' }), { target: { value: 'aka' } })
+  expect(screen.getAllByRole('menuitemradio')).toHaveLength(1)
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'AkashML' }))
+  await screen.findByText(/Discovering models for this provider/)
+  // Back to every provider, for the search below.
+  fireEvent.click(screen.getByRole('button', { name: 'Filter providers: AkashML' }))
+  await settleFloating()
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'All providers' }))
+  // Every word of the query must appear across the model's id, name or description, diacritics folded.
+  const search = screen.getByRole('textbox', { name: 'Search models' })
+  fireEvent.change(search, { target: { value: 'kimi routine' } })
+  expect(screen.getByText('Kimi Café')).toBeInTheDocument()
+  expect(await screen.findByText(/^1 matching models/)).toBeInTheDocument()
+  fireEvent.change(search, { target: { value: 'cafe' } })
+  expect(await screen.findByText(/^1 matching models/)).toBeInTheDocument()
+  fireEvent.change(search, { target: { value: 'kimi cheap' } })
+  expect(await screen.findByText(/^0 matching models/)).toBeInTheDocument()
+  // Runs of whitespace count as one break; both words land in the description.
+  fireEvent.change(search, { target: { value: '  fast   cheap  ' } })
+  expect(screen.getByText('Grok 5')).toBeInTheDocument()
+  expect(await screen.findByText(/^1 matching models/)).toBeInTheDocument()
 })
 
 it('reports connection/status failures and ignores a status response after unmount', async () => {

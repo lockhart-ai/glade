@@ -1,6 +1,7 @@
 import { faChevronDown, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
-import { memo, useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { accountKind, AccountKind } from '../../shared/account'
+import { matchesWords } from '../../shared/textMatch'
 import type {
   OpenRouterActions,
   OpenRouterChoice,
@@ -23,6 +24,7 @@ import {
   type MenuEntry,
 } from '../components'
 import { describeFailure } from '../store/hydrate'
+import { classNames } from '../components/classNames'
 import { useGladeStore } from '../store/react'
 import { Intro, SettingRow } from './SettingsSections'
 import { SettingSelect } from './SettingSelect'
@@ -108,12 +110,29 @@ export function ModelsSection(): React.JSX.Element {
     }
   }, [actions, filter])
 
-  const query = search.trim().toLowerCase()
+  // The models whose box is checked: they lead in their own Selected section (design 60), named alphabetically.
+  const selected = useMemo(
+    () =>
+      status.choices
+        .filter(({ enabled }) => enabled)
+        .map(({ model }) => model)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [status.choices],
+  )
+  const enabledIds = useMemo(() => new Set(selected.map(({ id }) => id)), [selected])
+  // The catalog, without the models that are selected, to the search's every word and the provider filter.
   const models = status.models.filter(
     (model) =>
-      `${model.id} ${model.name}`.toLowerCase().includes(query) && (filter === '' || filteredIds?.includes(model.id)),
+      !enabledIds.has(model.id) &&
+      matchesWords(search, model.id, model.name, model.description) &&
+      (filter === '' || filteredIds?.includes(model.id)),
   )
-  const enabled = status.choices.filter(({ enabled }) => enabled).length
+  // The filter's providers, alphabetised (design 62), whatever order the catalog keeps them in.
+  const providers = useMemo(
+    () => [...status.providers].sort((a, b) => a.name.localeCompare(b.name)),
+    [status.providers],
+  )
+  const enabled = selected.length
   return (
     <>
       <Intro>Choose which models appear in tasks. Changes save automatically.</Intro>
@@ -218,9 +237,8 @@ export function ModelsSection(): React.JSX.Element {
         </p>
       ) : (
         <>
-          <div className={styles.heading}>
-            <h3>OpenRouter models</h3>
-            <span>{enabled} enabled</span>
+          <div className={classNames(styles.group, styles.groupBar)}>
+            <span>Selected · {String(enabled)}</span>
             <Button
               size={ButtonSize.Small}
               variant={ButtonVariant.Ghost}
@@ -232,6 +250,22 @@ export function ModelsSection(): React.JSX.Element {
               Refresh
             </Button>
           </div>
+          {selected.length > 0 && (
+            <div className={styles.models}>
+              {selected.map((model) => (
+                <ModelRow
+                  key={model.id}
+                  model={model}
+                  choices={status.choices}
+                  actions={actions}
+                  disabled={busy}
+                  onSaved={onSelectionSaved}
+                  compact
+                />
+              ))}
+            </div>
+          )}
+          <div className={styles.group}>Catalog</div>
           <p className={styles.note}>
             The catalog follows your OpenRouter preferences. Detected providers are hosting options; configured provider
             credentials are managed in OpenRouter.
@@ -251,9 +285,11 @@ export function ModelsSection(): React.JSX.Element {
               menuLabel="Filter providers"
               options={[
                 { value: '', label: 'All providers' },
-                ...status.providers.map(({ id, name }) => ({ value: id, label: name })),
+                ...providers.map(({ id, name }) => ({ value: id, label: name })),
               ]}
               value={filter}
+              searchPlaceholder="Search providers…"
+              scrollable
               onChoose={(value) => {
                 setFilter(value)
                 setFilteredIds(null)
@@ -305,6 +341,8 @@ interface ModelRowProps {
   readonly actions: OpenRouterActions
   readonly disabled: boolean
   readonly onSaved: (selection: OpenRouterSelection) => void
+  /** The compact row of the Selected section (design 60). */
+  readonly compact?: boolean
 }
 
 const ModelRow = memo(function ModelRow({
@@ -313,6 +351,7 @@ const ModelRow = memo(function ModelRow({
   actions,
   disabled,
   onSaved,
+  compact = false,
 }: ModelRowProps): React.JSX.Element {
   const saved =
     choices.find((choice) => choice.model.id === model.id && choice.enabled) ??
@@ -352,7 +391,7 @@ const ModelRow = memo(function ModelRow({
     },
   }))
   return (
-    <div className={styles.model}>
+    <div className={classNames(styles.model, compact && styles.compact)}>
       <input
         type="checkbox"
         aria-label={`Enable ${model.name}`}
@@ -406,6 +445,8 @@ const ModelRow = memo(function ModelRow({
           entries={menu}
           anchor={{ kind: MenuAnchorKind.Element, element: anchor, placement: Placement.BottomEnd }}
           open
+          searchPlaceholder="Search providers…"
+          scrollable
           onClose={() => {
             setAnchor(null)
           }}

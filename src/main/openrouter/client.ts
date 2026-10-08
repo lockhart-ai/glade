@@ -115,6 +115,11 @@ export interface OpenRouterCatalog {
   readonly providers: readonly OpenRouterProvider[]
 }
 
+/** Providers by their name: the menus list them alphabetised (#566). */
+export function byName(a: { readonly name: string }, b: { readonly name: string }): number {
+  return a.name.localeCompare(b.name)
+}
+
 /** Fetch is injectable; tests never send inference or catalog requests to an account. */
 export class OpenRouterClient {
   constructor(private readonly request: typeof fetch) {}
@@ -151,7 +156,10 @@ export class OpenRouterClient {
           inputPrice: model.pricing.prompt,
           outputPrice: model.pricing.completion,
         })),
-      providers: providersResponse.parse(providers).data.map(({ slug, name }) => ({ id: slug, name })),
+      providers: providersResponse
+        .parse(providers)
+        .data.map(({ slug, name }) => ({ id: slug, name }))
+        .sort(byName),
     }
   }
 
@@ -162,22 +170,24 @@ export class OpenRouterClient {
   ): Promise<readonly OpenRouterProvider[]> {
     const path = model.split('/').map(encodeURIComponent).join('/')
     const data = endpointsResponse.parse(await this.get(key, `models/${path}/endpoints`)).data
-    return providers.flatMap((provider) => {
-      const endpoint = data.endpoints.find(
-        (endpoint) => endpoint.supported_parameters.includes('tools') && endpoint.tag.split('/')[0] === provider.id,
-      )
-      if (endpoint === undefined) return []
-      return [
-        {
-          ...provider,
-          ...(endpoint.pricing === undefined
-            ? {}
-            : { inputPrice: endpoint.pricing.prompt, outputPrice: endpoint.pricing.completion }),
-          ...(endpoint.context_length === undefined ? {} : { contextLength: endpoint.context_length }),
-          parameters: endpoint.supported_parameters,
-        },
-      ]
-    })
+    return providers
+      .flatMap((provider) => {
+        const endpoint = data.endpoints.find(
+          (endpoint) => endpoint.supported_parameters.includes('tools') && endpoint.tag.split('/')[0] === provider.id,
+        )
+        if (endpoint === undefined) return []
+        return [
+          {
+            ...provider,
+            ...(endpoint.pricing === undefined
+              ? {}
+              : { inputPrice: endpoint.pricing.prompt, outputPrice: endpoint.pricing.completion }),
+            ...(endpoint.context_length === undefined ? {} : { contextLength: endpoint.context_length }),
+            parameters: endpoint.supported_parameters,
+          },
+        ]
+      })
+      .sort(byName)
   }
 
   async providerModels(key: string, provider: OpenRouterProvider): Promise<readonly string[]> {

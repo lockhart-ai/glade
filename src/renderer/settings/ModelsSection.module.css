@@ -11,22 +11,23 @@
   font-size: 12.5px;
   white-space: nowrap;
 }
-.heading {
+/* A group's label over its table ("Selected · 2", "Catalog", design 60): mono caps, as the task list's sections. */
+.group {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 16px 0 10px;
-}
-.heading h3 {
-  flex: 1;
-  margin: 0;
-  font-size: 14px;
-  font-weight: 500;
-}
-.heading > span {
+  margin: 10px 0 5px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--color-faint);
+}
+
+/* The Selected label's bar, with Refresh at its other end (design 60). */
+.groupBar {
+  margin-top: 16px;
+  justify-content: space-between;
 }
 .note {
   margin: 10px 0;
@@ -61,10 +62,13 @@
 .columns > span:last-child {
   width: 132px;
 }
+/* A table of models: the Selected section's, and the catalog's, which scrolls under a fixed height (design 60) so the
+   search, the provider filter and the footnote stay put however long the catalog grows. */
 .models {
   border: 1px solid var(--color-inner-border);
   border-radius: 10px;
-  overflow: hidden;
+  overflow-y: auto;
+  max-height: 320px;
 }
 .model {
   display: flex;
@@ -77,6 +81,11 @@
 }
 .model:last-child {
   border-bottom: 0;
+}
+/* The Selected section's compact row (design 60). */
+.compact {
+  min-height: 36px;
+  padding: 3px 12px;
 }
 .model > input {
   width: 18px;
