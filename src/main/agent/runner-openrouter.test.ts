@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
 import {
   AgentErrorKind,
@@ -463,7 +463,13 @@ it('keeps the prepared parent limit when the catalog changes and ignores guessed
   runner.send(task.id, 'Echo')
   setOpenRouterChoice(database.db, { ...child, enabled: false })
   backend.session.emit(sdk.init())
-  backend.session.emit(sdk.result('Echo', { modelUsage: { [SAMPLE_CHOICE.id]: { contextWindow: 1_000_000 } } }))
+  // A usage that fits the prepared 64k limit, so the turn's result usage doesn't refit the window.
+  backend.session.emit(
+    sdk.result('Echo', {
+      modelUsage: { [SAMPLE_CHOICE.id]: { contextWindow: 1_000_000 } },
+      usage: { input_tokens: 500, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 20 },
+    }),
+  )
   await settle()
   expect(getTask(database.db, task.id)?.contextWindowTokens).toBe(64_000)
 })
@@ -701,4 +707,97 @@ it('keeps an adopted destination live if a post-commit history notification thro
   expect(backend.session.closed).toBe(false)
   runner.send(task.id, 'Continue after notification failure')
   expect(backend.session.sent.at(-1)?.text).toBe('Continue after notification failure')
+})
+
+describe('the context usage on OpenRouter (#568)', () => {
+  /**
+   * An assistant frame as an OpenRouter turn streams it: the gateway's `message_start` usage, which is zero, with its
+   * cache counts null. The real counts arrive only in the stream's final `message_delta`, which the CLI keeps for its
+   * turn accounting and the turn's `result`, so the frames it sends never carry them.
+   */
+  function zeroUsageFrame(message: unknown): unknown {
+    const assistantMessage = message as { message: Record<string, unknown> }
+    return {
+      ...assistantMessage,
+      message: {
+        ...assistantMessage.message,
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: null,
+          cache_read_input_tokens: null,
+        },
+      },
+    }
+  }
+
+  /** A turn's `result` usage as the gateway reports it at the stream's end: the last request's prompt. */
+  function openRouterUsage(inputTokens: number): Record<string, unknown> {
+    return {
+      input_tokens: inputTokens,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+      output_tokens: 553,
+    }
+  }
+
+  /** A first turn on Claude (which reports its usage per message), then the switch to OpenRouter. */
+  async function switchedToOpenRouter(): Promise<void> {
+    await previousTurn()
+    await runner.changeModel(task.id, SAMPLE_CHOICE.id)
+  }
+
+  it('counts the context from the turn result when the streamed messages report nothing', async () => {
+    await switchedToOpenRouter()
+    runner.send(task.id, 'Check the sample file again.')
+    backend.session.emit(sdk.init())
+    backend.session.emit(zeroUsageFrame(sdk.toolUse('read-1', 'Read', { file_path: '/code/sample.ts' })))
+    backend.session.emit(sdk.toolResult('read-1', 'export const answer = 42'))
+    backend.session.emit(zeroUsageFrame(sdk.text('The answer is 42.', null, 'msg_02')))
+    backend.session.emit(sdk.result('The answer is 42.', { usage: openRouterUsage(41_000) }))
+    await settle()
+    expect(getTask(database.db, task.id)?.contextUsedTokens).toBe(41_000)
+  })
+
+  it('keeps the last real figure while a turn reports zero, then takes the result usage', async () => {
+    await switchedToOpenRouter()
+    runner.send(task.id, 'Check the sample file again.')
+    backend.session.emit(sdk.init())
+    backend.session.emit(zeroUsageFrame(sdk.text('Looking.', null, 'msg_01')))
+    await settle()
+    expect(getTask(database.db, task.id)?.contextUsedTokens).toBe(sdk.CONTEXT_USED)
+    backend.session.emit(sdk.result('Done.', { usage: openRouterUsage(41_000) }))
+    await settle()
+    expect(getTask(database.db, task.id)?.contextUsedTokens).toBe(41_000)
+  })
+
+  it('keeps the last real figure when the turn result reports no usage either', async () => {
+    await switchedToOpenRouter()
+    runner.send(task.id, 'Check the sample file again.')
+    backend.session.emit(sdk.init())
+    backend.session.emit(zeroUsageFrame(sdk.text('Done.', null, 'msg_01')))
+    backend.session.emit(sdk.result('Done.', { usage: openRouterUsage(0) }))
+    await settle()
+    expect(getTask(database.db, task.id)?.contextUsedTokens).toBe(sdk.CONTEXT_USED)
+  })
+
+  it('prefers the messages own figures when they report the context', async () => {
+    await switchedToOpenRouter()
+    runner.send(task.id, 'Check the sample file again.')
+    backend.session.emit(sdk.init())
+    backend.session.emit(sdk.withContextUsed(sdk.text('Done.', null, 'msg_01'), 30_000))
+    backend.session.emit(sdk.result('Done.', { usage: openRouterUsage(41_000) }))
+    await settle()
+    expect(getTask(database.db, task.id)?.contextUsedTokens).toBe(30_000)
+  })
+
+  it('keeps the compaction boundary figure when a compacting turn reports nothing', async () => {
+    await switchedToOpenRouter()
+    runner.send(task.id, 'Check the sample file again.')
+    backend.session.emit(sdk.init(), ...sdk.compaction(90_000, 12_000, 'auto'))
+    backend.session.emit(zeroUsageFrame(sdk.text('Continued.', null, 'msg_01')))
+    backend.session.emit(sdk.result('Continued.', { usage: openRouterUsage(90_000) }))
+    await settle()
+    expect(getTask(database.db, task.id)?.contextUsedTokens).toBe(12_000)
+  })
 })

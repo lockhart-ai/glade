@@ -239,7 +239,14 @@ capabilities; the initial change keeps native same-source delegation and Claude-
 - **Usage gaps:** a one-request turn may precede OpenRouter's accounting update; a Claude child's final usage read
   races process shutdown; an uncapped empty key is only marked blocked after a failed request; remaining allowance
   can display a negative amount; and a malformed cached usage row can throw before the refresh promise starts.
-  Refresh/accounting timing, child usage and cached-row validation need further coverage.
+  Refresh/accounting timing, child usage and cached-row validation need further coverage. #568: OpenRouter's
+  Anthropic-compatible streaming responses carry their real usage only in the final `message_delta` (`message_start`
+  reports zeros), so the CLI's per-message frames never showed it and a task's context tracker read zero — a
+  mid-conversation switch also erased the figure it carried over. The runner now keeps the last real figure when a
+  message reports zero and, on a turn whose messages reported nothing, takes the context from the turn's `result`
+  usage (the last request's prompt, as the gateway reported it at the stream's end); a compaction keeps its boundary
+  figure. During an OpenRouter turn the tracker holds the previous figure until the turn ends, and a provider that
+  reports no usage at all leaves the last figure standing — nothing is invented.
 - **Preview schema cleanup:** earlier preview databases may retain unused `tasks.subagent_model` and
   `openrouter_generations`; removing them is deferred.
 - **Workflow validation:** production-prompt dispatch in both directions with real tools, permission cards and the
