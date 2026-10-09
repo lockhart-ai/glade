@@ -28,6 +28,8 @@ export enum AgentEventKind {
   ToolResult = 'tool_result',
   /** How full the context is: what the agent's latest top-level message used. */
   ContextUsed = 'context_used',
+  /** An assistant message's input and output tokens, per the agent it answered (#566). */
+  AgentUsage = 'agent_usage',
   /**
    * The session started compacting its context (`status: compacting`): the SDK doing it on its own at its threshold,
    * or a `/compact` Glade sent.
@@ -157,6 +159,18 @@ export interface ContextUsedEvent {
   readonly kind: AgentEventKind.ContextUsed
   /** The prompt the model just saw, in tokens: the message's input, cache read and cache creation tokens. */
   readonly tokens: number
+}
+
+/**
+ * An assistant message's input and output tokens, per the agent that asked for it (#566): Main's messages have no
+ * `parent_tool_use_id`, a subagent's have its `Agent` call's id. The runner adds them up into the tab totals.
+ */
+export interface AgentUsageEvent {
+  readonly kind: AgentEventKind.AgentUsage
+  /** The `Agent` tool call's id when a subagent's model answered; null at the top level (Main). */
+  readonly parentToolUseId: string | null
+  readonly inputTokens: number
+  readonly outputTokens: number
 }
 
 export interface CompactingEvent {
@@ -352,6 +366,7 @@ export type AgentEvent =
   | ToolCallStartedEvent
   | ToolResultEvent
   | ContextUsedEvent
+  | AgentUsageEvent
   | CompactingEvent
   | CompactedEvent
   | CompactionFailedEvent
@@ -659,6 +674,19 @@ function fromAssistant(message: z.infer<typeof assistantMessage>, log: AgentLog)
     message.supersedes === undefined || message.supersedes.length === 0
       ? []
       : [{ kind: AgentEventKind.MessagesEvicted, uuids: message.supersedes }]
+  // The message's tokens go to the tab totals of the agent it answered (#566); the top level's also size the context.
+  const messageUsage = message.message.usage
+  const usage: AgentEvent[] =
+    messageUsage === undefined
+      ? []
+      : [
+          {
+            kind: AgentEventKind.AgentUsage,
+            parentToolUseId: parent,
+            inputTokens: messageUsage.input_tokens,
+            outputTokens: messageUsage.output_tokens,
+          },
+        ]
   const blocks = message.message.content.flatMap((raw): AgentEvent[] => {
     switch (raw.type) {
       case 'text': {
@@ -684,7 +712,7 @@ function fromAssistant(message: z.infer<typeof assistantMessage>, log: AgentLog)
         return []
     }
   })
-  return [...evicted, ...contextUsed(parent, message.message.usage), ...blocks]
+  return [...evicted, ...usage, ...contextUsed(parent, messageUsage), ...blocks]
 }
 
 function fromModelRefusalFallback(message: z.infer<typeof modelRefusalFallbackMessage>): AgentEvent[] {

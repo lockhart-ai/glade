@@ -80,10 +80,17 @@ describe('parsing SDK messages', () => {
 
   it("reads the agent's text and tool calls, at the top level and in a subagent", () => {
     expect(parse(sdk.text('Checking the tests.'))).toEqual([
+      { kind: AgentEventKind.AgentUsage, parentToolUseId: null, inputTokens: 10, outputTokens: 1 },
       { kind: AgentEventKind.ContextUsed, tokens: sdk.CONTEXT_USED },
       { kind: AgentEventKind.Text, text: 'Checking the tests.', parentToolUseId: null, sdkUuid: 'msg_01-uuid' },
     ])
     expect(parse(sdk.toolUse('toolu_03', 'Bash', { command: 'ls' }, 'toolu_02'))).toEqual([
+      {
+        kind: AgentEventKind.AgentUsage,
+        parentToolUseId: 'toolu_02',
+        inputTokens: 10,
+        outputTokens: 1,
+      },
       {
         kind: AgentEventKind.ToolCallStarted,
         toolUseId: 'toolu_03',
@@ -98,10 +105,18 @@ describe('parsing SDK messages', () => {
   it("reads how full the context is from a top-level message's input tokens, not a subagent's", () => {
     expect(sdk.CONTEXT_USED).toBe(10 + 1272 + 21564)
     expect(parse(sdk.withContextUsed(sdk.thinking(), 76_000))).toEqual([
+      { kind: AgentEventKind.AgentUsage, parentToolUseId: null, inputTokens: 6, outputTokens: 1 },
       { kind: AgentEventKind.ContextUsed, tokens: 76_000 },
     ])
-    expect(parse(sdk.thinking()).map((event) => event.kind)).toEqual([AgentEventKind.ContextUsed])
-    expect(parse(sdk.text('Inside.', 'toolu_02')).map((event) => event.kind)).toEqual([AgentEventKind.Text])
+    expect(parse(sdk.thinking()).map((event) => event.kind)).toEqual([
+      AgentEventKind.AgentUsage,
+      AgentEventKind.ContextUsed,
+    ])
+    // A subagent's message still carries its tokens to its tab total; it says nothing of the context.
+    expect(parse(sdk.text('Inside.', 'toolu_02')).map((event) => event.kind)).toEqual([
+      AgentEventKind.AgentUsage,
+      AgentEventKind.Text,
+    ])
   })
 
   it('reads a message with no usage, or a malformed one, as its content alone', () => {
@@ -117,7 +132,11 @@ describe('parsing SDK messages', () => {
     expect(parseQuietly(badUsage)).toEqual([
       { kind: AgentEventKind.Text, text: 'Hi.', parentToolUseId: null, sdkUuid: null },
     ])
-    expect(parseQuietly(partUsage)).toEqual([{ kind: AgentEventKind.ContextUsed, tokens: 5 }])
+    // A part-usable usage still counts what it says, on both the tab totals and the context.
+    expect(parseQuietly(partUsage)).toEqual([
+      { kind: AgentEventKind.AgentUsage, parentToolUseId: null, inputTokens: 5, outputTokens: 0 },
+      { kind: AgentEventKind.ContextUsed, tokens: 5 },
+    ])
     expect(warn).not.toHaveBeenCalled()
   })
 
@@ -342,6 +361,7 @@ describe('parsing SDK messages', () => {
   it("evicts a message's supersedes list on arrival, ahead of its own content, and drops an empty one", () => {
     expect(parse(sdk.textSuperseding('Here you go.', ['uuid-1', 'uuid-2'], 'msg_retry'))).toEqual([
       { kind: AgentEventKind.MessagesEvicted, uuids: ['uuid-1', 'uuid-2'] },
+      { kind: AgentEventKind.AgentUsage, parentToolUseId: null, inputTokens: 10, outputTokens: 1 },
       { kind: AgentEventKind.ContextUsed, tokens: sdk.CONTEXT_USED },
       { kind: AgentEventKind.Text, text: 'Here you go.', parentToolUseId: null, sdkUuid: 'msg_retry-uuid' },
     ])

@@ -11,6 +11,7 @@
  *   thrown into the renderer's world but drops its extra properties, so `code` wouldn't survive.
  */
 import type {
+  AgentTokenTotal,
   Artifact,
   ArtifactRef,
   CommitFiles,
@@ -159,6 +160,8 @@ export enum CommandName {
   OpenRouterEndpoints = 'openrouter.endpoints',
   OpenRouterSelect = 'openrouter.select',
   OpenRouterProviderModels = 'openrouter.providerModels',
+  OpenRouterConnectManagementKey = 'openrouter.connectManagementKey',
+  OpenRouterRemoveManagementKey = 'openrouter.removeManagementKey',
   SearchQuery = 'search.query',
   PluginsList = 'plugins.list',
   PluginsSetEnabled = 'plugins.setEnabled',
@@ -600,6 +603,11 @@ export interface TasksHistoryResponse {
    * Main, which is also where a task that never picked one is.
    */
   readonly agentTab: string | null
+  /**
+   * Each agent tab's total input and output tokens (#566), the line under the tab shows: Main's, and each subagent's
+   * by its `Agent` call's `tool_use` id, in the order the agents started.
+   */
+  readonly agentTokens: readonly AgentTokenTotal[]
 }
 
 /**
@@ -1475,6 +1483,8 @@ export interface CommandMap {
   [CommandName.OpenRouterEndpoints]: CommandSpec<OpenRouterEndpointsRequest, readonly OpenRouterProvider[]>
   [CommandName.OpenRouterSelect]: CommandSpec<OpenRouterChoiceRequest, OpenRouterSelection>
   [CommandName.OpenRouterProviderModels]: CommandSpec<OpenRouterProviderModelsRequest, readonly string[]>
+  [CommandName.OpenRouterConnectManagementKey]: CommandSpec<OpenRouterConnectRequest, OpenRouterStatus>
+  [CommandName.OpenRouterRemoveManagementKey]: CommandSpec<EmptyRequest, OpenRouterStatus>
   [CommandName.SearchQuery]: CommandSpec<SearchQueryRequest, SearchQueryResponse>
   [CommandName.PluginsList]: CommandSpec<EmptyRequest, PluginsResponse>
   [CommandName.ControlStatus]: CommandSpec<EmptyRequest, ControlStatusResponse>
@@ -1575,6 +1585,7 @@ export enum EventType {
   ControlChanged = 'control.changed',
   AccountChanged = 'account.changed',
   OpenRouterUsageChanged = 'openrouter.usageChanged',
+  AgentTokensChanged = 'agentTokens.changed',
   LoginChanged = 'login.changed',
   MenuBarChanged = 'menuBar.changed',
   SandboxGrantsChanged = 'sandbox.grantsChanged',
@@ -1894,6 +1905,16 @@ export interface OpenRouterUsageChangedEvent {
   readonly status: OpenRouterUsageStatus
 }
 
+/**
+ * One agent tab's token totals rose (#566): the runner added an assistant message's tokens into the tab's persisted
+ * total. `total` is the tab's cumulative count, what the line under the tab now shows.
+ */
+export interface AgentTokensChangedEvent {
+  readonly type: EventType.AgentTokensChanged
+  readonly taskId: string
+  readonly total: AgentTokenTotal
+}
+
 /** Logging in to Claude started, finished, failed or was cancelled, or a task stopped logged out again since. */
 export interface LoginChangedEvent {
   readonly type: EventType.LoginChanged
@@ -1960,6 +1981,7 @@ export type GladeEvent =
   | ControlChangedEvent
   | AccountChangedEvent
   | OpenRouterUsageChangedEvent
+  | AgentTokensChangedEvent
   | LoginChangedEvent
   | MenuBarChangedEvent
   | SandboxGrantsChangedEvent

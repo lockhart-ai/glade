@@ -386,9 +386,10 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
                 case AgentEventKind.RateLimit:
                   if (agentSource(input.model) === AgentSource.Anthropic) account?.rateLimit(event)
                   break
-                // Child context, errors and compaction belong to the child's transcript, never the parent task.
+                // Child context, usage and errors belong to the child's transcript, never the parent task.
                 case AgentEventKind.McpServersReported:
                 case AgentEventKind.ContextUsed:
+                case AgentEventKind.AgentUsage:
                 case AgentEventKind.Compacting:
                 case AgentEventKind.Compacted:
                 case AgentEventKind.CompactionFailed:

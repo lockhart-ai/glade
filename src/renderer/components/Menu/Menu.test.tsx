@@ -328,3 +328,117 @@ describe('Menu', () => {
     expect(choose).toHaveBeenCalledOnce()
   })
 })
+
+describe('Menu with a search field (#566)', () => {
+  interface SearchActions {
+    together: Mock<() => void>
+    novita: Mock<() => void>
+  }
+
+  function SearchHarness({ actions, scrollable }: { actions: SearchActions; scrollable?: boolean }): React.JSX.Element {
+    return (
+      <Menu
+        label="Filter providers"
+        open
+        scrollable={scrollable}
+        searchPlaceholder="Search providers…"
+        onClose={() => undefined}
+        anchor={{ kind: MenuAnchorKind.Point, x: 0, y: 0 }}
+        entries={[
+          { kind: MenuEntryKind.Heading, label: 'Filter providers' },
+          { kind: MenuEntryKind.Item, label: 'All providers', checked: true, onSelect: actions.together },
+          { kind: MenuEntryKind.Item, label: 'Novita', checked: false, onSelect: actions.novita },
+          { kind: MenuEntryKind.Item, label: 'Together', checked: false, onSelect: actions.together },
+        ]}
+      />
+    )
+  }
+
+  async function openSearch(scrollable?: boolean): Promise<SearchActions> {
+    const actions = { together: vi.fn(), novita: vi.fn() }
+    render(<SearchHarness actions={actions} scrollable={scrollable} />)
+    await settleFloating()
+    return actions
+  }
+
+  it('shows the search field above the items, and keeps everything while it is empty', async () => {
+    await openSearch()
+
+    const field = screen.getByRole('textbox', { name: 'Search providers…' })
+    expect(field).toHaveValue('')
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(3)
+    expect(screen.getByText('Filter providers')).toHaveClass(cls('heading'))
+  })
+
+  it('filters the items to those every word of the query matches, keeping their heading', async () => {
+    await openSearch()
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search providers…' }), { target: { value: 'toge' } })
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(1)
+    expect(screen.getByRole('menuitemradio', { name: 'Together' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitemradio', { name: 'Novita' })).toBeNull()
+    expect(screen.queryByRole('menuitemradio', { name: 'All providers' })).toBeNull()
+    expect(screen.getByText('Filter providers')).toBeInTheDocument()
+  })
+
+  it('drops a heading whose items all went, and stands the typeahead down while searching', async () => {
+    const actions = await openSearch()
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search providers…' }), { target: { value: 'zzz' } })
+    expect(screen.queryByRole('menuitemradio')).toBeNull()
+    expect(screen.queryByText('Filter providers')).toBeNull()
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search providers…' }), { target: { value: 'to' } })
+    // Typing in the field doesn't jump between items, as it does without the search.
+    key('g')
+    expect(screen.queryByRole('menuitemradio', { name: 'Together' })).not.toHaveFocus()
+    expect(actions.novita).not.toHaveBeenCalled()
+  })
+
+  it('searches a fresh field each time the menu opens', async () => {
+    const actions = { together: vi.fn(), novita: vi.fn() }
+    const { unmount } = render(<SearchHarness actions={actions} />)
+    await settleFloating()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search providers…' }), { target: { value: 'nov' } })
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(1)
+    unmount()
+    render(<SearchHarness actions={actions} />)
+    await settleFloating()
+
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(3)
+  })
+
+  it('keeps the separators that sit between items that are still there', async () => {
+    const choose = vi.fn()
+    render(
+      <Menu
+        label="Task actions"
+        open
+        searchPlaceholder="Search…"
+        onClose={() => undefined}
+        anchor={{ kind: MenuAnchorKind.Point, x: 0, y: 0 }}
+        entries={[
+          { kind: MenuEntryKind.Item, label: 'Open docs', onSelect: choose },
+          { kind: MenuEntryKind.Separator },
+          { kind: MenuEntryKind.Item, label: 'Pin to top', onSelect: choose },
+          { kind: MenuEntryKind.Separator },
+          { kind: MenuEntryKind.Item, label: 'Delete docs', onSelect: choose },
+        ]}
+      />,
+    )
+    await settleFloating()
+
+    // A query that keeps the first and last items keeps the separator between them, and drops the other.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search…' }), { target: { value: 'docs' } })
+    expect(screen.getAllByRole('menuitem')).toHaveLength(2)
+    expect(screen.getAllByRole('separator')).toHaveLength(1)
+  })
+
+  it('caps and scrolls the items when scrollable, without one otherwise', async () => {
+    await openSearch(true)
+    expect(screen.getByRole('menu', { name: 'Filter providers' }).querySelector(`.${cls('list')}`)).not.toBeNull()
+
+    await openSearch()
+    expect(screen.getByRole('menu', { name: 'Filter providers' }).querySelector(`.${cls('list')}`)).toBeNull()
+  })
+})

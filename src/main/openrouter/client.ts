@@ -110,9 +110,29 @@ const endpointsResponse = z.object({
   }),
 }) satisfies z.ZodType<EndpointsResponse>
 
+/** A guardrail read from a management key (`GET /api/v1/guardrails`); it may not name any providers. */
+interface CatalogGuardrail {
+  readonly allowed_providers?: readonly string[]
+}
+interface GuardrailsResponse {
+  readonly data: readonly CatalogGuardrail[]
+}
+const guardrailsResponse = z.object({
+  data: z.array(
+    z.object({
+      allowed_providers: z.array(z.string()).optional().catch(undefined),
+    }),
+  ),
+}) satisfies z.ZodType<GuardrailsResponse>
+
 export interface OpenRouterCatalog {
   readonly models: readonly OpenRouterModel[]
   readonly providers: readonly OpenRouterProvider[]
+}
+
+/** Providers by their name: the menus list them alphabetised (#566). */
+export function byName(a: { readonly name: string }, b: { readonly name: string }): number {
+  return a.name.localeCompare(b.name)
 }
 
 /** Fetch is injectable; tests never send inference or catalog requests to an account. */
@@ -151,7 +171,10 @@ export class OpenRouterClient {
           inputPrice: model.pricing.prompt,
           outputPrice: model.pricing.completion,
         })),
-      providers: providersResponse.parse(providers).data.map(({ slug, name }) => ({ id: slug, name })),
+      providers: providersResponse
+        .parse(providers)
+        .data.map(({ slug, name }) => ({ id: slug, name }))
+        .sort(byName),
     }
   }
 
@@ -162,22 +185,24 @@ export class OpenRouterClient {
   ): Promise<readonly OpenRouterProvider[]> {
     const path = model.split('/').map(encodeURIComponent).join('/')
     const data = endpointsResponse.parse(await this.get(key, `models/${path}/endpoints`)).data
-    return providers.flatMap((provider) => {
-      const endpoint = data.endpoints.find(
-        (endpoint) => endpoint.supported_parameters.includes('tools') && endpoint.tag.split('/')[0] === provider.id,
-      )
-      if (endpoint === undefined) return []
-      return [
-        {
-          ...provider,
-          ...(endpoint.pricing === undefined
-            ? {}
-            : { inputPrice: endpoint.pricing.prompt, outputPrice: endpoint.pricing.completion }),
-          ...(endpoint.context_length === undefined ? {} : { contextLength: endpoint.context_length }),
-          parameters: endpoint.supported_parameters,
-        },
-      ]
-    })
+    return providers
+      .flatMap((provider) => {
+        const endpoint = data.endpoints.find(
+          (endpoint) => endpoint.supported_parameters.includes('tools') && endpoint.tag.split('/')[0] === provider.id,
+        )
+        if (endpoint === undefined) return []
+        return [
+          {
+            ...provider,
+            ...(endpoint.pricing === undefined
+              ? {}
+              : { inputPrice: endpoint.pricing.prompt, outputPrice: endpoint.pricing.completion }),
+            ...(endpoint.context_length === undefined ? {} : { contextLength: endpoint.context_length }),
+            parameters: endpoint.supported_parameters,
+          },
+        ]
+      })
+      .sort(byName)
   }
 
   async providerModels(key: string, provider: OpenRouterProvider): Promise<readonly string[]> {
@@ -202,5 +227,17 @@ export class OpenRouterClient {
       limitReset: value.limit_reset,
       includesByok: value.include_byok_in_limit,
     }
+  }
+
+  /**
+   * The providers a management key's guardrails allow, read from the account's guardrails, alphabetised; null when
+   * none restricts the account (`data` empty, or no guardrail names any), which leaves both provider lists whole.
+   */
+  async guardrails(key: string): Promise<readonly string[] | null> {
+    const { data } = guardrailsResponse.parse(await this.get(key, 'guardrails'))
+    const allowed = [...new Set(data.flatMap(({ allowed_providers }) => allowed_providers ?? []))].sort((a, b) =>
+      a.localeCompare(b),
+    )
+    return allowed.length === 0 ? null : allowed
   }
 }

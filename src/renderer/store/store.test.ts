@@ -1360,6 +1360,7 @@ describe("a task's artifacts", () => {
       watchers: [],
       commits: [],
       agentTab: null,
+      agentTokens: [],
     })
     await load
 

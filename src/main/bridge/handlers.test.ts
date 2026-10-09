@@ -168,6 +168,15 @@ it('owns OpenRouter catalog commands and validates a retry destination before ch
     error: null,
   })
   expect(await connected[CommandName.OpenRouterConnect]({ key: 'fixture-key' })).toMatchObject({ connected: true })
+  // The optional management key connects beside it, reads its guardrails, and both provider lists filter.
+  vi.spyOn(client, 'guardrails').mockResolvedValueOnce(['sample-host'])
+  expect(await connected[CommandName.OpenRouterConnectManagementKey]({ key: 'fixture-management' })).toMatchObject({
+    connected: true,
+    managementConnected: true,
+  })
+  expect(await connected[CommandName.OpenRouterStatus]({})).toMatchObject({ managementConnected: true })
+  await connected[CommandName.OpenRouterRemoveManagementKey]({})
+  expect(await connected[CommandName.OpenRouterStatus]({})).toMatchObject({ managementConnected: false })
   expect(await connected[CommandName.OpenRouterRefresh]({})).toMatchObject({ connected: true })
   expect(await connected[CommandName.OpenRouterEndpoints]({ model: SAMPLE_MODEL.id })).toEqual([SAMPLE_PROVIDER])
   expect(await connected[CommandName.OpenRouterProviderModels]({ provider: SAMPLE_PROVIDER.id })).toEqual([

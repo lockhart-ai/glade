@@ -22,6 +22,7 @@ import {
   PermissionDecisionKind,
   TaskState,
   UiStateKey,
+  type AgentTokenTotal,
   type Artifact,
   type Message,
   type OpenFiles,
@@ -108,6 +109,7 @@ const TASK_HANDLERS = {
     watchers: [],
     commits: [],
     agentTab: null,
+    agentTokens: [],
   }),
   [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
@@ -148,10 +150,48 @@ const TASK_HANDLERS = {
   [CommandName.ModelsList]: () => ({ models: BUILT_IN_MODELS }),
   [CommandName.OpenRouterUsage]: () => ({ connected: false, reading: null, error: null }),
   [CommandName.OpenRouterRefreshUsage]: () => ({ connected: false, reading: null, error: null }),
-  [CommandName.OpenRouterStatus]: () => ({ connected: false, models: [], providers: [], choices: [] }),
-  [CommandName.OpenRouterConnect]: () => ({ connected: true, models: [], providers: [], choices: [] }),
-  [CommandName.OpenRouterRefresh]: () => ({ connected: true, models: [], providers: [], choices: [] }),
-  [CommandName.OpenRouterRemove]: () => ({ connected: false, models: [], providers: [], choices: [] }),
+  [CommandName.OpenRouterStatus]: () => ({
+    connected: false,
+    managementConnected: false,
+    models: [],
+    providers: [],
+    choices: [],
+  }),
+  [CommandName.OpenRouterConnect]: () => ({
+    connected: true,
+    managementConnected: false,
+    models: [],
+    providers: [],
+    choices: [],
+  }),
+  [CommandName.OpenRouterRefresh]: () => ({
+    connected: true,
+    managementConnected: false,
+    models: [],
+    providers: [],
+    choices: [],
+  }),
+  [CommandName.OpenRouterRemove]: () => ({
+    connected: false,
+    managementConnected: false,
+    models: [],
+    providers: [],
+    choices: [],
+  }),
+  [CommandName.OpenRouterConnectManagementKey]: () => ({
+    connected: true,
+    managementConnected: true,
+    models: [],
+    providers: [],
+    choices: [],
+  }),
+  [CommandName.OpenRouterRemoveManagementKey]: () => ({
+    connected: true,
+    managementConnected: false,
+    models: [],
+    providers: [],
+    choices: [],
+  }),
   [CommandName.OpenRouterEndpoints]: () => [],
   [CommandName.OpenRouterProviderModels]: () => [],
   [CommandName.OpenRouterSelect]: () => ({ connected: true, models: [], providers: [], choices: [] }),
@@ -326,6 +366,7 @@ describe('the command map', () => {
       readonly watchers: readonly Watcher[]
       readonly commits: readonly TaskCommit[]
       readonly agentTab: string | null
+      readonly agentTokens: readonly AgentTokenTotal[]
     }>()
     expectTypeOf(glade.invoke(CommandName.QueueAdd, { taskId: 't', text: 'Hi' })).resolves.toEqualTypeOf<{
       readonly queuedMessage: QueuedMessage
@@ -600,6 +641,10 @@ describe('events', () => {
           // A scope Settings lists, never a task's.
           expectTypeOf(event.target).toEqualTypeOf<SettingsGrantTarget>()
           expectTypeOf(event.grants).toEqualTypeOf<readonly Grant[]>()
+          break
+        case EventType.AgentTokensChanged:
+          expectTypeOf(event.taskId).toEqualTypeOf<string>()
+          expectTypeOf(event.total).toEqualTypeOf<AgentTokenTotal>()
           break
       }
     })

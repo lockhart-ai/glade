@@ -19,6 +19,10 @@ export interface SettingSelectProps<Value extends string> {
   /** The option chosen; one that isn't offered shows as it is. */
   value: Value
   disabled?: boolean
+  /** Shows a search field in the menu, which filters the options as you type (the provider filter, #566). */
+  searchPlaceholder?: string
+  /** Caps the options' height and scrolls them, for a menu with a long list (the provider filter, #566). */
+  scrollable?: boolean
   onChoose: (value: Value) => void
 }
 
@@ -33,6 +37,8 @@ export function SettingSelect<Value extends string>({
   options,
   value,
   disabled = false,
+  searchPlaceholder,
+  scrollable = false,
   onChoose,
 }: SettingSelectProps<Value>): React.JSX.Element {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
@@ -68,6 +74,8 @@ export function SettingSelect<Value extends string>({
           entries={entries}
           anchor={{ kind: MenuAnchorKind.Element, element: anchor, placement: Placement.BottomEnd }}
           open
+          searchPlaceholder={searchPlaceholder}
+          scrollable={scrollable}
           onClose={() => {
             setAnchor(null)
           }}

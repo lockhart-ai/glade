@@ -606,6 +606,13 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
     [EventType.OpenRouterUsageChanged]: [
       { type: EventType.OpenRouterUsageChanged, status: { connected: true, reading: null, error: secret('usage') } },
     ],
+    [EventType.AgentTokensChanged]: [
+      {
+        type: EventType.AgentTokensChanged,
+        taskId: 't1',
+        total: { agentId: null, inputTokens: 1_234, outputTokens: 56 },
+      },
+    ],
     [EventType.AccountChanged]: [
       {
         type: EventType.AccountChanged,

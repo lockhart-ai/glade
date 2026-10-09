@@ -58,6 +58,7 @@ import {
 } from '../files/files'
 import { todoListFor } from '../todos/todos'
 import { agentTabOf, readTodoHub, rememberAgentTab, rememberTodoPanel } from '../todo-hub/todo-hub'
+import { agentTokenTotals } from '../db/repositories/agent-tokens'
 import { addTaskLinkByHand, removeTaskArtifact } from '../artifacts/artifacts'
 import { attachFile, discardAttachedFile } from '../attachments/attachments'
 import { NO_THUMBNAILS, type Thumbnails } from '../artifacts/thumbnails'
@@ -290,6 +291,7 @@ export function createHandlers(context: HandlerContext): Handlers {
         watchers: listWatchers(db, id).map(publicWatcher),
         commits: listTaskCommits(db, id),
         agentTab: agentTabOf(db, id),
+        agentTokens: agentTokenTotals(db, id),
       }
     },
     [CommandName.ChangesFiles]: async ({ taskId, id }) => ({ files: await commitFiles(changes, taskId, id) }),
@@ -426,11 +428,18 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.SettingsGet]: () => ({ settings: getSettings(db) }),
     [CommandName.ModelsList]: () => ({ models: listModels(db) }),
-    [CommandName.OpenRouterStatus]: () => openRouterStatus(db),
+    [CommandName.OpenRouterStatus]: () => {
+      // A status read may be the first since launch: it also asks for the guardrails again, without waiting on them.
+      context.openrouter?.refreshGuardrails().catch(() => undefined)
+      return openRouterStatus(db)
+    },
     [CommandName.OpenRouterUsage]: () => openRouterUsage(db),
     [CommandName.OpenRouterRefreshUsage]: ({ force }) => router().refreshUsage(force),
     [CommandName.OpenRouterProviderModels]: ({ provider }) => router().providerModels(provider),
     [CommandName.OpenRouterConnect]: ({ key }) => router().connect(key),
+    // A status read may be the first since launch: it also asks for the guardrails again, without waiting on them.
+    [CommandName.OpenRouterConnectManagementKey]: ({ key }) => router().connectManagementKey(key),
+    [CommandName.OpenRouterRemoveManagementKey]: () => router().removeManagementKey(),
     [CommandName.OpenRouterRefresh]: () => router().refresh(),
     [CommandName.OpenRouterRemove]: () => router().remove(),
     [CommandName.OpenRouterEndpoints]: ({ model }) => router().endpoints(model),

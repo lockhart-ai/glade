@@ -19,6 +19,53 @@
   outline: none;
 }
 
+/* The items' list, capped and scrolling on its own, for a menu with a long list (the provider menus, #566). */
+.list {
+  display: flex;
+  flex-direction: column;
+  max-height: 204px;
+  overflow-y: auto;
+}
+
+/* A small search field above the items, which filters them as you type (#566). */
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  margin: 2px 4px 6px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button);
+  color: var(--color-faint);
+}
+
+.search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.search input::placeholder {
+  color: var(--color-faint);
+}
+
+.search input:focus-visible {
+  outline: none;
+}
+
+.searchIcon {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
 .item {
   display: flex;
   align-items: center;

@@ -27,6 +27,7 @@ import type { SettingsSection } from '../settings/sections'
 import type { FileEdits, OpenEditSession, TaskFile, UnsavedChoice, UnsavedPrompt } from '../files/unsaved'
 import type { Command, MenuState } from '../../shared/commands'
 import type {
+  AgentTokenTotal,
   Artifact,
   ArtifactRef,
   CommitFiles,
@@ -248,6 +249,12 @@ export interface GladeData {
    * (`shownAgent`).
    */
   readonly agentTabs: Readonly<Record<string, string>>
+  /**
+   * Each agent tab's total input and output tokens (#566), by task id and then by the tab's agent
+   * (`agentTokensKey`: a subagent's `Agent` call's tool_use id, or `''` for Main). Loaded with the task's logs, then
+   * kept current by `agentTokens.changed` events, each carrying the tab's cumulative total.
+   */
+  readonly agentTokens: Readonly<Record<string, Readonly<Record<string, AgentTokenTotal>>>>
   readonly uiState: UiStateValues
   /**
    * The latest request to show a turn in the tool log; null until one is made. A one-off UI intent, so it's the one
@@ -837,6 +844,7 @@ export const INITIAL_DATA: GladeData = {
   filingsVersion: {},
   todoPanels: {},
   agentTabs: {},
+  agentTokens: {},
   uiState: {},
   toolLogFocus: null,
   inputFocusRequest: 0,

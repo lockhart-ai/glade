@@ -19,7 +19,10 @@ import {
   openRouterStatus,
   setOpenRouterChoice,
   setOpenRouterConnection,
+  setOpenRouterGuardrailProviders,
+  setOpenRouterManagementKey,
   openRouterEncryptedKey,
+  openRouterGuardrailProviders,
   openRouterUsage,
   setOpenRouterUsage,
 } from '../db/repositories/openrouter'
@@ -50,6 +53,7 @@ export class OpenRouterService {
   private usagePending: Promise<OpenRouterUsageStatus> | null = null
   private lastUsageAttempt = -Infinity
   private usageTimer: ReturnType<typeof setTimeout> | null = null
+  private lastGuardrailsAttempt = -Infinity
   constructor(private readonly options: OpenRouterServiceOptions) {
     this.client = options.client
   }
@@ -61,6 +65,12 @@ export class OpenRouterService {
   key(): string {
     const encrypted = openRouterEncryptedKey(this.options.db)
     if (encrypted === null) throw new Error('Connect an OpenRouter key in Settings → Models.')
+    return this.options.cipher.decryptString(encrypted)
+  }
+
+  managementKey(): string {
+    const encrypted = getOpenRouterConnection(this.options.db)?.encryptedManagementKey ?? null
+    if (encrypted === null) throw new Error('Connect an OpenRouter management key in Settings → Models.')
     return this.options.cipher.decryptString(encrypted)
   }
 
@@ -91,7 +101,52 @@ export class OpenRouterService {
       throw new Error('The OpenRouter connection changed. Refresh again.')
     }
     setOpenRouterConnection(this.options.db, { encryptedKey: connection.encryptedKey, ...catalog })
+    void this.refreshGuardrails()
     return this.changed()
+  }
+
+  /**
+   * Connects the optional management key, which reads the account's guardrails so both provider lists can filter to
+   * the providers it may use (#566). It's validated as it connects: a key the API refuses changes nothing.
+   */
+  async connectManagementKey(key: string): Promise<OpenRouterStatus> {
+    const trimmed = key.trim()
+    if (!this.options.cipher.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable.')
+    if (!this.status().connected) throw new Error('Connect an OpenRouter key before a management key.')
+    const allowed = await this.client.guardrails(trimmed)
+    this.options.db.transaction(() => {
+      setOpenRouterManagementKey(this.options.db, this.options.cipher.encryptString(trimmed))
+      setOpenRouterGuardrailProviders(this.options.db, allowed)
+    })()
+    this.lastGuardrailsAttempt = (this.options.now ?? Date.now)()
+    return this.changed()
+  }
+
+  removeManagementKey(): OpenRouterStatus {
+    setOpenRouterManagementKey(this.options.db, null)
+    return this.changed()
+  }
+
+  /**
+   * Reads the management key's guardrails again, in case the account's restrictions changed, and keeps what it read.
+   * Fire and forget, at most once a minute: a failure (or the key having gone away) leaves the last reading, which
+   * degrades the provider lists to no restriction only when it said none.
+   */
+  refreshGuardrails(): Promise<void> {
+    const encrypted = getOpenRouterConnection(this.options.db)?.encryptedManagementKey ?? null
+    if (encrypted === null) return Promise.resolve()
+    const now = this.options.now ?? Date.now
+    if (this.lastGuardrailsAttempt + 60_000 > now()) return Promise.resolve()
+    this.lastGuardrailsAttempt = now()
+    const read = async (): Promise<void> => {
+      const allowed = await this.client.guardrails(this.options.cipher.decryptString(encrypted))
+      if (!this.options.db.open) return
+      const before = openRouterGuardrailProviders(this.options.db)
+      setOpenRouterGuardrailProviders(this.options.db, allowed)
+      if (sameProviders(before, allowed)) return
+      this.changed()
+    }
+    return read().catch(() => undefined)
   }
 
   remove(): OpenRouterStatus {
@@ -252,4 +307,9 @@ export class OpenRouterService {
     this.usagePending = pending
     return pending
   }
+}
+
+/** Whether two guardrail readings name the same providers, so an unchanged one says nothing. */
+function sameProviders(a: readonly string[] | null, b: readonly string[] | null): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
 }
