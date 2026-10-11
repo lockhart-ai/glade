@@ -436,9 +436,9 @@ describe('Menu with a search field (#566)', () => {
 
   it('caps and scrolls the items when scrollable, without one otherwise', async () => {
     await openSearch(true)
-    expect(screen.getByRole('menu', { name: 'Filter providers' }).querySelector(`.${cls('list')}`)).not.toBeNull()
+    expect(screen.getByRole('menu', { name: 'Filter providers' }).querySelector(`.${cls('scroll')}`)).not.toBeNull()
 
     await openSearch()
-    expect(screen.getByRole('menu', { name: 'Filter providers' }).querySelector(`.${cls('list')}`)).toBeNull()
+    expect(screen.getByRole('menu', { name: 'Filter providers' }).querySelector(`.${cls('scroll')}`)).toBeNull()
   })
 })

@@ -250,7 +250,7 @@ export function Menu({
               />
             </label>
           )}
-          <div className={classNames(scrollable && styles.list)}>
+          <div className={classNames(styles.items, scrollable && styles.scroll)}>
             {shown.map((entry, entryIndex) => {
               switch (entry.kind) {
                 case MenuEntryKind.Separator:

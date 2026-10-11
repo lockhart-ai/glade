@@ -19,10 +19,19 @@
   outline: none;
 }
 
-/* The items' list, capped and scrolling on its own, for a menu with a long list (the provider menus, #566). */
-.list {
+/*
+ * The items' list. Always its own flex column, not just a run of the menu's own children, so a search field can sit
+ * above it: without `display: flex` here, the items (buttons, which lay out inline-block by default) would wrap into
+ * a line each only because `.item` happens to be `width: 100%`, leaving a stray gap under every item from the inline
+ * layout they'd be sitting in.
+ */
+.items {
   display: flex;
   flex-direction: column;
+}
+
+/* Caps the list's height and scrolls it, for a menu with a long list (the provider menus, #566). */
+.scroll {
   max-height: 204px;
   overflow-y: auto;
 }
