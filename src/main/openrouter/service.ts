@@ -54,6 +54,12 @@ export class OpenRouterService {
   private lastUsageAttempt = -Infinity
   private usageTimer: ReturnType<typeof setTimeout> | null = null
   private lastGuardrailsAttempt = -Infinity
+  /**
+   * Bumped whenever the management key's identity changes under it (connected, replaced, removed, or the inference
+   * key itself replaced): a guardrails read started before the bump must not write its result after it, the same
+   * guard `connect`/`refresh`/`select` keep with `revision` for the inference key (#566).
+   */
+  private managementRevision = 0
   constructor(private readonly options: OpenRouterServiceOptions) {
     this.client = options.client
   }
@@ -84,7 +90,13 @@ export class OpenRouterService {
     const revision = ++this.revision
     const catalog = await this.client.catalog(key)
     if (revision !== this.revision) throw new Error('The OpenRouter connection changed. Connect again.')
-    setOpenRouterConnection(this.options.db, { encryptedKey: this.options.cipher.encryptString(key), ...catalog })
+    // A new inference key may be a different account from the one a management key's guardrails were read for
+    // (Replace key): starting over, not refreshing, so the old management key and what it read don't carry over.
+    this.managementRevision++
+    this.options.db.transaction(() => {
+      setOpenRouterConnection(this.options.db, { encryptedKey: this.options.cipher.encryptString(key), ...catalog })
+      setOpenRouterManagementKey(this.options.db, null)
+    })()
     this.options.db.prepare('DELETE FROM openrouter_usage').run()
     this.usagePending = null
     this.clearUsageTimer()
@@ -113,7 +125,9 @@ export class OpenRouterService {
     const trimmed = key.trim()
     if (!this.options.cipher.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable.')
     if (!this.status().connected) throw new Error('Connect an OpenRouter key before a management key.')
+    const revision = ++this.managementRevision
     const allowed = await this.client.guardrails(trimmed)
+    if (revision !== this.managementRevision) throw new Error('The management key changed. Connect again.')
     this.options.db.transaction(() => {
       setOpenRouterManagementKey(this.options.db, this.options.cipher.encryptString(trimmed))
       setOpenRouterGuardrailProviders(this.options.db, allowed)
@@ -123,6 +137,7 @@ export class OpenRouterService {
   }
 
   removeManagementKey(): OpenRouterStatus {
+    this.managementRevision++
     setOpenRouterManagementKey(this.options.db, null)
     return this.changed()
   }
@@ -131,6 +146,11 @@ export class OpenRouterService {
    * Reads the management key's guardrails again, in case the account's restrictions changed, and keeps what it read.
    * Fire and forget, at most once a minute: a failure (or the key having gone away) leaves the last reading, which
    * degrades the provider lists to no restriction only when it said none.
+   *
+   * Guards against the key changing while this read is in flight (removed, replaced, or the inference key replaced
+   * under it, #566), the same way the inference key's own `refresh` does with `revision`: without it, a read that
+   * started under the old key could still land after a newer one, filtering the lists by a key that's gone, with
+   * nothing left to put them right (a removed key's next call returns at once, above, and never corrects them).
    */
   refreshGuardrails(): Promise<void> {
     const encrypted = getOpenRouterConnection(this.options.db)?.encryptedManagementKey ?? null
@@ -138,9 +158,10 @@ export class OpenRouterService {
     const now = this.options.now ?? Date.now
     if (this.lastGuardrailsAttempt + 60_000 > now()) return Promise.resolve()
     this.lastGuardrailsAttempt = now()
+    const revision = this.managementRevision
     const read = async (): Promise<void> => {
       const allowed = await this.client.guardrails(this.options.cipher.decryptString(encrypted))
-      if (!this.options.db.open) return
+      if (!this.options.db.open || revision !== this.managementRevision) return
       const before = openRouterGuardrailProviders(this.options.db)
       setOpenRouterGuardrailProviders(this.options.db, allowed)
       if (sameProviders(before, allowed)) return
@@ -151,6 +172,9 @@ export class OpenRouterService {
 
   remove(): OpenRouterStatus {
     this.revision++
+    // Deletes the management key and its guardrails with the row they live on; a stale read in flight must not
+    // write into what's left of it (#566).
+    this.managementRevision++
     this.clearUsageTimer()
     this.usagePending = null
     this.options.db.transaction(() => {

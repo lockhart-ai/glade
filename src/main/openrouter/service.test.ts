@@ -146,6 +146,149 @@ it('refuses a management key without an inference key, secure storage, or one th
   await expect(service.connectManagementKey('management-key')).rejects.toThrow('Secure credential storage')
 })
 
+it('never lets a guardrails read in flight write after the key it read for is gone (#566)', async () => {
+  let now = 1000
+  service = new OpenRouterService({
+    db: database.db,
+    cipher,
+    client,
+    emit: (event) => events.push(event),
+    now: () => now,
+  })
+  vi.spyOn(client, 'catalog').mockResolvedValue({
+    models: [SAMPLE_MODEL],
+    providers: [SAMPLE_PROVIDER, { id: 'novita', name: 'Novita' }],
+  })
+  await service.connect('key')
+  const guardrails = vi.spyOn(client, 'guardrails')
+  guardrails.mockResolvedValueOnce(['novita'])
+  await service.connectManagementKey('management-key')
+  expect(service.status().providers).toEqual([{ id: 'novita', name: 'Novita' }])
+
+  // Past the throttle, a refresh's read is in flight when the key is removed...
+  now += 60_000
+  let finish: (value: string[] | null) => void = () => undefined
+  guardrails.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  const pending = service.refreshGuardrails()
+  service.removeManagementKey()
+  // ...and resolves after: its reading must not restore a restriction for a key that's no longer there, with
+  // nothing left to put it right since a removed key's own refresh returns at once.
+  finish([SAMPLE_PROVIDER.id])
+  await pending
+  expect(service.status()).toMatchObject({
+    managementConnected: false,
+    providers: [SAMPLE_PROVIDER, { id: 'novita', name: 'Novita' }],
+  })
+  guardrails.mockClear()
+  await service.refreshGuardrails()
+  expect(guardrails).not.toHaveBeenCalled()
+})
+
+it('never lets a guardrails read in flight write after the key it read for was replaced (#566)', async () => {
+  let now = 1000
+  service = new OpenRouterService({
+    db: database.db,
+    cipher,
+    client,
+    emit: (event) => events.push(event),
+    now: () => now,
+  })
+  vi.spyOn(client, 'catalog').mockResolvedValue({
+    models: [SAMPLE_MODEL],
+    providers: [SAMPLE_PROVIDER, { id: 'novita', name: 'Novita' }, { id: 'together', name: 'Together' }],
+  })
+  await service.connect('key')
+  const guardrails = vi.spyOn(client, 'guardrails')
+  guardrails.mockResolvedValueOnce(['novita'])
+  await service.connectManagementKey('first-management')
+
+  // Past the throttle, a refresh's read, for the first key, is in flight...
+  now += 60_000
+  let finish: (value: string[] | null) => void = () => undefined
+  guardrails.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  const pending = service.refreshGuardrails()
+  // ...when a second management key connects and reads its own guardrails.
+  guardrails.mockResolvedValueOnce(['together'])
+  await service.connectManagementKey('second-management')
+  expect(service.status().providers).toEqual([{ id: 'together', name: 'Together' }])
+  // The stale first read landing after it must not clobber the second key's reading.
+  finish(['novita'])
+  await pending
+  expect(service.status().providers).toEqual([{ id: 'together', name: 'Together' }])
+  expect(service.managementKey()).toBe('second-management')
+})
+
+it('refuses a management key connect that a later one overtakes before its own read lands (#566)', async () => {
+  await service.connect('key')
+  const guardrails = vi.spyOn(client, 'guardrails')
+  let finish: (value: string[] | null) => void = () => undefined
+  guardrails.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  const first = service.connectManagementKey('first-management')
+  guardrails.mockResolvedValueOnce(null)
+  await service.connectManagementKey('second-management')
+  finish(['novita'])
+  await expect(first).rejects.toThrow('The management key changed. Connect again.')
+  expect(service.managementKey()).toBe('second-management')
+})
+
+it('refuses a management key connect the inference key is removed under while its read is in flight (#566)', async () => {
+  await service.connect('key')
+  const guardrails = vi.spyOn(client, 'guardrails')
+  let finish: (value: string[] | null) => void = () => undefined
+  guardrails.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  const connecting = service.connectManagementKey('management-key')
+  service.remove()
+  finish(['novita'])
+  await expect(connecting).rejects.toThrow('The management key changed. Connect again.')
+  expect(service.status()).toEqual({
+    connected: false,
+    managementConnected: false,
+    models: [],
+    providers: [],
+    choices: [],
+  })
+})
+
+it('clears a connected management key and its guardrails when the inference key is replaced (#566)', async () => {
+  vi.spyOn(client, 'catalog').mockResolvedValue({
+    models: [SAMPLE_MODEL],
+    providers: [SAMPLE_PROVIDER, { id: 'novita', name: 'Novita' }],
+  })
+  await service.connect('first')
+  vi.spyOn(client, 'guardrails').mockResolvedValueOnce(['novita'])
+  await service.connectManagementKey('management-key')
+  expect(service.status()).toMatchObject({ managementConnected: true, providers: [{ id: 'novita', name: 'Novita' }] })
+
+  // Replacing the inference key (Replace key) may be a different account: the old management key, and the
+  // restriction it read, must not carry over to it.
+  await service.connect('second')
+  expect(service.status()).toMatchObject({
+    managementConnected: false,
+    providers: [SAMPLE_PROVIDER, { id: 'novita', name: 'Novita' }],
+  })
+  expect(() => service.managementKey()).toThrow(/management key/)
+})
+
 it('persists key usage, coalesces concurrent reads, throttles completions and preserves a stale reading on failure', async () => {
   let now = 1000
   service = new OpenRouterService({
