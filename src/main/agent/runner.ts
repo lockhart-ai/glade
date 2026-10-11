@@ -22,8 +22,10 @@
  * - A final reply in a task you aren't viewing marks it unread (`../tasks/attention`) and is notified (`notifyReply`).
  * - The task's context usage follows the agent's latest top-level message, and its context window is what the turn's
  *   `result` reports for the session's model (`docs/sdk-notes.md`, "Usage and context size"). An OpenRouter session's
- *   streamed messages carry no usable usage until the stream ends (the gateway reports it only there), so a turn whose
- *   messages reported nothing takes the figure from the turn's own `result` usage instead.
+ *   streamed messages carry no usable usage until the stream ends (the gateway reports it only there), so a turn
+ *   whose messages reported nothing takes the figure from the turn's last request's own usage instead — never the
+ *   turn's `result` usage as a whole, which sums every request the turn made and over-reads on a turn of several
+ *   tool round-trips.
  *
  * **Turns the agent starts itself.** The SDK starts a turn with no message from you when a background command or
  * subagent finishes, a `Monitor` reports an event or ends, or a `ScheduleWakeup` or `CronCreate` job fires: the SDK's
@@ -1992,17 +1994,21 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
     recovered(taskId, turn)
     // OpenRouter's streamed messages carry the gateway's `message_start` zero until the usage arrives at the stream's
-    // end, which the CLI keeps for its own turn accounting but never re-sends: the frames' usage never recovers. The
-    // turn's `result` usage is that same end-of-stream figure — the last request's prompt, as the context now stands —
-    // so a turn whose messages reported nothing takes the figure from there. A compaction's turn keeps the boundary's
-    // own `post_tokens`, which is already the figure after it.
+    // end, which the CLI keeps for its own turn accounting but never re-sends: the frames' usage never recovers. A
+    // turn whose messages reported nothing takes the figure from `event.lastRequestUsage` instead: the turn's last
+    // request's own prompt, never the turn's `usage`, which sums every request its main loop made and so over-reads
+    // on a turn of several tool round-trips (`docs/sdk-notes.md`, "Usage and context size"). `lastRequestUsage` is
+    // null when the SDK gives no honest per-request figure (more than one request, no `iterations` entry): the
+    // previous figure stands rather than a sum. A compaction's turn keeps the boundary's own `post_tokens`, which is
+    // already the figure after it.
     if (
       !compacted &&
       !turn.contextReported &&
       agentSource(live.settings.model) === AgentSource.OpenRouter &&
-      event.usage !== null
+      event.lastRequestUsage !== null
     ) {
-      const used = event.usage.inputTokens + event.usage.cacheReadInputTokens + event.usage.cacheCreationInputTokens
+      const { inputTokens, cacheReadInputTokens, cacheCreationInputTokens } = event.lastRequestUsage
+      const used = inputTokens + cacheReadInputTokens + cacheCreationInputTokens
       if (used > 0) onContextUsed(taskId, used)
     }
     const held = turn.pending

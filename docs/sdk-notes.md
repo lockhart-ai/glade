@@ -313,6 +313,35 @@ This message is emitted at the start of every turn, not only the first.
 - After compaction, `compact_boundary.compact_metadata.post_tokens` is the new baseline until the next assistant message
   arrives.
 
+### A turn's `result.usage` sums the main loop, not the last request (#573) [verified]
+
+`result.usage` is **not** "the last request's prompt" (#569's comments said so; they were wrong): it is the **sum**
+of every request the turn's main loop made, each counted whole — so a turn of several tool round-trips can read far
+higher than the context actually in use at the end. Probed live on a Haiku turn of three main-loop requests (one
+assistant message each) whose own usage was `input_tokens` 10 / 8 / 8, `cache_creation_input_tokens` 15071 / 1477 /
+460, `cache_read_input_tokens` 0 / 15071 / 16548: `result.usage` carried `input_tokens: 26` (10+8+8),
+`cache_creation_input_tokens: 17008` (15071+1477+460), `cache_read_input_tokens: 31619` (0+15071+16548) — the sum,
+not the last (which would be 8 / 460 / 16548, totalling ~17k against the sum's ~48.6k).
+
+That same `result.usage` carried **`iterations`**, an array of per-request usage objects (`input_tokens`,
+`output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `cache_creation`, `type: "message"`) with
+**one entry, matching the last request's own figure** — on that live run. **Probed with a local mock (three
+requests, two tool calls then text, both in OpenRouter's Anthropic-compatible shape — zeroed `message_start`, real
+counts only in the final `message_delta` — and in Anthropic's own shape as a control): `iterations` came back
+empty (`[]`) in both shapes**, for an ordinary turn with no truncated response needing a continuation request; it is
+likely populated only when the main loop had to continue a response the model cut short, not generally available as
+"the last request's figure." `result.num_turns` **did** match the number of main-loop requests exactly (3), in both
+shapes, including a one-request control (`num_turns: 1`) where `result.usage` and the single request's own usage are
+identical — the sum of one term is that term.
+
+**What Glade does (`lastRequestUsage` in `src/main/agent/events.ts`):** prefer the last `usage.iterations` entry when
+the SDK gives one (future-proofing, since the probe above may not cover every shape); else, trust `result.usage`
+itself only when `num_turns === 1`, where the "sum" is provably the one request's own figure; else there is no
+honest per-request figure in `result`, so the runner keeps the previous context figure rather than writing a sum
+(`docs/openrouter-integration-spec.md`, "Usage gaps", #573). This only changes behaviour for OpenRouter turns: a
+Claude session's own top-level `assistant` messages already carry real per-request usage, so it never reaches this
+fallback.
+
 ### The context window, and which `modelUsage` entry it is (#416) [from the SDK's types and binary, not probed]
 
 A task on "Opus 5.5" read **905k / 200k**: its session ran at 1M, and Glade divided by a 200k guess. Read from
