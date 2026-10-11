@@ -3407,3 +3407,171 @@ even when the Claude limit did not affect the child's source.
 See [landing limitations and follow-ups](openrouter-integration-spec.md#landing-limitations-and-follow-ups) for
 unbuilt behavior and outstanding smoke tests. Existing bounded live dispatch probes used reduced prompts and no
 filesystem tools; they do not establish production-prompt, sandbox or permission-card compatibility.
+
+## 18. Spike: wrapping the whole harness in `srt` (P15-14, #575)
+
+A spike for #445's "isolation options" mapping (`tasks/29eaa322-agent-sandboxing/isolation-options.md`, Tier 1):
+does `@anthropic-ai/sandbox-runtime` (`srt`, version `0.0.79`, installed as a dev dependency on the spike's branch
+only), wrapping the whole bundled Claude Code process through the SDK's `spawnClaudeCodeProcess` hook, give Glade
+boundary-level isolation for everything the agent does? No real API call: a scratch Node script called the SDK's
+`query()` and the bundled `claude` binary directly, with a stand-in model
+(`e2e/battery/stand-in.ts`'s shape, reimplemented minimally) on `127.0.0.1`, a dummy `$HOME` and workspace under
+`/private/tmp`, and `dangerouslyDisableSandbox` on every Bash call driving the experiment (Seatbelt can't nest
+under the harness's own sandbox). SDK 0.3.283 (Claude Code 2.1.283), macOS arm64, October 2026.
+
+### 1. Does Glade's real session path work wrapped? [verified]
+
+Yes, with one blocking fix (below). `query()` in streaming input mode, with an in-process `mcp__glade` server (the
+same `createSdkMcpServer`/`tool` shape as `src/main/agent/glade-tools.ts`) and a `PreToolUse` hook, its
+`spawnClaudeCodeProcess` wrapping the bundled `claude` binary's command/args with `SandboxManager.wrapWithSandboxArgv`
+(see "What a minimal allow-list needs" for the config) and spawning the result: a full turn completed, the model's
+`mcp__glade__spike_tool` call reached the hook and the in-process tool handler, and the tool's result reached the
+model's next turn — `preToolUseCalls=1, toolCalls=1`, total wall time 1.4-1.9s including one real HTTP round trip to
+the stand-in. **Resume works the same way:** a second `query()` with `resume: <sessionId>` and the same
+`spawnClaudeCodeProcess`, in a fresh process, continued the first session (`system/init`'s `session_id` matched) and
+completed a turn.
+
+**Why this needed a fix, and why it matters beyond this spike.** The first attempts timed out after ~3 minutes with
+`"result":"API Error: Unable to connect to API (EPERM)"`, and the stand-in never saw a request. `srt` hardcodes
+`NO_PROXY`/`no_proxy` to exclude loopback and RFC1918 ranges (`sandbox-utils.js`'s `generateProxyEnvVars`, by design:
+"under network restriction the child has no usable resolver/routes... so a NO_PROXY match makes the client try
+direct getaddrinfo() and fail" — true on Linux, where `bwrap --unshare-net` removes the network namespace entirely).
+On macOS there is no removed namespace, only a Seatbelt rule allowing outbound solely to `srt`'s own proxy port, so
+a client that honours `NO_PROXY` (confirmed directly with `curl -v`: `"Uses proxy env variable no_proxy == ... Immediate
+connect fail for 127.0.0.1: Operation not permitted"`) tries to dial the loopback target *directly* and Seatbelt
+denies it. Claude Code's own HTTP stack hit the same wall. **This is not just a test-harness quirk:** Glade's real
+OpenRouter relay also "binds to loopback" per `docs/openrouter-integration-spec.md` line 106, exactly like the
+spike's stand-in — so wrapping a real OpenRouter-routed session in `srt`, unpatched, would hang the same way for
+three minutes and then fail every turn.
+
+**The fix** (confirmed working, `curl` and the real `claude` binary both): clear `no_proxy`/`NO_PROXY` as a shell
+`env` prefix on the *inner* command string passed to `wrapWithSandboxArgv`, e.g. `env no_proxy= NO_PROXY= <claude>
+...`. This works because `srt` bakes its `NO_PROXY` value into the wrapped command as a literal `env VAR=val ...`
+segment (visible in the generated `argv`), which `execve` re-sets regardless of whatever `env:` object the embedder
+passes to `spawn()` — overriding it has to happen inside the command string itself, downstream of `srt`'s own `env`
+prefix. **This is fragile:** it depends on `srt`'s current code generating that exact shape, is undocumented, and
+would need re-checking on every `sandbox-runtime` version bump. No config option in `SandboxRuntimeConfig` changes
+the hardcoded `NO_PROXY` list.
+
+### 2. What the harness needs inside, and the minimal allow-list [verified, partially]
+
+**Filesystem:** `denyRead: ['/Users', '/Volumes']` (or the real Linux equivalents) with `allowRead`/`allowWrite` of
+the workspace and whatever else is granted, same shape as Glade's own sandbox config today. The dummy `$HOME` needs
+`allowWrite` too: Claude Code writes `~/.claude/`, `~/.claude.json` and its caches there on every run, exactly as
+without `srt` (`docs/sdk-notes.md` §15, "A stand-in for the model"). **Keychain-based login was not tested** — the
+spike used `ANTHROPIC_API_KEY` only, the same as the escape battery; whether a real OAuth login (which reads the
+macOS Keychain) works through `srt`'s Seatbelt profile is [not verified].
+
+**Network:** the model/relay endpoint on `network.allowedDomains`, as an IP:port literal for a loopback target (a
+bare hostname entry is checked against a denied-resolved-address set that loopback addresses fail; an explicit IP
+literal is exempt — confirmed from the package's own README and by the working fix above) — **and** the `NO_PROXY`
+override from Q1, with no exceptions found.
+
+**A real, concrete gotcha the library form has that the CLI form doesn't:** `SandboxManager`'s "mandatory deny"
+rules (`.git/hooks`, `.git/config`, `.claude/commands`, shell rc files, …) are anchored at `process.cwd()` of the
+process that calls `wrapWithSandboxArgv` — not at the `cwd` parameter passed to it, which its own doc comment says
+is "Currently unused on macOS/Linux" — and not at the workspace. Called from Glade's own long-running Electron main
+process, this protects whatever folder the *app* happens to be running from, not the task's workspace: in the
+spike, every mandatory-deny rule was generated against the kitten's own git worktree, never the dummy workspace
+under `/private/tmp`, because that's where the calling Node process's `cwd` was. The CLI form (`srt`) doesn't have
+this problem *if* Glade spawns it with the task's workspace as its own `cwd`, since `process.cwd()` inside the `srt`
+process is then correct by construction.
+
+### 3. Nesting: the SDK's own sandbox inside `srt` [verified]
+
+No. With the SDK's `sandbox: { enabled: true, ... }` *also* set on a `query()` whose `spawnClaudeCodeProcess` wraps
+the launch in `srt`, every `Bash` call failed at the inner sandbox's own initialization:
+
+```text
+Sandbox is required but failed to initialize: ENOENT: no such file or directory,
+listen '/tmp/claude/srt-mux-5456-2.sock'. Restart to retry.
+```
+
+This is Claude Code's own documented failure path for "sandbox couldn't start" (`sandboxFailureReason`,
+`src/shared/sandboxFailure.ts`, `docs/sdk-notes.md` §15 "When the sandbox can't start") — the inner Seatbelt-based
+network mux can't bind its own Unix socket inside the outer `srt` sandbox (which itself blocks Unix-socket creation
+by default, per the package's own "Unix Socket Restrictions" docs). This confirms, with a fresh repro rather than
+by inference, what `docs/escape-battery.md` and the Oct 2 inventory already concluded: Seatbelt doesn't nest on
+macOS. **Consequence:** adopting `srt` as the outer wrap means Glade's own `sandbox` option must be fully off
+(never just narrowed) for every `srt`-wrapped session — one sandboxing layer or the other, never both, confirming
+the mapping doc's claim rather than merely carrying it forward.
+
+### 4. Grants: live or restart? [verified, partially]
+
+**Filesystem grants need a restart.** `wrapWithSandboxArgv`'s Seatbelt profile is generated once, at wrap time, from
+the config given to `SandboxManager.initialize()`; nothing in the library re-reads it for an already-spawned
+process. A restart here is a fresh `spawnClaudeCodeProcess` call with `resume: <sessionId>` — measured at 1.2-1.9s
+total (SDK init, a fresh `claude` process, one real turn) in the spike's trivial case, dominated by ordinary
+process-startup and one HTTP round trip, not by anything `srt`-specific (`SandboxManager.initialize()` and
+`wrapWithSandboxArgv()` together added under 50ms every time they were measured).
+
+**Network/domain grants can update live, on paper.** The CLI's `--control-fd` and the library's
+`SandboxManager.updateConfig()` both say they can change `allowedDomains`/`deniedDomains` on an already-running
+wrapped process without restarting it (the package's own README, under "Updating the config while the command
+runs"). **This spike did not independently probe a live domain-grant update end to end** — it's [not verified] by
+this spike, carried from the package's own documentation only. Filesystem rules are explicitly excluded from this
+live path even in theory ("compiled into the sandbox at wrap time... applies to nothing in the current run").
+
+### 5. Cost: startup time and memory [verified, partially]
+
+Per-session marginal cost of `srt` itself, measured directly: `SandboxManager.initialize()` 4-10ms,
+`wrapWithSandboxArgv()` 8-28ms. A trivial one-turn session's `claude` child peaked at **182-191MB RSS** (sampled
+every 250ms from spawn to exit). This is in line with Anthropic's own "very low overhead" rating — it's OS
+primitives, not a VM, and there's no guest kernel to pay for.
+
+**What this spike did not measure, and why the number for Glade's real architecture is higher than "~185MB per
+task":** `SandboxManager` is a **process-wide singleton** (`let config`, `let httpProxyServer`, … at module scope in
+`sandbox-manager.js`; the exported `SandboxManager` is a single object closing over them). One Node process can hold
+exactly one active sandbox config and one pair of proxy servers at a time. Glade's main process hosts every task's
+agent session concurrently in itself (`sdk-backend.ts`), so it **cannot** call `SandboxManager.initialize()` with a
+different per-task config for N concurrently-running tasks — the last call's config and proxy servers would apply to
+every wrapped process still running, which is a correctness bug waiting to happen, not just a style preference. The
+only safe shape is **one process per task hosting its own `srt`** — either the `srt` CLI binary itself (spawned with
+`--settings <per-task file>`, its proxy servers living in that process) or a small per-task Node wrapper calling the
+library once. That process's own footprint (the HTTP/SOCKS proxy servers; the orchestrating script in this spike's
+own RSS was 66-73MB) is *in addition to* the wrapped `claude` child's ~185MB, not shared across tasks. A realistic
+per-task estimate is therefore nearer 225-255MB than 185MB, and **10-20 concurrent sessions at once was not
+measured** — extrapolating linearly from one session (reasonable for OS-primitive, no-VM overhead, but not verified)
+puts 10 tasks at roughly 2.2-2.6GB, well within one Apple Silicon Mac's RAM, but this spike did not run them
+concurrently to check for contention, port exhaustion, or scheduling effects.
+
+### 6. What breaks [verified, partially]
+
+- **The SDK's own sandbox:** breaks outright when nested (Q3) — not optional, must be turned off.
+- **`.git/hooks`/`.git/config` protection:** present, but anchored at the wrong folder when `SandboxManager` is
+  called from Glade's long-running process rather than a per-task process whose `cwd` is the workspace (Q2).
+- **Ordinary git operations, npm/node, the GitHub App helper script:** not broken by anything specific to `srt`
+  found in this spike, but **not independently exercised** either — each only needs its own domain(s) on the
+  network allowlist (`github.com`/`api.github.com` for `gh`, the npm registry for `npm`) and the usual filesystem
+  allow-list; no new restriction beyond what Glade's own sandbox already requires today was found or expected, but
+  this spike ran only trivial one-shot prompts and a single tool call, never a real build/test/lint pipeline.
+- **Electron e2e / screenshots:** **not tested at all.** Running Glade's actual `npm run test:e2e` inside an
+  `srt`-wrapped harness was out of this spike's time budget; it's flagged as the single largest remaining unknown,
+  same as the mapping doc already said. `allowAppleEvents` (needed for anything that opens windows via Launch
+  Services) carries the package's own warning that it "removes code-execution isolation," which would need its own
+  look before relying on it for a GUI test run.
+
+### Recommendation: adopt with changes
+
+The core mechanic works and is worth keeping: the whole harness — `query()`, streaming input, an in-process MCP
+server, a `PreToolUse` hook, resume — ran correctly through `spawnClaudeCodeProcess` wrapping `srt`, confirming
+Anthropic's own "constrains the session's tools, hooks, and MCP servers as well as shell commands" claim rather than
+just citing it. But three changes are not optional, not cosmetic, and not yet built:
+
+1. **The `NO_PROXY` fix (Q1)** must ship as a real, tested part of whatever spawns the wrapped process, with a test
+   that would catch `sandbox-runtime` changing the generated command's shape on a version bump. Filed as a follow-up
+   issue; this is the single biggest risk, since it's an undocumented workaround for an upstream default, not a
+   supported configuration.
+2. **A one-process-per-task architecture**, not a shared `SandboxManager` in Glade's main process (Q5) — the CLI
+   form (`srt --settings <file>`, spawned with the task's workspace as its own `cwd`, which also fixes Q2's
+   mandatory-deny anchoring for free) is the more promising shape of the two tried here, though this spike hit an
+   unexplained `"error: An unknown error occurred (Unexpected)"` from the CLI form that the library form (with its
+   own async-to-sync spawn bridging) didn't, and didn't have the budget to chase down.
+3. **Mutual exclusion with the SDK's own sandbox (Q3)**, enforced in code, not just in a setting a caller could
+   leave on by mistake.
+
+Follow-up issues this would need before any production change: (a) resolve the CLI-form error above and settle CLI
+vs. library as the integration shape; (b) build and test the `NO_PROXY` workaround as a real code path, with a
+version-bump canary; (c) measure real concurrent cost at 10-20 tasks, not an extrapolation; (d) a real Electron e2e
+run inside the wrap; (e) verify live domain-grant updates (`updateConfig`/`--control-fd`) end to end, since Glade's
+grant model depends on it; (f) a real OAuth/Keychain login path, since this spike only used an API key.
