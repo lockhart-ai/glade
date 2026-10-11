@@ -255,7 +255,7 @@ interface PluginTask {
    * during the agent's turn or after it, until it finishes, fails, is stopped, or dies with its session (Glade
    * quitting, or the session failing).
    *
-   * Not counted: a wakeup or cron job, which the Watchers tab lists too but which runs nothing until it fires, and
+   * Not counted: a wakeup or cron job, which is pinned in Agents too but runs nothing until it fires, and
    * subagents, which have their own events. Only the count: nothing of a watcher's command, name or output.
    *
    * With the running subagents, it's everything Glade itself counts as the task's background work: a task whose turn
@@ -293,7 +293,7 @@ interface PluginSubagent {
   /** The tool_use id of the `Agent` call that started it: what its calls' and notes' `subagentId` say. */
   readonly id: string
   readonly taskId: string
-  /** Its description, else its type, else `Subagent`, as the Subagents tab shows it. */
+  /** Its description, else its type, else `Subagent`, as its tab in Agents shows it. */
   readonly name: string
   /** `stopped` is one cut off by Glade quitting or the task pausing: not a failure. */
   readonly state: 'running' | 'done' | 'failed' | 'stopped'
@@ -386,7 +386,7 @@ its kind, name, command, schedule, output or how it ended, nor the wakeups and c
 `Bash` call that starts a background command is a tool call like any other, with its command as its summary), the
 terminal, Glade's settings and other plugins' (a plugin gets only the ones it declares itself), and anything about the
 machine beyond the `machine` capability's coarse readings, and those only with it on. A plugin sees what the task
-list, tool log and Subagents tab summarise, and no more.
+list, tool log and Agents tab summarise, and no more.
 
 ## Messages (plugin to Glade)
 
@@ -394,7 +394,7 @@ list, tool log and Subagents tab summarise, and no more.
 |---|---|---|
 | `ready` | none | Asks for `hello` and a `snapshot`. |
 | `status` | `text: string` | Sets the short status at the right of the panel header (Nekomata's "5 cats · 4 kittens"), up to 40 characters; `''` clears it. |
-| `openTask` | `taskId: string`, optional `subagentId: string \| null` | Opens the task, as clicking its row in the task list does, switching to its workspace first if it's in another; with a `subagentId`, also opens the right panel's Subagents tab on that subagent, its log open, as picking it there does (behind the hidden `todoHubEnabled` setting until #501: with it on, the panel's Agents tab, on that subagent's own tab, P16 #536). Only right after a click or key press in the plugin's view (below). |
+| `openTask` | `taskId: string`, optional `subagentId: string \| null` | Opens the task, as clicking its row in the task list does, switching to its workspace first if it's in another; with a `subagentId`, also opens the right panel's Agents tab on that subagent's own tab, as picking it there does (P16 #536). Only right after a click or key press in the plugin's view (below). |
 
 Anything else, or a message that fails its schema, is dropped and logged. So is a message longer than 16 KB as JSON,
 and any beyond a burst of 50, then 20 a second: a flood is cut off, not queued. A plugin can't send messages or
@@ -456,8 +456,8 @@ while it's busy, and the espresso machine follows the GPU); with it off, the roo
 `select` setting, `style`, in its Glade build's manifest: it draws the scene in whichever style `settings.style` names,
 restyles in place on `settings.changed`, and falls back to its default style when there's no `settings` (an older
 Glade). Clicking a cat opens its task (`openTask` with the task's id), switching workspace if it's in another, and
-clicking a kitten opens its task on that subagent in the Subagents tab (`openTask` with the subagent's id too); with
-the hidden `todoHubEnabled` setting on, on the subagent's own tab in the Agents tab (#536).
+clicking a kitten opens its task on that subagent's own tab in the Agents tab (`openTask` with the subagent's id
+too, P16 #536).
 
 To install it, build the plugin folder in a clone of the nekomata repo and copy it into the plugins folder:
 

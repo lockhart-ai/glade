@@ -238,8 +238,10 @@ interface TaskDetail extends TaskSummary {
   queuedMessages: number; turns: number
   createdAt: number; sessionId: string | null
   handoff: { body: string; addedAt: number } | null        // its handoff note, from a backfill (P13-04)
-  artifacts: ({ kind: 'file'; path: string; title: string; addedAt: number }    // the Artifacts tab: files by absolute path,
-             | { kind: 'link'; url: string; title: string; addedAt: number })[]   // links (PRs, issues, tickets) by URL (#407)
+  // the Todos tab: files by absolute path, links (PRs, issues, tickets) by URL (#407); each with the todo it's filed
+  // under (its id and text), null for one under none ("Not under a todo", P16, #495)
+  artifacts: ({ kind: 'file'; path: string; title: string; addedAt: number; todo: { id: string; text: string } | null }
+             | { kind: 'link'; url: string; title: string; addedAt: number; todo: { id: string; text: string } | null })[]
   externalId: string | null            // its externalId, as create_task gave it or update_task last changed it
   importedAt: number | null   // set on a task imported from Claude Code (added with the import tools, P13-02)
 }
@@ -438,15 +440,15 @@ The three artifact fields are the control API's side of the agent's `add_artifac
 frees its path for a change to take). `artifacts` adds, or renames one given again (its title the file name
 when left out), as before. Each of `updateArtifacts` names an artifact by its absolute `path` (its file needn't still be
 there) and gives a new `title`, a `newPath` (an absolute path to a file inside the workspace, checked as `artifacts`
-checks one, that isn't another of its artifacts), or both; it keeps its place in the Artifacts tab. `removeArtifacts`
+checks one, that isn't another of its artifacts), or both; it keeps its place in the Todos tab. `removeArtifacts`
 takes artifacts off by absolute path, leaving their files. Anything it can't do fails the whole call as
 `invalid_input`, naming the field, e.g. `patch.removeArtifacts.0: notes/draft.md isn't one of the task's artifacts`,
 `patch.updateArtifacts.0.newPath: … is already one of the task's artifacts` or `patch.updateArtifacts.0: changes
 nothing`, and nothing changes, the task's other fields included. The windows get one `artifacts.changed` with the
 task's whole list.
 
-**Todos (behind the hidden `todoHubEnabled` setting, P16, #495).** With the todo hub on, an artifact can be filed under
-one of its task's todos ([`model-surface.md`](model-surface.md)). The control API names no todo: an artifact added
+**Todos (P16, #495).** An artifact is filed under one of its task's todos ([`model-surface.md`](model-surface.md)),
+and `get_task` says which in `TaskDetail.artifacts[].todo` (above). The control API names no todo: an artifact added
 through it is under no todo ("Not under a todo") until the task's agent files it. One it takes off leaves no filing,
 and one it points at another file or page keeps its todo, as with the agent's own tools.
 
@@ -531,7 +533,7 @@ and makes one task from it with `create_task`, giving it:
 
 - a **handoff note** (`handoff`): Markdown saying what the task was, where it got to, the decisions made, what's next,
   and where its notes, artifacts and history are (paths). At most 32 KB of UTF-8; a longer one is refused.
-- its **artifacts** (`artifacts`): files of the workspace to show in its Artifacts tab, by absolute path. Each must be a
+- its **artifacts** (`artifacts`): files of the workspace to show in its Todos tab, by absolute path. Each must be a
   file inside the task's workspace (a relative path, a missing file, a folder or a file outside the workspace is
   refused as `invalid_input`, naming it, e.g. `artifacts.1.path: There's no file at …`), and the whole call with it:
   nothing is created. The PRs, issues and tickets it was about can go in too, by `url` (#407, `update_task`).
