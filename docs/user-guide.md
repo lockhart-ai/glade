@@ -20,7 +20,6 @@ New here? The [README](../README.md) says what Glade is. The [docs index](README
 - [Knowing when a task needs you](#knowing-when-a-task-needs-you)
 - [Glade in the menu bar](#glade-in-the-menu-bar)
 - [The right panel](#the-right-panel)
-  - [Changes](#changes)
 - [The terminal](#the-terminal)
 - [Permissions](#permissions)
 - [The sandbox](#the-sandbox)
@@ -113,8 +112,8 @@ inside that folder. Edit it to suit you; Glade never changes a `CLAUDE.md` that 
 
 1. Press **⌘N**, or click **+** beside the search field.
 2. Type what you want done and press **↵** (⇧↵ adds a line). The agent starts at once, in the workspace's root folder.
-3. The agent names the task, writes its GOAL and keeps its NOW line current. Its working appears in the right panel's
-   Tool calls tab; its answer arrives in the chat.
+3. The agent names the task, writes its GOAL and keeps its NOW line current. Its working appears on Main's tab in the
+   right panel's Agents tab; its answer arrives in the chat.
 
 The **input bar** under the chat sets how this task runs:
 
@@ -147,7 +146,7 @@ You can run as many tasks at once as you like. Switching tasks never interrupts 
 ![A working task: the queue placeholder and Stop in the input bar](images/guide/working.png)
 
 The chat shows your messages and the agent's **final reply** for each turn. Everything in between (tool calls and the
-agent's working notes) goes to the Tool calls tab. Under each reply, a line says how long the turn took and how many
+agent's working notes) goes to the Agents tab, on Main's own tab. Under each reply, a line says how long the turn took and how many
 files it changed; click **N tool calls** to see that turn's calls. The header card and the input bar stay put as you
 scroll: the chat passes under them.
 
@@ -156,7 +155,8 @@ scroll: the chat passes under them.
   empty input for the last one), or remove it. There's no "send now" and no reordering.
 - **Stop:** the square Stop button beside Send, or **⌘.**, ends the turn. It also withdraws an open question or
   permission card. It stops only the turn: subagents and watchers the agent left running in the background carry on,
-  and you stop each one from its row in the Subagents or Watchers tab. If messages are queued, Stop sends them: the
+  and you stop each from the Agents tab: a subagent from its own tab's menu, a watcher from **Stop** under its pinned
+  card. If messages are queued, Stop sends them: the
   turn stops and the queue goes to the agent at once as the next turn, in order, so "stop, do this instead" is a
   queued message and then Stop. Remove a queued message first if you don't want it sent.
 - **Questions:** when a choice is yours, the agent asks it on a **question card** in the chat, with options to pick,
@@ -193,8 +193,9 @@ scroll: the chat passes under them.
   todo or anywhere else Glade shows what the agent or you wrote is clickable (⌘-click works too, and ↵ on a focused
   link); an email address opens your mail app. URLs in code stay plain. When a link's text isn't its address, hover it
   to see where it goes. Right-click a link to open it, copy its address, or **Add to artifacts**, which keeps a web
-  link in the task's Artifacts tab (called what the link says, or `#412` or `API-123` for a bare PR, issue or ticket
-  link). Glade only opens web and mail links, and never inside its own window.
+  link among what the task has produced, under the Todos tab's **Not under a todo** until its agent files it (called
+  what the link says, or `#412` or `API-123` for a bare PR, issue or ticket link). Glade only opens web and mail links,
+  and never inside its own window.
 - **Click code to copy it.** Click a code span (`like this`) to copy its exact text, with a small **Copied** shown for
   a moment; dragging to select part of it, instead, works as ordinary text selection. It's focusable, and ↵ copies it
   too. A fenced code block, and a permission card's command or change, get a copy icon in their corner, shown on hover
@@ -341,14 +342,38 @@ Settings › General › **Show Glade in the menu bar** turns the icon off, and 
 
 ## The right panel
 
-Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Subagents · Watchers · Changes** (⌘⌥1 –
-⌘⌥7). ⌘⌥B hides the panel; drag its edge to resize it.
+Three tabs, each with a count: **Agents · Files · Todos** (⌘⌥1 – ⌘⌥3). ⌘⌥B hides the panel; drag its edge to resize it.
 
-- **Tool calls:** every tool call the task's own agent made, with the agent's working notes between them, split by turn.
+- **Agents:** a strip of tabs, one for each agent in the task. **Main**, the task's own agent, is pinned first, with
+  the sidebar's pin; after it come the subagents that are running, then the finished ones, newest first within each,
+  in a row that scrolls sideways when they don't fit (← and → move between tabs). A subagent's tab has a dot (blue
+  while it runs, grey once it's done) and, once it has anything pinned under it, an eye with a count: blue while a
+  watcher's process runs, grey when all it has is scheduled.
+
+  Each tab is that agent's tool calls: every call it made, with the agent's working notes between them, split by turn.
   Right-click a call to copy its command or output, open its file, or **Run again in terminal** (the command lands at
   the terminal's prompt for you to edit or run; it never runs by itself). Each compaction is a **Compact** row; click
   it to read the summary the agent carried over. A call you were asked about says what you decided, after a shield
   (see [Permissions](#permissions)).
+
+  A subagent's tab has, under the strip, a line saying which todo it's working on ("Working on #501 Return
+  Retry-After on 429s", "Worked on …" once it's finished), its title a link to that todo in the Todos tab, and its
+  own state at the right ("Running · 6m", "Done · 28m"). One subagent works on one todo: the one it was started for.
+  Right-click its tab (or ⇧F10) for **Copy log** and, while it's running, **Stop subagent**; stopping it also ends
+  what it left running in the background ("Ended with its subagent.").
+
+  **Watchers** live here too: what an agent left running or scheduled to wake itself later — a watch on a command's
+  output (a PR's CI, a deploy's log, whatever script it wrote), a command in the background, a check-back at a set
+  time, or a recurring job — is pinned at the bottom of its own tab's tool calls, outside the scroll, under a
+  **Watching** label, so it's always in view, however far back you've scrolled: what it runs, its last line, how many
+  times it has woken the agent, and **Stop**. One whose process runs is on the live tint, in blue; one that's only
+  scheduled (a wakeup or a cron job with nothing running yet) is grey, saying when it's due. A command the agent waits
+  on isn't a watcher, however long it runs: that's a tool call. Once a watcher finishes, fails or is stopped, it leaves
+  the bottom and takes its place among the tool calls at the time it ended, so scrolling back reads in order: the
+  watch, what it found, and what the agent did next. A watcher a subagent started is pinned on that subagent's own
+  tab, not Main's.
+
+  ![The Agents tab: Main's tab, its subagents as Agent calls, and what Main is watching, pinned under Watching: CI running and a docs-preview wakeup only scheduled](images/guide/agents.png)
 - **Files:** the files the task changed (with a blue dot) and read. Each opens in a tab, with line numbers and syntax
   colours, and you can edit it right there: click to put the caret in, type, select, paste, undo and redo (⌘Z, ⇧⌘Z),
   find (⌘F) and indent with Tab. **⌘S** saves it. While a file has unsaved edits its tab shows a dot where the × is;
@@ -357,10 +382,10 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   changed on disk, with **Reload** (take the agent's version, dropping yours) and **Keep mine** (your next save writes
   over it). Markdown has a Preview. Files from a commit and files too large to show whole are read-only. An image
   (PNG, JPEG, GIF, WebP or SVG, up to 8 MB) shows as a picture instead, fit to the panel but never larger than its own
-  size, on a checkerboard behind any transparency; click it to see it full size, in the same viewer artifacts open (see
-  Artifacts, below). A larger, or any other kind of binary, file shows a notice instead of its contents. **Open in
-  editor** (⌘⇧E) opens the file in your text editor (an image or a PDF in the app that shows it), and ⌘W, with the focus in the panel, closes the tab. The
-  agent can open a file here for you.
+  size, on a checkerboard behind any transparency; click it to see it full size, in the same viewer a todo's file
+  tiles open (see Todos, below). A larger, or any other kind of binary, file shows a notice instead of its contents.
+  **Open in editor** (⌘⇧E) opens the file in your text editor (an image or a PDF in the app that shows it), and ⌘W,
+  with the focus in the panel, closes the tab. The agent can open a file here for you.
 
   The folder icon before the tabs is **Browse**: the whole workspace as a tree, folders first. Click a folder to open
   it, and a file to open it in a tab; the folders you leave open stay open for the task, even after a relaunch. Each
@@ -373,85 +398,54 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   opens, Esc clears the search, and ⌘F (with the focus in Files) jumps to the search.
 
   ![The Browse tab in Files: the workspace's tree with its folders open, each file with its icon and size (sample data)](images/guide/files-browse.png)
-- **Todos:** the agent's own checklist, as it keeps it, with how many are done. The items come in three groups: what
-  the agent is working on now, then what it hasn't started, then what's done (the most recently finished first, each
-  with when it was finished, like `4m ago`; hover it for the exact time). A done item has a filled teal check and
-  dimmed, struck-through text; one not started has an empty ring and full-strength text. Items move between the groups
-  as the agent works. The task's row in the sidebar shows the same progress on its third line (`3/7`, or a check once
-  all are done); hover it to see what the agent is working on.
-- **Artifacts:** the files the agent named as its deliverables, one compact row each: a thumbnail for an image (PNG,
-  JPEG, GIF, WebP or SVG), or a tile with the file's type, then its title, its type and when the file last changed.
-  They're listed newest first, by when each file last changed, under **Today**, **Yesterday**, **This week**, **Last
-  week**, **This month** and **Older**; each header shows its count and folds with a click. Today and Yesterday start
-  open, and so does the topmost group showing (last week's, say, for a task with nothing newer); the rest start
-  folded, and each task remembers how you left them. An artifact that's edited moves back to
-  the top, whether the agent (or one of its subagents) edited it or you did, in the terminal or an editor, while the
-  tab is open. Click a row (or press ↵ or Space on it) to open the file: an image opens full size in the image viewer,
-  stepping ← → through the other image artifacts the list shows under a "2 of 7" (open a folded group to include its
-  images); its title and two actions, **Open in Files** and **Reveal in Finder**, show over it, and Esc, a click beside
-  the image or × closes it. Any other artifact opens in
-  **Files** as before. Hover a row for **Open**, **Reveal in folder** and **More** (the same menu as a right-click).
-  The file the Files tab shows is outlined. A file that's gone stays at its last known time, marked missing. The agent
-  keeps the list current too: it can rename an artifact, point it at its file where it moved, or take it off the list
-  (the file stays), and the tab follows at once. Artifacts stay after the task is done.
+- **Todos:** the agent's own checklist, as it keeps it. Each item sits in one of three groups — what it's working on
+  now, then what it hasn't started, then what's done (the most recently finished first, each with when, like `4m
+  ago`; hover it for the exact time) — with a ring with a dot for one being worked on, an empty ring for one not
+  started, and a filled teal check with dimmed, struck-through text for one that's done. Above the list, how many are
+  done, a progress bar, and when the list last changed; the task's row in the sidebar shows the same progress on its
+  third line (`3/7`, or a check once all are done).
 
-  **Links** are artifacts too: the PRs the agent opens or works on, and the issues and tickets the task is about, so
-  this tab is the one place to get back to them. The agent adds them as it goes, and you can add any web link from
-  its right-click menu (**Add to artifacts**). Each shows what it is from its address alone: a pull request icon and
-  `#412 · acme/api`, an issue icon and `#398 · acme/api`, a ticket icon and `API-123` for Jira, or a link icon and the
-  site's domain for anything else. A link is dated by when it was added. Clicking one opens it in your browser; hover
-  it for **Open link**, **Copy link** and **More** (Open link, Copy link, Remove from artifacts). While a task has
-  both files and links, an **All · Files · Links** filter shows above the groups, with each kind's count; the task
-  remembers your choice. Glade doesn't look up whether a PR is open or merged.
+  **Every todo is also a card for what it produced.** Closed, it's three lines: its title, its status line, and, once
+  it's made something, one row of icons, each with a count: files, links and changes, a kind with none left out. A
+  todo that's produced nothing is just its title, and doesn't open. Click one (↵ or Space with the focus on it) to
+  open it: the icons become filter pills, with **All** in front, and under them is one flat list of what it produced,
+  a tile each, most recently updated first (a file or a link by when it last changed, a commit by when it was made).
+  Clicking an icon shows only that kind; on a closed todo it opens the todo already on that filter. Each todo
+  remembers whether it's open and which filter it's on, across todos, tasks and relaunches. → opens a todo with the
+  focus still on it, ← closes it, and ↑ ↓ move the focus between todos.
 
-  ![The Artifacts tab: a PR, an issue and a ticket among screenshots and drafts under Today and Yesterday, with the All · Files · Links filter above them](images/guide/artifacts.png)
-- **Subagents:** one row per subagent, running ones first, with how long it's run and its tool calls. A running one
-  shows a one-line summary of what it's doing now under its name (refreshed about every 30 seconds; hover it for the
-  whole line), then its latest tool call or the last thing it said; a finished one shows what it came to.
-  Click one to open its log; right-click a running one to stop it. A subagent's own tool calls live here, not in Tool
-  calls, and so does what it left running in the background: an eye with a count on its row while any of it is live,
-  and its rows, each with **Stop**, under its log. That work runs on after the subagent finishes, until it ends;
-  stopping the subagent ends it too ("Ended with its subagent."). A subagent that's done, failed or interrupted (by
-  quitting Glade, say) runs again when the agent sends it a message: its row goes back to running, keeping its log,
-  until that run ends. The task's row in the sidebar counts the running subagents on its third line.
-- **Watchers:** what the task's own agent left running or scheduled to wake itself later: a watch on a command's output
-  (a PR's CI, a deploy's log, whatever script it wrote), a command in the background, a check-back at a set time, or a
-  recurring job. A command the agent waits on isn't one, however long it runs; it's a tool call. Nor is what a subagent
-  started: that's under the subagent in Subagents, and isn't counted here. Each row says what it runs, whether it's
-  running, due, or ended and how, what it last reported, and how many times it woke the agent. **Stop** ends a live
-  one. The count on the tab, and an eye with a count on the third line of the task's row in the task list, are the
-  live ones, so a task waiting on you, or done, that still watches something shows it. A relaunch ends what was
-  running (a scheduled job comes back when you next message the task).
-- **Changes:** the commits the task made, newest first. See below.
+  A tile: a file opens in **Files** (an image in the viewer, stepping ← → through that todo's other images alone),
+  with **Open**, **Reveal in folder** and **More** as icon buttons under the pointer or the focus, in place of its
+  age; a link opens in your browser; a commit's tile (its short hash, the first line of its message, the lines it
+  added and removed, the branch it was made on, and when) opens in place to its branch — and, where a subagent made
+  it, the subagent's name, a link to its tab in Agents — then the files it changed, each with its status (**A**dded,
+  **M**odified, **D**eleted, **R**enamed, from and to) and its lines, or `binary`; a huge commit lists its first 100
+  files, then how many more there are. Click one of its files to open it in Files: as it is now, when it's still at
+  that path, or, when it isn't (deleted since, or made in a worktree that's gone), read-only as the commit left it,
+  labelled **As of** and the hash. View only: nothing here commits, pushes or reverts, and it never looks anything up
+  on GitHub. A PR, an issue or a ticket a todo's title or status line names is a link, when the task has it as one.
+  Right-click a todo (or ⇧F10) for **Copy** and **Ask agent about this**, which drops a question about it into the
+  input bar for you to finish.
 
-### Changes
+  What counts as a commit: every one the task's `Bash` calls made, a subagent's included, however it was made (`git
+  commit`, an amend, which replaces the commit it amends, a merge commit, a cherry-pick, a script that commits). Glade
+  notes where each repository's `HEAD` is before a call runs and looks again once it's done, so a commit you make at
+  the terminal meanwhile can be counted too; a checkout, a reset or a fast-forward counts for nothing, nor does a
+  rebase. When two tasks commit in one repository at once, the one whose call printed the commit gets it. A commit
+  made by a command left running in the background isn't seen. The list is kept with the task, so it's still there
+  after a relaunch, and a commit's files can still be read after its worktree is removed (git keeps them). In a
+  workspace that isn't a git repository, no todo ever shows a change; one the agent makes in a repository inside the
+  workspace still counts.
 
-![A commit’s tile, opened to its files](design/screens/48-todo-hub-tiles.png)
+  ![The Todos tab: a todo open to its tiles, among closed ones with their file, link and change counts](images/guide/todos.png)
 
-The Changes tab lists the commits the task made, newest first, and its count is how many. Glade only watches git here:
-the agent commits, branches and makes worktrees as it likes, and the tab shows what it did. There's nothing to commit,
-push or revert from it, and it never looks anything up on GitHub.
-
-Each row shows the commit's short hash, the first line of its message, the lines it added and removed (`+12 −3`, a
-merge's against the branch it merged into), the branch it was made on, and when. A commit a subagent made (say one
-working in its own worktree) carries the subagent's name. Click a row to open the files the commit changed: each with
-its status (**A**dded, **M**odified, **D**eleted, **R**enamed, from and to), and its lines, or `binary`. A huge commit
-lists its first 100 files, then how many more there are.
-
-Click a file to open it in Files. It opens as it is now when it's still at that path in the workspace. When it isn't
-(deleted since, or made in a worktree that's gone, or outside the workspace), it opens as the commit left it:
-read-only, labelled **As of** and the hash, with no Open in editor. A file the commit deleted shows as it was before.
-
-What counts as the task's commits: every commit its `Bash` calls made, its subagents' included, however they made it
-(`git commit`, an amend, which replaces the commit it amends, a merge commit, a cherry-pick, a script that commits).
-Glade notes where each repository's `HEAD` is before a call runs and looks again once it's done, so a commit you make
-at the terminal meanwhile can be counted too; a checkout, a reset or a fast-forward counts for nothing, nor does a
-rebase. When two tasks commit in one repository at once, the one whose call printed the commit gets it. A commit made
-by a command left running in the background isn't seen.
-
-The list is kept with the task, so it's still there after a relaunch, and a commit's files can still be read after its
-worktree is removed (git keeps them). In a workspace that isn't a git repository, the tab says so; commits the agent
-makes in a repository inside the workspace still show.
+  **Not under a todo:** a task from before this (nothing recorded which todo its files, links and commits belonged
+  to), and anything added without naming one (a link you add yourself with **Add to artifacts**, or one added through
+  the control API), show in one placeholder group after the todos. It's a card like a todo's, closed or open, opens,
+  filters and remembers the same way, and is hidden while it's empty. Only the task's own agent moves something from
+  it to a todo; ask it to "file your things under your todos" and it sorts what it can, and the group goes away once
+  it's empty. A task with no todos at all keeps "No todos yet."; one that has todos but hasn't produced anything under
+  them yet says "No todos for this task." above the placeholder, which then holds everything, always open.
 
 ## The terminal
 
@@ -474,7 +468,7 @@ By default a task runs with **Allow all**: the agent edits files and runs comman
 **Permissions** picker switches the task to **Ask before edits and commands**, at any time; it applies from the agent's
 next tool call. Settings › Agent › Permissions sets which mode new tasks start in (**Ask first** there is this mode).
 
-![A permission card for a Bash command, and in the Tool calls list what was decided about the calls before it](images/guide/permission-card.png)
+![A permission card for a Bash command, and in the Agents tab what was decided about the calls before it](images/guide/permission-card.png)
 
 In the ask mode, file edits and writes, shell commands and other tools with side effects wait on a **permission card**
 in the chat, showing the command or the change. Reads and searches, and Glade's own tools, never ask. Your own Claude
@@ -489,7 +483,7 @@ Code allow and deny rules still apply. The card offers:
 A card left open when Glade quits is still there after the relaunch; answering it carries the task on.
 
 A card stays in the chat only until it's answered: the chat is for your messages and the agent's. After that, what
-you decided is on the call's row in the **Tool calls** tab, on a line that starts with a shield:
+you decided is on the call's row in the **Agents** tab, on a line that starts with a shield:
 
 | The line | What happened |
 |---|---|
@@ -500,7 +494,7 @@ you decided is on the call's row in the **Tool calls** tab, on a line that start
 | Grey: **Withdrawn** | The request went away before you answered, for example because the turn was stopped or failed. |
 
 A call that was denied or withdrawn never ran, so its row has no result. A subagent's call shows its line on its row
-in the **Subagents** tab, in that subagent's log.
+too, on that subagent's own tab in **Agents**.
 
 The mode decides when an agent asks before it acts. What it can touch at all, in either mode, is
 [the sandbox](#the-sandbox)'s.
@@ -533,7 +527,7 @@ The terminal tabs, and Glade itself, aren't in the sandbox: a terminal is your o
 
 When an agent reaches past what it's allowed, a card asks, with the shield at its title:
 
-![Two sandbox cards: the agent wants to read a folder, and a subagent wants to write to one; the Tool calls list shows a read a workspace grant let through and the one waiting](images/guide/sandbox-folder-card.png)
+![Two sandbox cards: the agent wants to read a folder, and a subagent wants to write to one; the Agents tab shows a read a workspace grant let through and the one waiting](images/guide/sandbox-folder-card.png)
 
 - **A folder:** "The agent wants to read `~/code/acme-web`", or "…write to…", with the file it was after under it.
   Reading asks for read-only access to the folder, and writing for read and write; a later write to a folder you
@@ -570,7 +564,7 @@ permitted". The agent then asks for the folder itself, saying why in its own wor
 write its download cache."), on the same card, and runs the command again once you allow it. Subagents ask the same
 way; a card of a subagent's names it at the top right.
 
-![A domain card for a command's connection, and under it the card the agent raised after its command was blocked: it wants to write to ~/.cache/uv, with its reason; the Tool calls list shows the blocked command](images/guide/sandbox-domain-card.png)
+![A domain card for a command's connection, and under it the card the agent raised after its command was blocked: it wants to write to ~/.cache/uv, with its reason; the Agents tab shows the blocked command](images/guide/sandbox-domain-card.png)
 
 **Credential files** (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.netrc`, `~/.git-credentials`, `~/.claude.json`, your
 keychains, and the `gh`, `gcloud`, Azure, Kubernetes, Docker, 1Password and other cloud tools' logins) are never
@@ -590,11 +584,11 @@ your local network.
 sandbox", with the command. Outside the sandbox it can use any folder and reach any domain you can, so it's only ever
 **Allow once** or **Deny**, and it asks every time, in Allow all too.
 
-![The card for running a command outside the sandbox, with the command and Allow once or Deny; the Tool calls list shows what was decided about the calls before it](images/guide/sandbox-outside-card.png)
+![The card for running a command outside the sandbox, with the command and Allow once or Deny; the Agents tab shows what was decided about the calls before it](images/guide/sandbox-outside-card.png)
 
 Nothing you allow is written to your project or to `~/.claude`: Glade keeps it, and gives it to the agent's session.
 
-Once answered, a sandbox card leaves the chat like any other, and its call's row in the **Tool calls** tab says what
+Once answered, a sandbox card leaves the chat like any other, and its call's row in the **Agents** tab says what
 you decided and what it was about: "Allowed for this task: read ~/code/acme-web", "Allowed for this workspace: write
 to ~/code/acme-web/src/api", "Allowed once: run outside the sandbox", "Denied: reach registry.npmjs.org · “your
 note”", "Allowed for this workspace: use the Gmail MCP server", "Allowed for this task: message other Claude
@@ -616,7 +610,7 @@ An MCP server that Glade doesn't build runs **outside the sandbox**, with whatev
 own Claude Code config, one from the project's `.mcp.json`, or a claude.ai connector such as Gmail, Drive or Claude
 Docs. So with the sandbox on, an agent can use one only once you've allowed it, in either permission mode:
 
-![The card for an MCP server: the agent wants to use the claude.ai Acme Docs MCP server, with the tool it's calling and its input; the Tool calls list shows a server allowed for the workspace, a later call its grant let through, a message to another session allowed for the task, and cloud agents denied](images/guide/sandbox-server-card.png)
+![The card for an MCP server: the agent wants to use the claude.ai Acme Docs MCP server, with the tool it's calling and its input; the Agents tab shows a server allowed for the workspace, a later call its grant let through, a message to another session allowed for the task, and cloud agents denied](images/guide/sandbox-server-card.png)
 
 - **"The agent wants to use the `<server>` MCP server"**, with the tool it's calling and that call's input, and the
   same three answers. The server is named as Claude Code names it (`claude.ai Acme Docs`).
@@ -871,7 +865,7 @@ The ones to learn first:
 | ⌘⌥↓ | Next task that needs you |
 | ⌘L | Focus the input bar |
 | ⌘B · ⌘⌥B · ⌘J | Toggle the task list · right panel · bottom bar |
-| ⌘⌥1 – ⌘⌥7 | Tool calls · Files · Todos · Artifacts · Subagents · Watchers · Changes |
+| ⌘⌥1 – ⌘⌥3 | Agents · Files · Todos |
 | ⌘T · ⌃\` | New terminal tab · focus the terminal |
 | ⌘1 – ⌘9 | Switch workspace |
 | ⌘, | Settings |
@@ -989,7 +983,7 @@ If you kept past work outside Glade, say a folder of notes per task, you can bri
 on a **Backfilled** card at the top of the task's chat, and the agent always has it: open the task, send *"Let's pick
 this up."*, and it knows where it was.
 
-![A backfilled task: its handoff note, and its notes files as artifacts](images/guide/backfilled.png)
+![A backfilled task: its handoff note, and its notes files under the Todos tab's Not under a todo](images/guide/backfilled.png)
 
 1. Put the notes folders inside the workspace they belong to (say `~/code/api/notes/<task>/`). A task's artifacts must
    be files inside its workspace; notes kept elsewhere can still be named in the handoff note, and the agent can read
