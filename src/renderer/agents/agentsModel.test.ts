@@ -21,16 +21,13 @@ import {
   agentName,
   agentsOf,
   agentStateLine,
-  agentTokensLine,
   agentTodo,
   agentTodoSelector,
   formatDuration,
-  formatTokens,
   isRunning,
   mainAgentStateLine,
   mainAgentText,
   MAIN_AGENT_NAME,
-  selectAgentTokens,
   selectMainCurrentCall,
   selectShownAgent,
   shownAgent,
@@ -433,27 +430,6 @@ describe('agentTodo', () => {
   })
 })
 
-describe('formatTokens (#566)', () => {
-  it('says a count in whole tokens under a thousand, then K and M with a decimal only when it has one', () => {
-    expect(formatTokens(0)).toBe('0')
-    expect(formatTokens(38)).toBe('38')
-    expect(formatTokens(999)).toBe('999')
-    expect(formatTokens(4_500)).toBe('4.5K')
-    expect(formatTokens(45_000)).toBe('45K')
-    expect(formatTokens(312_000)).toBe('312K')
-    expect(formatTokens(1_200_000)).toBe('1.2M')
-    expect(formatTokens(2_000_000)).toBe('2M')
-  })
-})
-
-describe('agentTokensLine (#566)', () => {
-  it('is the totals, input then output, as the tab header shows them', () => {
-    expect(agentTokensLine({ inputTokens: 1_200_000, outputTokens: 45_000 })).toBe('1.2M in · 45K out')
-    expect(agentTokensLine({ inputTokens: 312_000, outputTokens: 18_000 })).toBe('312K in · 18K out')
-    expect(agentTokensLine({ inputTokens: 0, outputTokens: 0 })).toBe('0 in · 0 out')
-  })
-})
-
 describe('the Main tab’s line (#566)', () => {
   const working = {
     state: TaskState.Active,
@@ -497,16 +473,5 @@ describe('the Main tab’s line (#566)', () => {
     // The same log reads the same, and another task's log doesn't reach it.
     expect(select({ toolEvents: { t1: events } })).toBe(events[2])
     expect(select({ toolEvents: {} })).toBeNull()
-  })
-
-  it('reads an agent tab’s total from the store, Main’s under its own key', () => {
-    const select = selectAgentTokens('t1', null)
-    const sub = selectAgentTokens('t1', 'sub-1')
-    const tokens = { agentId: null, inputTokens: 1_200, outputTokens: 45 }
-    expect(
-      select({ agentTokens: { t1: { '': tokens, 'sub-1': { agentId: 'sub-1', inputTokens: 1, outputTokens: 1 } } } }),
-    ).toBe(tokens)
-    expect(sub({ agentTokens: { t1: { '': tokens } } })).toBeNull()
-    expect(select({ agentTokens: {} })).toBeNull()
   })
 })

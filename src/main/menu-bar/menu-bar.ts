@@ -164,7 +164,6 @@ function changesWhatsInFlight(event: GladeEvent): boolean {
     case EventType.PluginStatusChanged:
     case EventType.ControlChanged:
     case EventType.OpenRouterUsageChanged:
-    case EventType.AgentTokensChanged:
     case EventType.AccountChanged:
     case EventType.LoginChanged:
     case EventType.MenuBarChanged:

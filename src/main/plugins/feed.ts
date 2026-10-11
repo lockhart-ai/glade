@@ -371,7 +371,6 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       case EventType.LoginChanged:
       case EventType.MenuBarChanged:
       case EventType.SandboxGrantsChanged:
-      case EventType.AgentTokensChanged:
       case EventType.TerminalTabsChanged:
       case EventType.TerminalCleared:
       case EventType.TerminalOutput:

@@ -134,22 +134,12 @@ connected management key, the menu shows only the providers those guardrails all
 
 ### 64 · The Main agent's line
 
-Main's tab now gets the same line under the strip that a subagent's has: the model and provider it runs on with its
-input and output token totals, then the task's current status and state. Totals come from the usage each assistant
-message already carries; no USD is shown.
+Main's tab now gets the same two-row line under the strip that a subagent's has: the model and provider it runs on,
+then the task's current status and state.
 
 ![Agents tab, Main line](screens/64-agents-main-line.png)
 
 [HTML](html/64-agents-main-line.html)
-
-### 65 · Subagent token totals
-
-A subagent's line gains the same model·provider label and token totals beside its **Working on** line, so every
-agent's spend is visible at a glance.
-
-![Agents tab, subagent tokens](screens/65-agents-subagent-tokens.png)
-
-[HTML](html/65-agents-subagent-tokens.html)
 
 ## API discovery boundary
 
@@ -188,7 +178,7 @@ Render these screens with the existing hidden-window pipeline:
 ```sh
 npm run render-design -- 56-settings-models-connect 56-settings-models 57-model-provider 58-task-model-picker \
   59-task-openrouter 60-settings-models-selected 61-settings-models-search 62-settings-models-providers \
-  63-model-provider-full 64-agents-main-line 65-agents-subagent-tokens
+  63-model-provider-full 64-agents-main-line
 ```
 
 Check the same names with `npm run check-design -- …`. HTML/PNG are design artifacts only; they do not connect an app

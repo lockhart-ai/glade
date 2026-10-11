@@ -112,8 +112,8 @@
   flex-direction: column;
 }
 
-/* Under the strip, on an agent's tab (#566, designs 64–65): two rows — the model · provider it runs on with its token
-   totals at the right, then what it's working on and its state. Main's line has the same shape. */
+/* Under the strip, on an agent's tab (#566, design 64): two rows — the model · provider it runs on, then what it's
+   working on and its state. Main's line has the same shape. */
 .line {
   flex-shrink: 0;
   display: flex;
@@ -150,15 +150,6 @@
   white-space: nowrap;
   font-weight: 500;
   color: var(--color-text);
-}
-
-/* The agent's token totals, right-aligned ("1.2M in · 45K out", #566). */
-.tokens {
-  flex-shrink: 0;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-label);
-  color: var(--color-faint);
-  white-space: nowrap;
 }
 
 .todo {

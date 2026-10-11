@@ -726,7 +726,7 @@ it('shows the chosen child model with or without a todo and keeps the saved rout
 })
 
 describe('the line under the strip on Main’s tab (#566)', () => {
-  /** Main working, with its status summary set, and the totals its tab shows. */
+  /** Main working, with its status summary set. */
   async function renderMainLine(fields: Partial<ReturnType<typeof sampleTask>> = {}): Promise<HubStore> {
     const main = {
       ...hubMain(SHIP),
@@ -739,7 +739,6 @@ describe('the line under the strip on Main’s tab (#566)', () => {
           ...fields,
         },
       ],
-      agentTokens: [{ agentId: null, inputTokens: 312_000, outputTokens: 18_000 }],
     }
     const hub: HubStore = { ...storeWrapper(main), main }
     await act(() => hub.store.getState().hydrate())
@@ -748,25 +747,15 @@ describe('the line under the strip on Main’s tab (#566)', () => {
     return hub
   }
 
-  it('names the model it runs on with its totals at the right, and its status and state under that', async () => {
+  it('names the model it runs on, then its status and state under that', async () => {
     await renderMainLine()
     expect(line()).toHaveTextContent('Sample 1')
-    expect(line()).toHaveTextContent('312K in · 18K out')
     expect(line()).toHaveTextContent('Throttles applied to the three viewsets; measuring /search')
     expect(line()).toHaveTextContent('Running · 42m')
   })
 
-  it('takes a new total in place, as it lands, and no longer says Running when it stops', async () => {
+  it('no longer says Running once the task stops', async () => {
     const { fake } = await renderMainLine()
-    act(() => {
-      fake.emit({
-        type: EventType.AgentTokensChanged,
-        taskId: 't1',
-        total: { agentId: null, inputTokens: 1_200_000, outputTokens: 45_000 },
-      })
-    })
-    expect(line()).toHaveTextContent('1.2M in · 45K out')
-
     act(() => {
       fake.emit({
         type: EventType.TaskUpdated,
@@ -803,7 +792,6 @@ describe('the line under the strip on Main’s tab (#566)', () => {
           status: '',
         },
       ],
-      agentTokens: [{ agentId: null, inputTokens: 312_000, outputTokens: 18_000 }],
     }
     const hub: HubStore = { ...storeWrapper(working), main: working }
     await act(() => hub.store.getState().hydrate())
@@ -813,32 +801,19 @@ describe('the line under the strip on Main’s tab (#566)', () => {
     expect(line()).toHaveTextContent('Running · 42m')
   })
 
-  it('shows a subagent’s model · provider and totals above its working-on line, as its tokens land', async () => {
+  it('shows a subagent’s model · provider above its working-on line', async () => {
     const routed = {
       ...LIMITS,
       input: { ...LIMITS.input, model: 'zai/glm-5.3-flash' },
     }
-    const main = {
-      ...hubMain({ ...SHIP, toolEvents: [routed] }),
-      agentTokens: [{ agentId: 'limits-502', inputTokens: 45_000, outputTokens: 2_000 }],
-    }
+    const main = hubMain({ ...SHIP, toolEvents: [routed] })
     const hub: HubStore = { ...storeWrapper(main), main }
     await act(() => hub.store.getState().hydrate())
     render(<AgentsTab taskId="t1" />, { wrapper: hub.wrapper })
     await act(() => Promise.resolve())
     fireEvent.click(tab('limits-502'))
     expect(line()).toHaveTextContent('zai/glm-5.3-flash')
-    expect(line()).toHaveTextContent('45K in · 2K out')
     expect(line()).toHaveTextContent('Working on #502 Per-key limits for /search')
     expect(line()).toHaveTextContent('Running · 6m')
-
-    act(() => {
-      hub.fake.emit({
-        type: EventType.AgentTokensChanged,
-        taskId: 't1',
-        total: { agentId: 'limits-502', inputTokens: 45_500, outputTokens: 2_400 },
-      })
-    })
-    expect(line()).toHaveTextContent('45.5K in · 2.4K out')
   })
 })

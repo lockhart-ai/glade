@@ -47,7 +47,6 @@ import {
   LIVE_WATCHER_STATES,
   WatcherKind,
   WatcherState,
-  type AgentTokenTotal,
   type Artifact,
   type CommitFiles,
   type TaskCommit,
@@ -179,8 +178,6 @@ export interface FakeMain {
    * the fake's own.
    */
   readonly agentTabs?: Record<string, string>
-  /** Each agent tab's token totals (#566), as a history load carries them. */
-  readonly agentTokens?: AgentTokenTotal[]
   /** The tasks `artifacts.watch` and `artifacts.unwatch` were asked about, in order: `watch t1`, `unwatch t1`. */
   readonly watchedArtifacts?: string[]
   /** What was put on the clipboard, oldest first: the path of each file `files.copy` copied, and the text of each
@@ -534,7 +531,6 @@ export function fakeHandlers(
       watchers: (main.watchers ?? []).filter((watcher) => watcher.taskId === id),
       commits: (main.commits ?? []).filter((commit) => commit.taskId === id),
       agentTab: main.agentTabs?.[id] ?? null,
-      agentTokens: main.agentTokens ?? [],
     }),
     [CommandName.QueueAdd]: ({ taskId, text, images: added }) => {
       queued += 1

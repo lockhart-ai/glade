@@ -86,7 +86,6 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
       watchers: [],
       commits: [],
       agentTab: null,
-      agentTokens: [],
     }),
     [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
     [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),

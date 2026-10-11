@@ -248,8 +248,6 @@ function drainEvents(): (readonly unknown[])[] {
         return [event.type, event.mark.outcome.kind]
       case EventType.TaskDeleted:
         return [event.type, event.taskId]
-      case EventType.AgentTokensChanged:
-        return [event.type, event.total.agentId, event.total.inputTokens, event.total.outputTokens]
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
       case EventType.WorkspaceRemoved:
@@ -423,25 +421,18 @@ describe('a turn', () => {
       [EventType.ToolEventAppended, ToolEventKind.Divider, null],
       [EventType.TaskUpdated, TaskActivity.Working, null, 0],
       [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, 0],
-      [EventType.AgentTokensChanged, null, 10, 1],
       [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED],
-      [EventType.AgentTokensChanged, null, 20, 2],
-      [EventType.AgentTokensChanged, null, 30, 3],
       [EventType.ToolEventAppended, ToolEventKind.Narration, null],
       [EventType.ToolEventAppended, ToolEventKind.ToolCall, ToolCallState.Running],
       [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Done],
-      [EventType.AgentTokensChanged, null, 40, 4],
       [EventType.ToolEventAppended, ToolEventKind.ToolCall, ToolCallState.Running],
       // A subagent started: the task is sent again, read with it running (`Task.backgroundWork`).
       [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED],
-      [EventType.AgentTokensChanged, 'toolu_02', 10, 1],
       [EventType.ToolEventAppended, ToolEventKind.ToolCall, ToolCallState.Running],
       [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Done],
       [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Done],
       // And again once it ended.
       [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED],
-      [EventType.AgentTokensChanged, null, 50, 5],
-      [EventType.AgentTokensChanged, null, 60, 6],
       [
         EventType.MessageAppended,
         MessageRole.Agent,
@@ -463,10 +454,6 @@ describe('a turn', () => {
       watchers: [],
       commits: [],
       agentTab: null,
-      agentTokens: [
-        { agentId: null, inputTokens: 60, outputTokens: 6 },
-        { agentId: 'toolu_02', inputTokens: 10, outputTokens: 1 },
-      ],
     })
   })
 
@@ -1323,16 +1310,7 @@ describe('the session', () => {
     )
     await settle()
 
-    // Nothing is logged or said of the task; the subagent still at work spends tokens, and its tab total rises.
-    expect(events.filter((event) => event.type !== EventType.AgentTokensChanged)).toEqual([])
-    expect(
-      events
-        .filter((event) => event.type === EventType.AgentTokensChanged)
-        .map((event) => [event.total.agentId, event.total.inputTokens, event.total.outputTokens]),
-    ).toEqual([
-      ['toolu_08', 10, 1],
-      ['toolu_08', 20, 2],
-    ])
+    expect(events).toEqual([])
     expect(chat()).toHaveLength(2)
     expect(toolLog()).toHaveLength(1)
     expect(current().activity).toBe(TaskActivity.Waiting)
@@ -1453,10 +1431,8 @@ describe('a turn the agent starts itself', () => {
 
     expect(current().activity).toBe(TaskActivity.Working)
     expect(drainEvents()).toEqual([
-      [EventType.AgentTokensChanged, null, 30, 3],
       [EventType.ToolEventAppended, ToolEventKind.Divider, null],
       [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED],
-      [EventType.AgentTokensChanged, null, 40, 4],
       [EventType.ToolEventAppended, ToolEventKind.Narration, null],
       [EventType.ToolEventAppended, ToolEventKind.ToolCall, ToolCallState.Running],
     ])
@@ -3720,8 +3696,6 @@ describe('several tasks at once', () => {
         return event.permissionRequest.taskId
       case EventType.PermissionMarked:
         return event.mark.taskId
-      case EventType.AgentTokensChanged:
-        return event.taskId
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
       case EventType.TerminalTabsChanged:
@@ -3793,7 +3767,6 @@ describe('several tasks at once', () => {
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
       case EventType.OpenRouterUsageChanged:
-      case EventType.AgentTokensChanged:
       case EventType.AccountChanged:
       case EventType.LoginChanged:
       case EventType.MenuBarChanged:

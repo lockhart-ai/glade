@@ -9,7 +9,6 @@
 import {
   ToolCallState,
   ToolEventKind,
-  type AgentTokenTotal,
   type EpochMs,
   type Task,
   type Todo,
@@ -20,7 +19,6 @@ import { isSubagentTool, subagentName } from '../../shared/subagents'
 import { subagentTodo, type Filing } from '../../shared/todoHub'
 import { argumentSummary, firstLine } from '../../shared/toolSummary'
 import type { GladeData } from '../store/state'
-import { agentTokensKey } from '../store/reducer'
 import { elapsedMs, statusLabel, subagentStatus } from '../subagents/subagentsModel'
 import { formatAge } from '../task-header/headerModel'
 import { isAgentEvent } from '../tool-log/toolLogModel'
@@ -211,22 +209,6 @@ export function agentTodoSelector(
   }
 }
 
-/** A count of tokens as the tab header says it: "38" under a thousand, then "45K" and "1.2M" (#566). */
-export function formatTokens(tokens: number): string {
-  const rounded = (value: number): string => {
-    const short = Math.round(value * 10) / 10
-    return Number.isInteger(short) ? String(short) : short.toFixed(1)
-  }
-  if (tokens >= 1_000_000) return `${rounded(tokens / 1_000_000)}M`
-  if (tokens >= 1_000) return `${rounded(tokens / 1_000)}K`
-  return String(Math.max(tokens, 0))
-}
-
-/** An agent tab's totals as its line shows them, right-aligned: "1.2M in · 45K out" (#566). */
-export function agentTokensLine(total: Pick<AgentTokenTotal, 'inputTokens' | 'outputTokens'>): string {
-  return `${formatTokens(total.inputTokens)} in · ${formatTokens(total.outputTokens)} out`
-}
-
 /**
  * What the Main tab's line says under its model (#566, design 64): the task's status summary, or, until the agent has
  * set one, what it's working on now — its running tool call. Null when it has neither.
@@ -271,12 +253,4 @@ export function selectMainCurrentCall(taskId: string): (state: Pick<GladeData, '
       ) ?? null
     return last
   }
-}
-
-/** An agent tab's persisted total, from the store; null while the task's logs have none for it. */
-export function selectAgentTokens(
-  taskId: string,
-  agentId: AgentId,
-): (state: Pick<GladeData, 'agentTokens'>) => AgentTokenTotal | null {
-  return (state) => state.agentTokens[taskId]?.[agentTokensKey(agentId)] ?? null
 }
