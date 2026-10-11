@@ -733,9 +733,25 @@ provider for each model you want, then enable its checkbox. **Refresh** reads th
 validates a new key before saving; **Remove** disconnects OpenRouter without deleting routes or task history.
 Removing or disabling a default route restores a Claude default so **New task** continues to work.
 
+A **Selected · N** section lists your enabled models, alphabetised, above the scrolling catalog, so the ones you
+use stay visible while you browse. The catalog's search splits what you type into words; every word must appear in
+a model's id, name or description, in any order, so "flash sample" matches as readily as "sample flash". Choosing a
+model's provider, or the catalog's **Filter providers**, opens a menu of every tool-capable provider alphabetised,
+with its own search field and a scroll bar once the list runs long.
+
 The detected provider list shows hosting options. Configured provider credentials are managed in OpenRouter;
 the link under the catalog opens its integrations page. A normal inference key cannot list those credentials.
 Prices are estimates per million tokens for the selected endpoint; OpenRouter records the actual bill.
+
+An optional **management key**, connected beside the inference key, reads your account's guardrails
+(`GET /api/v1/guardrails`) and filters both provider lists — the catalog's **Filter providers** and each model's own
+provider menu — to the providers your guardrails allow. It's validated as it connects: a key the API refuses changes
+nothing. **Replace key** swaps it for another; **Remove** drops the restriction, and both lists go back to showing
+every detected provider. Without a management key, or while an account has no guardrails, both lists show the whole
+catalog, unfiltered. The restriction is read again after a catalog refresh and at launch, at most once a minute;
+read failures keep the last known restriction. A management key only narrows what Glade shows you here: it is never
+used to make inference requests, and doesn't unlock BYOK credential listings or the account-wide credit balance (see
+below).
 
 Enabled choices appear beside Claude models in the task picker and Settings › Agent defaults, grouped by billing
 source. An OpenRouter choice includes its selected provider. The task picker selects the saved pair; change its
@@ -784,7 +800,8 @@ for API-reported USD spend today, this week, this month and all time, the config
 free-request allowance when reported. UTC periods include all activity on the key, including outside Glade. The
 reading is cached across launches, refreshed on connection/launch and after requests at most once a minute, and can
 be refreshed manually. Failed reads keep the last reading and show its age/error. The account-wide credit balance
-requires a management key, which Glade does not request. Claude's subscription meter remains separate.
+requires a management key; Glade's own management key (above) only reads guardrails, never the balance. Claude's
+subscription meter remains separate.
 
 Current limits and unverified workflows are listed in [landing limitations and follow-ups](openrouter-integration-spec.md#landing-limitations-and-follow-ups).
 In particular, all background children stop on a limit-switch, busy/open-card switches are refused, a Claude-to-Claude
