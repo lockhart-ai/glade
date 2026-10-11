@@ -3,7 +3,7 @@
 //
 //   node scripts/fixtures/doc-images.mjs [name…]
 //
-// With no names, it regenerates all 28 (see docs/doc-images.md for the list and what each shows). With one or more
+// With no names, it regenerates all 29 (see docs/doc-images.md for the list and what each shows). With one or more
 // names (e.g. `node scripts/fixtures/doc-images.mjs hero control`), it regenerates only those. Each image is captured
 // in a window that's never shown, from a seed in scripts/fixtures/ (`src/main/capture-seed.ts`), and saved with a
 // 256-colour palette (ffmpeg-static), as the rest of the docs' screenshots are.
@@ -56,7 +56,15 @@ const SCREENSHOTS = {
     out: join(IMAGES, 'guide', 'broadcast.png'),
     args: ['--seed', 'broadcast.json', '--size', '1280x800', '--command', 'app.broadcast'],
   },
-  artifacts: { out: join(IMAGES, 'guide', 'artifacts.png'), args: ['--seed', 'artifacts.json', '--size', '1280x880'] },
+  // The Agents tab (P16, #491): Main's tab, a subagent's with its own todo line, and what two of them are watching,
+  // one running and one only scheduled, pinned under a Watching label.
+  agents: {
+    out: join(IMAGES, 'guide', 'agents.png'),
+    args: ['--seed', 'agents-watcher.json', '--size', '1280x900'],
+  },
+  // The Todos tab (P16, #491): a todo open to its tiles (a PR, its commits, the issue that started it), among closed
+  // ones with their counts.
+  todos: { out: join(IMAGES, 'guide', 'todos.png'), args: ['--seed', 'todo-hub.json', '--size', '1280x980'] },
   'permission-card': {
     out: join(IMAGES, 'guide', 'permission-card.png'),
     args: ['--seed', 'permission-card-bash.json', '--size', '1280x800'],
