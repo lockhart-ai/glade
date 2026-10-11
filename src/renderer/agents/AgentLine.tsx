@@ -1,16 +1,14 @@
 import { memo, useMemo } from 'react'
-import { TaskActivity, TaskState, type ToolCallEvent } from '../../shared/domain'
+import { TaskActivity, TaskState, type EpochMs, type ToolCallEvent } from '../../shared/domain'
 import { modelName } from '../../shared/models'
 import { useGladeStore } from '../store/react'
 import {
   agentsOf,
   agentStateLine,
   agentTodoSelector,
-  agentTokensLine,
   isRunning,
   mainAgentStateLine,
   mainAgentText,
-  selectAgentTokens,
   selectMainCurrentCall,
   todoLineVerb,
 } from './agentsModel'
@@ -26,6 +24,22 @@ function AgentState({ call }: { readonly call: ToolCallEvent }): React.JSX.Eleme
   return <span className={styles.state}>{agentStateLine(call, now)}</span>
 }
 
+/**
+ * Main's state while it works ("Running · 42m", design 64), by the task's age. It keeps its own clock while the task
+ * works, so a tick renders this span and nothing else of the line around it.
+ */
+function MainState({
+  working,
+  createdAt,
+}: {
+  readonly working: boolean
+  readonly createdAt: EpochMs
+}): React.JSX.Element | null {
+  const now = useElapsedNow(working ? createdAt : null)
+  const mainState = mainAgentStateLine(working, createdAt, now)
+  return mainState === null ? null : <span className={styles.state}>{mainState}</span>
+}
+
 export interface AgentLineProps {
   readonly taskId: string
   /**
@@ -38,10 +52,8 @@ export interface AgentLineProps {
 }
 
 /**
- * The line under the strip on an agent's tab (`docs/design/html/51-agents-subagent.html`, `64-agents-main-line.html`,
- * `65-agents-subagent-tokens.html`): over the agent's own line, the model and provider it runs on with its input and
- * output token totals at the right ("1.2M in · 45K out"), the totals main keeps per agent in SQLite so they survive a
- * relaunch (#566).
+ * The line under the strip on an agent's tab (`docs/design/html/51-agents-subagent.html`, `64-agents-main-line.html`):
+ * over the agent's own line, the model and provider it runs on (#566).
  *
  * On a subagent's tab the line under that is the todo it's working on ("Working on #501 Return Retry-After on 429s",
  * "Worked on …" once it has finished), and its state at the right. The todo's title is a link: it shows the Todos tab
@@ -72,7 +84,6 @@ export const AgentLine = memo(function AgentLine({
     return typeof started?.input.model === 'string' ? started.input.model : null
   })
   const label = useGladeStore((state) => (modelId === null ? null : modelName(state.models, modelId)))
-  const tokens = useGladeStore(selectAgentTokens(taskId, agentId))
   // Main's own line: its status summary, or what it's working on now, and its state while it works.
   const status = useGladeStore((state) => state.tasks[taskId]?.status ?? null)
   const selectMainCall = useMemo(() => selectMainCurrentCall(taskId), [taskId])
@@ -82,9 +93,7 @@ export const AgentLine = memo(function AgentLine({
     return task?.state === TaskState.Active && task.activity === TaskActivity.Working
   })
   const createdAt = useGladeStore((state) => state.tasks[taskId]?.createdAt ?? null)
-  const now = useElapsedNow(mainWorking ? createdAt : null)
   const mainText = agentId === null ? mainAgentText({ status: status ?? '' }, currentCall, rootPath) : null
-  const mainState = agentId === null && createdAt !== null ? mainAgentStateLine(mainWorking, createdAt, now) : null
   const todoId = todo?.id ?? null
   if (agentId === null) {
     if (mainText === null && label === null) return null
@@ -95,11 +104,6 @@ export const AgentLine = memo(function AgentLine({
             <span className={styles.model} title={label} data-agent-model="">
               {label}
             </span>
-            {tokens !== null && (
-              <span className={styles.tokens} data-agent-tokens="">
-                {agentTokensLine(tokens)}
-              </span>
-            )}
           </div>
         )}
         {mainText !== null && (
@@ -107,7 +111,7 @@ export const AgentLine = memo(function AgentLine({
             <span className={styles.working} title={mainText}>
               {mainText}
             </span>
-            {mainState !== null && <span className={styles.state}>{mainState}</span>}
+            {createdAt !== null && <MainState working={mainWorking} createdAt={createdAt} />}
           </div>
         )}
       </div>
@@ -116,18 +120,11 @@ export const AgentLine = memo(function AgentLine({
   if (call === undefined || (todo === null && label === null)) return null
   return (
     <div className={styles.line} data-agent-line="">
-      {(label !== null || tokens !== null) && (
+      {label !== null && (
         <div className={styles.head}>
-          {label !== null && (
-            <span className={styles.model} title={label} data-agent-model="">
-              {label}
-            </span>
-          )}
-          {tokens !== null && (
-            <span className={styles.tokens} data-agent-tokens="">
-              {agentTokensLine(tokens)}
-            </span>
-          )}
+          <span className={styles.model} title={label} data-agent-model="">
+            {label}
+          </span>
         </div>
       )}
       <div className={styles.head}>
