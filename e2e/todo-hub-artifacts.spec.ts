@@ -7,13 +7,31 @@
 //
 // The children are filed by a seed (`src/main/capture-seed.ts`), written here over a real folder of files so their
 // thumbnails are real.
-import { copyFileSync, mkdirSync, realpathSync, utimesSync, writeFileSync } from 'node:fs'
+//
+// Two scenarios lost with the old Artifacts tab (#385, #460), restored here driving the todo hub instead: a tile
+// follows at once when the agent repoints, renames or removes a file while the tab is open, and a titled image's
+// title sits above its own left edge, truncating when it's long.
+import { copyFileSync, existsSync, mkdirSync, realpathSync, utimesSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { crc32, deflateSync } from 'node:zlib'
 import type { Locator, Page } from '@playwright/test'
+import { CURATES_ARTIFACTS_TODO } from '../src/main/agent/scripts'
 import { CommandName } from '../src/shared/bridge'
 import { ArtifactKind } from '../src/shared/domain'
 import { desktop, expect, test } from './fixtures'
-import { contextMenu, filesTab, imageViewer, taskHeader, taskPanel, todoHub } from './selectors'
+import { expectImageLoaded } from './images'
+import {
+  chat,
+  contextMenu,
+  filesTab,
+  firstRun,
+  imageViewer,
+  inputBar,
+  taskHeader,
+  taskList,
+  taskPanel,
+  todoHub,
+} from './selectors'
 import { invoke } from './task-view'
 
 /** The sample screenshots, in the fixture workspace the Artifacts tab's design screens are captured from. */
@@ -178,6 +196,46 @@ async function heightOf(locator: Locator): Promise<number> {
 
 async function widthOf(locator: Locator): Promise<number> {
   return (await locator.boundingBox())?.width ?? 0
+}
+
+/** A PNG of one colour, `width` × `height`: a large image that takes little room on disk. */
+function solidPng(width: number, height: number): Buffer {
+  const chunk = (type: string, data: Buffer): Buffer => {
+    const length = Buffer.alloc(4)
+    length.writeUInt32BE(data.length)
+    const body = Buffer.concat([Buffer.from(type, 'latin1'), data])
+    const check = Buffer.alloc(4)
+    check.writeUInt32BE(crc32(body))
+    return Buffer.concat([length, body, check])
+  }
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(width, 0)
+  header.writeUInt32BE(height, 4)
+  // 8 bits a channel, RGB.
+  header.set([8, 2, 0, 0, 0], 8)
+  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(width * 3, 0x5b)])
+  const pixels = Buffer.concat(Array.from({ length: height }, () => row))
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', header),
+    chunk('IDAT', deflateSync(pixels)),
+    chunk('IEND', Buffer.alloc(0)),
+  ])
+}
+
+/** An element's box, as `getBoundingClientRect` gives it. */
+interface Box {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
+/** What a titled image's viewer is measured by: its title, the image showing, and its actions (Open in Files). */
+interface ViewerBoxes {
+  readonly title: Box
+  readonly image: Box
+  readonly actions: Box
 }
 
 /** The only task's id, as main has it. */
@@ -492,4 +550,194 @@ test('todo hub: an image’s tile opens the viewer on that todo’s images alone
   await expect(viewer.pager).toHaveCount(0)
   await window.keyboard.press('Escape')
   await expect(burst).toBeFocused()
+})
+
+test('todo hub: a tile follows at once when the agent repoints, renames or removes a file, with the tab open (#385)', async ({
+  launch,
+  tempFolder,
+}) => {
+  const root = join(tempFolder(), 'acme-docs')
+  mkdirSync(join(root, 'screens'), { recursive: true })
+  // Each copy's mtime set explicitly (newest last), so main's look at the files, however the copies land in whatever
+  // order the filesystem gives them, sorts the tiles the same way every time.
+  const screenshot = (from: string, to: string, minutesAgo: number): void => {
+    const file = join(root, 'screens', to)
+    copyFileSync(join(SCREENS, from), file)
+    const at = new Date(Date.now() - minutesAgo * 60_000)
+    utimesSync(file, at, at)
+  }
+  screenshot('landing-light.png', 'landing.png', 30)
+  screenshot('search-mobile.png', 'search-mobile.png', 20)
+  screenshot('nav-tree.png', 'nav-tree.png', 10)
+  // Retaken in the dark theme, under a new name, after the first turn.
+  screenshot('landing-dark.png', 'landing-dark.png', 5)
+  const glade = await launch({ agentScript: 'curates-artifacts', chosenFolder: root })
+  const { window } = glade
+  await firstRun(window).openFolder.click()
+  await taskList(window).newTask.click()
+  await inputBar(window).field.fill('Screenshot the landing page, search and navigation.')
+  await inputBar(window).field.press('Enter')
+  await expect(chat(window).agentReplies).toHaveCount(1)
+
+  // The Todos tab is open on the one todo, its three screenshots tiled under it, newest first.
+  const hub = todoHub(window)
+  await taskPanel(window)
+    .tab(/^Todos/)
+    .click()
+  await hub.head(CURATES_ARTIFACTS_TODO.subject).click()
+  const card = hub.card(CURATES_ARTIFACTS_TODO.subject)
+  await expect
+    .poll(() => tilesOf(window, CURATES_ARTIFACTS_TODO.subject))
+    .toEqual(['File: Old navigation', 'File: Search results on mobile', 'File: Landing page'])
+  await expect(hub.tileThumbnail(hub.tile(card, 'File: Landing page'))).toHaveAttribute(
+    'src',
+    /^data:image\/png;base64,/,
+  )
+
+  // While the tab still shows it, the next turn points the landing page at the dark screenshot, renamed
+  // (`update_artifact`), and takes the navigation off the list (`remove_artifact`): the tile list follows at once,
+  // with no relaunch and no reselecting the task.
+  await inputBar(window).field.fill('The landing page is retaken in the dark theme; drop the old navigation.')
+  await inputBar(window).field.press('Enter')
+  await expect(chat(window).agentReplies).toHaveCount(2)
+  await expect
+    .poll(() => tilesOf(window, CURATES_ARTIFACTS_TODO.subject))
+    .toEqual(['File: Landing page, dark theme', 'File: Search results on mobile'])
+  const dark = hub.tile(card, 'File: Landing page, dark theme')
+  await expect(dark.getByText('PNG')).toHaveAttribute('title', 'screens/landing-dark.png')
+  await expect(hub.tileThumbnail(dark)).toHaveAttribute('src', /^data:image\/png;base64,/)
+  expect(await pillsOf(window, CURATES_ARTIFACTS_TODO.subject)).toEqual(['All 2', '2 files'])
+  // The old navigation's file is only taken off the list; its file on disk stays.
+  expect(existsSync(join(root, 'screens', 'nav-tree.png'))).toBe(true)
+})
+
+test('todo hub: a titled image’s title sits above its own left edge for small, wide and tall images, truncating when it’s long (#460)', async ({
+  launch,
+  tempFolder,
+}) => {
+  const folder = tempFolder()
+  const root = join(folder, 'acme-gallery')
+  mkdirSync(join(root, 'screens'), { recursive: true })
+  writeFileSync(join(root, 'screens', 'small.png'), solidPng(160, 100))
+  writeFileSync(join(root, 'screens', 'wide.png'), solidPng(2200, 300))
+  writeFileSync(join(root, 'screens', 'tall.png'), solidPng(300, 1400))
+  const longTitle =
+    'This title is far longer than the small image is wide, so it must truncate with an ellipsis rather than ' +
+    'spill past the image’s own edge or crowd the actions'
+  const TODO = 'Review the new crops'
+  const seed = join(folder, 'todo-hub-image-viewer.json')
+  writeFileSync(
+    seed,
+    JSON.stringify({
+      workspace: { name: 'Acme Gallery', rootPath: realpathSync(root) },
+      panelTab: 'todos',
+      tasks: [
+        {
+          title: TODO,
+          objective: 'Check the small, wide and tall crops read well together.',
+          status: 'All three are in Todos.',
+          minutesAgo: 4,
+          selected: true,
+          messages: [{ role: 'user', body: 'Share the crops.', turn: 1, minutesAgo: 10 }],
+          toolEvents: [todoCall('1', TODO)],
+          artifacts: [
+            { path: 'screens/tall.png', title: 'Tall portrait', minutesAgo: 6, todo: '1' },
+            { path: 'screens/wide.png', title: 'Wide banner', minutesAgo: 7, todo: '1' },
+            { path: 'screens/small.png', title: longTitle, minutesAgo: 8, todo: '1' },
+          ],
+          todoPanels: [{ todo: '1', open: true }],
+        },
+      ],
+    }),
+  )
+  const glade = await launch({ seed })
+  const { window } = glade
+  const hub = todoHub(window)
+  const card = hub.card(TODO)
+  const viewer = imageViewer(window)
+
+  // From here on, each time the page changes (#478): a title in the document is on a loaded image, at its left edge,
+  // and an image that shows has its title. While an image loads there is nothing to place a title against, so there
+  // must be no title either (not one waiting in the middle of the window for the image to arrive), and the two then
+  // appear together, neither a frame ahead of the other.
+  const misplaced = await window.evaluateHandle(() => {
+    const found: string[] = []
+    const check = (): void => {
+      const title = document.querySelector('[data-testid="image-viewer-title"]')
+      const named = title === null ? '' : `"${title.textContent.slice(0, 24)}"`
+      const under = title?.parentElement?.querySelector('img') ?? null
+      if (title !== null && under === null) {
+        found.push(`${named} is in the document with no image`)
+      } else if (title !== null && under !== null && (!under.complete || under.naturalWidth === 0)) {
+        found.push(`${named} is in the document before its image has loaded`)
+      } else if (title !== null && under !== null) {
+        const offset = title.getBoundingClientRect().left - under.getBoundingClientRect().left
+        if (Math.abs(offset) > 1) found.push(`${named} is ${String(offset)}px from its image's left edge`)
+      }
+      for (const image of document.querySelectorAll<HTMLImageElement>('[role="dialog"] img')) {
+        const frame = image.parentElement
+        // Not the one showing, or not shown yet.
+        if (frame === null || frame.hidden || getComputedStyle(frame).visibility === 'hidden') continue
+        if (frame.querySelector('[data-testid="image-viewer-title"]') === null) {
+          found.push(`"${image.alt.slice(0, 24)}" is showing without its title`)
+        }
+      }
+    }
+    new MutationObserver(check).observe(document.body, { subtree: true, childList: true, attributes: true })
+    return found
+  })
+
+  /**
+   * The title sits just above the named image, sharing its left edge, and is never wider than it (#460). Gives back
+   * what it measured: the title's box, the image's and the actions' (Open in Files, their left end).
+   */
+  const assertTitleAboveImage = async (name: string): Promise<ViewerBoxes> => {
+    // Loaded and at its size (#478): only then is there an image to measure the title against.
+    await expectImageLoaded(viewer.shown(name))
+    await expect(viewer.title).toHaveText(name)
+    // All three from the one layout, rather than read one by one with the page free to change in between.
+    const measured = await viewer.viewer.evaluate((dialog, alt): ViewerBoxes => {
+      const box = (element: Element | null | undefined): Box => {
+        if (element === null || element === undefined) throw new Error('No box')
+        const { x, y, width, height } = element.getBoundingClientRect()
+        return { x, y, width, height }
+      }
+      const title = dialog.querySelector('[data-testid="image-viewer-title"]')
+      return {
+        title: box(title),
+        image: box(Array.from(title?.parentElement?.querySelectorAll('img') ?? []).find((each) => each.alt === alt)),
+        actions: box(dialog.querySelector('button[aria-label="Open in Files"]')),
+      }
+    }, name)
+    const { title, image } = measured
+    expect(Math.abs(title.x - image.x)).toBeLessThanOrEqual(1)
+    expect(title.y + title.height).toBeLessThanOrEqual(image.y)
+    expect(title.width).toBeLessThanOrEqual(image.width + 1)
+    return measured
+  }
+
+  // Small, with a long title: it truncates with an ellipsis rather than spilling past the image's own edge.
+  await hub.tile(card, `File: ${longTitle}`).click()
+  await expect(viewer.viewer).toBeVisible()
+  await expect(viewer.pager).toHaveText('3 of 3')
+  const small = await assertTitleAboveImage(longTitle)
+  // The image at its own size, with its border, and the title exactly as wide.
+  expect(small.image).toMatchObject({ width: 162, height: 102 })
+  expect(small.title.width).toBe(162)
+  expect(await viewer.title.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+  // Never crowds the actions, over on the window's other side.
+  expect(small.title.x + small.title.width).toBeLessThanOrEqual(small.actions.x)
+
+  // Wide: the title still shares its left edge and sits above it, at its own (width-capped) size.
+  await window.keyboard.press('ArrowLeft')
+  await expect(viewer.pager).toHaveText('2 of 3')
+  await assertTitleAboveImage('Wide banner')
+
+  // Tall: same, at its own (height-capped) size.
+  await window.keyboard.press('ArrowLeft')
+  await expect(viewer.pager).toHaveText('1 of 3')
+  await assertTitleAboveImage('Tall portrait')
+
+  // At no point on the way was a title in the document off its image.
+  expect(await misplaced.jsonValue()).toEqual([])
 })
