@@ -3,13 +3,16 @@
   align-items: center;
   gap: 6px;
 }
-/* The optional management key, nested under the OpenRouter key (design 60): it reads the account's guardrails. */
+/*
+ * The optional management key, nested under the OpenRouter key (design 60): it reads the account's guardrails. The
+ * single line above it is the OpenRouter SettingRow's own border-bottom (.row in SettingsDialog.module.css); this
+ * draws none of its own, so there's exactly one line between the two rows, as design 60's nested .or-source draws it.
+ */
 .management {
   display: flex;
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
-  border-top: 1px solid var(--color-inner-border);
   margin-top: 6px;
   padding: 6px 0 0;
 }
