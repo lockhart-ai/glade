@@ -914,6 +914,50 @@
         "Running · 6m", on one line with the whole of it in its tooltip. The screens don't draw it.
     73. A commit tile's subagent name is a button only when the task's log has that subagent; one it hasn't got
         ("Subagent") stays plain text.
+
+    **Turning it on (P16-10, #501) — the phase's full round-up, from the meta issue (#491), ready for the release
+    notes:**
+
+    74. The switch was a hidden setting (`todoHubEnabled`) with no UI, as P15's `sandboxEnabled` was: with it on, the
+        panel showed the three tabs; with it off, the old seven. #501 turns it on for everyone and removes it.
+    75. A task with no todos shows the placeholder group alone, as one flat list with the same icon filter. A task
+        with nothing at all keeps "No todos yet."
+    76. A link Jared adds himself (Add to artifacts) and an artifact added through the control API have no agent
+        call to name a todo: they land in the placeholder, and the agent can move them.
+    77. A todo that's deleted drops what it produced to the placeholder.
+    78. A filter whose kind has nothing left falls back to All.
+    79. "Last update" is: a file's last change, a link's last change, a commit's time.
+    80. A todo's text links only to a link the task itself has, on an exact match; titles link as well as status
+        lines, done todos included.
+    81. Once opened, a commit's tile shows its branch and the subagent that made it; the subagent's name goes to its
+        tab in Agents.
+    82. A child's short id (`c3`), which Glade shows the agent to file by, is never shown in the UI.
+    83. A subagent started without naming a todo: Glade asks the main agent straight after which todo it's for, as
+        it does for a commit.
+    84. A subagent started by a subagent works on its parent's todo unless it names another.
+    85. A wakeup or cron job that's only scheduled is pinned like a live watcher, but grey: nothing is running yet.
+    86. Within the running subagents and within the finished ones, the newest tab comes first.
+    87. Main stays fixed at the left while the other agents' tabs scroll.
+    88. The eye on an agent's tab counts everything pinned, scheduled ones included: blue when a watcher's process
+        runs, grey when the agent has only scheduled ones.
+    89. A finished subagent's line reads "Worked on …", with how long it ran.
+    90. The pinned watchers sit under a "Watching" label.
+    91. A watcher that finished after seeing a failure is grey; pink is for a watcher whose own command failed.
+    92. A link's tile is tagged `#511`, a ticket's key or a domain; the repository is in its tooltip.
+    93. A file tile's icon buttons stay showing while its More menu is open.
+    94. A todo's text links `#511`, `PR #511` and a ticket key in capitals; `PR 511`, `acme/api#511` and a lower-case
+        key stay text.
+    95. A commit made by a background command is left unfiled, with nothing asked: background commands count as
+        watchers.
+    96. The call that started a watcher is never a row of its own, live or ended; what it ran is the tooltip on the
+        watcher's label.
+    97. Pinned watchers take at most half the panel, and scroll among themselves past that.
+    98. A subagent's tab has a menu with Stop subagent and Copy log, as its row in the old Subagents tab had; Main's
+        has none.
+    99. Rows left by the first design (a watcher's filing, a todo's panel on the old Subagents or Watchers filter)
+        are read past, not deleted.
+    100. The switch-on was split in three: the app (#501), the design screens (#547), and the reference docs, the
+         user guide and the README (#548).
 - **Plugins (P12, #66).**
   - A plugin is a folder `~/Library/Application Support/glade/plugins/<id>/` (Glade's `userData`) holding a
     `manifest.json`: `id` (the folder's name), `name`, `version`, `entry` (an HTML file in the folder) and an optional

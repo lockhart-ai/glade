@@ -92,6 +92,35 @@ grant it, for the task, the workspace or Glade-wide (`decisions.md`, "Agent sand
 
 Order: 01 → 02 → (03, 04) → (05, 06, 08, 09) → 07.
 
+## P16 · Agents · Files · Todos
+
+The right panel splits by one question: is this something happening (**Agents**: a tab per agent, each with its tool
+calls and its watchers), or something the work produced (**Todos**: each todo with the files, links and commits that
+came out of it)? Tool calls, Subagents and Watchers fold into Agents; Artifacts and Changes fold into Todos
+(`decisions.md`, "Todos as the hub"; `model-surface.md`, "Implemented: `list_children` and `file_children`").
+[Meta issue #491](https://github.com/lockhart-ai/glade/issues/491)
+
+| Issue | What it builds |
+| --- | --- |
+| P16-01 (#492) | Probe how a child gets its todo on Claude Code's own tools. |
+| P16-02 (#493) | Todo hub designs: screens 46 to 49, as first settled; #534 redraws them. |
+| P16-03 (#494) | The switch, a todo's id, and the filing store. |
+| P16-04 (#495) | File produced work under a todo as it's made: artifacts, a subagent's todo as plumbing, and commits. No watchers. |
+| P16-05 (#496) | The agent's tools to list and move children: `list_children` and `file_children`. |
+| P16-06 (#497) | The Todos tab as the hub, first built with five kinds; #535 takes it to three. |
+| P16-07 (#498) | File and link tiles. |
+| P16-08 (#499) | Commit tiles, narrowed from "Subagent, watcher and commit tiles". |
+| P16-09 (#500) | Links in a todo's text. |
+| P16-10 (#501) | Turn it on: three tabs, the old tabs removed. |
+| P16-11 (#534) | Designs for Agents · Files · Todos: the Agents tab's screens, and screens 46 to 49 redrawn for produced work only. |
+| P16-12 (#535) | Todos hold produced work only; subagents and watchers come out of the hub. |
+| P16-13 (#536) | The Agents tab: a tab per agent, each with its tool calls. |
+| P16-14 (#537) | Watchers in the tool calls: pinned while live, in the history once done. |
+| P16-15 (#547) | Design screens for three tabs: every screen redrawn, the retired tabs' screens removed. |
+| P16-16 (#548) | Docs for three tabs: the reference docs, the user guide and the README, with their screenshots retaken, and a real-model check of the filing prompt. |
+
+Order: 07, 08, 09, 04 and 11 can run now → 12, 13 (after 11) → 14 (after 13) → 10 → (15, 16).
+
 ## Later
 
 Signing, notarisation and auto-update (L-04, #69).

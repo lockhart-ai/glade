@@ -56,9 +56,8 @@ Jared only ever talks to a task's main agent, never its subagents, so both of Gl
 `glade` (below) and `glade-control` ("Glade's control tools", below) — refuse a subagent's call to any of their tools,
 whatever the tool, present or future: the model gets a tool error, "Only the main agent can use Glade's tools. Report
 what you have to the agent that started you instead." Nothing shows in the UI: no question card for a refused `ask`,
-no status, title or objective change, nothing opened in the Files tab or added to the Artifacts tab, no child listed
-or filed under a todo (`list_children` and `file_children`, behind the todo hub's switch, below), and the control API
-changes, reads or messages no task.
+no status, title or objective change, nothing opened in the Files tab or filed under a todo (`add_artifact`,
+`list_children` and `file_children`, below), and the control API changes, reads or messages no task.
 
 Decided by a `PreToolUse` hook (`src/main/agent/sdk-backend.ts`'s `subagentGladeToolGuard`, `docs/sdk-notes.md` §9)
 that denies the call before it ever dispatches, keyed on the SDK's `agent_id` or Glade's managed child id, and
@@ -225,24 +224,28 @@ tool error and opens nothing.
 
 ## Implemented: `add_artifact` (P5-04, names unconfirmed)
 
-`mcp__glade__add_artifact` takes `{ path: string, title: string }`: the path absolute or relative to the workspace
-root. The handler (`addTaskArtifact` in `src/main/artifacts/artifacts.ts`) checks the path as `show_file` does (a file
-inside the workspace, symlinks included), keeps the artifact in the `artifacts` table with its task (a done task keeps
-them; they go only when the task is deleted) and broadcasts `artifacts.changed` with the task's whole list. Declaring a
-path again renames it, keeping its place. The reply is `Added <path> to the artifacts as "<title>".` or
-`Renamed the artifact <path> to "<title>".`; a bad path is a tool error and adds nothing. The system prompt asks the
-agent to declare the deliverables the user asked for with it. The Artifacts tab shows a row per artifact, with a
-thumbnail of an image (`files.thumbnail`) or its type (from the extension), newest first by when its file last changed
-(noted as it's declared, and again when a tool call writes it or, while the tab is open, the file changes on disk),
-under date headers.
+`mcp__glade__add_artifact` takes `{ path: string, title: string, todo: string }`: the path absolute or relative to the
+workspace root, and `todo` the id of the todo the artifact belongs under (the `N` of `Task #N`; `#2` reads as `2`),
+which it needs. The handler (`addTaskArtifact` in `src/main/artifacts/artifacts.ts`, `artifactTodo` and `fileArtifact`
+in `src/main/todo-hub/filing.ts`) checks the path as `show_file` does (a file inside the workspace, symlinks included),
+keeps the artifact in the `artifacts` table with its task (a done task keeps them; they go only when the task is
+deleted), files it under the todo named and broadcasts `artifacts.changed` with the task's whole list. Declaring a path
+again renames it, keeping its place and its filing; given another todo, it moves there. The reply is
+`Added <path> to the artifacts as "<title>". It's under todo #2.` or `Renamed the artifact <path> to "<title>".`; a bad
+path is a tool error and adds nothing, and so is a missing or unknown `todo` ("Filing produced work as it's made",
+below). The system prompt asks the agent to declare the deliverables the user asked for with it. Its tile shows under
+that todo in the Todos tab, with a thumbnail of an image (`files.thumbnail`) or its type (from the extension); a link
+you add yourself, or one added through the control API, has no call to name a todo, so it sits under "Not under a
+todo" until the agent is asked to file it (see below).
 
 ## Implemented: `update_artifact` and `remove_artifact` (#385, names unconfirmed)
 
 The agent keeps the list current with two more tools, each taking the artifact's `path` as it was added (absolute or
 relative to the workspace root; its file needn't still be there). Both broadcast `artifacts.changed` with the task's
-whole list, so the Artifacts tab (and an image viewer open on it) follows at once. A path that isn't one of the task's
-artifacts, or is outside the workspace, is a tool error (`<path> isn't one of this task's artifacts.`) and changes
-nothing.
+whole list, so the Todos tab (and an image viewer open on it) follows at once, and keep the artifact's filing as it
+was: neither takes a `todo` (moving an artifact to another todo is `file_children`'s, below). A path that isn't one of
+the task's artifacts, or is outside the workspace, is a tool error (`<path> isn't one of this task's artifacts.`) and
+changes nothing.
 
 - **`mcp__glade__update_artifact`** takes `{ path: string, title?: string, newPath?: string }`, and needs at least one
   of `title` and `newPath` (neither is a tool error). `newPath` is checked as `add_artifact` checks a path (a file
@@ -262,17 +265,18 @@ is the way to change one on purpose, and the only way to repoint it.
 ## Implemented: link artifacts (#407, names unconfirmed)
 
 An artifact can be a link instead of a file: a PR the agent opens or works on, or the issue or ticket the task is
-about, so the Artifacts tab is the one place to get back to them. The three tools take a `url` in place of a `path`,
+about, so the Todos tab is the one place to get back to them. The three tools take a `url` in place of a `path`,
 one or the other: both, or neither, is a tool error (`Give the artifact's path (a file) or its url (a link): one of
 them, not both.`).
 
-- **`add_artifact`** takes `{ url: string, title: string }` too. The URL must be a whole `http:` or `https:` one
+- **`add_artifact`** takes `{ url: string, title: string, todo: string }` too, `todo` needed as it is for a file. The
+  URL must be a whole `http:` or `https:` one
   (`checkArtifactUrl` in `src/shared/artifactLinks.ts`): no `javascript:`, `file:`, `data:`, `mailto:` or custom
   scheme, no whitespace or control characters, no user name or password, at most 2048 characters; anything else is a
   tool error (`The url javascript: links can't be artifacts: only http and https.`) and adds nothing. It's kept, and
   keyed, as the URL parser writes it out (the scheme and host lower-cased, a default port dropped), so the same page
   given twice is one artifact, renamed the second time. The handler is `addTaskLinkArtifact` in
-  `src/main/artifacts/artifacts.ts`; the reply is `Added <url> to the artifacts as "<title>".` or
+  `src/main/artifacts/artifacts.ts`; the reply is `Added <url> to the artifacts as "<title>". It's under todo #2.` or
   `Renamed the artifact <url> to "<title>".`
 - **`update_artifact`** takes `{ url: string, title?: string, newUrl?: string }` for a link (`updateTaskLinkArtifact`),
   with the same replies as for a file, the URLs in place of the paths. A file takes a `newPath` and a link a `newUrl`:
@@ -280,7 +284,7 @@ them, not both.`).
 - **`remove_artifact`** takes `{ url: string }` for a link (`forgetTaskLinkArtifact`); the reply is
   `Removed <url> ("<title>") from the artifacts.`
 
-The Artifacts tab tells what a link is from its URL alone, with no network call (`recogniseLink`): a GitHub pull
+The Todos tab tells what a link is from its URL alone, with no network call (`recogniseLink`): a GitHub pull
 request (`github.com/<owner>/<repo>/pull/<n>`, and the pages under it) shows a PR icon and `#412 · acme/api`, an issue
 (`…/issues/<n>`) an issue icon and `#398 · acme/api`, a Jira ticket (a path ending in `/browse/<KEY>-<n>`, on
 `*.atlassian.net` or a Jira of your own) a ticket icon and `API-123`, and anything else (a GitHub Enterprise host
@@ -294,13 +298,13 @@ status (open, merged, closed) isn't fetched.
 | `set_objective` | `{ objective: string }` | Distils the objective from the first message. Set once. |
 | `set_status` | `{ status: string }` | Rewrites the status summary shown in the header and the task list. Becomes the outcome on Done. |
 | `ask` | `{ preamble?: string, questions: Question[] }` | Shows a rich question card in the chat, led by the agent's reply to your message, and blocks until answered. See below. |
-| `add_artifact` | `{ path: string, title: string }` or `{ url: string, title: string }`; behind `todoHubEnabled`, also `todo: string`, which it needs | Declares a file as a deliverable of the task, or a link (a PR, an issue, a ticket) it's about (Artifacts tab). With the todo hub on, files it under the todo it names. See below. |
-| `update_artifact` | `{ path: string, title?: string, newPath?: string }` or `{ url: string, title?: string, newUrl?: string }` | Renames an artifact and/or points it at another file or page, keeping its place. |
+| `add_artifact` | `{ path: string, title: string, todo: string }` or `{ url: string, title: string, todo: string }`, `todo` needed | Declares a file as a deliverable of the task, or a link (a PR, an issue, a ticket) it's about, filed under the todo it names (Todos tab). See below. |
+| `update_artifact` | `{ path: string, title?: string, newPath?: string }` or `{ url: string, title?: string, newUrl?: string }` | Renames an artifact and/or points it at another file or page, keeping its place and its filing. |
 | `remove_artifact` | `{ path: string }` or `{ url: string }` | Takes a file or a link off the task's artifacts; a file stays. |
 | `show_file` | `{ path: string, line?: number }` | Opens a file in the Files tab for the user. |
 | `request_access` | `{ path: string, access: "read" \| "write", reason: string }` | Asks the user for the folder a sandboxed command was blocked from, on a permission card, and blocks until answered. See below. |
-| `list_children` | `{ todo?: string }` | Behind `todoHubEnabled`. Lists what the task made (its children) by the todo each is under, each with its short id. See below. |
-| `file_children` | `{ filings: { child: string, todo: string }[] }` | Behind `todoHubEnabled`. Files children under todos, or moves them to another, all of them or none. See below. |
+| `list_children` | `{ todo?: string }` | Lists what the task made (its children) by the todo each is under, each with its short id. See below. |
+| `file_children` | `{ filings: { child: string, todo: string }[] }` | Files children under todos, or moves them to another, all of them or none. See below. |
 
 `Question` (draft):
 
@@ -390,14 +394,12 @@ resumed from before the sandbox was on has neither in its prompt, so it's told o
 The handler is `requestAccess` in `src/main/agent/runner.ts`, reached through `GladeToolContext.requestAccess`; what
 it asks for and what it answers are in `src/main/permissions/sandbox-ask.ts`.
 
-## Implemented, behind the switch: `list_children` and `file_children` (P16-05, #496)
+## Implemented: `list_children` and `file_children` (P16-05, #496)
 
-**Only with the todo hub on.** The todo hub (P16, #491) is built behind the hidden setting `todoHubEnabled`, off until
-its last issue (#501). A session has these two tools only when it starts with the setting on; with it off neither
-exists, the prompt says nothing of them, and the app is what it was (`src/main/todo-hub/inert.test.ts`). Names and
-schemas are a draft, as the others are.
+Every task's session has these two tools, the agent's side of the todo hub (P16, #491; `src/main/todo-hub/`). Names
+and schemas are a draft, as the others are.
 
-In the hub, what a task produced (its **children**: the files and links among its artifacts, and its commits) sits
+What a task produced (its **children**: the files and links among its artifacts, and its commits) sits
 under its todos, and a child with no todo shows in a placeholder group, "Not under a todo"
 ([`decisions.md`](decisions.md), "Todos as the hub"). Only the agent moves a child from one todo to another, with
 these tools: there's no menu for it. It's also how a task from before the hub gets sorted: nothing recorded which todo
@@ -469,19 +471,15 @@ agent, kept in SQLite, and never given to another child. A todo is named by Clau
   - It reads ids leniently: `C3` for `c3`, `#2` for `2`. A todo with no id (a `TodoWrite` item) can't hold anything.
 - **Main agent only**, as every Glade tool but `request_access` ("Main agent only", above): a subagent's call to
   either is refused before it runs, and names, files and sends nothing.
-- **If the setting is turned off under a session that has them,** both answer with a tool error (`The todo hub is off
-  (the todoHubEnabled setting).`) and do nothing.
 
 The handlers are `listForAgent` and `fileForAgent` in `src/main/todo-hub/agent-children.ts`, over the filing store
 (`src/main/todo-hub/todo-hub.ts`) and the resolver (`groupChildren` in `src/shared/todoHub.ts`). The prompt says the
 tools exist in one line ("System prompt", below).
 
-## Implemented, behind the switch: filing produced work as it's made (P16-04, #495)
+## Implemented: filing produced work as it's made (P16-04, #495)
 
-**Only with the todo hub on.** A session that starts with `todoHubEnabled` on files what its agent produces under one
-of its todos as it's made: its artifacts and its commits. With the setting off, none of this exists: `add_artifact`
-takes no `todo`, the prompt has none of these lines, and no hook reads a call, tells the agent anything or holds a turn
-(`src/main/todo-hub/inert.test.ts`). The code is `src/main/todo-hub/filing.ts`, and the evidence for each part is in
+A task's session files what its agent produces under one of its todos as it's made: its artifacts and its commits.
+The code is `src/main/todo-hub/filing.ts`, and the evidence for each part is in
 [`sdk-notes.md` §16](sdk-notes.md#16-filing-a-child-under-a-todo).
 
 The phase first filed everything a task made, subagents and watchers included; Jared then split it into activity (the
@@ -489,7 +487,7 @@ Agents tab) and produced work (Todos). So: **a watcher isn't filed at all**, and
 (below), kept so its commits land under the right todo and its tab can say what it's working on, never shown under
 the todo.
 
-**An artifact: `add_artifact` takes `todo`, and needs it.** With the hub on, the tool's input is
+**An artifact: `add_artifact` takes `todo`, and needs it.** The tool's input is
 `{ path, title, todo }` or `{ url, title, todo }`: `todo` is the id of the todo the artifact belongs under (the `N` of
 `Task #N`; `#2` reads as `2`). The artifact is filed there as it's added (`named`), and the windows hear its filing
 before they hear of the artifact. The reply ends `It's under todo #2.`
@@ -506,8 +504,6 @@ before they hear of the artifact. The reply ends `It's under todo #2.`
   API, leaves no filing behind. Neither takes a `todo`: moving an artifact to another todo is `file_children`'s.
 - **No agent call, no todo.** A link you add yourself (Add to artifacts) and an artifact added through the control
   API have no call to name a todo: they stay under "Not under a todo", and the agent can file them when asked to.
-- If the setting is turned off under a session that has this `add_artifact`, the tool adds the artifact as it did
-  before the hub, and files nothing.
 
 **A commit, and a subagent's todo: the call names it.** A commit comes from a `Bash` call and a subagent from an
 `Agent` call, Claude Code's own tools, which Glade can't add a field to. So the todo travels as a marker at the start
@@ -517,7 +513,7 @@ Jared picked from #492's findings:
 1. **Named in the call.** For an `Agent` call, Glade records the subagent it starts as working on that todo (`named`),
    before the subagent exists. For a `Bash` call in the foreground, it files what the call commits under that todo, as
    each commit is found. Either way it takes the marker off before the tool runs and off the call's row in the tool
-   log, so it shows nowhere: not in the subagent's name or the Tool calls tab. `[todo #2]`, other case and space around
+   log, so it shows nowhere: not in the subagent's name or its tab in Agents. `[todo #2]`, other case and space around
    it are read too.
 2. **A call that names none goes ahead,** and so does one whose marker names a todo that isn't in the list (the marker
    still comes off). Once the calls of its message have run, Glade tells the agent, with their results, what they made
@@ -569,13 +565,13 @@ none is read or taken off (a watcher's label is what its call says, whatever tha
 them, and no turn is held for them. A watcher belongs to the agent that started it, and shows with that agent's tool
 calls (#537).
 
-Only what the agent made itself, in a call, with the hub on, is ever owed: never what the task made before the hub, a
+Only what the agent made itself, in a call, is ever owed: never what a task made before the hub shipped, a
 link you added, or an artifact added through the control API. Those wait under "Not under a todo" until you ask the
 agent to sort them.
 
 **The todo tools stay on.** A todo without an id can hold nothing, and Claude Code swaps its task tools for
-`TodoWrite`, whose items have none, when a settings file says `CLAUDE_CODE_ENABLE_TASKS=false`. A session with the hub
-on sets that switch itself, in the SDK's `settings`, which outrank the user's, the project's and the local settings
+`TodoWrite`, whose items have none, when a settings file says `CLAUDE_CODE_ENABLE_TASKS=false`. Every session sets that
+switch itself, in the SDK's `settings`, which outrank the user's, the project's and the local settings
 files ([`sdk-notes.md` §16](sdk-notes.md#16-filing-a-child-under-a-todo), "`TodoWrite`").
 
 ## Todos: Claude Code's own tools, not a Glade tool (P5-03)
@@ -616,11 +612,11 @@ commands (`sandbox.credentials.envVars`, #514): only a command allowed to run ou
 
 ## Not tools — from SDK events
 
-Tool calls and preamble (tool log), subagents (Subagents tab), files touched (Files tab list), context usage (meter),
-compaction, errors, turn duration and file/line counts (turn summary). The Watchers tab follows the monitors,
-background commands, wakeups and cron jobs the agent starts with Claude Code's own tools, from the SDK's task messages
-and the session's `UserPromptSubmit` and `Stop` hooks ([`sdk-notes.md`](sdk-notes.md) §13); Glade adds no tool for
-them.
+Tool calls and preamble (tool log), subagents (a tab per agent in Agents), files touched (Files tab list), context
+usage (meter), compaction, errors, turn duration and file/line counts (turn summary). The pinned watchers under each
+agent's tool calls (Agents) follow the monitors, background commands, wakeups and cron jobs the agent starts with
+Claude Code's own tools, from the SDK's task messages and the session's `UserPromptSubmit` and `Stop` hooks
+([`sdk-notes.md`](sdk-notes.md) §13); Glade adds no tool for them.
 
 ## System prompt
 
