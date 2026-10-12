@@ -160,7 +160,7 @@ describe('the hub’s todos', () => {
     expect(bar).toHaveAttribute('aria-valuemax', '4')
     const [done, doing] = Array.from(bar.children) as HTMLElement[]
     expect(done?.style.width).toBe('25%')
-    expect(doing?.style.width).toBe('25%')
+    expect(doing?.style.width).toBe('50%')
     expect(screen.queryByText(/writes this list/)).toBeNull()
   })
 

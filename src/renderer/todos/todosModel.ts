@@ -17,12 +17,12 @@ export interface ProgressBar {
 }
 
 /**
- * The progress bar: the done items' share of the list, then half an item's share for each item being worked on, as
- * 46-todo-hub.html shows it (with 3 of 7 done and one doing: 43% then 6%, about half of one item's 14%).
+ * The progress bar: the done items' share of the list, then the full share of each item being worked on, so grey means
+ * only "not started" (#584).
  */
 export function progressBar({ done, doing, total }: TodoProgress): ProgressBar {
   if (total === 0) return { done: 0, doing: 0 }
-  return { done: (done / total) * 100, doing: (doing / 2 / total) * 100 }
+  return { done: (done / total) * 100, doing: (doing / total) * 100 }
 }
 
 /** The groups the Todos tab shows the items in, in this order: what's still to do before what's done (#282, #322). */
