@@ -10,6 +10,7 @@ import {
   type ToolEvent,
 } from '../../shared/domain'
 import { ChildKind, FilingSource, type Filing } from '../../shared/todoHub'
+import { AgentActivity } from '../subagents/subagentsModel'
 import { agentLogRows, isAgentEvent } from '../tool-log/toolLogModel'
 import {
   agentCallResult,
@@ -186,9 +187,10 @@ describe('agentName', () => {
     expect(agentName(agent('a', { input: {} }))).toBe('Subagent')
   })
 
-  it('names its tab’s dot by whether it runs', () => {
-    expect(agentDotLabel(true)).toBe('Running')
-    expect(agentDotLabel(false)).toBe('Finished')
+  it('names its tab’s dot by its activity (#579)', () => {
+    expect(agentDotLabel(AgentActivity.Running)).toBe('Running')
+    expect(agentDotLabel(AgentActivity.Waiting)).toBe('Working in the background')
+    expect(agentDotLabel(AgentActivity.Done)).toBe('Finished')
   })
 })
 

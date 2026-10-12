@@ -84,14 +84,20 @@
   text-overflow: ellipsis;
 }
 
-/* Main's pin, the sidebar's. */
+/* Main's pin, the sidebar's: faint while Main is finished, blue while it's active (#579). */
 .pin {
   flex-shrink: 0;
+  display: flex;
   font-size: 10px;
   color: var(--color-faint);
 }
 
-/* A subagent's dot: blue while it runs, slate once it's done. */
+.pin.pinActive {
+  color: var(--color-blue-text);
+}
+
+/* A subagent's dot: blue while it's active (its own turn running, or something it started still alive, #579), slate
+   once it's finished. */
 .dot {
   flex-shrink: 0;
   width: 6px;
@@ -100,7 +106,7 @@
   background: var(--color-slate);
 }
 
-.dot.running {
+.dot.active {
   background: var(--color-blue);
 }
 

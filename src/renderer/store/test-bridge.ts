@@ -649,12 +649,23 @@ export function fakeHandlers(
       main.stoppedSubagents?.push(toolUseId)
       return null
     },
-    [CommandName.SubagentsListRunning]: () => ({
-      calls: (main.toolEvents ?? []).filter(
-        (event): event is ToolCallEvent =>
-          event.kind === ToolEventKind.ToolCall && event.state === ToolCallState.Running && isSubagentTool(event.name),
-      ),
-    }),
+    [CommandName.SubagentsListRunning]: () => {
+      // A call whose own turn has ended still preloads if a watcher of its is still live (#579), so a closed task's
+      // row can count it; see `listSubagentCallsToPreload`.
+      const liveWatcherOwners = new Set(
+        (main.watchers ?? [])
+          .filter(({ state }) => LIVE_WATCHER_STATES.includes(state))
+          .map(({ parentToolUseId }) => parentToolUseId),
+      )
+      return {
+        calls: (main.toolEvents ?? []).filter(
+          (event): event is ToolCallEvent =>
+            event.kind === ToolEventKind.ToolCall &&
+            isSubagentTool(event.name) &&
+            (event.state === ToolCallState.Running || liveWatcherOwners.has(event.toolUseId)),
+        ),
+      }
+    },
     [CommandName.WatchersListLive]: () => ({
       watchers: (main.watchers ?? []).filter(({ state }) => LIVE_WATCHER_STATES.includes(state)),
     }),

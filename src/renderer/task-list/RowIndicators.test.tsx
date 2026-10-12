@@ -35,8 +35,8 @@ function namesOn(row: HTMLElement): string[] {
 }
 
 describe("a task row's indicators line", () => {
-  it('isn’t there when the task has no todo list, no running subagents and no live watchers', () => {
-    const row = renderRow(task(), { subagents: 0, watching: 0 })
+  it('isn’t there when the task has no todo list, no subagents and no live watchers', () => {
+    const row = renderRow(task(), { subagentsRunning: 0, subagentsWaiting: 0, watching: 0 })
     expect(indicatorsOf(row)).toBeNull()
     // The title line and the status line, and nothing else: the row keeps its two lines.
     expect(row.children).toHaveLength(2)
@@ -55,11 +55,25 @@ describe("a task row's indicators line", () => {
   })
 
   it('shows running subagents alone, with a count and a tooltip', () => {
-    const row = renderRow(task(), { subagents: 3 })
+    const row = renderRow(task(), { subagentsRunning: 3 })
     const count = within(row).getByRole('img', { name: '3 subagents running' })
     expect(count).toHaveAttribute('title', '3 subagents running')
     expect(count).toHaveTextContent(/^3$/)
     expect(namesOn(row)).toEqual(['3 subagents running'])
+  })
+
+  it('shows subagents waiting on a watcher alone, with a count and a tooltip (#579)', () => {
+    const row = renderRow(task(), { subagentsWaiting: 2 })
+    const count = within(row).getByRole('img', { name: '2 subagents waiting on a watcher' })
+    expect(count).toHaveAttribute('title', '2 subagents waiting on a watcher')
+    expect(count).toHaveTextContent(/^2$/)
+    expect(namesOn(row)).toEqual(['2 subagents waiting on a watcher'])
+  })
+
+  it('counts running and waiting subagents together, naming each apart in the tooltip (#579)', () => {
+    const row = renderRow(task(), { subagentsRunning: 2, subagentsWaiting: 1 })
+    const count = within(row).getByRole('img', { name: '3 subagents: 2 running, 1 waiting on a watcher' })
+    expect(count).toHaveTextContent(/^3$/)
   })
 
   it('shows live watchers alone, with a count and a tooltip', () => {
@@ -69,17 +83,19 @@ describe("a task row's indicators line", () => {
     expect(count).toHaveTextContent(/^1$/)
   })
 
-  it('says one subagent in the singular', () => {
-    const row = renderRow(task(), { subagents: 1 })
-    expect(namesOn(row)).toEqual(['1 subagent running'])
+  it('says one subagent in the singular, running or waiting', () => {
+    const running = render(<TaskRow task={task()} now={NOW} selected={false} onSelect={vi.fn()} subagentsRunning={1} />)
+    expect(namesOn(running.getByRole('button'))).toEqual(['1 subagent running'])
+    running.unmount()
+    expect(namesOn(renderRow(task(), { subagentsWaiting: 1 }))).toEqual(['1 subagent waiting on a watcher'])
   })
 
   it('orders them todos, subagents, watchers, whatever the mix', () => {
     const cases: [Partial<Task>, Partial<TaskRowProps>, string[]][] = [
-      [{ todos: TODOS }, { subagents: 3, watching: 13 }, ['todos', 'subagents', 'watchers']],
-      [{ todos: TODOS }, { subagents: 2 }, ['todos', 'subagents']],
+      [{ todos: TODOS }, { subagentsRunning: 3, watching: 13 }, ['todos', 'subagents', 'watchers']],
+      [{ todos: TODOS }, { subagentsRunning: 2 }, ['todos', 'subagents']],
       [{ todos: TODOS }, { watching: 2 }, ['todos', 'watchers']],
-      [{}, { subagents: 2, watching: 2 }, ['subagents', 'watchers']],
+      [{}, { subagentsWaiting: 2, watching: 2 }, ['subagents', 'watchers']],
     ]
     for (const [change, counts, kinds] of cases) {
       const { unmount } = render(
@@ -92,7 +108,7 @@ describe("a task row's indicators line", () => {
   })
 
   it('leaves out each count that is zero', () => {
-    const row = renderRow(task({ todos: TODOS }), { subagents: 0, watching: 0 })
+    const row = renderRow(task({ todos: TODOS }), { subagentsRunning: 0, subagentsWaiting: 0, watching: 0 })
     expect(namesOn(row)).toEqual(['2 of 11 todos done · Now: Write the migration'])
   })
 
@@ -102,7 +118,7 @@ describe("a task row's indicators line", () => {
   })
 
   it('keeps the title line to the dot, the title and the time, and the status line to the status', () => {
-    const row = renderRow(task({ todos: TODOS, unread: true }), { subagents: 3, watching: 13 })
+    const row = renderRow(task({ todos: TODOS, unread: true }), { subagentsRunning: 3, watching: 13 })
     const [titleLine, statusLine, indicators] = Array.from(row.children)
     // Nothing but the time and the unread dot beside the title.
     expect(titleLine).toHaveTextContent(/^Move image uploads to S3now$/)
@@ -119,7 +135,7 @@ describe("a task row's indicators line", () => {
 
   it('keeps long titles and statuses whole on their own lines, however many indicators follow', () => {
     const row = renderRow(task({ title: LONG_TITLE, status: LONG_STATUS, todos: TODOS }), {
-      subagents: 12,
+      subagentsRunning: 12,
       watching: 104,
     })
     const [titleLine, statusLine] = Array.from(row.children)
@@ -152,7 +168,7 @@ describe("a task row's indicators line", () => {
         renaming
         onRename={() => Promise.resolve(true)}
         onCancelRename={vi.fn()}
-        subagents={2}
+        subagentsRunning={2}
       />,
     )
     expect(screen.getByRole('textbox', { name: 'Task title' })).toBeInTheDocument()
@@ -161,10 +177,11 @@ describe("a task row's indicators line", () => {
 })
 
 describe('hasIndicators', () => {
-  it('is true only with a todo list or a count above zero', () => {
-    expect(hasIndicators({ todos: null, subagents: 0, watching: 0 })).toBe(false)
-    expect(hasIndicators({ todos: TODOS, subagents: 0, watching: 0 })).toBe(true)
-    expect(hasIndicators({ todos: null, subagents: 1, watching: 0 })).toBe(true)
-    expect(hasIndicators({ todos: null, subagents: 0, watching: 1 })).toBe(true)
+  it('is true only with a todo list or a count above zero, running or waiting', () => {
+    expect(hasIndicators({ todos: null, subagentsRunning: 0, subagentsWaiting: 0, watching: 0 })).toBe(false)
+    expect(hasIndicators({ todos: TODOS, subagentsRunning: 0, subagentsWaiting: 0, watching: 0 })).toBe(true)
+    expect(hasIndicators({ todos: null, subagentsRunning: 1, subagentsWaiting: 0, watching: 0 })).toBe(true)
+    expect(hasIndicators({ todos: null, subagentsRunning: 0, subagentsWaiting: 1, watching: 0 })).toBe(true)
+    expect(hasIndicators({ todos: null, subagentsRunning: 0, subagentsWaiting: 0, watching: 1 })).toBe(true)
   })
 })

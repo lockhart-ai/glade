@@ -39,8 +39,14 @@ export interface TaskRowProps {
    * done or not, so a task waiting on you that's still watching something shows it. None by default.
    */
   watching?: number
-  /** How many of its agent's subagents are running (the Agents tab), shown on its indicators line. None by default. */
-  subagents?: number
+  /** How many of its agent's subagents are running now (the Agents tab), shown on its indicators line. None by default. */
+  subagentsRunning?: number
+  /**
+   * How many of its agent's subagents have ended their own turn but still have something they started alive — a
+   * watcher, a scheduled wakeup or a background command (#579). Shown on its indicators line with `subagentsRunning`.
+   * None by default.
+   */
+  subagentsWaiting?: number
 }
 
 interface RenameFieldProps {
@@ -150,9 +156,17 @@ export function TaskRow({
   onCancelRename,
   menuTarget,
   watching = 0,
-  subagents = 0,
+  subagentsRunning = 0,
+  subagentsWaiting = 0,
 }: TaskRowProps): React.JSX.Element {
-  const indicators = <RowIndicators todos={task.todos} subagents={subagents} watching={watching} />
+  const indicators = (
+    <RowIndicators
+      todos={task.todos}
+      subagentsRunning={subagentsRunning}
+      subagentsWaiting={subagentsWaiting}
+      watching={watching}
+    />
+  )
   const time = (
     <span className={styles.time}>
       {formatRelativeTime(task.updatedAt, now)}

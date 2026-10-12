@@ -3,22 +3,29 @@ import {
   DividerKind,
   ToolCallState,
   ToolEventKind,
+  WatcherState,
   type NarrationEvent,
   type ToolCallEvent,
   type ToolEvent,
+  type Watcher,
 } from '../../shared/domain'
+import { sampleWatcher } from '../store/test-bridge'
 import {
+  agentActivity,
+  AgentActivity,
   deriveSubagents,
   elapsedMs,
   formatElapsed,
-  runningSubagentCount,
+  isAgentActive,
   runningSubagentCounts,
   statusLabel,
+  subagentCounts,
   subagentLogText,
   subagentName,
-  subagentsRunningLabel,
+  subagentsLabel,
   SubagentStatus,
   UNNAMED_SUBAGENT,
+  waitingSubagentCounts,
 } from './subagentsModel'
 
 const AT = 1_000_000
@@ -132,59 +139,132 @@ describe('deriveSubagents', () => {
   })
 })
 
-describe('runningSubagentCount', () => {
-  it('counts the Agent and Task calls still running, nested ones included, and nothing else', () => {
-    expect(runningSubagentCount(undefined)).toBe(0)
-    expect(runningSubagentCount([])).toBe(0)
+/** A watcher the subagent `parentToolUseId` started (null for Main's own), live by default. */
+function watcher(id: string, parentToolUseId: string | null, overrides: Partial<Watcher> = {}): Watcher {
+  return sampleWatcher(id, 't1', { parentToolUseId, ...overrides })
+}
+
+describe('agentActivity (#579)', () => {
+  it('is Running for an agent whose own turn runs, Main included', () => {
+    const events = [agent('a', 'A')]
+    expect(agentActivity(events, [], false).get('use-a')).toBe(AgentActivity.Running)
+    expect(agentActivity(events, [], true).get(null)).toBe(AgentActivity.Running)
+  })
+
+  it('is Waiting for Main while a subagent it started is still active, even though Main’s own turn has ended', () => {
+    const events = [agent('a', 'A')]
+    expect(agentActivity(events, [], false).get(null)).toBe(AgentActivity.Waiting)
+  })
+
+  it('is Done for Main once nothing under it is alive', () => {
+    const events = [agent('a', 'A', { state: ToolCallState.Done, output: 'Done.' })]
+    expect(agentActivity(events, [], false).get(null)).toBe(AgentActivity.Done)
+  })
+
+  it('is Waiting once a finished subagent still has a live watcher, and Done again once it ends (the bug, #579)', () => {
+    const events = [agent('a', 'A', { state: ToolCallState.Done, output: 'Done.' })]
+    const live = [watcher('w', 'use-a')]
+    expect(agentActivity(events, live, false).get('use-a')).toBe(AgentActivity.Waiting)
+    // Today, before the fix, only the literal Running state is counted: this is the bug the issue reports.
+    expect(subagentCounts(events, [])).toEqual({ running: 0, waiting: 0 })
+    expect(subagentCounts(events, live)).toEqual({ running: 0, waiting: 1 })
+
+    const stopped = [watcher('w', 'use-a', { state: WatcherState.Stopped, endedAt: AT })]
+    expect(agentActivity(events, stopped, false).get('use-a')).toBe(AgentActivity.Done)
+    expect(subagentCounts(events, stopped)).toEqual({ running: 0, waiting: 0 })
+  })
+
+  it('counts a scheduled wakeup or a suspended one (after a relaunch) as alive, not only a running process', () => {
+    const events = [agent('a', 'A', { state: ToolCallState.Done, output: 'Done.' })]
     expect(
-      runningSubagentCount([
-        agent('a', 'A'),
-        call({ id: 't', name: 'Task', toolUseId: 'use-t' }),
-        agent('nested', 'Nested', { parentToolUseId: 'use-a' }),
-        // A running call that doesn't start a subagent, and a subagent's own running call.
-        call({ id: 'r', toolUseId: 'use-r' }),
-        call({ id: 'ar', toolUseId: 'use-ar', parentToolUseId: 'use-a' }),
-        said('n', 'Hi', null),
-      ]),
-    ).toBe(3)
+      agentActivity(events, [watcher('scheduled', 'use-a', { state: WatcherState.Scheduled })], false).get('use-a'),
+    ).toBe(AgentActivity.Waiting)
+    expect(
+      agentActivity(events, [watcher('suspended', 'use-a', { state: WatcherState.Suspended })], false).get('use-a'),
+    ).toBe(AgentActivity.Waiting)
   })
 
-  it('leaves out the subagents that have stopped running, however they stopped', () => {
-    const stopped = [ToolCallState.Done, ToolCallState.Error, ToolCallState.Paused, ToolCallState.Interrupted]
-    const events = stopped.map((state, index) => agent(`s${String(index)}`, 'Stopped', { state }))
-    expect(runningSubagentCount(events)).toBe(0)
-    expect(runningSubagentCount([...events, agent('live', 'Live')])).toBe(1)
+  it('counts once with two watchers, and stays alive until both end', () => {
+    const events = [agent('a', 'A', { state: ToolCallState.Done, output: 'Done.' })]
+    const ci = watcher('ci', 'use-a')
+    const deploy = watcher('deploy', 'use-a')
+    expect(subagentCounts(events, [ci, deploy])).toEqual({ running: 0, waiting: 1 })
+    const deployEnded = { ...deploy, state: WatcherState.Finished, endedAt: AT }
+    expect(subagentCounts(events, [ci, deployEnded])).toEqual({ running: 0, waiting: 1 })
+    const ciEnded = { ...ci, state: WatcherState.Finished, endedAt: AT }
+    expect(subagentCounts(events, [ciEnded, deployEnded])).toEqual({ running: 0, waiting: 0 })
   })
 
-  it('is how many of the task’s subagents are running', () => {
+  it('is Running, not Waiting, for a subagent whose own turn runs and that also has a live watcher', () => {
+    const events = [agent('a', 'A')]
+    expect(subagentCounts(events, [watcher('w', 'use-a')])).toEqual({ running: 1, waiting: 0 })
+  })
+
+  it('makes an outer subagent Waiting while an inner one it started is still active, nested however deep', () => {
+    const events = [
+      agent('outer', 'Outer', { state: ToolCallState.Done, output: 'Done.' }),
+      agent('inner', 'Inner', { state: ToolCallState.Done, output: 'Done.', parentToolUseId: 'use-outer' }),
+      agent('innermost', 'Innermost', { parentToolUseId: 'use-inner' }),
+    ]
+    const activity = agentActivity(events, [], false)
+    expect(activity.get('use-innermost')).toBe(AgentActivity.Running)
+    expect(activity.get('use-inner')).toBe(AgentActivity.Waiting)
+    expect(activity.get('use-outer')).toBe(AgentActivity.Waiting)
+    // Main started the outer subagent directly, so it's active too, while the chain under it still is.
+    expect(isAgentActive(activity.get(null) ?? AgentActivity.Done)).toBe(true)
+  })
+
+  it('is Done for a subagent with nothing of its own running and nothing alive under it', () => {
+    const events = [agent('a', 'A', { state: ToolCallState.Done, output: 'Done.' })]
+    expect(agentActivity(events, [], false).get('use-a')).toBe(AgentActivity.Done)
+  })
+})
+
+describe('subagentCounts', () => {
+  it('is zero with no events or watchers', () => {
+    expect(subagentCounts(undefined, undefined)).toEqual({ running: 0, waiting: 0 })
+    expect(subagentCounts([], [])).toEqual({ running: 0, waiting: 0 })
+  })
+
+  it('splits running and waiting apart, leaving Main out of both', () => {
     const events = [
       agent('a', 'A'),
       agent('b', 'B', { state: ToolCallState.Done, output: 'Done.' }),
-      agent('c', 'C', { parentToolUseId: 'use-a' }),
+      agent('c', 'C', { state: ToolCallState.Done, output: 'Done.' }),
     ]
-    const running = deriveSubagents(events).filter(({ status }) => status === SubagentStatus.Running)
-    expect(runningSubagentCount(events)).toBe(running.length)
+    expect(subagentCounts(events, [watcher('w', 'use-b')])).toEqual({ running: 1, waiting: 1 })
   })
 })
 
-describe('runningSubagentCounts', () => {
-  it('counts each task’s running subagents, leaving out the tasks with none', () => {
-    expect(
-      runningSubagentCounts({
-        t1: [agent('a', 'A'), agent('b', 'B')],
-        t2: [agent('c', 'C', { taskId: 't2', state: ToolCallState.Done })],
-        t3: [],
-        t4: [agent('d', 'D', { taskId: 't4' })],
-      }),
-    ).toEqual({ t1: 2, t4: 1 })
-    expect(runningSubagentCounts({})).toEqual({})
+describe('runningSubagentCounts and waitingSubagentCounts', () => {
+  it('count each task’s subagents apart, leaving out the tasks with none of that kind', () => {
+    const toolEvents = {
+      t1: [agent('a', 'A'), agent('b', 'B', { state: ToolCallState.Done, output: 'Done.', taskId: 't1' })],
+      t2: [agent('c', 'C', { taskId: 't2', state: ToolCallState.Done, output: 'Done.' })],
+      t3: [] as ToolCallEvent[],
+      t4: [agent('d', 'D', { taskId: 't4' })],
+    }
+    const watchers = { t1: [watcher('w', 'use-b')] }
+    expect(runningSubagentCounts(toolEvents, watchers)).toEqual({ t1: 1, t4: 1 })
+    expect(waitingSubagentCounts(toolEvents, watchers)).toEqual({ t1: 1 })
+    expect(runningSubagentCounts({}, {})).toEqual({})
+    expect(waitingSubagentCounts({}, {})).toEqual({})
   })
 })
 
-describe('subagentsRunningLabel', () => {
-  it('says how many are running, in the singular for one', () => {
-    expect(subagentsRunningLabel(1)).toBe('1 subagent running')
-    expect(subagentsRunningLabel(3)).toBe('3 subagents running')
+describe('subagentsLabel', () => {
+  it('says how many are running, in the singular for one, with none waiting', () => {
+    expect(subagentsLabel({ running: 1, waiting: 0 })).toBe('1 subagent running')
+    expect(subagentsLabel({ running: 3, waiting: 0 })).toBe('3 subagents running')
+  })
+
+  it('says how many are waiting on a watcher, with none running', () => {
+    expect(subagentsLabel({ running: 0, waiting: 1 })).toBe('1 subagent waiting on a watcher')
+    expect(subagentsLabel({ running: 0, waiting: 2 })).toBe('2 subagents waiting on a watcher')
+  })
+
+  it('splits the two apart when there’s one of each', () => {
+    expect(subagentsLabel({ running: 2, waiting: 1 })).toBe('3 subagents: 2 running, 1 waiting on a watcher')
   })
 })
 

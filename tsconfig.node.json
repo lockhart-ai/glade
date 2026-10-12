@@ -36,6 +36,8 @@
     "src/renderer/context-meter/format.ts",
     "src/renderer/tool-log/toolLogModel.ts",
     "src/renderer/subagents/subagentsModel.ts",
+    // Whether a watcher counts as live (#579), which subagentsModel.ts reads to say whether a subagent does too.
+    "src/renderer/watchers/watchersModel.ts",
     "src/renderer/permissions/permissionCardModel.ts",
     "src/renderer/permissions/permissionLineModel.ts",
     "src/renderer/permissions/permissionLines.ts"

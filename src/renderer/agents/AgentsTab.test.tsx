@@ -130,9 +130,11 @@ describe('the strip', () => {
 
     expect(tabs().map((each) => each.title)).toEqual(['Main', 'limits-502', 'docs-503', 'fix-501'])
     expect(tabs().map((each) => each.hasAttribute('data-running'))).toEqual([false, true, true, false])
-    // Main has the pin, and no dot; a subagent's dot says whether it runs.
+    // Main has the pin, with its own activity label; a subagent's dot says whether it's running or finished. Main
+    // is still going (#579): the two subagents it started directly, limits-502 and docs-503, are still running.
     expect(tab('Main').querySelector('svg')).not.toBeNull()
-    expect(within(tab('Main')).queryByRole('img')).toBeNull()
+    expect(within(tab('Main')).getByRole('img', { name: 'Working in the background' })).toBeInTheDocument()
+    expect(tab('Main')).toHaveAttribute('data-active', '')
     expect(within(tab('limits-502')).getByRole('img', { name: 'Running' })).toBeInTheDocument()
     expect(within(tab('fix-501')).getByRole('img', { name: 'Finished' })).toBeInTheDocument()
   })

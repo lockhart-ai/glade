@@ -39,6 +39,7 @@ import { settleFloating } from './components/settleFloating'
 import { clockTime } from './chat/chatModel'
 import { permissionLinesByToolUse } from './permissions/permissionLines'
 import { samplePermissionRequest, sampleTask, sampleWatcher, sampleWorkspace } from './store/test-bridge'
+import { subagentsLabel } from './subagents/subagentsModel'
 import { storeWrapper, type StoreWrapper } from './store/test-wrapper'
 import { TaskList } from './task-list'
 import {
@@ -78,6 +79,12 @@ vi.mock('./chat/chatModel', async (importOriginal) => {
 vi.mock('./task-list/rowStatus', async (importOriginal) => {
   const original = await importOriginal<typeof import('./task-list/rowStatus')>()
   return { ...original, rowStatus: vi.fn(original.rowStatus) }
+})
+// A task row's subagent count says which are running and which are waiting on something they started (#579): one
+// `subagentsLabel` call per render of a row that shows it.
+vi.mock('./subagents/subagentsModel', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./subagents/subagentsModel')>()
+  return { ...original, subagentsLabel: vi.fn(original.subagentsLabel) }
 })
 // Every recipient row of the Broadcast modal says where its task stands: one `attentionLabel` call per render of one.
 // The line above them says how many there are: one `reachText` call per render of the modal's content.
@@ -464,6 +471,61 @@ describe('the task list, with many tasks', () => {
     }
     expect(renders(rowStatus)).toBe(0)
     expect(renders(usageMeterState)).toBe(0)
+  })
+
+  it('counts a subagent whose turn ended with a live watcher, and stops once the watcher ends (#579)', async () => {
+    const [first] = tasks
+    if (first === undefined) throw new Error('No task')
+    // A watcher can only start while its subagent's own turn is still running, so this call is preloaded running,
+    // as any running subagent is, before it ends with the watcher still live.
+    const agentCall: ToolCallEvent = {
+      id: 'agent-call',
+      taskId: first.id,
+      turn: 1,
+      createdAt: AT,
+      kind: ToolEventKind.ToolCall,
+      name: 'Agent',
+      input: { description: 'fix-501' },
+      output: null,
+      state: ToolCallState.Running,
+      finishedAt: null,
+      toolUseId: 'use-fix-501',
+      parentToolUseId: null,
+      progressSummary: null,
+    }
+    const watcher = sampleWatcher('w', first.id, { parentToolUseId: 'use-fix-501' })
+    const { wrapper, store, fake } = storeWrapper({
+      tasks,
+      toolEvents: [agentCall],
+      watchers: [watcher],
+      uiState: [{ key: UiStateKey.ActiveWorkspaceId, value: 'w1' }],
+    })
+    await act(() => store.getState().hydrate())
+    render(<TaskList workspaceId="w1" />, { wrapper })
+    expect(screen.getByRole('img', { name: '1 subagent running' })).toBeInTheDocument()
+
+    // Today, before the fix, a subagent whose turn ended with a live watcher counts as 0: nothing shows for it.
+    vi.mocked(subagentsLabel).mockClear()
+    act(() => {
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: { ...agentCall, state: ToolCallState.Done, output: 'Opened PR #511.', finishedAt: AT },
+      })
+    })
+    // Only this task's row works its subagent count out again, and it now counts the one waiting on the watcher.
+    expect(renders(subagentsLabel)).toBe(1)
+    expect(screen.getByRole('img', { name: '1 subagent waiting on a watcher' })).toBeInTheDocument()
+
+    vi.mocked(subagentsLabel).mockClear()
+    act(() => {
+      fake.emit({
+        type: EventType.WatchersChanged,
+        taskId: first.id,
+        watchers: [{ ...watcher, state: WatcherState.Stopped, endedAt: AT }],
+      })
+    })
+    expect(renders(subagentsLabel)).toBe(0)
+    expect(screen.queryByRole('img', { name: /subagent/ })).toBeNull()
   })
 })
 
@@ -1052,9 +1114,10 @@ describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', 
     })
     render(<AgentsTab taskId="t1" />, { wrapper: wrapper.wrapper })
     await act(() => Promise.resolve())
-    // A tab per agent, and Main's list alone: its own calls, and one row per subagent it started.
+    // A tab per agent, and Main's list alone: its own calls, and one row per subagent it started. Every tab names
+    // its dot once on mount, Main's pin included (#579).
     expect(screen.getAllByRole('tab')).toHaveLength(SUBAGENTS + 1)
-    expect(rendered()).toEqual({ tabs: SUBAGENTS, rows: MAIN_CALLS + SUBAGENTS, times: SUBAGENTS, line: 0 })
+    expect(rendered()).toEqual({ tabs: SUBAGENTS + 1, rows: MAIN_CALLS + SUBAGENTS, times: SUBAGENTS, line: 0 })
     return wrapper
   }
 
@@ -1137,8 +1200,9 @@ describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', 
     await renderAgents()
 
     fireEvent.click(tab('review-49'))
-    // Main's tab has no dot to count: the subagent's is the one counted. Its list is its note and its call.
-    expect(rendered()).toEqual({ tabs: 1, rows: 2, times: 0, line: 1 })
+    // The subagent picked, and Main, whose own tab is no longer the one shown (#579: its pin names its activity
+    // too, so leaving it renders it like any other tab). Its list is its note and its call.
+    expect(rendered()).toEqual({ tabs: 2, rows: 2, times: 0, line: 1 })
 
     fireEvent.click(tab('review-7'))
     expect(rendered()).toEqual({ tabs: 2, rows: 2, times: 0, line: 1 })
@@ -1292,7 +1356,8 @@ describe('watchers in the Agents tab, five pinned under a 2,000-call list (P16, 
       states: PINNED.length,
       // Main's, and the running subagent's.
       eyes: 2,
-      tabs: 2,
+      // Every tab names its dot once on mount: the finished subagent's, the running one's, and Main's pin (#579).
+      tabs: 3,
     })
     return wrapper
   }
@@ -1360,7 +1425,8 @@ describe('watchers in the Agents tab, five pinned under a 2,000-call list (P16, 
 
     send(fake, only('ci', { state: WatcherState.Finished, outcome: 'It ended.', endedAt: HUB_NOW }))
 
-    expect(rendered()).toEqual({ ...NOTHING, ended: 1, eyes: 1 })
+    // Main's eye count changes, so its tab renders again too, naming its pin still active with four left (#579).
+    expect(rendered()).toEqual({ ...NOTHING, ended: 1, eyes: 1, tabs: 1 })
     expect(screen.getByRole('group', { name: 'Watching' }).querySelectorAll('[data-kind]')).toHaveLength(4)
     expect(document.querySelectorAll('[data-watcher]')).toHaveLength(ENDED + 1)
   })
@@ -1382,7 +1448,8 @@ describe('watchers in the Agents tab, five pinned under a 2,000-call list (P16, 
         watchers: [...WATCHERS, watcher('late', 0)].map((each) => ({ ...each })),
       })
     })
-    expect(rendered()).toEqual({ ...NOTHING, cards: 1, states: 1, eyes: 1 })
+    // Main's eye count changes with the new watcher, so its tab renders again too (#579).
+    expect(rendered()).toEqual({ ...NOTHING, cards: 1, states: 1, eyes: 1, tabs: 1 })
     expect(screen.getByTitle('6 watching')).toBeInTheDocument()
   })
 
@@ -1401,7 +1468,7 @@ describe('watchers in the Agents tab, five pinned under a 2,000-call list (P16, 
     send(fake, ended)
     expect(rendered()).toEqual({ ...NOTHING, tabs: 1 })
 
-    // On its tab, Main's watchers changing renders nothing but Main's eye, when what it counts changes.
+    // On its tab, Main's watchers changing renders nothing but its own eye and tab, when what it counts changes.
     fireEvent.click(screen.getByTitle('review-running'))
     rendered()
     send(fake, (each) => only('ci', { lastOutput: 'unit-tests running', wakes: 2 })(ended(each)))
@@ -1409,7 +1476,8 @@ describe('watchers in the Agents tab, five pinned under a 2,000-call list (P16, 
     send(fake, (each) =>
       only('ci', { state: WatcherState.Finished, outcome: 'It ended.', endedAt: HUB_NOW })(ended(each)),
     )
-    expect(rendered()).toEqual({ ...NOTHING, eyes: 1 })
+    // Main's eye count changes even off its own tab, so it renders again too, pin included (#579).
+    expect(rendered()).toEqual({ ...NOTHING, eyes: 1, tabs: 1 })
   })
 
   it('renders nothing of the watchers when an agent works or the task changes', async () => {

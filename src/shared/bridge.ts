@@ -509,8 +509,9 @@ export interface SubagentsStopRequest {
 }
 
 /**
- * Every task's running subagents: the `Agent` calls still running, nested ones included, by task and then in the order
- * they were made. What the task list's subagent counts show for tasks whose logs aren't loaded.
+ * Every task's subagent `Agent` calls the task list's subagent count needs before a task's log is loaded (#579):
+ * ones still running, nested ones included, and ones whose own turn ended but that started a watcher still live
+ * (`listSubagentCallsToPreload`), by task and then in the order they were made.
  */
 export interface SubagentsListRunningResponse {
   readonly calls: readonly ToolCallEvent[]
