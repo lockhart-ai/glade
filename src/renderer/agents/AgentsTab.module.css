@@ -93,7 +93,9 @@
 }
 
 .pin.pinActive {
-  color: var(--color-blue-text);
+  /* The same blue as a subagent's dot (not the paler `--color-blue-text`), so Main's pin reads unmistakably blue
+     beside them, not just a slightly different grey (#579). */
+  color: var(--color-blue);
 }
 
 /* A subagent's dot: blue while it's active (its own turn running, or something it started still alive, #579), slate
