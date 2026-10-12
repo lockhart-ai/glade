@@ -313,6 +313,55 @@ This message is emitted at the start of every turn, not only the first.
 - After compaction, `compact_boundary.compact_metadata.post_tokens` is the new baseline until the next assistant message
   arrives.
 
+### A turn's `result.usage` sums the main loop, not the last request (#573) [verified]
+
+`result.usage` is **not** "the last request's prompt" (#569's comments said so; they were wrong): it is the **sum**
+of every request the turn's main loop made, each counted whole — so a turn of several tool round-trips can read far
+higher than the context actually in use at the end. Probed live on a Haiku turn of three main-loop requests (one
+assistant message each) whose own usage was `input_tokens` 10 / 8 / 8, `cache_creation_input_tokens` 15071 / 1477 /
+460, `cache_read_input_tokens` 0 / 15071 / 16548: `result.usage` carried `input_tokens: 26` (10+8+8),
+`cache_creation_input_tokens: 17008` (15071+1477+460), `cache_read_input_tokens: 31619` (0+15071+16548) — the sum,
+not the last (which would be 8 / 460 / 16548, totalling ~17k against the sum's ~48.6k).
+
+That same `result.usage` carried **`iterations`**, an array of per-request usage objects (`input_tokens`,
+`output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `cache_creation`, `type: "message"`) with
+**one entry, matching the last request's own figure** — on that live Claude run, which had no truncated response.
+**Probed with a local mock (three requests, two tool calls then text, both in OpenRouter's Anthropic-compatible
+shape — zeroed `message_start`, real counts only in the final `message_delta` — and in Anthropic's own shape as a
+control): `iterations` came back empty (`[]`) in both shapes**, for the same kind of ordinary turn. So one run
+had an entry and two didn't, for turns that look alike by the one difference we can name (no truncated response in
+either); **why the live run had one is not known** — it is observed, not explained, and not relied on as "the last
+request's figure" in general. `result.num_turns` **did** match the number of main-loop requests exactly (3), in both
+mocked shapes, including a one-request control (`num_turns: 1`) where `result.usage` and the single request's own
+usage are identical — the sum of one term is that term.
+
+**What Glade does (`lastRequestUsage` in `src/main/agent/events.ts`):** prefer the last `usage.iterations` entry when
+the SDK gives one (future-proofing, since the probe above may not cover every shape); else, trust `result.usage`
+itself only when `num_turns === 1`, where the "sum" is provably the one request's own figure; else there is no
+honest per-request figure in `result` (#573's own test fixture confirms this reproduces the live run's numbers:
+sum ≈48.6k, last ≈17k).
+
+**With no honest per-request figure either, the runner asks `getContextUsage({ detail: "summary" })` once, as the
+last resort (#573).** Probed with the same local mock (three requests, two tool calls then text): its `totalTokens`
+did **not** move with the number of requests — a one-request and a three-request turn on the same small per-request
+usage numbers (sum ≈9.6k, last ≈3.4k) both answered **23858**, matching neither; it tracks a *local, structural*
+estimate (system prompt, skills, slash commands — `messageBreakdown`/`skills`/`slashCommands` in its answer, mostly
+machine-specific overhead unrelated to the turn) that dominates when the real usage is small. Raising the last
+request's own invented figure past that floor (sum ≈9.6k+106k, last =100k) made `totalTokens` answer **exactly
+100000** — the last request's own total, never the sum of all three (which would have been far higher) — in both
+OpenRouter's shape and Anthropic's control shape alike (bit-for-bit identical answers in both, since this estimate
+doesn't read the broken per-message usage trail at all). So `totalTokens` behaves as `max(local baseline estimate,
+last request's own real total)`: never a sum, never zero outright (a floor from the local estimate instead), and the
+right answer once the real conversation is large enough to matter. **Right after a manual `/compact` it was stale**,
+confirming the existing note below: it read **24946**, slightly *higher* than the 23858 baseline from before the
+compaction that just shrank the conversation, so it is never asked for a turn that compacted. The runner takes it
+only for an OpenRouter turn whose messages reported nothing and whose result gives no `lastRequestUsage`; the
+estimate's own zero or an absent/malformed `totalTokens` leaves the previous figure standing, same as a zero report
+from anywhere else (`docs/openrouter-integration-spec.md`, "Usage gaps", #573).
+
+None of this (`lastRequestUsage`, the `getContextUsage` fallback) changes behaviour for a Claude session: its own
+top-level `assistant` messages already carry real per-request usage, so it never reaches either fallback.
+
 ### The context window, and which `modelUsage` entry it is (#416) [from the SDK's types and binary, not probed]
 
 A task on "Opus 5.5" read **905k / 200k**: its session ran at 1M, and Glade divided by a 200k guess. Read from
@@ -449,17 +498,18 @@ The tool is named `Agent` in `tool_use` (the init `tools` list shows `Task`). A 
   (`progress_summary`) while the call runs. One for a call that has finished, isn't an `Agent` or `Task` call, or
   isn't in the log is ignored. The row's summary is cleared once the call stops running (done, failed, paused or
   interrupted, a relaunch included).
-- The Subagents tab shows it under a running subagent's name, on one line with the whole of it in its tooltip. It
-  isn't sent to plugins.
+- The `Agent` call's row, in whichever agent's tool calls it's under, shows it on one line beside the call, with the
+  whole of it in its tooltip, while the subagent runs (Agents). It isn't sent to plugins.
 
 **Implications for Glade (P5-05)**
 
-- The Subagents tab derives each subagent from the tool log: an `Agent` (or `Task`) call, with the calls and notes
-  tagged with its id under it. For a foreground subagent, the call's result is when it finished; a background one's
-  is not (see "Background subagents" below), so the runner reads `task_started` and `task_notification` for those.
-- The Tool calls tab shows only the task's own calls and notes (`parent_tool_use_id` null), and counts only those
-  (P9-04). An `Agent` call is one row there; what its subagent did, nested subagents included, is under its entry in
-  the Subagents tab.
+- Each agent's tab in Agents derives the subagent it shows from the tool log: an `Agent` (or `Task`) call, with the
+  calls and notes tagged with its id under it. For a foreground subagent, the call's result is when it finished; a
+  background one's is not (see "Background subagents" below), so the runner reads `task_started` and
+  `task_notification` for those.
+- An agent's tab shows only its own calls and notes (`parent_tool_use_id` matching its id, null for Main), and counts
+  only those (P9-04). An `Agent` call is one row there; what its subagent did, nested subagents included, is under
+  that subagent's own tab in Agents.
 - Glade sets `forwardSubagentText: true`, so the tab can show the last thing a subagent said. The runner logs a
   subagent's text as a note carrying its `Agent` call's id; it never goes to the chat.
 - There is no "queued" subagent. In the verified run a subagent started (`task_started`) as soon as its call arrived;
@@ -529,7 +579,7 @@ the start.
 - A background subagent is followed from its `task_started` (`task_type: "local_agent"`, `is_backgrounded: true`), or
   from its call's "launched" result, or from a later move to the background. Its `Agent` call's row keeps running
   until its `task_notification`. Then it's done, or failed with the summary. A stopped one fails with "You stopped the
-  subagent.", as a stopped turn's calls do. The Subagents tab counts its calls and times it from the tool log, as for
+  subagent.", as a stopped turn's calls do. Its tab in Agents counts its calls and times it from the tool log, as for
   any subagent. Glade reads `task_progress` only for its summary (see "Subagents" above).
 - Its calls and notes are logged whenever they arrive, with the turn its `Agent` call was made in. They never open a
   turn, and the end of a turn doesn't fail them. Its calls still running when it ends fail with it.
@@ -585,7 +635,7 @@ system/task_notification  { task_id: "a7c2…", tool_use_id: <the SendMessage ca
   interrupts it, as any background subagent; the agent can wake it again after that.
 - A subagent started before Glade kept the ids (migration 47) is known by its new run's first message instead: the
   `Agent` call that message names, if it has ended, is the one a pending `SendMessage` woke.
-- The Subagents tab, the task list's count, and the plugin feed all read the `Agent` call's row, so they follow: a
+- Its tab in Agents, the task list's count, and the plugin feed all read the `Agent` call's row, so they follow: a
   plugin is sent `subagent.started` again for it, and a task whose log isn't loaded yet gets the row, to count it.
 
 ### Background work inside a subagent [verified]
@@ -640,8 +690,8 @@ Timings are seconds from the first message:
 **Implications for Glade (#291)**
 
 - A monitor or command belongs to whoever's call started it: the task's own agent, or the subagent whose `Agent` call is
-  its call's `parent_tool_use_id`. The Watchers tab and every watcher count show only the task's own; a subagent's are
-  under it in the Subagents tab.
+  its call's `parent_tool_use_id`. It's pinned under that agent's own tab in Agents, live or scheduled; a task-level
+  watcher count (the plugin feed's, the sidebar's) adds up every agent's, Main's and its subagents'.
 - Only a backgrounded task (`is_backgrounded`, or a call with `run_in_background`) is a watcher. A foreground `Bash`
   call's task is a tool call; it becomes a watcher only if the SDK moves it to the background. Before #291 every
   foreground call over three seconds became a command watcher, and the ones whose `task_notification` never came stayed
@@ -1162,9 +1212,9 @@ with perTaskStopAffordance: true
   subagent made its next call three seconds later), and `stopTask` still stopped each one.
 
 **Decided (#276):** Glade passes `perTaskStopAffordance: true` (`sdkOptions` in `src/main/agent/sdk-backend.ts`): it
-has a Stop of its own for each background subagent and watcher (the Subagents and Watchers tabs, which call
-`stopTask`), so Stop on a turn stops only the turn. The scripted backend models both behaviours from the options Glade
-passes (`interruptStopsSubagents` in `src/main/agent/scripted-session.ts`).
+has a Stop of its own for each background subagent and watcher (Agents, which calls `stopTask`), so Stop on a turn
+stops only the turn. The scripted backend models both behaviours from the options Glade passes
+(`interruptStopsSubagents` in `src/main/agent/scripted-session.ts`).
 
 ## 8. Resume [verified]
 
@@ -1404,11 +1454,10 @@ How the bundled binary decides, from its code:
 - They are deferred tools (`shouldDefer`): the model loads them with `ToolSearch` (`select:TaskCreate,TaskUpdate`)
   before its first call. `TaskStop` is unrelated (it stops a background task) and is always there.
 
-**Glade sets `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` in every session's `env`** (`SESSION_ENV` in `sdk-backend.ts`), and
-leaves `CLAUDE_CODE_ENABLE_TASKS` to the user: a settings file that sets it to `false` gives the session `TodoWrite`,
-whatever its `env` says (§16, "`TodoWrite`"). What a todo's id is, and how long it lasts, is in §16 too. Behind the
-hidden `todoHubEnabled` setting (P16-04, #495), a session also sets `CLAUDE_CODE_ENABLE_TASKS` to `true` in the SDK's
-`settings` option, which outranks the settings files, so its todos always have an id (§16, "What Glade does").
+**Glade sets `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` in every session's `env`** (`SESSION_ENV` in `sdk-backend.ts`). Every
+session also sets `CLAUDE_CODE_ENABLE_TASKS` to `true` in the SDK's `settings` option (`TASK_TOOLS_ENV`, P16-04,
+#495), which outranks the settings files, so a user's own settings file that sets it `false` can't swap the task
+tools for `TodoWrite`, and its todos always have an id (§16, "What Glade does").
 
 A real session built from Glade's `sdkOptions` (`claude-sonnet-5`), asked to keep a two-item list, made these calls,
 which match the Todos tab's schemas (`src/main/todos/schema.ts`) and the scripted backend's `keeps-todos` script:
@@ -1637,16 +1686,15 @@ command }`, which the task messages already say.)
   exact prompt, as long as no live job of the task has the same prompt.
 - A relaunch ends running watchers and wakeups ("Stopped by the relaunch.", as §11 found) and suspends cron jobs until
   the resumed session's first `Stop` hook lists them again.
-- Where they show: the Watchers tab lists the task's own, and the Subagents tab a subagent's under it. With the hidden
-  `todoHubEnabled` setting on (P16-14, #537), each is in the Agents tab under the agent whose call started it: pinned
-  under that agent's tool calls while it's live, and a row among them at the time it ended (`endedAt`, which is when
-  the wake's prompt reached the hook, so before the turn the wake starts). The call that started it isn't a row there.
+- Where they show (P16-14, #537): each is in the Agents tab under the agent whose call started it, pinned under
+  that agent's tool calls while it's live, and a row among them at the time it ended (`endedAt`, which is when the
+  wake's prompt reached the hook, so before the turn the wake starts). The call that started it isn't a row there.
   Nothing about following or stopping them changes (`decisions.md`, "Watchers in the tool calls").
 
 ## 14. Commits: what a task's `Bash` calls committed [not probed]
 
-For the Changes tab (#275). Not probed against a live session: built from the SDK's hook types (`sdk.d.ts`, SDK
-0.3.281) and git's own output, and tested end to end with the scripted agent making real commits
+For the Todos tab's commit tiles (#275, #499). Not probed against a live session: built from the SDK's hook types
+(`sdk.d.ts`, SDK 0.3.281) and git's own output, and tested end to end with the scripted agent making real commits
 (`ScriptStepKind.Shell`, `e2e/changes.spec.ts`).
 
 **The hook.** A `PreToolUse` hook with the matcher `Bash` is called before each `Bash` call runs, the session's and a
@@ -2269,7 +2317,7 @@ What it doesn't cover:
 - **An older git that doesn't know `GIT_NO_LAZY_FETCH`** ignores it, tries the fetch, and is refused its transport
   by `GIT_ALLOW_PROTOCOL`.
 - **What git reads, as opposed to runs.** A repository's config can still point git elsewhere (`core.worktree`,
-  alternates, replace refs): that changes what the Changes tab shows, not what runs.
+  alternates, replace refs): that changes what a commit's tile in Todos shows, not what runs.
 
 ### Probed for P15-07 (#452)
 
@@ -3207,14 +3255,13 @@ request, and the final reply again. No refusals.
 `TodoWrite` can file nothing; and whether a task that makes a child with no todo list should be made to start one, as
 both rules did here.
 
-### What Glade does [behind `todoHubEnabled`]
+### What Glade does
 
 Jared picked the recommendation, then narrowed what's filed when the phase split into Agents (activity) and Todos
 (produced work): **commits are filed, a subagent's todo is recorded as plumbing, and watchers aren't filed at all.**
 P16-04 (#495) builds that (`src/main/todo-hub/filing.ts`, the runner's `childStarting`, `batchFinished` and
-`turnEnding`, and three hooks in `sdk-backend.ts`). All of it is only in a session that starts with the hidden
-`todoHubEnabled` setting on; with it off a session's options, prompt and hooks are exactly what they were
-(`src/main/todo-hub/inert.test.ts`). Nothing below was probed again against the real API: it's built to what the
+`turnEnding`, and three hooks in `sdk-backend.ts`). It's unconditional, in every session, since #501 turned the hub on
+for everyone and removed the switch. Nothing below was probed again against the real API: it's built to what the
 probes above saw, and tested on the fake and scripted backends.
 
 - **Which calls a todo is read off** (`readsTodo` in `child-calls.ts`): an `Agent` call, whoever makes it, and the
@@ -3261,11 +3308,14 @@ probes above saw, and tested on the fake and scripted backends.
   by the resolver (`groupChildren`), from the parent of each call in the tool log.
 - **The task tools stay on:** `settings: { env: { CLAUDE_CODE_ENABLE_TASKS: 'true' } }` in the session's SDK options,
   beside the `deniedMcpServers` rule (§12) and the sandbox's permissions (§15).
-- **The prompt lines** are the paragraph above cut down to the two calls (no `Monitor`, background `Bash`,
-  `ScheduleWakeup` or `CronCreate`, so the 36-of-36 result is for a longer paragraph than the one shipped), then a
-  sentence for `add_artifact`'s todo and the line for the hub's tools ([`model-surface.md`](model-surface.md), "System
-  prompt"). A session that started without them and resumes with the hub on is sent them once, ahead of its next
-  message (§8).
+- **The prompt lines that shipped (`TODO_HUB_FILING_LINE`) are the paragraph #492 probed above, cut down to the two
+  calls it files** (no `Monitor`, background `Bash`, `ScheduleWakeup` or `CronCreate`, since watchers aren't filed),
+  then a sentence for `add_artifact`'s todo and the line for the hub's tools
+  ([`model-surface.md`](model-surface.md), "System prompt"). **Plainly: this cut-down wording hasn't itself been run
+  against a real model.** The 36-of-36 (Opus 5.5), 8-of-8 (Sonnet 5) and 4-of-8 (Haiku 4.5) results above are for the
+  longer paragraph, which named four more tools; cutting it down to the two it ships with is the working assumption,
+  not a finding of its own. A short real-model check of the wording that shipped is still owed (#548). A session that
+  started before these lines existed and resumes after is sent them once, ahead of its next message (§8).
 - **A foreground subagent that named no todo** has none for as long as it runs, as found above: its `PostToolBatch`
   comes when it returns. That's accepted: the named path is why it's rare. Its commits are under no todo meanwhile,
   and land under its todo once the agent has filed it.
@@ -3290,13 +3340,13 @@ so a host that never lets go fails a test rather than hanging it). What the agen
 the script's `filing`: it files what it's told of with one `file_children` call through the tool's real handler, at
 once or only once held, or, with no `filing`, ignores it. Without the hooks, the session plays as it always has.
 
-The filing tool the probes stood in for is real since P16-05 (#496), behind the hidden `todoHubEnabled` setting:
+The filing tool the probes stood in for is real since P16-05 (#496):
 `mcp__glade__file_children`, with the input the probes used (`{ filings: [{ child, todo }] }`, a child's short id and
 a todo's id each), and `mcp__glade__list_children` beside it ([`model-surface.md`](model-surface.md)). Two scripts
 play them through the real handlers: `unsorted-children` makes one of each kind of child with nothing filing them (a
 file, a link, a subagent that commits), and two watchers besides (the tests that subagent leaves running, a
-`Monitor`), which are no child of a todo (#535); and `sorts-children`, played in that task after a relaunch with the
-setting on, lists what it produced and the subagent (which has no todo yet), files each under a todo in one call,
+`Monitor`), which are no child of a todo (#535); and `sorts-children`, played in that task after a relaunch, lists
+what it produced and the subagent (which has no todo yet), files each under a todo in one call,
 gives the subagent another todo, which brings its commit, and is refused a todo and a child that aren't there.
 
 ---

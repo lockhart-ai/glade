@@ -93,12 +93,13 @@ There are no follow-up tasks. One task can refer to another through its folder o
   while it waits in a queue; the tag is kept with the message, so it's there after a relaunch. Each agent answers in
   its own chat, and a task that answers needs you by the usual rule: nothing gathers the replies anywhere else.
   ![Broadcast, in a task](design/screens/45-broadcast-message.png)
-  The same viewer opens an image artifact from the Artifacts tab, and the one file showing in the Files tab (#372): for
-  an artifact, it also shows the artifact's title, just above the image's left edge (it appears with the image, once
-  that has loaded, never before it: #478), and two actions, Open in Files and Reveal in Finder, and steps
-  through the image artifacts the Artifacts tab lists, in its order (not those in a folded date group, #378); for a
-  Files tab image, it shows that one file alone. Opened either of those ways, closing it returns the focus to the row
-  or thumbnail that opened it, not to the task's input: a keyboard user stepping through a list keeps their place in it.
+  The same viewer opens an image artifact's tile from the Todos tab, and the one file showing in the Files tab (#372):
+  for an artifact, it also shows the artifact's title, just above the image's left edge (it appears with the image,
+  once that has loaded, never before it: #478), and two actions, Open in Files and Reveal in Finder, and steps only
+  through the image files of the todo it was opened from, in that todo's list order, never on into another todo's
+  (P16, #498); for a Files tab image, it shows that one file alone. Opened either of those ways, closing it returns
+  the focus to the row or thumbnail that opened it, not to the task's input: a keyboard user stepping through a list
+  keeps their place in it.
   ![Artifact and file images](design/screens/35-artifact-image.png)
 - **Pasted text** (#363) — pasting more than one line, or ~80 characters or more, into the input bar marks it as its
   own block, kept apart from what you typed, rather than dumping it into the field: a short inline token stands for it
@@ -127,26 +128,58 @@ There are no follow-up tasks. One task can refer to another through its folder o
   and status, todos, watchers and queued messages. Markdown links and bare URLs and email addresses are links; URLs in
   code aren't. A link underlines on hover, shows its address as a tooltip when its text says something else, takes the
   focus with Tab and opens with ↵; ⌘-click opens it too. Right-click it for Open link, Copy link and Add to artifacts
-  (a web link only, #407). Only web and mail links open: any other kind shows as its text. With the todo hub on (the
-  hidden `todoHubEnabled` setting, off until #501), a PR, an issue or a ticket a todo's title or status line names
-  (`PR #511`, `#511`, `API-123`) is a link too, when the task has it as a link artifact: an exact match only, with
-  nothing fetched ([`decisions.md`](decisions.md), "Links in a todo's text", #500).
+  (a web link only, #407). Only web and mail links open: any other kind shows as its text. A PR, an issue or a ticket
+  a todo's title or status line names (`PR #511`, `#511`, `API-123`) is a link too, when the task has it as a link
+  artifact: an exact match only, with nothing fetched ([`decisions.md`](decisions.md), "Links in a todo's text",
+  #500).
 - **Click code to copy** (#352) — a code span clicks to copy its exact text, with a small "Copied" tooltip for about a
   second; dragging a selection in it, or a click that ends with one, is left as ordinary text selection instead. It's
   focusable, and Enter copies it. A fenced code block, and a permission card's command or change, get a copy icon in
   their corner, shown on hover and on focus, which copies the whole block the same way. It's everywhere Glade renders
   Markdown code (replies, question cards and their preamble, backfilled notes, the tool log's notes and permission
   cards), but not the Files viewer's preview or the terminal.
-- **Right panel** (inside the task card) — tabs: Tool calls, Files, Todos, Artifacts, Subagents, Watchers, Changes (the
-  commits the task made; Glade watches git and never drives it). Resizable, collapsible. The selected tab is
+- **Right panel** (inside the task card) — three tabs, **Agents · Files · Todos** (P16, #491): is something
+  **happening** (Agents), or something the work **produced** (Todos)? Resizable, collapsible. The selected tab is
   remembered per workspace (#432): switching workspace shows that workspace's own tab, across a relaunch; a workspace
-  that's never chosen one starts from Tool calls. Artifacts holds the task's
-  deliverable files and, as links (#407), the remote things it depends on: the PRs the agent opens or works on and the
-  issues and tickets the task is about, added by the agent (`add_artifact`'s `url`) or by you (Add to artifacts on any
-  web link). A link shows what it is from its address alone (a PR or issue's `#412 · owner/repo`, a Jira ticket's
-  `API-123`, or the site's domain), opens in the browser, and is dated by when it was added; its live status isn't
-  fetched. With both files and links, an All · Files · Links filter shows above the date groups, remembered per task.
-  ![Todo hub](design/screens/46-todo-hub.png) Files is a plain-text editor:
+  that's never chosen one starts from Agents.
+
+  **Agents** is activity: a strip of tabs under the panel's own, one for every agent in the task, and under it that
+  agent's tool calls, the notes between them and their output. **Main**, the task's own agent, is pinned first and
+  stays fixed while the rest scroll; then the subagents that are running, then the finished ones, newest first within
+  each, the strip scrolling sideways past what fits, with a chevron over a fade at the end that has tabs past it. A
+  subagent's tab has a dot, blue while it runs and slate once it's done, and an eye, blue while a watcher it has live
+  is running and grey when all it has is scheduled. Main's list shows each subagent it started as an `Agent` call,
+  live while that subagent runs ("Running · 29m") and "Done · 28m · opened PR #511" once it has finished; clicking it
+  opens that subagent's tab. A subagent's tab says which todo it's working on, in a line under the strip ("Working on
+  #501 Return Retry-After on 429s"), the todo's title a link to that todo in Todos; one subagent works on one todo.
+  What an agent is watching (a `Monitor` watch, a background command, a wakeup or a cron job) is pinned at the bottom
+  of its tool calls, outside the scroll so it's always in view, under a **Watching** label: what it runs, its last
+  line, how long it's run and **Stop**; a wakeup or cron job that's only scheduled is pinned the same way, in grey,
+  since nothing is running yet. Once a watcher finishes, it leaves the bottom and takes its place in the tool calls at
+  the time it ended, so scrolling back reads in order: the watch, what it found, and what the agent did next. A
+  watcher belongs to the agent that started it, so a subagent's pins to its own tab, not Main's. A subagent's tab has
+  a menu, Stop subagent and Copy log; Main's has none.
+  ![Agents](design/screens/50-agents.png)
+
+  **Todos** is produced work: every todo is a card, whether it's active, not started or done, and whether or not it
+  has produced anything, the cards 4px apart. A todo closed is three lines: its title, its status line, and one row
+  of icons, each with a count — files, links, changes — a kind with none left out, and a todo that's produced nothing
+  is just its title. Opened, the same three lines, with the icons as filter pills instead, **All** in front; under
+  them, one flat list of what the todo produced, a tile each, most recently updated first. Clicking an icon shows only
+  that kind; on a closed todo it opens the todo already filtered. Each todo remembers whether it's open and which
+  filter it's on, across todos, tasks and relaunches. A file's tile opens it in Files (an image in the viewer, where ←
+  and → step only through that todo's images, never on into another's); a link's tile opens in the browser; a
+  commit's tile opens in place, to its branch and its files — still view only for git, which Glade watches and never
+  drives. A PR, an issue or a ticket a todo's title or status line names is a link, when the task has it as a link
+  artifact (added by the agent, `add_artifact`'s `url`, or by you, Add to artifacts on any web link; see Links,
+  above). Todos keep their order: active, then not started, then done, newest first. A task from before the hub shows
+  what it produced in a placeholder group, **Not under a todo**, which opens and filters like a todo and is hidden
+  while empty; only its agent moves a thing from one todo to another, with no menu for it, which is also how an
+  earlier task gets sorted (ask it to "file your things under your todos"). Blue is live, grey is everything else, and
+  pink is only for something that itself failed and for a commit's removed lines.
+  ![Todos](design/screens/46-todo-hub.png)
+
+  **Files** is a plain-text editor:
   a workspace file edits in place and saves with ⌘S, its tab showing a dot while it has unsaved edits, and closing it,
   switching task or quitting asks to Save, Discard or Cancel. When the agent changes a file you're editing, it reloads
   quietly, or, with unsaved edits, a bar offers Reload or Keep mine. Files from a commit, binary files and files too
@@ -176,8 +209,8 @@ There are no follow-up tasks. One task can refer to another through its folder o
 - **Bottom bar** (full width) — the workspace's terminal, with tabs, and a plugin panel (Nekomata). Resizable,
   collapsible. Each workspace has its own terminal tabs; switching workspace switches them, and the other
   workspaces' shells keep running. Removing a workspace ends its shells. Clicking something in a plugin can open the
-  task it shows (a Nekomata cat), switching workspace if it has to, and a subagent of it (a kitten) in the Subagents
-  tab; a plugin can't do that without your click (`plugin-api.md`, `openTask`).
+  task it shows (a Nekomata cat), switching workspace if it has to, and a subagent of it (a kitten) on its own tab in
+  Agents; a plugin can't do that without your click (`plugin-api.md`, `openTask`).
 
 Each resizable panel has a drag handle in the gap on its inner edge. Dragging it takes room from the chat or gives it
 back, within limits (the chat keeps its minimum width and height); collapsing a panel and showing it again brings it
@@ -309,8 +342,8 @@ workspace if needed, and its footer has **Open Glade** and **Quit**. It hides on
 **Two permission modes,** per task, from the input bar's picker: **Allow all**, where the agent edits files and runs
 commands without asking, and **Ask before edits and commands**, where each edit, command and other tool with side
 effects waits on a **permission card** in the chat (Allow once · Allow for this task · Deny, with an optional note).
-A card is in the chat only while it waits; what was decided then shows on the call's row in the Tool calls list, on a
-line that starts with a filled shield (`design/README.md`, screens 23 and 24).
+A card is in the chat only while it waits; what was decided then shows on the call's row in the agent's tool calls
+(Agents), on a line that starts with a filled shield (`design/README.md`, screens 23 and 24).
 
 **The sandbox** is what an agent can touch at all, in either mode. Settings › Agent › **Sandbox** turns it on for
 every workspace and task; it's off to begin with while the phase's security review is open (#452), and a task takes

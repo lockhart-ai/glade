@@ -34,7 +34,7 @@ when a choice is yours, and waits for you to mark it done. Everything lives in a
 (or crash) mid-turn and pick up where you left off. The whole product is the lifecycle of a task and the panels around
 it.
 
-![Glade with a workspace open: the task list on the left, a task's chat in the middle, and its tool calls on the right](docs/images/hero.png)
+![Glade with a workspace open: the task list on the left, a task's chat in the middle, and its Agents tab on the right](docs/images/hero.png)
 
 ## Contents
 
@@ -52,9 +52,9 @@ it.
 
 **Many tasks at once.** Each task runs its own agent session, with its own chat, tool log, files, todos and subagents.
 The sidebar shows which ones are working, which need you and which are done. A task can split its work across
-subagents, and the Subagents tab follows each one.
+subagents, and the Agents tab gives each one its own tab, with Main's pinned first.
 
-![A task working with three subagents running and one done, listed in the Subagents tab](docs/images/subagents.png)
+![A task working with three subagents running and one done, each its own tab in Agents](docs/images/subagents.png)
 
 **Questions instead of guesses.** When a choice is yours, the agent asks on a card in the chat, opening with its reply to
 what you said: options with a short sketch, pills, or a line of text. Its turn waits, however long you take. Answer with
@@ -128,7 +128,7 @@ Press ⌘, for Settings, including every shortcut, which you can rebind.
 | **Menu bar** | Glade's icon in the macOS menu bar counts what needs you; click it for what needs you, what's working and the latest notifications, in every workspace. |
 | **Permissions** | Allow all, or ask before edits and commands, with per-task rules for what you've allowed. |
 | **Sandbox** | Agents held to their workspace folder and the folders and domains you allow, for a task, a workspace or everywhere, with a card when one reaches past them. Off to begin with for now: turn it on in Settings › Agent. See [the user guide](docs/user-guide.md#the-sandbox). |
-| **Right panel** | Tool calls, the files a task touched (with a read-only viewer), its todo list, the artifacts it delivered, and its subagents. |
+| **Right panel** | Three tabs: **Agents** (a tab per agent, Main pinned first, with its tool calls and what it's watching), **Files** (a read-only viewer for what the task touched) and **Todos** (each todo with the files, links and commits it produced). |
 | **Terminal** | Tabs of your login shell in the bottom bar, kept with their scrollback across launches. Right-click a Bash call in the tool log to run it again there. |
 | **Plugins** | Small sandboxed web pages beside the terminal that get task and agent events, never your chat or files, and, only if you allow it, your Mac's CPU, GPU and Docker load. A plugin can declare settings of its own, which you set in Settings › Plugins. See [docs/plugin-api.md](docs/plugin-api.md). |
 | **Control API and backfill** | An MCP server and a plain JSON endpoint, on this Mac only and behind a token, to create, update and finish tasks from other agents and scripts, import Claude Code sessions, and backfill past tasks with a handoff note the agent always has. See [docs/control-api.md](docs/control-api.md). |

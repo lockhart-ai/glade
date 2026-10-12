@@ -243,10 +243,16 @@ capabilities; the initial change keeps native same-source delegation and Claude-
   Anthropic-compatible streaming responses carry their real usage only in the final `message_delta` (`message_start`
   reports zeros), so the CLI's per-message frames never showed it and a task's context tracker read zero — a
   mid-conversation switch also erased the figure it carried over. The runner now keeps the last real figure when a
-  message reports zero and, on a turn whose messages reported nothing, takes the context from the turn's `result`
-  usage (the last request's prompt, as the gateway reported it at the stream's end); a compaction keeps its boundary
-  figure. During an OpenRouter turn the tracker holds the previous figure until the turn ends, and a provider that
-  reports no usage at all leaves the last figure standing — nothing is invented.
+  message reports zero and, on a turn whose messages reported nothing, takes the context from the turn's own last
+  request, never a sum (#573: the turn's `result.usage` sums every request its main loop made, which over-reads by
+  about the number of requests on a turn with several tool round-trips; see `docs/sdk-notes.md`, "A turn's
+  `result.usage` sums the main loop, not the last request", for the probed numbers and `usage.iterations`). With no
+  honest per-request figure there either (several requests, no `iterations` entry), the runner asks the SDK's own
+  `getContextUsage` once as a further fallback (#573): probed, it tracks the last request's own real total rather
+  than a sum once that exceeds its local baseline estimate, but is stale right after a compaction, so a compacted
+  turn never asks it. A compaction otherwise keeps its boundary figure. During an OpenRouter turn the tracker holds
+  the previous figure until the turn ends, and a provider that reports no usage at all, or gives no honest figure
+  anywhere (messages, result, or the SDK's own estimate), leaves the last figure standing — nothing is invented.
 - **Preview schema cleanup:** earlier preview databases may retain unused `tasks.subagent_model` and
   `openrouter_generations`; removing them is deferred.
 - **Workflow validation:** production-prompt dispatch in both directions with real tools, permission cards and the

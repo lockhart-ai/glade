@@ -198,7 +198,17 @@ export interface TurnFinishedEvent {
   /** How the turn ended, e.g. `completed`, `api_error` or `aborted_streaming`; null when the SDK doesn't say. */
   readonly terminalReason: string | null
   readonly durationMs: number | null
+  /** The turn's token usage, summed over every request its main loop made (`docs/sdk-notes.md`, "result"). */
   readonly usage: TurnUsage | null
+  /**
+   * The turn's last request's own usage, honestly — never the turn's sum. The SDK's `usage.iterations` carries a
+   * request-by-request breakdown on some turns, and its last entry is this turn's last request; absent that, the
+   * turn's own `usage` already *is* the last (and only) request's figure exactly when the turn made one request
+   * (`num_turns`). With more than one request and no `iterations` entry — observed for an ordinary OpenRouter
+   * turn with several tool round-trips (`docs/sdk-notes.md`, "Usage and context size") — there is no honest
+   * per-request figure here, so null: never fall back to the sum.
+   */
+  readonly lastRequestUsage: TurnUsage | null
   /** The estimated cost of the whole session so far, in US dollars. */
   readonly totalCostUsd: number | null
   /** The context window of each model the session has used, in tokens, by the model id the SDK reports. */
@@ -523,12 +533,17 @@ const toolResultBlock = z.looseObject({
 })
 
 const count = z.number().catch(0)
-const usage = z.looseObject({
+/** One request's own usage: the shape of a top-level message's `usage`, and of one entry in a result's `usage.iterations`. */
+const requestUsage = z.looseObject({
   input_tokens: count,
   output_tokens: count,
   cache_read_input_tokens: count,
   cache_creation_input_tokens: count,
 })
+// A result's `usage` sums every request the turn's main loop made, but may also carry `iterations`: a request-by-
+// request breakdown, observed with at most one entry (the last request's own figure) and absent otherwise, never on
+// an assistant message's own `usage` (`docs/sdk-notes.md`, "Usage and context size").
+const usage = requestUsage.extend({ iterations: z.array(requestUsage).optional().catch(undefined) })
 
 const assistantMessage = z.looseObject({
   type: z.literal('assistant'),
@@ -561,6 +576,9 @@ const resultMessage = z.looseObject({
   terminal_reason: z.string().nullable().catch(null),
   duration_ms: z.number().nullable().catch(null),
   usage: usage.nullable().catch(null),
+  // How many model round-trips the turn's main loop made (`docs/sdk-notes.md`, "result"): one request's usage is
+  // never a sum, whatever the gateway reports it as.
+  num_turns: z.number().int().nonnegative().nullable().optional().catch(null),
   total_cost_usd: z.number().nullable().catch(null),
   modelUsage: z.record(z.string(), z.unknown()).catch({}),
   user_message_uuids: z.array(z.string()).nullable().optional().catch(null),
@@ -760,6 +778,28 @@ function contextWindows(entries: Readonly<Record<string, unknown>>): Record<stri
   )
 }
 
+function toTurnUsage(raw: z.infer<typeof requestUsage>): TurnUsage {
+  return {
+    inputTokens: raw.input_tokens,
+    outputTokens: raw.output_tokens,
+    cacheReadInputTokens: raw.cache_read_input_tokens,
+    cacheCreationInputTokens: raw.cache_creation_input_tokens,
+  }
+}
+
+/**
+ * The turn's last request's own usage, honestly (see `TurnFinishedEvent.lastRequestUsage`): the last `iterations`
+ * entry when the result gives one; else the result's own `usage`, but only when `num_turns` says the turn made just
+ * one request, so that figure already is the last (and only) one, never a sum; else null.
+ */
+function lastRequestUsage(message: z.infer<typeof resultMessage>): TurnUsage | null {
+  const turnUsage = message.usage
+  if (turnUsage === null) return null
+  const lastIteration = turnUsage.iterations?.at(-1)
+  if (lastIteration !== undefined) return toTurnUsage(lastIteration)
+  return message.num_turns === 1 ? toTurnUsage(turnUsage) : null
+}
+
 function fromResult(message: z.infer<typeof resultMessage>): AgentEvent[] {
   const { usage: turnUsage } = message
   return [
@@ -775,15 +815,8 @@ function fromResult(message: z.infer<typeof resultMessage>): AgentEvent[] {
       userMessageUuids: message.user_message_uuids ?? null,
       apiErrorStatus: message.api_error_status ?? null,
       startupFailureReason: message.startup_failure_reason ?? null,
-      usage:
-        turnUsage === null
-          ? null
-          : {
-              inputTokens: turnUsage.input_tokens,
-              outputTokens: turnUsage.output_tokens,
-              cacheReadInputTokens: turnUsage.cache_read_input_tokens,
-              cacheCreationInputTokens: turnUsage.cache_creation_input_tokens,
-            },
+      usage: turnUsage === null ? null : toTurnUsage(turnUsage),
+      lastRequestUsage: lastRequestUsage(message),
     },
   ]
 }

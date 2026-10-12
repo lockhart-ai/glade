@@ -22,8 +22,11 @@
  * - A final reply in a task you aren't viewing marks it unread (`../tasks/attention`) and is notified (`notifyReply`).
  * - The task's context usage follows the agent's latest top-level message, and its context window is what the turn's
  *   `result` reports for the session's model (`docs/sdk-notes.md`, "Usage and context size"). An OpenRouter session's
- *   streamed messages carry no usable usage until the stream ends (the gateway reports it only there), so a turn whose
- *   messages reported nothing takes the figure from the turn's own `result` usage instead.
+ *   streamed messages carry no usable usage until the stream ends (the gateway reports it only there), so a turn
+ *   whose messages reported nothing takes the figure from the turn's last request's own usage instead — never the
+ *   turn's `result` usage as a whole, which sums every request the turn made and over-reads on a turn of several
+ *   tool round-trips. With no honest per-request figure either (several requests, no `iterations` entry), the SDK's
+ *   own `getContextUsage` estimate is asked once as a last resort, never after a compaction (#573).
  *
  * **Turns the agent starts itself.** The SDK starts a turn with no message from you when a background command or
  * subagent finishes, a `Monitor` reports an event or ends, or a `ScheduleWakeup` or `CronCreate` job fires: the SDK's
@@ -499,7 +502,7 @@ import { FileAccess, SANDBOX_NETWORK_TOOL } from './sandbox-requests'
 import { NO_GRANTS, sandboxOverlay, sandboxStartSettings, usableGrants, type SandboxGrants } from './sandbox'
 import { CONTROL_SERVER } from '../control/names'
 import { limitOfWindow, type AccountSink } from '../account/account'
-import { autoCompactFrom, carriedOver, sameAutoCompact } from './compaction'
+import { autoCompactFrom, carriedOver, contextEstimateFrom, sameAutoCompact } from './compaction'
 import { classifyAgentError } from './error-classification'
 import { ACCESS_TOOL_NAME, gladeOwnServers, type AccessCall } from './glade-tools'
 import {
@@ -1992,18 +1995,21 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
     recovered(taskId, turn)
     // OpenRouter's streamed messages carry the gateway's `message_start` zero until the usage arrives at the stream's
-    // end, which the CLI keeps for its own turn accounting but never re-sends: the frames' usage never recovers. The
-    // turn's `result` usage is that same end-of-stream figure — the last request's prompt, as the context now stands —
-    // so a turn whose messages reported nothing takes the figure from there. A compaction's turn keeps the boundary's
-    // own `post_tokens`, which is already the figure after it.
-    if (
-      !compacted &&
-      !turn.contextReported &&
-      agentSource(live.settings.model) === AgentSource.OpenRouter &&
-      event.usage !== null
-    ) {
-      const used = event.usage.inputTokens + event.usage.cacheReadInputTokens + event.usage.cacheCreationInputTokens
-      if (used > 0) onContextUsed(taskId, used)
+    // end, which the CLI keeps for its own turn accounting but never re-sends: the frames' usage never recovers. A
+    // turn whose messages reported nothing takes the figure from `event.lastRequestUsage` instead: the turn's last
+    // request's own prompt, never the turn's `usage`, which sums every request its main loop made and so over-reads
+    // on a turn of several tool round-trips (`docs/sdk-notes.md`, "Usage and context size"). `lastRequestUsage` is
+    // null when the SDK gives no honest per-request figure (more than one request, no `iterations` entry): the SDK's
+    // own `getContextUsage` estimate is asked as a last resort (#573) instead of a sum. A compaction's turn keeps the
+    // boundary's own `post_tokens`, which is already the figure after it, and never asks either way.
+    if (!compacted && !turn.contextReported && agentSource(live.settings.model) === AgentSource.OpenRouter) {
+      if (event.lastRequestUsage !== null) {
+        const { inputTokens, cacheReadInputTokens, cacheCreationInputTokens } = event.lastRequestUsage
+        const used = inputTokens + cacheReadInputTokens + cacheCreationInputTokens
+        if (used > 0) onContextUsed(taskId, used)
+      } else {
+        refreshContextEstimateFallback(taskId, live)
+      }
     }
     const held = turn.pending
       .splice(0)
@@ -2147,6 +2153,32 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       },
       (error: unknown) => {
         agentLog(taskId).warn('could not read the context usage; keeping the last known', {
+          error: describeError(error),
+        })
+      },
+    )
+  }
+
+  /**
+   * The SDK's own local estimate of the context in use (`getContextUsage`, `docs/sdk-notes.md`, "A turn's
+   * `result.usage`…"), asked only as #573's last resort: a multi-request OpenRouter turn whose messages reported
+   * nothing and whose result gives no honest last-request figure either (`lastRequestUsage` null). One call at the
+   * end of such a turn, never per message; a failure, or an estimate that says nothing usable (missing, or the SDK's
+   * own zero), leaves the previous figure standing — never a sum, and never invented.
+   */
+  const refreshContextEstimateFallback = (taskId: string, live: LiveSession): void => {
+    live.session.contextUsage().then(
+      (raw) => {
+        if (live.closed || getTask(db, taskId) === undefined) return
+        const tokens = contextEstimateFrom(raw)
+        if (tokens === null) {
+          agentLog(taskId).warn('the context usage says nothing of the estimate; keeping the last known')
+          return
+        }
+        onContextUsed(taskId, tokens)
+      },
+      (error: unknown) => {
+        agentLog(taskId).warn('could not read the context estimate; keeping the last known', {
           error: describeError(error),
         })
       },

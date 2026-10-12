@@ -1,6 +1,8 @@
 /**
  * What the runner reads of compaction from the SDK (`docs/sdk-notes.md` §5), parsed at the boundary: where the session
- * compacts automatically (`getContextUsage`), and what a compaction carried over (the `PostCompact` hook's summary).
+ * compacts automatically (`getContextUsage`), what a compaction carried over (the `PostCompact` hook's summary), and
+ * (#573) the same call's own `totalTokens` estimate, the last-resort context figure for an OpenRouter turn with
+ * nothing more honest to go on.
  */
 import { z } from 'zod'
 import { AutoCompactKind, type AutoCompact } from '../../shared/domain'
@@ -24,6 +26,21 @@ export function autoCompactFrom(raw: unknown): AutoCompact | undefined {
   return autoCompactThreshold === undefined
     ? undefined
     : { kind: AutoCompactKind.On, thresholdTokens: autoCompactThreshold }
+}
+
+// A malformed or missing `totalTokens` is as good as the SDK not saying.
+const contextEstimate = z.looseObject({ totalTokens: z.number().nonnegative() })
+
+/**
+ * The SDK's own local estimate of the context in use, from the same `getContextUsage` answer, for #573's last
+ * resort: a multi-request OpenRouter turn whose messages, and whose result, give no honest per-request figure.
+ * Probed (`docs/sdk-notes.md`, "A turn's `result.usage`…"): it tracks the last response's own real total once that
+ * exceeds a local baseline (system prompt, skills, slash commands), so it is never a sum across requests — but it
+ * is stale right after a compaction, so the caller never asks then. Null when the answer doesn't say.
+ */
+export function contextEstimateFrom(raw: unknown): number | null {
+  const parsed = contextEstimate.safeParse(raw)
+  return parsed.success ? parsed.data.totalTokens : null
 }
 
 /** Whether two answers say the same thing, so an unchanged one needn't touch the task. */
