@@ -22,8 +22,12 @@ export interface TerminalScreen {
    * out (hidden). The screen also fits itself when xterm.js measures its cell again.
    */
   fit(): void
-  /** Shows output. */
-  write(data: string): void
+  /**
+   * Shows output. `onParsed`, if given, is called once xterm.js has finished reading it, including answering any
+   * query in it (a colour or cursor-position request, say): those answers reach `onInput`'s listener before this
+   * fires, never after.
+   */
+  write(data: string, onParsed?: () => void): void
   /** Types text as a paste would (bracketed, when the shell asks for that), so a line break in it doesn't run it. */
   paste(text: string): void
   /** Clears the scrollback and the screen, keeping the line the cursor is on. */
@@ -139,8 +143,8 @@ export function createTerminalScreen(isAppKey: (event: KeyboardEvent) => boolean
       return { cols: terminal.cols, rows: terminal.rows }
     },
     fit,
-    write: (data) => {
-      terminal.write(data)
+    write: (data, onParsed) => {
+      terminal.write(data, onParsed)
     },
     paste: (text) => {
       terminal.paste(text)
