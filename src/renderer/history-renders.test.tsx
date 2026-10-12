@@ -1094,6 +1094,67 @@ describe('the todo hub, with 100 todos and 50 children under one (P16, #497)', (
   })
 })
 
+describe('the Todos tab’s stranded group (#593)', () => {
+  const LIVE = Array.from({ length: 10 }, (_, index) => hubTodo(String(index + 1), `Live ${String(index + 1)}`))
+  const STRANDED = Array.from({ length: 10 }, (_, index) =>
+    hubTodo(String(index + 11), `Stranded ${String(index + 1)}`, undefined, { stranded: true }),
+  )
+
+  async function renderHub(): Promise<HubStore> {
+    const wrapper = await hubStore({ todos: [...LIVE, ...STRANDED] })
+    render(<HubForTask />, { wrapper: wrapper.wrapper })
+    await act(() => wrapper.store.getState().loadTodoHub('t1'))
+    expect(document.querySelectorAll('[data-todo-head]')).toHaveLength(20)
+    vi.mocked(kindCounts).mockClear()
+    return wrapper
+  }
+
+  beforeEach(() => {
+    vi.mocked(kindCounts).mockClear()
+  })
+
+  it('renders only the live card that changed, none of the stranded ones, when a live todo changes', async () => {
+    const { fake } = await renderHub()
+
+    const [first, ...liveRest] = LIVE
+    act(() => {
+      fake.emit({
+        type: EventType.TodosChanged,
+        taskId: 't1',
+        todos: {
+          items: [{ ...first, note: 'Reviewing' } as never, ...liveRest, ...STRANDED.map((each) => ({ ...each }))],
+          updatedAt: HUB_NOW,
+        },
+      })
+    })
+
+    expect(renders(kindCounts)).toBe(1)
+  })
+
+  it('renders only the card a session restart just stranded, none of the others', async () => {
+    const { fake } = await renderHub()
+
+    const [first, ...liveRest] = LIVE
+    if (first === undefined) throw new Error('No live todo')
+    act(() => {
+      fake.emit({
+        type: EventType.TodosChanged,
+        taskId: 't1',
+        todos: {
+          items: [
+            ...liveRest.map((each) => ({ ...each })),
+            { ...first, stranded: true },
+            ...STRANDED.map((each) => ({ ...each })),
+          ],
+          updatedAt: HUB_NOW,
+        },
+      })
+    })
+
+    expect(renders(kindCounts)).toBe(1)
+  })
+})
+
 describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', () => {
   const SUBAGENTS = 50
   const RUNNING = 10
