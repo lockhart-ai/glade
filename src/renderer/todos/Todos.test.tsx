@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { TodoState } from '../../shared/domain'
-import { askAboutTodo, NO_TODOS, NoTodos, STATE_LABELS, StateIcon } from './Todos'
+import { askAboutTodo, NO_TODOS, NoTodos, StateIcon, STATE_LABELS, StrandedIcon } from './Todos'
 
 describe('a todo’s icon (#308)', () => {
   const icon = (state: TodoState): HTMLElement => render(<StateIcon state={state} />).container
@@ -37,6 +37,18 @@ describe('a todo’s icon (#308)', () => {
     ])
     expect(new Set(Object.values(STATE_LABELS)).size).toBe(4)
     expect(STATE_LABELS[TodoState.Waiting]).toBe('Waiting on you')
+  })
+})
+
+describe('a stranded todo’s icon (#593)', () => {
+  it('draws a dashed ring in its own colour, not current colour', () => {
+    const svg = render(<StrandedIcon />).container.querySelector('svg')
+
+    expect(svg).not.toHaveAttribute('stroke')
+    const circle = svg?.querySelector('circle')
+    expect(circle).toHaveAttribute('stroke', 'var(--color-slate)')
+    expect(circle).toHaveAttribute('stroke-dasharray', '3.6 3.6')
+    expect(circle).not.toHaveAttribute('fill', 'currentColor')
   })
 })
 

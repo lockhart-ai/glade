@@ -13,9 +13,14 @@ export interface TodoProgress {
   readonly doing: number
 }
 
-/** The list's progress, as the Todos tab counts it; none of none when there's no list. */
+/**
+ * The list's progress, as the Todos tab counts it; none of none when there's no list. A stranded item (#593) is left
+ * out of every count: the heading, the bar and the tab's own badge count the live todos alone, as the approved mockup
+ * draws it. A list `refreshTodos` works out for the task row never marks one stranded, so this never changes what the
+ * row counts.
+ */
 export function todoProgress(list: TodoList | null | undefined): TodoProgress {
-  const items = list?.items ?? []
+  const items = (list?.items ?? []).filter((item) => item.stranded !== true)
   return {
     done: items.filter(({ state }) => state === TodoState.Done).length,
     doing: items.filter(({ state }) => state === TodoState.Doing).length,
@@ -24,13 +29,17 @@ export function todoProgress(list: TodoList | null | undefined): TodoProgress {
 }
 
 /**
- * The list in brief, counted as the Todos tab counts it (`todoProgress`); null for no list, or an empty one, which the
- * row shows nothing for.
+ * The list in brief, counted as the Todos tab counts it (`todoProgress`, stranded items left out); null for no list, or
+ * one with nothing left to count, which the row shows nothing for.
  */
 export function summarizeTodos(list: TodoList | null): TodoSummary | null {
   if (list === null || list.items.length === 0) return null
   const { done, total } = todoProgress(list)
-  return { done, total, doing: list.items.filter(({ state }) => state === TodoState.Doing).map(({ text }) => text) }
+  if (total === 0) return null
+  const doing = list.items
+    .filter(({ state, stranded }) => state === TodoState.Doing && stranded !== true)
+    .map(({ text }) => text)
+  return { done, total, doing }
 }
 
 /** Whether every item on the list is done: the row shows a check. */

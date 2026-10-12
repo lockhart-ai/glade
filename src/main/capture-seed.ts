@@ -3,7 +3,7 @@
  * the throwaway database from a JSON fixture before the window opens, so a capture or a spec can show a populated app.
  * Only the test modes use it.
  */
-import { existsSync, readFileSync, utimesSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
@@ -94,7 +94,7 @@ import {
   type Grant,
   type SandboxGrantTarget,
 } from '../shared/sandbox'
-import { refreshTodos } from './todos/todos'
+import { refreshTodos, todoListFor } from './todos/todos'
 import { fileChildren } from './todo-hub/todo-hub'
 import {
   ChildFilter,
@@ -105,6 +105,7 @@ import {
   type ChildRef,
   type NewFiling,
 } from '../shared/todoHub'
+import { sharedTaskListDir } from './openrouter/task-list'
 
 const MINUTE = 60_000
 
@@ -306,6 +307,12 @@ export interface SeedTask {
   readonly commits?: readonly SeedCommit[] | undefined
   /** How its todos' panels were left in the todo hub; each closed, showing all, unless given. */
   readonly todoPanels?: readonly SeedTodoPanel[] | undefined
+  /**
+   * The ids, among this task's todos, a session restart has stranded (#593, #605): with a data dir to write to,
+   * `applySeed` holds these back from the shared list folder it writes for the task's other todos, so `liveTodos`
+   * marks them stranded exactly as a real restart would. None unless given, and nothing held back without a data dir.
+   */
+  readonly strandedTodos?: readonly SeedTodoId[] | undefined
   /**
    * Another workspace to put it in, made (once, by its root) beside the fixture's own, which stays the one open: for a
    * capture of what's in flight across workspaces (the menu bar popover). The fixture's workspace unless given.
@@ -844,6 +851,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       todoPanels: z
         .array(z.strictObject({ todo: seedTodoId, open: z.boolean(), filter: z.enum(ChildFilter).optional() }))
         .optional(),
+      strandedTodos: z.array(seedTodoId).optional(),
     }),
   ),
 })
@@ -1044,8 +1052,31 @@ function seedPermissionRequest(db: Database, taskId: string, request: SeedPermis
   }
 }
 
-/** Writes a seed into the database as if it had been used up to `now`: the workspace open, the selected task shown. */
-export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.now()): void {
+/**
+ * Writes a task's shared list folder so `liveTodos` marks every id in `strandedTodos` stranded, and none else (#593,
+ * #605): one `<id>.json` per id the task's derived todo list holds that isn't named there. Skipped for a task with no
+ * `strandedTodos`, or whose derived list is empty, so nothing about every other seeded task changes.
+ */
+function seedSharedTodoList(db: Database, taskId: string, dataDir: string, strandedTodos: readonly SeedTodoId[]): void {
+  const list = todoListFor(db, taskId)
+  if (list === null) return
+  const held = new Set(strandedTodos)
+  const folder = sharedTaskListDir(dataDir, taskId)
+  mkdirSync(folder, { recursive: true })
+  for (const { id } of list.items) {
+    if (id === null || held.has(id)) continue
+    writeFileSync(join(folder, `${id}.json`), JSON.stringify({ id, status: 'pending' }))
+  }
+}
+
+/**
+ * Writes a seed into the database as if it had been used up to `now`: the workspace open, the selected task shown.
+ * With `dataDir` (Glade's data folder, `app.getPath('userData')` in a real run), a task that names `strandedTodos`
+ * also gets its shared list folder written (`seedSharedTodoList`), so the real `liveTodos` path marks them stranded
+ * exactly as a restart would. Without a data dir, nothing is held back, whatever a task's `strandedTodos` names:
+ * there's nowhere to write the folder.
+ */
+export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.now(), dataDir?: string): void {
   db.transaction(() => {
     if (seed.settings !== undefined) updateSettings(db, seed.settings)
     if (seed.controlToken !== undefined) storeControlToken(db, seed.controlToken)
@@ -1183,6 +1214,9 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         }
       }
       refreshTodos(db, task.id)
+      if (dataDir !== undefined && sample.strandedTodos !== undefined) {
+        seedSharedTodoList(db, task.id, dataDir, sample.strandedTodos)
+      }
       for (const body of sample.queuedMessages ?? []) appendQueuedMessage(db, { taskId: task.id, body }, now)
       if (sample.openFiles !== undefined) {
         const { paths, activePath } = sample.openFiles
