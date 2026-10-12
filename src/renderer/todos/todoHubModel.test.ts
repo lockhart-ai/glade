@@ -124,14 +124,6 @@ describe('telling whether a card changed', () => {
     expect(sameTodo(todo, { ...todo, completedAt: 5 })).toBe(false)
   })
 
-  it('counts a todo stranding, or losing it, as a change, nothing else about it changing (#593)', () => {
-    const todo: Todo = { id: '4', text: 'Copy the files', state: TodoState.Doing, note: 'Copying', completedAt: null }
-    expect(sameTodo(todo, { ...todo, stranded: true })).toBe(false)
-    const stranded: Todo = { ...todo, stranded: true }
-    expect(sameTodo(stranded, { ...stranded })).toBe(true)
-    expect(sameTodo(stranded, todo)).toBe(false)
-  })
-
   it('shows a todo you never opened as closed on All, the same as one you closed again', () => {
     const closed: TodoPanel = { taskId: 't1', todoId: '4', open: false, filter: ChildFilter.All }
     expect(panelView(undefined)).toEqual({ open: false, filter: ChildFilter.All })

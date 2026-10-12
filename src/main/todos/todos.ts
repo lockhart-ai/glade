@@ -6,14 +6,10 @@
  * A task from before #609 carried its list over once, by replaying its tool log (`./carry-over`), so its ids, text,
  * note, state and finish time read exactly as they did before. Nothing is ever `stranded`: that was a restart's
  * session losing track of a list kept outside Glade's own database, which can't happen once Glade owns it.
- *
- * `strandedIds` and `liveTodos` stay here, unused by this file's own `todoListFor` any more, for #593's stranded
- * machinery (`close_todo`, the Stranded group, `../openrouter/task-list`), which a later PR removes along with them.
  */
 import type { Database } from 'better-sqlite3'
-import type { Task, Todo, TodoList } from '../../shared/domain'
+import type { Task, TodoList } from '../../shared/domain'
 import { sameTodoSummary, summarizeTodos } from '../../shared/todoSummary'
-import { liveTodoIds } from '../openrouter/task-list'
 import { getTodoCounter, latestTodoChangeAt, listTodos } from '../db/repositories/glade-todos'
 import { getTask, listStaleTodoTaskIds, setTaskTodos } from '../db/repositories/tasks'
 
@@ -28,40 +24,6 @@ export function todoListFor(db: Database, taskId: string): TodoList | null {
   const items = listTodos(db, taskId)
   if (items.length === 0) return null
   return { items, updatedAt: latestTodoChangeAt(db, taskId) ?? Date.now() }
-}
-
-/**
- * The highest todo id Glade has ever given a task, as a number; null while it's given none. Its counter only ever
- * goes up (`allocateTodoId`), so this is exact even once an id's todo is deleted.
- */
-export function highestTodoId(db: Database, taskId: string): number | null {
-  const next = getTodoCounter(db, taskId)
-  return next === null || next <= 1 ? null : next - 1
-}
-
-/** The ids of a list its shared list folder doesn't hold, and so are stranded (#593, for `liveTodos` alone). */
-export function strandedIds(todos: readonly Todo[], live: ReadonlySet<string> | null): ReadonlySet<string> {
-  const ids = new Set<string>()
-  if (live !== null) for (const { id } of todos) if (id !== null && !live.has(id)) ids.add(id)
-  return ids
-}
-
-/**
- * `todoListFor`, with every numbered todo the task's shared list folder doesn't hold marked stranded (#593): unused
- * by this file any more (nothing calls it; see the module comment), kept for the stranded machinery that still
- * imports it until a later PR removes it.
- */
-export function liveTodos(db: Database, taskId: string, dataDir: string | undefined): TodoList | null {
-  const list = todoListFor(db, taskId)
-  if (list === null || dataDir === undefined) return list
-  const live = liveTodoIds(dataDir, taskId)
-  if (live === null) return list
-  const stranded = strandedIds(list.items, live)
-  if (stranded.size === 0) return list
-  return {
-    ...list,
-    items: list.items.map((todo) => (todo.id !== null && stranded.has(todo.id) ? { ...todo, stranded: true } : todo)),
-  }
 }
 
 /** A task's todo list worked out again (`refreshTodos`). */

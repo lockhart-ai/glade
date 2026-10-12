@@ -25,23 +25,6 @@ export function progressBar({ done, doing, total }: TodoProgress): ProgressBar {
   return { done: (done / total) * 100, doing: (doing / total) * 100 }
 }
 
-/**
- * A list split into the todos the agent still holds and the ones stranded from before a session restart (#593), each
- * kept in the list's own order so `orderTodos` groups and orders either half exactly as it does a whole list.
- */
-export interface PartitionedTodos {
-  readonly live: readonly Todo[]
-  readonly stranded: readonly Todo[]
-}
-
-/** Splits a list into its live and stranded todos (#593). */
-export function partitionStranded(items: readonly Todo[]): PartitionedTodos {
-  const live: Todo[] = []
-  const stranded: Todo[] = []
-  for (const todo of items) (todo.stranded === true ? stranded : live).push(todo)
-  return { live, stranded }
-}
-
 /** The groups the Todos tab shows the items in, in this order: what's still to do before what's done (#282, #322). */
 export enum TodoGroup {
   /** Being worked on, or waiting on you: in the agent's order. */

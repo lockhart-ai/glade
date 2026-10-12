@@ -315,8 +315,6 @@ export function registerBridge({
     emit,
     questions,
     requestAccess: (taskId, request, call) => runner.requestAccess(taskId, request, call),
-    // Where a task's shared todo list lives: what marks a todo stranded and lets the agent close one (#593).
-    ...(dataDir === undefined ? {} : { dataDir }),
   }
   const runner = createAgentRunner({
     db,
@@ -414,8 +412,6 @@ export function registerBridge({
       openPath,
       revealPath,
       writeClipboard,
-      // Where a task's shared todo list lives: what marks a todo stranded on first load (#593).
-      ...(dataDir === undefined ? {} : { dataDir }),
       ...(openExternal === undefined ? {} : { openExternal }),
       ...(thumbnails === undefined ? {} : { thumbnails }),
       artifactWatch,

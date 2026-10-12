@@ -16,7 +16,11 @@ it('adds the closed stranded todos, going with their task and refusing an id-les
       "VALUES ('t1', 'w1', '', '', '', 'active', 0, 0, 'claude-sample-1', 'medium', 1, 1)",
   ).run()
   expect(retiredTodosMigration.version).toBe(72)
-  migrate(db, MIGRATIONS)
+  // Migration 75 drops the table this migration added; run up to 72 alone, to test its shape.
+  migrate(
+    db,
+    MIGRATIONS.filter(({ version }) => version <= 72),
+  )
   db.prepare('INSERT INTO retired_todos (task_id, todo_id, retired_at) VALUES (?, ?, ?)').run('t1', '45', 9_000)
   expect(db.prepare('SELECT todo_id, retired_at FROM retired_todos WHERE task_id = ?').all('t1')).toEqual([
     { todo_id: '45', retired_at: 9_000 },

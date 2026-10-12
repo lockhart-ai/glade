@@ -379,7 +379,7 @@ it('keeps Claude Code’s task tools on in the session’s own settings, only wh
   expect(TASK_TOOLS_ENV).toEqual({ CLAUDE_CODE_ENABLE_TASKS: 'true' })
   // The session's own environment leaves the switch to the user, as before: only the settings force it.
   expect(kept.env).not.toHaveProperty('CLAUDE_CODE_ENABLE_TASKS')
-  expect(kept.env).toMatchObject({ CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' })
+  expect(kept.env).toMatchObject({ CLAUDE_CODE_STARTUP_FAILURE_RESULTS: '1' })
 
   for (const options of [OPTIONS, { ...OPTIONS, keepTaskTools: false }]) {
     expect(sdkOptions(options, {}).settings).toEqual({ deniedMcpServers: [{ serverName: 'glade-control' }] })

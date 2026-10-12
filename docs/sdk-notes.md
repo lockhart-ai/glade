@@ -1471,10 +1471,12 @@ How the bundled binary decides, from its code:
 - They are deferred tools (`shouldDefer`): the model loads them with `ToolSearch` (`select:TaskCreate,TaskUpdate`)
   before its first call. `TaskStop` is unrelated (it stops a background task) and is always there.
 
-**Glade sets `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` in every session's `env`** (`SESSION_ENV` in `sdk-backend.ts`). Every
-session also sets `CLAUDE_CODE_ENABLE_TASKS` to `true` in the SDK's `settings` option (`TASK_TOOLS_ENV`, P16-04,
-#495), which outranks the settings files, so a user's own settings file that sets it `false` can't swap the task
-tools for `TodoWrite`, and its todos always have an id (§16, "What Glade does").
+**Glade no longer sets `CLAUDE_CODE_ENABLE_TODO_TOOLS`** (it did until #609's last PR, in `SESSION_ENV` in
+`sdk-backend.ts`): the Todos tab reads Glade's own `todos` table, the session is offered Glade's `create_todo`,
+`update_todo` and `list_todos` instead, and `DISALLOWED_TOOLS` blocks the built-ins whatever the environment says.
+Every session still sets `CLAUDE_CODE_ENABLE_TASKS` to `true` in the SDK's `settings` option (`TASK_TOOLS_ENV`,
+P16-04, #495), which outranks the settings files, so a user's own settings file that sets it `false` can't swap a
+kept task-tools session's tools for `TodoWrite`, and its todos always have an id (§16, "What Glade does").
 
 A real session built from Glade's `sdkOptions` (`claude-sonnet-5`), asked to keep a two-item list, made these calls,
 which match the Todos tab's schemas (`src/main/todos/schema.ts`) and the scripted backend's `keeps-todos` script:

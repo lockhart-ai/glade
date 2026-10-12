@@ -61,7 +61,7 @@ export interface UpdateTodoInput {
 export const UPDATE_TODO_CHANGES_NOTHING =
   'Give a new subject, note or status: an update with none of them changes nothing.'
 
-/** Works the task's todo list and row summary out again, and tells the windows (as `close_todo` already does). */
+/** Works the task's todo list and row summary out again, and tells the windows. */
 function announce({ db, emit }: FilingContext, taskId: string): void {
   const { changed } = refreshTodos(db, taskId)
   emitTodosChanged(emit, taskId, todoListFor(db, taskId))
@@ -86,8 +86,7 @@ function requireTodo(db: Database, taskId: string, given: string): FilingTodo {
 
 /**
  * `update_todo`: changes a todo's subject, note or status, or — `status: "deleted"` — removes it, refused while
- * anything is still filed under it (as `close_todo` refuses today), naming each so the agent can move it with
- * `file_children` first.
+ * anything is still filed under it, naming each so the agent can move it with `file_children` first.
  */
 export function updateTodoForAgent(context: FilingContext, taskId: string, input: UpdateTodoInput): string {
   const { db } = context

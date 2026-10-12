@@ -3,20 +3,9 @@
 // its agent sorts it. A todo holds produced work only (#535): a subagent is named only while it has no todo, and a
 // watcher never is.
 import type { Database } from 'better-sqlite3'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
-import {
-  ArtifactKind,
-  TodoState,
-  ToolCallState,
-  WatcherKind,
-  WatcherState,
-  type Task,
-  type TodoSummary,
-} from '../../shared/domain'
+import { ArtifactKind, TodoState, ToolCallState, WatcherKind, WatcherState, type Task } from '../../shared/domain'
 import {
   ChildKind,
   commitChildKey,
@@ -35,16 +24,13 @@ import {
   seedTodoCounterAtLeast,
   updateTodo as updateTodoRow,
 } from '../db/repositories/glade-todos'
-import { listRetiredTodoIds } from '../db/repositories/retired-todos'
 import { addTaskCommit, CommitSource } from '../db/repositories/task-commits'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
 import { addWatcher } from '../db/repositories/watchers'
-import { sharedTaskListDir } from '../openrouter/task-list'
 import {
   CHILD_TITLE_MAX,
   childLabel,
-  closeForAgent,
   filedText,
   fileForAgent,
   filingTodos,
@@ -55,7 +41,6 @@ import {
   NO_TODO,
   NO_TODOS,
   NOTHING_FILED,
-  STRANDED_NOTE,
   todoLabel,
   todosLine,
   todoStatus,
@@ -1013,117 +998,6 @@ describe('file_children', () => {
     it('answers an empty call with nothing changed', () => {
       expect(filedText(file([]))).toBe('Nothing changed.')
       expect(events).toEqual([])
-    })
-  })
-})
-
-describe('a stranded todo (#593)', () => {
-  const dirs: string[] = []
-
-  afterEach(() => {
-    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
-  })
-
-  /** A shared list folder for the task, holding a todo file per id given, so the others are stranded. */
-  function sharedList(...ids: readonly string[]): string {
-    const dir = mkdtempSync(join(tmpdir(), 'glade-stranded-'))
-    dirs.push(dir)
-    const folder = sharedTaskListDir(dir, task.id)
-    mkdirSync(folder, { recursive: true })
-    for (const id of ids) writeFileSync(join(folder, `${id}.json`), `{"id":"${id}","status":"pending"}`)
-    writeFileSync(join(folder, '.highwatermark'), '90')
-    return dir
-  }
-
-  function close(given: string, dataDir?: string): string {
-    return closeForAgent({ ...context(), ...(dataDir === undefined ? {} : { dataDir }) }, task.id, given, 9_000)
-  }
-
-  describe('in list_children', () => {
-    beforeEach(() => {
-      createTodo('1', 'Review the date helpers', 5_000)
-      createTodo('2', 'Fix the UTC date test', 5_100)
-    })
-
-    it('marks the todo the shared list no longer holds, with the note telling the agent what to do', () => {
-      const listed = listingText(listForAgent(db, task.id, undefined, sharedList('1')))
-      expect(listed).toContain('#2 Fix the UTC date test (pending), no children')
-      expect(listed).toContain(STRANDED_NOTE)
-      // The live one is marked as nothing.
-      expect(listed).toContain('#1 Review the date helpers (pending), no children\n')
-      // The task's own list, with no folder to read, marks nothing.
-      expect(listingText(listForAgent(db, task.id))).not.toContain('Stranded')
-    })
-
-    it('marks it asking for that todo alone, too', () => {
-      expect(listingText(listForAgent(db, task.id, '2', sharedList('1')))).toBe(
-        `#2 Fix the UTC date test (pending), no children\n${STRANDED_NOTE}`,
-      )
-    })
-  })
-
-  describe('closed with close_todo', () => {
-    beforeEach(() => {
-      createTodo('1', 'Review the date helpers', 5_000)
-      createTodo('2', 'Fix the UTC date test', 5_100)
-    })
-
-    it('marks it retired and tells the windows, though nothing filters it from the table-based list any more (#609)', () => {
-      expect(close('1', sharedList('2'))).toBe(
-        "Closed stranded todo #1 Review the date helpers (pending). It is out of the task's list everywhere; " +
-          'its history stays in the tool log.',
-      )
-      expect(listRetiredTodoIds(db, task.id)).toEqual(new Set(['1']))
-      // close_todo isn't offered any more, and its handler's old effect (hiding a closed todo from the derived
-      // list) doesn't reach Glade's own table: this is only ever exercised by calling the handler directly.
-      expect(filingTodos(taskChildren(db, task.id).todos).map(({ id }) => id)).toEqual(['1', '2'])
-      expect(events.map(({ type }) => type)).toEqual([EventType.TodosChanged, EventType.TaskUpdated])
-      const todos = events.find((event) => event.type === EventType.TodosChanged)
-      if (todos === undefined || !('todos' in todos) || todos.todos === null) throw new Error('No todos sent')
-      expect(todos.todos.items.map(({ id }) => id)).toEqual(['1', '2'])
-      const updated = events.find((event) => event.type === EventType.TaskUpdated)
-      if (updated === undefined || !('task' in updated) || updated.task.todos === null) throw new Error('No task sent')
-      expect(updated.task.todos satisfies TodoSummary).toEqual({ done: 0, total: 2, doing: [] })
-    })
-
-    it('refuses a live todo, and every todo of a task with no shared folder', () => {
-      expect(refusal(() => close('1', sharedList('1')))).toEqual({
-        code: BridgeErrorCode.InvalidRequest,
-        message: 'Todo #1 Review the date helpers (pending) is live: change it with TaskUpdate, not close_todo.',
-      })
-      expect(refusal(() => close('1'))).toEqual({
-        code: BridgeErrorCode.InvalidRequest,
-        message: 'Todo #1 Review the date helpers (pending) is live: change it with TaskUpdate, not close_todo.',
-      })
-    })
-
-    it('refuses one with children still filed under it, naming each by its short id', () => {
-      const dir = sharedList('2')
-      commit(FIX_HASH, 'Fix the UTC date test', 'toolu_bash', 6_000)
-      list()
-      expect(file([{ child: 'c1', todo: '1' }]).filed).toEqual([{ id: 'c1', todoId: '1' }])
-      expect(refusal(() => close('1', dir))).toEqual({
-        code: BridgeErrorCode.InvalidRequest,
-        message:
-          'Todo #1 Review the date helpers (pending) still has children filed under it: ' +
-          'c1: commit "abc1234 Fix the UTC date test". Move each to the todo it belongs under with file_children, ' +
-          'then close it.',
-      })
-    })
-
-    it('refuses an id the task holds no todo for, and answers one already closed', () => {
-      const dir = sharedList()
-      expect(refusal(() => close('9', dir))).toEqual({
-        code: BridgeErrorCode.InvalidRequest,
-        message:
-          "There's no todo #9 in this task's list. Your todos: #1 Review the date helpers (pending) · " +
-          '#2 Fix the UTC date test (pending)',
-      })
-      expect(close('1', dir)).toContain('Closed stranded todo')
-      // "Already closed" relied on a closed todo dropping out of the derived list; nothing drops out of Glade's own
-      // table any more (#609), so closing it again just closes it again. Only reachable by calling the handler
-      // directly: close_todo isn't offered.
-      expect(close('1', dir)).toContain('Closed stranded todo')
     })
   })
 })

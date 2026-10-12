@@ -4,9 +4,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import type { Database } from 'better-sqlite3'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createBridge } from '../../preload/bridge'
 import { CommandName, EventType, type GladeEvent } from '../../shared/bridge'
@@ -18,7 +15,6 @@ import { addArtifact, addLinkArtifact } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
 import { putTodos, seedTodoCounterAtLeast } from '../db/repositories/glade-todos'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
-import { sharedTaskListDir } from '../openrouter/task-list'
 import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
 import { createQuestionBroker } from '../questions/questions'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
@@ -94,8 +90,6 @@ describe('the server', () => {
     expect(names).toContain(GladeTool.ListChildren)
     expect(names).toContain(GladeTool.FileChildren)
     expect(names).toContain(GladeTool.ListOtherTasks)
-    // close_todo isn't offered any more (#609): nothing is ever stranded once Glade owns the list.
-    expect(names).not.toContain(GladeTool.CloseTodo)
     for (const listed of tools) expect(listed._meta).toEqual({ 'anthropic/alwaysLoad': true })
 
     // Whatever upkeep the session has: they aren't upkeep.
@@ -232,31 +226,6 @@ describe('the two tools, called as the agent calls them', () => {
     })
     expect(handlers.fileChildren({ filings: [{ child: 'c2', todo: '3' }] })).toMatchObject({ isError: true })
     expect(handlers.listChildren({ todo: '3' })).toMatchObject({ isError: true })
-  })
-
-  // close_todo isn't offered any more (#609, above), but its handler stays for a later PR to remove along with the
-  // rest of the stranded machinery; called directly here so those lines keep their coverage until then.
-  it('closes a stranded todo through its handler, and refuses a live one as an error', () => {
-    createTodo('1', 'Review the date helpers')
-    createTodo('2', 'Fix the UTC date test')
-    const dir = mkdtempSync(join(tmpdir(), 'glade-close-todo-'))
-    const folder = sharedTaskListDir(dir, task.id)
-    mkdirSync(folder, { recursive: true })
-    writeFileSync(join(folder, '2.json'), '{"id":"2","status":"pending"}')
-
-    const stranded = createGladeToolHandlers({ ...context, dataDir: dir }, task.id)
-    expect(stranded.closeTodo({ todo: '1' })).toEqual({
-      content: [
-        {
-          type: 'text',
-          text:
-            "Closed stranded todo #1 Review the date helpers (pending). It is out of the task's list everywhere; " +
-            'its history stays in the tool log.',
-        },
-      ],
-    })
-    expect(createGladeToolHandlers(context, task.id).closeTodo({ todo: '2' })).toMatchObject({ isError: true })
-    rmSync(dir, { recursive: true, force: true })
   })
 })
 

@@ -21,7 +21,6 @@ import {
 } from './transcripts'
 import { openRouterSdkModel } from './sdk-model'
 import { importLocalTranscript } from './local-transcripts'
-import { SILENT_LOGGER } from '../logging/logger'
 
 export interface OpenRouterRuntimeOptions {
   readonly db: Database
@@ -35,7 +34,6 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
   const imports = new Set<string>()
   return {
     async prepare(options: AgentSessionOptions, inherited: Environment): Promise<PreparedSdkSession> {
-      const log = options.log ?? SILENT_LOGGER
       const store = sqliteSessionStore(db, options.taskId ?? null)
       const router = agentSource(options.model) === AgentSource.OpenRouter
       const sessionId = options.resumeSessionId
@@ -44,10 +42,6 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
         : ([inherited.CLAUDE_CONFIG_DIR, process.env.CLAUDE_CONFIG_DIR].find(
             (path) => path !== undefined && path !== '',
           ) ?? join(homedir(), '.claude'))
-      const claudeConfig =
-        [inherited.CLAUDE_CONFIG_DIR, process.env.CLAUDE_CONFIG_DIR].find(
-          (path) => path !== undefined && path !== '',
-        ) ?? join(homedir(), '.claude')
       const recoveryDir = sessionId === null ? null : failedTranscriptConfig(db, sessionId, options.taskId ?? null)
       let imported = false
       let adopted = options.provisional !== true
@@ -95,7 +89,6 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
         }
         if (agentSource(options.model) === AgentSource.Anthropic) {
           const env = Object.fromEntries(Object.entries(inherited).filter(([name]) => !name.startsWith('OPENROUTER_')))
-          if (taskList !== undefined) env.CLAUDE_CODE_TASK_LIST_ID = taskList
           for (const name of new Set([...Object.keys(process.env), ...Object.keys(inherited)]))
             if (name.startsWith('OPENROUTER_')) env[name] = ''
           return {
@@ -159,7 +152,6 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
           CLAUDE_CODE_NO_MODEL_FALLBACK: '1',
           // The SDK's unknown-model default is 200K; its installed runtime supports this explicit real-window override.
           CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(contextWindowTokens),
-          ...(taskList === undefined ? {} : { CLAUDE_CODE_TASK_LIST_ID: taskList }),
         })
         return {
           model,

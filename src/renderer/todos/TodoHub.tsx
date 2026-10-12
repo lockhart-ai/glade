@@ -32,7 +32,7 @@ import { useNow } from '../task-list/useNow'
 import { ArtifactTiles } from './tiles/ArtifactTiles'
 import { ChildTile } from './tiles/ChildTile'
 import { subagentsIn } from './tiles/childIndex'
-import { askAboutTodo, NoTodos, STATE_LABELS, StateIcon, StrandedIcon } from './Todos'
+import { askAboutTodo, NoTodos, STATE_LABELS, StateIcon } from './Todos'
 import {
   filterChildren,
   filterOfKind,
@@ -44,14 +44,12 @@ import {
   samePanel,
   sameTodo,
   shownFilter,
-  STRANDED_HEADING,
-  STRANDED_HINT,
   UNFILED_HEADING,
   type KindCount,
   type PanelView,
 } from './todoHubModel'
 import { linkAddresses, linkReferences, namedBy, NO_REFERENCES, sameReferences, type LinkReferences } from './todoLinks'
-import { orderTodos, partitionStranded, progressBar, progressHeading, todoProgress } from './todosModel'
+import { orderTodos, progressBar, progressHeading, todoProgress } from './todosModel'
 import { TodoText } from './TodoText'
 import styles from './TodoHub.module.css'
 
@@ -311,10 +309,6 @@ function sameCard(a: TodoCardProps, b: TodoCardProps): boolean {
  * title, its status line, and one row of icons (`Kinds`). Clicking its head opens it to one flat list of its children
  * (`Tiles`), which a closed todo never builds. A todo with nothing under it is its title alone, and doesn't open. A PR,
  * an issue or a ticket its title or status line names is a link, when the task has it as one (`TodoText`).
- *
- * A stranded todo (#593) is the same card: its icon is a dashed ring in place of its state (`StrandedIcon`), and its
- * title and status line are always muted, never struck through even if it's done, since nothing here is live or
- * finished in the way a kept todo's state says. Its children still open the same way.
  */
 const TodoCard = memo(function TodoCard({
   taskId,
@@ -328,7 +322,6 @@ const TodoCard = memo(function TodoCard({
   const { counts, open, filter, toggle, show, onKey } = usePanelControls(taskId, todo.id, childList, panel)
   const menuTarget = useMemo(() => menuTargetProps(menuKey), [menuTargetProps, menuKey])
   const parent = childList.length > 0
-  const stranded = todo.stranded === true
   const onKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
     menuTarget.onKeyDown(event)
     if (!event.defaultPrevented) onKey(event)
@@ -338,7 +331,7 @@ const TodoCard = memo(function TodoCard({
   }
   return (
     <li
-      className={classNames(styles.card, STATE_CLASSES[todo.state], stranded && styles.stranded)}
+      className={classNames(styles.card, STATE_CLASSES[todo.state])}
       data-open={open ? '' : undefined}
       {...{ [TODO_ATTRIBUTE]: todo.id ?? undefined }}
     >
@@ -351,12 +344,12 @@ const TodoCard = memo(function TodoCard({
         onKeyDown={onKeyDown}
       >
         <span className={styles.stateIcon} aria-hidden="true">
-          {stranded ? <StrandedIcon /> : <StateIcon state={todo.state} />}
+          <StateIcon state={todo.state} />
         </span>
         <div className={styles.main}>
           <div className={styles.titleRow}>
             <div className={styles.title}>
-              <span className={styles.hidden}>{`${stranded ? STRANDED_HEADING : STATE_LABELS[todo.state]}: `}</span>
+              <span className={styles.hidden}>{`${STATE_LABELS[todo.state]}: `}</span>
               <TodoText text={todo.text} links={links} />
             </div>
             {todo.state === TodoState.Done && todo.completedAt !== null && (
@@ -498,17 +491,12 @@ export interface TodoShown {
 }
 
 /**
- * The Todos tab (P16, #491; `docs/design/html/46-todo-hub.html` to `49-todo-hub-unfiled.html`, `65-todo-hub-stranded.html`):
- * what a task produced (its files, links and commits), under the todo it belongs to. What's going on (subagents,
- * watchers) is in the Agents tab, and no todo shows any (#535). Every todo is a card (`TodoCard`), in the tab's order
- * (`orderTodos`), then the ones a session restart stranded (#593), in a group of their own (`STRANDED_HEADING`),
- * ordered the same way among themselves, then the placeholder group for what no todo has (`UnfiledCard`), hidden
- * while it's empty. A task with no todos that produced something says so in a line above that group; one with
- * nothing at all has the Todos tab's own empty state (`NoTodos`).
- *
- * A todo the task's shared list folder no longer holds arrives already marked `stranded` (`partitionStranded` splits
- * it out of the live list before `orderTodos` groups and orders either half); its children stay filed under it and
- * open exactly as any other todo's do, and the tab's heading, bar and badge count the live todos alone (`todoProgress`).
+ * The Todos tab (P16, #491; `docs/design/html/46-todo-hub.html` to `49-todo-hub-unfiled.html`): what a task produced
+ * (its files, links and commits), under the todo it belongs to. What's going on (subagents, watchers) is in the Agents
+ * tab, and no todo shows any (#535). Every todo is a card (`TodoCard`), in the tab's order (`orderTodos`), then the
+ * placeholder group for what no todo has (`UnfiledCard`), hidden while it's empty. A task with no todos that produced
+ * something says so in a line above that group; one with nothing at all has the Todos tab's own empty state
+ * (`NoTodos`).
  *
  * It works out which todo each child is under itself (`groupChildren`), from the lists the store already keeps for the
  * other tabs and the task's filings, so a child filed, moved or changed shows at once, with no reload. The tool log is
@@ -547,11 +535,8 @@ export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown
     }
   }, [taskId, watchArtifacts, unwatchArtifacts])
 
-  // A todo the session has stranded (#593) shows in its own group, after the live ones and before Not under a todo;
-  // each half keeps the list's own order, so `orderTodos` groups and orders either exactly as it does a whole list.
-  const { live, stranded } = useMemo(() => partitionStranded(todos), [todos])
-  const ordered = useMemo(() => orderTodos(live), [live])
-  const strandedOrdered = useMemo(() => orderTodos(stranded), [stranded])
+  // The todos in the tab's order, grouped and ordered by state.
+  const ordered = useMemo(() => orderTodos(todos), [todos])
 
   // Shows the todo asked for: its card scrolls into view and its head takes the focus, as ↑ and ↓ move it. Until the
   // todo is in the list (the task's logs still loading), the request waits.
@@ -565,7 +550,7 @@ export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown
     card.scrollIntoView({ block: 'nearest' })
     card.querySelector<HTMLElement>(`[${HEAD_ATTRIBUTE}]`)?.focus()
     onFocusShown?.()
-  }, [focus, onFocusShown, ordered, strandedOrdered])
+  }, [focus, onFocusShown, ordered])
 
   // Until the filings are read, nothing is grouped: every child would show under no todo for a moment.
   const grouped = useMemo(
@@ -586,20 +571,19 @@ export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown
   // artifacts does; then, per todo, the ones its own text names, read again only when the todos or the links change.
   const addresses = useMemo(() => linkAddresses(artifacts), [artifacts])
   const references = useMemo(() => linkReferences(addresses), [addresses])
-  /** By a todo's row's key, live and stranded rows alike. A task with no PR, issue or ticket among its links reads no
+  /** By a todo's row's key. A task with no PR, issue or ticket among its links reads no
    * todo's text. */
   const links = useMemo(() => {
     if (references.size === 0) return NO_LINKS
     const map = new Map<string, LinkReferences>()
     for (const { todo, key } of ordered) map.set(key, namedBy(todo, references))
-    for (const { todo, key } of strandedOrdered) map.set(key, namedBy(todo, references))
     return map
-  }, [ordered, strandedOrdered, references])
+  }, [ordered, references])
 
-  // The menu is opened for a row's key, and finds its todo as it is by then, live or stranded.
+  // The menu is opened for a row's key, and finds its todo as it is by then.
   const { targetProps } = menu
   const entries = (key: string) => {
-    const todo = ordered.find((row) => row.key === key)?.todo ?? strandedOrdered.find((row) => row.key === key)?.todo
+    const todo = ordered.find((row) => row.key === key)?.todo
     if (todo === undefined) return []
     return todoMenu({
       copy: () => {
@@ -636,26 +620,6 @@ export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown
             menuTargetProps={targetProps}
           />
         ))}
-        {strandedOrdered.length > 0 && (
-          <>
-            <li className={styles.strandedHead}>
-              <span className={styles.strandedLabel}>{STRANDED_HEADING}</span>
-              <span className={styles.strandedHint}>{STRANDED_HINT}</span>
-            </li>
-            {strandedOrdered.map(({ todo, key }) => (
-              <TodoCard
-                key={key}
-                taskId={taskId}
-                todo={todo}
-                childList={childLists.get(key) ?? NO_CHILDREN}
-                panel={todo.id === null ? undefined : panels[todo.id]}
-                links={links.get(key) ?? NO_REFERENCES}
-                menuKey={key}
-                menuTargetProps={targetProps}
-              />
-            ))}
-          </>
-        )}
         {unfiled.length > 0 && (
           <UnfiledCard taskId={taskId} childList={unfiled} panel={panels[UNFILED_TODO_ID]} alone={todos.length === 0} />
         )}

@@ -28,7 +28,7 @@ import {
 } from './test-hub'
 import { TodoHub } from './TodoHub'
 import styles from './TodoHub.module.css'
-import { NO_HUB_TODOS, STRANDED_HINT, UNFILED_HEADING } from './todoHubModel'
+import { NO_HUB_TODOS, UNFILED_HEADING } from './todoHubModel'
 import { NO_TODOS } from './Todos'
 import todosStyles from './Todos.module.css'
 
@@ -1038,89 +1038,6 @@ describe('Not under a todo', () => {
       filings: [hubFiling(refOf.link('https://github.com/acme/api/pull/42'), '99')],
     })
     expect(kinds(UNFILED_HEADING)).toEqual(['1 link', '1 change'])
-  })
-})
-
-describe('a stranded todo (#593)', () => {
-  const PR_501 = 'https://github.com/acme/api/pull/501'
-  const RESTARTED: HubTask = {
-    todos: [
-      hubTodo('1', '#504 Add a retry-count metric', TodoState.Done),
-      hubTodo('2', 'Write the webhook signing guide', TodoState.Doing, { note: 'Reading the existing docs' }),
-      hubTodo('3', 'Add a timeout to the retry loop', TodoState.Todo),
-      hubTodo('35', '#498 Add exponential backoff to the webhook sender', TodoState.Doing, {
-        stranded: true,
-        note: 'Waiting on CI · PR #501',
-      }),
-      hubTodo('36', 'Write a migration guide for API v1 users', TodoState.Done, { stranded: true }),
-    ],
-    artifacts: [hubLink(PR_501, 'Add exponential backoff', 15)],
-    filings: [hubFiling(refOf.link(PR_501), '35')],
-  }
-
-  it('groups the stranded todos after the live ones, with the heading and its hint, before Not under a todo', async () => {
-    await renderHub(RESTARTED)
-
-    expect(cards().map((each) => each.querySelector('[data-todo-head]')?.textContent ?? each.textContent)).toEqual([
-      'Doing: Write the webhook signing guideReading the existing docs',
-      'To do: Add a timeout to the retry loop',
-      'Done: #504 Add a retry-count metricFinished 2m ago',
-      `Stranded${STRANDED_HINT}`,
-      'Stranded: #498 Add exponential backoff to the webhook senderWaiting on CI · PR #501',
-      'Stranded: Write a migration guide for API v1 usersFinished 2m ago',
-    ])
-    expect(screen.getByText('Stranded')).toBeInTheDocument()
-    expect(screen.getByText(STRANDED_HINT)).toBeInTheDocument()
-  })
-
-  it('leaves the stranded todos out of the heading, the bar and the badge: only the live ones count', async () => {
-    await renderHub(RESTARTED)
-
-    // 3 live todos (1 done), not 5: the 2 stranded ones don't count.
-    expect(screen.getByText('1 of 3 done')).toBeInTheDocument()
-    const bar = screen.getByRole('progressbar', { name: 'Todos done' })
-    expect(bar).toHaveAttribute('aria-valuemax', '3')
-    expect(bar).toHaveAttribute('aria-valuenow', '1')
-  })
-
-  it('marks a stranded card as stranded, whatever its state, with a dashed ring in place of its state icon', async () => {
-    await renderHub(RESTARTED)
-
-    expect(card(/#498/)).toHaveClass(styles.stranded ?? '')
-    expect(card(/#498/).querySelector('svg circle')).toHaveAttribute('stroke-dasharray', '3.6 3.6')
-    expect(card(/migration guide/)).toHaveClass(styles.stranded ?? '')
-    expect(card(/migration guide/)).toHaveClass(styles.done ?? '')
-    expect(card(/migration guide/).querySelector('svg circle')).toHaveAttribute('stroke-dasharray', '3.6 3.6')
-    // A live card never gets it.
-    expect(card(/retry-count metric/)).not.toHaveClass(styles.stranded ?? '')
-  })
-
-  it('shows a finish time only for a stranded todo that has one, exactly as a live done card does', async () => {
-    await renderHub(RESTARTED)
-
-    expect(head(/#498/)).not.toHaveTextContent('ago')
-    expect(head(/migration guide/)).toHaveTextContent('Finished 2m ago')
-  })
-
-  it('keeps a stranded todo’s children filed under it, open and closed exactly as any other todo’s', async () => {
-    await renderHub(RESTARTED)
-
-    expect(kinds(/#498/)).toEqual(['1 link'])
-    expect(head(/#498/)).toHaveAttribute('aria-expanded', 'false')
-    expect(tiles(/#498/)).toEqual([])
-    fireEvent.click(head(/#498/))
-    expect(head(/#498/)).toHaveAttribute('aria-expanded', 'true')
-    expect(tiles(/#498/)).toEqual(['Link: Add exponential backoff'])
-  })
-
-  it('shows no stranded group with none, and all stranded with no live todos', async () => {
-    await renderHub(SHIP)
-    expect(screen.queryByText('Stranded')).toBeNull()
-    cleanup()
-
-    await renderHub({ ...RESTARTED, todos: RESTARTED.todos?.filter(({ id }) => id === '35' || id === '36') })
-    expect(screen.getByText('Stranded')).toBeInTheDocument()
-    expect(cards()).toHaveLength(3)
   })
 })
 

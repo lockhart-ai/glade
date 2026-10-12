@@ -540,22 +540,17 @@
     `sqlite3 ~/Library/Application\ Support/glade/glade.db "INSERT INTO settings (key, value) VALUES ('todoHubEnabled', 'true') ON CONFLICT (key) DO UPDATE SET value = 'true'"`
     and open it again (`'false'` turns it back off). In a dev build (`npm run dev`), View › Toggle Developer Tools
     and `await glade.invoke('settings.update', { patch: { todoHubEnabled: true } })` does the same without a relaunch.
-  - **A todo's id is Claude Code's own** (`Task #N`, which the todo parser already read): unique within a task, the
-    same across a compaction, a resume, a relaunch and a session restarted (#593: Glade gives every main session of a
-    task one shared todo list, so numbering continues, and a list seeded for a task that already held todos numbers
-    past the highest id Glade holds), and never used again once its todo is deleted (`sdk-notes.md` §16). It reaches
-    the window with each todo, whatever the switch says, and the Todos tab keys its rows on it. A `TodoWrite` item has
-    none: nothing can be filed under it, and its row is keyed by its place in the list. (Glade keeps Claude Code's
-    task tools on for a session with the hub, #495, so that shouldn't occur.)
-  - **A todo the agent's live list no longer holds is stranded, and the agent closes it** (#593). For a task whose
-    shared list folder exists (`liveTodos`, `src/main/todos`), a numbered todo Glade derives that the folder has no
-    `N.json` for is stranded: shown in the Todos tab and `list_children` with a note telling the agent how to retire
-    it, since `TaskUpdate` can't reach it. A task with no shared folder (one that hasn't started since Glade kept the
-    list for it) strands nothing, and an id-less `TodoWrite` item never is stranded. The agent closes one with
-    `close_todo`, which refuses a live todo (`TaskUpdate` reaches it) and one with children still filed under it
-    until they're moved; once closed, the todo is out of Glade's list everywhere (`retired_todos`, migration 72),
-    its history staying in the tool log. The Todos tab shows stranded todos apart in a group of their own, which
-    follows this decision's mockup.
+  - **A todo's id is a plain integer scoped to the task** (what was `Task #N`): unique within the task and never used
+    again once its todo is deleted — Glade's own counter (`todo_counters`, migration 73) only ever goes up (#609).
+    It reaches the window with each todo, whatever the switch says, and the Todos tab keys its rows on it. The old
+    tool log's `Task #N` ids carry over exactly, and a legacy `TodoWrite` item has none: nothing can be filed under
+    it, and its row is keyed by its place in the list.
+  - **Nothing is ever stranded, and nothing closes a todo** (#593's machinery retired with #609). While the list
+    lived outside Glade's own database, a restart could lose track of it: a todo Glade still showed that the agent's
+    shared list folder had no `N.json` for was *stranded*, shown apart in the Todos tab, and the agent closed it with
+    `close_todo` once its children were moved (`retired_todos`, migration 72, dropped by 75). Todos live in Glade's
+    own `todos` table now (below), so nothing can lose track of one, and the agent removes a todo with `update_todo`'s
+    `deleted` status instead.
   - **A child is named by its kind and its own key:** a file by its artifact's path, a link by its URL, a commit by
     its hash and working tree, and a subagent (which has a todo as plumbing, and is no todo's child) by the
     `tool_use` id of the call that started it. It also has a **short id** within its task (`c1`, `c2`, …), which

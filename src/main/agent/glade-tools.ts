@@ -55,7 +55,6 @@ import { toolResultFor, type QuestionBroker } from '../questions/questions'
 import { preambleSchema, questionsSchema } from '../questions/schema'
 import { updateTaskFromAgent, type TaskServiceContext } from '../tasks/service'
 import {
-  closeForAgent,
   filedText,
   fileForAgent,
   listForAgent,
@@ -125,7 +124,6 @@ export enum GladeTool {
   ListChildren = 'list_children',
   FileChildren = 'file_children',
   ListOtherTasks = 'list_other_tasks',
-  CloseTodo = 'close_todo',
   CreateTodo = 'create_todo',
   UpdateTodo = 'update_todo',
   ListTodos = 'list_todos',
@@ -185,11 +183,6 @@ export interface ListChildrenInput {
 
 export interface FileChildrenInput {
   readonly filings: readonly FilingRequest[]
-}
-
-/** A stranded todo to close, by the id `list_children` shows it with (#593). */
-export interface CloseTodoInput {
-  readonly todo: string
 }
 
 /** `list_other_tasks` takes no input (#578). */
@@ -295,9 +288,6 @@ const fileChildrenInput = z.object({
 }) satisfies z.ZodType<FileChildrenInput>
 
 const listOtherTasksInput = z.object({}) satisfies z.ZodType<ListOtherTasksInput>
-
-// close_todo's own schema is gone with its tool() registration (#609): nothing is ever stranded once Glade owns
-// the list, so it isn't offered any more. `CloseTodoInput` and `closeTodo` (below) stay for a later PR to remove.
 
 /** `update_todo`'s `status`, in the built-ins' own words (#609). */
 const todoToolStatus = z.enum(['pending', 'in_progress', 'completed', 'deleted'])
@@ -438,9 +428,6 @@ export type RequestAccess = (taskId: string, request: AccessRequest, call: Acces
 export interface GladeToolContext extends TaskServiceContext {
   readonly questions: QuestionBroker
   readonly requestAccess?: RequestAccess
-  /** Glade's data folder, where a task's shared todo list lives (`list_children`, `close_todo`, #593). None by
-   * default, which leaves a task's todos as its agent's list alone has them. */
-  readonly dataDir?: string
 }
 
 /** The handlers for one task, given input the SDK has already checked. */
@@ -477,11 +464,6 @@ export interface GladeToolHandlers {
    * or a todo isn't there.
    */
   fileChildren(input: FileChildrenInput): GladeToolResult
-  /**
-   * Closes a stranded todo, once its children are moved; an error result for a live todo (`TaskUpdate` reaches it),
-   * one already closed, or one with children still filed under it (#593).
-   */
-  closeTodo(input: CloseTodoInput): GladeToolResult
   /**
    * The other Active tasks across every workspace, most recently updated first, with the calling task marked as
    * itself (#578); never an error (there is always at least the calling task to show, once it has a row).
@@ -603,7 +585,6 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
     },
     listChildren({ todo }) {
       try {
-        // No dataDir: nothing is ever marked stranded once Glade owns the list in its own table (#609).
         return reply(listingText(listForAgent(context.db, taskId, todo)))
       } catch (error) {
         return failure(error)
@@ -612,13 +593,6 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
     fileChildren({ filings }) {
       try {
         return reply(filedText(fileForAgent(context, taskId, filings)))
-      } catch (error) {
-        return failure(error)
-      }
-    },
-    closeTodo({ todo }) {
-      try {
-        return reply(closeForAgent(context, taskId, todo))
       } catch (error) {
         return failure(error)
       }
@@ -701,14 +675,6 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
     '#N). Filing a subagent says which todo it works on, and its commits go under that todo with it, so file those ' +
     "apart only to keep them somewhere else. If a child or a todo isn't there, nothing is filed and the error says " +
     'which. Create the todo first (create_todo) if none fits.',
-  [GladeTool.CloseTodo]:
-    "Close a stranded todo of this task: one the Todos tab still shows, but which the task's session was restarted " +
-    'since, so its new list doesn\'t hold it and TaskUpdate answers "Task not found" for it — list_children marks ' +
-    'such a todo as stranded. First recreate what is still live about it (TaskCreate), and move its children under ' +
-    'the todos they belong to now (file_children); close_todo refuses while anything is still filed under it. Then ' +
-    "close it by its id (the N of Task #N), and it's out of the task's list everywhere, its history kept in the tool " +
-    'log. A todo the list still holds is live: change it with TaskUpdate instead, which close_todo refuses. Closing ' +
-    'it again answers that it is already closed.',
   [GladeTool.ListOtherTasks]:
     'List the other Active tasks across every workspace, most recently updated first, so you can see what they are ' +
     "doing: each one's id, title, objective (Goal), status (Now), attention (working, needs you, or idle), its " +
@@ -833,8 +799,6 @@ export function createGladeMcpServer(
       tool(GladeTool.FileChildren, DESCRIPTIONS[GladeTool.FileChildren], fileChildrenInput.shape, (input) =>
         Promise.resolve(handlers.fileChildren(input)),
       ),
-      // close_todo isn't offered any more: nothing is ever stranded once Glade owns the list (#609). Its handler
-      // stays (closeTodo, above) for a later PR to remove along with the rest of the stranded machinery.
       tool(GladeTool.ListOtherTasks, DESCRIPTIONS[GladeTool.ListOtherTasks], listOtherTasksInput.shape, () =>
         Promise.resolve(handlers.listOtherTasks()),
       ),
