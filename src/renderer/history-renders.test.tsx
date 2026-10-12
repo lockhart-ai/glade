@@ -1274,19 +1274,20 @@ describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', 
     expect(vi.mocked(agentTokensLine)).toHaveBeenCalledTimes(1)
   })
 
-  it("renders a native subagent's combined total while it runs, and the split once it finished (#592)", async () => {
+  it("renders a native subagent's context size while it runs, and a dispatched child's split (#592)", async () => {
     const { fake } = await renderAgents()
     fireEvent.click(tab('review-49'))
 
-    // The running total arrives on the call: the span renders, once, and shows what the SDK says it has spent.
+    // The running figure arrives on the call: the span renders, once, and shows how full the SDK says the
+    // subagent's conversation was at its latest request — a context size, not what it has spent.
     act(() => {
       fake.emit({
         type: EventType.ToolEventUpdated,
-        toolEvent: { ...agent(49), input: { ...agent(49).input, model: 'claude-haiku-4-5' }, totalTokens: 478_200 },
+        toolEvent: { ...agent(49), input: { ...agent(49).input, model: 'claude-haiku-4-5' }, contextTokens: 478_200 },
       })
     })
     expect(vi.mocked(agentTokensLine)).toHaveBeenCalledTimes(1)
-    expect(screen.getByText('478k tokens')).toBeTruthy()
+    expect(screen.getByText('478k context')).toBeTruthy()
 
     // A progress update that brings nothing new renders the span not at all; the line around it may move, and does.
     vi.mocked(agentTokensLine).mockClear()
@@ -1296,21 +1297,21 @@ describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', 
         toolEvent: {
           ...agent(49),
           input: { ...agent(49).input, model: 'claude-haiku-4-5' },
-          totalTokens: 478_200,
+          contextTokens: 478_200,
           progressSummary: 'Reading the diff',
         },
       })
     })
     expect(vi.mocked(agentTokensLine)).not.toHaveBeenCalled()
 
-    // The split arriving renders the span alone, once, and takes the combined figure's place.
+    // A dispatched child's split arriving renders the span alone, once, and takes the context size's place.
     act(() => {
       fake.emit({
         type: EventType.ToolEventUpdated,
         toolEvent: {
           ...agent(49),
           input: { ...agent(49).input, model: 'claude-haiku-4-5' },
-          totalTokens: 478_200,
+          contextTokens: 478_200,
           totalInputTokens: 1_234_567,
           totalOutputTokens: 45_000,
         },
@@ -1318,7 +1319,7 @@ describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', 
     })
     expect(vi.mocked(agentTokensLine)).toHaveBeenCalledTimes(1)
     expect(screen.getByText('1.2M in · 45k out')).toBeTruthy()
-    expect(screen.queryByText('478k tokens')).toBeNull()
+    expect(screen.queryByText('478k context')).toBeNull()
   })
 
   it('renders only the row that was added or changed in the list showing', async () => {

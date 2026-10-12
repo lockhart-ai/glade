@@ -414,8 +414,7 @@ import {
   listToolCallsNamed,
   listToolEvents,
   reopenSubagentCall,
-  setAgentCallTokenTotals,
-  setAgentCallTotalTokens,
+  setAgentCallContextTokens,
   setSubagentProgress,
   setSubagentTaskId,
   updateCompaction,
@@ -964,7 +963,7 @@ interface LiveSession {
    */
   readonly unknownWakes: Map<string, string>
   /**
-   * The last time each of the session's subagent calls had its combined token total written (#592): a progress message
+   * The last time each of the session's subagent calls had its context size written (#592): a progress message
    * that brings nothing but the figure writes at most once in the window, so a subagent's tool-call-by-tool-call
    * progress doesn't flood the row with updates. An entry is dropped when its call's run ends; losing the map on a
    * relaunch costs at most one window in.
@@ -1008,7 +1007,7 @@ const SEND_MESSAGE_TOOL = 'SendMessage'
 const SUBAGENT_TASK = 'local_agent'
 
 /** How long a subagent call goes between progress writes it gets only its combined token total for (#592): progress
- * messages come after each of its tool calls, more often than the line needs to hear the figure grew. */
+ * messages come after each of its tool calls, more often than the line needs to hear the conversation filled. */
 export const FIGURE_WRITE_INTERVAL_MS = 15_000
 
 /** What the tool log says when the user stopped a turn, and what its unfinished tool calls say. */
@@ -1821,12 +1820,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const state = event.isError ? ToolCallState.Error : ToolCallState.Done
     // A call the SDK rejects because the user stopped the agent reads like the turn's other unfinished calls.
     const output = event.isError && turn.stopping ? STOPPED_NOTE : event.output
-    // A foreground subagent's result says what its whole run spent (#592): written before the call's own update, so
-    // the split rides the one event its finishing emits, and the line prefers it to the combined total the progress
-    // messages left. A result that gives no usage (a stopped call's, most) leaves what those wrote.
+    // A foreground subagent's result says how full its conversation was at its last request, exactly (#592): written
+    // before the call's own update, so the settled figure rides the one event its finishing emits, in place of the
+    // approximate one the progress messages left. A context size, not what the run has spent. A result that gives
+    // none (a stopped call's, most) leaves what those wrote.
     const callRow = getToolCall(db, taskId, event.toolUseId)
-    if (event.subagentTotals !== null && callRow !== undefined && isSubagentTool(callRow.name))
-      setAgentCallTokenTotals(db, { taskId, toolUseId: event.toolUseId, ...event.subagentTotals })
+    if (event.contextTokens !== null && callRow !== undefined && isSubagentTool(callRow.name))
+      setAgentCallContextTokens(db, { taskId, toolUseId: event.toolUseId, contextTokens: event.contextTokens })
     // The run is over: its figure-only writes need no pacing any more (#592).
     live.figureWrites.delete(event.toolUseId)
     const call = updateToolCall(db, { taskId, toolUseId: event.toolUseId, state, output })
@@ -2618,22 +2618,24 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
     if (event.kind === AgentEventKind.SubagentProgress) {
       // Kept on its `Agent` call while it runs; one that arrives after its subagent finished changes nothing.
-      const { summary, totalTokens } = event
+      const { summary, contextTokens } = event
       const toolUseId = live.woken.get(event.toolUseId) ?? event.toolUseId
       // The figure rides a summary's write whatever the clock says; one that arrives alone writes at most once in the
-      // window (#592), and either way stamps it, so the line hears the figure grew at a calm pace.
-      let figure: { totalTokens: number } | undefined
-      if (totalTokens !== null) {
+      // window (#592), and either way stamps it, so the line hears the conversation fill at a calm pace. It is the
+      // conversation's size at the subagent's latest request, as the SDK reports it — not a running total of what it
+      // has spent.
+      let figure: { contextTokens: number } | undefined
+      if (contextTokens !== null) {
         const at = Date.now()
         if (summary !== null || at - (live.figureWrites.get(toolUseId) ?? 0) >= FIGURE_WRITE_INTERVAL_MS) {
           live.figureWrites.set(toolUseId, at)
-          figure = { totalTokens }
+          figure = { contextTokens }
         }
       }
       if (summary === null && figure === undefined) return
       const call = setSubagentProgress(db, { taskId, toolUseId, summary: summary ?? undefined, ...figure })
       if (call === undefined) return
-      taskLog(taskId).debug('subagent progress', { toolUseId, summary, totalTokens })
+      taskLog(taskId).debug('subagent progress', { toolUseId, summary, contextTokens })
       emitToolEventUpdated(emit, call)
       return
     }
@@ -2643,12 +2645,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const subagent = live.woken.get(event.toolUseId)
       live.woken.delete(event.toolUseId)
       const finished = subagent === undefined ? event : { ...event, toolUseId: subagent }
-      // The end is the last word on what the run spent (#592): the figure writes whatever state the call is in by
-      // then — a backgrounded call's row still runs, a foreground one has finished — and never throttles. It leaves
-      // the in-and-out split the call may already carry alone; the line prefers that anyway. The throttle entry goes
-      // with the run.
-      if (finished.totalTokens !== null)
-        setAgentCallTotalTokens(db, { taskId, toolUseId: finished.toolUseId, totalTokens: finished.totalTokens })
+      // The end is the last word on how full the run's conversation was (#592): the figure writes whatever state the
+      // call is in by then — a backgrounded call's row still runs, a foreground one has finished — and never
+      // throttles. It is a context size, not what the run has spent. The throttle entry goes with the run.
+      if (finished.contextTokens !== null)
+        setAgentCallContextTokens(db, { taskId, toolUseId: finished.toolUseId, contextTokens: finished.contextTokens })
       live.figureWrites.delete(finished.toolUseId)
       watchers.taskFinished(taskId, finished)
       if (

@@ -125,7 +125,7 @@ const ROW_COLUMNS = `id, task_id, kind, turn, created_at, text, tool_name, tool_
 
 /** Every column a read or `RETURNING` names, the row's own plus the agent call token totals only their writer sets. */
 const COLUMNS = `${ROW_COLUMNS},
-  total_input_tokens, total_output_tokens, total_tokens`
+  total_input_tokens, total_output_tokens, context_tokens`
 
 const KINDS = Object.values(ToolEventKind)
 const TOOL_CALL_STATES = Object.values(ToolCallState)
@@ -226,8 +226,8 @@ function parseToolCall(row: Row): ToolCallEvent {
     ...(row.nullableInteger('total_output_tokens') === null
       ? {}
       : { totalOutputTokens: row.integer('total_output_tokens') }),
-    // Set only when written, so a call without a combined total has exactly the shape it has always had (#592).
-    ...(row.nullableInteger('total_tokens') === null ? {} : { totalTokens: row.integer('total_tokens') }),
+    // Set only when written, so a call without a context size has exactly the shape it has always had (#592).
+    ...(row.nullableInteger('context_tokens') === null ? {} : { contextTokens: row.integer('context_tokens') }),
   }
 }
 
@@ -571,27 +571,27 @@ export interface SubagentProgress {
   /** What it's doing now, on one line; left out to keep the summary the call already has. */
   readonly summary?: string
   /**
-   * What the subagent has spent in all, in tokens (`task_progress.usage.total_tokens`, approximate); left out to keep
-   * the total the call already has.
+   * How full the subagent's conversation was at its latest request, in tokens (`task_progress.usage.total_tokens`, as
+   * the SDK reports it — a context size, not what it has spent); left out to keep the figure the call already has.
    */
-  readonly totalTokens?: number
+  readonly contextTokens?: number
 }
 
 /**
  * Records the latest progress of a running subagent on its `Agent` (or `Task`) call, and returns the call updated.
  * Returns undefined, and records nothing, when the task has no such call still running (a summary that arrives after
- * its subagent finished) or neither the summary nor the total is news for it.
+ * its subagent finished) or neither the summary nor the context size is news for it.
  */
 export function setSubagentProgress(db: Database, progress: SubagentProgress): ToolCallEvent | undefined {
-  const params = { ...progress, summary: progress.summary ?? null, totalTokens: progress.totalTokens ?? null }
+  const params = { ...progress, summary: progress.summary ?? null, contextTokens: progress.contextTokens ?? null }
   const row: unknown = db
     .prepare(
       `UPDATE tool_events SET progress_summary = COALESCE(@summary, progress_summary),
-        total_tokens = COALESCE(@totalTokens, total_tokens)
+        context_tokens = COALESCE(@contextTokens, context_tokens)
       WHERE task_id = @taskId AND tool_use_id = @toolUseId AND kind = 'tool_call' AND tool_state = 'running'
         AND tool_name IN (${SUBAGENT_NAMES})
         AND (progress_summary IS NOT COALESCE(@summary, progress_summary)
-          OR total_tokens IS NOT COALESCE(@totalTokens, total_tokens))
+          OR context_tokens IS NOT COALESCE(@contextTokens, context_tokens))
       RETURNING ${COLUMNS}`,
     )
     .get(params)
@@ -632,27 +632,28 @@ export function setAgentCallTokenTotals(db: Database, totals: AgentCallTokenTota
   return result.changes > 0
 }
 
-/** An agent call's combined token total, for its line on the Agents tab. */
-export interface AgentCallTotalTokens {
+/** An agent call's context size, for its line on the Agents tab. */
+export interface AgentCallContextTokens {
   readonly taskId: string
   /** The `Agent` (or `Task`) call that started the subagent. */
   readonly toolUseId: string
-  readonly totalTokens: number
+  readonly contextTokens: number
 }
 
 /**
- * Writes an agent's combined token total onto the call that started it (#592): the figure a subagent's end carries
- * (`task_notification.usage.total_tokens`, approximate), whatever state its call is in by then — a backgrounded
- * call's row still runs, a foreground one has finished. Answers whether the task has such a call. It never touches
- * the in-and-out split (#589), which the line prefers when it is there.
+ * Writes an agent's context size onto the call that started it (#592): how full the conversation of the agent was at
+ * its latest request, as the SDK reports it — a figure a subagent's end carries, whatever state its call is in by
+ * then (a backgrounded call's row still runs, a foreground one has finished), or the exact one its foreground result
+ * carries. Answers whether the task has such a call. It never touches the in-and-out split (#589), which is a real
+ * total, and the line prefers it when it is there.
  */
-export function setAgentCallTotalTokens(db: Database, total: AgentCallTotalTokens): boolean {
+export function setAgentCallContextTokens(db: Database, context: AgentCallContextTokens): boolean {
   const result = db
     .prepare(
-      `UPDATE tool_events SET total_tokens = @totalTokens
+      `UPDATE tool_events SET context_tokens = @contextTokens
       WHERE task_id = @taskId AND tool_use_id = @toolUseId AND kind = 'tool_call' AND tool_name IN (${SUBAGENT_NAMES})`,
     )
-    .run(total)
+    .run(context)
   return result.changes > 0
 }
 
@@ -703,7 +704,7 @@ export function reopenSubagentCall(db: Database, taskId: string, toolUseId: stri
   const row: unknown = db
     .prepare(
       `UPDATE tool_events SET tool_state = 'running', tool_output = NULL, finished_at = NULL, progress_summary = NULL,
-        total_input_tokens = NULL, total_output_tokens = NULL, total_tokens = NULL
+        total_input_tokens = NULL, total_output_tokens = NULL, context_tokens = NULL
       WHERE task_id = ? AND tool_use_id = ? AND kind = 'tool_call' AND tool_name IN (${SUBAGENT_NAMES})
         AND tool_state != 'running'
       RETURNING ${COLUMNS}`,

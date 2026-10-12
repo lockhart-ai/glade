@@ -479,12 +479,13 @@ export interface ToolCallEvent extends ToolEventBase {
   readonly totalInputTokens?: number
   readonly totalOutputTokens?: number
   /**
-   * What the agent this call started has spent in all, in tokens (#592): a native subagent's running total, as the SDK
-   * reports it in its progress (`task_progress.usage.total_tokens`, approximate), and the last word for a subagent
-   * that ran in the background. The split above is the finer figure once it exists, and the line prefers it; a call
-   * nobody has written has none, which the line reads as nothing to show.
+   * How full the conversation of the agent this call started was at its latest request, in tokens (#592): a native
+   * subagent's figure, as the SDK reports it in its progress and end (`task_progress.usage.total_tokens`,
+   * `docs/sdk-notes.md`) — a context size, not what it has spent. Main's and a dispatched child's figures are real
+   * totals, and the line prefers a dispatched child's split above; a call nobody has written has none, which the line
+   * reads as nothing to show.
    */
-  readonly totalTokens?: number
+  readonly contextTokens?: number
 }
 
 export interface DividerEvent extends ToolEventBase {

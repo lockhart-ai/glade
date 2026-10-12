@@ -1886,7 +1886,7 @@ describe('applySeed', () => {
     expect(unwritten).not.toHaveProperty('totalOutputTokens')
   })
 
-  it('writes what a running subagent has spent in all, and nothing where a seed names none (#592)', () => {
+  it('writes how full a running subagent’s conversation was, and nothing where a seed names none (#592)', () => {
     const { db } = database
     const agent = { kind: ToolEventKind.ToolCall, name: 'Agent', turn: 1, minutesAgo: 4 } as const
 
@@ -1903,7 +1903,7 @@ describe('applySeed', () => {
                 ...agent,
                 input: { description: 'API changes' },
                 progressSummary: 'Reading the API PRs',
-                totalTokens: 478_200,
+                contextTokens: 478_200,
               },
               { ...agent, input: { description: 'Dashboard changes' } },
             ],
@@ -1915,8 +1915,8 @@ describe('applySeed', () => {
 
     const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
     const [running, unwritten] = listToolEvents(db, task?.id ?? '')
-    expect(running).toMatchObject({ progressSummary: 'Reading the API PRs', totalTokens: 478_200 })
-    expect(unwritten).not.toHaveProperty('totalTokens')
+    expect(running).toMatchObject({ progressSummary: 'Reading the API PRs', contextTokens: 478_200 })
+    expect(unwritten).not.toHaveProperty('contextTokens')
   })
 
   it('writes where the SDK compacts automatically, and what a compaction carried over', () => {

@@ -469,13 +469,13 @@ describe('the Main tab’s line (#566)', () => {
     expect(mainTokensLine(0, 620)).toBe('0 in · 620 out')
   })
 
-  it('says what an agent has spent in all while its split is not in yet, as the meter writes it (#592)', () => {
-    expect(agentTokensLine(478_200, undefined, undefined)).toBe('478k tokens')
-    expect(agentTokensLine(823, undefined, undefined)).toBe('823 tokens')
-    expect(agentTokensLine(1_000_000, undefined, undefined)).toBe('1M tokens')
+  it("says a native subagent's context size while its split is not in, as the meter writes it (#592)", () => {
+    expect(agentTokensLine(478_200, undefined, undefined)).toBe('478k context')
+    expect(agentTokensLine(823, undefined, undefined)).toBe('823 context')
+    expect(agentTokensLine(1_000_000, undefined, undefined)).toBe('1M context')
   })
 
-  it('prefers the split once it is in, and shows nothing while there is no figure or it is zero (#592)', () => {
+  it('prefers a dispatched child’s split, and shows nothing while there is no figure or it is zero (#592)', () => {
     expect(agentTokensLine(478_200, 1_234_567, 45_000)).toBe('1.2M in · 45k out')
     expect(agentTokensLine(undefined, 999, 620)).toBe('999 in · 620 out')
     expect(agentTokensLine(undefined, undefined, undefined)).toBeNull()

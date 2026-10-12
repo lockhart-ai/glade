@@ -203,7 +203,7 @@
           "toolUseId": "use-limits-502",
           "todo": "2",
           "progressSummary": "Rerunning tests/test_search_limits.py",
-          "totalTokens": 478200
+          "contextTokens": 478200
         },
         {
           "kind": "tool_call",

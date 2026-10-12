@@ -102,12 +102,12 @@ function resultOf(toolUseId: string, details: unknown, isError = false): ToolRes
     isError,
     launched: false,
     details,
-    subagentTotals: null,
+    contextTokens: null,
   }
 }
 
 function finished(toolUseId: string, sdkTaskId: string, outcome: TaskOutcome, summary: string) {
-  return { kind: AgentEventKind.TaskFinished, sdkTaskId, toolUseId, outcome, summary, totalTokens: null } as const
+  return { kind: AgentEventKind.TaskFinished, sdkTaskId, toolUseId, outcome, summary, contextTokens: null } as const
 }
 
 const CI = { description: 'CI checks on PR #42', timeout_ms: 1_800_000, command: 'gh pr checks 42 --watch' }

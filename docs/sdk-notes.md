@@ -491,6 +491,19 @@ The tool is named `Agent` in `tool_use` (the init `tools` list shows `Task`). A 
 - The subagent's own foreground Bash calls got `task_started` and `task_notification` of their own (`local_bash`,
   `owned_by_subagent: true`), as in "Background subagents" below.
 
+**`usage.total_tokens` is a context size, not a running total [observed]** (#592). Probed on SDK 0.3.281 with a
+foreground subagent that made two requests costing about 27k tokens in all (by the turn's `modelUsage`):
+
+- `task_progress.usage.total_tokens` read 12.5k after the first request — one request's prompt plus output.
+- The `Agent` result's `tool_use_result.totalTokens` read 13.7k at the end, and its `usage` split it as
+  8 + 38 + 1308 (input, cache read, cache write) + 12382 (output) — the last request alone, the four adding up to
+  `totalTokens` exactly.
+
+So `task_progress.usage.total_tokens`, the `Agent` result's `totalTokens`, and the four counts in its `usage` each
+describe the conversation's size at the subagent's latest request, not what the run has spent. Glade shows the figure
+labelled as context (#592); Main's and a dispatched child's figures (a turn's `result` usage, #587, #589) are real
+totals.
+
 **Implications for Glade (#278)**
 
 - Glade sets `agentProgressSummaries: true`. The runner reads a `task_progress` that has a `summary` and names a
