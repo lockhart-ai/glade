@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { desktop, expect, test, type Glade } from './fixtures'
-import { chat, contextMenu, firstRun, inputBar, taskHeader, taskList, taskPanel } from './selectors'
+import { chat, contextMenu, firstRun, inputBar, taskHeader, taskList, taskPanel, todoHub } from './selectors'
 
 /** Opens the workspace, starts a task and sends it `message`. */
 async function startTask(window: Page, message: string): Promise<void> {
@@ -96,4 +96,51 @@ test('links: open in the browser from a reply, the header, the tool log and todo
     ])
   expect(window.url()).toBe(page)
   expect(glade.app.windows()).toHaveLength(1)
+})
+
+test('links: Add to artifacts, clicked on a reply’s own link, reaches the Todos tab live and takes itself off the link’s menu (#407)', async ({
+  launch,
+  tempFolder,
+}) => {
+  const root = join(tempFolder(), 'acme-api')
+  mkdirSync(root)
+  const glade = await launch({ agentScript: 'shares-links', chosenFolder: root })
+  const { window } = glade
+  await startTask(window, 'What are the public API’s rate limits?')
+  const reply = chat(window).agentReplies.first()
+  await expect(reply).toContainText('curl https://example.com/api/health')
+  const status = reply.getByRole('link', { name: 'https://example.com/status' })
+
+  // Before: nothing is under no todo.
+  const panel = taskPanel(window)
+  const hub = todoHub(window)
+  await panel.tab(/^Todos/).click()
+  const unfiled = hub.head('Not under a todo')
+  await expect(unfiled).toHaveCount(0)
+
+  // Add to artifacts, from the link's own menu: the command has no todo to put it under, so the tile reaches the
+  // Todos tab at once, under its own "Not under a todo" group.
+  const linkMenu = contextMenu(window, 'Link actions')
+  await status.click({ button: 'right' })
+  await linkMenu.item('Add to artifacts').click()
+  await expect(unfiled).toBeVisible()
+  await unfiled.click()
+  await expect(unfiled).toHaveAttribute('aria-expanded', 'true')
+  const tile = hub.tile(hub.card('Not under a todo'), 'Link: example.com/status')
+  await expect(tile).toBeVisible()
+
+  // Once it's an artifact, the link's own menu no longer offers to add it again.
+  await status.click({ button: 'right' })
+  await expect(linkMenu.items).toHaveText(['Open link', 'Copy link'])
+  await window.keyboard.press('Escape')
+
+  // Its tile opens it the same way any link does, and its own menu takes it back off the list.
+  await tile.click()
+  await expect.poll(() => opened(glade)).toContain('https://example.com/status')
+  await tile.hover()
+  await hub.tileAction(tile, 'More').click()
+  const menu = contextMenu(window, 'Artifact actions')
+  await expect(menu.items).toHaveText([/^Open link/, 'Copy link', 'Remove from artifacts'])
+  await menu.item('Remove from artifacts').click()
+  await expect(unfiled).toHaveCount(0)
 })
