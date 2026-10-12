@@ -414,6 +414,8 @@ export function registerBridge({
       openPath,
       revealPath,
       writeClipboard,
+      // Where a task's shared todo list lives: what marks a todo stranded on first load (#593).
+      ...(dataDir === undefined ? {} : { dataDir }),
       ...(openExternal === undefined ? {} : { openExternal }),
       ...(thumbnails === undefined ? {} : { thumbnails }),
       artifactWatch,

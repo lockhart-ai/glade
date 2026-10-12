@@ -56,7 +56,7 @@ import {
   type RevealPath,
   type WriteClipboard,
 } from '../files/files'
-import { todoListFor } from '../todos/todos'
+import { liveTodos } from '../todos/todos'
 import { agentTabOf, readTodoHub, rememberAgentTab, rememberTodoPanel } from '../todo-hub/todo-hub'
 import { addTaskLinkByHand, removeTaskArtifact } from '../artifacts/artifacts'
 import { attachFile, discardAttachedFile } from '../attachments/attachments'
@@ -105,6 +105,8 @@ export interface HandlerContext {
    * emitted.
    */
   readonly batch?: Batch
+  /** Where a task's shared todo list lives: what marks a todo stranded, read on first load (#593). None by default. */
+  readonly dataDir?: string
   /** Shows the native open-folder dialog; resolves with the chosen path, or null when cancelled. */
   readonly chooseFolder: () => Promise<string | null>
   readonly runner: AgentRunner
@@ -284,7 +286,9 @@ export function createHandlers(context: HandlerContext): Handlers {
         permissionRequests: listPermissionRequests(db, id),
         permissionMarks: listPermissionMarks(db, id),
         openFiles: getOpenFiles(db, id),
-        todos: todoListFor(db, id),
+        // The list the window first loads is the one the agent holds: a todo its shared list folder no longer has
+        // goes marked stranded, exactly as a live update already does (`runner.ts`, #593).
+        todos: liveTodos(db, id, context.dataDir),
         artifacts: listArtifacts(db, id),
         handoff: getHandoff(db, id) ?? null,
         watchers: listWatchers(db, id).map(publicWatcher),

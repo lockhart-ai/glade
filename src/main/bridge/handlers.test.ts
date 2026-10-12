@@ -9,6 +9,8 @@ import {
   FileContentKind,
   FileThumbnailKind,
   TaskState,
+  TodoState,
+  ToolCallState,
   UiStateKey,
 } from '../../shared/domain'
 import { commitFileKey } from '../../shared/files'
@@ -28,7 +30,9 @@ import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from
 import { getSettings } from '../db/repositories/settings'
 import { setSdkModels } from '../db/repositories/sdk-models'
 import { getTask, listTasks, updateTask } from '../db/repositories/tasks'
+import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
 import { setUiState } from '../db/repositories/ui-state'
+import { sharedTaskListDir } from '../openrouter/task-list'
 import { OpenWith } from '../files/open-path'
 import { createFakeSpawner, fakeTerminalOptions, type FakeSpawner } from '../terminal/fake-pty'
 import { createPlugins } from '../plugins/plugins'
@@ -524,6 +528,78 @@ describe('the changes commands', () => {
     }
     // It runs real git commands: slow while the whole suite runs at once.
   }, 30_000)
+})
+
+describe('a stranded todo, on first load (#593)', () => {
+  const liveTodoDirs: string[] = []
+
+  afterEach(() => {
+    for (const dir of liveTodoDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+  })
+
+  function logCreate(taskId: string, id: string, subject: string): void {
+    const toolUseId = `toolu_create_${id}`
+    appendToolCall(
+      database.db,
+      {
+        taskId,
+        turn: 1,
+        name: 'TaskCreate',
+        input: { subject, description: subject },
+        toolUseId,
+        parentToolUseId: null,
+      },
+      1,
+    )
+    updateToolCall(
+      database.db,
+      { taskId, toolUseId, state: ToolCallState.Done, output: `Task #${id} created successfully: ${subject}` },
+      1,
+    )
+  }
+
+  /** A shared list folder holding only the ids given, as `liveTodoIds` reads it. */
+  function sharedList(taskId: string, ...ids: readonly string[]): string {
+    const dir = mkdtempSync(join(tmpdir(), 'glade-handlers-live-todos-'))
+    liveTodoDirs.push(dir)
+    const folder = sharedTaskListDir(dir, taskId)
+    mkdirSync(folder, { recursive: true })
+    for (const id of ids) writeFileSync(join(folder, `${id}.json`), `{"id":"${id}","status":"pending"}`)
+    writeFileSync(join(folder, '.highwatermark'), '90')
+    return dir
+  }
+
+  it('marks a todo the shared list folder no longer holds, the same as a live update already does', async () => {
+    const taskId = sampleTask(database.db, sampleWorkspace(database.db).id).id
+    logCreate(taskId, '1', 'Review the date helpers')
+    logCreate(taskId, '2', 'Fix the UTC date test')
+    const withDataDir = createHandlers({ ...handlerContext(), dataDir: sharedList(taskId, '2') })
+
+    const history = await withDataDir[CommandName.TasksHistory]({ id: taskId })
+
+    expect(history.todos?.items).toEqual([
+      {
+        id: '1',
+        text: 'Review the date helpers',
+        state: TodoState.Todo,
+        note: null,
+        completedAt: null,
+        stranded: true,
+      },
+      { id: '2', text: 'Fix the UTC date test', state: TodoState.Todo, note: null, completedAt: null },
+    ])
+  })
+
+  it('leaves the list unmarked with no data folder, as it always has', async () => {
+    const taskId = sampleTask(database.db, sampleWorkspace(database.db).id).id
+    logCreate(taskId, '1', 'Review the date helpers')
+
+    const history = await handlers[CommandName.TasksHistory]({ id: taskId })
+
+    expect(history.todos?.items).toEqual([
+      { id: '1', text: 'Review the date helpers', state: TodoState.Todo, note: null, completedAt: null },
+    ])
+  })
 })
 
 describe('the files commands', () => {

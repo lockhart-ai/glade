@@ -2,14 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { TodoState, type Todo, type TodoList } from './domain'
 import { allTodosDone, sameTodoSummary, summarizeTodos, todoProgress, todoSummaryLabel } from './todoSummary'
 
-function list(...items: [string, TodoState][]): TodoList {
+function list(...items: [string, TodoState, boolean?][]): TodoList {
   return {
-    items: items.map(([text, state], index): Todo => ({
+    items: items.map(([text, state, stranded], index): Todo => ({
       id: String(index + 1),
       text,
       state,
       note: null,
       completedAt: null,
+      ...(stranded === true ? { stranded: true } : {}),
     })),
     updatedAt: 1,
   }
@@ -29,6 +30,16 @@ describe('todoProgress', () => {
   it('is none of none without a list', () => {
     expect(todoProgress(null)).toEqual({ done: 0, doing: 0, total: 0 })
     expect(todoProgress(undefined)).toEqual({ done: 0, doing: 0, total: 0 })
+  })
+
+  it('leaves stranded items out of every count, as the mockup draws the tab (#593)', () => {
+    const todos = list(
+      ['Find the uploads', TodoState.Done],
+      ['Add the backend', TodoState.Doing],
+      ['Add exponential backoff', TodoState.Doing, true],
+      ['Write a migration guide', TodoState.Todo, true],
+    )
+    expect(todoProgress(todos)).toEqual({ done: 1, doing: 1, total: 2 })
   })
 })
 
@@ -58,6 +69,19 @@ describe('summarizeTodos', () => {
       index < 321 ? TodoState.Done : index === 321 ? TodoState.Doing : TodoState.Todo,
     ])
     expect(summarizeTodos(list(...items))).toEqual({ done: 321, total: 500, doing: ['Item 321'] })
+  })
+
+  it('leaves stranded items out, and names only a live one being worked on (#593)', () => {
+    const todos = list(
+      ['Find the uploads', TodoState.Done],
+      ['Add the backend', TodoState.Doing],
+      ['Add exponential backoff', TodoState.Doing, true],
+    )
+    expect(summarizeTodos(todos)).toEqual({ done: 1, total: 2, doing: ['Add the backend'] })
+  })
+
+  it('is null when every item is stranded, as if there were none to count', () => {
+    expect(summarizeTodos(list(['Add exponential backoff', TodoState.Doing, true]))).toBeNull()
   })
 })
 
