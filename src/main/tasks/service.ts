@@ -54,6 +54,9 @@ export interface RunnerTaskPatch {
   readonly activity?: TaskActivity
   readonly sessionId?: string
   readonly contextUsedTokens?: number
+  /** Main's running token totals, added to as each turn finishes with a usage (`totalInputTokens`, `totalOutputTokens`). */
+  readonly totalInputTokens?: number
+  readonly totalOutputTokens?: number
   readonly contextWindowTokens?: number
   readonly autoCompact?: AutoCompact
   /** Null clears it. */
@@ -227,11 +230,24 @@ export function updateTaskFromAgent(context: TaskServiceContext, id: string, pat
  */
 export function updateTaskFromRunner(context: TaskServiceContext, id: string, patch: RunnerTaskPatch): Task {
   requireTask(context.db, id)
-  const { activity, sessionId, contextUsedTokens, contextWindowTokens, autoCompact, error, retrying, pause } = patch
+  const {
+    activity,
+    sessionId,
+    contextUsedTokens,
+    totalInputTokens,
+    totalOutputTokens,
+    contextWindowTokens,
+    autoCompact,
+    error,
+    retrying,
+    pause,
+  } = patch
   return write(context, id, {
     activity,
     sessionId,
     contextUsedTokens,
+    totalInputTokens,
+    totalOutputTokens,
     contextWindowTokens,
     autoCompact,
     error,

@@ -350,6 +350,10 @@ Three tabs, each with a count: **Agents · Files · Todos** (⌘⌥1 – ⌘⌥3
   while it runs, grey once it's done) and, once it has anything pinned under it, an eye with a count: blue while a
   watcher's process runs, grey when all it has is scheduled.
 
+  Main's tab has, under the strip, a line naming the model and provider it runs on, with what its turns have spent
+  so far at the row's right ("1.2M in · 45k out" — nothing until a turn has spent something); under that, its status,
+  or what it's working on now, and "Running · 42m" while it works.
+
   Each tab is that agent's tool calls: every call it made, with the agent's working notes between them, split by turn.
   Right-click a call to copy its command or output, open its file, or **Run again in terminal** (the command lands at
   the terminal's prompt for you to edit or run; it never runs by itself). Each compaction is a **Compact** row; click

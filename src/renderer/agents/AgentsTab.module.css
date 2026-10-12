@@ -152,6 +152,15 @@
   color: var(--color-text);
 }
 
+/* What Main's turns have spent so far ("1.2M in · 45k out", #587), at the right of the model's row. */
+.tokens {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+  white-space: nowrap;
+}
+
 .todo {
   display: inline;
   padding: 0;

@@ -30,7 +30,14 @@ import {
 } from '../shared/domain'
 import { FolderAccess, SandboxAskKind } from '../shared/sandbox'
 import { AgentsTab } from './agents'
-import { agentCallResult, agentDotLabel, agentStateLine, mainAgentStateLine, mainAgentText } from './agents/agentsModel'
+import {
+  agentCallResult,
+  agentDotLabel,
+  agentStateLine,
+  mainAgentStateLine,
+  mainAgentText,
+  mainTokensLine,
+} from './agents/agentsModel'
 import { endedSummary, pinnedMetaLine, pinnedStatus, watchingTitle } from './agents/agentWatchersModel'
 import { BroadcastDialog } from './broadcast'
 import { attentionLabel, reachText } from './broadcast/broadcastModel'
@@ -96,7 +103,8 @@ vi.mock('./usage-meter/usageMeterModel', async (importOriginal) => {
 // `Agent` call says how it's doing under it (one `agentCallResult` call per render of that line), and the line under
 // the strip says the subagent's state (one `agentStateLine` call per render of it). Main's own line (#566) works the
 // same way: one `mainAgentText` call per render of its text, and one `mainAgentStateLine` call per render of its
-// ticking state, which is a span of its own so a tick never renders the text beside it.
+// ticking state, which is a span of its own so a tick never renders the text beside it. Main's totals (#587) work
+// the same way: one `mainTokensLine` call per render of that span.
 vi.mock('./agents/agentsModel', async (importOriginal) => {
   const original = await importOriginal<typeof import('./agents/agentsModel')>()
   return {
@@ -106,6 +114,7 @@ vi.mock('./agents/agentsModel', async (importOriginal) => {
     agentStateLine: vi.fn(original.agentStateLine),
     mainAgentText: vi.fn(original.mainAgentText),
     mainAgentStateLine: vi.fn(original.mainAgentStateLine),
+    mainTokensLine: vi.fn(original.mainTokensLine),
   }
 })
 
@@ -1079,7 +1088,8 @@ describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', 
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
     vi.setSystemTime(HUB_NOW)
-    for (const counter of [agentDotLabel, clockTime, agentCallResult, agentStateLine]) vi.mocked(counter).mockClear()
+    for (const counter of [agentDotLabel, clockTime, agentCallResult, agentStateLine, mainTokensLine])
+      vi.mocked(counter).mockClear()
   })
 
   it('renders nothing when an agent you aren’t looking at works: not a tab, not a row of the list showing', async () => {
@@ -1106,6 +1116,36 @@ describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', 
       })
     })
     expect(rendered()).toEqual({ tabs: 0, rows: 0, times: 0, line: 0 })
+  })
+
+  it('renders Main’s token totals when they change, and nothing else of the line when they don’t (#587)', async () => {
+    const { fake } = await renderAgents()
+
+    // The totals arrive on the task, which rides the same `task.updated` event everything else does: the span
+    // renders, once, and the line around it doesn't move.
+    act(() => {
+      fake.emit({
+        type: EventType.TaskUpdated,
+        task: { ...sampleTask('t1', 'w1'), totalInputTokens: 1_234_567, totalOutputTokens: 45_000 },
+      })
+    })
+    expect(vi.mocked(mainTokensLine)).toHaveBeenCalledTimes(1)
+
+    // Any other change to the task renders it not at all.
+    vi.mocked(mainTokensLine).mockClear()
+    act(() => {
+      fake.emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), status: 'Running the tests.' } })
+    })
+    expect(vi.mocked(mainTokensLine)).not.toHaveBeenCalled()
+
+    // Totals that change again render the span alone, once.
+    act(() => {
+      fake.emit({
+        type: EventType.TaskUpdated,
+        task: { ...sampleTask('t1', 'w1'), totalInputTokens: 1_234_568, totalOutputTokens: 45_000 },
+      })
+    })
+    expect(vi.mocked(mainTokensLine)).toHaveBeenCalledTimes(1)
   })
 
   it('renders only the row that was added or changed in the list showing', async () => {

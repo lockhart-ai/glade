@@ -61,6 +61,9 @@ export interface TaskPatch {
   readonly permissionMode?: PermissionMode
   readonly sessionId?: string | null
   readonly contextUsedTokens?: number
+  /** Main's running token totals, kept in step by the runner (`totalInputTokens`, `totalOutputTokens` on `Task`). */
+  readonly totalInputTokens?: number
+  readonly totalOutputTokens?: number
   /**
    * The window the SDK reported. Changing the model without one keeps the window when the new model is the same one
    * under another id, and otherwise takes the best guess at the new model's (`guessModelWindow`).
@@ -84,8 +87,8 @@ export interface TaskPatch {
 }
 
 const COLUMNS = `id, workspace_id, title, objective, status, status_updated_at, state, activity, pinned, unread, model,
-  effort, permission_mode, created_at, updated_at, done_at, session_id, context_used_tokens, context_window_tokens, error,
-  retrying, pause, imported_at, todos, auto_compact`
+  effort, permission_mode, created_at, updated_at, done_at, session_id, context_used_tokens, total_input_tokens,
+  total_output_tokens, context_window_tokens, error, retrying, pause, imported_at, todos, auto_compact`
 
 /** The tools that start a subagent, as SQL string literals. */
 const SUBAGENT_NAMES = SUBAGENT_TOOL_NAMES.map((name) => `'${name}'`).join(', ')
@@ -218,6 +221,8 @@ function parseTask(db: Database, raw: unknown): Task {
     doneAt: row.nullableInteger('done_at'),
     sessionId: row.nullableText('session_id'),
     contextUsedTokens,
+    totalInputTokens: row.integer('total_input_tokens'),
+    totalOutputTokens: row.integer('total_output_tokens'),
     contextWindowTokens: context.contextWindowTokens,
     error: jsonColumn(row, 'tasks', 'error', taskErrorSchema),
     retrying: jsonColumn(row, 'tasks', 'retrying', apiRetrySchema),
@@ -243,6 +248,8 @@ function toParams(task: Task): Record<string, string | number | null> {
     awaitingPermission: task.awaitingPermission ? 1 : 0,
     permissionAsk: null,
     backgroundWork: task.backgroundWork ? 1 : 0,
+    totalInputTokens: task.totalInputTokens ?? 0,
+    totalOutputTokens: task.totalOutputTokens ?? 0,
     pinned: task.pinned ? 1 : 0,
     unread: task.unread ? 1 : 0,
     error: task.error === null ? null : JSON.stringify(task.error),
@@ -275,6 +282,8 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     doneAt: null,
     sessionId: null,
     contextUsedTokens: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
     contextWindowTokens: taskModelWindow(db, input.model),
     error: null,
     retrying: null,
@@ -290,7 +299,8 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
   db.prepare(
     `INSERT INTO tasks (${COLUMNS}) VALUES (@id, @workspaceId, @title, @objective, @status, @statusUpdatedAt, @state,
       @activity, @pinned, @unread, @model, @effort, @permissionMode, @createdAt, @updatedAt, @doneAt, @sessionId,
-      @contextUsedTokens, @contextWindowTokens, @error, @retrying, @pause, @importedAt, @todos, @autoCompact)`,
+      @contextUsedTokens, @totalInputTokens, @totalOutputTokens, @contextWindowTokens, @error, @retrying, @pause,
+      @importedAt, @todos, @autoCompact)`,
   ).run(toParams(task))
   return task
 }
@@ -492,6 +502,8 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
     doneAt: doneAtAfter(current, state, now),
     sessionId: patch.sessionId === undefined ? current.sessionId : patch.sessionId,
     contextUsedTokens,
+    totalInputTokens: patch.totalInputTokens ?? current.totalInputTokens,
+    totalOutputTokens: patch.totalOutputTokens ?? current.totalOutputTokens,
     contextWindowTokens: context.contextWindowTokens,
     autoCompact: context.autoCompact,
     error: patch.error === undefined ? current.error : patch.error,
@@ -502,6 +514,7 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
     `UPDATE tasks SET title = @title, objective = @objective, status = @status, status_updated_at = @statusUpdatedAt,
       state = @state, activity = @activity, pinned = @pinned, unread = @unread, model = @model, effort = @effort,
       permission_mode = @permissionMode, updated_at = @updatedAt, done_at = @doneAt, session_id = @sessionId, context_used_tokens = @contextUsedTokens,
+      total_input_tokens = @totalInputTokens, total_output_tokens = @totalOutputTokens,
       context_window_tokens = @contextWindowTokens, auto_compact = @autoCompact, error = @error, retrying = @retrying,
       pause = @pause
     WHERE id = @id`,

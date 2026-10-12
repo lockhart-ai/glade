@@ -240,6 +240,13 @@ export interface Task {
    */
   readonly contextUsedTokens: number
   /**
+   * What Main's turns have spent in total, in tokens, subagents left out: `totalInputTokens` counts each finished
+   * turn's prompt, cache reads and cache writes, and `totalOutputTokens` its replies. Written by the runner as each
+   * turn's `result` usage arrives; 0 until one has.
+   */
+  readonly totalInputTokens?: number
+  readonly totalOutputTokens?: number
+  /**
    * The model's context window, in tokens: what the SDK last reported for the task's session, or else the best guess
    * for its model (`guessContextWindow` in `./models`). Never less than `contextUsedTokens`: more used than the
    * window holds proves it wrong, and the larger size wins (`fitContextWindow` in `./contextWindow`).

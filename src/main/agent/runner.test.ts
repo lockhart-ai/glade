@@ -433,6 +433,8 @@ describe('a turn', () => {
       [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Done],
       // And again once it ended.
       [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED],
+      // The turn's usage adds to Main's totals (#587), which rides the same event.
+      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED],
       [
         EventType.MessageAppended,
         MessageRole.Agent,
@@ -492,6 +494,8 @@ describe('a turn', () => {
     ])
     // The session id didn't change, so the second init wrote nothing.
     expect(drainEvents().filter(([type]) => type === EventType.TaskUpdated)).toEqual([
+      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED],
+      // The turn's usage adds to Main's totals (#587), which rides the same event.
       [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED],
       [EventType.TaskUpdated, TaskActivity.Waiting, sdk.SESSION_ID, sdk.CONTEXT_USED],
     ])
@@ -632,6 +636,8 @@ describe('the context usage', () => {
     expect(contextUpdates()).toEqual([
       { used: 0, window: 200_000 },
       { used: 40_000, window: 200_000 },
+      { used: 76_000, window: 200_000 },
+      // The turn's usage adds to Main's totals (#587), which rides the same event.
       { used: 76_000, window: 200_000 },
       { used: 76_000, window: 200_000 },
     ])
@@ -806,6 +812,102 @@ describe('the context usage', () => {
     await expect(glade.invoke(CommandName.TasksList, { workspaceId: workspace.id })).resolves.toEqual({
       tasks: [expect.objectContaining({ contextUsedTokens: 76_000, contextWindowTokens: 200_000 })],
     })
+  })
+})
+
+describe("Main's token totals (#587)", () => {
+  /** What a turn's usage says, apart from the caches' names: `in` counts the prompt and both caches. */
+  const usage = {
+    input_tokens: 100,
+    cache_read_input_tokens: 500,
+    cache_creation_input_tokens: 20,
+    output_tokens: 900,
+  }
+
+  /** The totals each `task.updated` changed them to, since the last call. A repeat of the same pair drops out. */
+  function tokenTracker(): () => { input: number; output: number }[] {
+    let lastPair: string | null = null
+    const found: { input: number; output: number }[] = []
+    return () => {
+      for (const event of events.splice(0)) {
+        if (event.type !== EventType.TaskUpdated) continue
+        const input = event.task.totalInputTokens ?? 0
+        const output = event.task.totalOutputTokens ?? 0
+        const pair = `${String(input)}/${String(output)}`
+        if (pair !== lastPair) found.push({ input, output })
+        lastPair = pair
+      }
+      return found.splice(0)
+    }
+  }
+
+  it("adds a finished turn's usage to the task, and the next turn's to it", async () => {
+    expect(current()).toMatchObject({ totalInputTokens: 0, totalOutputTokens: 0 })
+    const tokenUpdates = tokenTracker()
+    await send('Find out why the login test is flaky.')
+    tokenUpdates()
+
+    backend.session.emit(sdk.result('Found it.', { usage }))
+    await settle()
+    expect(current()).toMatchObject({ totalInputTokens: 620, totalOutputTokens: 900 })
+    expect(tokenUpdates()).toEqual([{ input: 620, output: 900 }])
+
+    await send('More, please.')
+    tokenUpdates()
+    backend.session.emit(
+      sdk.result('Done.', {
+        usage: {
+          ...usage,
+          input_tokens: 0,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+          output_tokens: 70,
+        },
+      }),
+    )
+    await settle()
+    expect(current()).toMatchObject({ totalInputTokens: 620, totalOutputTokens: 970 })
+    expect(tokenUpdates()).toEqual([{ input: 620, output: 970 }])
+
+    // A turn that says nothing spent adds nothing, and says nothing.
+    await send('And again.')
+    tokenUpdates()
+    backend.session.emit(
+      sdk.result('Done.', {
+        usage: { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 0 },
+      }),
+    )
+    await settle()
+    expect(current()).toMatchObject({ totalInputTokens: 620, totalOutputTokens: 970 })
+    expect(tokenUpdates()).toEqual([])
+  })
+
+  it('adds nothing for a turn whose result names no usage', async () => {
+    const tokenUpdates = tokenTracker()
+    await send('Hi')
+    tokenUpdates()
+    backend.session.emit(sdk.text('Hello.'), sdk.result('Hello.', { usage: null }))
+    await settle()
+    expect(current()).toMatchObject({ totalInputTokens: 0, totalOutputTokens: 0 })
+    expect(tokenUpdates()).toEqual([])
+  })
+
+  it('counts a stopped and a failed turn too, when their results say what they used', async () => {
+    await send('Hi')
+    backend.session.emit(
+      sdk.text('Hello.'),
+      sdk.result('Hello.', { usage, is_error: true, terminal_reason: 'aborted_streaming' }),
+    )
+    await settle()
+    expect(current()).toMatchObject({ totalInputTokens: 620, totalOutputTokens: 900 })
+
+    await send('Once more')
+    backend.session.emit(
+      sdk.text('Hello again.'),
+      sdk.result('Hello.', { usage, is_error: true, terminal_reason: 'api_error' }),
+    )
+    await settle()
+    expect(current()).toMatchObject({ totalInputTokens: 1240, totalOutputTokens: 1800 })
   })
 })
 
@@ -2226,6 +2328,8 @@ describe('tasks.stop', () => {
     ])
     expect(drainEvents()).toEqual([
       [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Error],
+      // The aborted result's usage adds to Main's totals (#587), which rides the same event.
+      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED],
       [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Error],
       // The subagent it stopped no longer runs: the task is sent again, read without it (`Task.backgroundWork`).
       [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED],
@@ -2598,6 +2702,8 @@ describe('the message queue', () => {
     ])
     expect(sent()).toEqual(['Summarise the plan.', 'Keep the original filenames.', 'Then check a sample.'])
     expect(drainEvents()).toEqual([
+      // The first result's usage adds to Main's totals (#587), which rides the same event.
+      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED],
       [EventType.MessageAppended, MessageRole.Agent, 'The plan: copy, then verify.'],
       [EventType.QueueChanged, []],
       [EventType.MessageAppended, MessageRole.User, 'Keep the original filenames.'],
@@ -2829,7 +2935,8 @@ describe('the Glade tools', () => {
         ? [{ title: event.task.title, objective: event.task.objective, status: event.task.status }]
         : [],
     )
-    // Working, then the session id, the context used, the three tools' writes, then waiting on you.
+    // Working, then the session id, the context used, the three tools' writes, the turn's totals (#587), then waiting on
+    // you.
     expect(updates.slice(3, 6)).toEqual([
       { title: 'Fix the flaky login test', objective: '', status: '' },
       { title: 'Fix the flaky login test', objective: 'Make the login test pass every run.', status: '' },
@@ -2839,7 +2946,7 @@ describe('the Glade tools', () => {
         status: 'Reproducing the flake.',
       },
     ])
-    expect(updates).toHaveLength(7)
+    expect(updates).toHaveLength(8)
     expect(toolLog()).toEqual([
       { divider: DividerKind.Turn, turn: 1 },
       {
@@ -3974,6 +4081,8 @@ describe('compaction', () => {
     expect(current()).toMatchObject({ activity: TaskActivity.Waiting, contextUsedTokens: 41_000 })
     expect(drainEvents()).toEqual([
       [EventType.ToolEventUpdated, ToolEventKind.Compaction, ToolCallState.Done],
+      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, 41_000],
+      // The result's usage adds to Main's totals (#587), which rides the same event.
       [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, 41_000],
       [EventType.TaskUpdated, TaskActivity.Waiting, sdk.SESSION_ID, 41_000],
     ])

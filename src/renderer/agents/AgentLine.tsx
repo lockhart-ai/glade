@@ -9,6 +9,7 @@ import {
   isRunning,
   mainAgentStateLine,
   mainAgentText,
+  mainTokensLine,
   selectMainCurrentCall,
   todoLineVerb,
 } from './agentsModel'
@@ -39,6 +40,22 @@ function MainState({
   const mainState = mainAgentStateLine(working, createdAt, now)
   return mainState === null ? null : <span className={styles.state}>{mainState}</span>
 }
+
+/**
+ * What Main's turns have spent so far ("1.2M in · 45k out", #587, design 64), at the right of the model's row. It
+ * selects the two totals alone, so a change re-renders this span and nothing else of the line around it; nothing
+ * shows until a turn has spent something. It sits in the model's row, which a task with turns always has.
+ */
+const MainTokens = memo(function MainTokens({ taskId }: { readonly taskId: string }): React.JSX.Element | null {
+  const inputTokens = useGladeStore((state) => state.tasks[taskId]?.totalInputTokens ?? 0)
+  const outputTokens = useGladeStore((state) => state.tasks[taskId]?.totalOutputTokens ?? 0)
+  if (inputTokens === 0 && outputTokens === 0) return null
+  return (
+    <span className={styles.tokens} data-agent-tokens="">
+      {mainTokensLine(inputTokens, outputTokens)}
+    </span>
+  )
+})
 
 export interface AgentLineProps {
   readonly taskId: string
@@ -104,6 +121,7 @@ export const AgentLine = memo(function AgentLine({
             <span className={styles.model} title={label} data-agent-model="">
               {label}
             </span>
+            <MainTokens taskId={taskId} />
           </div>
         )}
         {mainText !== null && (
