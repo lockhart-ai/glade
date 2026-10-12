@@ -155,11 +155,8 @@ function apply(items: readonly Item[], call: ToolCallEvent): readonly Item[] | n
   }
 }
 
-/**
- * The todo list the calls leave, in the order they were made; null when none of them changed it, i.e. the agent has kept
- * no list.
- */
-export function deriveTodoList(calls: readonly ToolCallEvent[]): TodoList | null {
+/** The list a replay of the calls leaves, and when the last call that changed it was made. */
+function deriveItems(calls: readonly ToolCallEvent[]): { items: readonly Item[]; updatedAt: EpochMs | null } {
   let items: readonly Item[] = []
   let updatedAt: EpochMs | null = null
   for (const call of calls) {
@@ -168,7 +165,54 @@ export function deriveTodoList(calls: readonly ToolCallEvent[]): TodoList | null
     items = next
     updatedAt = call.createdAt
   }
+  return { items, updatedAt }
+}
+
+/**
+ * The todo list the calls leave, in the order they were made; null when none of them changed it, i.e. the agent has kept
+ * no list.
+ */
+export function deriveTodoList(calls: readonly ToolCallEvent[]): TodoList | null {
+  const { items, updatedAt } = deriveItems(calls)
   return updatedAt === null ? null : { items: items.map(toTodo), updatedAt }
+}
+
+/** The highest todo id Glade already holds for a task, as a number; null when it holds no numbered todo. */
+export function highestTodoId(db: Database, taskId: string): number | null {
+  const ids = (todoListFor(db, taskId)?.items ?? [])
+    .map(({ id }) => (id === null ? Number.NaN : Number.parseInt(id, 10)))
+    .filter((id) => Number.isFinite(id))
+  return ids.length === 0 ? null : Math.max(...ids)
+}
+
+/** What a `TaskCreate` took over: the todo id, and the subject the todo that held it had. */
+export interface TakenTodo {
+  readonly todoId: string
+  readonly subject: string
+}
+
+/**
+ * Whether a finished `TaskCreate` took a todo id a different subject already held, with that subject (#593): the new
+ * todo must not inherit what was filed under the old one. The same subject is the agent recreating its own todo, which
+ * keeps them; a call that isn't a `TaskCreate`, or whose id can't be read from its result, took over nothing.
+ */
+export function takenOverTodo(calls: readonly ToolCallEvent[], call: ToolCallEvent): TakenTodo | null {
+  const input = taskCreateInput.safeParse(call.input)
+  const todoId = input.success ? createdTaskId(call.output ?? '') : undefined
+  if (!input.success || todoId === undefined) return null
+  const previous = deriveItems(calls.filter((other) => other.toolUseId !== call.toolUseId)).items.find(
+    ({ id }) => id === todoId,
+  )
+  if (previous === undefined || previous.text === input.data.subject) return null
+  return { todoId, subject: previous.text }
+}
+
+/**
+ * Whether the finished `TaskCreate` call took a todo id a different subject already held, with that subject (#593).
+ * The call reads its own list from the tool log, so the caller needs only the call.
+ */
+export function takenOverTodoLogged(db: Database, taskId: string, call: ToolCallEvent): TakenTodo | null {
+  return takenOverTodo(listToolCallsNamed(db, taskId, TODO_TOOLS), call)
 }
 
 /** A task's todo list, as its tool log leaves it. */

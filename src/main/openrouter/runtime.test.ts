@@ -1,11 +1,18 @@
 import { importSessionToStore } from '@anthropic-ai/claude-agent-sdk'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { Effort, PermissionMode } from '../../shared/domain'
 import type { AgentSessionOptions } from '../agent/backend'
-import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
+import {
+  openTestDatabase,
+  sampleTask,
+  sampleTodo,
+  sampleWorkspace,
+  type TestDatabase,
+} from '../db/repositories/test-database'
 import { setOpenRouterChoice } from '../db/repositories/openrouter'
 import { OpenRouterClient } from './client'
 import { createOpenRouterRelay } from './relay'
@@ -358,11 +365,12 @@ it('retains the previous mirror when rebuilding fails, through repeated starts, 
   prepared.close()
 })
 
-it('does not create shared todos or override the SDK list for a Claude-only task, new or resumed', async () => {
+it('gives a Claude-only task its shared todo list on every start, new or resumed (#593)', async () => {
   const task = sampleTask(database.db, sampleWorkspace(database.db).id)
   const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
   const config = join(dir, 'claude')
-  for (const resumeSessionId of [null, 'legacy-session']) {
+  const shared = `glade-${task.id}`
+  for (const resumeSessionId of [null, 'legacy-session', 'another-restart']) {
     const prepared = await runtime.prepare(
       { ...options, taskId: task.id, model: task.model, resumeSessionId },
       {
@@ -370,11 +378,40 @@ it('does not create shared todos or override the SDK list for a Claude-only task
         CLAUDE_CODE_TASK_LIST_ID: 'user-list',
       },
     )
-    expect(prepared.env.CLAUDE_CODE_TASK_LIST_ID).toBe('user-list')
-    expect(existsSync(join(dir, 'sdk-task-lists'))).toBe(false)
-    expect(existsSync(join(config, 'tasks'))).toBe(false)
+    expect(prepared.env.CLAUDE_CODE_TASK_LIST_ID).toBe(shared)
+    expect(existsSync(join(dir, 'sdk-task-lists', task.id))).toBe(true)
+    expect(existsSync(join(config, 'tasks', shared))).toBe(true)
     prepared.close()
   }
+})
+
+it('seeds a shared list past the highest todo id Glade holds, on the first start (#593)', async () => {
+  const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+  sampleTodo(database.db, task.id, '52', 'File the report')
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  const prepared = await runtime.prepare(
+    { ...options, taskId: task.id, model: task.model },
+    { CLAUDE_CONFIG_DIR: join(dir, 'claude') },
+  )
+  expect(prepared.env.CLAUDE_CODE_TASK_LIST_ID).toBe(`glade-${task.id}`)
+  expect(await readFile(join(dir, 'sdk-task-lists', task.id, '.highwatermark'), 'utf8')).toBe('53')
+  prepared.close()
+})
+
+it('leaves a dispatched child on the list it would have had before #593: none, for a task that never switched source', async () => {
+  const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  const config = join(dir, 'claude')
+  const prepared = await runtime.prepare(
+    { ...options, taskId: task.id, model: task.model, managedAgentId: 'child-1' },
+    {
+      CLAUDE_CONFIG_DIR: config,
+      CLAUDE_CODE_TASK_LIST_ID: 'user-list',
+    },
+  )
+  expect(prepared.env.CLAUDE_CODE_TASK_LIST_ID).toBe('user-list')
+  expect(existsSync(join(dir, 'sdk-task-lists'))).toBe(false)
+  prepared.close()
 })
 
 it.each(['claude', 'openrouter'])('logs a todo-link failure but still prepares a %s session', async (source) => {
