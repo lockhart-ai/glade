@@ -112,9 +112,10 @@ export function updateTodoForAgent(context: FilingContext, taskId: string, input
   }
   updateTodoRow(db, taskId, todo.id, {
     ...(input.subject === undefined ? {} : { text: input.subject }),
-    // A note is for a todo in any state but done: once completed, drop it rather than keep a stale spinner line
-    // (even one this very call also tried to set) for the todo to read wrongly against once it's finished.
-    ...(input.status === 'completed' ? { note: null } : input.note === undefined ? {} : { note: input.note }),
+    // A note is for a todo in any state but done: completing one drops its old note, so a stale spinner line
+    // doesn't read wrongly once it's finished — but a note the same call gives is kept (a line like "Merged Oct
+    // 12" is exactly what a finished todo wants).
+    ...(input.note !== undefined ? { note: input.note } : input.status === 'completed' ? { note: null } : {}),
     ...(input.status === undefined ? {} : { state: STATUS_TO_STATE[input.status] }),
   })
   announce(context, taskId)

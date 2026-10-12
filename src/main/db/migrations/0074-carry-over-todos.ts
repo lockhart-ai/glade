@@ -13,10 +13,15 @@ export const carryOverTodosMigration: Migration = {
   version: 74,
   name: "Carry every task's todos into Glade's own table",
   up(db) {
-    const taskIds = db.prepare('SELECT id FROM tasks').pluck().all() as string[]
+    // Rows are parsed at the boundary (as every repository does, `../repositories/rows`'s `Row` included), not
+    // trusted with a cast: `pluck()` gives one column, so a plain type guard does it, as `listStaleTodoTaskIds`
+    // (`../repositories/tasks`) already does for the same shape.
+    const taskIdRows: unknown[] = db.prepare('SELECT id FROM tasks').pluck().all()
+    const taskIds = taskIdRows.filter((id): id is string => typeof id === 'string')
     const retiredIdsOf = db.prepare('SELECT todo_id FROM retired_todos WHERE task_id = ?').pluck()
     for (const taskId of taskIds) {
-      const retiredIds = new Set(retiredIdsOf.all(taskId) as string[])
+      const retiredIdRows: unknown[] = retiredIdsOf.all(taskId)
+      const retiredIds = new Set(retiredIdRows.filter((id): id is string => typeof id === 'string'))
       carryOverTodos(db, taskId, retiredIds)
     }
   },

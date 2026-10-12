@@ -83,17 +83,34 @@ describe('updateTodoForAgent', () => {
     ])
   })
 
-  it('drops the note once completed, even one this very call also gives', () => {
+  it('drops the old note once completed, when the call gives none of its own', () => {
     createTodoForAgent(context, task.id, { subject: 'Review the date helpers' })
     updateTodoForAgent(context, task.id, { id: '1', status: 'in_progress', note: 'Reading the diff' })
 
-    updateTodoForAgent(context, task.id, { id: '1', status: 'completed', note: 'Should be dropped' })
+    updateTodoForAgent(context, task.id, { id: '1', status: 'completed' })
 
     expect(listTodos(db, task.id)).toEqual([
       {
         id: '1',
         text: 'Review the date helpers',
         note: null,
+        state: TodoState.Done,
+        completedAt: expect.any(Number) as number,
+      },
+    ])
+  })
+
+  it('keeps a note the same call gives when it completes the todo', () => {
+    createTodoForAgent(context, task.id, { subject: 'Review the date helpers' })
+    updateTodoForAgent(context, task.id, { id: '1', status: 'in_progress', note: 'Reading the diff' })
+
+    updateTodoForAgent(context, task.id, { id: '1', status: 'completed', note: 'Merged Oct 12' })
+
+    expect(listTodos(db, task.id)).toEqual([
+      {
+        id: '1',
+        text: 'Review the date helpers',
+        note: 'Merged Oct 12',
         state: TodoState.Done,
         completedAt: expect.any(Number) as number,
       },
