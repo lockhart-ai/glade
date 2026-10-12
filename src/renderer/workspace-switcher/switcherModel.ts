@@ -1,5 +1,5 @@
 import { needsYou } from '../../shared/attention'
-import { TaskState, type Task, type Workspace } from '../../shared/domain'
+import { TaskState, UNTITLED_TASK_TITLE, type EpochMs, type Task, type Workspace } from '../../shared/domain'
 
 /** What a workspace's row in the switcher says about its tasks. */
 export enum WorkspaceStatusKind {
@@ -56,6 +56,45 @@ export function describeStatus(status: WorkspaceStatus): string {
     case WorkspaceStatusKind.Idle:
       return 'idle'
   }
+}
+
+/** At most this many of a workspace's waiting tasks nest under it; past that, a "+N more" row stands in (#610). */
+export const WAITING_TASKS_SHOWN = 4
+
+/**
+ * Just enough to order and cap a workspace's waiting tasks: its row reads its own title from the store directly
+ * (`WaitingTaskRow`), so one task changing elsewhere doesn't re-render it (CLAUDE.md, Performance).
+ */
+export interface WaitingTaskRef {
+  readonly taskId: string
+  /** When it last changed, the same age the menu bar popover's Needs you rows sort by. */
+  readonly updatedAt: EpochMs
+}
+
+/** A workspace's waiting tasks nested under it: the newest `WAITING_TASKS_SHOWN`, and how many more there are. */
+export interface WaitingTasks {
+  readonly shown: readonly WaitingTaskRef[]
+  readonly moreCount: number
+}
+
+/**
+ * A workspace's tasks that need you (`docs/design/html/14-workspace-switcher-tasks.html`, #610), newest change first
+ * (`updatedAt`, ties by id so rows don't swap places as they refresh — the same order `menuBarSnapshot` sorts its own
+ * Needs you rows by), capped at `WAITING_TASKS_SHOWN` with the rest counted, not listed.
+ */
+export function waitingTasks(tasks: Iterable<Task>, workspaceId: string): WaitingTasks {
+  const waiting: WaitingTaskRef[] = []
+  for (const task of tasks) {
+    if (task.workspaceId !== workspaceId || !needsYou(task)) continue
+    waiting.push({ taskId: task.id, updatedAt: task.updatedAt })
+  }
+  waiting.sort((a, b) => b.updatedAt - a.updatedAt || (a.taskId < b.taskId ? -1 : 1))
+  return { shown: waiting.slice(0, WAITING_TASKS_SHOWN), moreCount: Math.max(0, waiting.length - WAITING_TASKS_SHOWN) }
+}
+
+/** A waiting task's title as its row shows it: what a task is called until its agent names it, for one without. */
+export function waitingTaskTitle(title: string): string {
+  return title === '' ? UNTITLED_TASK_TITLE : title
 }
 
 /**

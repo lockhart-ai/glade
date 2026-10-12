@@ -1,0 +1,52 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "tasks": [
+    {
+      "title": "Add per-key rate limiting to the public API",
+      "status": "Waiting on you: pick a limit for /search",
+      "unread": true,
+      "minutesAgo": 4,
+      "selected": true
+    },
+    {
+      "title": "Fix flaky login test",
+      "status": "Found the race; needs a decision on the fix",
+      "unread": true,
+      "minutesAgo": 22
+    },
+    {
+      "title": "Bump the SDK to 0.4",
+      "status": "Waiting on you: allow the install?",
+      "unread": true,
+      "minutesAgo": 38
+    },
+    {
+      "title": "Clean up the fixtures",
+      "status": "Removed 14 unused fixtures",
+      "unread": true,
+      "minutesAgo": 60
+    },
+    {
+      "title": "Tighten the CORS policy",
+      "status": "Waiting on you: which origins to allow",
+      "unread": true,
+      "minutesAgo": 90
+    },
+    {
+      "title": "Rotate the staging API key",
+      "status": "Rotated; the old key still needs revoking",
+      "unread": true,
+      "minutesAgo": 130
+    },
+    {
+      "title": "Redesign the checkout flow",
+      "status": "Waiting on you: which payment providers to keep",
+      "unread": true,
+      "minutesAgo": 50,
+      "workspace": { "name": "Acme Web", "rootPath": "/Users/sample/code/web" }
+    }
+  ]
+}

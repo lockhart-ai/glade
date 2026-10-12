@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { menuBarIcon, menuBarSnapshot } from '../../shared/menuBar'
-import { TaskActivity, TaskState, type Task, type Workspace } from '../../shared/domain'
+import { TaskActivity, TaskState, UNTITLED_TASK_TITLE, type Task, type Workspace } from '../../shared/domain'
 import { sampleTask, sampleWorkspace } from '../store/test-bridge'
 import {
   badgeTone,
@@ -9,6 +9,9 @@ import {
   needsYouCount,
   pillText,
   switcherTitle,
+  WAITING_TASKS_SHOWN,
+  waitingTasks,
+  waitingTaskTitle,
   workspaceAt,
   workspaceInitial,
   workspaceStatus,
@@ -208,5 +211,51 @@ describe('workspaceAt', () => {
     expect(workspaceAt(workspaces, 4)).toBeUndefined()
     expect(workspaceAt(workspaces, 0)).toBeUndefined()
     expect(workspaceAt(workspaces, 10)).toBeUndefined()
+  })
+})
+
+describe('waitingTasks', () => {
+  it('is empty with nothing needing you: none at all, only active ones, or only in other workspaces', () => {
+    expect(waitingTasks([], 'w1')).toEqual({ shown: [], moreCount: 0 })
+    expect(waitingTasks([working('t1'), waiting('t2', 'w2')], 'w1')).toEqual({ shown: [], moreCount: 0 })
+  })
+
+  it('is the workspace’s own waiting tasks, newest change first, by id and when they changed', () => {
+    const t1 = { ...waiting('t1'), updatedAt: 1_000 }
+    const t2 = { ...waiting('t2'), updatedAt: 3_000 }
+
+    expect(waitingTasks([t1, t2], 'w1')).toEqual({
+      shown: [
+        { taskId: 't2', updatedAt: 3_000 },
+        { taskId: 't1', updatedAt: 1_000 },
+      ],
+      moreCount: 0,
+    })
+  })
+
+  it('breaks a tie in when they changed by id, so the rows don’t swap places as they refresh', () => {
+    const t1 = { ...waiting('t1'), updatedAt: 1_000 }
+    const t2 = { ...waiting('t2'), updatedAt: 1_000 }
+    expect(waitingTasks([t2, t1], 'w1').shown.map(({ taskId }) => taskId)).toEqual(['t1', 't2'])
+  })
+
+  it(`shows at most ${String(WAITING_TASKS_SHOWN)}, the newest, and counts the rest`, () => {
+    const tasks = Array.from({ length: WAITING_TASKS_SHOWN + 2 }, (_, index) => ({
+      ...waiting(`t${String(index)}`),
+      updatedAt: 1_000 + index,
+    }))
+
+    const { shown, moreCount } = waitingTasks(tasks, 'w1')
+
+    expect(shown).toHaveLength(WAITING_TASKS_SHOWN)
+    expect(shown.map(({ taskId }) => taskId)).toEqual(['t5', 't4', 't3', 't2'])
+    expect(moreCount).toBe(2)
+  })
+})
+
+describe('waitingTaskTitle', () => {
+  it('is the title, or "New task" for one without, as the menu bar popover calls it too', () => {
+    expect(waitingTaskTitle('Fix flaky login test')).toBe('Fix flaky login test')
+    expect(waitingTaskTitle('')).toBe(UNTITLED_TASK_TITLE)
   })
 })

@@ -62,3 +62,49 @@
   width: 14px;
   color: var(--color-text);
 }
+
+/* A workspace's waiting task, nested under its row: indented to line up under its name, one line (#610). */
+.menu .waitingRow {
+  height: auto;
+  padding: 6px 10px 6px 38px;
+}
+
+.waitingLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.waitingTitle {
+  flex-grow: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.waitingTime {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+/* The "+N more" row past `WAITING_TASKS_SHOWN`: dimmed, no dot, a chevron at the right (#610). */
+.more {
+  flex-grow: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--color-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.moreChevron {
+  flex-shrink: 0;
+  color: var(--color-faint);
+}

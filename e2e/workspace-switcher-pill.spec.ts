@@ -6,7 +6,7 @@ import type { Page } from '@playwright/test'
 import { CommandName } from '../src/shared/bridge'
 import { chooseFolder, expect, test } from './fixtures'
 import { chooseMenuItem } from './menu'
-import { firstRun, inputBar, regions, taskList, workspaceSwitcher } from './selectors'
+import { firstRun, inputBar, regions, taskHeader, taskList, workspaceSwitcher } from './selectors'
 import { invoke } from './task-view'
 
 /** Each workspace's long-running task's first message: it plays `long-running`, which works until it's stopped. */
@@ -106,4 +106,57 @@ test('the pill totals every task that needs you, the shown workspace’s own inc
   await expect(workspace).toContainText('acme-web')
   await expect(switcher.pill).toHaveCount(0)
   await expect(switcher.trigger).toHaveAttribute('title', 'Switch workspace')
+})
+
+test('a waiting task nested under another workspace opens it, switching and selecting in one click (#610)', async ({
+  launch,
+  tempFolder,
+}) => {
+  const parent = tempFolder()
+  const rootA = join(parent, 'acme-api')
+  const rootB = join(parent, 'acme-web')
+  mkdirSync(rootA)
+  mkdirSync(rootB)
+  const glade = await launch({ agentScriptsByFirstMessage: { [RUN_SUITE]: 'long-running' }, chosenFolder: rootA })
+  const { window } = glade
+  const switcher = workspaceSwitcher(window)
+  const list = taskList(window)
+  const bar = inputBar(window)
+  const workspace = regions(window).workspace
+  const header = taskHeader(window)
+
+  await firstRun(window).openFolder.click()
+  await list.newTask.click()
+  await bar.field.fill(RUN_SUITE)
+  await bar.field.press('Enter')
+  await expect(bar.stop).toBeVisible()
+  await expect(header.title).toHaveText(SUITE_TITLE)
+
+  await chooseFolder(glade, rootB)
+  await chooseMenuItem(glade, 'Workspace', 'New workspace…')
+  await expect(workspace).toContainText('acme-web')
+  await list.newTask.click()
+  await bar.field.fill(RUN_SUITE)
+  await bar.field.press('Enter')
+  await expect(bar.stop).toBeVisible()
+  await expect(header.title).toHaveText(SUITE_TITLE)
+
+  const { workspaces } = await invoke(window, CommandName.WorkspacesList, {})
+  const workspaceB = workspaces.find((each) => each.rootPath === rootB)
+  const { tasks: tasksB } = await invoke(window, CommandName.TasksList, { workspaceId: workspaceB?.id ?? '' })
+  const taskB1 = tasksB[0]?.id ?? ''
+
+  // B1 needs you, in B, while B is still the one shown: back to A first, so the click below really does switch.
+  await makeItNeedYou(window, taskB1)
+  await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-api')
+  await expect(workspace).toContainText('acme-api')
+  await expect(switcher.pill).toHaveText('1')
+
+  await switcher.trigger.click()
+  await switcher.waitingTask(SUITE_TITLE).click()
+
+  // One click: switched to B and selected B1, the task that needed you, not just the workspace's own restored one.
+  await expect(workspace).toContainText('acme-web')
+  await expect(header.title).toHaveText(SUITE_TITLE)
+  await expect(switcher.pill).toHaveCount(0)
 })
