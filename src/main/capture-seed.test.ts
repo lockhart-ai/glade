@@ -1843,6 +1843,49 @@ describe('applySeed', () => {
     ])
   })
 
+  it("writes what an agent call's subagent has spent, and nothing where a seed names none", () => {
+    const { db } = database
+    const dispatched = {
+      kind: ToolEventKind.ToolCall,
+      name: 'mcp__glade-agents__dispatch',
+      turn: 1,
+      minutesAgo: 4,
+    } as const
+
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          {
+            title: 'Triage the flaky uploads',
+            minutesAgo: 0,
+            toolEvents: [
+              {
+                ...dispatched,
+                input: { description: 'Check the uploads' },
+                output: 'Checked.',
+                totalInputTokens: 1_234_567,
+                totalOutputTokens: 45_000,
+              },
+              { ...dispatched, input: { description: 'Check the API' }, totalInputTokens: 500 },
+              { ...dispatched, input: { description: 'Check the docs' } },
+            ],
+          },
+        ],
+      },
+      NOW,
+    )
+
+    const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    const [written, outputAlone, unwritten] = listToolEvents(db, task?.id ?? '')
+    expect(written).toMatchObject({ totalInputTokens: 1_234_567, totalOutputTokens: 45_000 })
+    // Either total alone is enough, and the other is written as 0.
+    expect(outputAlone).toMatchObject({ totalInputTokens: 500, totalOutputTokens: 0 })
+    expect(unwritten).not.toHaveProperty('totalInputTokens')
+    expect(unwritten).not.toHaveProperty('totalOutputTokens')
+  })
+
   it('writes where the SDK compacts automatically, and what a compaction carried over', () => {
     const { db } = database
     applySeed(
