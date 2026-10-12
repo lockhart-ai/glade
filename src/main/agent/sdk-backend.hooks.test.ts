@@ -7,7 +7,7 @@ import { LogLevel } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
 import { CONTROL_SERVER_NAME } from '../../shared/control'
 import { PromptVerdict, type AgentSessionOptions, type SessionHooks } from './backend'
-import { ACCESS_TOOL_NAME, GLADE_SERVER } from './glade-tools'
+import { ACCESS_TOOL_NAME, GLADE_SERVER, LIST_OTHER_TASKS_TOOL_NAME } from './glade-tools'
 import { BLOCKED_PROMPT_REASON, SUBAGENT_TOOL_REFUSAL, sdkHooks, sdkOptions } from './sdk-backend'
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: vi.fn() }))
@@ -423,6 +423,30 @@ it('lets request_access run whatever the hook can read of the call, or whoever h
   expect(log.withMessage('failed to note a request_access call')).toHaveLength(1)
 })
 
+it("lets a subagent's list_other_tasks through too (#578), with no bookkeeping, unlike request_access", async () => {
+  const log = createMemoryLog()
+  const onAccessRequested = vi.fn()
+  const hooks = sdkHooks(handlers({ onAccessRequested }), log.logger)
+  const glade = { name: GLADE_SERVER, source: 'sdk' }
+
+  await expect(callGuard(hooks, mcpInput(LIST_OTHER_TASKS_TOOL_NAME, glade, { agent_id: 'sub-1' }))).resolves.toEqual(
+    {},
+  )
+  await expect(callGuard(hooks, mcpInput(LIST_OTHER_TASKS_TOOL_NAME, glade))).resolves.toEqual({})
+  expect(onAccessRequested).not.toHaveBeenCalled()
+  // A configured server's tool of that name isn't Glade's: nothing is told of it either, and nothing is refused.
+  await expect(
+    callGuard(
+      hooks,
+      mcpInput(LIST_OTHER_TASKS_TOOL_NAME, { name: GLADE_SERVER, source: 'user' }, { agent_id: 'sub-1' }),
+    ),
+  ).resolves.toEqual({})
+  // Every other Glade tool is still refused to a subagent.
+  await expect(callGuard(hooks, mcpInput(`mcp__${GLADE_SERVER}__ask`, glade, { agent_id: 'sub-1' }))).resolves.toEqual(
+    DENIED,
+  )
+})
+
 it('enforces main-only tools for a separately routed child even without a native agent_id', async () => {
   const hooks = sdkHooks(undefined, createMemoryLog().logger, undefined, 'glade-child-1')
   await expect(callGuard(hooks, mcpInput('mcp__glade__ask', { name: GLADE_SERVER, source: 'sdk' }))).resolves.toEqual(
@@ -433,5 +457,8 @@ it('enforces main-only tools for a separately routed child even without a native
   ).resolves.toEqual(DENIED)
   await expect(
     callGuard(hooks, mcpInput('mcp__glade__request_access', { name: GLADE_SERVER, source: 'sdk' })),
+  ).resolves.toEqual({})
+  await expect(
+    callGuard(hooks, mcpInput('mcp__glade__list_other_tasks', { name: GLADE_SERVER, source: 'sdk' })),
   ).resolves.toEqual({})
 })

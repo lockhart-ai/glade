@@ -100,10 +100,11 @@ describe('the server', () => {
   it('has the two tools in every session, loaded up front like the rest', async () => {
     const tools = await toolsOf()
 
-    expect(tools.map(({ name }) => name).slice(-3)).toEqual([
+    expect(tools.map(({ name }) => name).slice(-4)).toEqual([
       GladeTool.RemoveArtifact,
       GladeTool.ListChildren,
       GladeTool.FileChildren,
+      GladeTool.ListOtherTasks,
     ])
     for (const listed of tools) expect(listed._meta).toEqual({ 'anthropic/alwaysLoad': true })
 

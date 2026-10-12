@@ -4,6 +4,7 @@ import { UiStateKey, WatcherKind, WatcherState } from '../../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../../shared/settings'
 import { ChildFilter, ChildKind, subagentTodo, UNFILED_TODO_ID } from '../../../shared/todoHub'
 import { missingContext, MissingContextKind } from '../../agent/session-context'
+import { OTHER_TASKS_LINE } from '../../agent/system-prompt'
 import { agentTabOf, readTodoHub, taskChildren } from '../../todo-hub/todo-hub'
 import { listForAgent } from '../../todo-hub/agent-children'
 import { openDatabase } from '../database'
@@ -197,7 +198,9 @@ describe('a database from before the phase (pre-0059), migrated', () => {
       sandbox: false,
       todoHub: false,
     })
+    // Its session is also owed the one instruction added since this migration (#578): nothing recorded has it either.
     expect(missingContext({ recorded, startedElsewhere: false, handoff: null, prompt: '', sandboxed: false })).toEqual([
+      { kind: MissingContextKind.Updates, updates: [OTHER_TASKS_LINE] },
       { kind: MissingContextKind.TodoHub },
     ])
     db.close()

@@ -48,6 +48,16 @@ export const LINK_ARTIFACTS_LINE =
   'files.'
 
 /**
+ * What the prompt says of the other tasks (#578): another task may already be on the same pull request, issue or
+ * branch, so check with `list_other_tasks` before picking one up, and stop and ask if another task already has it.
+ * It's the one sentence `list_other_tasks`'s own tool description also makes, so a session that reads only the
+ * prompt and one that reads only the tool's description are told the same thing either way.
+ */
+export const OTHER_TASKS_LINE =
+  `Before starting work on an existing pull request, issue or branch, call ${GladeTool.ListOtherTasks} and check ` +
+  'that no other task already has it among its links or in its Goal or Now; if one does, stop and ask.'
+
+/**
  * What the prompt says of the agent sandbox, in a session that runs in one (#445, #450): what its commands can use,
  * and that a command the sandbox blocks is answered with `request_access`, not by leaving the sandbox. A session
  * resumed from before the sandbox was turned on keeps its old prompt (Claude Code applies the append at start only),
@@ -103,7 +113,7 @@ export const TODO_HUB_LINES: readonly string[] = [TODO_HUB_FILING_LINE, TODO_HUB
  * sandboxed sessions alone) and `TODO_HUB_LINES` (some sessions had them before every session did) aren't here: each is
  * tracked by itself.
  */
-export const INSTRUCTION_UPDATES: readonly string[] = [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE]
+export const INSTRUCTION_UPDATES: readonly string[] = [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE]
 
 /** The heading the handoff note goes under in the prompt. */
 export const HANDOFF_HEADING = 'Handoff for this task (backfilled from earlier notes)'
@@ -127,8 +137,9 @@ export function handoffSection(handoff: TaskHandoff): string {
 
 /**
  * What a dispatched child's prompt is instead of the main agent's (#560): everything a child needs and nothing of its
- * parent's Glade instructions, whose tools it isn't offered. It says the same on every start, a resumed child
- * included, so resuming doesn't change what a child is told. In a sandboxed session it also says what the sandbox is
+ * parent's Glade instructions, except what applies to the two tools it is offered (#578). It says the same on every
+ * start, a resumed child included, so resuming doesn't change what a child is told. `OTHER_TASKS_LINE` is always in
+ * it, since `list_other_tasks` is always one of its tools. In a sandboxed session it also says what the sandbox is
  * and to ask with `request_access` (`SANDBOX_LINE`); an unsandboxed child's doesn't mention the sandbox.
  */
 export const DELEGATED_CHILD_PROMPT = [
@@ -137,6 +148,7 @@ export const DELEGATED_CHILD_PROMPT = [
   'Your final message is the only thing the parent reads, so report there what you did and found.',
   "Only the parent talks to the user and changes Glade's metadata.",
   'Finish your own descendants before returning: remaining work ends with you.',
+  OTHER_TASKS_LINE,
 ].join('\n')
 
 /** The prompt a dispatched child starts with: the child's own instructions, plus the sandbox's line when sandboxed. */
@@ -197,6 +209,8 @@ export function systemPromptAppend(
       `Keep that list current: if its file moves or it needs a new title, call ${GladeTool.UpdateArtifact}; if it's no ` +
       `longer a deliverable, call ${GladeTool.RemoveArtifact}.`,
     LINK_ARTIFACTS_LINE,
+    '',
+    OTHER_TASKS_LINE,
     '',
     WATCHERS_LINE,
   )

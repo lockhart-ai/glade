@@ -1,7 +1,8 @@
-// What servers a dispatched child is given, through the real bridge (#560): the main agent keeps its Glade tools, a
-// child gets none of them — only a `glade` server holding `request_access` in a sandboxed session — and keeps the
-// delegation tools it started with, so it can start children on the other source too. A fake agent session behind the
-// real bridge, over a fake IPC pair, on a temporary database.
+// What servers a dispatched child is given, through the real bridge (#560, #578): the main agent keeps its Glade
+// tools, a child gets none of them except the two a subagent may call too — a `glade` server always holding
+// `list_other_tasks`, and `request_access` as well in a sandboxed session — and keeps the delegation tools it
+// started with, so it can start children on the other source too. A fake agent session behind the real bridge, over
+// a fake IPC pair, on a temporary database.
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createBridge } from '../../preload/bridge'
 import { CommandName, type GladeBridge } from '../../shared/bridge'
@@ -84,19 +85,20 @@ async function dispatchedChild(parent: FakeAgentSession): Promise<FakeAgentSessi
   return child
 }
 
-it('gives the main agent its Glade tools and a child none of them', async () => {
+it('gives the main agent its full Glade tools and an unsandboxed child only list_other_tasks', async () => {
   const parent = await startTurn()
   expect(parent.options.mcpServers).toHaveProperty(GLADE_SERVER)
 
   const child = await dispatchedChild(parent)
 
-  expect(child.options.mcpServers).not.toHaveProperty(GLADE_SERVER)
+  // Its exact tool set (list_other_tasks alone, unsandboxed) is checked at the unit level in glade-tools.test.ts.
+  expect(child.options.mcpServers).toMatchObject({ [GLADE_SERVER]: { type: 'sdk', name: GLADE_SERVER } })
   expect(child.options.mcpServers).not.toHaveProperty(CONTROL_SERVER)
   // The child keeps its own delegation tools, so it can start children on the other source too.
   expect(child.options.mcpServers).toHaveProperty(AGENTS_SERVER)
 })
 
-it('gives a sandboxed child only a glade server for asking about access', async () => {
+it('gives a sandboxed child a glade server for asking about access too', async () => {
   updateSettings(database.db, { sandboxEnabled: true })
   const parent = await startTurn()
 

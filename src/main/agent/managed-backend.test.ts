@@ -447,7 +447,9 @@ it('gives a sandboxed child a glade server holding only request_access', async (
   const base = { db: database.db, emit: () => undefined }
   const createMcpServers: NonNullable<AgentSessionOptions['createMcpServers']> = (request): AgentMcpServers => {
     if (request.audience !== McpServerAudience.DispatchedChild || !request.sandboxed) return {}
-    return { [GLADE_SERVER]: createGladeAccessMcpServer({ ...base, questions: createQuestionBroker(base) }, taskId) }
+    return {
+      [GLADE_SERVER]: createGladeAccessMcpServer({ ...base, questions: createQuestionBroker(base) }, taskId, true),
+    }
   }
   start({ flagSettings: { sandbox: { enabled: true } }, createMcpServers })
   const dispatched = parent.callTool('dispatch', DISPATCH_AGENT_TOOL, INPUT)

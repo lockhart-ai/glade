@@ -16,6 +16,7 @@ import {
   handoffSection,
   INSTRUCTION_UPDATES,
   LINK_ARTIFACTS_LINE,
+  OTHER_TASKS_LINE,
   SANDBOX_LINE,
   TODO_HUB_ARTIFACTS_LINE,
   TODO_HUB_FILING_LINE,
@@ -60,7 +61,10 @@ describe('what a session is missing', () => {
   })
 
   it('is the instructions added since, for a session that started before them', () => {
-    const updates = { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE] }
+    const updates = {
+      kind: MissingContextKind.Updates,
+      updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE],
+    }
 
     expect(missingContext(check({ recorded: has(0) }))).toEqual([updates])
     // One Glade started before anything was recorded had its prompt, but none of the instructions added since.
@@ -72,16 +76,16 @@ describe('what a session is missing', () => {
 
   it('is the instructions added since, then the handoff note, when it is missing both', () => {
     expect(missingContext(check({ handoff: HANDOFF }))).toEqual([
-      { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE] },
+      { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE] },
       TODO_HUB,
       { kind: MissingContextKind.Handoff, handoff: HANDOFF },
     ])
     expect(missingContext(check({ recorded: has(0, 5_000), handoff: HANDOFF }))).toEqual([
-      { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE] },
+      { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE] },
     ])
-    // A session that had the first gets only the one added since (#407).
+    // A session that had the first gets only the ones added since (#407, #578).
     expect(missingContext(check({ recorded: has(1) }))).toEqual([
-      { kind: MissingContextKind.Updates, updates: [LINK_ARTIFACTS_LINE] },
+      { kind: MissingContextKind.Updates, updates: [LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE] },
     ])
   })
 
@@ -119,7 +123,7 @@ describe('what a session is missing of the sandbox', () => {
     expect(missingContext(check({ recorded: startedContext(null, false), sandboxed: true }))).toEqual([sandbox])
     // One from before anything was recorded started outside it too.
     expect(missingContext(check({ sandboxed: true }))).toEqual([
-      { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE] },
+      { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE] },
       sandbox,
       TODO_HUB,
     ])
@@ -127,7 +131,7 @@ describe('what a session is missing of the sandbox', () => {
 
   it('comes after the instructions added since, and before the handoff note', () => {
     expect(missingContext(check({ recorded: has(1), handoff: HANDOFF, sandboxed: true }))).toEqual([
-      { kind: MissingContextKind.Updates, updates: [LINK_ARTIFACTS_LINE] },
+      { kind: MissingContextKind.Updates, updates: [LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE] },
       sandbox,
       { kind: MissingContextKind.Handoff, handoff: HANDOFF },
     ])
@@ -191,14 +195,14 @@ describe('what a session is missing of the todo hub', () => {
     expect(missingContext(check({ recorded: BEFORE_HUB }))).toEqual([todoHub])
     // One from before anything was recorded started without it too.
     expect(missingContext(check({}))).toEqual([
-      { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE] },
+      { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE] },
       todoHub,
     ])
   })
 
   it('comes after the instructions added since and the sandbox, and before the handoff note', () => {
     expect(missingContext(check({ recorded: has(1, null, false, false), handoff: HANDOFF, sandboxed: true }))).toEqual([
-      { kind: MissingContextKind.Updates, updates: [LINK_ARTIFACTS_LINE] },
+      { kind: MissingContextKind.Updates, updates: [LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE] },
       { kind: MissingContextKind.Sandbox },
       todoHub,
       { kind: MissingContextKind.Handoff, handoff: HANDOFF },

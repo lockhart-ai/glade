@@ -39,6 +39,7 @@ import {
   GLADE_SERVER,
   GLADE_TOOL_TIMEOUT_MS,
   GladeTool,
+  LIST_OTHER_TASKS_TOOL_NAME,
   QUESTIONS_WITHDRAWN,
   type GladeToolContext,
   type RequestAccess,
@@ -152,6 +153,7 @@ describe('the server', () => {
       GladeTool.RemoveArtifact,
       GladeTool.ListChildren,
       GladeTool.FileChildren,
+      GladeTool.ListOtherTasks,
     ])
     for (const listed of tools) expect(listed._meta).toEqual({ 'anthropic/alwaysLoad': true })
     expect(tools.map((listed) => listed.inputSchema.required)).toEqual([
@@ -166,6 +168,7 @@ describe('the server', () => {
       undefined,
       undefined,
       ['filings'],
+      undefined,
     ])
     await client.close()
   })
@@ -200,6 +203,7 @@ describe('the server', () => {
       GladeTool.RemoveArtifact,
       GladeTool.ListChildren,
       GladeTool.FileChildren,
+      GladeTool.ListOtherTasks,
     ])
     await client.close()
   })
@@ -737,28 +741,32 @@ describe('add_artifact', () => {
   })
 })
 
-describe("the dispatched child's access server (#560)", () => {
-  it('holds only request_access, and only when there is someone to ask', async () => {
-    const requestAccess = vi.fn<RequestAccess>(() => Promise.resolve({ kind: AccessOutcomeKind.SandboxOff }))
-    const asking = createGladeAccessMcpServer({ ...context, requestAccess }, task.id)
-    // Built without anyone to ask, as the bridge does in an unsandboxed session: the server holds no tools, and the
-    // SDK's in-process server answers no `tools/list` for an empty set, so only its shape is checked.
-    const bare = createGladeAccessMcpServer(context, task.id)
+describe("the dispatched child's access server (#560, #578)", () => {
+  async function toolNamesOf(server: ReturnType<typeof createGladeAccessMcpServer>): Promise<string[]> {
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
-    await asking.instance.connect(serverSide)
+    await server.instance.connect(serverSide)
     const client = new Client({ name: 'test', version: '1.0.0' })
     await client.connect(clientSide)
-
     const { tools } = await client.listTools()
-
-    expect(asking).toMatchObject({ type: 'sdk', name: GLADE_SERVER })
-    expect(tools.map((listed) => listed.name)).toEqual([GladeTool.RequestAccess])
     for (const listed of tools) expect(listed._meta).toEqual({ 'anthropic/alwaysLoad': true })
-    expect(bare).toMatchObject({ type: 'sdk', name: GLADE_SERVER })
     await client.close()
+    return tools.map((listed) => listed.name)
+  }
+
+  it('always holds list_other_tasks, and request_access only in a sandboxed session with someone to ask', async () => {
+    const requestAccess = vi.fn<RequestAccess>(() => Promise.resolve({ kind: AccessOutcomeKind.SandboxOff }))
+    const sandboxedAsking = createGladeAccessMcpServer({ ...context, requestAccess }, task.id, true)
+    const unsandboxedAsking = createGladeAccessMcpServer({ ...context, requestAccess }, task.id, false)
+    // Sandboxed, but with no one to ask (never built by the real bridge, but the server's own shape still holds).
+    const noOneToAsk = createGladeAccessMcpServer(context, task.id, true)
+
+    await expect(toolNamesOf(sandboxedAsking)).resolves.toEqual([GladeTool.ListOtherTasks, GladeTool.RequestAccess])
+    await expect(toolNamesOf(unsandboxedAsking)).resolves.toEqual([GladeTool.ListOtherTasks])
+    await expect(toolNamesOf(noOneToAsk)).resolves.toEqual([GladeTool.ListOtherTasks])
+    expect(sandboxedAsking).toMatchObject({ type: 'sdk', name: GLADE_SERVER })
   })
 
-  it('hands its one call to the same handler the main server uses', async () => {
+  it('hands its request_access call to the same handler the main server uses', async () => {
     const requestAccess = vi.fn<RequestAccess>(() =>
       Promise.resolve({
         kind: AccessOutcomeKind.Allowed,
@@ -768,7 +776,7 @@ describe("the dispatched child's access server (#560)", () => {
       }),
     )
     const tools = createMcpToolCaller({
-      [GLADE_SERVER]: createGladeAccessMcpServer({ ...context, requestAccess }, task.id),
+      [GLADE_SERVER]: createGladeAccessMcpServer({ ...context, requestAccess }, task.id, true),
     })
 
     await expect(
@@ -783,6 +791,20 @@ describe("the dispatched child's access server (#560)", () => {
       { path: '/Users/me/.cache/uv', access: FileAccess.Write, reason: 'Cache.' },
       { toolUseId: null, signal: expect.any(AbortSignal) as unknown },
     )
+    await tools.close()
+  })
+
+  it('hands its list_other_tasks call to the same handler the main server uses, even without a sandbox', async () => {
+    const other = sampleTask(database.db, sampleWorkspace(database.db, '/code/widgets').id)
+    const tools = createMcpToolCaller({
+      [GLADE_SERVER]: createGladeAccessMcpServer(context, task.id, false),
+    })
+
+    const { output, isError } = await tools.call(LIST_OTHER_TASKS_TOOL_NAME, {})
+
+    expect(isError).toBe(false)
+    expect(output).toContain(`${task.id} (this task, itself)`)
+    expect(output).toContain(other.id)
     await tools.close()
   })
 })
