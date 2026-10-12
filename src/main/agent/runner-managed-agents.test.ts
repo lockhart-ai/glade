@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AGENT_MODELS_TOOL, DISPATCH_AGENT_TOOL } from '../../shared/managed-agents'
-import { ToolCallState, ToolEventKind, type Task } from '../../shared/domain'
+import { EventType, type GladeEvent } from '../../shared/bridge'
+import { ToolCallState, ToolEventKind, type Task, type ToolCallEvent } from '../../shared/domain'
 import { SAMPLE_CHOICE, SAMPLE_MODEL, SAMPLE_PROVIDER } from '../../shared/test-openrouter'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { setOpenRouterChoice, setOpenRouterConnection } from '../db/repositories/openrouter'
@@ -20,13 +21,21 @@ let backend: FakeAgentBackend
 let runner: AgentRunner
 let task: Task
 let log: MemoryLog
+let emitted: GladeEvent[]
 const account = { accountRead: vi.fn(), usageRead: vi.fn(), rateLimit: vi.fn() }
 beforeEach(() => {
   database = openTestDatabase()
   task = sampleTask(database.db, sampleWorkspace(database.db).id)
   backend = new FakeAgentBackend()
   log = createMemoryLog()
-  runner = createAgentRunner({ db: database.db, backend, emit: () => undefined, account, log: log.logger })
+  emitted = []
+  runner = createAgentRunner({
+    db: database.db,
+    backend,
+    emit: (event) => emitted.push(event),
+    account,
+    log: log.logger,
+  })
   setOpenRouterConnection(database.db, {
     encryptedKey: Buffer.from('ciphertext'),
     models: [SAMPLE_MODEL],
@@ -62,6 +71,18 @@ function childId(call: string): string {
     'managed_agents',
     database.db.prepare('SELECT id FROM managed_agents WHERE tool_use_id = ?').get(call),
   ).text('id')
+}
+
+/** The last tool call the runner sent to the window for `toolUseId`, so what the tab would show can be read. */
+function lastUpdate(toolUseId: string): ToolCallEvent | undefined {
+  const updates = emitted.filter(
+    (event): event is Extract<GladeEvent, { type: EventType.ToolEventUpdated }> =>
+      event.type === EventType.ToolEventUpdated &&
+      event.toolEvent.kind === ToolEventKind.ToolCall &&
+      event.toolEvent.toolUseId === toolUseId,
+  )
+  const last = updates.at(-1)
+  return last?.toolEvent.kind === ToolEventKind.ToolCall ? last.toolEvent : undefined
 }
 
 it.each([
@@ -344,5 +365,26 @@ describe("a dispatched child's token totals (#589)", () => {
     await dispatched
     await settle()
     expect(getTask(database.db, task.id)).toMatchObject({ totalInputTokens: 0, totalOutputTokens: 0 })
+  })
+
+  it('sends a foreground child’s totals to the window on the last event about its call', async () => {
+    const parent = start(SAMPLE_CHOICE.id)
+    const dispatched = callTool(parent, DISPATCH_AGENT_TOOL, input(CLAUDE), 'first')
+    const child = await launched()
+    child.emit(sdk.init('first-session'), sdk.result('First done', { usage }))
+    await dispatched
+    await settle()
+    // The totals are written before the call's result is re-read from its row, so the run's ending event carries them.
+    expect(lastUpdate('first')).toMatchObject(totals)
+  })
+
+  it('sends a background child’s totals to the window on the last event about its call', async () => {
+    const parent = start(SAMPLE_CHOICE.id)
+    const dispatched = callTool(parent, DISPATCH_AGENT_TOOL, input(CLAUDE, true), 'bg')
+    const child = await launched()
+    child.emit(sdk.init('bg-session'), sdk.result('Done in the background.', { usage }))
+    await dispatched
+    await settle()
+    expect(lastUpdate('bg')).toMatchObject(totals)
   })
 })
