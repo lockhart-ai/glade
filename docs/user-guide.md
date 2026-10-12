@@ -364,8 +364,8 @@ Three tabs, each with a count: **Agents · Files · Todos** (⌘⌥1 – ⌘⌥3
   A subagent's tab has, under the strip, a line saying which todo it's working on ("Working on #501 Return
   Retry-After on 429s", "Worked on …" once it's finished), its title a link to that todo in the Todos tab, and its
   own state at the right ("Running · 6m", "Done · 28m"). One subagent works on one todo: the one it was started for.
-  The model's row shows, at its right, how full the subagent's conversation was at its latest request: "478k context"
-  while it runs, and for good when it ran in the background. It is a context size, not what the subagent has spent.
+  The model's row shows, at its right, how full the subagent's conversation was at its latest request: "478k context",
+  while it runs and after it finishes. It is a context size, not what the subagent has spent.
   Right-click its tab (or ⇧F10) for **Copy log** and, while it's running, **Stop subagent**; stopping it
   also ends what it left running in the background ("Ended with its subagent.").
 
