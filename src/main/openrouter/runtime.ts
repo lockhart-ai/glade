@@ -21,9 +21,6 @@ import {
 } from './transcripts'
 import { openRouterSdkModel } from './sdk-model'
 import { importLocalTranscript } from './local-transcripts'
-import { sdkTaskList } from './task-list'
-import { getTask } from '../db/repositories/tasks'
-import { highestTodoId } from '../todos/todos'
 import { SILENT_LOGGER } from '../logging/logger'
 
 export interface OpenRouterRuntimeOptions {
@@ -65,34 +62,6 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
         }
       }
       try {
-        const originalTask = options.taskId === undefined ? undefined : getTask(db, options.taskId)
-        const originalConfig =
-          agentSource(originalTask?.model ?? options.model) === AgentSource.OpenRouter
-            ? join(dataDir, 'openrouter-sdk')
-            : claudeConfig
-        const taskList =
-          options.taskId === undefined
-            ? undefined
-            : await sdkTaskList({
-                taskId: options.taskId,
-                sessionId:
-                  (inherited.CLAUDE_CODE_TASK_LIST_ID === '' ? undefined : inherited.CLAUDE_CODE_TASK_LIST_ID) ??
-                  originalTask?.sessionId ??
-                  sessionId,
-                configDir,
-                dataDir,
-                legacyConfigDir: originalConfig,
-                // Every main session of a task shares the task's one list, so its todos survive a restart (#593). A
-                // dispatched child keeps what it had before: its own list, or the shared one a source switch made.
-                create:
-                  options.managedAgentId !== undefined
-                    ? originalTask !== undefined && agentSource(originalTask.model) !== agentSource(options.model)
-                    : true,
-                highestTodoId: highestTodoId(db, options.taskId) ?? undefined,
-              }).catch((error: unknown) => {
-                log.warn('could not share SDK todos; continuing with the SDK task list', { error })
-                return undefined
-              })
         let mirrored = sessionId !== null && hasTranscript(db, sessionId, options.taskId ?? null)
         // Ordinary Claude tasks keep their existing SDK files. Import only at the first OpenRouter handoff.
         if (sessionId !== null && (recoveryDir !== null || (router && !mirrored))) {
