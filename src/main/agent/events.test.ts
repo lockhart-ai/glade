@@ -225,11 +225,67 @@ describe('parsing SDK messages', () => {
         durationMs: 7620,
         totalCostUsd: 0.0285,
         usage: { inputTokens: 28, outputTokens: 553, cacheReadInputTokens: 58094, cacheCreationInputTokens: 9443 },
+        // Four main-loop requests (the fixture's default `num_turns`) with no `iterations` entry: no honest
+        // per-request figure (docs/sdk-notes.md, "A turn's result.usage sums the main loop, not the last request").
+        lastRequestUsage: null,
         contextWindows: { [sdk.MODEL]: sdk.CONTEXT_WINDOW },
         userMessageUuids: null,
         apiErrorStatus: null,
         startupFailureReason: null,
       },
+    ])
+  })
+
+  it("reads a result's last request's own usage from its iterations entry, never the whole turn's sum", () => {
+    const iteration = {
+      input_tokens: 8,
+      output_tokens: 48,
+      cache_read_input_tokens: 16548,
+      cache_creation_input_tokens: 460,
+    }
+    expect(
+      parse(
+        sdk.result('Done.', {
+          usage: {
+            input_tokens: 26,
+            cache_creation_input_tokens: 17008,
+            cache_read_input_tokens: 31619,
+            output_tokens: 730,
+            iterations: [iteration],
+          },
+        }),
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        usage: { inputTokens: 26, outputTokens: 730, cacheReadInputTokens: 31619, cacheCreationInputTokens: 17008 },
+        lastRequestUsage: {
+          inputTokens: 8,
+          outputTokens: 48,
+          cacheReadInputTokens: 16548,
+          cacheCreationInputTokens: 460,
+        },
+      }),
+    ])
+  })
+
+  it("trusts a result's own usage as the last request's when the turn made just one request", () => {
+    expect(
+      parse(
+        sdk.result('Done.', {
+          num_turns: 1,
+          usage: { input_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 1 },
+        }),
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        lastRequestUsage: { inputTokens: 5, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+      }),
+    ])
+    // More than one request and no `iterations`: the sum is never honestly the last request's figure.
+    expect(parse(sdk.result('Done.', { num_turns: 2 }))).toEqual([expect.objectContaining({ lastRequestUsage: null })])
+    // No usage at all: nothing to take a figure from.
+    expect(parse(sdk.result('Done.', { num_turns: 1, usage: null }))).toEqual([
+      expect.objectContaining({ lastRequestUsage: null }),
     ])
   })
 
@@ -444,6 +500,7 @@ describe('parsing SDK messages', () => {
         durationMs: null,
         totalCostUsd: null,
         usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+        lastRequestUsage: null,
         contextWindows: {},
         userMessageUuids: null,
         apiErrorStatus: null,
