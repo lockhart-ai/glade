@@ -6,7 +6,9 @@ import {
   AGENTS_SERVER,
   DISPATCH_AGENT_TOOL,
   DispatchIsolation,
+  MESSAGE_CHILD_TOOL,
   type DispatchAgentInput,
+  type MessageChildInput,
 } from '../../shared/managed-agents'
 import { effortFor, findModel } from '../../shared/models'
 import { AgentSource, agentSource } from '../../shared/openrouter'
@@ -63,6 +65,13 @@ interface ChildRun {
   result: string
   outcome: TaskOutcome | null
   ended: boolean
+  /**
+   * What `message_child` pushed into this run's turn, in order, each with the uuid `send` gave it. A message pushed
+   * while a turn runs is folded into it at its next tool round (`docs/sdk-notes.md` §2): the turn's own result then
+   * names every uuid it answered (`TurnFinishedEvent.userMessageUuids`). Any of these not named there missed the turn:
+   * its session closed at the turn's `TurnFinished` (one run is one turn), so it never reached the child.
+   */
+  readonly pending: { uuid: string; text: string }[]
 }
 const dispatchInput = z.object({
   model: z.string().min(1).describe('An exact id returned by list_models. Select a model for this job.'),
@@ -77,6 +86,10 @@ const dispatchInput = z.object({
       '"worktree" starts the child in its own git worktree, kept afterwards. A resumed child keeps what it had.',
     ),
 }) satisfies z.ZodType<DispatchAgentInput>
+const messageChildInput = z.object({
+  id: z.string().min(1).describe('A child dispatch returned with run_in_background, still running in this task.'),
+  text: z.string().min(1).describe('The text to send it, folded into its turn before its next tool call.'),
+}) satisfies z.ZodType<MessageChildInput>
 const extraSchema = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).optional(),
   signal: z.instanceof(AbortSignal).optional(),
@@ -108,6 +121,25 @@ function worktreeNote(worktree: string | null): string {
   return worktree === null
     ? ''
     : ` Its git worktree is .claude/worktrees/${worktree} in the repository, on branch worktree-${worktree}. Both are kept when it ends: use them, then remove them yourself (git worktree unlock, git worktree remove, git branch -D).`
+}
+
+/**
+ * What a child's completion says of a `message_child` send that missed its turn (#596): a message is folded into the
+ * child's turn only at its next tool round (`docs/sdk-notes.md` §2), and the run ends at that turn's own
+ * `TurnFinished`, so one pushed too late never reaches it. `userMessageUuids` names every pushed message the turn
+ * actually answered (the child's own first prompt is sent by `dispatch`, under a different uuid this never tracks, so
+ * it is never named here as missed); null when the SDK doesn't say, read as "no proof either way", not as a loss.
+ * Only the first undelivered message is named: in practice at most the latest one, pushed right at the turn's end,
+ * can ever miss it.
+ */
+function undeliveredNote(
+  pending: readonly { uuid: string; text: string }[],
+  userMessageUuids: readonly string[] | null,
+): string {
+  if (userMessageUuids === null) return ''
+  const missed = pending.find((message) => !userMessageUuids.includes(message.uuid))
+  if (missed === undefined) return ''
+  return ` One of your messages to it, "${missed.text.slice(0, 80)}", did not reach it before it finished: use dispatch with resume to continue it.`
 }
 
 /** Each delegated agent runs the existing backend on its own connection, with the task's permissions and tools. */
@@ -320,6 +352,7 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
         result: '',
         outcome: null,
         ended: false,
+        pending: [],
       }
       active.run = run
       const ended = (): boolean => run.ended || closed
@@ -371,7 +404,7 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
                   finish(
                     run,
                     event.isError ? TaskOutcome.Failed : TaskOutcome.Completed,
-                    event.result || run.result || 'Child finished.',
+                    `${event.result || run.result || 'Child finished.'}${undeliveredNote(run.pending, event.userMessageUuids)}`,
                   )
                   return
                 case AgentEventKind.Text:
@@ -443,6 +476,20 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
         content: [{ type: 'text' as const, text: `Child ${id} (${input.model}): ${result}${worktreeNote(worktree)}` }],
       }
     }
+    const messageChild = (input: MessageChildInput) => {
+      const found = readChild(db, taskId, input.id)
+      const run = runs.get(input.id)
+      if (found?.state !== 'running' || run === undefined)
+        throw new Error('This child cannot be messaged now. Use dispatch with resume to continue it.')
+      const uuid = randomUUID()
+      const marked = `Message from your parent:\n\n${input.text}`
+      run.session.send(marked, uuid)
+      run.pending.push({ uuid, text: input.text })
+      emit({ kind: AgentEventKind.Text, text: marked, parentToolUseId: run.record.toolUseId, sdkUuid: null })
+      return Promise.resolve({
+        content: [{ type: 'text' as const, text: `Queued for ${input.id}'s next tool call.` }],
+      })
+    }
     const server = createSdkMcpServer({
       name: AGENTS_SERVER,
       alwaysLoad: true,
@@ -481,6 +528,15 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
           dispatchInput.shape,
           dispatch,
         ),
+        tool(
+          'message_child',
+          'Send text to a child dispatch started with run_in_background, while it still runs: folded into its current ' +
+            'turn before its next tool call, not read at once. Only works while it is running in the background (a ' +
+            "foreground child's id is unknown until it finishes); one way, with nothing returned but the queued " +
+            'confirmation. A refusal means the child cannot be messaged now: use dispatch with resume instead.',
+          messageChildInput.shape,
+          messageChild,
+        ),
       ],
     })
     const recover = (): void => {
@@ -493,7 +549,7 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
     const parent = backend.start({
       ...options,
       mcpServers: { ...options.mcpServers, [AGENTS_SERVER]: server },
-      systemPromptAppend: `${options.systemPromptAppend}\nUse the built-in Agent tool for subagents on your own source, retaining its agent types, worktree isolation and SendMessage. Only to start a child on the other source (Claude account or OpenRouter), call mcp__glade-agents__list_models for current models and OpenRouter prices, then use ${DISPATCH_AGENT_TOOL}. Pass isolation: "worktree" to start that child in its own git worktree, which is kept afterwards for you to use and remove. Choose that child's model for its job; provider selection is controlled by Settings. Native Agent children under OpenRouter use this process's current route; another OpenRouter route is not supported for a child. Resume cross-source children with dispatch's resume id while their source differs from yours; SendMessage only addresses native children.`,
+      systemPromptAppend: `${options.systemPromptAppend}\nUse the built-in Agent tool for subagents on your own source, retaining its agent types, worktree isolation and SendMessage. Only to start a child on the other source (Claude account or OpenRouter), call mcp__glade-agents__list_models for current models and OpenRouter prices, then use ${DISPATCH_AGENT_TOOL}. Pass isolation: "worktree" to start that child in its own git worktree, which is kept afterwards for you to use and remove. Choose that child's model for its job; provider selection is controlled by Settings. Native Agent children under OpenRouter use this process's current route; another OpenRouter route is not supported for a child. Resume cross-source children with dispatch's resume id while their source differs from yours; SendMessage only addresses native children. While a background child still runs, ${MESSAGE_CHILD_TOOL} can send it more text, one way, folded into its current turn.`,
       hooks: {
         onPrompt: () => PromptVerdict.Allow,
         onTurnEnded: () => undefined,

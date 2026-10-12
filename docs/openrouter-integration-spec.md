@@ -82,7 +82,9 @@ child ends its remaining descendants and watchers. The adapter does not leave in
 Resume a child with another dispatch using its returned ID and original model after Glade relaunches or the parent
 changes model, provided its source still differs from the parent's. The same task owns the saved conversation; other tasks cannot resume it. Replaying a
 persisted tool call returns its saved state instead of starting duplicate work. A process interrupted by relaunch
-is marked stopped; resumption is explicit. `SendMessage` continues to address native SDK children only.
+is marked stopped; resumption is explicit. `SendMessage` continues to address native SDK children only;
+`mcp__glade-agents__message_child` (#596) sends a dispatched child text while it still runs in the background,
+folded into its current turn, one way only, and refused once it isn't running.
 
 Native `Agent` is still available: Claude children share the Claude account; under OpenRouter every native model
 alias and built-in type uses that process's selected route. Glade's dispatch selects the other source only; a
