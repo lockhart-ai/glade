@@ -11,6 +11,12 @@ export class FakeScreen implements TerminalScreen {
 
   /** What it shows: everything written since it was last cleared. */
   shown = ''
+  /**
+   * What `write` sends through `onInput`'s listeners while "parsing" what it's given, before calling back — as real
+   * xterm.js answers a query (a colour or cursor-position report, say) embedded in the data. A test sets this to
+   * check whether the answer reaches the shell.
+   */
+  queryReply: string | null = null
   /** The element it was put in. */
   container: HTMLElement | null = null
   fits = 0
@@ -28,8 +34,10 @@ export class FakeScreen implements TerminalScreen {
     this.fits += 1
   }
 
-  write(data: string): void {
+  write(data: string, onParsed?: () => void): void {
     this.shown += data
+    if (this.queryReply !== null) this.type(this.queryReply)
+    onParsed?.()
   }
 
   /** Types the text, as xterm.js does with a paste. */

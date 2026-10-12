@@ -118,6 +118,42 @@ describe('Terminal', () => {
     expect(screenOf(0).shown).toBe('hello\r\n$ ls')
   })
 
+  // #603: the tab's output so far is a replay, not live typing; a query in it (a colour or cursor-position request
+  // some earlier program sent) must not reach the shell when xterm.js answers it again.
+  it('answers no query from a tab’s replayed output, but still answers one that arrives live', async () => {
+    let answer: (response: TerminalAttachResponse) => void = () => undefined
+    const { calls, fake } = await renderTerminal(
+      { terminalTabs: [tab('a')] },
+      {
+        [CommandName.TerminalAttach]: () =>
+          new Promise((resolve) => {
+            answer = resolve
+          }),
+      },
+    )
+    // Stands in for xterm.js answering a query embedded in what it's shown, through the same `onInput` path typing
+    // uses.
+    screenOf(0).queryReply = '\x1b[24;1R'
+
+    await act(async () => {
+      answer({ output: '$ \x1b[6n', end: 4 })
+      await Promise.resolve()
+    })
+
+    expect(screenOf(0).shown).toBe('$ \x1b[6n')
+    expect(calls).toEqual([])
+
+    // Once the replay is on screen, a query answered in output that arrives live still reaches the shell.
+    fake.emit({ type: EventType.TerminalOutput, tabId: 'a', offset: 4, data: '\x1b[6n' })
+
+    expect(calls).toEqual(['write a \x1b[24;1R'])
+
+    // And keys typed once the earlier output is on screen still reach the shell.
+    screenOf(0).type('ls\r')
+
+    expect(calls).toEqual(['write a \x1b[24;1R', 'write a ls\r'])
+  })
+
   it('clears a tab’s screen when main clears its output', async () => {
     const { fake } = await renderTerminal()
 

@@ -63,14 +63,23 @@ export function TerminalView({ tabId, active }: TerminalViewProps): React.JSX.El
     }
     const unsubscribe = subscribeTerminal(tabId, show)
     let disposed = false
+    // The tab's output so far is replayed, not live: a query in it (a colour or cursor-position request some earlier
+    // program sent) gets answered by xterm.js again, and that answer must not reach the shell as if typed (#603).
+    // `write`'s callback fires once xterm.js is done parsing the replay, including any such answer, so nothing from
+    // it reaches the shell past that point either.
+    let muted = false
     attachTerminal(tabId, shown.size).then(({ output, end: loaded }) => {
       if (disposed) return
-      shown.write(output)
+      muted = true
+      shown.write(output, () => {
+        muted = false
+      })
       end = loaded
       for (const event of early.splice(0)) show(event)
     }, failed)
 
     shown.onInput((data) => {
+      if (muted) return
       writeTerminal(tabId, data).catch(failed)
     })
     shown.onResize((size) => {
