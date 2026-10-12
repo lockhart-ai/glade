@@ -1,14 +1,15 @@
 import { faCheck } from '@fortawesome/free-solid-svg-icons'
 import { useState, type ReactNode } from 'react'
 import { AppCommandId } from '../../shared/commands'
-import type { Task, Workspace } from '../../shared/domain'
+import { UNTITLED_TASK_TITLE, type Task, type Workspace } from '../../shared/domain'
 import { formatBinding } from '../../shared/keymap'
 import { useKeymap } from '../commands/hooks'
-import { Icon, IconSize, Menu, MenuAnchorKind, MenuEntryKind, type MenuEntry } from '../components'
+import { Icon, IconSize, Menu, MenuAnchorKind, MenuEntryKind, useToast, type MenuEntry } from '../components'
 import { classNames } from '../components/classNames'
 import { SidebarHeader } from '../layout/SidebarHeader'
 import { shortenHomePath } from '../paths'
 import { useGladeStore } from '../store/react'
+import { describeFailure } from '../store/hydrate'
 import { SettingsSection } from '../settings/sections'
 import { selectSelectedWorkspace } from '../store/state'
 import {
@@ -16,12 +17,14 @@ import {
   describeStatus,
   needsYouCount,
   switcherTitle,
+  waitingTasks,
   workspaceStatus,
   WorkspaceStatusKind,
 } from './switcherModel'
 import { SwitcherAttentionPill } from './SwitcherAttentionPill'
 import { useWorkspaceActions } from './useWorkspaceActions'
 import { WorkspaceBadge } from './WorkspaceBadge'
+import { MoreTasksRow, WaitingTaskRow } from './WaitingTaskRow'
 import styles from './WorkspaceSwitcher.module.css'
 
 interface WorkspaceRowProps {
@@ -68,26 +71,75 @@ export function WorkspaceSwitcher({ collapseButton }: WorkspaceSwitcherProps): R
   const workspaces = useGladeStore((state) => state.workspaces)
   const tasks = useGladeStore((state) => state.tasks)
   const openSettings = useGladeStore((state) => state.openSettings)
+  const selectTask = useGladeStore((state) => state.selectTask)
   const { add, open: switchTo, reveal } = useWorkspaceActions()
+  const toast = useToast()
   const keymap = useKeymap()
   // The header's button while the switcher is open; null while it's closed.
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const open = anchor !== null
 
-  const entries: MenuEntry[] = [
-    { kind: MenuEntryKind.Heading, label: 'Workspaces' },
-    ...workspaces.map((each): MenuEntry => ({
+  // Opens a waiting task: switches workspace and selects it in one step (the same `selectTask` the menu bar
+  // popover's own rows use), reported as a toast on failure like every other switcher action.
+  const openTask = (taskId: string): void => {
+    selectTask(taskId).catch((error: unknown) => {
+      toast.show({ message: describeFailure(error) })
+    })
+  }
+
+  // Each workspace's own row, then — only while the menu is open, so a closed switcher costs no more than it does
+  // today (CLAUDE.md, Performance) — its waiting tasks nested under it, newest first, capped at
+  // `WAITING_TASKS_SHOWN` with a "+N more" row past that. Every row is its own flat `MenuEntry`, so the menu's
+  // existing Up/Down/Enter navigation reaches task rows for free.
+  const taskList = open ? Object.values(tasks) : []
+  const workspaceEntries: MenuEntry[] = workspaces.flatMap((each): MenuEntry[] => {
+    const shown = each.id === workspace?.id
+    const workspaceEntry: MenuEntry = {
       kind: MenuEntryKind.Item,
       label: each.name,
-      checked: each.id === workspace?.id,
+      checked: shown,
       className: styles.row,
-      content: (
-        <WorkspaceRow workspace={each} workspaces={workspaces} tasks={tasks} shown={each.id === workspace?.id} />
-      ),
+      content: <WorkspaceRow workspace={each} workspaces={workspaces} tasks={tasks} shown={shown} />,
       onSelect: () => {
         switchTo(each.id)
       },
-    })),
+    }
+    if (!open) return [workspaceEntry]
+    const { shown: waiting, moreCount } = waitingTasks(taskList, each.id)
+    const taskEntries: MenuEntry[] = waiting.map((task) => {
+      // The row itself reads its own title from the store (`WaitingTaskRow`); this just names the entry for the
+      // button's accessible name and typeahead, from the `tasks` map already in hand.
+      const title = tasks[task.taskId]?.title
+      return {
+        kind: MenuEntryKind.Item,
+        label: title === undefined || title === '' ? UNTITLED_TASK_TITLE : title,
+        className: styles.waitingRow,
+        content: <WaitingTaskRow taskId={task.taskId} />,
+        onSelect: () => {
+          openTask(task.taskId)
+        },
+      }
+    })
+    const moreEntry: MenuEntry[] =
+      moreCount === 0
+        ? []
+        : [
+            {
+              kind: MenuEntryKind.Item,
+              label: `+${String(moreCount)} more in ${each.name}`,
+              className: styles.waitingRow,
+              content: <MoreTasksRow count={moreCount} workspaceName={each.name} />,
+              onSelect: () => {
+                switchTo(each.id)
+              },
+            },
+          ]
+    return [workspaceEntry, ...taskEntries, ...moreEntry]
+  })
+
+  const entries: MenuEntry[] = [
+    { kind: MenuEntryKind.Heading, label: 'Workspaces' },
+    ...workspaceEntries,
     { kind: MenuEntryKind.Separator },
     {
       kind: MenuEntryKind.Item,

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import { TaskActivity, UiStateKey, type Task } from '../../shared/domain'
 import { ToastProvider } from '../components'
+import { moduleClass } from '../components/moduleClass'
 import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
@@ -16,6 +17,7 @@ import {
 } from '../store/test-bridge'
 import { SettingsSection } from '../settings/sections'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
+import styles from './WorkspaceSwitcher.module.css'
 
 interface Rendered extends FakeBridge {
   readonly store: GladeStore
@@ -110,9 +112,12 @@ describe('WorkspaceSwitcher', () => {
       'purple',
       'teal',
     ])
+    // Scoped to the action class: Glade's own waiting task (#610) is also a `menuitem`, covered in its own tests.
+    const actionClass = moduleClass(styles, 'action')
     expect(
       within(menu)
         .getAllByRole('menuitem')
+        .filter((item) => item.classList.contains(actionClass))
         .map((item) => item.textContent),
     ).toEqual(['New workspace…⌘⇧N', 'Open folder as workspace…⌘O', 'Workspace settings…⌘,', 'Reveal root in Finder'])
   })
@@ -213,6 +218,132 @@ describe('WorkspaceSwitcher', () => {
     await choose('Reveal root in Finder')
 
     expect(await screen.findByText('No workspace w1')).toBeInTheDocument()
+  })
+})
+
+// `waitingTasks`'s own ordering, capping and tie-breaking is `switcherModel.test.ts`; these cover the real
+// switcher's wiring (#610).
+describe('waiting tasks nested under each workspace (#610)', () => {
+  function waitingTask(id: string, workspaceId: string, title: string, updatedAt: number): Task {
+    return {
+      ...sampleTask(id, workspaceId, title),
+      activity: TaskActivity.Waiting,
+      sessionId: 's',
+      unread: true,
+      updatedAt,
+    }
+  }
+
+  async function renderWithWaiting(): Promise<Rendered> {
+    const revealedWorkspaces: string[] = []
+    const fake = fakeBridge({
+      workspaces: [
+        sampleWorkspace('w1', 'Acme API'),
+        sampleWorkspace('w2', 'Acme Web'),
+        sampleWorkspace('w3', 'Acme Docs'),
+      ],
+      tasks: [
+        // Six in w1: more than `WAITING_TASKS_SHOWN`, newest (t1) to oldest (t6).
+        waitingTask('t1', 'w1', 'Add per-key rate limiting', 6_000),
+        waitingTask('t2', 'w1', 'Fix flaky login test', 5_000),
+        waitingTask('t3', 'w1', 'Bump the SDK to 0.4', 4_000),
+        waitingTask('t4', 'w1', 'Clean up the fixtures', 3_000),
+        waitingTask('t5', 'w1', 'Tighten the CORS policy', 2_000),
+        waitingTask('t6', 'w1', 'Rotate the staging key', 1_000),
+        waitingTask('t7', 'w2', 'Redesign the checkout flow', 500),
+        working('t8', 'w3'),
+      ],
+      uiState: [
+        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+        { key: UiStateKey.SelectedTaskId, value: 't1' },
+      ],
+      workspaceSelections: { w2: 't7' },
+      revealedWorkspaces,
+    })
+    const store = createGladeStore(fake.bridge)
+    await act(() => store.getState().hydrate())
+    render(
+      <GladeStoreProvider store={store}>
+        <ToastProvider>
+          <WorkspaceSwitcher />
+        </ToastProvider>
+      </GladeStoreProvider>,
+    )
+    return { ...fake, store, revealedWorkspaces }
+  }
+
+  it('nests a workspace’s own waiting tasks under it, newest first, with a dot, the title and the time', async () => {
+    await renderWithWaiting()
+    const menu = await openSwitcher()
+
+    const t1 = within(menu).getByRole('menuitem', { name: 'Add per-key rate limiting' })
+    const t2 = within(menu).getByRole('menuitem', { name: 'Fix flaky login test' })
+    expect(t1.querySelector('[data-state="waiting"]')).not.toBeNull()
+    expect(t1).toHaveTextContent('Add per-key rate limiting')
+    expect(t1.compareDocumentPosition(t2) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('caps a workspace at four waiting tasks, with a dimmed "+N more" row past that, no dot', async () => {
+    await renderWithWaiting()
+    const menu = await openSwitcher()
+
+    expect(within(menu).queryByRole('menuitem', { name: 'Tighten the CORS policy' })).toBeNull()
+    expect(within(menu).queryByRole('menuitem', { name: 'Rotate the staging key' })).toBeNull()
+    const more = within(menu).getByRole('menuitem', { name: '+2 more in Acme API' })
+    expect(more.querySelector('[data-state]')).toBeNull()
+  })
+
+  it('a waiting task switches workspace and selects it in one step, then closes', async () => {
+    const { store, invoke } = await renderWithWaiting()
+    const menu = await openSwitcher()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Redesign the checkout flow' }))
+
+    await vi.waitFor(() => {
+      expect(store.getState()).toMatchObject({ selectedWorkspaceId: 'w2', selectedTaskId: 't7' })
+    })
+    expect(invoke).toHaveBeenCalledWith(CommandName.UiStateSet, { key: UiStateKey.SelectedTaskId, value: 't7' })
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('the "+N more" row switches to that workspace and shows its task list, without opening a task', async () => {
+    const { store } = await renderWithWaiting()
+    const menu = await openSwitcher()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '+2 more in Acme API' }))
+
+    await vi.waitFor(() => {
+      expect(store.getState().selectedWorkspaceId).toBe('w1')
+    })
+    // Still t1, the workspace's own restored selection: the row didn't open a particular task.
+    expect(store.getState().selectedTaskId).toBe('t1')
+  })
+
+  it('a workspace with nothing waiting looks as it does today: its own row, no nested list', async () => {
+    await renderWithWaiting()
+    const menu = await openSwitcher()
+
+    const docs = within(menu).getByRole('menuitemradio', { name: 'Acme Docs' })
+    expect(docs).toHaveTextContent('1 active')
+    expect(within(menu).queryByRole('menuitem', { name: /Acme Docs/ })).toBeNull()
+  })
+
+  it('reaches a task row by arrow keys, and Enter opens it, same as any other row', async () => {
+    const { store } = await renderWithWaiting()
+    await openSwitcher()
+    const key = (name: string): void => {
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: name })
+    }
+
+    // The heading has no row of its own: the first ArrowDown reaches Acme API, the second its first task, t1.
+    key('ArrowDown')
+    key('ArrowDown')
+    expect(screen.getByRole('menuitem', { name: 'Add per-key rate limiting' })).toHaveFocus()
+    key('Enter')
+
+    await vi.waitFor(() => {
+      expect(store.getState().selectedTaskId).toBe('t1')
+    })
   })
 })
 

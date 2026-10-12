@@ -4,7 +4,8 @@
 // modal's recipients (#489) are held to the same: one row per active task, in every workspace. So is the todo hub
 // (P16, #497): a card per todo, and a tile per child of an open one. The links a todo's text names (#500) are worked
 // out when the task's links or its todos change, and at no other time. And so is the Agents tab (P16, #536): a tab per
-// agent in its strip, and the list of the one agent showing.
+// agent in its strip, and the list of the one agent showing. And so is the workspace switcher's waiting tasks (#610):
+// a row per task that needs you, nested under its workspace.
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsageLevel, UsageLimitKind, type UsageReading } from '../shared/account'
@@ -75,6 +76,8 @@ import { ToolLog } from './tool-log'
 import { resultSummary } from './tool-log/toolLogModel'
 import { UsageMeter } from './usage-meter'
 import { usageMeterState } from './usage-meter/usageMeterModel'
+import { WorkspaceSwitcher } from './workspace-switcher/WorkspaceSwitcher'
+import { waitingTaskTitle } from './workspace-switcher/switcherModel'
 import { setHomeFolder } from '../shared/homeFolder'
 
 // The sample data's home folder, which paths under it are shown from as `~`.
@@ -106,6 +109,12 @@ vi.mock('./broadcast/broadcastModel', async (importOriginal) => {
 vi.mock('./usage-meter/usageMeterModel', async (importOriginal) => {
   const original = await importOriginal<typeof import('./usage-meter/usageMeterModel')>()
   return { ...original, usageMeterState: vi.fn(original.usageMeterState) }
+})
+// A waiting task nested under its workspace in the switcher (#610) names itself: one `waitingTaskTitle` call per
+// render of one row.
+vi.mock('./workspace-switcher/switcherModel', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./workspace-switcher/switcherModel')>()
+  return { ...original, waitingTaskTitle: vi.fn(original.waitingTaskTitle) }
 })
 // The Agents tab: every subagent's tab names its dot (one `agentDotLabel` call per render of one), every subagent's
 // `Agent` call says how it's doing under it (one `agentCallResult` call per render of that line), and the line under
@@ -649,6 +658,73 @@ describe('the Broadcast modal, with 60 active tasks in 8 workspaces', () => {
     expect(screen.getByText(/Goes to/)).toHaveTextContent('Goes to 59 active tasks in 8 workspaces.')
     expect(renders(reachText)).toBe(1)
     expect(renders(attentionLabel)).toBe(0)
+  })
+})
+
+describe('the workspace switcher, waiting tasks in four workspaces (#610)', () => {
+  const WORKSPACES = Array.from({ length: 4 }, (_, index) =>
+    sampleWorkspace(`w${String(index + 1)}`, `Workspace ${String(index + 1)}`),
+  )
+  // Four needing you in each of the four workspaces: exactly `WAITING_TASKS_SHOWN`, so every one of the 16 shows,
+  // none behind a "+N more" row.
+  const TASKS = Array.from({ length: 16 }, (_, index) => ({
+    ...sampleTask(`s${String(index + 1)}`, `w${String(Math.floor(index / 4) + 1)}`, `Task ${String(index + 1)}`),
+    activity: TaskActivity.Waiting,
+    sessionId: `session-${String(index + 1)}`,
+    unread: true,
+    updatedAt: 10_000 - index,
+  }))
+
+  async function renderSwitcher(): Promise<StoreWrapper> {
+    const wrapper = storeWrapper({ workspaces: WORKSPACES, tasks: TASKS.map((task) => ({ ...task })) })
+    render(<WorkspaceSwitcher />, { wrapper: wrapper.wrapper })
+    await act(() => wrapper.store.getState().hydrate())
+    fireEvent.click(screen.getByRole('button', { name: /Switch workspace/ }))
+    await settleFloating()
+    // Every waiting task's row rendered once to open the menu.
+    expect(renders(waitingTaskTitle)).toBe(16)
+    vi.mocked(waitingTaskTitle).mockClear()
+    return wrapper
+  }
+
+  beforeEach(() => {
+    vi.mocked(waitingTaskTitle).mockClear()
+  })
+
+  it('renders only the row of the task that changed', async () => {
+    const { fake } = await renderSwitcher()
+    const [first] = TASKS
+
+    act(() => {
+      fake.emit({ type: EventType.TaskUpdated, task: { ...first, updatedAt: 10_500 } as Task })
+    })
+
+    expect(renders(waitingTaskTitle)).toBe(1)
+  })
+
+  it('renders no row when a task changes in a way its row doesn’t show, or a task elsewhere becomes done', async () => {
+    const { fake } = await renderSwitcher()
+    const [first] = TASKS
+    const last = TASKS.at(-1)
+
+    act(() => {
+      fake.emit({ type: EventType.TaskUpdated, task: { ...first, status: 'Thinking' } as Task })
+      fake.emit({ type: EventType.TaskUpdated, task: { ...last, state: TaskState.Done, doneAt: 20_000 } as Task })
+    })
+
+    expect(renders(waitingTaskTitle)).toBe(0)
+  })
+
+  it('renders only the rows a batch from main changed, once each', async () => {
+    const { fake } = await renderSwitcher()
+
+    act(() => {
+      fake.emitBatch(
+        TASKS.slice(0, 4).map((task) => ({ type: EventType.TaskUpdated, task: { ...task, updatedAt: 11_000 } })),
+      )
+    })
+
+    expect(renders(waitingTaskTitle)).toBe(4)
   })
 })
 
