@@ -3169,10 +3169,14 @@ TaskList → 1, 3, 4, 5, 6, 7   TaskCreate Iota → 8
   mark, and the list id defaults to the session id).
 - **Two todos share an id only across sessions.** A Glade task keeps one session id for life in every path it has
   today (a resume keeps it), so `N` is unique within a task. If a task were ever given a fresh session, its numbers
-  would start again, and `deriveTodoList` would take the new `#1` for the old one.
+  would start again, and `deriveTodoList` would take the new `#1` for the old one — since #593 Glade keeps that from
+  mattering by giving every session the same list (next bullet), and, when a `TaskCreate` does take a number a
+  different subject held, it moves the old todo's filings to Not under a todo.
 - **`CLAUDE_CODE_TASK_LIST_ID` carries a list across sessions.** Two fresh sessions with the same value in their
-  `env`: the second listed the first's `#1` and its `TaskCreate` made `#2`. Set to a task's first session id, it would
-  keep a later session of that task on the same list and count. Glade doesn't set it.
+  `env`: the second listed the first's `#1` and its `TaskCreate` made `#2`. Glade sets it to `glade-<task id>` for
+  every main session of a task (#593): one shared list under Glade's data folder, linked into whichever config folder
+  the session runs in (`src/main/openrouter/task-list.ts`), seeded on first creation from the session's own list, and
+  numbered past the highest todo id Glade holds. A dispatched child is left what it had before.
 - **A deleted todo leaves nothing:** not in `TaskList`, `TaskGet` answers `null`, its number is never reused. The log
   keeps the `TaskUpdate` that deleted it.
 - **Hooks give the id as data:** `TaskCreated` (`{ task_id: "4", task_subject, task_description }`), `TaskCompleted`,

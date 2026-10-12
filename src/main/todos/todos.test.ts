@@ -16,7 +16,15 @@ import { openAppDatabase } from '../db/database'
 import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
-import { changesTodos, deriveTodoList, refreshStaleTodos, refreshTodos, todoListFor } from './todos'
+import {
+  changesTodos,
+  deriveTodoList,
+  highestTodoId,
+  refreshStaleTodos,
+  refreshTodos,
+  takenOverTodo,
+  todoListFor,
+} from './todos'
 
 let at = 1_000
 
@@ -596,5 +604,59 @@ describe('refreshStaleTodos', () => {
     expect(getTask(relaunched, kept.id)?.todos).toEqual({ done: 1, total: 2, doing: ['Fix the wait'] })
     expect(getTask(relaunched, none.id)?.todos).toBeNull()
     relaunched.close()
+  })
+})
+
+describe('highestTodoId', () => {
+  let test: TestDatabase | undefined
+
+  afterEach(() => {
+    test?.close()
+  })
+
+  it('answers the highest numbered todo a task holds, and none when it holds no numbered todo', () => {
+    test = openTestDatabase()
+    const { db } = test
+    const workspace = sampleWorkspace(db).id
+    const task = sampleTask(db, workspace)
+    expect(highestTodoId(db, task.id)).toBeNull()
+
+    logCreate(db, task.id, '1', 'Review the date helpers')
+    logCreate(db, task.id, '52', 'Watch CI on PR #42')
+    expect(highestTodoId(db, task.id)).toBe(52)
+
+    // A `TodoWrite` list has no ids, so a task holding only one has no highest.
+    const other = sampleTask(db, workspace)
+    logWrite(db, other.id, [{ content: 'Sweep the floor', status: 'pending' }])
+    expect(highestTodoId(db, other.id)).toBeNull()
+  })
+})
+
+describe('takenOverTodo', () => {
+  it('answers a finished TaskCreate that took a number a different subject held, with that subject', () => {
+    const first = taskCreate('1', 'Review the date helpers')
+    const restart = taskCreate('1', 'Something else entirely')
+    const calls = [first, restart]
+    expect(takenOverTodo(calls, restart)).toEqual({ todoId: '1', subject: 'Review the date helpers' })
+  })
+
+  it('answers nothing for the agent recreating its own todo under the same subject', () => {
+    const first = taskCreate('1', 'Review the date helpers')
+    const again = taskCreate('1', 'Review the date helpers')
+    const calls = [first, again]
+    expect(takenOverTodo(calls, again)).toBeNull()
+  })
+
+  it('answers nothing for a fresh number, an unparseable call, or a call that succeeded nowhere', () => {
+    const first = taskCreate('1', 'Review the date helpers')
+    const fresh = taskCreate('2', 'Something else entirely')
+    const broken = call(
+      'TaskCreate',
+      { subject: 'Something else' },
+      { output: 'InputValidationError', state: ToolCallState.Error },
+    )
+    const calls = [first, fresh, broken]
+    expect(takenOverTodo(calls, fresh)).toBeNull()
+    expect(takenOverTodo(calls, broken)).toBeNull()
   })
 })

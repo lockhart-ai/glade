@@ -6,7 +6,7 @@ import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import { MessageRole, ToolEventKind, type Task, type ToolCallEvent, type ToolInput } from '../../shared/domain'
-import { subagentTodo, subagentTodos } from '../../shared/todoHub'
+import { ChildKind, commitChildKey, FilingSource, subagentTodo, subagentTodos } from '../../shared/todoHub'
 import { FILE_CHILDREN_TOOL } from '../../shared/toolName'
 import type { BashEnd, ChangeTracker } from '../changes/tracker'
 import { listFilings } from '../db/repositories/child-filings'
@@ -23,7 +23,7 @@ import { createGit } from '../git/git'
 import { openTestRepos, TEST_GIT_RUN, type TestRepos } from '../git/test-repos'
 import { createQuestionBroker } from '../questions/questions'
 import { NO_TODOS } from '../todo-hub/agent-children'
-import { readTodoHub, taskChildren } from '../todo-hub/todo-hub'
+import { fileChildren, readTodoHub, taskChildren } from '../todo-hub/todo-hub'
 import type { BatchCall } from './backend'
 import { readsTodo } from './child-calls'
 import { FakeAgentBackend, settle, type FakeAgentSession } from './fake-backend'
@@ -971,5 +971,57 @@ describe('a task whose session started before the hub was on for every task (#50
     for (const line of TODO_HUB_LINES) expect(sent?.text).toContain(line)
     expect(sent?.text).not.toContain('[Glade: this session now files')
     expect(getSessionContext(db, task.id)).toMatchObject({ instructions: true, todoHub: true })
+  })
+})
+
+describe('a TaskCreate that reuses a number a todo holds (#593)', () => {
+  beforeEach(async () => {
+    await say('Carry the work on.')
+    await threeTodos()
+    // A commit of the agent's, filed under the first todo.
+    addTaskCommit(db, {
+      taskId: task.id,
+      gitDir: '/code/acme-api/.git',
+      repoPath: '/code/acme-api',
+      hash: 'a'.repeat(40),
+      subject: 'Fix the UTC date test',
+      branch: 'main',
+      committedAt: 1_000,
+      additions: 1,
+      deletions: 1,
+      filesChanged: 1,
+      parents: 1,
+      toolUseId: 'toolu_commit',
+      source: CommitSource.Printed,
+    })
+    fileChildren({ db, emit: (event) => events.push(event) }, task.id, [
+      {
+        kind: ChildKind.Commit,
+        key: commitChildKey({ hash: 'a'.repeat(40), repoPath: '/code/acme-api' }),
+        todoId: '1',
+        source: FilingSource.Named,
+      },
+    ])
+    expect(filings()).toEqual([`commit ${'a'.repeat(40)} /code/acme-api #1 named`])
+  })
+
+  it('moves what the old todo had filed to Not under a todo, when the new one has a different subject', async () => {
+    session().emit(sdk.toolUse('toolu_remake', 'TaskCreate', { subject: 'Something else entirely' }))
+    session().emit(sdk.toolResult('toolu_remake', 'Task #1 created successfully: Something else entirely'))
+    await settle()
+
+    // The old todo's commit went to Not under a todo; the new #1 took nothing with it.
+    expect(filings()).toEqual([])
+    expect(placed()).toEqual([[], [], [], ['commit unfiled']])
+  })
+
+  it('keeps what was filed when the new todo has the same subject: the agent recreating its own', async () => {
+    session().emit(sdk.toolUse('toolu_remake', 'TaskCreate', { subject: 'Review the date helpers' }))
+    session().emit(sdk.toolResult('toolu_remake', 'Task #1 created successfully: Review the date helpers'))
+    await settle()
+
+    expect(filings()).toEqual([`commit ${'a'.repeat(40)} /code/acme-api #1 named`])
+    // The recreated todo is placed last in the list, and keeps its commit.
+    expect(placed()).toEqual([[], [], ['commit named'], []])
   })
 })

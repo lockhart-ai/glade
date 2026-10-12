@@ -23,6 +23,7 @@ import { openRouterSdkModel } from './sdk-model'
 import { importLocalTranscript } from './local-transcripts'
 import { sdkTaskList } from './task-list'
 import { getTask } from '../db/repositories/tasks'
+import { highestTodoId } from '../todos/todos'
 import { SILENT_LOGGER } from '../logging/logger'
 
 export interface OpenRouterRuntimeOptions {
@@ -81,7 +82,13 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
                 configDir,
                 dataDir,
                 legacyConfigDir: originalConfig,
-                create: originalTask !== undefined && agentSource(originalTask.model) !== agentSource(options.model),
+                // Every main session of a task shares the task's one list, so its todos survive a restart (#593). A
+                // dispatched child keeps what it had before: its own list, or the shared one a source switch made.
+                create:
+                  options.managedAgentId !== undefined
+                    ? originalTask !== undefined && agentSource(originalTask.model) !== agentSource(options.model)
+                    : true,
+                highestTodoId: highestTodoId(db, options.taskId) ?? undefined,
               }).catch((error: unknown) => {
                 log.warn('could not share SDK todos; continuing with the SDK task list', { error })
                 return undefined

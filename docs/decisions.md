@@ -541,10 +541,12 @@
     and open it again (`'false'` turns it back off). In a dev build (`npm run dev`), View › Toggle Developer Tools
     and `await glade.invoke('settings.update', { patch: { todoHubEnabled: true } })` does the same without a relaunch.
   - **A todo's id is Claude Code's own** (`Task #N`, which the todo parser already read): unique within a task, the
-    same across a compaction, a resume and a relaunch, and never used again once its todo is deleted
-    (`sdk-notes.md` §16). It reaches the window with each todo, whatever the switch says, and the Todos tab keys its
-    rows on it. A `TodoWrite` item has none: nothing can be filed under it, and its row is keyed by its place in the
-    list. (Glade keeps Claude Code's task tools on for a session with the hub, #495, so that shouldn't occur.)
+    same across a compaction, a resume, a relaunch and a session restarted (#593: Glade gives every main session of a
+    task one shared todo list, so numbering continues, and a list seeded for a task that already held todos numbers
+    past the highest id Glade holds), and never used again once its todo is deleted (`sdk-notes.md` §16). It reaches
+    the window with each todo, whatever the switch says, and the Todos tab keys its rows on it. A `TodoWrite` item has
+    none: nothing can be filed under it, and its row is keyed by its place in the list. (Glade keeps Claude Code's
+    task tools on for a session with the hub, #495, so that shouldn't occur.)
   - **A child is named by its kind and its own key:** a file by its artifact's path, a link by its URL, a commit by
     its hash and working tree, and a subagent (which has a todo as plumbing, and is no todo's child) by the
     `tool_use` id of the call that started it. It also has a **short id** within its task (`c1`, `c2`, …), which

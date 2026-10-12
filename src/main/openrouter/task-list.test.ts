@@ -115,3 +115,65 @@ it('leaves an ordinary task alone until a cross-source session creates its share
   expect(await sdkTaskList({ ...options, configDir: join(dir, 'router'), create: true })).toBe('glade-ordinary')
   expect(await sdkTaskList(options)).toBe('glade-ordinary')
 })
+
+it('gives every main session of a task the same shared list, seeded once from the first session', async () => {
+  await mkdir(join(dir, 'claude', 'tasks', 'first-session'), { recursive: true })
+  await writeFile(join(dir, 'claude', 'tasks', 'first-session', '3.json'), '{"id":"3","status":"pending"}')
+  const options = {
+    taskId: 'steady',
+    sessionId: 'first-session',
+    dataDir: dir,
+    configDir: join(dir, 'claude'),
+    legacyConfigDir: join(dir, 'claude'),
+  }
+  expect(await sdkTaskList(options)).toBe('glade-steady')
+  // A restart that resumes a different session id, or the same one, lands on the list that was seeded.
+  const second = await sdkTaskList({ ...options, sessionId: 'second-session', configDir: join(dir, 'router') })
+  expect(second).toBe('glade-steady')
+  expect(await readFile(join(dir, 'sdk-task-lists', 'steady', '3.json'), 'utf8')).toContain('pending')
+})
+
+it('raises a seeded list past the highest todo id Glade holds, whatever the legacy mark said', async () => {
+  const options = {
+    taskId: 'seeded',
+    sessionId: 'legacy-session',
+    dataDir: dir,
+    configDir: join(dir, 'claude'),
+    legacyConfigDir: join(dir, 'claude'),
+  }
+  await mkdir(join(dir, 'claude', 'tasks', 'legacy-session'), { recursive: true })
+  await writeFile(join(dir, 'claude', 'tasks', 'legacy-session', '.highwatermark'), '9')
+  await sdkTaskList({ ...options, highestTodoId: 52 })
+  expect(await readFile(join(dir, 'sdk-task-lists', 'seeded', '.highwatermark'), 'utf8')).toBe('53')
+  // A mark that already stands higher than Glade's highest todo is left alone.
+  await rm(join(dir, 'sdk-task-lists', 'seeded'), { recursive: true, force: true })
+  await writeFile(join(dir, 'claude', 'tasks', 'legacy-session', '.highwatermark'), '60')
+  await sdkTaskList({ ...options, highestTodoId: 52 })
+  expect(await readFile(join(dir, 'sdk-task-lists', 'seeded', '.highwatermark'), 'utf8')).toBe('60')
+})
+
+it('marks a list seeded without a legacy one past the highest todo id Glade holds', async () => {
+  const options = {
+    taskId: 'fresh',
+    sessionId: null,
+    dataDir: dir,
+    configDir: join(dir, 'claude'),
+    legacyConfigDir: join(dir, 'claude'),
+  }
+  await sdkTaskList({ ...options, highestTodoId: 12 })
+  expect(await readFile(join(dir, 'sdk-task-lists', 'fresh', '.highwatermark'), 'utf8')).toBe('13')
+})
+
+it('leaves a shared list that already exists alone, whatever Glade holds', async () => {
+  const options = {
+    taskId: 'running',
+    sessionId: null,
+    dataDir: dir,
+    configDir: join(dir, 'claude'),
+    legacyConfigDir: join(dir, 'claude'),
+  }
+  await sdkTaskList(options)
+  await writeFile(join(dir, 'sdk-task-lists', 'running', '.highwatermark'), '5')
+  await sdkTaskList({ ...options, highestTodoId: 52 })
+  expect(await readFile(join(dir, 'sdk-task-lists', 'running', '.highwatermark'), 'utf8')).toBe('5')
+})
