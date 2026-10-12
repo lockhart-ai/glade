@@ -110,6 +110,25 @@
   overflow-y: auto;
   max-height: 320px;
 }
+
+/*
+ * The Selected list never gives up room (#599). A flex item whose own overflow isn't visible gets an automatic
+ * minimum height of 0, so in a short dialog (an error line above it, a short window) the surrounding flex column
+ * could squeeze it to a sliver instead of scrolling. flex-shrink: 0 keeps it at its natural height, up to the
+ * 320px above; the catalog list gives up room instead.
+ */
+.selectedList {
+  flex-shrink: 0;
+}
+
+/*
+ * The catalog list gives up room first in a short dialog, but not past a floor of about three rows (#599); below
+ * that floor the dialog's own body scrolls as a whole (SettingsDialog.module.css .body), rather than the list
+ * being squeezed to nothing.
+ */
+.catalogList {
+  min-height: 200px;
+}
 .model {
   display: flex;
   align-items: center;

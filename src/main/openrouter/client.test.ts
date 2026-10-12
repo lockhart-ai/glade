@@ -88,6 +88,45 @@ describe('OpenRouter discovery', () => {
     })
   })
 
+  it('skips a catalog model with an invalid field and keeps the rest (#599)', async () => {
+    const model = SAMPLE_CATALOG_RESPONSE.data[0]
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          // OpenRouter can list an entry with context_length: 0; it must not take the whole catalog down.
+          data: [model, { ...model, id: 'zero-context', context_length: 0 }],
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ data: [{ slug: SAMPLE_PROVIDER.id, name: SAMPLE_PROVIDER.name }] }))
+    const client = new OpenRouterClient(request)
+    expect(await client.catalog('test-key')).toEqual({ models: [SAMPLE_MODEL], providers: [SAMPLE_PROVIDER] })
+  })
+
+  it('skips a catalog model missing a required field and keeps the rest (#599)', async () => {
+    const model = SAMPLE_CATALOG_RESPONSE.data[0]
+    const missingPricing = {
+      id: 'missing-pricing',
+      name: 'Missing Pricing',
+      description: '',
+      context_length: 128_000,
+      architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+      supported_parameters: ['tools'],
+    }
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ data: [model, missingPricing] }))
+      .mockResolvedValueOnce(Response.json({ data: [{ slug: SAMPLE_PROVIDER.id, name: SAMPLE_PROVIDER.name }] }))
+    const client = new OpenRouterClient(request)
+    expect(await client.catalog('test-key')).toEqual({ models: [SAMPLE_MODEL], providers: [SAMPLE_PROVIDER] })
+  })
+
+  it('still rejects a models response with no data array at all (#599)', async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ models: [] }))
+    const client = new OpenRouterClient(request)
+    await expect(client.providerModels('key', SAMPLE_PROVIDER)).rejects.toThrow()
+  })
+
   it('lists the providers it discovers alphabetised, however the API named them', async () => {
     const request = vi
       .fn<typeof fetch>()

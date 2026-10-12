@@ -4,9 +4,10 @@ import Database from 'better-sqlite3'
 import { E2E_WINDOW_SIZE } from '../src/main/e2e'
 import { expect, holdCommand, test } from './fixtures'
 import { CommandName } from '../src/shared/bridge'
+import { openRouterChoiceId, type OpenRouterChoice } from '../src/shared/openrouter'
 import { chooseMenuItem } from './menu'
 import { agentsTab, chat, firstRun, inputBar, pauseBanner, regions, settings, taskList, taskPanel } from './selectors'
-import { MIN_WINDOW, resize } from './window-layout'
+import { boxOf, MIN_WINDOW, resize } from './window-layout'
 import { inMain } from './in-main'
 
 test('curates an OpenRouter route, monitors key usage and preserves Glade chat and log history across a relaunch', async ({
@@ -154,6 +155,100 @@ test('keeps a credit failure visible in the usage meter after relaunch and metad
     mkdirSync(media, { recursive: true })
     await again.window.screenshot({ path: join(media, 'openrouter-credit-blocked.png') })
   }
+})
+
+test('keeps the Selected rows at full height in a short dialog, with an error line showing (#599)', async ({
+  launch,
+  tempFolder,
+}) => {
+  const root = join(tempFolder(), 'acme-api')
+  mkdirSync(root)
+  const glade = await launch({ chosenFolder: root })
+  await firstRun(glade.window).openFolder.click()
+  await chooseMenuItem(glade, 'Glade', 'Settings…')
+  const modal = settings(glade.window)
+  await modal.section('Models').click()
+  await modal.dialog.getByLabel('OpenRouter API key').fill('fixture-key')
+  await modal.dialog.getByRole('button', { name: 'Connect', exact: true }).click()
+  await expect(modal.dialog.getByText('Sample Flash', { exact: true })).toBeVisible()
+  await modal.close.click()
+  const data = await inMain(glade.app, ({ app }) => app.getPath('userData'))
+  await glade.close()
+
+  // Two selected models, saved directly: each choice keeps its own copy of the model and provider it was saved
+  // with (#599), so this doesn't depend on either being in the catalog the fixture key offers.
+  const choices: readonly OpenRouterChoice[] = [
+    {
+      id: openRouterChoiceId('first/model', 'first-host'),
+      model: {
+        id: 'first/model',
+        name: 'First Model',
+        description: 'A saved choice',
+        contextLength: 64_000,
+        inputs: ['text'],
+        parameters: ['tools'],
+        inputPrice: '0.0000001',
+        outputPrice: '0.0000002',
+      },
+      provider: { id: 'first-host', name: 'First Host' },
+      enabled: true,
+    },
+    {
+      id: openRouterChoiceId('second/model', 'second-host'),
+      model: {
+        id: 'second/model',
+        name: 'Second Model',
+        description: 'Another saved choice',
+        contextLength: 32_000,
+        inputs: ['text'],
+        parameters: ['tools'],
+        inputPrice: '0.0000003',
+        outputPrice: '0.0000004',
+      },
+      provider: { id: 'second-host', name: 'Second Host' },
+      enabled: true,
+    },
+  ]
+  const db = new Database(join(data, 'glade.db'))
+  for (const choice of choices)
+    db.prepare('INSERT OR REPLACE INTO openrouter_choices VALUES (?, ?)').run(choice.id, JSON.stringify(choice))
+  db.close()
+
+  const again = await launch()
+  await resize(again, MIN_WINDOW.width, MIN_WINDOW.height)
+  await chooseMenuItem(again, 'Glade', 'Settings…')
+  const reopened = settings(again.window)
+  await reopened.section('Models').click()
+  await expect(reopened.dialog.getByText('Selected · 2')).toBeVisible()
+
+  // The error line that the reported screenshot showed, from a Replace key that fails.
+  await reopened.dialog.getByRole('button', { name: 'Replace key', exact: true }).click()
+  await reopened.dialog.getByLabel('OpenRouter API key').fill('invalid')
+  await reopened.dialog.getByRole('button', { name: 'Save key', exact: true }).click()
+  await expect(reopened.dialog.getByRole('alert')).toContainText('OpenRouter returned 401')
+
+  const media = process.env.GLADE_OPENROUTER_MEDIA_DIR
+  if (media !== undefined) {
+    mkdirSync(media, { recursive: true })
+    await reopened.dialog.screenshot({ path: join(media, 'models-selected-short-window.png') })
+  }
+
+  // Both Selected rows show at full height: a flex item with overflow: auto otherwise gets an automatic minimum
+  // height of 0, so the short dialog (the error line above, a window at its minimum size) could squeeze the
+  // Selected list to a sliver instead of the catalog below it giving up room.
+  const selectedList = reopened.dialog.getByRole('list', { name: 'Selected models' })
+  const firstRow = reopened.dialog.getByRole('checkbox', { name: 'Enable First Model' })
+  const secondRow = reopened.dialog.getByRole('checkbox', { name: 'Enable Second Model' })
+  await expect(firstRow).toBeVisible()
+  await expect(secondRow).toBeVisible()
+  const listBox = await boxOf(selectedList)
+  const firstBox = await boxOf(firstRow.locator('xpath=..'))
+  const secondBox = await boxOf(secondRow.locator('xpath=..'))
+  expect(listBox.height).toBeGreaterThan(60)
+  expect(firstBox.height).toBeGreaterThan(20)
+  expect(secondBox.height).toBeGreaterThan(20)
+  await expect(firstRow).toBeInViewport({ ratio: 1 })
+  await expect(secondRow).toBeInViewport({ ratio: 1 })
 })
 
 for (const fromBanner of [false, true]) {
