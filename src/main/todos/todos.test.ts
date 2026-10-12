@@ -33,7 +33,15 @@ describe('todoListFor', () => {
 
     updateTodo(db, task.id, '1', { state: TodoState.Doing, note: 'Reading the diff' }, 5_100)
     expect(todoListFor(db, task.id)).toEqual({
-      items: [{ id: '1', text: 'Review the date helpers', note: 'Reading the diff', state: TodoState.Doing, completedAt: null }],
+      items: [
+        {
+          id: '1',
+          text: 'Review the date helpers',
+          note: 'Reading the diff',
+          state: TodoState.Doing,
+          completedAt: null,
+        },
+      ],
       updatedAt: 5_100,
     })
 

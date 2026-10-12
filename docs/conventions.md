@@ -109,8 +109,7 @@ A task is one long-running piece of ownership, not one ticket.
   `#593: Todos: old todos stay after a session restart (PR #594, PR #598)`.
 - **A release** is its own todo: `Release v0.29.0`.
 - **Description:** one line on where it stands now, naming the PR and the next step: `PR #598 in CI; the tab's group
-  is next`. Set the todo's spinner text (`activeForm`) to the same line, since that is what shows while it is in
-  progress.
+  is next`. Set the todo's note to the same line, since that is what shows under its title (#609).
 - **Keep every todo current.** The list is how Jared follows the work, so a todo's state and its line change in the
   same turn as the work does: a kitten started, its plan came back, a push, CI red or green, approved, queued,
   merged. A todo is in progress only while someone is on it or something it started is still running, and completed

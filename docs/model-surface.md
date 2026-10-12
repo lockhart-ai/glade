@@ -316,8 +316,11 @@ status (open, merged, closed) isn't fetched.
 | `request_access` | `{ path: string, access: "read" \| "write", reason: string }` | Asks the user for the folder a sandboxed command was blocked from, on a permission card, and blocks until answered. See below. |
 | `list_children` | `{ todo?: string }` | Lists what the task made (its children) by the todo each is under, each with its short id. See below. |
 | `file_children` | `{ filings: { child: string, todo: string }[] }` | Files children under todos, or moves them to another, all of them or none. See below. |
-| `close_todo` | `{ todo: string }` | Closes a todo a session restart stranded, once its children are moved. See below. |
+| `close_todo` | `{ todo: string }` | No longer offered (#609: nothing is ever stranded once Glade owns the list); its handler stays for a later PR to remove. |
 | `list_other_tasks` | `{}` | Read-only; always on. The other Active tasks across every workspace, most recently updated first, each with its title, objective (Goal), status (Now), attention, workspace and link artifacts. See below. |
+| `create_todo` | `{ subject: string, note?: string }` | Adds a todo, not started, with the next id the task has ever been given. See below. |
+| `update_todo` | `{ id: string, subject?: string, note?: string, status?: "pending" \| "in_progress" \| "completed" \| "deleted" }` | Changes a todo, or removes it (`status: "deleted"`), refused while anything is filed under it. See below. |
+| `list_todos` | `{}` | Every todo of the task, one line each, in order. See below. |
 
 `Question` (draft):
 
@@ -409,8 +412,11 @@ it asks for and what it answers are in `src/main/permissions/sandbox-ask.ts`.
 
 ## Implemented: `list_children`, `file_children` and `close_todo` (P16-05, #496; stranded todos #593)
 
-Every task's session has these three tools, the agent's side of the todo hub (P16, #491; `src/main/todo-hub/`). Names
-and schemas are a draft, as the others are.
+Every task's session has `list_children` and `file_children`, the agent's side of the todo hub (P16, #491;
+`src/main/todo-hub/`). Names and schemas are a draft, as the others are. `close_todo` isn't offered any more (#609):
+nothing is ever stranded once Glade owns the list in its own table, so there's nothing left for it to close. Its
+handler, and the rest of this section, stay for a later PR to remove along with the Stranded group and
+`retired_todos`.
 
 What a task produced (its **children**: the files and links among its artifacts, and its commits) sits
 under its todos, and a child with no todo shows in a placeholder group, "Not under a todo"
@@ -459,12 +465,13 @@ agent, kept in SQLite, and never given to another child. A todo is named by Clau
   With `todo`, the list is that todo's group alone (its id, with or without a `#`), or the ones under no todo alone
   (`"none"`); a todo that isn't in the task's list is a tool error that lists the todos there are (`There's no todo #9
   in this task's list. Your todos: #1 … (completed) · #2 …`). Listing files nothing and tells the windows nothing.
-  - **A stranded todo is marked (#593).** When the task's session was restarted and its new list doesn't hold a todo
-    Glade still shows (`liveTodos` in `src/main/todos`), its heading carries one line after it:
-    `Stranded: the session was restarted and its new list no longer holds this todo, so TaskUpdate answers "Task not
-    found". Recreate what is still live about it (TaskCreate), move its children under the todos they belong to now
-    (file_children), then close it (close_todo).` A task with no shared list folder — one that hasn't started since
-    Glade kept the list for it — marks nothing.
+  - **Nothing is ever marked stranded any more (#609).** `list_children` no longer reads the shared list folder
+    (`liveTodos`'s `dataDir`, #593): a todo it lists is read straight from Glade's own table, never compared
+    against it. This bullet described the old behaviour, for a later PR to remove along with the rest of it:
+    _When the task's session was restarted and its new list doesn't hold a todo Glade still shows, its heading
+    carried one line after it: `Stranded: the session was restarted and its new list no longer holds this todo, so
+    TaskUpdate answers "Task not found". Recreate what is still live about it (TaskCreate), move its children under
+    the todos they belong to now (file_children), then close it (close_todo).`_
 - **`mcp__glade__file_children`** takes `{ filings: { child: string, todo: string }[] }`, at least one: each a
   child's short id and the id of the todo to put it under. One tool files and moves: each child goes from wherever it
   is, the placeholder included.
@@ -654,28 +661,49 @@ agent to sort them.
 switch itself, in the SDK's `settings`, which outrank the user's, the project's and the local settings
 files ([`sdk-notes.md` §16](sdk-notes.md#16-filing-a-child-under-a-todo), "`TodoWrite`").
 
-## Todos: Claude Code's own tools, not a Glade tool (P5-03)
+## Implemented: `create_todo`, `update_todo` and `list_todos` (#609)
 
-The draft had a `todos` tool. Instead, the Todos tab maps the todo tools Claude Code already gives the model, which it
-uses without being asked, so the system prompt says nothing about todos (`src/main/todos/`):
+Todos are Glade's own, in its own database, with its own tools — not Claude Code's `TaskCreate`, `TaskUpdate`,
+`TaskList`, `TaskGet` or `TodoWrite`, none of which any session is offered any more (`DISALLOWED_TOOLS` in
+`src/main/agent/sdk-backend.ts`). A probe (one `haiku` session, the five built-ins disallowed, three stub MCP tools
+offered instead, a one-line prompt naming them) found the model plans entirely with the offered tools: it never
+attempted a disallowed one, and no system-reminder in the whole message stream named `TaskCreate` or any of the
+others — disallowing them leaves nothing nudging the model back towards them.
 
-- **`TaskCreate` / `TaskUpdate`** are what the bundled Claude Code (2.1.281) exposes: a probe's `system/init` listed
-  `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate` and no `TodoWrite`. `TaskCreate { subject, activeForm? }` adds a
-  pending item, and its result reads `Task #<id> created successfully: <subject>`; `TaskUpdate { taskId, status?,
-  subject?, activeForm? }` changes one, and status `deleted` removes it.
-- **`TodoWrite { todos: { content, status, activeForm }[] }`**, the older tool, replaces the whole list. Claude Code
-  offers it instead when its task tools are off (`CLAUDE_CODE_ENABLE_TASKS=false` in the environment).
+The tools' own words stay close to the built-ins' (`subject`, `status` of `pending`/`in_progress`/`completed`/
+`deleted`), so a model's habits with them carry over; what's stored keeps Glade's own words instead (`Todo.text`,
+`Todo.note`, `Todo.state`, in `src/shared/domain.ts`). A todo's id is a plain integer, scoped to the task, given by
+its own counter (`todo_counters`) that only ever goes up, so a deleted todo's number is never given to another.
 
-`pending`, `in_progress` and `completed` map to todo, doing and done; a doing item's `activeForm` is its note, and a
-done item's `completedAt` is the time of the call that marked it done (the `TaskUpdate` that set it completed, or the
-first `TodoWrite` that has listed it completed since; `TodoWrite`'s items are matched by their text), cleared when it
-goes back (#282). The Todos tab groups the items: active, then not started, then done (newest first). Only the
-main agent's successful calls count. The list isn't stored on its own: main works it out from the task's tool log
-(`todoListFor`), sends it with `tasks.history`, and broadcasts `todos.changed` when a todo tool call finishes. Each
+- **`create_todo { subject, note? }`** adds a todo, not started, with the next id the task has ever been given.
+  Replies `Todo #<id> created: <subject>.`
+- **`update_todo { id, subject?, note?, status? }`** changes a todo's subject, note or status (`pending`,
+  `in_progress` or `completed`), or — `status: "deleted"` — removes it, refused while anything is still filed under
+  it (as `close_todo` refused a live one before it), naming each so the agent can move it with `file_children`
+  first. An update that changes none of `subject`, `note` or `status` is refused. Replies `Todo #<id> updated.`,
+  or `Deleted todo #<id> <subject> (<status>).`
+- **`list_todos {}`** answers every todo of the task, one line each, in the order they were made: `#1 [in_progress]
+  Write the release notes — Drafting the changelog`, the note after a dash when it has one. `You have no todos yet:
+  create one with create_todo first.` for a task with none.
+
+A note (what a todo is for, or where it stands) shows for a todo in any state but done — not only while it's in
+progress, as a doing item's `activeForm` once showed under Claude Code's own tools — dropped once it's completed, so
+an old spinner line doesn't read wrongly on a finished todo (`src/main/todos/agent-todos.ts`).
+
+**An existing task's list carries over exactly.** A migration (`0074-carry-over-todos.ts`) replayed every task's
+`TaskCreate`/`TaskUpdate`/`TodoWrite` tool-log history once, into the new table (`src/main/todos/carry-over.ts`'s
+`replayLegacyTodos`), the same ids, text, state and finish time the Todos tab already showed, a todo the agent had
+closed with `close_todo` (`retired_todos`) left out, and a legacy `TodoWrite` item with no id given the next free
+one. The same replay runs for an imported Claude Code session's own `TaskCreate` history, at import time
+(`src/main/control/claude-code/service.ts`). Nothing is ever `stranded` any more: that was a restart's session
+losing track of a list kept outside Glade's own database, which can't happen once Glade owns it — the Stranded
+group and `close_todo` are gone with #609's last PR.
+
+The list isn't stored on its own beyond the `todos` table: main reads it (`todoListFor` in `src/main/todos/todos.ts`),
+sends it with `tasks.history`, and broadcasts `todos.changed` whenever `create_todo` or `update_todo` runs. Each
 task also keeps a summary of it (`todos` on the task: done, total and the items in progress), updated at the same
 moment and sent with `task.updated` when it changes, so the task list's rows show the progress without each task's
-history (#246). The calls stay in the tool log like any others. The domain's `waiting` state (purple in the design) has no source in Claude
-Code's tools, so nothing sets it yet.
+history (#246). The domain's `waiting` state (purple in the design) has no source yet, so nothing sets it.
 
 ## Glade's control tools: `glade-control` (P13-01)
 
@@ -726,7 +754,9 @@ Before starting work on an existing pull request, issue or branch, call list_oth
 
 When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows in the task's Agents tab.
 
-Glade files every commit you make under one of your todos, where the user finds it, and each subagent you start works on one of them. Name the todo in the call: start the description of an Agent call, and of a Bash call that commits, with the todo's id in square brackets, like "[todo 2] Review the date helpers". Create the todo first (TaskCreate) if none fits. If a call names none, Glade asks you right after it to file what it made, with mcp__glade__file_children: do that at once, before your next step. What a subagent commits goes under its todo by itself: leave those.
+Keep this task's todos with create_todo, update_todo and list_todos: there is no TaskCreate, TaskUpdate, TaskList, TaskGet or TodoWrite here any more. A note on a todo (what it is for, or where it stands) shows while it isn't done, not only while you're doing it.
+
+Glade files every commit you make under one of your todos, where the user finds it, and each subagent you start works on one of them. Name the todo in the call: start the description of an Agent call, and of a Bash call that commits, with the todo's id in square brackets, like "[todo 2] Review the date helpers". Create the todo first (create_todo) if none fits. If a call names none, Glade asks you right after it to file what it made, with mcp__glade__file_children: do that at once, before your next step. What a subagent commits goes under its todo by itself: leave those.
 
 An artifact goes under a todo too: give add_artifact the todo's id as todo, for a file and for a link.
 

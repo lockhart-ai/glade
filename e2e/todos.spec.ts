@@ -1,6 +1,6 @@
-// The Todos tab, end to end with the scripted agent: the list follows the agent's own todo tools (Claude Code's
-// TaskCreate and TaskUpdate, or its older TodoWrite) over a turn, the tab counts what's done, the task's sidebar row
-// shows the same progress, and it all survives a relaunch, since it's worked out from the stored tool log.
+// The Todos tab, end to end with the scripted agent: the list follows Glade's own todo tools (`create_todo` and
+// `update_todo`, #609) over a turn, the tab counts what's done, the task's sidebar row shows the same progress, and
+// it all survives a relaunch, since the list lives in Glade's own table.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
@@ -86,7 +86,7 @@ const FAINT = 'rgb(153, 157, 176)'
 /** An exact time, as a finish time's tooltip gives it: `Sep 26, 2026, 12:18 AM`. */
 const FULL_DATE = /^[A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2}\s[AP]M$/
 
-test('todos: the list follows TaskCreate and TaskUpdate over a turn, counted in the tab, and survives a relaunch', async ({
+test('todos: the list follows create_todo and update_todo over a turn, counted in the tab, and survives a relaunch', async ({
   launch,
   tempFolder,
 }) => {
@@ -160,9 +160,9 @@ test('todos: the list follows TaskCreate and TaskUpdate over a turn, counted in 
   await expect(progress).toHaveText('6/7')
   await expect(progress).toHaveAttribute('title', '6 of 7 todos done')
 
-  // The todo tool calls stay in the tool log like any others.
+  // The todo tool calls stay in the tool log like any others (#609).
   await panel.tab(/^Agents/).click()
-  await expect(panel.call(/^Done\s*TaskCreate/)).toHaveCount(7)
+  await expect(panel.call(/^Done\s*create_todo/)).toHaveCount(7)
   await panel.tab(/^Todos/).click()
 
   // The list is worked out from the stored tool log, so a relaunch shows it as it was.
@@ -189,7 +189,10 @@ test('todos: the list follows TaskCreate and TaskUpdate over a turn, counted in 
   await expect(relaunchedList.todoProgress(relaunchedList.rows('Done').first())).toHaveText('6/7')
 })
 
-test('todos: the list follows TodoWrite, which replaces it each call', async ({ launch, tempFolder }) => {
+test('todos: two update_todo calls with nothing between them still show, most recent first', async ({
+  launch,
+  tempFolder,
+}) => {
   const { window } = await launch({ agentScript: 'writes-todos', chosenFolder: workspaceRoot(tempFolder) })
   const panel = taskPanel(window)
   await startTask(window)
@@ -197,8 +200,8 @@ test('todos: the list follows TodoWrite, which replaces it each call', async ({ 
 
   await expect(chat(window).agentReplies).toHaveCount(1)
   await expect(panel.tab(/^Todos/)).toHaveText('Todos 3/3')
-  // The last write finished two at once: the one further down the list shows first, then the one before it, then the
-  // item an earlier write finished.
+  // Two calls finish right after each other with nothing between them (#609): the one called second shows first,
+  // then the one before it, then the item an earlier call finished.
   await expect(panel.todos).toHaveText([
     /^Done: Run the test 200 timesFinished /,
     /^Done: Fix the raceFinished /,
@@ -207,7 +210,7 @@ test('todos: the list follows TodoWrite, which replaces it each call', async ({ 
   const [run, fix, reproduce] = await panel.todos.evaluateAll((items) =>
     items.map((item) => Date.parse(item.querySelector('time')?.getAttribute('datetime') ?? '')),
   )
-  expect(run).toBe(fix)
+  expect(run).toBeGreaterThanOrEqual(fix ?? 0)
   expect(reproduce).toBeLessThan(fix ?? 0)
   // Every item done: the row shows a check.
   const list = taskList(window)
