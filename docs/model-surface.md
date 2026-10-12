@@ -67,14 +67,17 @@ configured server whose author names it `glade` too). This can't be `canUseTool`
 `allowedTools`, so Claude Code never asks about them, and Allow all (`bypassPermissions`) skips `canUseTool` for every
 tool, `glade-control`'s included; a `PreToolUse` hook fires regardless of permission mode, and is asked first.
 
-**One exception: `request_access` (#450).** A subagent's commands run in the sandbox as the main agent's do, so a
-subagent the sandbox blocked asks for the folder itself, with `glade`'s `request_access` ("Implemented:
-`request_access`", below). The guard lets that one tool through, and nothing else: every other tool of `glade`, and
-all of `glade-control`, is still refused to a subagent. The card it opens names the subagent, as a subagent's
-permission card does. The same hook tells the runner which call each `request_access` is and whose (its `tool_use_id`
-and `agent_id`), the main agent's too: an MCP tool's handler is given its call's `tool_use` id (`_meta`'s
-`claudecode/toolUseId`, [`sdk-notes.md` §15](sdk-notes.md#15-sandbox)), which is how it finds its call, but never
-whose call it is.
+**Two exceptions: `request_access` (#450) and `list_other_tasks` (#578).** A subagent's commands run in the sandbox as
+the main agent's do, so a subagent the sandbox blocked asks for the folder itself, with `glade`'s `request_access`
+("Implemented: `request_access`", below). A subagent or a dispatched child is also the one most likely to pick up a
+pull request, an issue or a branch another task already has, so it may call `glade`'s `list_other_tasks`
+("Implemented: `list_other_tasks`", below) to check for itself. The guard lets only these two tools through: every
+other tool of `glade`, and all of `glade-control`, is still refused to a subagent. `request_access`'s card names the
+subagent, as a subagent's permission card does, and the same hook tells the runner which call each `request_access`
+is and whose (its `tool_use_id` and `agent_id`), the main agent's too: an MCP tool's handler is given its call's
+`tool_use` id (`_meta`'s `claudecode/toolUseId`, [`sdk-notes.md` §15](sdk-notes.md#15-sandbox)), which is how it
+finds its call, but never whose call it is. `list_other_tasks` is read-only and opens no card, so none of that
+bookkeeping applies to it.
 
 ## What a user message contains
 
@@ -301,6 +304,7 @@ status (open, merged, closed) isn't fetched.
 | `request_access` | `{ path: string, access: "read" \| "write", reason: string }` | Asks the user for the folder a sandboxed command was blocked from, on a permission card, and blocks until answered. See below. |
 | `list_children` | `{ todo?: string }` | Behind `todoHubEnabled`. Lists what the task made (its children) by the todo each is under, each with its short id. See below. |
 | `file_children` | `{ filings: { child: string, todo: string }[] }` | Behind `todoHubEnabled`. Files children under todos, or moves them to another, all of them or none. See below. |
+| `list_other_tasks` | `{}` | Read-only; always on. The other Active tasks across every workspace, most recently updated first, each with its title, objective (Goal), status (Now), attention, workspace and link artifacts. See below. |
 
 `Question` (draft):
 
@@ -467,14 +471,57 @@ agent, kept in SQLite, and never given to another child. A todo is named by Clau
     subagent: c4.`, with `Already there: c1.` for the ones it left, or `Nothing changed. Already there: c1.`
   - **The windows hear it** as they hear any filing: one `filings.changed` with the filings made.
   - It reads ids leniently: `C3` for `c3`, `#2` for `2`. A todo with no id (a `TodoWrite` item) can't hold anything.
-- **Main agent only**, as every Glade tool but `request_access` ("Main agent only", above): a subagent's call to
-  either is refused before it runs, and names, files and sends nothing.
+- **Main agent only**, as every Glade tool but `request_access` and `list_other_tasks` ("Main agent only", above): a
+  subagent's call to either is refused before it runs, and names, files and sends nothing.
 - **If the setting is turned off under a session that has them,** both answer with a tool error (`The todo hub is off
   (the todoHubEnabled setting).`) and do nothing.
 
 The handlers are `listForAgent` and `fileForAgent` in `src/main/todo-hub/agent-children.ts`, over the filing store
 (`src/main/todo-hub/todo-hub.ts`) and the resolver (`groupChildren` in `src/shared/todoHub.ts`). The prompt says the
 tools exist in one line ("System prompt", below).
+
+## Implemented: `list_other_tasks` (#578)
+
+Jared asked for this after several tasks all claimed the same pull request without knowing it: `mcp__glade__list_other_tasks`
+takes no input and answers, read-only and always on (no setting, unlike `glade-control`), with the Active tasks across
+every workspace, most recently updated first, so an agent can see what the others are doing before it picks up an
+existing pull request, an issue or a branch. Done tasks are never listed.
+
+- **Each task** is given by its id, title, objective (Goal), status (Now), attention (`working`, `needs you` or
+  `idle`, the one rule in `src/shared/attention.ts`'s `taskAttention`), its workspace's name, when it was last
+  updated, and its link artifacts (#407: the PRs, issues and tickets it has filed with `add_artifact`'s `url`), each
+  with its title and url. **The calling task is included and marked as itself** (`(this task, itself)` in the reply),
+  wherever it falls in the order.
+- **Read-only:** the handler only reads (`otherTasksAnswer` in `src/main/agent/other-tasks.ts`); nothing about any
+  task can change through it. It never shows chat text, tool output or file contents, a task's own artifacts files
+  included: only the fields above.
+- **Bounded,** so a large workspace can't flood the context: at most `OTHER_TASKS_MAX` (50) tasks — but the calling
+  task is always among them, even if it would otherwise fall past the cap, so the agent can always see where its own
+  task stands — at most `OTHER_TASKS_LINKS_MAX` (20) links per task, and a title, an objective, a status, a
+  workspace's name or a link's own title or url cut to `OTHER_TASKS_TEXT_MAX` (200) or `OTHER_TASKS_LINK_TEXT_MAX`
+  (300) characters, with an ellipsis. The reply says when any of that happened: `(cut: some tasks, links or long
+  fields were left out or shortened)`.
+- **The reply**, one block per task:
+
+  ```
+  2 Active tasks, most recently updated first:
+
+  - <id> (this task, itself): "Fix the flaky login test" — in Acme API, working, updated 2026-10-11T23:16:45.000Z
+    Goal: Make the login test pass every run.
+    Now: Reproduced locally; bisecting now.
+    Links: "Fix flaky login" https://github.com/acme/api/pull/42
+
+  - <id>: "Upgrade the test runner" — in Acme API, idle, updated 2026-10-10T09:02:00.000Z
+    Goal: (not set)
+    Now: (not set)
+    Links: none
+  ```
+- **Subagents and dispatched children may call it too** ("Main agent only", above): the one exception besides
+  `request_access`. A dispatched child's `glade` server always holds it, sandboxed or not — unlike `request_access`,
+  which it holds only in a sandboxed session (`createGladeAccessMcpServer` in `src/main/agent/glade-tools.ts`).
+- **The system prompt** tells every session, main agent and dispatched child alike, to call it before starting work
+  on an existing pull request, issue or branch, and to stop and ask if another task already has it ("System prompt",
+  below).
 
 ## Implemented, behind the switch: filing produced work as it's made (P16-04, #495)
 
@@ -646,6 +693,8 @@ When you need the user to decide something before you can go on, call ask instea
 When you make a deliverable the user asked for (a report, a document, a draft), call add_artifact with its path and a short title, so it shows in the Todos tab and stays with the task after it is done. Keep that list current: if its file moves or it needs a new title, call update_artifact; if it's no longer a deliverable, call remove_artifact.
 When you open or work on a pull request, or the task is about an issue or a ticket (GitHub, Jira), call add_artifact with its url and a short title, so the user finds it in the Todos tab next to the files.
 
+Before starting work on an existing pull request, issue or branch, call list_other_tasks and check that no other task already has it among its links or in its Goal or Now; if one does, stop and ask.
+
 When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows in the task's Agents tab.
 
 Glade files every commit you make under one of your todos, where the user finds it, and each subagent you start works on one of them. Name the todo in the call: start the description of an Agent call, and of a Bash call that commits, with the todo's id in square brackets, like "[todo 2] Review the date helpers". Create the todo first (TaskCreate) if none fits. If a call names none, Glade asks you right after it to file what it made, with mcp__glade__file_children: do that at once, before your next step. What a subagent commits goes under its todo by itself: leave those.
@@ -663,6 +712,9 @@ the answer would be buried. Narration between tool calls stays in the tool log.
 The line about pull requests, issues and tickets is for link artifacts (#407): tasks depend on remote things that
 would otherwise be scattered through the chat, the todos and the tool log, and the Todos tab is the one place to
 get back to them.
+
+The line about checking other tasks first is for `list_other_tasks` (#578, below): several tasks could otherwise end
+up on the same pull request or issue without ever finding out, each thinking it alone has it.
 
 The line about watch scripts is for the watchers the Agents tab pins (#250, [`sdk-notes.md`](sdk-notes.md) §13): Glade follows what the agent starts
 with the SDK's own tools (`Monitor`, background `Bash`, `ScheduleWakeup`, `CronCreate`), whatever script it runs, but
@@ -696,7 +748,7 @@ Three more parts are added after that, each after a blank line, when they apply:
 **Resumed sessions.** Claude Code keeps a session's system prompt when it resumes it
 ([`sdk-notes.md` §8](sdk-notes.md#8-resume-verified)), so a line added to the prompt reaches only sessions started
 after it. The lines added since sessions first had Glade's prompt are listed, oldest first, in `INSTRUCTION_UPDATES`
-(so far the last-message line, #301, and the link artifacts line, #407). A session that started before one was added is sent the ones it hasn't
+(so far the last-message line, #301, the link artifacts line, #407, and the other-tasks line, #578). A session that started before one was added is sent the ones it hasn't
 had once, as a `[Glade: new instructions for this session] … [end]` block ahead of the next message Glade sends it;
 the chat shows only your message. How many each session has had is kept in SQLite
 (`session_context.instruction_updates`), so a relaunch neither loses nor repeats the block. An imported session gets

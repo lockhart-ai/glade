@@ -336,12 +336,12 @@ export function registerBridge({
     ...(claudeSettings === undefined ? {} : { claudeSettings }),
     // Each session gets its own Glade tools, built for its task, with the upkeep Settings has on as it starts, and,
     // while agents may control Glade, the control tools, calling as its task. A dispatched child instead gets only
-    // what it may use (#560): in a sandboxed session a `glade` server holding just `request_access`, the one Glade
-    // tool the main-only guard lets a subagent call, and nothing in an unsandboxed one.
+    // the two the main-only guard lets a subagent call (#560, #578): a `glade` server always holding
+    // `list_other_tasks`, and `request_access` too in a sandboxed session.
     mcpServers: (task, request) => {
       const settings = getSettings(db)
       if (request.audience === McpServerAudience.DispatchedChild) {
-        return request.sandboxed ? { [GLADE_SERVER]: createGladeAccessMcpServer(gladeToolContext, task.id) } : {}
+        return { [GLADE_SERVER]: createGladeAccessMcpServer(gladeToolContext, task.id, request.sandboxed) }
       }
       return {
         [GLADE_SERVER]: createGladeMcpServer(gladeToolContext, task.id, settings),

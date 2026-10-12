@@ -198,4 +198,34 @@ describe.each([
     expect(listFilings(db, task.id)).toHaveLength(1)
     await hub.close()
   })
+
+  it("lets a subagent's list_other_tasks run too (#578), alone with request_access among Glade's own tools", async () => {
+    const other = sampleTask(database.db, sampleWorkspace(database.db, '/code/widgets').id)
+
+    const bySubagent = await dispatch(caller, mode, 'mcp__glade__list_other_tasks', {}, 'sub-1')
+
+    expect(bySubagent).toMatchObject({ dispatched: true, isError: false })
+    expect(bySubagent.output).toContain(task.id)
+    expect(bySubagent.output).toContain(other.id)
+    // Every other Glade tool is still refused to that very subagent, request_access apart (its own test elsewhere).
+    for (const toolName of [
+      'mcp__glade__set_title',
+      'mcp__glade__set_objective',
+      'mcp__glade__set_status',
+      'mcp__glade__ask',
+      'mcp__glade__show_file',
+      'mcp__glade__add_artifact',
+      'mcp__glade__update_artifact',
+      'mcp__glade__remove_artifact',
+    ]) {
+      const refused = await dispatch(caller, mode, toolName, {}, 'sub-1')
+      expect(refused).toMatchObject({ dispatched: false, isError: true })
+      expect(refused.output).toContain("Only the main agent can use Glade's tools.")
+    }
+    // The main agent's own call runs too, the same as a subagent's.
+    await expect(dispatch(caller, mode, 'mcp__glade__list_other_tasks', {}, null)).resolves.toMatchObject({
+      dispatched: true,
+      isError: false,
+    })
+  })
 })

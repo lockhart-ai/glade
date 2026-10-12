@@ -12,6 +12,12 @@ export const REQUEST_ACCESS_TOOL = `${GLADE_PREFIX}request_access`
  */
 export const FILE_CHILDREN_TOOL = `${GLADE_PREFIX}file_children`
 
+/**
+ * Glade's `list_other_tasks` tool, as the SDK names it: the read-only list of the other tasks across every
+ * workspace (#578), the one Glade tool besides `request_access` a subagent or a dispatched child may call too.
+ */
+export const LIST_OTHER_TASKS_TOOL = `${GLADE_PREFIX}list_other_tasks`
+
 export function toolDisplayName(name: string): string {
   return name.startsWith(GLADE_PREFIX) && name.length > GLADE_PREFIX.length ? name.slice(GLADE_PREFIX.length) : name
 }

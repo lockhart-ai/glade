@@ -34,6 +34,7 @@ New here? The [README](../README.md) says what Glade is. The [docs index](README
   - [Sandbox folders and domains](#sandbox-folders-and-domains)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Plugins](#plugins)
+- [What a task can see of the others](#what-a-task-can-see-of-the-others)
 - [Let agents control Glade](#let-agents-control-glade)
   - [Connect Claude Code](#connect-claude-code)
   - [Import Claude Code sessions](#import-claude-code-sessions)
@@ -921,6 +922,15 @@ Mac's CPU, GPU and Docker load** under it to light up its room: the sun in the w
 fills with a cake per Docker container, and the espresso machine brews with the GPU.
 
 Writing your own? [The plugin API](plugin-api.md) has the manifest, the sandbox and every event.
+
+## What a task can see of the others
+
+Every task's agent can already see the other tasks, with no setting to turn on: it can list the other Active tasks
+across every workspace, each with its title, Goal, Now, attention and the pull requests, issues and tickets it has
+linked — never its chat, tool output or files. It's how a task notices that another one already has the pull
+request or issue it's about to start on, so two tasks don't both end up working on the same thing without knowing
+it; the agent is told to check before it picks one up. The list is capped, and the caller's own task is always in it,
+marked as itself. This is separate from, and always on unlike, the control tools below.
 
 ## Let agents control Glade
 
