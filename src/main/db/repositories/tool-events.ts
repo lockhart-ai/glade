@@ -116,13 +116,15 @@ interface ToolEventParams {
   readonly refusalFallbackModel: string | null
   readonly refusalCategory: string | null
   readonly refusalScope: RefusalScope | null
-  readonly totalInputTokens: number | null
-  readonly totalOutputTokens: number | null
 }
 
-const COLUMNS = `id, task_id, kind, turn, created_at, text, tool_name, tool_input, tool_output, finished_at, tool_state,
+/** The columns a `tool_events` row has, apart from an agent call's token totals (#589), which a new row leaves unset. */
+const ROW_COLUMNS = `id, task_id, kind, turn, created_at, text, tool_name, tool_input, tool_output, finished_at, tool_state,
   tool_use_id, parent_tool_use_id, divider_kind, compact_trigger, pre_tokens, post_tokens, window_tokens,
-  progress_summary, compact_summary, refusal_original_model, refusal_fallback_model, refusal_category, refusal_scope,
+  progress_summary, compact_summary, refusal_original_model, refusal_fallback_model, refusal_category, refusal_scope`
+
+/** Every column a read or `RETURNING` names, the row's own plus the agent call token totals only their writer sets. */
+const COLUMNS = `${ROW_COLUMNS},
   total_input_tokens, total_output_tokens`
 
 const KINDS = Object.values(ToolEventKind)
@@ -157,8 +159,6 @@ function toParams(event: ToolEvent): ToolEventParams {
     refusalFallbackModel: null,
     refusalCategory: null,
     refusalScope: null,
-    totalInputTokens: null,
-    totalOutputTokens: null,
   }
   switch (event.kind) {
     case ToolEventKind.Narration:
@@ -278,11 +278,11 @@ function parseToolEvent(raw: unknown): ToolEvent {
 /** Appends an entry to the end of its task's tool log. */
 function append(db: Database, event: ToolEvent): void {
   db.prepare(
-    `INSERT INTO tool_events (seq, ${COLUMNS})
+    `INSERT INTO tool_events (seq, ${ROW_COLUMNS})
     VALUES ((SELECT COALESCE(MAX(seq), 0) + 1 FROM tool_events WHERE task_id = @taskId), @id, @taskId, @kind, @turn,
       @createdAt, @text, @toolName, @toolInput, @toolOutput, @finishedAt, @toolState, @toolUseId, @parentToolUseId, @dividerKind,
       @compactTrigger, @preTokens, @postTokens, @windowTokens, @progressSummary, @compactSummary, @refusalOriginalModel,
-      @refusalFallbackModel, @refusalCategory, @refusalScope, @totalInputTokens, @totalOutputTokens)`,
+      @refusalFallbackModel, @refusalCategory, @refusalScope)`,
   ).run(toParams(event))
 }
 
