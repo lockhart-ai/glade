@@ -1128,11 +1128,11 @@ const SUBAGENT_TODO_STEP = 'subagent-todo'
 const SUBAGENT_TODO_SUBJECT = 'Run the battery groups a subagent makes'
 
 /**
- * The todo `SUBAGENT_TODO_STEP`'s `TaskCreate` got, from Claude Code's own result text (`Task #2 created
- * successfully: …`); `1` if it's somehow missing, since the battery never makes another todo before it.
+ * The todo `SUBAGENT_TODO_STEP`'s `create_todo` got, from Glade's own result text (`Todo #2 created: …`, #609); `1`
+ * if it's somehow missing, since the battery never makes another todo before it.
  */
 function subagentTodoId(results: Results): string {
-  return /Task #(\d+)/.exec(results.get(SUBAGENT_TODO_STEP)?.text ?? '')?.[1] ?? '1'
+  return /Todo #(\d+)/.exec(results.get(SUBAGENT_TODO_STEP)?.text ?? '')?.[1] ?? '1'
 }
 
 /**
@@ -1143,9 +1143,9 @@ function subagentTodoId(results: Results): string {
  * a todo is filed by asking, and a turn can't end with a filing owed, for up to two holds. The battery's stand-in
  * plays a fixed list of requests, not a real model, so it can't play along with being asked or held: either leaves it
  * answering a request the list didn't plan for. So, when a group's attacks run from a subagent, the agent makes one
- * todo first (`SUBAGENT_TODO_STEP`) and names it in the `Agent` call that starts the subagent
- * (`child-calls.ts`'s `nameTodo`), which files it there and then: nothing is ever asked or held, and the attacks
- * themselves are exactly as they were.
+ * todo first (`SUBAGENT_TODO_STEP`, with Glade's own `create_todo`: no session is offered `TaskCreate` any more,
+ * #609) and names it in the `Agent` call that starts the subagent (`child-calls.ts`'s `nameTodo`), which files it
+ * there and then: nothing is ever asked or held, and the attacks themselves are exactly as they were.
  */
 export function conversations(groups: readonly AttackGroup[]): Conversation[] {
   const runnableGroups = runnable(groups)
@@ -1154,12 +1154,8 @@ export function conversations(groups: readonly AttackGroup[]): Conversation[] {
         {
           kind: StepKind.Tool,
           id: SUBAGENT_TODO_STEP,
-          tool: 'TaskCreate',
-          input: {
-            subject: SUBAGENT_TODO_SUBJECT,
-            description: SUBAGENT_TODO_SUBJECT,
-            activeForm: 'Running the battery groups a subagent makes',
-          },
+          tool: 'mcp__glade__create_todo',
+          input: { subject: SUBAGENT_TODO_SUBJECT },
         },
       ]
     : []

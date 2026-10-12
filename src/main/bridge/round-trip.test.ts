@@ -13,12 +13,14 @@ import {
   type GladeBridge,
   type GladeEvent,
 } from '../../shared/bridge'
-import { TaskState, ToolCallState, UiStateKey } from '../../shared/domain'
+import { TaskState, UiStateKey } from '../../shared/domain'
 import { PNG } from '../../shared/test-images'
 import { FakeAgentBackend } from '../agent/fake-backend'
 import { addArtifact } from '../db/repositories/artifacts'
-import { getTask, updateTask } from '../db/repositories/tasks'
-import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
+import { openDatabase } from '../db/database'
+import { migrate } from '../db/migrate'
+import { MIGRATIONS } from '../db/migrations'
+import { getTask } from '../db/repositories/tasks'
 import { getUiState } from '../db/repositories/ui-state'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { registerBridge } from '.'
@@ -200,28 +202,51 @@ describe('the bridge', () => {
 
 describe('a database from before todo summaries', () => {
   it('works out the summaries of the tasks that kept a list before the window lists them, active or done', async () => {
-    const old = openTestDatabase()
-    const { db } = old
-    const workspace = sampleWorkspace(db)
-    const active = sampleTask(db, workspace.id)
-    const done = sampleTask(db, workspace.id)
-    updateTask(db, done.id, { state: TaskState.Done })
+    // Built on a database from before migration 29 (todo summaries) and migration 74 (#609, Glade's own todos
+    // table): its tasks exist, with their TodoWrite calls in the tool log, before either runs, so migration 29
+    // marks them stale the same way it always did, and migration 74's carry-over picks the calls up the same way it
+    // would a real database's. Raw SQL, as the schema reads this early, before `sampleTask` can run against it.
+    const db = openDatabase(':memory:')
+    migrate(
+      db,
+      MIGRATIONS.filter(({ version }) => version < 29),
+    )
+    const old: TestDatabase = { db, close: () => db.close() }
+    const workspaceId = 'w1'
+    db.prepare("INSERT INTO workspaces VALUES (?, 'Acme API', '/code/acme-api', 1, 1)").run(workspaceId)
+    const active = { id: 'active-task' }
+    const done = { id: 'done-task' }
+    for (const { id } of [active, done]) {
+      const isDone = id === done.id
+      db.prepare(
+        `INSERT INTO tasks (id, workspace_id, title, objective, status, state, activity, pinned, unread, model,
+          effort, created_at, updated_at, done_at, session_id)
+        VALUES (?, ?, '', '', '', ?, 'waiting', 0, 0, 'claude-sample-1', 'medium', 1, 1, ?, NULL)`,
+      ).run(id, workspaceId, isDone ? 'done' : 'active', isDone ? 1 : null)
+    }
+    // Written as the schema reads at this early version, not through `appendToolCall`/`updateToolCall`: they name
+    // columns (progress_summary among them) this database predates.
     for (const [taskId, status] of [
       [active.id, 'in_progress'],
       [done.id, 'completed'],
     ] as const) {
-      appendToolCall(db, {
+      const toolUseId = `toolu_${taskId}`
+      db.prepare(
+        `INSERT INTO tool_events (seq, id, task_id, kind, turn, created_at, tool_name, tool_input, tool_output,
+          finished_at, tool_state, tool_use_id, parent_tool_use_id)
+        VALUES ((SELECT COALESCE(MAX(seq), 0) + 1 FROM tool_events WHERE task_id = ?), ?, ?, 'tool_call', 1, 1, ?, ?,
+          'ok', 1, 'done', ?, NULL)`,
+      ).run(
         taskId,
-        turn: 1,
-        name: 'TodoWrite',
-        input: { todos: [{ content: 'Copy the files', status }] },
-        toolUseId: `toolu_${taskId}`,
-        parentToolUseId: null,
-      })
-      updateToolCall(db, { taskId, toolUseId: `toolu_${taskId}`, state: ToolCallState.Done, output: 'ok' })
+        `event-${toolUseId}`,
+        taskId,
+        'TodoWrite',
+        JSON.stringify({ todos: [{ content: 'Copy the files', status }] }),
+        toolUseId,
+      )
     }
-    // As migration 29 leaves them.
-    db.prepare('UPDATE tasks SET todos_stale = 1').run()
+    migrate(db, MIGRATIONS)
+    const workspace = { id: workspaceId }
 
     const ipc = fakeIpcPair()
     registerBridge({

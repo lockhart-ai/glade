@@ -26,6 +26,7 @@ import { SearchField } from '../../shared/search'
 import { FakeAgentBackend } from '../agent/fake-backend'
 import { createAgentRunner } from '../agent/runner'
 import { addArtifact, listArtifacts } from '../db/repositories/artifacts'
+import { putTodos, seedTodoCounterAtLeast } from '../db/repositories/glade-todos'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { getSettings } from '../db/repositories/settings'
 import { setSdkModels } from '../db/repositories/sdk-models'
@@ -556,6 +557,8 @@ describe('a stranded todo, on first load (#593)', () => {
       { taskId, toolUseId, state: ToolCallState.Done, output: `Task #${id} created successfully: ${subject}` },
       1,
     )
+    putTodos(database.db, taskId, [{ id, text: subject, note: null, state: TodoState.Todo, completedAt: null }], 1)
+    seedTodoCounterAtLeast(database.db, taskId, Number(id) + 1)
   }
 
   /** A shared list folder holding only the ids given, as `liveTodoIds` reads it. */

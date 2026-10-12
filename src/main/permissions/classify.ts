@@ -44,7 +44,11 @@ export const READ_ONLY_TOOLS: readonly string[] = [
   'WebSearch',
 ]
 
-/** Claude Code's todo tools: they only change the agent's own list (`src/main/todos`). */
+/**
+ * Claude Code's own todo tools. No Glade session is offered any of them any more (`../agent/sdk-backend`'s
+ * `DISALLOWED_TOOLS`, #609), so a call to one of these names can't reach this classifier; listed for a tool Glade
+ * doesn't recognise by another path (an older session resumed, say) to still read as harmless.
+ */
 export const TODO_TOOLS: readonly string[] = ['TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList']
 
 /**

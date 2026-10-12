@@ -91,9 +91,19 @@ export const TODO_HUB_FILING_LINE =
   'Glade files every commit you make under one of your todos, where the user finds it, and each subagent you start ' +
   'works on one of them. Name the todo in the call: start the description of an Agent call, and of a Bash call that ' +
   'commits, with the todo\'s id in square brackets, like "[todo 2] Review the date helpers". Create the todo first ' +
-  '(TaskCreate) if none fits. If a call names none, Glade asks you right after it to file what it made, with ' +
-  `${FILE_CHILDREN_TOOL}: do that at once, before your next step. What a subagent commits goes under its todo by ` +
-  'itself: leave those.'
+  `(${GladeTool.CreateTodo}) if none fits. If a call names none, Glade asks you right after it to file what it ` +
+  `made, with ${FILE_CHILDREN_TOOL}: do that at once, before your next step. What a subagent commits goes under ` +
+  'its todo by itself: leave those.'
+
+/**
+ * What the prompt says of Glade's own todo tools (#609): `create_todo`, `update_todo` and `list_todos` are what
+ * every session keeps its todos with now, in place of Claude Code's own `TaskCreate`, `TaskUpdate`, `TaskList`,
+ * `TaskGet` and `TodoWrite`, none of which any session is offered any more.
+ */
+export const TODO_TOOLS_LINE =
+  `Keep this task's todos with ${GladeTool.CreateTodo}, ${GladeTool.UpdateTodo} and ${GladeTool.ListTodos}: there ` +
+  'is no TaskCreate, TaskUpdate, TaskList, TaskGet or TodoWrite here any more. A note on a todo (what it is for, ' +
+  "or where it stands) shows while it isn't done, not only while you're doing it."
 
 /** What the prompt says of an artifact's todo: `add_artifact` needs one. */
 export const TODO_HUB_ARTIFACTS_LINE = `An artifact goes under a todo too: give ${GladeTool.AddArtifact} the todo's id as todo, for a file and for a link.`
@@ -113,7 +123,12 @@ export const TODO_HUB_LINES: readonly string[] = [TODO_HUB_FILING_LINE, TODO_HUB
  * sandboxed sessions alone) and `TODO_HUB_LINES` (some sessions had them before every session did) aren't here: each is
  * tracked by itself.
  */
-export const INSTRUCTION_UPDATES: readonly string[] = [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE]
+export const INSTRUCTION_UPDATES: readonly string[] = [
+  FINAL_REPLY_LINE,
+  LINK_ARTIFACTS_LINE,
+  OTHER_TASKS_LINE,
+  TODO_TOOLS_LINE,
+]
 
 /** The heading the handoff note goes under in the prompt. */
 export const HANDOFF_HEADING = 'Handoff for this task (backfilled from earlier notes)'
@@ -213,6 +228,8 @@ export function systemPromptAppend(
     OTHER_TASKS_LINE,
     '',
     WATCHERS_LINE,
+    '',
+    TODO_TOOLS_LINE,
   )
   lines.push(...TODO_HUB_LINES.flatMap((line) => ['', line]))
   if (sandboxed) lines.push('', SANDBOX_LINE)

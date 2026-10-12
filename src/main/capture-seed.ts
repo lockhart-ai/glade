@@ -94,6 +94,7 @@ import {
   type Grant,
   type SandboxGrantTarget,
 } from '../shared/sandbox'
+import { carryOverTodos } from './todos/carry-over'
 import { refreshTodos, todoListFor } from './todos/todos'
 import { fileChildren } from './todo-hub/todo-hub'
 import {
@@ -1213,6 +1214,9 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
           fileUnder(event.todo, childOfSubagent({ toolUseId: event.toolUseId ?? seedId }))
         }
       }
+      // A fixture's TaskCreate/TaskUpdate/TodoWrite sample calls are Claude Code's old ones (#609): carried into
+      // Glade's own todos table the same way an existing task's history was, so the Todos tab reads them.
+      carryOverTodos(db, task.id)
       refreshTodos(db, task.id)
       if (dataDir !== undefined && sample.strandedTodos !== undefined) {
         seedSharedTodoList(db, task.id, dataDir, sample.strandedTodos)

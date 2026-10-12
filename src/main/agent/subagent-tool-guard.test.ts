@@ -11,9 +11,10 @@
 import type { HookCallback, HookInput } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
-import { Effort, PermissionMode, ToolCallState, type Task } from '../../shared/domain'
+import { Effort, PermissionMode, TodoState, ToolCallState, type Task } from '../../shared/domain'
 import { addArtifact } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
+import { putTodos, seedTodoCounterAtLeast } from '../db/repositories/glade-todos'
 import { getOpenQuestionSet } from '../db/repositories/question-sets'
 import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
@@ -169,6 +170,8 @@ describe.each([
     const todo = { taskId: task.id, toolUseId: 'toolu_create_1' }
     appendToolCall(db, { ...todo, turn: 1, name: 'TaskCreate', input: { subject: 'Plan' }, parentToolUseId: null })
     updateToolCall(db, { ...todo, state: ToolCallState.Done, output: 'Task #1 created successfully: Plan' })
+    putTodos(db, task.id, [{ id: '1', text: 'Plan', note: null, state: TodoState.Todo, completedAt: null }])
+    seedTodoCounterAtLeast(db, task.id, 2)
     addArtifact(db, { taskId: task.id, path: 'docs/plan.md', title: 'The plan' })
     const filings = [{ child: 'c1', todo: '1' }]
     const named = (): unknown => db.prepare('SELECT COUNT(*) FROM child_ids').pluck().get()
@@ -197,6 +200,38 @@ describe.each([
     })
     expect(listFilings(db, task.id)).toHaveLength(1)
     await hub.close()
+  })
+
+  it("refuses a subagent's create_todo, update_todo and list_todos, and runs the main agent's (#609)", async () => {
+    const todos = createMcpToolCaller({ [GLADE_SERVER]: createGladeMcpServer(context, task.id) })
+
+    const created = await dispatch(todos, mode, 'mcp__glade__create_todo', { subject: 'Plan' }, 'sub-1')
+    expect(created).toMatchObject({ dispatched: false, isError: true })
+    expect(created.output).toContain("Only the main agent can use Glade's tools.")
+    // Nothing was made, so nothing to update or list by the subagent either.
+    const updated = await dispatch(todos, mode, 'mcp__glade__update_todo', { id: '1', note: 'Planning' }, 'sub-1')
+    const listed = await dispatch(todos, mode, 'mcp__glade__list_todos', {}, 'sub-1')
+    for (const refused of [updated, listed]) {
+      expect(refused).toMatchObject({ dispatched: false, isError: true })
+      expect(refused.output).toContain("Only the main agent can use Glade's tools.")
+    }
+    expect(events).toEqual([])
+
+    // The main agent's own calls run, same as any other Glade tool.
+    await expect(dispatch(todos, mode, 'mcp__glade__create_todo', { subject: 'Plan' }, null)).resolves.toMatchObject({
+      dispatched: true,
+      isError: false,
+      output: 'Todo #1 created: Plan.',
+    })
+    await expect(
+      dispatch(todos, mode, 'mcp__glade__update_todo', { id: '1', note: 'Planning' }, null),
+    ).resolves.toEqual({ dispatched: true, isError: false, output: 'Todo #1 updated.' })
+    await expect(dispatch(todos, mode, 'mcp__glade__list_todos', {}, null)).resolves.toMatchObject({
+      dispatched: true,
+      isError: false,
+      output: '#1 [pending] Plan — Planning',
+    })
+    await todos.close()
   })
 
   it("lets a subagent's list_other_tasks run too (#578), alone with request_access among Glade's own tools", async () => {

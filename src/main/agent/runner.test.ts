@@ -80,6 +80,7 @@ import {
   OTHER_TASKS_LINE,
   systemPromptAppend,
   TODO_HUB_LINES,
+  TODO_TOOLS_LINE,
 } from './system-prompt'
 import { updateSettings } from '../db/repositories/settings'
 import { setHandoff } from '../db/repositories/backfills'
@@ -526,29 +527,19 @@ describe('a turn', () => {
 })
 
 describe('the todo list', () => {
-  it("broadcasts the task's list each time a todo tool call finishes, and loads it with the task's history", async () => {
+  it("broadcasts the task's list each time create_todo or update_todo runs, and loads it with the task's history (#609)", async () => {
     await send('Move the uploads to S3.')
-    backend.session.emit(
-      sdk.init(),
-      sdk.toolUse('toolu_01', 'TodoWrite', {
-        todos: [
-          { content: 'Find the uploads', status: 'in_progress', activeForm: 'Finding the uploads' },
-          { content: 'Copy the files', status: 'pending', activeForm: 'Copying the files' },
-        ],
-      }),
-    )
-    await settle()
-    // Running, it hasn't changed anything yet.
-    expect(drainEvents().filter(([type]) => type === EventType.TodosChanged)).toEqual([])
-
-    backend.session.emit(
-      sdk.toolResult('toolu_01', 'Todos have been modified successfully.'),
-      sdk.toolUse('toolu_02', 'Bash', { command: 'ls uploads' }),
-      sdk.toolResult('toolu_02', 'a.png'),
-      sdk.toolUse('toolu_03', 'TodoWrite', { todos: 'broken' }),
-      sdk.toolResult('toolu_03', 'InputValidationError', true),
-      sdk.result('Found them.'),
-    )
+    const session = backend.session
+    session.emit(sdk.init())
+    await session.callTool('toolu_01', 'mcp__glade__create_todo', { subject: 'Find the uploads' })
+    await session.callTool('toolu_02', 'mcp__glade__create_todo', { subject: 'Copy the files' })
+    drainEvents()
+    await session.callTool('toolu_03', 'mcp__glade__update_todo', {
+      id: '1',
+      status: 'in_progress',
+      note: 'Finding the uploads',
+    })
+    session.emit(sdk.result('Found them.'))
     await settle()
 
     const todos = [
@@ -561,28 +552,21 @@ describe('the todo list', () => {
     expect(loaded?.items[0]?.note).toBe('Finding the uploads')
   })
 
-  it("keeps the task's todo progress up to date for its row, telling the windows each time it changes", async () => {
+  it("keeps the task's todo progress up to date for its row, telling the windows each time it changes (#609)", async () => {
     /** The todo progress in each `task.updated` since the last call. */
     const progressUpdates = (): unknown[] =>
       events.splice(0).flatMap((event) => (event.type === EventType.TaskUpdated ? [event.task.todos] : []))
 
     await send('Move the uploads to S3.')
     progressUpdates()
-    backend.session.emit(
-      sdk.init(),
-      sdk.toolUse('toolu_01', 'TaskCreate', { subject: 'Find the uploads', description: 'Find the uploads' }),
-      sdk.toolResult('toolu_01', 'Task #1 created successfully: Find the uploads'),
-      sdk.toolUse('toolu_02', 'TaskCreate', { subject: 'Copy the files', description: 'Copy the files' }),
-      sdk.toolResult('toolu_02', 'Task #2 created successfully: Copy the files'),
-      sdk.toolUse('toolu_03', 'TaskUpdate', { taskId: '1', status: 'in_progress' }),
-      sdk.toolResult('toolu_03', 'Updated task #1 status'),
-      // Only the note changes: the row says the same.
-      sdk.toolUse('toolu_04', 'TaskUpdate', { taskId: '1', activeForm: 'Finding the uploads' }),
-      sdk.toolResult('toolu_04', 'Updated task #1'),
-      sdk.toolUse('toolu_05', 'TaskUpdate', { taskId: '1', status: 'completed' }),
-      sdk.toolResult('toolu_05', 'Updated task #1 status'),
-    )
-    await settle()
+    const session = backend.session
+    session.emit(sdk.init())
+    await session.callTool('toolu_01', 'mcp__glade__create_todo', { subject: 'Find the uploads' })
+    await session.callTool('toolu_02', 'mcp__glade__create_todo', { subject: 'Copy the files' })
+    await session.callTool('toolu_03', 'mcp__glade__update_todo', { id: '1', status: 'in_progress' })
+    // Only the note changes: the row says the same.
+    await session.callTool('toolu_04', 'mcp__glade__update_todo', { id: '1', note: 'Finding the uploads' })
+    await session.callTool('toolu_05', 'mcp__glade__update_todo', { id: '1', status: 'completed' })
 
     expect(progressUpdates().filter((todos) => todos !== null)).toEqual([
       { done: 0, total: 1, doing: [] },
@@ -594,12 +578,10 @@ describe('the todo list', () => {
     const { todos: tab } = await glade.invoke(CommandName.TasksHistory, { id: task.id })
     expect(todoProgress(tab)).toEqual({ done: 1, total: 2, doing: 0 })
 
-    // The list the agent clears leaves the row with none.
-    backend.session.emit(
-      sdk.toolUse('toolu_06', 'TodoWrite', { todos: [] }),
-      sdk.toolResult('toolu_06', 'Todos have been modified successfully.'),
-      sdk.result('Done.'),
-    )
+    // Deleting every todo leaves the row with none.
+    await session.callTool('toolu_06', 'mcp__glade__update_todo', { id: '1', status: 'deleted' })
+    await session.callTool('toolu_07', 'mcp__glade__update_todo', { id: '2', status: 'deleted' })
+    session.emit(sdk.result('Done.'))
     await settle()
     expect(current().todos).toBeNull()
   })
@@ -3526,7 +3508,7 @@ describe('instructions added to the prompt since a session started', () => {
     await reply()
     await send('And the logout test?')
 
-    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE])
+    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE])
     for (const update of INSTRUCTION_UPDATES) expect(backend.session.options.systemPromptAppend).toContain(update)
     expect(sentTexts()).toEqual(['Why is the login test flaky?', 'And the logout test?'])
     expect(getSessionContext(database.db, task.id)).toEqual({

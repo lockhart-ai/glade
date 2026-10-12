@@ -1442,6 +1442,10 @@ a denied call and a foreground subagent's call. What that run showed is marked *
 
 ## 10. Claude Code's todo tools [verified]
 
+Historical: Glade no longer uses any of this (#609 moved todos into its own database, with its own tools —
+`create_todo`/`update_todo`/`list_todos`, §16, and the probe below, "Disallowing the built-ins and offering
+replacements instead"). Kept for the record of how the built-ins behaved while Glade piggy-backed on them.
+
 Probed with SDK 0.3.281 (Claude Code 2.1.281) for #167: the `init` tool list of a one-message session in an empty temp
 folder, with no settings sources, per model and environment.
 
@@ -1487,6 +1491,30 @@ which match the Todos tab's schemas (`src/main/todos/schema.ts`) and the scripte
 
 `activeForm` is optional, and the model left it out here. Glade's parser and `deriveTodoList` turned these into "Say
 hello" done and "Say goodbye" todo.
+
+### Disallowing the built-ins and offering replacements instead (#609) [verified]
+
+For #609 (Glade owns todos in its own database now, §16's `create_todo`/`update_todo`/`list_todos`): the question
+was whether disallowing the five built-ins (`TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, `TodoWrite`) and
+offering an in-process MCP server with three stub tools in their place would make the model plan with the offered
+tools, and whether the harness would still nudge it with a system-reminder naming `TaskCreate`.
+
+One `claude-haiku-4-5-20251001` session, direct `query()`, a fresh empty `cwd`, the five built-ins in
+`disallowedTools` along with the usual file and shell tools, an in-process server (`create_todo`, `update_todo`,
+`list_todos`, each a plain in-memory stub) and one line appended to the prompt naming them. Prompt: "Plan three
+steps for adding a health-check endpoint, track them as todos, mark the first in progress, then finish it."
+
+- **`system/init`'s tool list had none of the five**, not even as names `ToolSearch` could find: just the three
+  stub tools and the SDK's own background/watch tools (`CronCreate`, `Monitor`, …).
+- **The model planned entirely with the offered tools**, unprompted beyond the one line: three `create_todo` calls,
+  `list_todos`, `update_todo` to `in_progress` then `completed`, `list_todos` again, then its reply. It never
+  attempted a disallowed tool.
+- **No system-reminder, anywhere in the message stream, named `TaskCreate`, `TodoWrite` or any task tool.** Checked
+  by regexing every message's raw JSON, not just the visible text: disallowing the built-ins leaves nothing in the
+  harness nudging the model back towards them.
+
+**Implication for Glade:** disallowing the five and offering real replacements is enough on its own; no extra prompt
+engineering is needed to keep the model off the built-ins once they're disallowed.
 
 ## 11. Follow-ups the agent schedules itself [verified]
 

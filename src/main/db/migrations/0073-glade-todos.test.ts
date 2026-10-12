@@ -16,7 +16,12 @@ it("adds Glade's own todos table and its id counter, going with their task", () 
       "VALUES ('t1', 'w1', '', '', '', 'active', 0, 0, 'claude-sample-1', 'medium', 1, 1)",
   ).run()
   expect(gladeTodosMigration.version).toBe(73)
-  migrate(db, MIGRATIONS)
+  // Up to 73 alone: a later migration (74, #609) seeds every task a counter row of its own, which would collide
+  // with this test's own inserts below.
+  migrate(
+    db,
+    MIGRATIONS.filter(({ version }) => version < 74),
+  )
 
   db.prepare(
     'INSERT INTO todos (task_id, id, text, note, state, completed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',

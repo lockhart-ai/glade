@@ -17,6 +17,7 @@ import {
   TODO_HUB_FILING_LINE,
   TODO_HUB_LINES,
   TODO_HUB_TOOLS_LINE,
+  TODO_TOOLS_LINE,
   WATCHERS_LINE,
 } from './system-prompt'
 
@@ -66,6 +67,8 @@ describe('systemPromptAppend', () => {
           "Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows " +
           "in the task's Agents tab.",
         '',
+        TODO_TOOLS_LINE,
+        '',
         TODO_HUB_FILING_LINE,
         '',
         TODO_HUB_ARTIFACTS_LINE,
@@ -91,7 +94,7 @@ describe('systemPromptAppend', () => {
     expect(FINAL_REPLY_LINE).toContain('only your last message of each turn')
     expect(FINAL_REPLY_LINE).toContain('before that reply, not after it')
     // Sessions that started before it get it once, as an instruction added since (`./session-context`).
-    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE])
+    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE])
     for (const update of INSTRUCTION_UPDATES) expect(systemPromptAppend(task)).toContain(update)
   })
 
@@ -236,7 +239,7 @@ describe("the todo hub's lines", () => {
       'Glade files every commit you make under one of your todos, where the user finds it, and each subagent you start ' +
         'works on one of them. Name the todo in the call: start the description of an Agent call, and of a Bash call ' +
         'that commits, with the todo\'s id in square brackets, like "[todo 2] Review the date helpers". Create the ' +
-        'todo first (TaskCreate) if none fits. If a call names none, Glade asks you right after it to file what it ' +
+        'todo first (create_todo) if none fits. If a call names none, Glade asks you right after it to file what it ' +
         'made, with mcp__glade__file_children: do that at once, before your next step. What a subagent commits goes ' +
         'under its todo by itself: leave those.',
     )
@@ -256,7 +259,7 @@ describe("the todo hub's lines", () => {
     // Whether a session has them is tracked by itself (`session-context`): a session's count of the instructions
     // added since it started stays what it was.
     for (const line of TODO_HUB_LINES) expect(INSTRUCTION_UPDATES).not.toContain(line)
-    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE])
+    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE])
   })
 
   it('names no tab the panel no longer has', () => {

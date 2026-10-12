@@ -1049,13 +1049,15 @@ describe('applySeed', () => {
       const taskId = onlyTaskId()
 
       const list = liveTodos(db, taskId, dataDir)
+      // The fixture's tool log makes #35 and #36 before #1-#4 (as a restart recreating lower ids after higher ones
+      // would), but the carry-over's table reads lowest id first (#609): the fixture's order no longer survives.
       expect(list?.items.map(({ id, stranded }) => [id, stranded ?? false])).toEqual([
-        ['35', true],
-        ['36', true],
         ['1', false],
         ['2', false],
         ['3', false],
         ['4', false],
+        ['35', true],
+        ['36', true],
       ])
       const hub = readTodoHub(db, taskId)
       const strandedGroup = hub.children.todos.find(({ todoId }) => todoId === '35')

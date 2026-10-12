@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { GLADE_SERVER, gladeOwnServers, GladeTool } from '../agent/glade-tools'
 import { CONTROL_SERVER, CONTROL_TOOL_ACCESS, ControlAccess, ControlToolName } from '../control/names'
-import { TodoTool } from '../todos/todos'
 import {
   permissionVerdict,
   PermissionVerdict,
@@ -79,10 +78,6 @@ describe('permissionVerdict', () => {
       expect(verdict(builtIn(toolName)), toolName).toBe(PermissionVerdict.Allow)
     }
     for (const toolName of SIDE_EFFECT_TOOLS) expect(verdict(builtIn(toolName)), toolName).toBe(PermissionVerdict.Ask)
-  })
-
-  it("knows every todo tool the Todos tab reads, so the agent's list never waits on you", () => {
-    for (const toolName of Object.values(TodoTool)) expect(TODO_TOOLS).toContain(toolName)
   })
 
   it("allows every one of Glade's own tools, served by its in-process server", () => {

@@ -3,9 +3,11 @@ import { TodoState } from '../../../shared/domain'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 import {
   allocateTodoId,
+  createTodo,
   deleteTodo,
   getTodo,
   getTodoCounter,
+  latestTodoChangeAt,
   listTodos,
   putTodos,
   seedTodoCounterAtLeast,
@@ -150,5 +152,48 @@ describe('getTodoCounter, seedTodoCounterAtLeast and allocateTodoId', () => {
     const b = sampleTask(db, sampleWorkspace(db, '/code/other').id)
     expect(allocateTodoId(db, a.id)).toBe('1')
     expect(allocateTodoId(db, b.id)).toBe('1')
+  })
+})
+
+describe('createTodo', () => {
+  it('adds a not-started todo with the next id, and no finish time', () => {
+    const a = task()
+    const { db } = test
+    expect(createTodo(db, a.id, { text: 'Review the date helpers', note: 'Reading the diff' })).toEqual({
+      id: '1',
+      text: 'Review the date helpers',
+      note: 'Reading the diff',
+      state: TodoState.Todo,
+      completedAt: null,
+    })
+    expect(createTodo(db, a.id, { text: 'Write the release notes', note: null })).toEqual({
+      id: '2',
+      text: 'Write the release notes',
+      note: null,
+      state: TodoState.Todo,
+      completedAt: null,
+    })
+    expect(listTodos(db, a.id)).toHaveLength(2)
+  })
+})
+
+describe('latestTodoChangeAt', () => {
+  it('answers null for a task with no todos', () => {
+    const a = task()
+    const { db } = test
+    expect(latestTodoChangeAt(db, a.id)).toBeNull()
+  })
+
+  it('is the latest of a create, an update or a delete, across every todo of the task', () => {
+    const a = task()
+    const { db } = test
+    createTodo(db, a.id, { text: 'Review', note: null }, 1_000)
+    createTodo(db, a.id, { text: 'Write the notes', note: null }, 2_000)
+    expect(latestTodoChangeAt(db, a.id)).toBe(2_000)
+    updateTodo(db, a.id, '1', { state: TodoState.Doing }, 3_000)
+    expect(latestTodoChangeAt(db, a.id)).toBe(3_000)
+    deleteTodo(db, a.id, '2')
+    // Deleting the most recently touched todo still leaves the other's own time.
+    expect(latestTodoChangeAt(db, a.id)).toBe(3_000)
   })
 })

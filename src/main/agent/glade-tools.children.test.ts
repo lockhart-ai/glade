@@ -10,14 +10,14 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createBridge } from '../../preload/bridge'
 import { CommandName, EventType, type GladeEvent } from '../../shared/bridge'
-import { ToolCallState, type Task } from '../../shared/domain'
+import { TodoState, type Task } from '../../shared/domain'
 import { ChildKind, FilingSource } from '../../shared/todoHub'
 import { registerBridge } from '../bridge'
 import { fakeIpcPair } from '../bridge/fake-ipc'
 import { addArtifact, addLinkArtifact } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
+import { putTodos, seedTodoCounterAtLeast } from '../db/repositories/glade-todos'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
-import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
 import { sharedTaskListDir } from '../openrouter/task-list'
 import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
 import { createQuestionBroker } from '../questions/questions'
@@ -58,23 +58,10 @@ afterEach(async () => {
   database.close()
 })
 
-/** A todo, as Claude Code's `TaskCreate` leaves one in the tool log. */
+/** A todo, by its own id, in Glade's own table (#609). */
 function createTodo(id: string, subject: string): void {
-  const toolUseId = `toolu_create_${id}`
-  appendToolCall(db, {
-    taskId: task.id,
-    turn: 1,
-    name: 'TaskCreate',
-    input: { subject },
-    toolUseId,
-    parentToolUseId: null,
-  })
-  updateToolCall(db, {
-    taskId: task.id,
-    toolUseId,
-    state: ToolCallState.Done,
-    output: `Task #${id} created successfully: ${subject}`,
-  })
+  putTodos(db, task.id, [{ id, text: subject, note: null, state: TodoState.Todo, completedAt: null }])
+  seedTodoCounterAtLeast(db, task.id, Number(id) + 1)
 }
 
 /** A task with two todos and two artifacts made before anything filed them: c1 the notes, c2 the PR. */
@@ -99,24 +86,22 @@ async function toolsOf(settings?: AgentUpkeep) {
 
 const list = (input: Record<string, unknown> = {}) => caller.call('mcp__glade__list_children', input)
 const file = (input: Record<string, unknown>) => caller.call('mcp__glade__file_children', input)
-const close = (input: Record<string, unknown>) => caller.call('mcp__glade__close_todo', input)
-
 describe('the server', () => {
   it('has the two tools in every session, loaded up front like the rest', async () => {
     const tools = await toolsOf()
 
-    expect(tools.map(({ name }) => name).slice(-4)).toEqual([
-      GladeTool.ListChildren,
-      GladeTool.FileChildren,
-      GladeTool.CloseTodo,
-      GladeTool.ListOtherTasks,
-    ])
+    const names = tools.map(({ name }) => name)
+    expect(names).toContain(GladeTool.ListChildren)
+    expect(names).toContain(GladeTool.FileChildren)
+    expect(names).toContain(GladeTool.ListOtherTasks)
+    // close_todo isn't offered any more (#609): nothing is ever stranded once Glade owns the list.
+    expect(names).not.toContain(GladeTool.CloseTodo)
     for (const listed of tools) expect(listed._meta).toEqual({ 'anthropic/alwaysLoad': true })
 
     // Whatever upkeep the session has: they aren't upkeep.
-    const names = (await toolsOf({ statusSummary: false, taskTitles: false })).map(({ name }) => name)
-    expect(names).toContain(GladeTool.ListChildren)
-    expect(names).toContain(GladeTool.FileChildren)
+    const withoutUpkeep = (await toolsOf({ statusSummary: false, taskTitles: false })).map(({ name }) => name)
+    expect(withoutUpkeep).toContain(GladeTool.ListChildren)
+    expect(withoutUpkeep).toContain(GladeTool.FileChildren)
   })
 
   it('takes an optional todo to list by, and one or more filings, each a child and a todo', async () => {
@@ -125,7 +110,6 @@ describe('the server', () => {
 
     expect(schema(GladeTool.ListChildren)).toMatchObject({ properties: { todo: { type: 'string' } } })
     expect(schema(GladeTool.ListChildren)?.required).toBeUndefined()
-    expect(schema(GladeTool.CloseTodo)).toMatchObject({ required: ['todo'], properties: { todo: { type: 'string' } } })
     expect(schema(GladeTool.FileChildren)).toMatchObject({
       required: ['filings'],
       properties: {
@@ -234,33 +218,6 @@ describe('the two tools, called as the agent calls them', () => {
     await expect(list({ todo: 2 })).resolves.toMatchObject({ isError: true })
   })
 
-  it('closes a stranded todo as the agent calls it, and refuses a live one or one named badly', async () => {
-    createTodo('1', 'Review the date helpers')
-    createTodo('2', 'Fix the UTC date test')
-    const dir = mkdtempSync(join(tmpdir(), 'glade-close-todo-'))
-    const folder = sharedTaskListDir(dir, task.id)
-    mkdirSync(folder, { recursive: true })
-    writeFileSync(join(folder, '2.json'), '{"id":"2","status":"pending"}')
-    const strandedCaller = createMcpToolCaller({
-      [GLADE_SERVER]: createGladeMcpServer({ ...context, dataDir: dir }, task.id),
-    })
-
-    // A live todo, over the session's own server: an error result, nothing changed.
-    await expect(close({ todo: '1' })).resolves.toMatchObject({ isError: true })
-    // A stranded one, closed: the reply says what it did.
-    await expect(strandedCaller.call('mcp__glade__close_todo', { todo: '1' })).resolves.toEqual({
-      output:
-        "Closed stranded todo #1 Review the date helpers (pending). It is out of the task's list everywhere; " +
-        'its history stays in the tool log.',
-      isError: false,
-    })
-    // A call that names no todo, or a blank one, is refused by the schema before the handler runs.
-    await expect(close({})).resolves.toMatchObject({ isError: true })
-    await expect(close({ todo: ' ' })).resolves.toMatchObject({ isError: true })
-    await strandedCaller.close()
-    rmSync(dir, { recursive: true, force: true })
-  })
-
   it('has handlers that answer as the tools do', () => {
     unsorted()
     const handlers = createGladeToolHandlers(context, task.id)
@@ -277,6 +234,8 @@ describe('the two tools, called as the agent calls them', () => {
     expect(handlers.listChildren({ todo: '3' })).toMatchObject({ isError: true })
   })
 
+  // close_todo isn't offered any more (#609, above), but its handler stays for a later PR to remove along with the
+  // rest of the stranded machinery; called directly here so those lines keep their coverage until then.
   it('closes a stranded todo through its handler, and refuses a live one as an error', () => {
     createTodo('1', 'Review the date helpers')
     createTodo('2', 'Fix the UTC date test')

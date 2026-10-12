@@ -64,6 +64,13 @@ import {
   type FilingRequest,
 } from '../todo-hub/agent-children'
 import { artifactTodo, fileArtifact } from '../todo-hub/filing'
+import {
+  createTodoForAgent,
+  listTodosForAgent,
+  updateTodoForAgent,
+  type CreateTodoInput as CreateTodoAgentInput,
+  type UpdateTodoInput as UpdateTodoAgentInput,
+} from '../todos/agent-todos'
 
 /**
  * What Settings › Agent has the agent keep current besides the objective: the status every turn (`set_status`), and
@@ -119,6 +126,9 @@ export enum GladeTool {
   FileChildren = 'file_children',
   ListOtherTasks = 'list_other_tasks',
   CloseTodo = 'close_todo',
+  CreateTodo = 'create_todo',
+  UpdateTodo = 'update_todo',
+  ListTodos = 'list_todos',
 }
 
 export interface SetTitleInput {
@@ -184,6 +194,15 @@ export interface CloseTodoInput {
 
 /** `list_other_tasks` takes no input (#578). */
 export type ListOtherTasksInput = Record<string, never>
+
+/** `create_todo`'s input (#609). */
+export type CreateTodoInput = CreateTodoAgentInput
+
+/** `update_todo`'s input: `id`, and at least one of `subject`, `note` and `status` (#609). */
+export type UpdateTodoInput = UpdateTodoAgentInput
+
+/** `list_todos` takes no input (#609). */
+export type ListTodosInput = Record<string, never>
 
 /** Text the model sends: trimmed, and never empty. */
 function text(what: string) {
@@ -277,9 +296,30 @@ const fileChildrenInput = z.object({
 
 const listOtherTasksInput = z.object({}) satisfies z.ZodType<ListOtherTasksInput>
 
-const closeTodoInput = z.object({
-  todo: text('todo').describe('The id of the stranded todo to close: the N of Task #N, e.g. "45".'),
-}) satisfies z.ZodType<CloseTodoInput>
+// close_todo's own schema is gone with its tool() registration (#609): nothing is ever stranded once Glade owns
+// the list, so it isn't offered any more. `CloseTodoInput` and `closeTodo` (below) stay for a later PR to remove.
+
+/** `update_todo`'s `status`, in the built-ins' own words (#609). */
+const todoToolStatus = z.enum(['pending', 'in_progress', 'completed', 'deleted'])
+
+const createTodoInput = z.object({
+  subject: text('subject').describe('A short name for the todo.'),
+  note: text('note').optional().describe('The line to show under it: where it stands, or what you are doing now.'),
+}) satisfies z.ZodType<CreateTodoInput>
+
+const updateTodoInput = z.object({
+  id: text('id').describe('The todo\'s id: the N of "#N" as list_todos and create_todo give it.'),
+  subject: text('subject').optional().describe('A new short name for it.'),
+  note: text('note').optional().describe('A new line under it: where it stands, or what you are doing now.'),
+  status: todoToolStatus
+    .optional()
+    .describe(
+      'pending, in_progress or completed to change where it stands; deleted to remove it. Deleting is refused ' +
+        'while anything is still filed under it: move each with file_children first.',
+    ),
+}) satisfies z.ZodType<UpdateTodoInput>
+
+const listTodosInput = z.object({}) satisfies z.ZodType<ListTodosInput>
 
 /** The longest path `request_access` takes: macOS's own limit is far below it. */
 export const ACCESS_PATH_MAX = 4096
@@ -447,6 +487,16 @@ export interface GladeToolHandlers {
    * itself (#578); never an error (there is always at least the calling task to show, once it has a row).
    */
   listOtherTasks(): GladeToolResult
+  /** Adds a todo, not started, with the next id the task has ever been given (#609). */
+  createTodo(input: CreateTodoInput): GladeToolResult
+  /**
+   * Changes a todo's subject, note or status, or deletes it (`status: "deleted"`); an error result for a todo that
+   * isn't in the task's list, an update that changes nothing, or a deletion while anything is still filed under it
+   * (#609).
+   */
+  updateTodo(input: UpdateTodoInput): GladeToolResult
+  /** Every todo of the task, one line each, in order; never an error (#609). */
+  listTodos(): GladeToolResult
 }
 
 export function createGladeToolHandlers(context: GladeToolContext, taskId: string): GladeToolHandlers {
@@ -553,7 +603,8 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
     },
     listChildren({ todo }) {
       try {
-        return reply(listingText(listForAgent(context.db, taskId, todo, context.dataDir)))
+        // No dataDir: nothing is ever marked stranded once Glade owns the list in its own table (#609).
+        return reply(listingText(listForAgent(context.db, taskId, todo)))
       } catch (error) {
         return failure(error)
       }
@@ -574,6 +625,23 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
     },
     listOtherTasks() {
       return reply(otherTasksText(otherTasksAnswer(context.db, taskId)))
+    },
+    createTodo(input) {
+      try {
+        return reply(createTodoForAgent(context, taskId, input))
+      } catch (error) {
+        return failure(error)
+      }
+    },
+    updateTodo(input) {
+      try {
+        return reply(updateTodoForAgent(context, taskId, input))
+      } catch (error) {
+        return failure(error)
+      }
+    },
+    listTodos() {
+      return reply(listTodosForAgent(context.db, taskId))
     },
   }
 }
@@ -632,7 +700,7 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
     `${GladeTool.ListChildren}, or as Glade named it to you) and the id of the todo to put it under (the N of Task ` +
     '#N). Filing a subagent says which todo it works on, and its commits go under that todo with it, so file those ' +
     "apart only to keep them somewhere else. If a child or a todo isn't there, nothing is filed and the error says " +
-    'which. Create the todo first (TaskCreate) if none fits.',
+    'which. Create the todo first (create_todo) if none fits.',
   [GladeTool.CloseTodo]:
     "Close a stranded todo of this task: one the Todos tab still shows, but which the task's session was restarted " +
     'since, so its new list doesn\'t hold it and TaskUpdate answers "Task not found" for it — list_children marks ' +
@@ -649,6 +717,17 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
     'no other task already has it among its links or in its Goal or Now; if one does, stop and ask the user instead ' +
     'of going on. Read-only: nothing about any task changes through it, and it never shows chat, tool output or ' +
     "files. Bounded to a cap of tasks and of each field's length; the reply says when something was cut.",
+  [GladeTool.CreateTodo]:
+    "Add a todo to this task's list, not started. Give a short subject, and optionally a note: the line to show " +
+    'under it, for where it stands or what you are doing now. Returns its id.',
+  [GladeTool.UpdateTodo]:
+    "Change one of this task's todos, by its id: a new subject, a new note, or status (pending, in_progress or " +
+    'completed) to move it along. A note shows for a todo in any state but done. Give status "deleted" to remove ' +
+    'it instead — refused while anything is still filed under it: move each to the todo it belongs under with ' +
+    'file_children first, then delete it. An update that changes none of subject, note or status is refused.',
+  [GladeTool.ListTodos]:
+    "List this task's todos, one line each, in the order they were made: its id, status in brackets and subject, " +
+    'with its note after a dash when it has one.',
 }
 
 /** The signal an MCP tool call is cancelled by, from the handler's `extra` (MCP's `RequestHandlerExtra`). */
@@ -754,11 +833,19 @@ export function createGladeMcpServer(
       tool(GladeTool.FileChildren, DESCRIPTIONS[GladeTool.FileChildren], fileChildrenInput.shape, (input) =>
         Promise.resolve(handlers.fileChildren(input)),
       ),
-      tool(GladeTool.CloseTodo, DESCRIPTIONS[GladeTool.CloseTodo], closeTodoInput.shape, (input) =>
-        Promise.resolve(handlers.closeTodo(input)),
-      ),
+      // close_todo isn't offered any more: nothing is ever stranded once Glade owns the list (#609). Its handler
+      // stays (closeTodo, above) for a later PR to remove along with the rest of the stranded machinery.
       tool(GladeTool.ListOtherTasks, DESCRIPTIONS[GladeTool.ListOtherTasks], listOtherTasksInput.shape, () =>
         Promise.resolve(handlers.listOtherTasks()),
+      ),
+      tool(GladeTool.CreateTodo, DESCRIPTIONS[GladeTool.CreateTodo], createTodoInput.shape, (input) =>
+        Promise.resolve(handlers.createTodo(input)),
+      ),
+      tool(GladeTool.UpdateTodo, DESCRIPTIONS[GladeTool.UpdateTodo], updateTodoInput.shape, (input) =>
+        Promise.resolve(handlers.updateTodo(input)),
+      ),
+      tool(GladeTool.ListTodos, DESCRIPTIONS[GladeTool.ListTodos], listTodosInput.shape, () =>
+        Promise.resolve(handlers.listTodos()),
       ),
       ...(context.requestAccess === undefined
         ? []

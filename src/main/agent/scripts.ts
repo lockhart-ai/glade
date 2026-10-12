@@ -2089,30 +2089,27 @@ export const DELETE_LOCAL_COPIES_QUESTION: Question = {
   options: ['Delete them', 'Keep them for now'],
 }
 
-/** Claude Code's `TaskCreate`, adding an item of the plan (the `n`th, from 1), and its result. */
-const createTodo = (item: (typeof S3_PLAN)[number], n: number): ScriptStep[] => [
-  ...tool(
-    `create-${String(n)}`,
-    'TaskCreate',
-    { subject: item.subject, description: item.subject, activeForm: item.activeForm },
-    `Task #${String(n)} created successfully: ${item.subject}`,
-  ),
-]
-
-/** Claude Code's `TaskUpdate`, changing item `n` of the plan. */
-const updateTodo = (n: number, status: string, extra: ToolInput = {}): ScriptStep[] => [
-  ...tool(
-    `update-${String(n)}-${status}`,
-    'TaskUpdate',
-    { taskId: String(n), status, ...extra },
-    `Updated task #${String(n)} status`,
-  ),
+/** `create_todo`, adding an item of the plan (the `n`th, from 1), not started. */
+const createTodo = (item: { readonly subject: string; readonly activeForm?: string }, n: number): ScriptStep[] => [
+  gladeTool(`create-${String(n)}`, 'create_todo', { subject: item.subject }),
 ]
 
 /**
- * A turn that keeps a todo list with Claude Code's own todo tools, as the model does unprompted: `TaskCreate` for each
- * step of its plan, then `TaskUpdate` as it starts and finishes each. Partway through (3 of 7 done, copying the files) it
- * asks whether to delete the local copies, and waits; once answered it works through two more steps and ends the turn
+ * `update_todo`, changing item `n` of the plan: `note` is the line to show under it while it's not done, as the
+ * model would carry its own plan's wording over once it starts the step (#609).
+ */
+const updateTodo = (n: number, status: string, note?: string): ScriptStep[] => [
+  gladeTool(`update-${String(n)}-${status}`, 'update_todo', {
+    id: String(n),
+    status,
+    ...(note === undefined ? {} : { note }),
+  }),
+]
+
+/**
+ * A turn that keeps a todo list with `create_todo` and `update_todo` (#609): `create_todo` for each step of its
+ * plan, then `update_todo` as it starts and finishes each. Partway through (3 of 7 done, copying the files) it asks
+ * whether to delete the local copies, and waits; once answered it works through two more steps and ends the turn
  * with 6 of 7 done.
  */
 const keepsTodos: AgentScript = {
@@ -2129,10 +2126,10 @@ const keepsTodos: AgentScript = {
         'Planning the move to S3.',
       ),
       ...S3_PLAN.flatMap((item, index) => createTodo(item, index + 1)),
-      ...updateTodo(1, 'in_progress'),
+      ...updateTodo(1, 'in_progress', 'Finding how uploads are stored'),
       ...tool('settings', 'Read', { file_path: 'config/settings/base.py' }, "MEDIA_ROOT = BASE_DIR / 'media'"),
       ...updateTodo(1, 'completed'),
-      ...updateTodo(2, 'in_progress'),
+      ...updateTodo(2, 'in_progress', 'Adding an S3 backend'),
       delay(BEAT_MS),
       ...tool(
         'backend',
@@ -2145,7 +2142,7 @@ const keepsTodos: AgentScript = {
         'The file config/settings/base.py has been updated.',
       ),
       ...updateTodo(2, 'completed'),
-      ...updateTodo(3, 'in_progress'),
+      ...updateTodo(3, 'in_progress', 'Checking new uploads'),
       ...tool(
         'check',
         'Bash',
@@ -2153,12 +2150,12 @@ const keepsTodos: AgentScript = {
         'uploaded to s3://acme-uploads/test.png',
       ),
       ...updateTodo(3, 'completed'),
-      ...updateTodo(4, 'in_progress', { activeForm: 'Copying files · 1,240 of 3,900' }),
+      ...updateTodo(4, 'in_progress', 'Copying files · 1,240 of 3,900'),
       gladeTool('status-copying', 'set_status', { status: 'Copying existing files: 1,240 of 3,900 done.' }),
       ask('delete', [DELETE_LOCAL_COPIES_QUESTION]),
       delay(BEAT_MS),
       ...updateTodo(4, 'completed'),
-      ...updateTodo(5, 'in_progress'),
+      ...updateTodo(5, 'in_progress', 'Spot-checking copied files'),
       ...tool(
         'spot-check',
         'Bash',
@@ -2166,7 +2163,7 @@ const keepsTodos: AgentScript = {
         '50 of 50 match',
       ),
       ...updateTodo(5, 'completed'),
-      ...updateTodo(6, 'in_progress'),
+      ...updateTodo(6, 'in_progress', 'Updating stored paths'),
       ...tool(
         'paths',
         'Bash',
@@ -2182,8 +2179,9 @@ const keepsTodos: AgentScript = {
 }
 
 /**
- * A turn that keeps its todo list with `TodoWrite`, Claude Code's older todo tool, which replaces the whole list each
- * call: three steps, checked off one by one, ending with all three done.
+ * A turn that keeps its todo list with `create_todo` and `update_todo` (#609): three steps, made up front, then
+ * checked off one by one — the last going straight from not started to done, with no separate in-progress step,
+ * ending with all three done.
  */
 const writesTodos: AgentScript = {
   name: 'writes-todos',
@@ -2192,31 +2190,13 @@ const writesTodos: AgentScript = {
       ...turnStart(),
       delay(BEAT_MS),
       ...describeTask('Fix the flaky login test', 'Make the login test pass every run.', 'Finding the race.'),
-      ...tool(
-        'plan',
-        'TodoWrite',
-        {
-          todos: [
-            { content: 'Reproduce the flake', status: 'in_progress', activeForm: 'Reproducing the flake' },
-            { content: 'Fix the race', status: 'pending', activeForm: 'Fixing the race' },
-            { content: 'Run the test 200 times', status: 'pending', activeForm: 'Running the test 200 times' },
-          ],
-        },
-        'Todos have been modified successfully.',
-      ),
+      gladeTool('create-1', 'create_todo', { subject: 'Reproduce the flake' }),
+      gladeTool('create-2', 'create_todo', { subject: 'Fix the race' }),
+      gladeTool('create-3', 'create_todo', { subject: 'Run the test 200 times' }),
+      ...updateTodo(1, 'in_progress', 'Reproducing the flake'),
       ...tool('repeat', 'Bash', { command: 'pytest tests/test_login.py --count 50' }, '2 failed, 48 passed'),
-      ...tool(
-        'progress',
-        'TodoWrite',
-        {
-          todos: [
-            { content: 'Reproduce the flake', status: 'completed', activeForm: 'Reproducing the flake' },
-            { content: 'Fix the race', status: 'in_progress', activeForm: 'Fixing the race' },
-            { content: 'Run the test 200 times', status: 'pending', activeForm: 'Running the test 200 times' },
-          ],
-        },
-        'Todos have been modified successfully.',
-      ),
+      ...updateTodo(1, 'completed'),
+      ...updateTodo(2, 'in_progress', 'Fixing the race'),
       delay(BEAT_MS),
       ...tool(
         'fix',
@@ -2225,18 +2205,8 @@ const writesTodos: AgentScript = {
         'The file tests/test_login.py has been updated.',
       ),
       ...tool('verify', 'Bash', { command: 'pytest tests/test_login.py --count 200' }, '200 passed'),
-      ...tool(
-        'done',
-        'TodoWrite',
-        {
-          todos: [
-            { content: 'Reproduce the flake', status: 'completed', activeForm: 'Reproducing the flake' },
-            { content: 'Fix the race', status: 'completed', activeForm: 'Fixing the race' },
-            { content: 'Run the test 200 times', status: 'completed', activeForm: 'Running the test 200 times' },
-          ],
-        },
-        'Todos have been modified successfully.',
-      ),
+      ...updateTodo(2, 'completed'),
+      ...updateTodo(3, 'completed'),
       gladeTool('status-fixed', 'set_status', { status: 'Found the race; the fix passes 200 runs.' }),
       say('The test read the session before it was saved. It now saves first, and passes 200 runs in a row.'),
       result(),
@@ -2376,7 +2346,7 @@ const declaresArtifacts: AgentScript = {
         'Drafting the release notes.',
       ),
       ...createTodo(DECLARES_ARTIFACTS_TODO, 1),
-      ...updateTodo(1, 'in_progress'),
+      ...updateTodo(1, 'in_progress', 'Drafting the release notes'),
       ...tool(
         'write-notes',
         'Write',
@@ -4201,11 +4171,11 @@ const filesChildren: AgentScript = {
       ),
       shell('setup', FILES_CHILDREN.setup, 'Make the workspace a repository if it isn’t one'),
       ...FILES_CHILDREN.todos.flatMap((item, index) => createTodo(item, index + 1)),
-      ...updateTodo(1, 'in_progress'),
+      ...updateTodo(1, 'in_progress', 'Reviewing the date helpers'),
       ...childrenTurn(FILES_CHILDREN.named, (input, child) => nameTodo(input, FILES_CHILDREN.named[child].todo)),
       ...updateTodo(1, 'completed'),
       ...updateTodo(2, 'completed'),
-      ...updateTodo(3, 'in_progress'),
+      ...updateTodo(3, 'in_progress', 'Watching CI on PR #42'),
       say(FILES_CHILDREN.named.reply),
       result(),
     ],
@@ -4293,7 +4263,7 @@ const unsortedChildren: AgentScript = {
       ),
       shell('setup', SORTS_CHILDREN.setup, 'Make the workspace a repository if it isn’t one'),
       ...SORTS_CHILDREN.todos.flatMap((item, index) => createTodo(item, index + 1)),
-      ...updateTodo(1, 'in_progress'),
+      ...updateTodo(1, 'in_progress', 'Reviewing the date helpers'),
       toolUse('review', 'Agent', {
         description: `[todo 1] ${SORTS_CHILDREN.subagent}`,
         subagent_type: 'general-purpose',
@@ -4310,12 +4280,12 @@ const unsortedChildren: AgentScript = {
       ),
       toolResult('review', 'The header built its date in local time: fixed and committed. The tests are running.'),
       ...updateTodo(1, 'completed'),
-      ...updateTodo(2, 'in_progress'),
+      ...updateTodo(2, 'in_progress', 'Writing up the review'),
       shell('writeup', SORTS_CHILDREN.writeupCommand, 'Write up the review'),
       gladeTool('add-writeup', 'add_artifact', { ...SORTS_CHILDREN.writeup, todo: '2' }),
       gladeTool('add-pr', 'add_artifact', { ...SORTS_CHILDREN.pr, todo: '3' }),
       ...updateTodo(2, 'completed'),
-      ...updateTodo(3, 'in_progress'),
+      ...updateTodo(3, 'in_progress', 'Watching CI on PR #42'),
       ...tool(
         'ci',
         'Monitor',
@@ -4388,21 +4358,10 @@ const sharesLinks: AgentScript = {
         'Find the public API’s rate limits, as https://example.com/docs/limits documents them.',
         'Checked https://example.com/status: all systems up.',
       ),
-      ...tool(
-        'plan',
-        'TodoWrite',
-        {
-          todos: [
-            {
-              content: 'Read https://example.com/docs/limits',
-              status: 'completed',
-              activeForm: 'Reading https://example.com/docs/limits',
-            },
-            { content: 'Check the status page', status: 'in_progress', activeForm: 'Checking the status page' },
-          ],
-        },
-        'Todos have been modified successfully.',
-      ),
+      gladeTool('create-1', 'create_todo', { subject: 'Read https://example.com/docs/limits' }),
+      gladeTool('create-2', 'create_todo', { subject: 'Check the status page' }),
+      ...updateTodo(1, 'completed'),
+      ...updateTodo(2, 'in_progress', 'Checking the status page'),
       ...tool(
         'health',
         'Bash',
@@ -4594,12 +4553,7 @@ function mixedModels(routerParent: boolean): AgentScript {
     turns: [
       [
         init(),
-        ...tool(
-          'plan',
-          'TaskCreate',
-          { subject: 'Check the implementation' },
-          'Task #1 created successfully: Check the implementation',
-        ),
+        gladeTool('plan', 'create_todo', { subject: 'Check the implementation' }),
         ...child(true),
         ...child(false),
         say('Both children finished on their selected models.'),

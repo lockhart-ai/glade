@@ -3,389 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Database } from 'better-sqlite3'
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  TodoState,
-  ToolCallState,
-  ToolEventKind,
-  type TodoSummary,
-  type ToolCallEvent,
-  type ToolInput,
-} from '../../shared/domain'
+import { TodoState, type TodoSummary } from '../../shared/domain'
 import { summarizeTodos, todoProgress } from '../../shared/todoSummary'
 import { openAppDatabase } from '../db/database'
-import { retireTodo } from '../db/repositories/retired-todos'
+import { createTodo, deleteTodo, putTodos, seedTodoCounterAtLeast, updateTodo } from '../db/repositories/glade-todos'
 import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
-import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
 import { sharedTaskListDir } from '../openrouter/task-list'
-import {
-  changesTodos,
-  deriveTodoList,
-  highestTodoId,
-  liveTodos,
-  refreshStaleTodos,
-  refreshTodos,
-  strandedIds,
-  takenOverTodo,
-  todoListFor,
-} from './todos'
-
-let at = 1_000
-
-/** A finished call, a millisecond after the one before. */
-function call(
-  name: string,
-  input: ToolInput,
-  options: { output?: string; state?: ToolCallState; parent?: string } = {},
-): ToolCallEvent {
-  at += 1
-  return {
-    kind: ToolEventKind.ToolCall,
-    id: `event-${String(at)}`,
-    taskId: 't1',
-    turn: 1,
-    createdAt: at,
-    name,
-    input,
-    output: options.output ?? 'ok',
-    state: options.state ?? ToolCallState.Done,
-    toolUseId: `toolu_${String(at)}`,
-    parentToolUseId: options.parent ?? null,
-    progressSummary: null,
-    finishedAt: at,
-  }
-}
-
-const todoWrite = (todos: readonly { content: string; status: string; activeForm?: string }[]) =>
-  call('TodoWrite', { todos })
-
-const taskCreate = (id: string, subject: string, activeForm?: string) =>
-  call(
-    'TaskCreate',
-    { subject, description: subject, ...(activeForm === undefined ? {} : { activeForm }) },
-    {
-      output: `Task #${id} created successfully: ${subject}`,
-    },
-  )
-
-const taskUpdate = (input: ToolInput) => call('TaskUpdate', input, { output: 'Updated task' })
-
-describe('changesTodos', () => {
-  it("counts the main agent's finished, successful calls to a todo tool", () => {
-    expect(changesTodos(todoWrite([]))).toBe(true)
-    expect(changesTodos(taskCreate('1', 'Ship it'))).toBe(true)
-    expect(changesTodos(taskUpdate({ taskId: '1' }))).toBe(true)
-    expect(changesTodos(call('Bash', { command: 'ls' }))).toBe(false)
-    expect(changesTodos(call('TodoWrite', { todos: [] }, { state: ToolCallState.Running }))).toBe(false)
-    expect(changesTodos(call('TodoWrite', { todos: [] }, { state: ToolCallState.Error }))).toBe(false)
-    expect(changesTodos(call('TodoWrite', { todos: [] }, { parent: 'toolu_agent' }))).toBe(false)
-  })
-})
-
-describe('deriveTodoList', () => {
-  it('is null until the agent keeps a list', () => {
-    expect(deriveTodoList([])).toBeNull()
-    expect(deriveTodoList([call('Bash', { command: 'ls' })])).toBeNull()
-  })
-
-  it("maps TodoWrite's statuses, with a doing item's active form as its note; each call replaces the list", () => {
-    const first = todoWrite([
-      { content: 'Find how uploads are stored', status: 'in_progress', activeForm: 'Finding how uploads are stored' },
-      { content: 'Copy the files', status: 'pending', activeForm: 'Copying the files' },
-    ])
-    expect(deriveTodoList([first])).toEqual({
-      items: [
-        {
-          id: null,
-          text: 'Find how uploads are stored',
-          state: TodoState.Doing,
-          note: 'Finding how uploads are stored',
-          completedAt: null,
-        },
-        { id: null, text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null },
-      ],
-      updatedAt: first.createdAt,
-    })
-
-    const second = todoWrite([
-      { content: 'Find how uploads are stored', status: 'completed', activeForm: 'Finding how uploads are stored' },
-      { content: 'Copy the files', status: 'in_progress', activeForm: 'Copying the files' },
-      { content: 'Delete local copies', status: 'pending', activeForm: 'Deleting local copies' },
-    ])
-    expect(deriveTodoList([first, call('Bash', { command: 'ls' }), second])).toEqual({
-      items: [
-        {
-          id: null,
-          text: 'Find how uploads are stored',
-          state: TodoState.Done,
-          note: null,
-          completedAt: second.createdAt,
-        },
-        { id: null, text: 'Copy the files', state: TodoState.Doing, note: 'Copying the files', completedAt: null },
-        { id: null, text: 'Delete local copies', state: TodoState.Todo, note: null, completedAt: null },
-      ],
-      updatedAt: second.createdAt,
-    })
-  })
-
-  it('shows a doing item with no active form, or a blank one, without a note', () => {
-    expect(
-      deriveTodoList([
-        todoWrite([
-          { content: 'Copy', status: 'in_progress' },
-          { content: 'Check', status: 'in_progress', activeForm: '  ' },
-        ]),
-      ])?.items,
-    ).toEqual([
-      { id: null, text: 'Copy', state: TodoState.Doing, note: null, completedAt: null },
-      { id: null, text: 'Check', state: TodoState.Doing, note: null, completedAt: null },
-    ])
-  })
-
-  it('keeps an empty list the agent cleared', () => {
-    const cleared = todoWrite([])
-    expect(deriveTodoList([todoWrite([{ content: 'Copy', status: 'completed' }]), cleared])).toEqual({
-      items: [],
-      updatedAt: cleared.createdAt,
-    })
-  })
-
-  it('adds an item for each TaskCreate and changes it with each TaskUpdate, by the id its result gave it', () => {
-    const calls = [
-      taskCreate('1', 'Find how uploads are stored'),
-      taskCreate('2', 'Copy the files', 'Copying the files'),
-      taskCreate('3', 'Delete local copies'),
-      taskUpdate({ taskId: '1', status: 'in_progress', activeForm: 'Finding the uploads' }),
-      taskUpdate({ taskId: '1', status: 'completed' }),
-      taskUpdate({ taskId: '2', status: 'in_progress' }),
-      taskUpdate({ taskId: '3', subject: 'Delete the local copies' }),
-    ]
-    expect(deriveTodoList(calls)).toEqual({
-      items: [
-        {
-          id: '1',
-          text: 'Find how uploads are stored',
-          state: TodoState.Done,
-          note: null,
-          completedAt: calls[4]?.createdAt,
-        },
-        { id: '2', text: 'Copy the files', state: TodoState.Doing, note: 'Copying the files', completedAt: null },
-        { id: '3', text: 'Delete the local copies', state: TodoState.Todo, note: null, completedAt: null },
-      ],
-      updatedAt: calls.at(-1)?.createdAt,
-    })
-  })
-
-  it('gives each item the id TaskCreate gave it, which survives every later change, and none to a TodoWrite item', () => {
-    const ids = (calls: readonly ToolCallEvent[]) => deriveTodoList(calls)?.items.map(({ id, text }) => [id, text])
-    const calls = [
-      taskCreate('1', 'Find the uploads'),
-      taskCreate('2', 'Copy the files'),
-      taskCreate('3', 'Delete local copies'),
-      taskUpdate({ taskId: '2', subject: 'Copy the 3,900 files', status: 'in_progress' }),
-      taskUpdate({ taskId: '1', status: 'deleted' }),
-      // The count never goes back: a todo made after a deletion gets the next number, never the freed one.
-      taskCreate('4', 'Spot-check the copies'),
-      taskUpdate({ taskId: '2', status: 'completed' }),
-    ]
-    expect(ids(calls)).toEqual([
-      ['2', 'Copy the 3,900 files'],
-      ['3', 'Delete local copies'],
-      ['4', 'Spot-check the copies'],
-    ])
-    // The older tool's items have none, whatever the list had before.
-    expect(ids([...calls, todoWrite([{ content: 'Copy the files', status: 'pending' }])])).toEqual([
-      [null, 'Copy the files'],
-    ])
-  })
-
-  it('removes a deleted task, and ignores an update to one it does not know', () => {
-    const calls = [
-      taskCreate('1', 'Find the uploads'),
-      taskCreate('2', 'Copy the files'),
-      taskUpdate({ taskId: '1', status: 'deleted' }),
-      taskUpdate({ taskId: '9', status: 'completed' }),
-    ]
-    expect(deriveTodoList(calls)?.items).toEqual([
-      { id: '2', text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null },
-    ])
-  })
-
-  it('replaces an item created again with the same id, and keeps one whose result gives no id', () => {
-    const calls = [
-      taskCreate('1', 'Find the uploads'),
-      taskCreate('1', 'Find the stored uploads'),
-      call('TaskCreate', { subject: 'Copy the files' }, { output: 'Created' }),
-      taskUpdate({ taskId: '1', status: 'completed' }),
-    ]
-    expect(deriveTodoList(calls)?.items).toEqual([
-      { id: '1', text: 'Find the stored uploads', state: TodoState.Done, note: null, completedAt: calls[3]?.createdAt },
-      { id: null, text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null },
-    ])
-  })
-
-  it("leaves the list alone for a call whose input doesn't parse, a failed call and a subagent's call", () => {
-    const kept = todoWrite([{ content: 'Copy the files', status: 'pending' }])
-    const calls = [
-      kept,
-      call('TodoWrite', { todos: 'Copy' }),
-      call('TaskCreate', { title: 'No subject' }, { output: 'Task #1 created successfully: ?' }),
-      call('TaskUpdate', { status: 'completed' }),
-      call('TodoWrite', { todos: [] }, { state: ToolCallState.Error }),
-      call('TodoWrite', { todos: [] }, { parent: 'toolu_agent' }),
-    ]
-    const list = deriveTodoList(calls)
-    expect(list?.items).toEqual([
-      { id: null, text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null },
-    ])
-    expect(list?.updatedAt).toBe(kept.createdAt)
-    expect(deriveTodoList(calls.slice(1))).toBeNull()
-  })
-})
-
-describe('when an item was finished', () => {
-  /** Each item's text and when it was finished. */
-  const finished = (calls: readonly ToolCallEvent[]) =>
-    deriveTodoList(calls)?.items.map(({ text, completedAt }) => [text, completedAt])
-
-  it('is the time of the TaskUpdate that completed it, kept through later updates, and lost when it reopens', () => {
-    const created = [taskCreate('1', 'Find the uploads'), taskCreate('2', 'Copy the files')]
-    const completed = taskUpdate({ taskId: '1', status: 'completed' })
-    const again = taskUpdate({ taskId: '1', status: 'completed' })
-    const renamed = taskUpdate({ taskId: '1', subject: 'Find the stored uploads', activeForm: 'Finding' })
-    expect(finished([...created, completed, again, renamed])).toEqual([
-      ['Find the stored uploads', completed.createdAt],
-      ['Copy the files', null],
-    ])
-
-    const reopened = taskUpdate({ taskId: '1', status: 'in_progress' })
-    expect(finished([...created, completed, reopened])).toEqual([
-      ['Find the uploads', null],
-      ['Copy the files', null],
-    ])
-    const pending = taskUpdate({ taskId: '1', status: 'pending' })
-    expect(finished([...created, completed, pending])?.[0]).toEqual(['Find the uploads', null])
-
-    // Finished again, it's the new time.
-    const recompleted = taskUpdate({ taskId: '1', status: 'completed' })
-    expect(finished([...created, completed, reopened, recompleted])?.[0]).toEqual([
-      'Find the uploads',
-      recompleted.createdAt,
-    ])
-  })
-
-  it('gives each item its own TaskUpdate time, and none to an item created again with the same id', () => {
-    const calls = [
-      taskCreate('1', 'Find the uploads'),
-      taskCreate('2', 'Copy the files'),
-      taskUpdate({ taskId: '2', status: 'completed' }),
-      taskUpdate({ taskId: '1', status: 'completed' }),
-    ]
-    expect(finished(calls)).toEqual([
-      ['Find the uploads', calls[3]?.createdAt],
-      ['Copy the files', calls[2]?.createdAt],
-    ])
-    expect(finished([...calls, taskCreate('2', 'Copy the files')])).toEqual([
-      ['Find the uploads', calls[3]?.createdAt],
-      ['Copy the files', null],
-    ])
-  })
-
-  it('is the time of the first TodoWrite that marked it done, kept by the writes after it', () => {
-    const first = todoWrite([
-      { content: 'Reproduce the flake', status: 'completed' },
-      { content: 'Fix the race', status: 'in_progress' },
-      { content: 'Run the test 200 times', status: 'pending' },
-    ])
-    const second = todoWrite([
-      { content: 'Reproduce the flake', status: 'completed' },
-      { content: 'Fix the race', status: 'completed' },
-      { content: 'Run the test 200 times', status: 'in_progress' },
-    ])
-    const third = todoWrite([
-      { content: 'Reproduce the flake', status: 'completed' },
-      { content: 'Fix the race', status: 'completed' },
-      { content: 'Run the test 200 times', status: 'completed' },
-    ])
-    expect(finished([first, second, third])).toEqual([
-      ['Reproduce the flake', first.createdAt],
-      ['Fix the race', second.createdAt],
-      ['Run the test 200 times', third.createdAt],
-    ])
-  })
-
-  it('gives every item a TodoWrite completes at once the same time', () => {
-    const start = todoWrite([
-      { content: 'Reproduce the flake', status: 'in_progress' },
-      { content: 'Fix the race', status: 'pending' },
-      { content: 'Run the test 200 times', status: 'pending' },
-    ])
-    const all = todoWrite([
-      { content: 'Reproduce the flake', status: 'completed' },
-      { content: 'Fix the race', status: 'completed' },
-      { content: 'Run the test 200 times', status: 'completed' },
-    ])
-    expect(finished([start, all])).toEqual([
-      ['Reproduce the flake', all.createdAt],
-      ['Fix the race', all.createdAt],
-      ['Run the test 200 times', all.createdAt],
-    ])
-    // A single write that starts the list finished does the same.
-    expect(new Set(finished([all])?.map(([, time]) => time))).toEqual(new Set([all.createdAt]))
-  })
-
-  it('loses its time when a TodoWrite reopens it, and takes the new one when it is done again', () => {
-    const done = todoWrite([{ content: 'Fix the race', status: 'completed' }])
-    const reopened = todoWrite([{ content: 'Fix the race', status: 'in_progress' }])
-    const redone = todoWrite([{ content: 'Fix the race', status: 'completed' }])
-    expect(finished([done, reopened])).toEqual([['Fix the race', null]])
-    expect(finished([done, reopened, redone])).toEqual([['Fix the race', redone.createdAt]])
-    // Dropped from the list and written back done, it's finished anew.
-    const dropped = todoWrite([])
-    expect(finished([done, dropped, redone])).toEqual([['Fix the race', redone.createdAt]])
-  })
-
-  it('matches TodoWrite items by their text, one to one, so repeated items keep their own times', () => {
-    const one = todoWrite([
-      { content: 'Run the tests', status: 'completed' },
-      { content: 'Fix the race', status: 'pending' },
-      { content: 'Run the tests', status: 'pending' },
-    ])
-    const two = todoWrite([
-      { content: 'Run the tests', status: 'completed' },
-      { content: 'Fix the race', status: 'completed' },
-      { content: 'Run the tests', status: 'completed' },
-    ])
-    const renamed = todoWrite([
-      { content: 'Run the unit tests', status: 'completed' },
-      { content: 'Fix the race', status: 'completed' },
-      { content: 'Run the tests', status: 'completed' },
-    ])
-    expect(finished([one, two])).toEqual([
-      ['Run the tests', one.createdAt],
-      ['Fix the race', two.createdAt],
-      ['Run the tests', two.createdAt],
-    ])
-    // A renamed item is a new one, finished by the write that renamed it.
-    expect(finished([one, two, renamed])).toEqual([
-      ['Run the unit tests', renamed.createdAt],
-      ['Fix the race', two.createdAt],
-      ['Run the tests', one.createdAt],
-    ])
-  })
-
-  it("keeps its time through calls that don't change the list", () => {
-    const done = todoWrite([{ content: 'Fix the race', status: 'completed' }])
-    const calls = [
-      done,
-      call('TodoWrite', { todos: 'Fix' }),
-      call('TodoWrite', { todos: [] }, { state: ToolCallState.Error }),
-      call('TodoWrite', { todos: [] }, { parent: 'toolu_agent' }),
-      call('Bash', { command: 'ls' }),
-    ]
-    expect(finished(calls)).toEqual([['Fix the race', done.createdAt]])
-  })
-})
+import { highestTodoId, liveTodos, refreshStaleTodos, refreshTodos, strandedIds, todoListFor } from './todos'
 
 describe('todoListFor', () => {
   let test: TestDatabase | undefined
@@ -394,58 +19,74 @@ describe('todoListFor', () => {
     test?.close()
   })
 
-  it("works out a task's list from its stored tool log, so it survives a restart", () => {
+  it('is null until a todo is made, reflects creates and updates, and is null again once every one is deleted', () => {
     test = openTestDatabase()
     const { db } = test
     const task = sampleTask(db, sampleWorkspace(db).id)
     expect(todoListFor(db, task.id)).toBeNull()
 
-    const finish = (toolUseId: string, output: string) =>
-      updateToolCall(db, { taskId: task.id, toolUseId, state: ToolCallState.Done, output })
-    const base = { taskId: task.id, turn: 1, parentToolUseId: null }
-    appendToolCall(db, { ...base, name: 'TaskCreate', input: { subject: 'Copy the files' }, toolUseId: 'a' }, 5_000)
-    finish('a', 'Task #1 created successfully: Copy the files')
-    appendToolCall(db, { ...base, name: 'Bash', input: { command: 'ls' }, toolUseId: 'b' }, 5_100)
-    finish('b', 'uploads/')
-    appendToolCall(
-      db,
-      { ...base, name: 'TaskUpdate', input: { taskId: '1', status: 'completed' }, toolUseId: 'c' },
-      5_200,
-    )
-    // Still running: it hasn't changed the list yet.
-    appendToolCall(
-      db,
-      { ...base, name: 'TaskUpdate', input: { taskId: '1', status: 'deleted' }, toolUseId: 'd' },
-      5_300,
-    )
-    finish('c', 'Updated task #1 status')
-
+    createTodo(db, task.id, { text: 'Review the date helpers', note: null }, 5_000)
     expect(todoListFor(db, task.id)).toEqual({
-      items: [{ id: '1', text: 'Copy the files', state: TodoState.Done, note: null, completedAt: 5_200 }],
-      updatedAt: 5_200,
+      items: [{ id: '1', text: 'Review the date helpers', note: null, state: TodoState.Todo, completedAt: null }],
+      updatedAt: 5_000,
     })
+
+    updateTodo(db, task.id, '1', { state: TodoState.Doing, note: 'Reading the diff' }, 5_100)
+    expect(todoListFor(db, task.id)).toEqual({
+      items: [
+        {
+          id: '1',
+          text: 'Review the date helpers',
+          note: 'Reading the diff',
+          state: TodoState.Doing,
+          completedAt: null,
+        },
+      ],
+      updatedAt: 5_100,
+    })
+
+    expect(deleteTodo(db, task.id, '1')).toBe(true)
+    // The same empty state either way: the Todos tab doesn't tell "never made one" from "made and deleted them all".
+    expect(todoListFor(db, task.id)).toBeNull()
+  })
+
+  it("reads the latest change across every one of a task's todos, not only its most recently made", () => {
+    test = openTestDatabase()
+    const { db } = test
+    const task = sampleTask(db, sampleWorkspace(db).id)
+    createTodo(db, task.id, { text: 'First', note: null }, 1_000)
+    createTodo(db, task.id, { text: 'Second', note: null }, 2_000)
+    updateTodo(db, task.id, '1', { state: TodoState.Done }, 3_000)
+    expect(todoListFor(db, task.id)?.updatedAt).toBe(3_000)
   })
 })
 
-/** Logs a finished call of the main agent's to a task, as the runner does, a millisecond after the one before. */
-function logCall(db: Database, taskId: string, name: string, input: ToolInput, output: string): void {
-  at += 1
-  const toolUseId = `toolu_${String(at)}`
-  appendToolCall(db, { taskId, turn: 1, name, input, toolUseId, parentToolUseId: null }, at)
-  updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Done, output }, at)
-}
+describe('highestTodoId', () => {
+  let test: TestDatabase | undefined
 
-const logCreate = (db: Database, taskId: string, id: string, subject: string) => {
-  logCall(db, taskId, 'TaskCreate', { subject, description: subject }, `Task #${id} created successfully: ${subject}`)
-}
+  afterEach(() => {
+    test?.close()
+  })
 
-const logUpdate = (db: Database, taskId: string, input: ToolInput) => {
-  logCall(db, taskId, 'TaskUpdate', input, 'Updated task')
-}
+  it('answers null for a task that has never made a todo', () => {
+    test = openTestDatabase()
+    const { db } = test
+    const task = sampleTask(db, sampleWorkspace(db).id)
+    expect(highestTodoId(db, task.id)).toBeNull()
+  })
 
-const logWrite = (db: Database, taskId: string, todos: readonly { content: string; status: string }[]) => {
-  logCall(db, taskId, 'TodoWrite', { todos }, 'Todos have been modified successfully.')
-}
+  it('answers the highest id ever given, which never goes back once a todo of it is deleted', () => {
+    test = openTestDatabase()
+    const { db } = test
+    const task = sampleTask(db, sampleWorkspace(db).id)
+    createTodo(db, task.id, { text: 'First', note: null })
+    createTodo(db, task.id, { text: 'Second', note: null })
+    expect(highestTodoId(db, task.id)).toBe(2)
+    deleteTodo(db, task.id, '2')
+    expect(highestTodoId(db, task.id)).toBe(2)
+    expect(createTodo(db, task.id, { text: 'Third', note: null }).id).toBe('3')
+  })
+})
 
 describe('refreshTodos', () => {
   let test: TestDatabase | undefined
@@ -465,46 +106,37 @@ describe('refreshTodos', () => {
     return todos
   }
 
-  it("keeps the TaskCreate and TaskUpdate list's progress on the task, as the Todos tab counts it", () => {
+  it("keeps create_todo and update_todo's progress on the task, as the Todos tab counts it", () => {
     test = openTestDatabase()
     const { db } = test
     const task = sampleTask(db, sampleWorkspace(db).id)
     expect(refreshed(db, task.id)).toBeNull()
 
-    logCreate(db, task.id, '1', 'Find the uploads')
-    logCreate(db, task.id, '2', 'Copy the files')
-    logCreate(db, task.id, '3', 'Delete local copies')
+    createTodo(db, task.id, { text: 'Find the uploads', note: null })
+    createTodo(db, task.id, { text: 'Copy the files', note: null })
+    createTodo(db, task.id, { text: 'Delete local copies', note: null })
     expect(refreshed(db, task.id)).toEqual({ done: 0, total: 3, doing: [] })
-    logUpdate(db, task.id, { taskId: '1', status: 'in_progress' })
+    updateTodo(db, task.id, '1', { state: TodoState.Doing })
     expect(refreshed(db, task.id)).toEqual({ done: 0, total: 3, doing: ['Find the uploads'] })
-    logUpdate(db, task.id, { taskId: '1', status: 'completed' })
-    logUpdate(db, task.id, { taskId: '2', status: 'in_progress', subject: 'Copy the 3,900 files' })
+    updateTodo(db, task.id, '1', { state: TodoState.Done })
+    updateTodo(db, task.id, '2', { state: TodoState.Doing, text: 'Copy the 3,900 files' })
     expect(refreshed(db, task.id)).toEqual({ done: 1, total: 3, doing: ['Copy the 3,900 files'] })
-    logUpdate(db, task.id, { taskId: '3', status: 'deleted' })
+    deleteTodo(db, task.id, '3')
     expect(refreshed(db, task.id)).toEqual({ done: 1, total: 2, doing: ['Copy the 3,900 files'] })
-    logUpdate(db, task.id, { taskId: '2', status: 'completed' })
+    updateTodo(db, task.id, '2', { state: TodoState.Done })
     expect(refreshed(db, task.id)).toEqual({ done: 2, total: 2, doing: [] })
   })
 
-  it("keeps the TodoWrite list's progress on the task, and forgets it once the list is cleared", () => {
+  it('forgets the summary once every todo is deleted', () => {
     test = openTestDatabase()
     const { db } = test
     const task = sampleTask(db, sampleWorkspace(db).id)
-
-    logWrite(db, task.id, [
-      { content: 'Reproduce the failure', status: 'completed' },
-      { content: 'Find the race', status: 'in_progress' },
-      { content: 'Fix the wait', status: 'pending' },
-    ])
-    expect(refreshed(db, task.id)).toEqual({ done: 1, total: 3, doing: ['Find the race'] })
-    logWrite(db, task.id, [
-      { content: 'Reproduce the failure', status: 'completed' },
-      { content: 'Find the race', status: 'completed' },
-      { content: 'Fix the wait', status: 'completed' },
-      { content: 'Run it 200 times', status: 'completed' },
-    ])
-    expect(refreshed(db, task.id)).toEqual({ done: 4, total: 4, doing: [] })
-    logWrite(db, task.id, [])
+    createTodo(db, task.id, { text: 'Reproduce the failure', note: null })
+    createTodo(db, task.id, { text: 'Find the race', note: null })
+    updateTodo(db, task.id, '1', { state: TodoState.Done })
+    expect(refreshed(db, task.id)).toEqual({ done: 1, total: 2, doing: [] })
+    deleteTodo(db, task.id, '1')
+    deleteTodo(db, task.id, '2')
     expect(refreshed(db, task.id)).toBeNull()
   })
 
@@ -512,17 +144,17 @@ describe('refreshTodos', () => {
     test = openTestDatabase()
     const { db } = test
     const task = sampleTask(db, sampleWorkspace(db).id, 3_000)
-    logCreate(db, task.id, '1', 'Find the uploads')
+    createTodo(db, task.id, { text: 'Find the uploads', note: null })
 
     const first = refreshTodos(db, task.id)
     expect(first.changed).toEqual({ ...task, todos: { done: 0, total: 1, doing: [] } })
     expect(first.changed).toEqual(getTask(db, task.id))
     expect(getTask(db, task.id)?.updatedAt).toBe(3_000)
 
-    // A new active form changes the tab's note, not the row.
-    logUpdate(db, task.id, { taskId: '1', activeForm: 'Finding the uploads' })
+    // A new note changes the tab's line, not the row.
+    updateTodo(db, task.id, '1', { note: 'Finding the uploads' })
     expect(refreshTodos(db, task.id).changed).toBeNull()
-    logUpdate(db, task.id, { taskId: '1', status: 'completed' })
+    updateTodo(db, task.id, '1', { state: TodoState.Done })
     expect(refreshTodos(db, task.id).changed?.todos).toEqual({ done: 1, total: 1, doing: [] })
   })
 
@@ -535,9 +167,22 @@ describe('refreshTodos', () => {
     test = openTestDatabase()
     const { db } = test
     const task = sampleTask(db, sampleWorkspace(db).id)
-    for (let id = 1; id <= 400; id += 1) logCreate(db, task.id, String(id), `Migrate table ${String(id)}`)
-    for (let id = 1; id <= 250; id += 1) logUpdate(db, task.id, { taskId: String(id), status: 'completed' })
-    logUpdate(db, task.id, { taskId: '251', status: 'in_progress' })
+    putTodos(
+      db,
+      task.id,
+      Array.from({ length: 400 }, (_, index) => {
+        const id = index + 1
+        const done = id <= 250
+        return {
+          id: String(id),
+          text: `Migrate table ${String(id)}`,
+          note: id === 251 ? 'Migrating table 251' : null,
+          state: done ? TodoState.Done : id === 251 ? TodoState.Doing : TodoState.Todo,
+          completedAt: done ? 1 : null,
+        }
+      }),
+    )
+    seedTodoCounterAtLeast(db, task.id, 401)
 
     const started = performance.now()
     expect(refreshed(db, task.id)).toEqual({ done: 250, total: 400, doing: ['Migrate table 251'] })
@@ -553,25 +198,25 @@ describe('a finished time across a relaunch', () => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
   })
 
-  it('is worked out from the stored tool log, so a relaunch shows the same times', () => {
+  it('is worked out from the stored table, so a relaunch shows the same times', () => {
     const dir = mkdtempSync(join(tmpdir(), 'glade-todos-'))
     dirs.push(dir)
     const first = openAppDatabase(dir).db
     const task = sampleTask(first, sampleWorkspace(first).id)
-    logCreate(first, task.id, '1', 'Find the uploads')
-    logCreate(first, task.id, '2', 'Copy the files')
-    logUpdate(first, task.id, { taskId: '1', status: 'completed' })
-    const findDone = at
-    logUpdate(first, task.id, { taskId: '2', status: 'completed' })
-    logUpdate(first, task.id, { taskId: '2', status: 'in_progress' })
+    createTodo(first, task.id, { text: 'Find the uploads', note: null })
+    createTodo(first, task.id, { text: 'Copy the files', note: null })
+    updateTodo(first, task.id, '1', { state: TodoState.Done }, 9_000)
+    const findDone = 9_000
+    updateTodo(first, task.id, '2', { state: TodoState.Done }, 9_100)
+    updateTodo(first, task.id, '2', { state: TodoState.Doing }, 9_200)
     const before = todoListFor(first, task.id)
     expect(before?.items.map(({ completedAt }) => completedAt)).toEqual([findDone, null])
     first.close()
 
     const relaunched = openAppDatabase(dir).db
     expect(todoListFor(relaunched, task.id)).toEqual(before)
-    logUpdate(relaunched, task.id, { taskId: '2', status: 'completed' })
-    expect(todoListFor(relaunched, task.id)?.items.map(({ completedAt }) => completedAt)).toEqual([findDone, at])
+    updateTodo(relaunched, task.id, '2', { state: TodoState.Done }, 9_300)
+    expect(todoListFor(relaunched, task.id)?.items.map(({ completedAt }) => completedAt)).toEqual([findDone, 9_300])
     relaunched.close()
   })
 })
@@ -590,10 +235,10 @@ describe('refreshStaleTodos', () => {
     const workspace = sampleWorkspace(first)
     const kept = sampleTask(first, workspace.id)
     const none = sampleTask(first, workspace.id)
-    logWrite(first, kept.id, [
-      { content: 'Find the race', status: 'completed' },
-      { content: 'Fix the wait', status: 'in_progress' },
-    ])
+    createTodo(first, kept.id, { text: 'Find the race', note: null })
+    createTodo(first, kept.id, { text: 'Fix the wait', note: null })
+    updateTodo(first, kept.id, '1', { state: TodoState.Done })
+    updateTodo(first, kept.id, '2', { state: TodoState.Doing })
     // As migration 29 leaves a task that kept a list before there were summaries.
     first.prepare('UPDATE tasks SET todos_stale = 1 WHERE id = ?').run(kept.id)
     expect(getTask(first, kept.id)?.todos).toBeNull()
@@ -611,83 +256,7 @@ describe('refreshStaleTodos', () => {
   })
 })
 
-describe('highestTodoId', () => {
-  let test: TestDatabase | undefined
-
-  afterEach(() => {
-    test?.close()
-  })
-
-  it('answers the highest numbered todo a task holds, and none when it holds no numbered todo', () => {
-    test = openTestDatabase()
-    const { db } = test
-    const workspace = sampleWorkspace(db).id
-    const task = sampleTask(db, workspace)
-    expect(highestTodoId(db, task.id)).toBeNull()
-
-    logCreate(db, task.id, '1', 'Review the date helpers')
-    logCreate(db, task.id, '52', 'Watch CI on PR #42')
-    expect(highestTodoId(db, task.id)).toBe(52)
-
-    // A `TodoWrite` list has no ids, so a task holding only one has no highest.
-    const other = sampleTask(db, workspace)
-    logWrite(db, other.id, [{ content: 'Sweep the floor', status: 'pending' }])
-    expect(highestTodoId(db, other.id)).toBeNull()
-  })
-})
-
-describe('takenOverTodo', () => {
-  it('answers a finished TaskCreate that took a number a different subject held, with that subject', () => {
-    const first = taskCreate('1', 'Review the date helpers')
-    const restart = taskCreate('1', 'Something else entirely')
-    const calls = [first, restart]
-    expect(takenOverTodo(calls, restart)).toEqual({ todoId: '1', subject: 'Review the date helpers' })
-  })
-
-  it('answers nothing for the agent recreating its own todo under the same subject', () => {
-    const first = taskCreate('1', 'Review the date helpers')
-    const again = taskCreate('1', 'Review the date helpers')
-    const calls = [first, again]
-    expect(takenOverTodo(calls, again)).toBeNull()
-  })
-
-  it('answers nothing for a fresh number, an unparseable call, or a call that succeeded nowhere', () => {
-    const first = taskCreate('1', 'Review the date helpers')
-    const fresh = taskCreate('2', 'Something else entirely')
-    const broken = call(
-      'TaskCreate',
-      { subject: 'Something else' },
-      { output: 'InputValidationError', state: ToolCallState.Error },
-    )
-    const calls = [first, fresh, broken]
-    expect(takenOverTodo(calls, fresh)).toBeNull()
-    expect(takenOverTodo(calls, broken)).toBeNull()
-  })
-})
-
-describe('a todo the agent has closed (#593)', () => {
-  let test: TestDatabase | undefined
-
-  afterEach(() => {
-    test?.close()
-  })
-
-  it('is out of the list `todoListFor` answers, and of the summary with it', () => {
-    test = openTestDatabase()
-    const { db } = test
-    const task = sampleTask(db, sampleWorkspace(db).id)
-    logCreate(db, task.id, '1', 'Review the date helpers')
-    logCreate(db, task.id, '2', 'Fix the UTC date test')
-    retireTodo(db, task.id, '1', 9_000)
-
-    expect(todoListFor(db, task.id)?.items.map(({ id }) => id)).toEqual(['2'])
-    const { list, changed } = refreshTodos(db, task.id)
-    expect(list?.items.map(({ id }) => id)).toEqual(['2'])
-    expect(changed?.todos).toEqual({ done: 0, total: 1, doing: [] })
-  })
-})
-
-describe('liveTodos (#593)', () => {
+describe('liveTodos (#593, unused by todoListFor any more, kept for the stranded code that still calls it)', () => {
   let test: TestDatabase | undefined
   const dirs: string[] = []
 
@@ -711,37 +280,15 @@ describe('liveTodos (#593)', () => {
     test = openTestDatabase()
     const { db } = test
     const task = sampleTask(db, sampleWorkspace(db).id)
-    logCreate(db, task.id, '1', 'Review the date helpers')
-    logCreate(db, task.id, '35', 'Watch CI on PR #42')
-    logCreate(db, task.id, '2', 'Fix the UTC date test')
+    createTodo(db, task.id, { text: 'Review the date helpers', note: null })
+    createTodo(db, task.id, { text: 'Watch CI on PR #42', note: null })
+    createTodo(db, task.id, { text: 'Fix the UTC date test', note: null })
 
-    expect(liveTodos(db, task.id, sharedList(task.id, '1', '2'))?.items).toEqual([
+    expect(liveTodos(db, task.id, sharedList(task.id, '1', '3'))?.items).toEqual([
       { id: '1', text: 'Review the date helpers', state: TodoState.Todo, note: null, completedAt: null },
-      { id: '35', text: 'Watch CI on PR #42', state: TodoState.Todo, note: null, completedAt: null, stranded: true },
-      { id: '2', text: 'Fix the UTC date test', state: TodoState.Todo, note: null, completedAt: null },
+      { id: '2', text: 'Watch CI on PR #42', state: TodoState.Todo, note: null, completedAt: null, stranded: true },
+      { id: '3', text: 'Fix the UTC date test', state: TodoState.Todo, note: null, completedAt: null },
     ])
-  })
-
-  it('never marks an id-less item, which a TodoWrite list is all of', () => {
-    test = openTestDatabase()
-    const { db } = test
-    const task = sampleTask(db, sampleWorkspace(db).id)
-    logWrite(db, task.id, [
-      { content: 'Sweep the floor', status: 'pending' },
-      { content: 'Rinse', status: 'completed' },
-    ])
-    const items = [
-      { id: null, text: 'Sweep the floor', state: TodoState.Todo, note: null, completedAt: null },
-      {
-        id: null,
-        text: 'Rinse',
-        state: TodoState.Done,
-        note: null,
-        completedAt: todoListFor(db, task.id)?.items[1]?.completedAt ?? null,
-      },
-    ]
-
-    expect(liveTodos(db, task.id, sharedList(task.id))?.items).toEqual(items)
   })
 
   it('changes nothing for a task with no shared folder, or with none of Glade to read it with', () => {
@@ -749,7 +296,7 @@ describe('liveTodos (#593)', () => {
     const { db } = test
     const workspace = sampleWorkspace(db).id
     const task = sampleTask(db, workspace)
-    logCreate(db, task.id, '1', 'Review the date helpers')
+    createTodo(db, task.id, { text: 'Review the date helpers', note: null })
     const plain = todoListFor(db, task.id)
 
     expect(liveTodos(db, task.id, undefined)).toEqual(plain)
@@ -769,11 +316,11 @@ describe('liveTodos (#593)', () => {
     test = openTestDatabase()
     const { db } = test
     const task = sampleTask(db, sampleWorkspace(db).id)
-    logCreate(db, task.id, '1', 'Review the date helpers')
-    logCreate(db, task.id, '35', 'Watch CI on PR #42')
+    createTodo(db, task.id, { text: 'Review the date helpers', note: null })
+    createTodo(db, task.id, { text: 'Watch CI on PR #42', note: null })
     const todos = todoListFor(db, task.id)?.items ?? []
 
-    expect(strandedIds(todos, new Set(['1']))).toEqual(new Set(['35']))
+    expect(strandedIds(todos, new Set(['1']))).toEqual(new Set(['2']))
     expect(strandedIds(todos, null)).toEqual(new Set())
   })
 })

@@ -12,11 +12,15 @@ import {
   QuestionReplyKind,
   QuestionSetState,
   TaskActivity,
+  TodoState,
   type Question,
   type QuestionSet,
   type Task,
 } from '../../shared/domain'
-import { listFileArtifacts } from '../db/repositories/artifacts'
+import { ChildKind, FilingSource } from '../../shared/todoHub'
+import { addArtifact, listFileArtifacts } from '../db/repositories/artifacts'
+import { putFilings } from '../db/repositories/child-filings'
+import { listTodos } from '../db/repositories/glade-todos'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { getOpenQuestionSet, listQuestionSets } from '../db/repositories/question-sets'
 import { getTask } from '../db/repositories/tasks'
@@ -153,8 +157,10 @@ describe('the server', () => {
       GladeTool.RemoveArtifact,
       GladeTool.ListChildren,
       GladeTool.FileChildren,
-      GladeTool.CloseTodo,
       GladeTool.ListOtherTasks,
+      GladeTool.CreateTodo,
+      GladeTool.UpdateTodo,
+      GladeTool.ListTodos,
     ])
     for (const listed of tools) expect(listed._meta).toEqual({ 'anthropic/alwaysLoad': true })
     expect(tools.map((listed) => listed.inputSchema.required)).toEqual([
@@ -169,7 +175,9 @@ describe('the server', () => {
       undefined,
       undefined,
       ['filings'],
-      ['todo'],
+      undefined,
+      ['subject'],
+      ['id'],
       undefined,
     ])
     await client.close()
@@ -205,8 +213,10 @@ describe('the server', () => {
       GladeTool.RemoveArtifact,
       GladeTool.ListChildren,
       GladeTool.FileChildren,
-      GladeTool.CloseTodo,
       GladeTool.ListOtherTasks,
+      GladeTool.CreateTodo,
+      GladeTool.UpdateTodo,
+      GladeTool.ListTodos,
     ])
     await client.close()
   })
@@ -590,6 +600,59 @@ describe('ask', () => {
       expect(listed?.description).not.toContain('an optional one')
       await client.close()
     })
+  })
+})
+
+describe('create_todo, update_todo and list_todos (#609)', () => {
+  it('creates, changes, deletes and lists todos through the real MCP calls', async () => {
+    await expect(caller.call('mcp__glade__create_todo', { subject: 'Review the date helpers' })).resolves.toEqual({
+      output: 'Todo #1 created: Review the date helpers.',
+      isError: false,
+    })
+    await expect(
+      caller.call('mcp__glade__update_todo', { id: '1', status: 'in_progress', note: 'Reading the diff' }),
+    ).resolves.toEqual({ output: 'Todo #1 updated.', isError: false })
+    await expect(caller.call('mcp__glade__list_todos', {})).resolves.toEqual({
+      output: '#1 [in_progress] Review the date helpers — Reading the diff',
+      isError: false,
+    })
+    await expect(caller.call('mcp__glade__update_todo', { id: '1', status: 'deleted' })).resolves.toEqual({
+      output: 'Deleted todo #1 Review the date helpers (in progress).',
+      isError: false,
+    })
+    expect(listTodos(database.db, task.id)).toEqual([])
+  })
+
+  it('answers a tool error for create_todo when the task is gone', async () => {
+    const orphan = createMcpToolCaller({ [GLADE_SERVER]: createGladeMcpServer(context, 'gone') })
+
+    const outcome = await orphan.call('mcp__glade__create_todo', { subject: 'Review the date helpers' })
+
+    expect(outcome.isError).toBe(true)
+    expect(listTodos(database.db, task.id)).toEqual([])
+    await orphan.close()
+  })
+
+  it('answers a tool error, and changes nothing, for an update that is refused', async () => {
+    const unknown = await caller.call('mcp__glade__update_todo', { id: '9', note: 'x' })
+    expect(unknown.isError).toBe(true)
+    expect(unknown.output).toContain("There's no todo #9")
+
+    await caller.call('mcp__glade__create_todo', { subject: 'Review the date helpers' })
+    const noop = await caller.call('mcp__glade__update_todo', { id: '1' })
+    expect(noop.isError).toBe(true)
+
+    addArtifact(database.db, { taskId: task.id, path: 'docs/plan.md', title: 'The plan' })
+    putFilings(database.db, task.id, [
+      { kind: ChildKind.File, key: 'docs/plan.md', todoId: '1', source: FilingSource.Named },
+    ])
+    const stillFiled = await caller.call('mcp__glade__update_todo', { id: '1', status: 'deleted' })
+    expect(stillFiled.isError).toBe(true)
+    expect(stillFiled.output).toContain('still has children filed under it')
+
+    expect(listTodos(database.db, task.id)).toEqual([
+      { id: '1', text: 'Review the date helpers', note: null, state: TodoState.Todo, completedAt: null },
+    ])
   })
 })
 

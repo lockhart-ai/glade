@@ -39,6 +39,7 @@ import { createAgentRunner, type AgentRunner } from './runner'
 import { MAX_SCRIPTED_HOLDS, ScriptedSession } from './scripted-session'
 import {
   background,
+  gladeTool,
   init,
   permission,
   result,
@@ -418,9 +419,7 @@ describe('a scripted agent, through the runner', () => {
     vi.restoreAllMocks()
   })
 
-  const TODO = [
-    ...tool('create', 'TaskCreate', { subject: 'Watch the deploy' }, 'Task #1 created successfully: Watch the deploy'),
-  ]
+  const TODO = [gladeTool('create', 'create_todo', { subject: 'Watch the deploy' })]
   const WATCH = tool(
     'deploy',
     'Monitor',
@@ -486,7 +485,7 @@ describe('a scripted agent, through the runner', () => {
 
     expect(placed()).toEqual([[], []])
     expect(working()).toEqual(['1'])
-    expect(toolCalls().map(({ name }) => name)).toEqual(['TaskCreate', 'Agent', FILE_CHILDREN_TOOL])
+    expect(toolCalls().map(({ name }) => name)).toEqual(['mcp__glade__create_todo', 'Agent', FILE_CHILDREN_TOOL])
     // The reply it wrote before the hold is in the tool log; the user reads the one it ended on.
     expect(narrated()).toEqual(['The deploy is reviewed.'])
     expect(replies()).toEqual(['The deploy is reviewed.'])
@@ -505,7 +504,7 @@ describe('a scripted agent, through the runner', () => {
     await send(agent, 'Review the staging deploy.')
 
     // Told after the call, then held twice: it only wrote its reply again, and the turn ended all the same.
-    expect(toolCalls().map(({ name }) => name)).toEqual(['TaskCreate', 'Agent'])
+    expect(toolCalls().map(({ name }) => name)).toEqual(['mcp__glade__create_todo', 'Agent'])
     expect(narrated()).toEqual(['The deploy is reviewed.', 'The deploy is reviewed.'])
     expect(replies()).toEqual(['The deploy is reviewed.'])
     // Its subagent has no todo, and one is still owed.
@@ -530,7 +529,7 @@ describe('a scripted agent, through the runner', () => {
 
     await send(agent, 'Watch the staging deploy.')
 
-    expect(toolCalls().map(({ name }) => name)).toEqual(['TaskCreate', 'Monitor'])
+    expect(toolCalls().map(({ name }) => name)).toEqual(['mcp__glade__create_todo', 'Monitor'])
     expect(narrated()).toEqual([])
     expect(replies()).toEqual(['The deploy is being watched.'])
     expect(listWatchers(db, task.id)).toHaveLength(1)

@@ -11,11 +11,17 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
-import { ArtifactKind, ToolCallState } from '../../shared/domain'
+import { ArtifactKind, TodoState, ToolCallState } from '../../shared/domain'
 import { ChildKind, FilingSource } from '../../shared/todoHub'
 import { addTaskLinkByHand, removeTaskArtifact } from '../artifacts/artifacts'
 import { listArtifacts } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
+import {
+  deleteTodo,
+  putTodos,
+  seedTodoCounterAtLeast,
+  updateTodo as updateTodoRow,
+} from '../db/repositories/glade-todos'
 import { listOwedFilings } from '../db/repositories/owed-filings'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
@@ -59,7 +65,7 @@ afterEach(async () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-/** Adds a todo as Claude Code's `TaskCreate` does: the call's result names its id. */
+/** Adds a todo, by its own id, in Glade's own table (#609); also logs a TaskCreate call, for realism alone. */
 function createTodo(id: string, subject: string): void {
   clock += 10
   const toolUseId = `toolu_create_${id}`
@@ -70,6 +76,14 @@ function createTodo(id: string, subject: string): void {
   )
   const output = `Task #${id} created successfully: ${subject}`
   updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Done, output }, clock)
+  putTodos(db, taskId, [{ id, text: subject, note: null, state: TodoState.Todo, completedAt: null }], clock)
+  seedTodoCounterAtLeast(db, taskId, Number(id) + 1)
+}
+
+const STATES: Readonly<Record<string, TodoState>> = {
+  pending: TodoState.Todo,
+  in_progress: TodoState.Doing,
+  completed: TodoState.Done,
 }
 
 function updateTodo(id: string, status: string): void {
@@ -78,6 +92,8 @@ function updateTodo(id: string, status: string): void {
   const input = { taskId: id, status }
   appendToolCall(db, { taskId, turn: 1, name: 'TaskUpdate', input, toolUseId, parentToolUseId: null }, clock)
   updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Done, output: `Updated task #${id} status` }, clock)
+  if (status === 'deleted') deleteTodo(db, taskId, id)
+  else updateTodoRow(db, taskId, id, { state: STATES[status] }, clock)
 }
 
 function twoTodos(): void {
