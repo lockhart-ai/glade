@@ -120,15 +120,49 @@ describe('otherTasksAnswer', () => {
     }
   })
 
-  it("cuts a task's links to OTHER_TASKS_LINKS_MAX, and a link's own title or url over its length, saying it was cut", () => {
+  it(
+    "cuts a task's links to OTHER_TASKS_LINKS_MAX, keeping the most recently added (dropping the oldest) and " +
+      "cutting a link's own title or url over its length",
+    () => {
+      const workspace = sampleWorkspace(db)
+      const caller = sampleTask(db, workspace.id)
+      for (let n = 1; n <= OTHER_TASKS_LINKS_MAX; n += 1) {
+        addLinkArtifact(db, {
+          taskId: caller.id,
+          url: `https://github.com/acme/api/pull/${String(n)}`,
+          title: `PR ${String(n)}`,
+        })
+      }
+      // The newest link, declared last: too long, and still the one kept (the oldest, PR 1, is dropped instead).
+      addLinkArtifact(db, {
+        taskId: caller.id,
+        url: `https://github.com/acme/api/pull/999?note=${'x'.repeat(OTHER_TASKS_LINK_TEXT_MAX + 20)}`,
+        title: 'y'.repeat(OTHER_TASKS_LINK_TEXT_MAX + 20),
+      })
+
+      const answer = otherTasksAnswer(db, caller.id)
+      const self = answer.tasks.find((task) => task.id === caller.id)
+      if (self === undefined) throw new Error('caller not in its own answer')
+
+      expect(answer.cut).toBe(true)
+      expect(self.links).toHaveLength(OTHER_TASKS_LINKS_MAX)
+      // The newest link (declared last, and too long) is kept, shortened, and listed first.
+      expect(self.links[0]?.title.length).toBe(OTHER_TASKS_LINK_TEXT_MAX)
+      expect(self.links[0]?.title.endsWith('…')).toBe(true)
+      expect(self.links[0]?.url.length).toBe(OTHER_TASKS_LINK_TEXT_MAX)
+      // Then the rest, newest first; the oldest link (PR 1) was dropped to make room.
+      expect(self.links[1]).toEqual({
+        title: `PR ${String(OTHER_TASKS_LINKS_MAX)}`,
+        url: `https://github.com/acme/api/pull/${String(OTHER_TASKS_LINKS_MAX)}`,
+      })
+      expect(self.links.some((link) => link.title === 'PR 1')).toBe(false)
+    },
+  )
+
+  it('keeps the 20 most recently added links when there are 25, newest first', () => {
     const workspace = sampleWorkspace(db)
     const caller = sampleTask(db, workspace.id)
-    addLinkArtifact(db, {
-      taskId: caller.id,
-      url: `https://github.com/acme/api/pull/0?note=${'x'.repeat(OTHER_TASKS_LINK_TEXT_MAX + 20)}`,
-      title: 'y'.repeat(OTHER_TASKS_LINK_TEXT_MAX + 20),
-    })
-    for (let n = 1; n < OTHER_TASKS_LINKS_MAX + 5; n += 1) {
+    for (let n = 1; n <= 25; n += 1) {
       addLinkArtifact(db, {
         taskId: caller.id,
         url: `https://github.com/acme/api/pull/${String(n)}`,
@@ -142,12 +176,9 @@ describe('otherTasksAnswer', () => {
 
     expect(answer.cut).toBe(true)
     expect(self.links).toHaveLength(OTHER_TASKS_LINKS_MAX)
-    // The first link, declared too long, is shortened rather than left out.
-    expect(self.links[0]?.title.length).toBe(OTHER_TASKS_LINK_TEXT_MAX)
-    expect(self.links[0]?.title.endsWith('…')).toBe(true)
-    expect(self.links[0]?.url.length).toBe(OTHER_TASKS_LINK_TEXT_MAX)
-    // The links kept are the first declared, not the last: links added after the cap never show.
-    expect(self.links[1]).toEqual({ title: 'PR 1', url: 'https://github.com/acme/api/pull/1' })
+    expect(self.links.map((link) => link.title)).toEqual(
+      Array.from({ length: OTHER_TASKS_LINKS_MAX }, (_, i) => `PR ${String(25 - i)}`),
+    )
   })
 
   it('bounds the number of tasks to OTHER_TASKS_MAX, but always keeps the caller even past the cap', () => {

@@ -71,11 +71,17 @@ function shortened(text: string, max: number, flag: CutFlag): string {
   return `${text.slice(0, max - 1)}…`
 }
 
-/** A task's link artifacts (#407), in the order they were first declared, bounded to `OTHER_TASKS_LINKS_MAX`. */
+/**
+ * A task's link artifacts (#407), most recently added first, bounded to `OTHER_TASKS_LINKS_MAX`: `listArtifacts`
+ * gives them oldest first, so a long-running task's newest links (the PRs it's on now) are the ones to keep, not
+ * the ones it filed first.
+ */
 function linksOf(db: Database, taskId: string, flag: CutFlag): OtherTaskLink[] {
-  const all = listArtifacts(db, taskId).filter((artifact) => artifact.kind === ArtifactKind.Link)
-  if (all.length > OTHER_TASKS_LINKS_MAX) flag.cut = true
-  return all.slice(0, OTHER_TASKS_LINKS_MAX).map((link) => ({
+  const newestFirst = listArtifacts(db, taskId)
+    .filter((artifact) => artifact.kind === ArtifactKind.Link)
+    .reverse()
+  if (newestFirst.length > OTHER_TASKS_LINKS_MAX) flag.cut = true
+  return newestFirst.slice(0, OTHER_TASKS_LINKS_MAX).map((link) => ({
     title: shortened(link.title, OTHER_TASKS_LINK_TEXT_MAX, flag),
     url: shortened(link.url, OTHER_TASKS_LINK_TEXT_MAX, flag),
   }))
