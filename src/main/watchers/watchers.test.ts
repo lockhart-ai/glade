@@ -95,11 +95,19 @@ function started(
 }
 
 function resultOf(toolUseId: string, details: unknown, isError = false): ToolResultEvent {
-  return { kind: AgentEventKind.ToolResult, toolUseId, output: 'ok', isError, launched: false, details }
+  return {
+    kind: AgentEventKind.ToolResult,
+    toolUseId,
+    output: 'ok',
+    isError,
+    launched: false,
+    details,
+    contextTokens: null,
+  }
 }
 
 function finished(toolUseId: string, sdkTaskId: string, outcome: TaskOutcome, summary: string) {
-  return { kind: AgentEventKind.TaskFinished, sdkTaskId, toolUseId, outcome, summary } as const
+  return { kind: AgentEventKind.TaskFinished, sdkTaskId, toolUseId, outcome, summary, contextTokens: null } as const
 }
 
 const CI = { description: 'CI checks on PR #42', timeout_ms: 1_800_000, command: 'gh pr checks 42 --watch' }

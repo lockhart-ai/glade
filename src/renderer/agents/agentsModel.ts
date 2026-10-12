@@ -258,6 +258,25 @@ export function mainTokensLine(totalInputTokens: number, totalOutputTokens: numb
 }
 
 /**
+ * What an agent's line says of the agent its call started (#592): "1.2M in · 45k out" by the split of a dispatched
+ * child, which is what it has really spent (#589); for a native subagent, "478k context" — how full its conversation
+ * was at its latest request, as the SDK reports it, never what it has spent. The same under-a-thousand rule as Main's
+ * line: a figure under a thousand shows as itself. Nothing when there is no figure, or what there is says zero.
+ */
+export function agentTokensLine(
+  contextTokens: number | undefined,
+  totalInputTokens: number | undefined,
+  totalOutputTokens: number | undefined,
+): string | null {
+  if (totalInputTokens !== undefined && totalOutputTokens !== undefined) {
+    if (totalInputTokens === 0 && totalOutputTokens === 0) return null
+    return mainTokensLine(totalInputTokens, totalOutputTokens)
+  }
+  if (contextTokens === undefined || contextTokens === 0) return null
+  return `${contextTokens < THOUSAND_TOKENS ? String(contextTokens) : formatTokens(contextTokens)} context`
+}
+
+/**
  * Main's current tool call, from the store: its last one still running, or null. A subagent's `Agent` call is not it —
  * the subagent has a tab of its own, and the line's fallback is for work the tab's log shows. One per log shown; the
  * selector remembers what it last read.

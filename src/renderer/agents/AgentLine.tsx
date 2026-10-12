@@ -6,6 +6,7 @@ import {
   agentsOf,
   agentStateLine,
   agentTodoSelector,
+  agentTokensLine,
   isRunning,
   mainAgentStateLine,
   mainAgentText,
@@ -58,10 +59,12 @@ const MainTokens = memo(function MainTokens({ taskId }: { readonly taskId: strin
 })
 
 /**
- * What the agent a call started has spent so far ("1.2M in · 45k out", #589), at the right of the model's row, the way
- * Main's line shows its own (#587). It selects the two totals alone, through the same `agentsOf` read the line's call
- * uses, so a change re-renders this span and nothing else of it; nothing shows while there are none — every native
- * subagent's call has none, and a dispatched child's gets them as its run ends.
+ * What the agent a call started has on its line ("1.2M in · 45k out" for a dispatched child, #589; "478k context" for
+ * a native subagent — how full its conversation was at its latest request, #592), at the right of the model's row, the
+ * way Main's line shows its real totals (#587). It selects the three figures alone, through the same `agentsOf` read
+ * the line's call uses, so a change re-renders this span and nothing else of it; nothing shows while there is nothing
+ * to show — a native subagent's call has none until its run's first progress figure, and a dispatched child's gets
+ * its split as its run ends.
  */
 const AgentTokens = memo(function AgentTokens({
   taskId,
@@ -74,10 +77,12 @@ const AgentTokens = memo(function AgentTokens({
   const outputTokens = useGladeStore(
     (state) => agentsOf(state.toolEvents[taskId]).calls.get(agentId)?.totalOutputTokens,
   )
-  if (inputTokens === undefined && outputTokens === undefined) return null
+  const contextTokens = useGladeStore((state) => agentsOf(state.toolEvents[taskId]).calls.get(agentId)?.contextTokens)
+  const line = agentTokensLine(contextTokens, inputTokens, outputTokens)
+  if (line === null) return null
   return (
     <span className={styles.tokens} data-agent-tokens="">
-      {mainTokensLine(inputTokens ?? 0, outputTokens ?? 0)}
+      {line}
     </span>
   )
 })

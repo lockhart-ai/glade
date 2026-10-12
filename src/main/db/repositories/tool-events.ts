@@ -125,7 +125,7 @@ const ROW_COLUMNS = `id, task_id, kind, turn, created_at, text, tool_name, tool_
 
 /** Every column a read or `RETURNING` names, the row's own plus the agent call token totals only their writer sets. */
 const COLUMNS = `${ROW_COLUMNS},
-  total_input_tokens, total_output_tokens`
+  total_input_tokens, total_output_tokens, context_tokens`
 
 const KINDS = Object.values(ToolEventKind)
 const TOOL_CALL_STATES = Object.values(ToolCallState)
@@ -226,6 +226,8 @@ function parseToolCall(row: Row): ToolCallEvent {
     ...(row.nullableInteger('total_output_tokens') === null
       ? {}
       : { totalOutputTokens: row.integer('total_output_tokens') }),
+    // Set only when written, so a call without a context size has exactly the shape it has always had (#592).
+    ...(row.nullableInteger('context_tokens') === null ? {} : { contextTokens: row.integer('context_tokens') }),
   }
 }
 
@@ -561,28 +563,38 @@ export function previousToolCall(db: Database, taskId: string, toolUseId: string
   return raw === undefined ? undefined : parseToolCall(new Row('tool_events', raw))
 }
 
-/** A subagent's latest progress summary, for its `Agent` call. */
+/** A subagent's latest progress summary and combined token total, for its `Agent` call (#592). */
 export interface SubagentProgress {
   readonly taskId: string
   /** The `Agent` call that started the subagent. */
   readonly toolUseId: string
-  readonly summary: string
+  /** What it's doing now, on one line; left out to keep the summary the call already has. */
+  readonly summary?: string
+  /**
+   * How full the subagent's conversation was at its latest request, in tokens (`task_progress.usage.total_tokens`, as
+   * the SDK reports it — a context size, not what it has spent); left out to keep the figure the call already has.
+   */
+  readonly contextTokens?: number
 }
 
 /**
- * Records the latest progress summary of a running subagent on its `Agent` (or `Task`) call, and returns the call
- * updated. Returns undefined, and records nothing, when the task has no such call still running (a summary that arrives
- * after its subagent finished) or the call already has that summary.
+ * Records the latest progress of a running subagent on its `Agent` (or `Task`) call, and returns the call updated.
+ * Returns undefined, and records nothing, when the task has no such call still running (a summary that arrives after
+ * its subagent finished) or neither the summary nor the context size is news for it.
  */
 export function setSubagentProgress(db: Database, progress: SubagentProgress): ToolCallEvent | undefined {
+  const params = { ...progress, summary: progress.summary ?? null, contextTokens: progress.contextTokens ?? null }
   const row: unknown = db
     .prepare(
-      `UPDATE tool_events SET progress_summary = @summary
+      `UPDATE tool_events SET progress_summary = COALESCE(@summary, progress_summary),
+        context_tokens = COALESCE(@contextTokens, context_tokens)
       WHERE task_id = @taskId AND tool_use_id = @toolUseId AND kind = 'tool_call' AND tool_state = 'running'
-        AND tool_name IN (${SUBAGENT_NAMES}) AND progress_summary IS NOT @summary
+        AND tool_name IN (${SUBAGENT_NAMES})
+        AND (progress_summary IS NOT COALESCE(@summary, progress_summary)
+          OR context_tokens IS NOT COALESCE(@contextTokens, context_tokens))
       RETURNING ${COLUMNS}`,
     )
-    .get(progress)
+    .get(params)
   return row === undefined ? undefined : parseToolCall(new Row('tool_events', row))
 }
 
@@ -617,6 +629,31 @@ export function setAgentCallTokenTotals(db: Database, totals: AgentCallTokenTota
       WHERE task_id = @taskId AND tool_use_id = @toolUseId AND kind = 'tool_call'`,
     )
     .run(totals)
+  return result.changes > 0
+}
+
+/** An agent call's context size, for its line on the Agents tab. */
+export interface AgentCallContextTokens {
+  readonly taskId: string
+  /** The `Agent` (or `Task`) call that started the subagent. */
+  readonly toolUseId: string
+  readonly contextTokens: number
+}
+
+/**
+ * Writes an agent's context size onto the call that started it (#592): how full the conversation of the agent was at
+ * its latest request, as the SDK reports it — a figure a subagent's end carries, whatever state its call is in by
+ * then (a backgrounded call's row still runs, a foreground one has finished), or the exact one its foreground result
+ * carries. Answers whether the task has such a call. It never touches the in-and-out split (#589), which is a real
+ * total, and the line prefers it when it is there.
+ */
+export function setAgentCallContextTokens(db: Database, context: AgentCallContextTokens): boolean {
+  const result = db
+    .prepare(
+      `UPDATE tool_events SET context_tokens = @contextTokens
+      WHERE task_id = @taskId AND tool_use_id = @toolUseId AND kind = 'tool_call' AND tool_name IN (${SUBAGENT_NAMES})`,
+    )
+    .run(context)
   return result.changes > 0
 }
 
@@ -660,13 +697,14 @@ export function findSubagentCall(db: Database, taskId: string, sdkTaskId: string
 
 /**
  * Sets a subagent that had finished running again, for a new run in the same row (#395): its `Agent` (or `Task`) call
- * goes back to running, with no outcome, end time or progress summary yet, and keeps its log. Returns the call updated,
- * or undefined when the task has no such call, or it's running already.
+ * goes back to running, with no outcome, end time, progress summary or token totals yet (#592), and keeps its log.
+ * Returns the call updated, or undefined when the task has no such call, or it's running already.
  */
 export function reopenSubagentCall(db: Database, taskId: string, toolUseId: string): ToolCallEvent | undefined {
   const row: unknown = db
     .prepare(
-      `UPDATE tool_events SET tool_state = 'running', tool_output = NULL, finished_at = NULL, progress_summary = NULL
+      `UPDATE tool_events SET tool_state = 'running', tool_output = NULL, finished_at = NULL, progress_summary = NULL,
+        total_input_tokens = NULL, total_output_tokens = NULL, context_tokens = NULL
       WHERE task_id = ? AND tool_use_id = ? AND kind = 'tool_call' AND tool_name IN (${SUBAGENT_NAMES})
         AND tool_state != 'running'
       RETURNING ${COLUMNS}`,

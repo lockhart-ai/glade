@@ -154,6 +154,7 @@ describe('parsing SDK messages', () => {
         isError: false,
         launched: false,
         details: { stdout: '12 passed', stderr: '', interrupted: false },
+        contextTokens: null,
       },
     ])
     const blocks = [
@@ -169,6 +170,7 @@ describe('parsing SDK messages', () => {
         isError: true,
         launched: false,
         details: { stdout: '', stderr: '', interrupted: false },
+        contextTokens: null,
       },
     ])
     const bare = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_03' }] } }
@@ -180,7 +182,34 @@ describe('parsing SDK messages', () => {
         isError: false,
         launched: false,
         details: null,
+        contextTokens: null,
       },
+    ])
+  })
+
+  it("reads how full a foreground subagent's conversation was at its last request, from its result (#592)", () => {
+    const spent = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_q' }] } }
+    expect(parse({ ...spent, tool_use_result: { totalTokens: 13_700 } })).toEqual([
+      {
+        kind: AgentEventKind.ToolResult,
+        toolUseId: 'toolu_q',
+        output: '',
+        isError: false,
+        launched: false,
+        details: { totalTokens: 13_700 },
+        contextTokens: 13_700,
+      },
+    ])
+    // A result that gives no figure, or says nothing was sent, leaves nothing to write.
+    expect(parse(spent)).toEqual([
+      expect.objectContaining({ kind: AgentEventKind.ToolResult, toolUseId: 'toolu_q', contextTokens: null }),
+    ])
+    expect(parse({ ...spent, tool_use_result: { totalTokens: 0 } })).toEqual([
+      expect.objectContaining({ kind: AgentEventKind.ToolResult, toolUseId: 'toolu_q', contextTokens: null }),
+    ])
+    // A malformed figure is as good as missing.
+    expect(parse({ ...spent, tool_use_result: { totalTokens: 'plenty' } })).toEqual([
+      expect.objectContaining({ kind: AgentEventKind.ToolResult, toolUseId: 'toolu_q', contextTokens: null }),
     ])
   })
 
@@ -565,6 +594,7 @@ describe('parsing SDK messages', () => {
         isError: false,
         launched: true,
         details: expect.objectContaining({ status: 'async_launched' }) as unknown,
+        contextTokens: null,
       },
     ])
     // A background command isn't a subagent: its call's result is its own.
@@ -596,19 +626,37 @@ describe('parsing SDK messages', () => {
     expect(warn).toHaveBeenCalledOnce()
   })
 
-  it("reads a running subagent's progress summary, by the tool call that started it, on one line", () => {
+  it("reads a running subagent's progress — its summary and its conversation's size — by the call that started it", () => {
     expect(parse(sdk.subagentProgress('toolu_q', 'aq1', 'Reading the API PRs, newest first'))).toEqual([
-      { kind: AgentEventKind.SubagentProgress, toolUseId: 'toolu_q', summary: 'Reading the API PRs, newest first' },
+      {
+        kind: AgentEventKind.SubagentProgress,
+        toolUseId: 'toolu_q',
+        summary: 'Reading the API PRs, newest first',
+        contextTokens: 13_530,
+      },
     ])
     expect(parse(sdk.subagentProgress('toolu_q', 'aq1', '  Sorting PRs\n\tinto   features  '))).toEqual([
-      { kind: AgentEventKind.SubagentProgress, toolUseId: 'toolu_q', summary: 'Sorting PRs into features' },
+      {
+        kind: AgentEventKind.SubagentProgress,
+        toolUseId: 'toolu_q',
+        summary: 'Sorting PRs into features',
+        contextTokens: 13_530,
+      },
     ])
-    // Most progress messages only count its calls; a blank summary says nothing either.
-    expect(parse(sdk.subagentProgress('toolu_q', 'aq1'))).toEqual([])
-    expect(parse(sdk.subagentProgress('toolu_q', 'aq1', ' \n '))).toEqual([])
-    // A task no tool call started has no row to show it on; a malformed field is as good as missing.
+    // Most progress messages only count its calls: they bring the figure alone (#592).
+    expect(parse(sdk.subagentProgress('toolu_q', 'aq1'))).toEqual([
+      { kind: AgentEventKind.SubagentProgress, toolUseId: 'toolu_q', summary: null, contextTokens: 13_530 },
+    ])
+    expect(parse(sdk.subagentProgress('toolu_q', 'aq1', ' \n '))).toEqual([
+      { kind: AgentEventKind.SubagentProgress, toolUseId: 'toolu_q', summary: null, contextTokens: 13_530 },
+    ])
+    // A conversation that holds nothing shows nothing, and so does a message that gives no usage.
     const bare = { type: 'system', subtype: 'task_progress', task_id: 'aq1', summary: 'Reading' }
     expect(parse(bare)).toEqual([])
+    const counting = { type: 'system', subtype: 'task_progress', task_id: 'aq1', tool_use_id: 'toolu_q' }
+    expect(parse({ ...counting, usage: { total_tokens: 0, tool_uses: 1, duration_ms: 1 } })).toEqual([])
+    expect(parse(counting)).toEqual([])
+    // A task no tool call started has no row to show it on; a malformed field is as good as missing.
     expect(parse({ ...bare, tool_use_id: 7 })).toEqual([])
     expect(parse({ ...bare, tool_use_id: 'toolu_q', summary: ['Reading'] })).toEqual([])
     const { parse: parseLogged, warn } = parser()
@@ -625,6 +673,7 @@ describe('parsing SDK messages', () => {
         toolUseId: 'toolu_q',
         outcome: TaskOutcome.Failed,
         summary: 'Connection refused.',
+        contextTokens: 12_688,
       },
     ])
     const bare = { type: 'system', subtype: 'task_notification', task_id: 'aq1', status: 'stopped' }
@@ -635,6 +684,20 @@ describe('parsing SDK messages', () => {
         toolUseId: 'toolu_q',
         outcome: TaskOutcome.Stopped,
         summary: '',
+        contextTokens: null,
+      },
+    ])
+    // A conversation that holds nothing shows nothing, even at its end (#592).
+    expect(
+      parse({ ...bare, tool_use_id: 'toolu_q', usage: { total_tokens: 0, tool_uses: 0, duration_ms: 0 } }),
+    ).toEqual([
+      {
+        kind: AgentEventKind.TaskFinished,
+        sdkTaskId: 'aq1',
+        toolUseId: 'toolu_q',
+        outcome: TaskOutcome.Stopped,
+        summary: '',
+        contextTokens: null,
       },
     ])
     // A task no tool call started has no row to end.
