@@ -30,7 +30,14 @@ import {
 } from './schema'
 
 /** Claude Code's own todo tools, by name (kept here, not imported from `./todos`: see the module comment). */
-const LEGACY_TODO_TOOLS: readonly string[] = ['TodoWrite', 'TaskCreate', 'TaskUpdate']
+const LEGACY_TODO_TOOLS = ['TodoWrite', 'TaskCreate', 'TaskUpdate'] as const
+
+type LegacyTodoTool = (typeof LEGACY_TODO_TOOLS)[number]
+
+/** `name` as one of `LEGACY_TODO_TOOLS`, typed so `apply`'s switch is exhaustive with no dead default; null otherwise. */
+function legacyToolName(name: string): LegacyTodoTool | null {
+  return (LEGACY_TODO_TOOLS as readonly string[]).includes(name) ? (name as LegacyTodoTool) : null
+}
 
 const STATES: Readonly<Record<ClaudeTodoStatus, TodoState>> = {
   [ClaudeTodoStatus.Pending]: TodoState.Todo,
@@ -83,9 +90,13 @@ function previouslyCompleted(items: readonly LegacyItem[]): (text: string) => Le
   return (text) => byText.get(text)?.shift()
 }
 
-/** Whether a call can change the list: a finished, successful call of the main agent's to a todo tool. */
-function changesTodos(call: ToolCallEvent): boolean {
-  return call.parentToolUseId === null && call.state === ToolCallState.Done && LEGACY_TODO_TOOLS.includes(call.name)
+/**
+ * The todo tool a call can change the list with: a finished, successful call of the main agent's, to one of
+ * `LEGACY_TODO_TOOLS`. Null for anything else (a subagent's, one still running or failed, or another tool).
+ */
+function changesTodos(call: ToolCallEvent): LegacyTodoTool | null {
+  if (call.parentToolUseId !== null || call.state !== ToolCallState.Done) return null
+  return legacyToolName(call.name)
 }
 
 /** The numeric id a finished `TaskCreate`'s result gave, if it parses as one; undefined otherwise. */
@@ -99,9 +110,10 @@ function numericId(output: string | null): number | undefined {
 function apply(
   items: readonly LegacyItem[],
   highest: number | null,
+  toolName: LegacyTodoTool,
   call: ToolCallEvent,
 ): { items: readonly LegacyItem[]; highest: number | null } {
-  switch (call.name) {
+  switch (toolName) {
     case 'TodoWrite': {
       const input = todoWriteInput.safeParse(call.input)
       if (!input.success) return { items, highest }
@@ -155,8 +167,6 @@ function apply(
       )
       return { items: next, highest }
     }
-    default:
-      return { items, highest }
   }
 }
 
@@ -179,8 +189,9 @@ export function replayLegacyTodos(calls: readonly ToolCallEvent[]): ReplayedTodo
   let items: readonly LegacyItem[] = []
   let highest: number | null = null
   for (const call of calls) {
-    if (!changesTodos(call)) continue
-    const next = apply(items, highest, call)
+    const toolName = changesTodos(call)
+    if (toolName === null) continue
+    const next = apply(items, highest, toolName, call)
     items = next.items
     highest = next.highest
   }

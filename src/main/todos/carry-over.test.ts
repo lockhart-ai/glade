@@ -116,6 +116,29 @@ describe('replayLegacyTodos', () => {
     ]
     expect(replayLegacyTodos(calls)).toEqual({ items: [], highestIdEverGiven: null })
   })
+
+  it('matches a TodoWrite item against one completed before, by its text, keeping its old finish time', () => {
+    const calls = [
+      call('TodoWrite', { todos: [{ content: 'Ship it', status: 'completed' }] }, { output: 'ok' }),
+      call(
+        'TodoWrite',
+        {
+          todos: [
+            { content: 'Ship it', status: 'completed' },
+            { content: 'Ship it', status: 'pending' },
+          ],
+        },
+        { output: 'ok' },
+      ),
+    ]
+    expect(replayLegacyTodos(calls)).toEqual({
+      items: [
+        { id: null, text: 'Ship it', note: null, state: TodoState.Done, completedAt: 1_000 + 1 },
+        { id: null, text: 'Ship it', note: null, state: TodoState.Todo, completedAt: null },
+      ],
+      highestIdEverGiven: null,
+    })
+  })
 })
 
 describe('carryOverTodos', () => {
