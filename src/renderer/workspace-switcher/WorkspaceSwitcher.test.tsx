@@ -234,32 +234,35 @@ describe('waiting tasks nested under each workspace (#610)', () => {
     }
   }
 
-  async function renderWithWaiting(): Promise<Rendered> {
+  async function renderWithWaiting(overrides: Partial<FakeHandlers> = {}): Promise<Rendered> {
     const revealedWorkspaces: string[] = []
-    const fake = fakeBridge({
-      workspaces: [
-        sampleWorkspace('w1', 'Acme API'),
-        sampleWorkspace('w2', 'Acme Web'),
-        sampleWorkspace('w3', 'Acme Docs'),
-      ],
-      tasks: [
-        // Six in w1: more than `WAITING_TASKS_SHOWN`, newest (t1) to oldest (t6).
-        waitingTask('t1', 'w1', 'Add per-key rate limiting', 6_000),
-        waitingTask('t2', 'w1', 'Fix flaky login test', 5_000),
-        waitingTask('t3', 'w1', 'Bump the SDK to 0.4', 4_000),
-        waitingTask('t4', 'w1', 'Clean up the fixtures', 3_000),
-        waitingTask('t5', 'w1', 'Tighten the CORS policy', 2_000),
-        waitingTask('t6', 'w1', 'Rotate the staging key', 1_000),
-        waitingTask('t7', 'w2', 'Redesign the checkout flow', 500),
-        working('t8', 'w3'),
-      ],
-      uiState: [
-        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
-        { key: UiStateKey.SelectedTaskId, value: 't1' },
-      ],
-      workspaceSelections: { w2: 't7' },
-      revealedWorkspaces,
-    })
+    const fake = fakeBridge(
+      {
+        workspaces: [
+          sampleWorkspace('w1', 'Acme API'),
+          sampleWorkspace('w2', 'Acme Web'),
+          sampleWorkspace('w3', 'Acme Docs'),
+        ],
+        tasks: [
+          // Six in w1: more than `WAITING_TASKS_SHOWN`, newest (t1) to oldest (t6).
+          waitingTask('t1', 'w1', 'Add per-key rate limiting', 6_000),
+          waitingTask('t2', 'w1', 'Fix flaky login test', 5_000),
+          waitingTask('t3', 'w1', 'Bump the SDK to 0.4', 4_000),
+          waitingTask('t4', 'w1', 'Clean up the fixtures', 3_000),
+          waitingTask('t5', 'w1', 'Tighten the CORS policy', 2_000),
+          waitingTask('t6', 'w1', 'Rotate the staging key', 1_000),
+          waitingTask('t7', 'w2', 'Redesign the checkout flow', 500),
+          working('t8', 'w3'),
+        ],
+        uiState: [
+          { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+          { key: UiStateKey.SelectedTaskId, value: 't1' },
+        ],
+        workspaceSelections: { w2: 't7' },
+        revealedWorkspaces,
+      },
+      overrides,
+    )
     const store = createGladeStore(fake.bridge)
     await act(() => store.getState().hydrate())
     render(
@@ -344,6 +347,31 @@ describe('waiting tasks nested under each workspace (#610)', () => {
     await vi.waitFor(() => {
       expect(store.getState().selectedTaskId).toBe('t1')
     })
+  })
+
+  it('shows a toast when opening a waiting task fails', async () => {
+    await renderWithWaiting({
+      [CommandName.UiStateSet]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No task t7')),
+    })
+    const menu = await openSwitcher()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Redesign the checkout flow' }))
+
+    expect(await screen.findByText('No task t7')).toBeInTheDocument()
+  })
+
+  it('drops a waiting task’s row if it’s deleted while the menu is still open', async () => {
+    const { emit } = await renderWithWaiting()
+    const menu = await openSwitcher()
+    expect(within(menu).getByRole('menuitem', { name: 'Redesign the checkout flow' })).toBeInTheDocument()
+
+    act(() => {
+      emit({ type: EventType.TaskDeleted, taskId: 't7' })
+    })
+
+    expect(within(menu).queryByRole('menuitem', { name: 'Redesign the checkout flow' })).toBeNull()
+    // Acme Web itself, and its still-live rows, are unaffected.
+    expect(within(menu).getByRole('menuitemradio', { name: 'Acme Web' })).toBeInTheDocument()
   })
 })
 
