@@ -6,6 +6,7 @@ import {
   PermissionMarkKind,
   MessageRole,
   QuestionKind,
+  TodoState,
   WatcherKind,
   WatcherState,
   type Task,
@@ -19,6 +20,7 @@ import { putFilings } from './child-filings'
 import { assignChildIds } from './child-ids'
 import { oweFilings } from './owed-filings'
 import { setTodoPanel } from './todo-panels'
+import { putTodos, seedTodoCounterAtLeast } from './glade-todos'
 import { ChildFilter, ChildKind, FilingSource } from '../../../shared/todoHub'
 import { addArtifact, addLinkArtifact } from './artifacts'
 import { setExternalId, setHandoff } from './backfills'
@@ -129,6 +131,10 @@ async function fillTask(db: Database, task: Task): Promise<void> {
   putFilings(db, taskId, [{ kind: ChildKind.File, key: 'docs/plan.md', todoId: '1', source: FilingSource.Named }])
   setTodoPanel(db, { taskId, todoId: '1', open: true, filter: ChildFilter.Files })
   retireTodo(db, taskId, '45', 9_000)
+  putTodos(db, taskId, [
+    { id: '1', text: 'Fix the UTC date test', note: null, state: TodoState.Todo, completedAt: null },
+  ])
+  seedTodoCounterAtLeast(db, taskId, 2)
   setAgentTab(db, taskId, `agent-${taskId}`)
   oweFilings(db, taskId, [{ kind: ChildKind.Subagent, key: `agent-${taskId}` }])
   setWorkspaceSelection(db, task.workspaceId, taskId)
@@ -255,8 +261,12 @@ const FILLED_TABLES = [
   'task_model_switches',
   // The permission rules granted it with Allow for this task.
   'task_permission_rules',
+  // Its own todos (#609), and the next id its counter would give it.
+  'todo_counters',
   // How you left each of its todos' panels in the todo hub (P16).
   'todo_panels',
+  // Its own todos (#609): see 'todo_counters' above.
+  'todos',
   'tool_events',
   // What its agent left running or scheduled (the Watchers tab).
   'watchers',

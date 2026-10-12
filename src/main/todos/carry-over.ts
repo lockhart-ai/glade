@@ -11,7 +11,10 @@
  *
  * `completedAt` aside, this only has to match what the Todos tab shows *today*, not every rule `./todos` enforces:
  * a stranded todo (one a restart left the agent's own list without) carries over as an ordinary one, since nothing
- * is ever stranded once Glade owns the list.
+ * is ever stranded once Glade owns the list. One rule does change, on purpose: today's tab shows `activeForm` as a
+ * note only while a todo is in progress; once Glade owns the list a note is stored and shown in any state but done
+ * (an old spinner line would read wrongly once the todo is finished), so the replay carries it for a not-started
+ * todo too, not only a doing one.
  */
 import type { Database } from 'better-sqlite3'
 import { TodoState, ToolCallState, type EpochMs, type ToolCallEvent } from '../../shared/domain'
@@ -157,10 +160,13 @@ function apply(
   }
 }
 
-/** An item in Glade's own words: a note only while it's doing, as the Todos tab shows one today. */
+/**
+ * An item in Glade's own words: a note in any state but done, not only while it's doing, as the module comment
+ * above explains — an old spinner line is dropped once the todo is finished, but kept for one not yet started.
+ */
 function toReplayedTodo({ id, text, status, activeForm, completedAt: at }: LegacyItem): ReplayedTodo {
   const state = STATES[status]
-  const note = state === TodoState.Doing && activeForm !== undefined && activeForm.trim() !== '' ? activeForm : null
+  const note = state !== TodoState.Done && activeForm !== undefined && activeForm.trim() !== '' ? activeForm : null
   return { id, text, note, state, completedAt: at }
 }
 

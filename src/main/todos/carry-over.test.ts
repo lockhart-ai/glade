@@ -123,14 +123,33 @@ describe('carryOverTodos', () => {
     const { db, task: a } = task()
     create(db, a.id, '1', 'Review the date helpers', 'Reading the diff')
     update(db, a.id, { taskId: '1', status: 'in_progress' })
-    create(db, a.id, '2', 'Write the release notes')
+    create(db, a.id, '2', 'Write the release notes', 'Drafting the changelog')
     update(db, a.id, { taskId: '2', status: 'completed' })
 
     carryOverTodos(db, a.id)
 
     expect(listTodos(db, a.id)).toEqual([
       { id: '1', text: 'Review the date helpers', note: 'Reading the diff', state: TodoState.Doing, completedAt: null },
+      // Done drops the note even though the call still carried an activeForm: an old spinner line would read
+      // wrongly once the todo is finished.
       { id: '2', text: 'Write the release notes', note: null, state: TodoState.Done, completedAt: 1_000 + 4 },
+    ])
+  })
+
+  it('carries a note for a not-started todo too, not only a doing one, since Glade owns the list now', () => {
+    const { db, task: a } = task()
+    create(db, a.id, '1', 'Review the date helpers', 'Waiting on the PR to open')
+
+    carryOverTodos(db, a.id)
+
+    expect(listTodos(db, a.id)).toEqual([
+      {
+        id: '1',
+        text: 'Review the date helpers',
+        note: 'Waiting on the PR to open',
+        state: TodoState.Todo,
+        completedAt: null,
+      },
     ])
   })
 
