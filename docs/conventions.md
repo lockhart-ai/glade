@@ -19,7 +19,7 @@ from ticket to merged PR.
 | Todo's line  | where it stands now and the next step, kept current     | `Waiting on Jared: review of PR #602`                   |
 | Link         | `Issue #<n>: short title`, `PR #<n>: short title`       | `PR #594: one todo list per task`                       |
 | Design       | `<nn>-<kebab-name>.html` and `.png`, next free number   | `50-todo-hub-stranded.html`                             |
-| Migration    | `<nnnn>-<kebab-purpose>.ts`, next free number           | `0071-retired-todos.ts`                                 |
+| Migration    | `<nnnn>-<kebab-purpose>.ts`, next free number           | `0072-retired-todos.ts`                                 |
 | Release      | tag `vX.Y.Z`, branch `release-vX.Y.Z`, notes in `docs/` | `v0.28.0`, `docs/releases/v0.28.0.md`                   |
 
 ## Glade tasks
