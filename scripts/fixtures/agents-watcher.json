@@ -129,14 +129,17 @@
           "input": {
             "description": "fix-501",
             "prompt": "Fix #501 and open a PR.",
-            "subagent_type": "general-purpose"
+            "subagent_type": "general-purpose",
+            "model": "claude-haiku-4-5"
           },
           "turn": 1,
           "minutesAgo": 35,
           "toolUseId": "use-fix-501",
           "todo": "1",
           "output": "Opened PR #511.",
-          "finishedMinutesAgo": 7
+          "finishedMinutesAgo": 7,
+          "totalInputTokens": 1234567,
+          "totalOutputTokens": 45000
         },
         {
           "kind": "tool_call",

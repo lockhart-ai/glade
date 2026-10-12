@@ -1211,6 +1211,67 @@ describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', 
     expect(vi.mocked(mainTokensLine)).toHaveBeenCalledTimes(1)
   })
 
+  it("renders an agent's token totals on its line when they arrive, and nothing else of the line when they don't (#589)", async () => {
+    const { fake } = await renderAgents()
+    fireEvent.click(tab('review-49'))
+
+    // The totals arrive on the call, which rides the same `tool event updated` event the run's ending does: the span
+    // renders, once, and shows the same figure Main's line does.
+    act(() => {
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: {
+          ...agent(49),
+          name: 'mcp__glade-agents__dispatch',
+          input: { description: 'review-49', prompt: '…', model: 'claude-haiku-4-5' },
+          totalInputTokens: 1_234_567,
+          totalOutputTokens: 45_000,
+        },
+      })
+    })
+    expect(vi.mocked(mainTokensLine)).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('1.2M in · 45k out')).toBeTruthy()
+
+    // Any other change to the call renders it not at all: the updated row carries the same totals.
+    vi.mocked(mainTokensLine).mockClear()
+    act(() => {
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: {
+          ...agent(49),
+          name: 'mcp__glade-agents__dispatch',
+          input: { description: 'review-49', prompt: '…', model: 'claude-haiku-4-5' },
+          totalInputTokens: 1_234_567,
+          totalOutputTokens: 45_000,
+          progressSummary: 'Reading the diff',
+        },
+      })
+    })
+    expect(vi.mocked(mainTokensLine)).not.toHaveBeenCalled()
+
+    // Another agent's events don't touch it, and totals that change again render the span alone, once.
+    act(() => {
+      fake.emit({
+        type: EventType.ToolEventAppended,
+        toolEvent: call('late-49', 1, { parentToolUseId: agent(48).toolUseId }),
+      })
+    })
+    expect(vi.mocked(mainTokensLine)).not.toHaveBeenCalled()
+    act(() => {
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: {
+          ...agent(49),
+          name: 'mcp__glade-agents__dispatch',
+          input: { description: 'review-49', prompt: '…', model: 'claude-haiku-4-5' },
+          totalInputTokens: 1_234_568,
+          totalOutputTokens: 45_000,
+        },
+      })
+    })
+    expect(vi.mocked(mainTokensLine)).toHaveBeenCalledTimes(1)
+  })
+
   it('renders only the row that was added or changed in the list showing', async () => {
     const { fake } = await renderAgents()
     const running = call('late-main', 1, { state: ToolCallState.Running, output: null, finishedAt: null })

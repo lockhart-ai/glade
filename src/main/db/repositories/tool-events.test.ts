@@ -23,12 +23,14 @@ import {
   appendToolCall,
   deleteToolEvent,
   failRunningCompactions,
+  getToolCall,
   interruptPausedToolCalls,
   interruptRunningToolCall,
   interruptRunningToolCalls,
   listSubagentCallsToPreload,
   listToolCallsNamed,
   listToolEvents,
+  setAgentCallTokenTotals,
   setSubagentProgress,
   updateCompaction,
   updateToolCall,
@@ -699,5 +701,54 @@ describe('listSubagentCallsToPreload (#579)', () => {
     )
     // A scheduled wakeup counts too, and the outer call joins once it has one of its own.
     expect(listSubagentCallsToPreload(test.db, ['Agent'])).toEqual([done, nested])
+  })
+})
+
+describe('setAgentCallTokenTotals', () => {
+  const totals = (toolUseId = 'toolu_agent') => ({
+    taskId: task.id,
+    toolUseId,
+    totalInputTokens: 620,
+    totalOutputTokens: 900,
+  })
+
+  it("writes an agent's totals onto the call that started it, and the row round-trips them", () => {
+    const call = appendToolCall(test.db, { ...bashCall('toolu_agent'), name: 'mcp__glade-agents__dispatch' })
+
+    expect(setAgentCallTokenTotals(test.db, totals())).toBe(true)
+    expect(getToolCall(test.db, task.id, 'toolu_agent')).toEqual({
+      ...call,
+      totalInputTokens: 620,
+      totalOutputTokens: 900,
+    })
+    expect(listToolEvents(test.db, task.id)).toEqual([{ ...call, totalInputTokens: 620, totalOutputTokens: 900 }])
+  })
+
+  it('writes on any tool call, by its id alone', () => {
+    appendToolCall(test.db, bashCall('toolu_bash'))
+
+    expect(setAgentCallTokenTotals(test.db, totals('toolu_bash'))).toBe(true)
+    expect(getToolCall(test.db, task.id, 'toolu_bash')).toMatchObject({
+      totalInputTokens: 620,
+      totalOutputTokens: 900,
+    })
+  })
+
+  it('keeps the totals of a call whose result later arrives, and leaves unwritten calls without them', () => {
+    appendToolCall(test.db, { ...bashCall('toolu_agent'), name: 'mcp__glade-agents__dispatch' })
+    setAgentCallTokenTotals(test.db, totals())
+    const finished = updateToolCall(test.db, {
+      taskId: task.id,
+      toolUseId: 'toolu_agent',
+      state: ToolCallState.Done,
+      output: 'Child done.',
+    })
+    expect(finished).toMatchObject({ totalInputTokens: 620, totalOutputTokens: 900 })
+
+    const other = sampleTask(test.db, task.workspaceId)
+    appendToolCall(test.db, { ...bashCall('toolu_other'), taskId: other.id })
+    expect(setAgentCallTokenTotals(test.db, totals('toolu_other'))).toBe(false)
+    expect(setAgentCallTokenTotals(test.db, totals('toolu_missing'))).toBe(false)
+    expect(getToolCall(test.db, other.id, 'toolu_other')).not.toHaveProperty('totalInputTokens')
   })
 })

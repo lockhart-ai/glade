@@ -775,7 +775,9 @@ job, or name a model for a particular child. Same-source children use Claude Cod
 its agent types, worktree isolation and `SendMessage`. When an OpenRouter key is connected, Glade's dispatch tool
 can start a child on the other source: Claude → OpenRouter or OpenRouter → Claude. Without a key, the delegation
 tools and prompt are unchanged. Settings controls providers. Cross-source children's Agents tabs show their model,
-text and tool history. They currently start at Low effort, inherit the main agent's prompt/tools with metadata
+text and tool history, with what the child's own run spent at the row's right ("1.2M in · 45k out", as Main's line
+shows its totals; a resumed child's tab counts its own run alone). They currently start at Low effort, inherit the
+main agent's prompt/tools with metadata
 calls refused, and have no native agent types or worktree isolation. Those improvements are follow-ups.
 A finished dispatched child can be resumed on its original model with its returned ID, including after a relaunch,
 while its source differs from the parent's. Stop also stops its remaining descendants.

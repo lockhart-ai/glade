@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
-import { ToolCallState, UiStateKey, WatcherKind, WatcherState } from '../../../shared/domain'
+import { UiStateKey, WatcherKind, WatcherState } from '../../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../../shared/settings'
 import { ChildFilter, ChildKind, subagentTodo, UNFILED_TODO_ID } from '../../../shared/todoHub'
 import { missingContext, MissingContextKind } from '../../agent/session-context'
@@ -13,7 +13,6 @@ import { addArtifact, addLinkArtifact } from '../repositories/artifacts'
 import { getSessionContext } from '../repositories/session-context'
 import { getSettings } from '../repositories/settings'
 import { addTaskCommit, CommitSource } from '../repositories/task-commits'
-import { appendToolCall, updateToolCall } from '../repositories/tool-events'
 import { getUiState, listUiState, setUiState } from '../repositories/ui-state'
 import { addWatcher, listWatchers } from '../repositories/watchers'
 import { MIGRATIONS } from '.'
@@ -38,10 +37,17 @@ function databaseBefore(version: number): Database {
   return db
 }
 
-/** A call of the task's agent, finished, as the tool log keeps it. */
+/**
+ * A call of the task's agent, finished, as the tool log keeps it. Written as the schema it lands in has it, not as the
+ * repositories do now: their insert and their reads name columns this database predates (#589's totals included).
+ */
 function call(db: Database, toolUseId: string, name: string, input: Record<string, unknown>, output: string): void {
-  appendToolCall(db, { taskId: 't', turn: 1, name, input, toolUseId, parentToolUseId: null }, 3_000)
-  updateToolCall(db, { taskId: 't', toolUseId, state: ToolCallState.Done, output }, 3_100)
+  db.prepare(
+    `INSERT INTO tool_events (seq, id, task_id, kind, turn, created_at, tool_name, tool_input, tool_output,
+      finished_at, tool_state, tool_use_id, parent_tool_use_id)
+    VALUES ((SELECT COALESCE(MAX(seq), 0) + 1 FROM tool_events WHERE task_id = ?), 'event-' || ?, 't', 'tool_call', 1,
+      3_000, ?, ?, ?, 3_100, 'done', ?, NULL)`,
+  ).run('t', toolUseId, name, JSON.stringify(input), output, toolUseId)
 }
 
 /**
