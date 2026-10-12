@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AutoCompactKind } from '../../shared/domain'
-import { autoCompactFrom, carriedOver, sameAutoCompact } from './compaction'
+import { autoCompactFrom, carriedOver, contextEstimateFrom, sameAutoCompact } from './compaction'
 
 describe('autoCompactFrom', () => {
   it('reads the threshold while auto-compact is on, as the probe saw it', () => {
@@ -26,6 +26,23 @@ describe('autoCompactFrom', () => {
     expect(autoCompactFrom({ autoCompactThreshold: 167_000 })).toBeUndefined()
     expect(autoCompactFrom(null)).toBeUndefined()
     expect(autoCompactFrom('usage')).toBeUndefined()
+  })
+})
+
+describe('contextEstimateFrom', () => {
+  it("reads the SDK's own totalTokens, as #573's probe saw it", () => {
+    const usage = { maxTokens: 200_000, rawMaxTokens: 200_000, percentage: 12, autocompactSource: 'unknown-model' }
+    expect(contextEstimateFrom({ ...usage, totalTokens: 23_858 })).toBe(23_858)
+    // A zero answer still parses: the caller (`onContextUsed`) is the one that treats it as nothing.
+    expect(contextEstimateFrom({ totalTokens: 0 })).toBe(0)
+  })
+
+  it('says nothing for an answer with no usable totalTokens, so the last known figure stays', () => {
+    expect(contextEstimateFrom({ maxTokens: 200_000 })).toBeNull()
+    expect(contextEstimateFrom({ totalTokens: -1 })).toBeNull()
+    expect(contextEstimateFrom({ totalTokens: '23858' })).toBeNull()
+    expect(contextEstimateFrom(null)).toBeNull()
+    expect(contextEstimateFrom('usage')).toBeNull()
   })
 })
 

@@ -755,8 +755,9 @@ describe('the context usage on OpenRouter (#568, #573)', () => {
   it('keeps the previous figure on a multi-request turn whose result carries no iterations (#573)', async () => {
     // Two tool round-trips then a final reply: three main-loop requests, same as #573's probe
     // (docs/sdk-notes.md, "A turn's result.usage sums the main loop, not the last request"). With no `iterations`
-    // entry to give the last request's own figure, `result.usage`'s sum is never honestly that figure either, so
-    // the previous context stands.
+    // entry to give the last request's own figure, `result.usage`'s sum is never honestly that figure either. The
+    // fallback below (the SDK's own context estimate) is still asked, but this fake session never answers it (the
+    // default `onContextUsage`, unset here), so the previous context stands either way.
     await switchedToOpenRouter()
     runner.send(task.id, 'Check the sample file again.')
     backend.session.emit(sdk.init())
@@ -854,5 +855,90 @@ describe('the context usage on OpenRouter (#568, #573)', () => {
     backend.session.emit(sdk.result('Continued.', { usage: openRouterUsage(90_000) }))
     await settle()
     expect(getTask(database.db, task.id)?.contextUsedTokens).toBe(12_000)
+  })
+
+  describe("the SDK's own context estimate, as the last resort with no honest per-request figure (#573)", () => {
+    /**
+     * Two tool round-trips then a final reply, all zero-usage frames, with no `iterations` in the result: the shape
+     * probed for #573 where `lastRequestUsage` is null and the runner falls back to `getContextUsage`.
+     */
+    async function multiRequestNoFigure(resultOverrides: Record<string, unknown> = {}): Promise<void> {
+      runner.send(task.id, 'Check the sample file again.')
+      backend.session.emit(sdk.init())
+      backend.session.emit(zeroUsageFrame(sdk.toolUse('read-1', 'Read', { file_path: '/code/sample.ts' })))
+      backend.session.emit(sdk.toolResult('read-1', 'export const answer = 42'))
+      backend.session.emit(
+        zeroUsageFrame(sdk.toolUse('read-2', 'Read', { file_path: '/code/other.ts' }, null, 'msg_02')),
+      )
+      backend.session.emit(sdk.toolResult('read-2', 'export const other = 7'))
+      backend.session.emit(zeroUsageFrame(sdk.text('The answer is 42.', null, 'msg_03')))
+      backend.session.emit(
+        sdk.result('The answer is 42.', { usage: openRouterUsage(41_000), num_turns: 3, ...resultOverrides }),
+      )
+      await settle()
+    }
+
+    it('takes the context from the estimate when no per-request figure exists', async () => {
+      await switchedToOpenRouter()
+      backend.session.onContextUsage = () => Promise.resolve({ totalTokens: 55_123 })
+      await multiRequestNoFigure()
+      expect(getTask(database.db, task.id)?.contextUsedTokens).toBe(55_123)
+    })
+
+    it('keeps the previous figure when the estimate also says nothing usable', async () => {
+      await switchedToOpenRouter()
+      // No `totalTokens` in the answer, as a malformed or unrecognised shape would read.
+      backend.session.onContextUsage = () => Promise.resolve({ maxTokens: 200_000 })
+      await multiRequestNoFigure()
+      expect(getTask(database.db, task.id)?.contextUsedTokens).toBe(sdk.CONTEXT_USED)
+    })
+
+    it('keeps the previous figure when the estimate says zero', async () => {
+      await switchedToOpenRouter()
+      backend.session.onContextUsage = () => Promise.resolve({ totalTokens: 0 })
+      await multiRequestNoFigure()
+      expect(getTask(database.db, task.id)?.contextUsedTokens).toBe(sdk.CONTEXT_USED)
+    })
+
+    it('keeps the previous figure when the estimate call rejects', async () => {
+      await switchedToOpenRouter()
+      backend.session.onContextUsage = () => Promise.reject(new Error('Query closed before response received'))
+      await multiRequestNoFigure()
+      expect(getTask(database.db, task.id)?.contextUsedTokens).toBe(sdk.CONTEXT_USED)
+    })
+
+    it('never asks for a turn that compacted, even with no per-request figure', async () => {
+      await switchedToOpenRouter()
+      backend.session.onContextUsage = () => Promise.resolve({ totalTokens: 55_123 })
+      runner.send(task.id, 'Check the sample file again.')
+      backend.session.emit(sdk.init(), ...sdk.compaction(90_000, 12_000, 'auto'))
+      backend.session.emit(zeroUsageFrame(sdk.text('Continued.', null, 'msg_01')))
+      backend.session.emit(sdk.result('Continued.', { usage: openRouterUsage(90_000), num_turns: 3 }))
+      await settle()
+      expect(getTask(database.db, task.id)?.contextUsedTokens).toBe(12_000)
+    })
+
+    it('never asks when a per-request figure already exists', async () => {
+      await switchedToOpenRouter()
+      backend.session.onContextUsage = () => Promise.resolve({ totalTokens: 55_123 })
+      runner.send(task.id, 'Check the sample file again.')
+      backend.session.emit(sdk.init())
+      backend.session.emit(sdk.result('Done.', { usage: openRouterUsage(41_000), num_turns: 1 }))
+      await settle()
+      expect(getTask(database.db, task.id)?.contextUsedTokens).toBe(41_000)
+    })
+
+    it('never asks for a Claude session, even shaped like the same gap', async () => {
+      // Still on the task's original Claude model: `switchedToOpenRouter` is never called.
+      runner.send(task.id, 'Check the sample file again.')
+      backend.session.onContextUsage = () => Promise.resolve({ totalTokens: 55_123 })
+      backend.session.emit(sdk.init())
+      backend.session.emit(zeroUsageFrame(sdk.toolUse('read-1', 'Read', { file_path: '/code/sample.ts' })))
+      backend.session.emit(sdk.toolResult('read-1', 'export const answer = 42'))
+      backend.session.emit(zeroUsageFrame(sdk.text('The answer is 42.', null, 'msg_02')))
+      backend.session.emit(sdk.result('The answer is 42.', { usage: openRouterUsage(41_000), num_turns: 2 }))
+      await settle()
+      expect(getTask(database.db, task.id)?.contextUsedTokens).not.toBe(55_123)
+    })
   })
 })

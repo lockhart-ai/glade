@@ -325,22 +325,42 @@ not the last (which would be 8 / 460 / 16548, totalling ~17k against the sum's ~
 
 That same `result.usage` carried **`iterations`**, an array of per-request usage objects (`input_tokens`,
 `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `cache_creation`, `type: "message"`) with
-**one entry, matching the last request's own figure** — on that live run. **Probed with a local mock (three
-requests, two tool calls then text, both in OpenRouter's Anthropic-compatible shape — zeroed `message_start`, real
-counts only in the final `message_delta` — and in Anthropic's own shape as a control): `iterations` came back
-empty (`[]`) in both shapes**, for an ordinary turn with no truncated response needing a continuation request; it is
-likely populated only when the main loop had to continue a response the model cut short, not generally available as
-"the last request's figure." `result.num_turns` **did** match the number of main-loop requests exactly (3), in both
-shapes, including a one-request control (`num_turns: 1`) where `result.usage` and the single request's own usage are
-identical — the sum of one term is that term.
+**one entry, matching the last request's own figure** — on that live Claude run, which had no truncated response.
+**Probed with a local mock (three requests, two tool calls then text, both in OpenRouter's Anthropic-compatible
+shape — zeroed `message_start`, real counts only in the final `message_delta` — and in Anthropic's own shape as a
+control): `iterations` came back empty (`[]`) in both shapes**, for the same kind of ordinary turn. So one run
+had an entry and two didn't, for turns that look alike by the one difference we can name (no truncated response in
+either); **why the live run had one is not known** — it is observed, not explained, and not relied on as "the last
+request's figure" in general. `result.num_turns` **did** match the number of main-loop requests exactly (3), in both
+mocked shapes, including a one-request control (`num_turns: 1`) where `result.usage` and the single request's own
+usage are identical — the sum of one term is that term.
 
 **What Glade does (`lastRequestUsage` in `src/main/agent/events.ts`):** prefer the last `usage.iterations` entry when
 the SDK gives one (future-proofing, since the probe above may not cover every shape); else, trust `result.usage`
 itself only when `num_turns === 1`, where the "sum" is provably the one request's own figure; else there is no
-honest per-request figure in `result`, so the runner keeps the previous context figure rather than writing a sum
-(`docs/openrouter-integration-spec.md`, "Usage gaps", #573). This only changes behaviour for OpenRouter turns: a
-Claude session's own top-level `assistant` messages already carry real per-request usage, so it never reaches this
-fallback.
+honest per-request figure in `result` (#573's own test fixture confirms this reproduces the live run's numbers:
+sum ≈48.6k, last ≈17k).
+
+**With no honest per-request figure either, the runner asks `getContextUsage({ detail: "summary" })` once, as the
+last resort (#573).** Probed with the same local mock (three requests, two tool calls then text): its `totalTokens`
+did **not** move with the number of requests — a one-request and a three-request turn on the same small per-request
+usage numbers (sum ≈9.6k, last ≈3.4k) both answered **23858**, matching neither; it tracks a *local, structural*
+estimate (system prompt, skills, slash commands — `messageBreakdown`/`skills`/`slashCommands` in its answer, mostly
+machine-specific overhead unrelated to the turn) that dominates when the real usage is small. Raising the last
+request's own invented figure past that floor (sum ≈9.6k+106k, last =100k) made `totalTokens` answer **exactly
+100000** — the last request's own total, never the sum of all three (which would have been far higher) — in both
+OpenRouter's shape and Anthropic's control shape alike (bit-for-bit identical answers in both, since this estimate
+doesn't read the broken per-message usage trail at all). So `totalTokens` behaves as `max(local baseline estimate,
+last request's own real total)`: never a sum, never zero outright (a floor from the local estimate instead), and the
+right answer once the real conversation is large enough to matter. **Right after a manual `/compact` it was stale**,
+confirming the existing note below: it read **24946**, slightly *higher* than the 23858 baseline from before the
+compaction that just shrank the conversation, so it is never asked for a turn that compacted. The runner takes it
+only for an OpenRouter turn whose messages reported nothing and whose result gives no `lastRequestUsage`; the
+estimate's own zero or an absent/malformed `totalTokens` leaves the previous figure standing, same as a zero report
+from anywhere else (`docs/openrouter-integration-spec.md`, "Usage gaps", #573).
+
+None of this (`lastRequestUsage`, the `getContextUsage` fallback) changes behaviour for a Claude session: its own
+top-level `assistant` messages already carry real per-request usage, so it never reaches either fallback.
 
 ### The context window, and which `modelUsage` entry it is (#416) [from the SDK's types and binary, not probed]
 
