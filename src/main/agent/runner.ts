@@ -465,7 +465,7 @@ import {
 import { grantingGrant, heldGrants, type GrantingGrant } from '../sandbox/grants'
 import { createQuestionBroker, toolResultFor, type QuestionBroker } from '../questions/questions'
 import { addQueuedMessage } from '../tasks/queue'
-import { changesTodos, refreshTodos, takenOverTodoLogged } from '../todos/todos'
+import { changesTodos, liveTodos, refreshTodos, takenOverTodoLogged } from '../todos/todos'
 import { noteAgentReply } from '../tasks/attention'
 import { reopenTask, updateTaskFromRunner, updateTaskFromUser, type TaskServiceContext } from '../tasks/service'
 import {
@@ -1812,8 +1812,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const call = updateToolCall(db, { taskId, toolUseId: event.toolUseId, state, output })
     emitToolEventUpdated(emit, call)
     if (changesTodos(call)) {
-      const { list, changed } = refreshTodos(db, taskId)
-      emitTodosChanged(emit, taskId, list)
+      const { changed } = refreshTodos(db, taskId)
+      // The list the windows are sent is the one the agent holds: a todo its shared list folder no longer has goes
+      // marked stranded (#593). No shared folder (a task that hasn't started since, or a test without one), no marks.
+      emitTodosChanged(emit, taskId, liveTodos(db, taskId, options.dataDir))
       if (changed !== null) emitTaskUpdated(emit, changed)
       // A new todo that reuses a number a different subject held must not inherit what was filed under it (#593): the
       // old todo's children go to Not under a todo. The same subject is the agent recreating its own todo, which keeps

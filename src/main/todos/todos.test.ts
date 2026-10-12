@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Database } from 'better-sqlite3'
@@ -13,15 +13,19 @@ import {
 } from '../../shared/domain'
 import { summarizeTodos, todoProgress } from '../../shared/todoSummary'
 import { openAppDatabase } from '../db/database'
+import { retireTodo } from '../db/repositories/retired-todos'
 import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
+import { sharedTaskListDir } from '../openrouter/task-list'
 import {
   changesTodos,
   deriveTodoList,
   highestTodoId,
+  liveTodos,
   refreshStaleTodos,
   refreshTodos,
+  strandedIds,
   takenOverTodo,
   todoListFor,
 } from './todos'
@@ -658,5 +662,118 @@ describe('takenOverTodo', () => {
     const calls = [first, fresh, broken]
     expect(takenOverTodo(calls, fresh)).toBeNull()
     expect(takenOverTodo(calls, broken)).toBeNull()
+  })
+})
+
+describe('a todo the agent has closed (#593)', () => {
+  let test: TestDatabase | undefined
+
+  afterEach(() => {
+    test?.close()
+  })
+
+  it('is out of the list `todoListFor` answers, and of the summary with it', () => {
+    test = openTestDatabase()
+    const { db } = test
+    const task = sampleTask(db, sampleWorkspace(db).id)
+    logCreate(db, task.id, '1', 'Review the date helpers')
+    logCreate(db, task.id, '2', 'Fix the UTC date test')
+    retireTodo(db, task.id, '1', 9_000)
+
+    expect(todoListFor(db, task.id)?.items.map(({ id }) => id)).toEqual(['2'])
+    const { list, changed } = refreshTodos(db, task.id)
+    expect(list?.items.map(({ id }) => id)).toEqual(['2'])
+    expect(changed?.todos).toEqual({ done: 0, total: 1, doing: [] })
+  })
+})
+
+describe('liveTodos (#593)', () => {
+  let test: TestDatabase | undefined
+  const dirs: string[] = []
+
+  afterEach(() => {
+    test?.close()
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+  })
+
+  /** A shared list folder holding a todo file per id given, and a high-water mark. */
+  function sharedList(taskId: string, ...ids: readonly string[]): string {
+    const dir = mkdtempSync(join(tmpdir(), 'glade-live-todos-'))
+    dirs.push(dir)
+    const folder = sharedTaskListDir(dir, taskId)
+    mkdirSync(folder, { recursive: true })
+    for (const id of ids) writeFileSync(join(folder, `${id}.json`), `{"id":"${id}","status":"pending"}`)
+    writeFileSync(join(folder, '.highwatermark'), '90')
+    return dir
+  }
+
+  it('marks a todo the shared list folder no longer holds, and leaves one it holds alone', () => {
+    test = openTestDatabase()
+    const { db } = test
+    const task = sampleTask(db, sampleWorkspace(db).id)
+    logCreate(db, task.id, '1', 'Review the date helpers')
+    logCreate(db, task.id, '35', 'Watch CI on PR #42')
+    logCreate(db, task.id, '2', 'Fix the UTC date test')
+
+    expect(liveTodos(db, task.id, sharedList(task.id, '1', '2'))?.items).toEqual([
+      { id: '1', text: 'Review the date helpers', state: TodoState.Todo, note: null, completedAt: null },
+      { id: '35', text: 'Watch CI on PR #42', state: TodoState.Todo, note: null, completedAt: null, stranded: true },
+      { id: '2', text: 'Fix the UTC date test', state: TodoState.Todo, note: null, completedAt: null },
+    ])
+  })
+
+  it('never marks an id-less item, which a TodoWrite list is all of', () => {
+    test = openTestDatabase()
+    const { db } = test
+    const task = sampleTask(db, sampleWorkspace(db).id)
+    logWrite(db, task.id, [
+      { content: 'Sweep the floor', status: 'pending' },
+      { content: 'Rinse', status: 'completed' },
+    ])
+    const items = [
+      { id: null, text: 'Sweep the floor', state: TodoState.Todo, note: null, completedAt: null },
+      {
+        id: null,
+        text: 'Rinse',
+        state: TodoState.Done,
+        note: null,
+        completedAt: todoListFor(db, task.id)?.items[1]?.completedAt ?? null,
+      },
+    ]
+
+    expect(liveTodos(db, task.id, sharedList(task.id))?.items).toEqual(items)
+  })
+
+  it('changes nothing for a task with no shared folder, or with none of Glade to read it with', () => {
+    test = openTestDatabase()
+    const { db } = test
+    const workspace = sampleWorkspace(db).id
+    const task = sampleTask(db, workspace)
+    logCreate(db, task.id, '1', 'Review the date helpers')
+    const plain = todoListFor(db, task.id)
+
+    expect(liveTodos(db, task.id, undefined)).toEqual(plain)
+    const empty = mkdtempSync(join(tmpdir(), 'glade-live-todos-'))
+    expect(liveTodos(db, task.id, empty)).toEqual(plain)
+    rmSync(empty, { recursive: true, force: true })
+
+    // A shared folder that holds every todo the task derives marks none of them.
+    expect(liveTodos(db, task.id, sharedList(task.id, '1'))).toEqual(plain)
+
+    // A task that keeps no list at all has none to mark.
+    const other = sampleTask(db, workspace)
+    expect(liveTodos(db, other.id, sharedList(other.id))).toBeNull()
+  })
+
+  it('answers the ids stranded, and none when there is no live list to compare with', () => {
+    test = openTestDatabase()
+    const { db } = test
+    const task = sampleTask(db, sampleWorkspace(db).id)
+    logCreate(db, task.id, '1', 'Review the date helpers')
+    logCreate(db, task.id, '35', 'Watch CI on PR #42')
+    const todos = todoListFor(db, task.id)?.items ?? []
+
+    expect(strandedIds(todos, new Set(['1']))).toEqual(new Set(['35']))
+    expect(strandedIds(todos, null)).toEqual(new Set())
   })
 })

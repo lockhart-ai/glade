@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, readlink, rename, rm, symlink, writeFile } fr
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { sdkTaskList } from './task-list'
+import { liveTodoIds, sdkTaskList, sharedTaskListDir } from './task-list'
 vi.mock('node:fs/promises', { spy: true })
 let dir: string
 beforeEach(async () => {
@@ -176,4 +176,18 @@ it('leaves a shared list that already exists alone, whatever Glade holds', async
   await writeFile(join(dir, 'sdk-task-lists', 'running', '.highwatermark'), '5')
   await sdkTaskList({ ...options, highestTodoId: 52 })
   expect(await readFile(join(dir, 'sdk-task-lists', 'running', '.highwatermark'), 'utf8')).toBe('5')
+})
+
+it('reads the live todo ids by file name alone, and none where there is no shared list', async () => {
+  const folder = sharedTaskListDir(dir, 'task:1')
+  await mkdir(folder, { recursive: true })
+  await writeFile(join(folder, '1.json'), '{"id":"1","status":"pending"}')
+  await writeFile(join(folder, '52.json'), '{"id":"52","status":"completed"}')
+  await writeFile(join(folder, '.highwatermark'), '60')
+  await writeFile(join(folder, '.lock'), '')
+  expect(liveTodoIds(dir, 'task:1')).toEqual(new Set(['1', '52']))
+  // A folder entry that names nothing — a link to a file gone, say — is not live.
+  await symlink(join(folder, 'gone.json'), join(folder, '9.json'))
+  expect(liveTodoIds(dir, 'task:1')).toEqual(new Set(['1', '52']))
+  expect(liveTodoIds(dir, 'never-started')).toBeNull()
 })

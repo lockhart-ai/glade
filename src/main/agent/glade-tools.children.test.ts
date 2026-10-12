@@ -4,6 +4,9 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import type { Database } from 'better-sqlite3'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createBridge } from '../../preload/bridge'
 import { CommandName, EventType, type GladeEvent } from '../../shared/bridge'
@@ -15,6 +18,7 @@ import { addArtifact, addLinkArtifact } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
+import { sharedTaskListDir } from '../openrouter/task-list'
 import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
 import { createQuestionBroker } from '../questions/questions'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
@@ -95,15 +99,16 @@ async function toolsOf(settings?: AgentUpkeep) {
 
 const list = (input: Record<string, unknown> = {}) => caller.call('mcp__glade__list_children', input)
 const file = (input: Record<string, unknown>) => caller.call('mcp__glade__file_children', input)
+const close = (input: Record<string, unknown>) => caller.call('mcp__glade__close_todo', input)
 
 describe('the server', () => {
   it('has the two tools in every session, loaded up front like the rest', async () => {
     const tools = await toolsOf()
 
     expect(tools.map(({ name }) => name).slice(-4)).toEqual([
-      GladeTool.RemoveArtifact,
       GladeTool.ListChildren,
       GladeTool.FileChildren,
+      GladeTool.CloseTodo,
       GladeTool.ListOtherTasks,
     ])
     for (const listed of tools) expect(listed._meta).toEqual({ 'anthropic/alwaysLoad': true })
@@ -120,6 +125,7 @@ describe('the server', () => {
 
     expect(schema(GladeTool.ListChildren)).toMatchObject({ properties: { todo: { type: 'string' } } })
     expect(schema(GladeTool.ListChildren)?.required).toBeUndefined()
+    expect(schema(GladeTool.CloseTodo)).toMatchObject({ required: ['todo'], properties: { todo: { type: 'string' } } })
     expect(schema(GladeTool.FileChildren)).toMatchObject({
       required: ['filings'],
       properties: {
@@ -228,6 +234,13 @@ describe('the two tools, called as the agent calls them', () => {
     await expect(list({ todo: 2 })).resolves.toMatchObject({ isError: true })
   })
 
+  it('refuses a close_todo call that names no todo, before the handler runs', async () => {
+    unsorted()
+
+    await expect(close({})).resolves.toMatchObject({ isError: true })
+    await expect(close({ todo: ' ' })).resolves.toMatchObject({ isError: true })
+  })
+
   it('has handlers that answer as the tools do', () => {
     unsorted()
     const handlers = createGladeToolHandlers(context, task.id)
@@ -242,6 +255,29 @@ describe('the two tools, called as the agent calls them', () => {
     })
     expect(handlers.fileChildren({ filings: [{ child: 'c2', todo: '3' }] })).toMatchObject({ isError: true })
     expect(handlers.listChildren({ todo: '3' })).toMatchObject({ isError: true })
+  })
+
+  it('closes a stranded todo through its handler, and refuses a live one as an error', () => {
+    createTodo('1', 'Review the date helpers')
+    createTodo('2', 'Fix the UTC date test')
+    const dir = mkdtempSync(join(tmpdir(), 'glade-close-todo-'))
+    const folder = sharedTaskListDir(dir, task.id)
+    mkdirSync(folder, { recursive: true })
+    writeFileSync(join(folder, '2.json'), '{"id":"2","status":"pending"}')
+
+    const stranded = createGladeToolHandlers({ ...context, dataDir: dir }, task.id)
+    expect(stranded.closeTodo({ todo: '1' })).toEqual({
+      content: [
+        {
+          type: 'text',
+          text:
+            "Closed stranded todo #1 Review the date helpers (pending). It is out of the task's list everywhere; " +
+            'its history stays in the tool log.',
+        },
+      ],
+    })
+    expect(createGladeToolHandlers(context, task.id).closeTodo({ todo: '2' })).toMatchObject({ isError: true })
+    rmSync(dir, { recursive: true, force: true })
   })
 })
 

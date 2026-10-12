@@ -18,6 +18,11 @@
  * A done item keeps when it was finished (#282): the time of the call that marked it done, i.e. the `TaskUpdate` that
  * set it completed, or the first of the `TodoWrite`s that has kept it completed since. An item that goes back from
  * completed loses it. Since it's worked out from the stored tool log, it survives a relaunch like the rest of the list.
+ *
+ * A numbered item the task's agent no longer holds in its live list — one a restart of the session stranded (#593) —
+ * is marked `stranded` (`liveTodos`, from the shared list folder `../openrouter/task-list` keeps), and one the agent
+ * has closed with `close_todo` is left out (`todoListFor`, the `retired_todos` table): out of the tab, the summaries,
+ * `list_children` and the "Your todos:" line, its history staying in the tool log.
  */
 import type { Database } from 'better-sqlite3'
 import {
@@ -30,6 +35,8 @@ import {
   type ToolCallEvent,
 } from '../../shared/domain'
 import { sameTodoSummary, summarizeTodos } from '../../shared/todoSummary'
+import { liveTodoIds } from '../openrouter/task-list'
+import { listRetiredTodoIds } from '../db/repositories/retired-todos'
 import { getTask, listStaleTodoTaskIds, setTaskTodos } from '../db/repositories/tasks'
 import { listToolCallsNamed } from '../db/repositories/tool-events'
 import {
@@ -177,7 +184,11 @@ export function deriveTodoList(calls: readonly ToolCallEvent[]): TodoList | null
   return updatedAt === null ? null : { items: items.map(toTodo), updatedAt }
 }
 
-/** The highest todo id Glade already holds for a task, as a number; null when it holds no numbered todo. */
+/**
+ * The highest todo id Glade already holds for a task, as a number; null when it holds no numbered todo. One the agent
+ * has closed is out of the list (`todoListFor`) and so not counted — which doesn't matter, since a list is only ever
+ * seeded before any todo of the task can be closed.
+ */
 export function highestTodoId(db: Database, taskId: string): number | null {
   const ids = (todoListFor(db, taskId)?.items ?? [])
     .map(({ id }) => (id === null ? Number.NaN : Number.parseInt(id, 10)))
@@ -215,9 +226,39 @@ export function takenOverTodoLogged(db: Database, taskId: string, call: ToolCall
   return takenOverTodo(listToolCallsNamed(db, taskId, TODO_TOOLS), call)
 }
 
-/** A task's todo list, as its tool log leaves it. */
+/** A task's todo list, as its tool log leaves it, without the todos its agent has closed (`close_todo`, #593). */
 export function todoListFor(db: Database, taskId: string): TodoList | null {
-  return deriveTodoList(listToolCallsNamed(db, taskId, TODO_TOOLS))
+  const list = deriveTodoList(listToolCallsNamed(db, taskId, TODO_TOOLS))
+  if (list === null) return null
+  const closed = listRetiredTodoIds(db, taskId)
+  if (closed.size === 0) return list
+  return { ...list, items: list.items.filter(({ id }) => id === null || !closed.has(id)) }
+}
+
+/** The ids of a derived list its shared list folder doesn't hold, and so are stranded (#593). */
+export function strandedIds(todos: readonly Todo[], live: ReadonlySet<string> | null): ReadonlySet<string> {
+  const ids = new Set<string>()
+  if (live !== null) for (const { id } of todos) if (id !== null && !live.has(id)) ids.add(id)
+  return ids
+}
+
+/**
+ * A task's todo list as its agent holds it: worked out from the tool log (`todoListFor`, closed ones out), with every
+ * numbered todo the task's shared list folder no longer holds marked stranded (#593). A task with no shared folder —
+ * one that hasn't started since Glade kept the list for it — is left exactly as it was: nothing of it is stranded, and
+ * an item with no id (a `TodoWrite` one) never is.
+ */
+export function liveTodos(db: Database, taskId: string, dataDir: string | undefined): TodoList | null {
+  const list = todoListFor(db, taskId)
+  if (list === null || dataDir === undefined) return list
+  const live = liveTodoIds(dataDir, taskId)
+  if (live === null) return list
+  const stranded = strandedIds(list.items, live)
+  if (stranded.size === 0) return list
+  return {
+    ...list,
+    items: list.items.map((todo) => (todo.id !== null && stranded.has(todo.id) ? { ...todo, stranded: true } : todo)),
+  }
 }
 
 /** A task's todo list worked out again (`refreshTodos`). */

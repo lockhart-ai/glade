@@ -547,6 +547,15 @@
     the window with each todo, whatever the switch says, and the Todos tab keys its rows on it. A `TodoWrite` item has
     none: nothing can be filed under it, and its row is keyed by its place in the list. (Glade keeps Claude Code's
     task tools on for a session with the hub, #495, so that shouldn't occur.)
+  - **A todo the agent's live list no longer holds is stranded, and the agent closes it** (#593). For a task whose
+    shared list folder exists (`liveTodos`, `src/main/todos`), a numbered todo Glade derives that the folder has no
+    `N.json` for is stranded: shown in the Todos tab and `list_children` with a note telling the agent how to retire
+    it, since `TaskUpdate` can't reach it. A task with no shared folder (one that hasn't started since Glade kept the
+    list for it) strands nothing, and an id-less `TodoWrite` item never is stranded. The agent closes one with
+    `close_todo`, which refuses a live todo (`TaskUpdate` reaches it) and one with children still filed under it
+    until they're moved; once closed, the todo is out of Glade's list everywhere (`retired_todos`, migration 71),
+    its history staying in the tool log. The Todos tab shows stranded todos apart in a group of their own, which
+    follows this decision's mockup.
   - **A child is named by its kind and its own key:** a file by its artifact's path, a link by its URL, a commit by
     its hash and working tree, and a subagent (which has a todo as plumbing, and is no todo's child) by the
     `tool_use` id of the call that started it. It also has a **short id** within its task (`c1`, `c2`, …), which
