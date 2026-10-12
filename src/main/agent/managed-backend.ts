@@ -149,6 +149,7 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
           toolUseId: event.toolUseId,
           outcome: TaskOutcome.Stopped,
           summary: 'The delegated agent ended.',
+          totalTokens: null,
         })
       if (db.open)
         db.prepare('UPDATE managed_agents SET state = ?, result = ? WHERE id = ? AND task_id = ?').run(
@@ -163,6 +164,7 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
         toolUseId: run.record.toolUseId,
         outcome: state,
         summary: result,
+        totalTokens: null,
       })
       run.finish(result)
       if (run.background && !closed) {

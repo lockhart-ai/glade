@@ -65,8 +65,9 @@ export enum AgentEventKind {
    */
   SubagentBackgrounded = 'subagent_backgrounded',
   /**
-   * A running subagent's latest one-line summary of what it's doing (`system/task_progress` with a `summary`, sent about
-   * every 30 seconds with `agentProgressSummaries` on; `docs/sdk-notes.md`, "Subagents").
+   * A running subagent's latest progress (`system/task_progress`, sent after each of its tool calls and about every 30
+   * seconds with `agentProgressSummaries` on; `docs/sdk-notes.md`, "Subagents"): a one-line summary of what it's doing
+   * when it gives one, and what it has spent in all (`usage.total_tokens`, approximate) most times.
    */
   SubagentProgress = 'subagent_progress',
   /**
@@ -151,6 +152,18 @@ export interface ToolResultEvent {
    * on the tool, so whoever reads it parses it for the tool it knows (the watchers do, `../watchers`).
    */
   readonly details: unknown
+  /**
+   * What the run a foreground subagent's `Agent` call spent, split in and out (`tool_use_result.usage`; "in" counts the
+   * prompt, cache reads and cache writes), or null when the result gives none or says nothing was spent (#592). A
+   * backgrounded call's result only says it launched, and carries none.
+   */
+  readonly subagentTotals: SubagentRunTotals | null
+}
+
+/** What a foreground subagent's run spent, split in and out, from its `Agent` call's result (`docs/sdk-notes.md`). */
+export interface SubagentRunTotals {
+  readonly totalInputTokens: number
+  readonly totalOutputTokens: number
 }
 
 export interface ContextUsedEvent {
@@ -306,8 +319,13 @@ export interface SubagentProgressEvent {
   readonly kind: AgentEventKind.SubagentProgress
   /** The `Agent` tool call that started the subagent. */
   readonly toolUseId: string
-  /** What it's doing now, on one line. */
-  readonly summary: string
+  /** What it's doing now, on one line; null on a message that only counts. */
+  readonly summary: string | null
+  /**
+   * What the subagent has spent in all, in tokens (`task_progress.usage.total_tokens`, approximate); null on a message
+   * that gives none. Never zero: a run that has spent nothing shows nothing (#592).
+   */
+  readonly totalTokens: number | null
 }
 
 /** How a task started by a tool call ended (the SDK's `task_notification.status`). */
@@ -327,6 +345,11 @@ export interface TaskFinishedEvent {
   readonly outcome: TaskOutcome
   /** What it came to: a subagent's final reply, or what failed. */
   readonly summary: string
+  /**
+   * What the run spent in all, in tokens (`task_notification.usage.total_tokens`, approximate) — the last word for a
+   * subagent that ran in the background; null when the notification gives none. Never zero (#592).
+   */
+  readonly totalTokens: number | null
 }
 
 export interface ModelRefusalFallbackEvent {
@@ -435,13 +458,20 @@ const taskUpdatedMessage = z.looseObject({
   patch: z.looseObject({ is_backgrounded: z.boolean().optional().catch(undefined) }),
 })
 
-// Only a summary matters, and only for a task started by a tool call. Most progress messages carry none: they only
-// count the task's tool calls and tokens.
+const tokenCount = z.number().int().nonnegative()
+
+/** A subagent run's own account of what it has spent (`task_progress.usage`, `task_notification.usage`): one
+ * combined, approximate figure (`docs/sdk-notes.md`, "Subagents"). */
+const taskUsage = z.looseObject({ total_tokens: tokenCount.optional().catch(undefined) })
+
+// A summary or a combined total matters, and only for a task started by a tool call. Most progress messages carry
+// neither: they only count the task's tool calls.
 const taskProgressMessage = z.looseObject({
   type: z.literal('system'),
   subtype: z.literal('task_progress'),
   tool_use_id: z.string().min(1).optional().catch(undefined),
   summary: z.string().optional().catch(undefined),
+  usage: taskUsage.optional().catch(undefined),
 })
 
 // Only a task started by a tool call can be matched to its row; a status Glade doesn't know drops the message.
@@ -452,12 +482,24 @@ const taskNotificationMessage = z.looseObject({
   tool_use_id: z.string().min(1).optional(),
   status: z.enum(TaskOutcome),
   summary: z.string().catch(''),
+  usage: taskUsage.optional().catch(undefined),
 })
 
-/** The SDK's own account of a tool call's result, beside its content: only whether it launched a subagent matters. */
-const toolUseResult = z.looseObject({ status: z.unknown().optional() })
-
-const tokenCount = z.number().int().nonnegative()
+/** The SDK's own account of a tool call's result, beside its content: whether it launched a subagent, and, for an
+ * `Agent` call, what its subagent's whole run spent (`docs/sdk-notes.md`, "Subagents"). */
+const toolUseResult = z.looseObject({
+  status: z.unknown().optional(),
+  // The run's own usage: the four counts add up to its `totalTokens` exactly, and "in" is the first three together.
+  usage: z
+    .looseObject({
+      input_tokens: tokenCount,
+      output_tokens: tokenCount,
+      cache_read_input_tokens: tokenCount,
+      cache_creation_input_tokens: tokenCount,
+    })
+    .optional()
+    .catch(undefined),
+})
 
 const rateLimitMessage = z.looseObject({
   type: z.literal('rate_limit_event'),
@@ -741,12 +783,23 @@ function resultText(content: string | readonly z.infer<typeof block>[] | undefin
     .join('\n')
 }
 
+/** What a foreground subagent's run spent, from its `Agent` call's result (`tool_use_result.usage`): "in" is the
+ * prompt, the cache reads and the cache writes together. A result that gives no usage, or says nothing was spent,
+ * leaves nothing to write (#592). */
+function toSubagentTotals(usage: z.infer<typeof toolUseResult>['usage'] | undefined): SubagentRunTotals | null {
+  if (usage === undefined) return null
+  const totalInputTokens = usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
+  if (totalInputTokens === 0 && usage.output_tokens === 0) return null
+  return { totalInputTokens, totalOutputTokens: usage.output_tokens }
+}
+
 function fromUser(message: z.infer<typeof userMessage>, log: AgentLog): AgentEvent[] {
   const { content } = message.message
   if (message.isReplay === true || typeof content === 'string') return []
   // The SDK's account of the result belongs to the message's one tool result.
   const launched = message.tool_use_result?.status === 'async_launched'
   const details = message.tool_use_result ?? null
+  const subagentTotals = toSubagentTotals(message.tool_use_result?.usage)
   return content.flatMap((raw): AgentEvent[] => {
     if (raw.type !== 'tool_result') return []
     const result = toolResultBlock.safeParse(raw)
@@ -763,6 +816,7 @@ function fromUser(message: z.infer<typeof userMessage>, log: AgentLog): AgentEve
         isError: is_error ?? false,
         launched,
         details,
+        subagentTotals,
       },
     ]
   })
@@ -855,14 +909,28 @@ function oneLine(text: string): string {
 function fromTaskProgress(message: z.infer<typeof taskProgressMessage>): AgentEvent[] {
   const { tool_use_id: toolUseId } = message
   const summary = oneLine(message.summary ?? '')
-  return toolUseId === undefined || summary === ''
+  // A run that has spent nothing shows nothing, so a zero total is as good as none (#592).
+  const totalTokens = message.usage?.total_tokens
+  const figure = totalTokens !== undefined && totalTokens > 0 ? totalTokens : null
+  return toolUseId === undefined || (summary === '' && figure === null)
     ? []
-    : [{ kind: AgentEventKind.SubagentProgress, toolUseId, summary }]
+    : [
+        {
+          kind: AgentEventKind.SubagentProgress,
+          toolUseId,
+          summary: summary === '' ? null : summary,
+          totalTokens: figure,
+        },
+      ]
 }
 
 function fromTaskNotification(message: z.infer<typeof taskNotificationMessage>): AgentEvent[] {
   const { task_id: sdkTaskId, tool_use_id: toolUseId, status: outcome, summary } = message
-  return toolUseId === undefined ? [] : [{ kind: AgentEventKind.TaskFinished, sdkTaskId, toolUseId, outcome, summary }]
+  const totalTokens = message.usage?.total_tokens
+  const figure = totalTokens !== undefined && totalTokens > 0 ? totalTokens : null
+  return toolUseId === undefined
+    ? []
+    : [{ kind: AgentEventKind.TaskFinished, sdkTaskId, toolUseId, outcome, summary, totalTokens: figure }]
 }
 
 /** Parses `raw` with `schema`, or logs why it couldn't and gives nothing. */

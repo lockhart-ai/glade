@@ -314,6 +314,7 @@ import {
   QuestionReplyKind,
   QuestionSetState,
   type ApiRetry,
+  type EpochMs,
   type Message,
   type PastedBlock,
   type PermissionDecision,
@@ -413,6 +414,8 @@ import {
   listToolCallsNamed,
   listToolEvents,
   reopenSubagentCall,
+  setAgentCallTokenTotals,
+  setAgentCallTotalTokens,
   setSubagentProgress,
   setSubagentTaskId,
   updateCompaction,
@@ -961,6 +964,13 @@ interface LiveSession {
    */
   readonly unknownWakes: Map<string, string>
   /**
+   * The last time each of the session's subagent calls had its combined token total written (#592): a progress message
+   * that brings nothing but the figure writes at most once in the window, so a subagent's tool-call-by-tool-call
+   * progress doesn't flood the row with updates. An entry is dropped when its call's run ends; losing the map on a
+   * relaunch costs at most one window in.
+   */
+  readonly figureWrites: Map<string, EpochMs>
+  /**
    * Every tool call the session has made that hasn't had its result, logged or not: the `Agent` call of the subagent
    * that made it, or null for the agent's own. Whose a background task is, when the SDK starts one for the call.
    */
@@ -996,6 +1006,10 @@ const SEND_MESSAGE_TOOL = 'SendMessage'
 
 /** The SDK's kind of task for a subagent (`task_started.task_type`). */
 const SUBAGENT_TASK = 'local_agent'
+
+/** How long a subagent call goes between progress writes it gets only its combined token total for (#592): progress
+ * messages come after each of its tool calls, more often than the line needs to hear the figure grew. */
+export const FIGURE_WRITE_INTERVAL_MS = 15_000
 
 /** What the tool log says when the user stopped a turn, and what its unfinished tool calls say. */
 export const STOPPED_NOTE = 'You stopped the agent.'
@@ -1807,6 +1821,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const state = event.isError ? ToolCallState.Error : ToolCallState.Done
     // A call the SDK rejects because the user stopped the agent reads like the turn's other unfinished calls.
     const output = event.isError && turn.stopping ? STOPPED_NOTE : event.output
+    // A foreground subagent's result says what its whole run spent (#592): written before the call's own update, so
+    // the split rides the one event its finishing emits, and the line prefers it to the combined total the progress
+    // messages left. A result that gives no usage (a stopped call's, most) leaves what those wrote.
+    const callRow = getToolCall(db, taskId, event.toolUseId)
+    if (event.subagentTotals !== null && callRow !== undefined && isSubagentTool(callRow.name))
+      setAgentCallTokenTotals(db, { taskId, toolUseId: event.toolUseId, ...event.subagentTotals })
+    // The run is over: its figure-only writes need no pacing any more (#592).
+    live.figureWrites.delete(event.toolUseId)
     const call = updateToolCall(db, { taskId, toolUseId: event.toolUseId, state, output })
     emitToolEventUpdated(emit, call)
     if (changesTodos(call)) {
@@ -2371,6 +2393,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (event.kind !== AgentEventKind.ToolResult || !live.backgroundCalls.delete(event.toolUseId)) return false
     if (live.background.has(event.toolUseId)) return true
     live.subagents.delete(event.toolUseId)
+    // The run is over: its figure-only writes need no pacing any more (#592).
+    live.figureWrites.delete(event.toolUseId)
     const state = event.isError ? ToolCallState.Error : ToolCallState.Done
     const call = updateToolCall(db, { taskId, toolUseId: event.toolUseId, state, output: event.output })
     emitToolEventUpdated(emit, call)
@@ -2457,6 +2481,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     taskLog(taskId).info('subagent woken', { toolUseId, by: by.toolUseId, sdkTaskId: by.sdkTaskId })
     if (by.toolUseId !== toolUseId) live.woken.set(by.toolUseId, toolUseId)
     live.subagents.set(toolUseId, by.sdkTaskId)
+    // A new run: its first figure-only progress write needs no pacing from the last run's (#592).
+    live.figureWrites.delete(toolUseId)
     const reopened = reopenSubagentCall(db, taskId, toolUseId)
     if (reopened !== undefined) emitToolEventUpdated(emit, reopened)
     runInBackground(live, toolUseId, call.turn)
@@ -2592,11 +2618,22 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
     if (event.kind === AgentEventKind.SubagentProgress) {
       // Kept on its `Agent` call while it runs; one that arrives after its subagent finished changes nothing.
-      const { summary } = event
+      const { summary, totalTokens } = event
       const toolUseId = live.woken.get(event.toolUseId) ?? event.toolUseId
-      const call = setSubagentProgress(db, { taskId, toolUseId, summary })
+      // The figure rides a summary's write whatever the clock says; one that arrives alone writes at most once in the
+      // window (#592), and either way stamps it, so the line hears the figure grew at a calm pace.
+      let figure: { totalTokens: number } | undefined
+      if (totalTokens !== null) {
+        const at = Date.now()
+        if (summary !== null || at - (live.figureWrites.get(toolUseId) ?? 0) >= FIGURE_WRITE_INTERVAL_MS) {
+          live.figureWrites.set(toolUseId, at)
+          figure = { totalTokens }
+        }
+      }
+      if (summary === null && figure === undefined) return
+      const call = setSubagentProgress(db, { taskId, toolUseId, summary: summary ?? undefined, ...figure })
       if (call === undefined) return
-      taskLog(taskId).debug('subagent progress', { toolUseId, summary })
+      taskLog(taskId).debug('subagent progress', { toolUseId, summary, totalTokens })
       emitToolEventUpdated(emit, call)
       return
     }
@@ -2606,6 +2643,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const subagent = live.woken.get(event.toolUseId)
       live.woken.delete(event.toolUseId)
       const finished = subagent === undefined ? event : { ...event, toolUseId: subagent }
+      // The end is the last word on what the run spent (#592): the figure writes whatever state the call is in by
+      // then — a backgrounded call's row still runs, a foreground one has finished — and never throttles. It leaves
+      // the in-and-out split the call may already carry alone; the line prefers that anyway. The throttle entry goes
+      // with the run.
+      if (finished.totalTokens !== null)
+        setAgentCallTotalTokens(db, { taskId, toolUseId: finished.toolUseId, totalTokens: finished.totalTokens })
+      live.figureWrites.delete(finished.toolUseId)
       watchers.taskFinished(taskId, finished)
       if (
         finished.outcome === TaskOutcome.Stopped ||
@@ -3414,6 +3458,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       backgroundCalls: new Map(),
       woken: new Map(),
       unknownWakes: new Map(),
+      figureWrites: new Map(),
       callParents: new Map(),
       handed: [],
       stoppedWorkNote: null,

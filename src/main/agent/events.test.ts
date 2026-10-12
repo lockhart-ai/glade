@@ -154,6 +154,7 @@ describe('parsing SDK messages', () => {
         isError: false,
         launched: false,
         details: { stdout: '12 passed', stderr: '', interrupted: false },
+        subagentTotals: null,
       },
     ])
     const blocks = [
@@ -169,6 +170,7 @@ describe('parsing SDK messages', () => {
         isError: true,
         launched: false,
         details: { stdout: '', stderr: '', interrupted: false },
+        subagentTotals: null,
       },
     ])
     const bare = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_03' }] } }
@@ -180,7 +182,62 @@ describe('parsing SDK messages', () => {
         isError: false,
         launched: false,
         details: null,
+        subagentTotals: null,
       },
+    ])
+  })
+
+  it('reads what a foreground subagent run spent, from its result, split in and out (#592)', () => {
+    // The four counts add up to the result's `totalTokens` exactly; "in" is the first three together.
+    const spent = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_q' }] } }
+    expect(
+      parse({
+        ...spent,
+        tool_use_result: {
+          totalTokens: 5_412,
+          usage: {
+            input_tokens: 4_000,
+            output_tokens: 412,
+            cache_read_input_tokens: 900,
+            cache_creation_input_tokens: 100,
+          },
+        },
+      }),
+    ).toEqual([
+      {
+        kind: AgentEventKind.ToolResult,
+        toolUseId: 'toolu_q',
+        output: '',
+        isError: false,
+        launched: false,
+        details: expect.objectContaining({ totalTokens: 5_412 }) as unknown,
+        subagentTotals: { totalInputTokens: 5_000, totalOutputTokens: 412 },
+      },
+    ])
+    // A result that gives no usage, or says nothing was spent, leaves nothing to write.
+    expect(parse(spent)).toEqual([
+      expect.objectContaining({ kind: AgentEventKind.ToolResult, toolUseId: 'toolu_q', subagentTotals: null }),
+    ])
+    expect(
+      parse({
+        ...spent,
+        tool_use_result: {
+          usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        },
+      }),
+    ).toEqual([
+      expect.objectContaining({ kind: AgentEventKind.ToolResult, toolUseId: 'toolu_q', subagentTotals: null }),
+    ])
+    // A malformed usage is as good as missing.
+    expect(
+      parse({
+        ...spent,
+        tool_use_result: {
+          usage: { input_tokens: 'many', output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        },
+      }),
+    ).toEqual([
+      expect.objectContaining({ kind: AgentEventKind.ToolResult, toolUseId: 'toolu_q', subagentTotals: null }),
     ])
   })
 
@@ -565,6 +622,7 @@ describe('parsing SDK messages', () => {
         isError: false,
         launched: true,
         details: expect.objectContaining({ status: 'async_launched' }) as unknown,
+        subagentTotals: null,
       },
     ])
     // A background command isn't a subagent: its call's result is its own.
@@ -596,19 +654,37 @@ describe('parsing SDK messages', () => {
     expect(warn).toHaveBeenCalledOnce()
   })
 
-  it("reads a running subagent's progress summary, by the tool call that started it, on one line", () => {
+  it("reads a running subagent's progress — its summary and what it has spent — by the call that started it", () => {
     expect(parse(sdk.subagentProgress('toolu_q', 'aq1', 'Reading the API PRs, newest first'))).toEqual([
-      { kind: AgentEventKind.SubagentProgress, toolUseId: 'toolu_q', summary: 'Reading the API PRs, newest first' },
+      {
+        kind: AgentEventKind.SubagentProgress,
+        toolUseId: 'toolu_q',
+        summary: 'Reading the API PRs, newest first',
+        totalTokens: 13_530,
+      },
     ])
     expect(parse(sdk.subagentProgress('toolu_q', 'aq1', '  Sorting PRs\n\tinto   features  '))).toEqual([
-      { kind: AgentEventKind.SubagentProgress, toolUseId: 'toolu_q', summary: 'Sorting PRs into features' },
+      {
+        kind: AgentEventKind.SubagentProgress,
+        toolUseId: 'toolu_q',
+        summary: 'Sorting PRs into features',
+        totalTokens: 13_530,
+      },
     ])
-    // Most progress messages only count its calls; a blank summary says nothing either.
-    expect(parse(sdk.subagentProgress('toolu_q', 'aq1'))).toEqual([])
-    expect(parse(sdk.subagentProgress('toolu_q', 'aq1', ' \n '))).toEqual([])
-    // A task no tool call started has no row to show it on; a malformed field is as good as missing.
+    // Most progress messages only count its calls: they bring the figure alone (#592).
+    expect(parse(sdk.subagentProgress('toolu_q', 'aq1'))).toEqual([
+      { kind: AgentEventKind.SubagentProgress, toolUseId: 'toolu_q', summary: null, totalTokens: 13_530 },
+    ])
+    expect(parse(sdk.subagentProgress('toolu_q', 'aq1', ' \n '))).toEqual([
+      { kind: AgentEventKind.SubagentProgress, toolUseId: 'toolu_q', summary: null, totalTokens: 13_530 },
+    ])
+    // A run that has spent nothing shows nothing, and so does a message that gives no usage.
     const bare = { type: 'system', subtype: 'task_progress', task_id: 'aq1', summary: 'Reading' }
     expect(parse(bare)).toEqual([])
+    const counting = { type: 'system', subtype: 'task_progress', task_id: 'aq1', tool_use_id: 'toolu_q' }
+    expect(parse({ ...counting, usage: { total_tokens: 0, tool_uses: 1, duration_ms: 1 } })).toEqual([])
+    expect(parse(counting)).toEqual([])
+    // A task no tool call started has no row to show it on; a malformed field is as good as missing.
     expect(parse({ ...bare, tool_use_id: 7 })).toEqual([])
     expect(parse({ ...bare, tool_use_id: 'toolu_q', summary: ['Reading'] })).toEqual([])
     const { parse: parseLogged, warn } = parser()
@@ -625,6 +701,7 @@ describe('parsing SDK messages', () => {
         toolUseId: 'toolu_q',
         outcome: TaskOutcome.Failed,
         summary: 'Connection refused.',
+        totalTokens: 12_688,
       },
     ])
     const bare = { type: 'system', subtype: 'task_notification', task_id: 'aq1', status: 'stopped' }
@@ -635,6 +712,20 @@ describe('parsing SDK messages', () => {
         toolUseId: 'toolu_q',
         outcome: TaskOutcome.Stopped,
         summary: '',
+        totalTokens: null,
+      },
+    ])
+    // A run that has spent nothing shows nothing, even at its end (#592).
+    expect(
+      parse({ ...bare, tool_use_id: 'toolu_q', usage: { total_tokens: 0, tool_uses: 0, duration_ms: 0 } }),
+    ).toEqual([
+      {
+        kind: AgentEventKind.TaskFinished,
+        sdkTaskId: 'aq1',
+        toolUseId: 'toolu_q',
+        outcome: TaskOutcome.Stopped,
+        summary: '',
+        totalTokens: null,
       },
     ])
     // A task no tool call started has no row to end.

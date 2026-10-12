@@ -30,7 +30,9 @@ import {
   listSubagentCallsToPreload,
   listToolCallsNamed,
   listToolEvents,
+  reopenSubagentCall,
   setAgentCallTokenTotals,
+  setAgentCallTotalTokens,
   setSubagentProgress,
   updateCompaction,
   updateToolCall,
@@ -370,6 +372,57 @@ describe('setSubagentProgress', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+
+  it('keeps the combined token total beside the summary (#592)', () => {
+    agentCall()
+
+    const first = setSubagentProgress(test.db, { ...progress('Reading the API PRs'), totalTokens: 13_530 })
+    expect(first).toMatchObject({ progressSummary: 'Reading the API PRs', totalTokens: 13_530 })
+  })
+
+  it('takes a figure alone, and keeps the summary it already has', () => {
+    const call = agentCall()
+    setSubagentProgress(test.db, progress('Reading the API PRs'))
+
+    const figure = setSubagentProgress(test.db, { taskId: task.id, toolUseId: 'toolu_agent', totalTokens: 478_200 })
+    expect(figure).toEqual({ ...call, progressSummary: 'Reading the API PRs', totalTokens: 478_200 })
+  })
+
+  it('changes nothing when neither the summary nor the figure is news', () => {
+    agentCall()
+    setSubagentProgress(test.db, { ...progress('Reading the API PRs'), totalTokens: 13_530 })
+
+    expect(setSubagentProgress(test.db, { ...progress('Reading the API PRs'), totalTokens: 13_530 })).toBeUndefined()
+    expect(
+      setSubagentProgress(test.db, { taskId: task.id, toolUseId: 'toolu_agent', totalTokens: 13_530 }),
+    ).toBeUndefined()
+  })
+
+  it('ignores a figure for a subagent that has finished, one that never started, and a call that is no subagent', () => {
+    agentCall()
+    setSubagentProgress(test.db, { ...progress('Reading the API PRs'), totalTokens: 13_530 })
+    updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_agent', state: ToolCallState.Done, output: 'Done.' })
+    appendToolCall(test.db, bashCall('toolu_bash'))
+
+    expect(
+      setSubagentProgress(test.db, { taskId: task.id, toolUseId: 'toolu_agent', totalTokens: 13_531 }),
+    ).toBeUndefined()
+    expect(
+      setSubagentProgress(test.db, { taskId: task.id, toolUseId: 'toolu_missing', totalTokens: 13_531 }),
+    ).toBeUndefined()
+    expect(
+      setSubagentProgress(test.db, { taskId: task.id, toolUseId: 'toolu_bash', totalTokens: 13_531 }),
+    ).toBeUndefined()
+    expect(getToolCall(test.db, task.id, 'toolu_bash')).not.toHaveProperty('totalTokens')
+    expect(getToolCall(test.db, task.id, 'toolu_agent')).toMatchObject({ totalTokens: 13_530 })
+  })
+
+  it('takes a dispatched child’s `dispatch` call too, the filter being the tool’s name', () => {
+    const call = appendToolCall(test.db, { ...bashCall('toolu_dispatch'), name: 'mcp__glade-agents__dispatch' })
+
+    const figure = setSubagentProgress(test.db, { taskId: task.id, toolUseId: 'toolu_dispatch', totalTokens: 478_200 })
+    expect(figure).toEqual({ ...call, totalTokens: 478_200 })
   })
 })
 
@@ -750,5 +803,77 @@ describe('setAgentCallTokenTotals', () => {
     expect(setAgentCallTokenTotals(test.db, totals('toolu_other'))).toBe(false)
     expect(setAgentCallTokenTotals(test.db, totals('toolu_missing'))).toBe(false)
     expect(getToolCall(test.db, other.id, 'toolu_other')).not.toHaveProperty('totalInputTokens')
+  })
+})
+
+describe('setAgentCallTotalTokens', () => {
+  const total = (toolUseId = 'toolu_agent') => ({ taskId: task.id, toolUseId, totalTokens: 478_200 })
+
+  it("writes a subagent's combined total onto its call whatever state it is in, and the row round-trips it", () => {
+    const call = appendToolCall(test.db, { ...bashCall('toolu_agent'), name: 'Agent' })
+    const finished = updateToolCall(test.db, {
+      taskId: task.id,
+      toolUseId: 'toolu_agent',
+      state: ToolCallState.Error,
+      output: 'Stopped.',
+    })
+
+    expect(setAgentCallTotalTokens(test.db, total())).toBe(true)
+    expect(getToolCall(test.db, task.id, 'toolu_agent')).toEqual({ ...finished, totalTokens: 478_200 })
+    expect(listToolEvents(test.db, task.id)).toEqual([{ ...finished, totalTokens: 478_200 }])
+    expect(call).toBeDefined()
+  })
+
+  it('leaves the split a call already carries alone, and reads beside it', () => {
+    appendToolCall(test.db, { ...bashCall('toolu_agent'), name: 'Agent' })
+    setAgentCallTokenTotals(test.db, {
+      taskId: task.id,
+      toolUseId: 'toolu_agent',
+      totalInputTokens: 620,
+      totalOutputTokens: 900,
+    })
+
+    expect(setAgentCallTotalTokens(test.db, total())).toBe(true)
+    expect(getToolCall(test.db, task.id, 'toolu_agent')).toMatchObject({
+      totalInputTokens: 620,
+      totalOutputTokens: 900,
+      totalTokens: 478_200,
+    })
+  })
+
+  it('only touches a subagent call, and only this task’s', () => {
+    appendToolCall(test.db, bashCall('toolu_bash'))
+    const other = sampleTask(test.db, task.workspaceId)
+    appendToolCall(test.db, { ...bashCall('toolu_other'), taskId: other.id, name: 'Agent' })
+
+    expect(setAgentCallTotalTokens(test.db, total('toolu_bash'))).toBe(false)
+    expect(setAgentCallTotalTokens(test.db, total('toolu_other'))).toBe(false)
+    expect(setAgentCallTotalTokens(test.db, total('toolu_missing'))).toBe(false)
+    expect(getToolCall(test.db, task.id, 'toolu_bash')).not.toHaveProperty('totalTokens')
+    expect(getToolCall(test.db, other.id, 'toolu_other')).not.toHaveProperty('totalTokens')
+  })
+})
+
+describe('reopenSubagentCall', () => {
+  it('clears a finished run’s token totals along with its outcome, for the new run (#592)', () => {
+    const call = appendToolCall(test.db, { ...bashCall('toolu_agent'), name: 'Agent' })
+    setSubagentProgress(test.db, {
+      taskId: task.id,
+      toolUseId: 'toolu_agent',
+      summary: 'Reading the API PRs',
+      totalTokens: 13_530,
+    })
+    setAgentCallTokenTotals(test.db, {
+      taskId: task.id,
+      toolUseId: 'toolu_agent',
+      totalInputTokens: 620,
+      totalOutputTokens: 900,
+    })
+    updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_agent', state: ToolCallState.Done, output: 'Done.' })
+
+    expect(reopenSubagentCall(test.db, task.id, 'toolu_agent')).toEqual(call)
+    expect(getToolCall(test.db, task.id, 'toolu_agent')).not.toHaveProperty('totalTokens')
+    expect(getToolCall(test.db, task.id, 'toolu_agent')).not.toHaveProperty('totalInputTokens')
+    expect(getToolCall(test.db, task.id, 'toolu_agent')).not.toHaveProperty('totalOutputTokens')
   })
 })

@@ -34,6 +34,7 @@ import {
   agentCallResult,
   agentDotLabel,
   agentStateLine,
+  agentTokensLine,
   mainAgentStateLine,
   mainAgentText,
   mainTokensLine,
@@ -119,6 +120,7 @@ vi.mock('./agents/agentsModel', async (importOriginal) => {
     agentDotLabel: vi.fn(original.agentDotLabel),
     agentCallResult: vi.fn(original.agentCallResult),
     agentStateLine: vi.fn(original.agentStateLine),
+    agentTokensLine: vi.fn(original.agentTokensLine),
     mainAgentText: vi.fn(original.mainAgentText),
     mainAgentStateLine: vi.fn(original.mainAgentStateLine),
     mainTokensLine: vi.fn(original.mainTokensLine),
@@ -1229,11 +1231,11 @@ describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', 
         },
       })
     })
-    expect(vi.mocked(mainTokensLine)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(agentTokensLine)).toHaveBeenCalledTimes(1)
     expect(screen.getByText('1.2M in · 45k out')).toBeTruthy()
 
     // Any other change to the call renders it not at all: the updated row carries the same totals.
-    vi.mocked(mainTokensLine).mockClear()
+    vi.mocked(agentTokensLine).mockClear()
     act(() => {
       fake.emit({
         type: EventType.ToolEventUpdated,
@@ -1269,7 +1271,54 @@ describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', 
         },
       })
     })
-    expect(vi.mocked(mainTokensLine)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(agentTokensLine)).toHaveBeenCalledTimes(1)
+  })
+
+  it("renders a native subagent's combined total while it runs, and the split once it finished (#592)", async () => {
+    const { fake } = await renderAgents()
+    fireEvent.click(tab('review-49'))
+
+    // The running total arrives on the call: the span renders, once, and shows what the SDK says it has spent.
+    act(() => {
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: { ...agent(49), input: { ...agent(49).input, model: 'claude-haiku-4-5' }, totalTokens: 478_200 },
+      })
+    })
+    expect(vi.mocked(agentTokensLine)).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('478k tokens')).toBeTruthy()
+
+    // A progress update that brings nothing new renders the span not at all; the line around it may move, and does.
+    vi.mocked(agentTokensLine).mockClear()
+    act(() => {
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: {
+          ...agent(49),
+          input: { ...agent(49).input, model: 'claude-haiku-4-5' },
+          totalTokens: 478_200,
+          progressSummary: 'Reading the diff',
+        },
+      })
+    })
+    expect(vi.mocked(agentTokensLine)).not.toHaveBeenCalled()
+
+    // The split arriving renders the span alone, once, and takes the combined figure's place.
+    act(() => {
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: {
+          ...agent(49),
+          input: { ...agent(49).input, model: 'claude-haiku-4-5' },
+          totalTokens: 478_200,
+          totalInputTokens: 1_234_567,
+          totalOutputTokens: 45_000,
+        },
+      })
+    })
+    expect(vi.mocked(agentTokensLine)).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('1.2M in · 45k out')).toBeTruthy()
+    expect(screen.queryByText('478k tokens')).toBeNull()
   })
 
   it('renders only the row that was added or changed in the list showing', async () => {

@@ -472,12 +472,19 @@ export interface ToolCallEvent extends ToolEventBase {
   readonly progressSummary: string | null
   /**
    * What the agent this call started has spent in total, in tokens, for its line on the Agents tab (#589): what its
-   * turns have spent in prompts, cache reads and cache writes, and out in replies. Only a dispatched child's `dispatch`
-   * call carries them so far, written as its run ends; a call nobody has written has neither, which the line reads as
-   * nothing to show.
+   * turns have spent in prompts, cache reads and cache writes, and out in replies. A dispatched child's `dispatch`
+   * call carries them, written as its run ends, as does a native subagent's `Agent` call whose run finished in the
+   * foreground; a call nobody has written has neither, which the line reads as nothing to show.
    */
   readonly totalInputTokens?: number
   readonly totalOutputTokens?: number
+  /**
+   * What the agent this call started has spent in all, in tokens (#592): a native subagent's running total, as the SDK
+   * reports it in its progress (`task_progress.usage.total_tokens`, approximate), and the last word for a subagent
+   * that ran in the background. The split above is the finer figure once it exists, and the line prefers it; a call
+   * nobody has written has none, which the line reads as nothing to show.
+   */
+  readonly totalTokens?: number
 }
 
 export interface DividerEvent extends ToolEventBase {
