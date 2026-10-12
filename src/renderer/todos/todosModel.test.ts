@@ -32,9 +32,13 @@ describe('progressHeading', () => {
 })
 
 describe('progressBar', () => {
-  it("fills the done items' share, then half an item's share for each item being worked on", () => {
-    expect(progressBar({ done: 1, doing: 1, total: 4 })).toEqual({ done: 25, doing: 12.5 })
+  it("fills the done items' share, then the full share of each item being worked on", () => {
+    expect(progressBar({ done: 1, doing: 1, total: 4 })).toEqual({ done: 25, doing: 25 })
     expect(progressBar({ done: 4, doing: 0, total: 4 })).toEqual({ done: 100, doing: 0 })
+  })
+
+  it('leaves no grey when every item is done or in progress', () => {
+    expect(progressBar({ done: 3, doing: 3, total: 6 })).toEqual({ done: 50, doing: 50 })
   })
 
   it('is empty for an empty list', () => {
