@@ -57,6 +57,31 @@ const MainTokens = memo(function MainTokens({ taskId }: { readonly taskId: strin
   )
 })
 
+/**
+ * What the agent a call started has spent so far ("1.2M in · 45k out", #589), at the right of the model's row, the way
+ * Main's line shows its own (#587). It selects the two totals alone, through the same `agentsOf` read the line's call
+ * uses, so a change re-renders this span and nothing else of it; nothing shows while there are none — every native
+ * subagent's call has none, and a dispatched child's gets them as its run ends.
+ */
+const AgentTokens = memo(function AgentTokens({
+  taskId,
+  agentId,
+}: {
+  readonly taskId: string
+  readonly agentId: string
+}): React.JSX.Element | null {
+  const inputTokens = useGladeStore((state) => agentsOf(state.toolEvents[taskId]).calls.get(agentId)?.totalInputTokens)
+  const outputTokens = useGladeStore(
+    (state) => agentsOf(state.toolEvents[taskId]).calls.get(agentId)?.totalOutputTokens,
+  )
+  if (inputTokens === undefined && outputTokens === undefined) return null
+  return (
+    <span className={styles.tokens} data-agent-tokens="">
+      {mainTokensLine(inputTokens ?? 0, outputTokens ?? 0)}
+    </span>
+  )
+})
+
 export interface AgentLineProps {
   readonly taskId: string
   /**
@@ -143,6 +168,7 @@ export const AgentLine = memo(function AgentLine({
           <span className={styles.model} title={label} data-agent-model="">
             {label}
           </span>
+          <AgentTokens taskId={taskId} agentId={agentId} />
         </div>
       )}
       <div className={styles.head}>

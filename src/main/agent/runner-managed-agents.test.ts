@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AGENT_MODELS_TOOL, DISPATCH_AGENT_TOOL } from '../../shared/managed-agents'
 import { ToolCallState, ToolEventKind, type Task } from '../../shared/domain'
 import { SAMPLE_CHOICE, SAMPLE_MODEL, SAMPLE_PROVIDER } from '../../shared/test-openrouter'
@@ -281,4 +281,68 @@ it.each([CLAUDE, SAMPLE_CHOICE.id])('keeps same-source children on the native Ag
   await settle()
   await runner.stopSubagent(task.id, 'native')
   expect(parent.stoppedTasks).toEqual(['native-sdk'])
+})
+
+describe("a dispatched child's token totals (#589)", () => {
+  /** What a turn's usage says, apart from the caches' names: `in` counts the prompt and both caches. */
+  const usage = {
+    input_tokens: 100,
+    cache_read_input_tokens: 500,
+    cache_creation_input_tokens: 20,
+    output_tokens: 900,
+  }
+  const totals = { totalInputTokens: 620, totalOutputTokens: 900 }
+
+  it('writes what its one run spent onto the call that started it, and the next run onto its own', async () => {
+    const parent = start(SAMPLE_CHOICE.id)
+    const dispatched = callTool(parent, DISPATCH_AGENT_TOOL, input(CLAUDE), 'first')
+    const child = await launched()
+    child.emit(sdk.init('first-session'), sdk.result('First done', { usage }))
+    await dispatched
+    expect(getToolCall(database.db, task.id, 'first')).toMatchObject(totals)
+
+    // A second child of the same task keeps its own figure — what its own run alone used — and the first call's stands.
+    const second = callTool(parent, DISPATCH_AGENT_TOOL, input(CLAUDE), 'second')
+    const next = await launched(3)
+    next.emit(sdk.init('second-session'), sdk.result('Second done', { usage: { ...usage, output_tokens: 70 } }))
+    await second
+    expect(getToolCall(database.db, task.id, 'second')).toMatchObject({ ...totals, totalOutputTokens: 70 })
+    expect(getToolCall(database.db, task.id, 'first')).toMatchObject(totals)
+  })
+
+  it("shows a resumed child's run alone: its own usage, not the run it resumed", async () => {
+    const parent = start(SAMPLE_CHOICE.id)
+    const dispatched = callTool(parent, DISPATCH_AGENT_TOOL, input(CLAUDE), 'first')
+    const child = await launched()
+    child.emit(sdk.init('child-session'), sdk.result('Remember 42', { usage }))
+    await dispatched
+    const previous = childId('first')
+    const resumed = callTool(parent, DISPATCH_AGENT_TOOL, { ...input(CLAUDE), resume: previous }, 'resume')
+    const next = await launched(3)
+    next.emit(sdk.init('resume-session'), sdk.result('Still 42', { usage: { ...usage, output_tokens: 70 } }))
+    await resumed
+    expect(getToolCall(database.db, task.id, 'resume')).toMatchObject({ ...totals, totalOutputTokens: 70 })
+    expect(getToolCall(database.db, task.id, 'first')).toMatchObject(totals)
+  })
+
+  it('adds nothing for a turn whose result names no usage', async () => {
+    const parent = start(SAMPLE_CHOICE.id)
+    const dispatched = callTool(parent, DISPATCH_AGENT_TOOL, input(CLAUDE), 'first')
+    const child = await launched()
+    child.emit(sdk.init('first-session'), sdk.result('Done', { usage: null }))
+    await dispatched
+    const call = getToolCall(database.db, task.id, 'first')
+    expect(call).not.toHaveProperty('totalInputTokens')
+    expect(call).not.toHaveProperty('totalOutputTokens')
+  })
+
+  it('leaves the task’s own totals alone', async () => {
+    const parent = start(SAMPLE_CHOICE.id)
+    const dispatched = callTool(parent, DISPATCH_AGENT_TOOL, input(CLAUDE), 'first')
+    const child = await launched()
+    child.emit(sdk.init('first-session'), sdk.result('Done', { usage }))
+    await dispatched
+    await settle()
+    expect(getTask(database.db, task.id)).toMatchObject({ totalInputTokens: 0, totalOutputTokens: 0 })
+  })
 })

@@ -136,7 +136,8 @@ connected management key, the menu shows only the providers those guardrails all
 
 Main's tab now gets the same two-row line under the strip that a subagent's has: the model and provider it runs on,
 with what its turns have spent so far at the row's right ("1.2M in · 45k out", shown once a turn has spent
-something), then the task's current status and state.
+something), then the task's current status and state. A dispatched child's line shows the same figure for its own
+run, where Main's shows the task's.
 
 ![Agents tab, Main line](screens/64-agents-main-line.png)
 

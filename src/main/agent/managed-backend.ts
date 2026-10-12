@@ -15,12 +15,14 @@ import { listModels } from '../models/models'
 import { validateModel } from '../models/switches'
 import { getOpenRouterChoice, openRouterConnected } from '../db/repositories/openrouter'
 import { Row } from '../db/repositories/rows'
+import { setAgentCallTokenTotals } from '../db/repositories/tool-events'
 import {
   AgentEventKind,
   TaskOutcome,
   createSdkMessageParser,
   type AgentEvent,
   type SubagentStartedEvent,
+  type TurnUsage,
 } from './events'
 import {
   McpServerAudience,
@@ -176,6 +178,24 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
     }
     const stop = (run: ChildRun): void => {
       finish(run, TaskOutcome.Stopped, 'You stopped it.')
+    }
+    /**
+     * What this run spent, kept on the dispatch call that started the child for its line on the Agents tab (#589):
+     * "in" counts the turn's prompt, its cache reads and its cache writes, and "out" its replies. A run is one turn —
+     * it ends here — so its totals are what this run's usage alone says, whatever an earlier run of the child's used;
+     * a turn that says nothing writes nothing. Subagents' tokens are never here — the turn's usage already leaves
+     * them out.
+     */
+    const noteChildTotals = (run: ChildRun, usage: TurnUsage | null): void => {
+      if (usage === null || !db.open) return
+      const totalInputTokens = usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens
+      if (totalInputTokens === 0 && usage.outputTokens === 0) return
+      setAgentCallTokenTotals(db, {
+        taskId,
+        toolUseId: run.record.toolUseId,
+        totalInputTokens,
+        totalOutputTokens: usage.outputTokens,
+      })
     }
     const dispatch = async (input: DispatchAgentInput, extra: unknown) => {
       if (closed) throw new Error('The parent session has ended.')
@@ -346,6 +366,7 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
                   db.prepare('UPDATE managed_agents SET session_id = ? WHERE id = ?').run(event.sessionId, id)
                   break
                 case AgentEventKind.TurnFinished:
+                  noteChildTotals(run, event.usage)
                   readUsage(run)
                   finish(
                     run,

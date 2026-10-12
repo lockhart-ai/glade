@@ -116,11 +116,14 @@ interface ToolEventParams {
   readonly refusalFallbackModel: string | null
   readonly refusalCategory: string | null
   readonly refusalScope: RefusalScope | null
+  readonly totalInputTokens: number | null
+  readonly totalOutputTokens: number | null
 }
 
 const COLUMNS = `id, task_id, kind, turn, created_at, text, tool_name, tool_input, tool_output, finished_at, tool_state,
   tool_use_id, parent_tool_use_id, divider_kind, compact_trigger, pre_tokens, post_tokens, window_tokens,
-  progress_summary, compact_summary, refusal_original_model, refusal_fallback_model, refusal_category, refusal_scope`
+  progress_summary, compact_summary, refusal_original_model, refusal_fallback_model, refusal_category, refusal_scope,
+  total_input_tokens, total_output_tokens`
 
 const KINDS = Object.values(ToolEventKind)
 const TOOL_CALL_STATES = Object.values(ToolCallState)
@@ -154,6 +157,8 @@ function toParams(event: ToolEvent): ToolEventParams {
     refusalFallbackModel: null,
     refusalCategory: null,
     refusalScope: null,
+    totalInputTokens: null,
+    totalOutputTokens: null,
   }
   switch (event.kind) {
     case ToolEventKind.Narration:
@@ -214,6 +219,13 @@ function parseToolCall(row: Row): ToolCallEvent {
     toolUseId: row.text('tool_use_id'),
     parentToolUseId: row.nullableText('parent_tool_use_id'),
     progressSummary: row.nullableText('progress_summary'),
+    // Set only when written, so a call without totals has exactly the shape it has always had (#589).
+    ...(row.nullableInteger('total_input_tokens') === null
+      ? {}
+      : { totalInputTokens: row.integer('total_input_tokens') }),
+    ...(row.nullableInteger('total_output_tokens') === null
+      ? {}
+      : { totalOutputTokens: row.integer('total_output_tokens') }),
   }
 }
 
@@ -270,7 +282,7 @@ function append(db: Database, event: ToolEvent): void {
     VALUES ((SELECT COALESCE(MAX(seq), 0) + 1 FROM tool_events WHERE task_id = @taskId), @id, @taskId, @kind, @turn,
       @createdAt, @text, @toolName, @toolInput, @toolOutput, @finishedAt, @toolState, @toolUseId, @parentToolUseId, @dividerKind,
       @compactTrigger, @preTokens, @postTokens, @windowTokens, @progressSummary, @compactSummary, @refusalOriginalModel,
-      @refusalFallbackModel, @refusalCategory, @refusalScope)`,
+      @refusalFallbackModel, @refusalCategory, @refusalScope, @totalInputTokens, @totalOutputTokens)`,
   ).run(toParams(event))
 }
 
@@ -581,6 +593,30 @@ export function setSubagentProgress(db: Database, progress: SubagentProgress): T
  */
 export function deleteToolEvent(db: Database, taskId: string, id: string): boolean {
   const result = db.prepare('DELETE FROM tool_events WHERE id = ? AND task_id = ?').run(id, taskId)
+  return result.changes > 0
+}
+
+/** An agent call's running token totals, for its line on the Agents tab. */
+export interface AgentCallTokenTotals {
+  readonly taskId: string
+  /** The call that started the agent. */
+  readonly toolUseId: string
+  readonly totalInputTokens: number
+  readonly totalOutputTokens: number
+}
+
+/**
+ * Writes an agent's running token totals onto the call that started it (#589). The dispatched child a `dispatch` call
+ * starts is the only writer so far, writing once as its run ends. Answers whether the task has such a call; any other
+ * call is left alone. The totals ride the call's own updated event, and its row keeps them for a relaunch.
+ */
+export function setAgentCallTokenTotals(db: Database, totals: AgentCallTokenTotals): boolean {
+  const result = db
+    .prepare(
+      `UPDATE tool_events SET total_input_tokens = @totalInputTokens, total_output_tokens = @totalOutputTokens
+      WHERE task_id = @taskId AND tool_use_id = @toolUseId AND kind = 'tool_call'`,
+    )
+    .run(totals)
   return result.changes > 0
 }
 
