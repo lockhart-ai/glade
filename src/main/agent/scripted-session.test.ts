@@ -300,8 +300,18 @@ describe('ScriptedSession', () => {
     ])
     expect(played.raw.find((message) => message.subtype === 'task_progress')).not.toHaveProperty('last_tool_name')
     expect(played.events.filter((event) => event.kind === AgentEventKind.SubagentProgress)).toEqual([
-      { kind: AgentEventKind.SubagentProgress, toolUseId: agentId, summary: 'Reading the API PRs' },
-      { kind: AgentEventKind.SubagentProgress, toolUseId: agentId, summary: 'Late news' },
+      {
+        kind: AgentEventKind.SubagentProgress,
+        toolUseId: agentId,
+        summary: 'Reading the API PRs',
+        contextTokens: 1_150,
+      },
+      {
+        kind: AgentEventKind.SubagentProgress,
+        toolUseId: agentId,
+        summary: 'Late news',
+        contextTokens: 1_150,
+      },
     ])
   })
 
@@ -345,6 +355,7 @@ describe('ScriptedSession', () => {
         output: 'contents',
         isError: false,
         launched: false,
+        contextTokens: null,
         details: { stdout: 'contents', stderr: '', interrupted: false },
       },
       {
@@ -379,6 +390,7 @@ describe('ScriptedSession', () => {
         output: 'hit',
         isError: false,
         launched: false,
+        contextTokens: null,
         details: { stdout: 'hit', stderr: '', interrupted: false },
       },
       {
@@ -393,6 +405,7 @@ describe('ScriptedSession', () => {
         toolUseId: `${prefix}agent`,
         outcome: TaskOutcome.Completed,
         summary: 'Found it.',
+        contextTokens: null,
       },
       {
         kind: AgentEventKind.ToolResult,
@@ -400,6 +413,7 @@ describe('ScriptedSession', () => {
         output: 'Found it.',
         isError: false,
         launched: false,
+        contextTokens: null,
         details: { stdout: 'Found it.', stderr: '', interrupted: false },
       },
       {
@@ -408,6 +422,7 @@ describe('ScriptedSession', () => {
         output: 'orphan',
         isError: true,
         launched: false,
+        contextTokens: null,
         details: { stdout: '', stderr: 'orphan', interrupted: false },
       },
     ])
@@ -1289,6 +1304,7 @@ describe('ScriptedSession', () => {
           output: REJECTED_TOOL_OUTPUT,
           isError: true,
           launched: false,
+          contextTokens: null,
           details: { stdout: '', stderr: REJECTED_TOOL_OUTPUT, interrupted: false },
         },
         {
@@ -1297,6 +1313,7 @@ describe('ScriptedSession', () => {
           output: REJECTED_TOOL_OUTPUT,
           isError: true,
           launched: false,
+          contextTokens: null,
           details: { stdout: '', stderr: REJECTED_TOOL_OUTPUT, interrupted: false },
         },
         expect.objectContaining({ kind: AgentEventKind.TurnFinished, terminalReason: 'aborted_tools' }),
@@ -1636,6 +1653,7 @@ describe('ScriptedSession', () => {
         output: LAUNCHED_OUTPUT,
         isError: false,
         launched: true,
+        contextTokens: null,
         details: expect.objectContaining({ status: 'async_launched' }) as unknown,
       })
       // The turn has ended while the subagent plays on.
@@ -1813,6 +1831,7 @@ describe('ScriptedSession', () => {
         kind: AgentEventKind.SubagentProgress,
         toolUseId: 'toolu_id2_1_agent',
         summary: 'Timing the queries',
+        contextTokens: 1_150,
       })
       expect(played.raw.find((message) => message.subtype === 'task_progress')).toMatchObject({ task_id: 'aid21' })
     })
@@ -1934,6 +1953,7 @@ describe('ScriptedSession', () => {
         kind: AgentEventKind.SubagentProgress,
         toolUseId: sendMessage,
         summary: 'Batching the queries',
+        contextTokens: 1_150,
       })
 
       await vi.advanceTimersByTimeAsync(10)
