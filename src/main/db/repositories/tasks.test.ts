@@ -74,6 +74,8 @@ describe('createTask', () => {
       doneAt: null,
       sessionId: null,
       contextUsedTokens: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
       contextWindowTokens: 200_000,
       error: null,
       retrying: null,
@@ -353,6 +355,21 @@ describe('updateTask', () => {
     const unchanged = updateTask(test.db, task.id, {}, 4_000)
     expect(unchanged).toEqual({ ...updated, updatedAt: 4_000 })
     expect(updateTask(test.db, task.id, { sessionId: null }, 5_000).sessionId).toBeNull()
+  })
+
+  it('keeps the token totals the runner adds to, and nothing else touches them (#587)', () => {
+    const task = sampleTask(test.db, workspace.id)
+    expect(task).toMatchObject({ totalInputTokens: 0, totalOutputTokens: 0 })
+
+    const updated = updateTask(test.db, task.id, { totalInputTokens: 620, totalOutputTokens: 900 })
+    expect(updated).toMatchObject({ totalInputTokens: 620, totalOutputTokens: 900 })
+    expect(getTask(test.db, task.id)).toMatchObject({ totalInputTokens: 620, totalOutputTokens: 900 })
+
+    // A patch that names other fields leaves the totals as they are.
+    expect(updateTask(test.db, task.id, { contextUsedTokens: 76_000 })).toMatchObject({
+      totalInputTokens: 620,
+      totalOutputTokens: 900,
+    })
   })
 
   it("resets the context window to the new model's when the model changes without one", () => {

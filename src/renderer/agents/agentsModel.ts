@@ -21,6 +21,7 @@ import { argumentSummary, firstLine } from '../../shared/toolSummary'
 import type { GladeData } from '../store/state'
 import { AgentActivity, elapsedMs, statusLabel, subagentStatus } from '../subagents/subagentsModel'
 import { formatAge } from '../task-header/headerModel'
+import { formatTokens } from '../context-meter/format'
 import { isAgentEvent } from '../tool-log/toolLogModel'
 
 /** Which agent of a task: a subagent, by its `Agent` call's `tool_use` id, or null for Main, the task's own agent. */
@@ -242,6 +243,18 @@ export function mainAgentText(
  */
 export function mainAgentStateLine(working: boolean, createdAt: EpochMs, now: EpochMs): string | null {
   return working ? `Running · ${formatAge(createdAt, now)}` : null
+}
+
+/** Below this a token total shows as itself, which `formatTokens` would round to `0k` or `1k`. */
+const THOUSAND_TOKENS = 1_000
+
+/**
+ * What Main's line says its turns have spent (#587, design 64): "1.2M in · 45k out" by the running totals. A total
+ * under a thousand shows as itself, the way the context meter's `formatTokens` rounds it to `0k` and `1k` otherwise.
+ */
+export function mainTokensLine(totalInputTokens: number, totalOutputTokens: number): string {
+  const tokens = (total: number): string => (total < THOUSAND_TOKENS ? String(total) : formatTokens(total))
+  return `${tokens(totalInputTokens)} in · ${tokens(totalOutputTokens)} out`
 }
 
 /**

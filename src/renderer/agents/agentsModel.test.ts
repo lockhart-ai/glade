@@ -28,6 +28,7 @@ import {
   isRunning,
   mainAgentStateLine,
   mainAgentText,
+  mainTokensLine,
   MAIN_AGENT_NAME,
   selectMainCurrentCall,
   selectShownAgent,
@@ -456,6 +457,15 @@ describe('the Main tab’s line (#566)', () => {
     expect(mainAgentStateLine(true, AT, AT + 42 * MINUTE)).toBe('Running · 42m')
     expect(mainAgentStateLine(true, AT, AT + 30_000)).toBe('Running · now')
     expect(mainAgentStateLine(false, AT, AT + 42 * MINUTE)).toBeNull()
+  })
+
+  it('says what the turns have spent, as the meter writes thousands and millions, a small total as itself (#587)', () => {
+    expect(mainTokensLine(1_234_567, 45_000)).toBe('1.2M in · 45k out')
+    expect(mainTokensLine(76_000, 3_500)).toBe('76k in · 4k out')
+    expect(mainTokensLine(999, 620)).toBe('999 in · 620 out')
+    expect(mainTokensLine(1_000, 1_000)).toBe('1k in · 1k out')
+    expect(mainTokensLine(1_234_567, 620)).toBe('1.2M in · 620 out')
+    expect(mainTokensLine(0, 620)).toBe('0 in · 620 out')
   })
 
   it('reads Main’s current tool call from the store: its last running one, a subagent’s call never', () => {

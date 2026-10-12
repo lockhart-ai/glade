@@ -97,6 +97,8 @@ describe('createTask', () => {
       doneAt: null,
       sessionId: null,
       contextUsedTokens: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
       contextWindowTokens: 1_000_000,
       error: null,
       retrying: null,

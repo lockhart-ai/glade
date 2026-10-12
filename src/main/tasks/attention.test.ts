@@ -145,7 +145,8 @@ describe('unread', () => {
     events.splice(0)
 
     await glade.invoke(CommandName.TasksSend, { id: first.id, text: 'And the fix?' })
-    backend.session.emit(sdk.init(), sdk.result('Wait for the save.'))
+    // The result names no usage, so the turn writes no totals (#587): this test is about the unread flag alone.
+    backend.session.emit(sdk.init(), sdk.result('Wait for the save.', { usage: null }))
     await settle()
 
     // Only the turn's own updates, working then waiting: no second write of the flag.

@@ -25,6 +25,8 @@
       "startedMinutesAgo": 36,
       "selected": true,
       "contextUsedTokens": 88000,
+      "totalInputTokens": 1234567,
+      "totalOutputTokens": 45300,
       "contextWindowTokens": 200000,
       "messages": [
         {

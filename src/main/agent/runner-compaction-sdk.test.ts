@@ -96,10 +96,11 @@ function deferred(): { promise: Promise<unknown>; resolve: (value: unknown) => v
   return { promise, resolve }
 }
 
-/** Sends a message and plays its turn to the end. */
+/** Sends a message and plays its turn to the end. Its result names no usage: these tests are about the SDK's
+ * auto-compact probe, not what the turn spent (#587), whose update would only add to what they count. */
 async function turn(text = 'Move the uploads to S3.'): Promise<void> {
   await glade.invoke(CommandName.TasksSend, { id: task.id, text })
-  backend.session.emit(sdk.init(), sdk.text('Done.'), sdk.result('Done.'))
+  backend.session.emit(sdk.init(), sdk.text('Done.'), sdk.result('Done.', { usage: null }))
   await settle()
 }
 

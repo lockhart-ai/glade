@@ -68,6 +68,8 @@ it('keeps every task and what references it, and lets a task pause', () => {
     doneAt: null,
     sessionId: 'session-1',
     contextUsedTokens: 1200,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
     contextWindowTokens: 200_000,
     error: expect.objectContaining({ kind: AgentErrorKind.Transient, retries: 3 }) as unknown,
     retrying: null,

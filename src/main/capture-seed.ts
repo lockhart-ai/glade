@@ -246,6 +246,9 @@ export interface SeedTask {
   readonly model?: string | undefined
   /** How much context the task's agent has used, in tokens; none unless given. */
   readonly contextUsedTokens?: number | undefined
+  /** What the task's turns have spent in total, in and out, for its Agents tab line (#587); none unless given. */
+  readonly totalInputTokens?: number | undefined
+  readonly totalOutputTokens?: number | undefined
   /** The task's context window, in tokens; its model's unless given. */
   readonly contextWindowTokens?: number | undefined
   /** Where the SDK said it compacts automatically; unknown (its default) unless given. */
@@ -697,6 +700,8 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       unread: z.boolean().optional(),
       model: z.string().optional(),
       contextUsedTokens: z.int().nonnegative().optional(),
+      totalInputTokens: z.int().nonnegative().optional(),
+      totalOutputTokens: z.int().nonnegative().optional(),
       contextWindowTokens: z.int().positive().optional(),
       autoCompact: z
         .discriminatedUnion('kind', [
@@ -1101,6 +1106,8 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
           pinned: sample.pinned ?? false,
           unread: sample.unread ?? false,
           contextUsedTokens: sample.contextUsedTokens,
+          totalInputTokens: sample.totalInputTokens,
+          totalOutputTokens: sample.totalOutputTokens,
           contextWindowTokens: sample.contextWindowTokens,
           autoCompact: sample.autoCompact,
           error: sample.error ?? null,

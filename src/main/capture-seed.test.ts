@@ -98,6 +98,8 @@ const SEED: CaptureSeed = {
       activity: TaskActivity.Working,
       contextUsedTokens: 76_000,
       contextWindowTokens: 200_000,
+      totalInputTokens: 1_234_567,
+      totalOutputTokens: 45_300,
       minutesAgo: 30,
     },
     {
@@ -525,6 +527,15 @@ describe('applySeed', () => {
     ])
     expect(getUiState(db, UiStateKey.ActiveWorkspaceId)).toBe(workspace?.id)
     expect(getUiState(db, UiStateKey.SelectedTaskId)).toBe(tasks[0]?.id)
+  })
+
+  it('sets the token totals a task names, for its Agents tab line (#587)', () => {
+    const { db } = database
+
+    applySeed(db, SEED, NOW)
+
+    const uploads = listTasks(db, listWorkspaces(db)[0]?.id ?? '').find(({ title }) => title === 'Move uploads')
+    expect(uploads).toMatchObject({ totalInputTokens: 1_234_567, totalOutputTokens: 45_300 })
   })
 
   it('puts a task in the other workspace it names, made once by its root, leaving the fixture’s own open', () => {

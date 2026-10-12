@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import { openDatabase } from '../database'
 import { migrate } from '../migrate'
-import { sampleTask, sampleWorkspace } from '../repositories/test-database'
+import { sampleLegacyTask, sampleWorkspace } from '../repositories/test-database'
 import { MIGRATIONS } from '.'
 
 it.each(['absent', 'without-config', 'current'])(
@@ -12,7 +12,7 @@ it.each(['absent', 'without-config', 'current'])(
       db,
       MIGRATIONS.filter(({ version }) => version <= 65),
     )
-    const task = sampleTask(db, sampleWorkspace(db).id)
+    const task = sampleLegacyTask(db, sampleWorkspace(db).id)
     if (schema !== 'current') {
       db.exec('DROP TABLE openrouter_usage; DROP TABLE sdk_transcript_failures;')
       if (schema === 'without-config')

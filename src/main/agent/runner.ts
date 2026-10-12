@@ -521,6 +521,7 @@ import {
   type TaskFinishedEvent,
   TaskOutcome,
   type TurnFinishedEvent,
+  type TurnUsage,
 } from './events'
 import { checkedOffline, createPauseTimers, pauseFor, pauseReason, type UsageLimit } from './pauses'
 import { describeSdkMessage } from './sdk-message-log'
@@ -1973,6 +1974,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   const onTurnFinished = (taskId: string, live: LiveSession, turn: Turn, event: TurnFinishedEvent): void => {
+    // Whatever the turn spent, Main keeps: a finished turn's main-loop usage adds to the task's totals (#587), however
+    // the turn ended — a stopped or failed result still names what its requests used, when it names anything.
+    if (event.usage !== null) onTurnUsage(taskId, event.usage)
     // `failCompaction` clears the row's id: whether the turn compacted is read before it.
     const compacted = turn.compactOnly || turn.compacted || turn.compaction !== null
     failCompaction(turn)
@@ -2238,6 +2242,22 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       })
     }
     updateTaskFromRunner(context, taskId, { contextUsedTokens: tokens })
+  }
+
+  /**
+   * Adds a finished turn's main-loop usage to Main's running totals (#587), for its line on the Agents tab: "in"
+   * counts the turn's prompt, its cache reads and its cache writes, and "out" its replies. Subagents' tokens are
+   * never here — the turn's usage already leaves them out — and a turn that says nothing (`usage` null) adds nothing.
+   */
+  const onTurnUsage = (taskId: string, usage: TurnUsage): void => {
+    const task = getTask(db, taskId)
+    if (task === undefined) return
+    const input = usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens
+    if (input === 0 && usage.outputTokens === 0) return
+    updateTaskFromRunner(context, taskId, {
+      totalInputTokens: (task.totalInputTokens ?? 0) + input,
+      totalOutputTokens: (task.totalOutputTokens ?? 0) + usage.outputTokens,
+    })
   }
 
   /** A session is gone, and what ran in it with it: it's forgotten, so the next message starts it again. */
