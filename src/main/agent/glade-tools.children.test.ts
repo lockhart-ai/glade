@@ -234,11 +234,31 @@ describe('the two tools, called as the agent calls them', () => {
     await expect(list({ todo: 2 })).resolves.toMatchObject({ isError: true })
   })
 
-  it('refuses a close_todo call that names no todo, before the handler runs', async () => {
-    unsorted()
+  it('closes a stranded todo as the agent calls it, and refuses a live one or one named badly', async () => {
+    createTodo('1', 'Review the date helpers')
+    createTodo('2', 'Fix the UTC date test')
+    const dir = mkdtempSync(join(tmpdir(), 'glade-close-todo-'))
+    const folder = sharedTaskListDir(dir, task.id)
+    mkdirSync(folder, { recursive: true })
+    writeFileSync(join(folder, '2.json'), '{"id":"2","status":"pending"}')
+    const strandedCaller = createMcpToolCaller({
+      [GLADE_SERVER]: createGladeMcpServer({ ...context, dataDir: dir }, task.id),
+    })
 
+    // A live todo, over the session's own server: an error result, nothing changed.
+    await expect(close({ todo: '1' })).resolves.toMatchObject({ isError: true })
+    // A stranded one, closed: the reply says what it did.
+    await expect(strandedCaller.call('mcp__glade__close_todo', { todo: '1' })).resolves.toEqual({
+      output:
+        "Closed stranded todo #1 Review the date helpers (pending). It is out of the task's list everywhere; " +
+        'its history stays in the tool log.',
+      isError: false,
+    })
+    // A call that names no todo, or a blank one, is refused by the schema before the handler runs.
     await expect(close({})).resolves.toMatchObject({ isError: true })
     await expect(close({ todo: ' ' })).resolves.toMatchObject({ isError: true })
+    await strandedCaller.close()
+    rmSync(dir, { recursive: true, force: true })
   })
 
   it('has handlers that answer as the tools do', () => {

@@ -191,3 +191,8 @@ it('reads the live todo ids by file name alone, and none where there is no share
   expect(liveTodoIds(dir, 'task:1')).toEqual(new Set(['1', '52']))
   expect(liveTodoIds(dir, 'never-started')).toBeNull()
 })
+
+it('rethrows an error of reading the list folder that a missing folder is not', async () => {
+  await writeFile(join(dir, 'sdk-task-lists'), 'This should have been a folder')
+  expect(() => liveTodoIds(dir, 'task:1')).toThrow(/ENOTDIR/)
+})
