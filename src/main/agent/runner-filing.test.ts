@@ -3,16 +3,14 @@
 // (`docs/sdk-notes.md` §16), with the real Glade tools and a database in memory. Commits are filed, a subagent's todo
 // is recorded, and a watcher's call is left as it is. Each test reads where main puts each thing.
 import type { Database } from 'better-sqlite3'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import { MessageRole, ToolEventKind, type Task, type ToolCallEvent, type ToolInput } from '../../shared/domain'
-import { ChildKind, commitChildKey, FilingSource, subagentTodo, subagentTodos } from '../../shared/todoHub'
+import { subagentTodo, subagentTodos } from '../../shared/todoHub'
 import { FILE_CHILDREN_TOOL } from '../../shared/toolName'
 import type { BashEnd, ChangeTracker } from '../changes/tracker'
 import { listFilings } from '../db/repositories/child-filings'
+import { deleteTodo, putTodos, seedTodoCounterAtLeast, type NewTodo } from '../db/repositories/glade-todos'
 import { listMessages } from '../db/repositories/messages'
 import { listOwedFilings } from '../db/repositories/owed-filings'
 import { getSessionContext, setSessionContext, type SessionContext } from '../db/repositories/session-context'
@@ -20,18 +18,18 @@ import { getSettings } from '../db/repositories/settings'
 import { addTaskCommit, CommitSource, listTaskCommits } from '../db/repositories/task-commits'
 import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
-import { listToolEvents } from '../db/repositories/tool-events'
+import { listToolCallsNamed, listToolEvents } from '../db/repositories/tool-events'
 import { listWatchers } from '../db/repositories/watchers'
 import { createGit } from '../git/git'
 import { openTestRepos, TEST_GIT_RUN, type TestRepos } from '../git/test-repos'
 import { createQuestionBroker } from '../questions/questions'
 import { NO_TODOS } from '../todo-hub/agent-children'
-import { fileChildren, readTodoHub, taskChildren } from '../todo-hub/todo-hub'
+import { readTodoHub, taskChildren } from '../todo-hub/todo-hub'
+import { replayLegacyTodos } from '../todos/carry-over'
 import type { BatchCall } from './backend'
 import { readsTodo } from './child-calls'
-import { FakeAgentBackend, settle, type FakeAgentSession } from './fake-backend'
+import { FakeAgentBackend, settle as settleBackend, type FakeAgentSession } from './fake-backend'
 import { createGladeMcpServer, GLADE_SERVER } from './glade-tools'
-import { sharedTaskListDir } from '../openrouter/task-list'
 import { COMPACT_COMMAND, createAgentRunner, type AgentRunner } from './runner'
 import { INSTRUCTION_UPDATES, TODO_HUB_LINES } from './system-prompt'
 import * as sdk from './test-sdk-messages'
@@ -45,6 +43,36 @@ let events: GladeEvent[]
 
 // Some tests run real git commands: slow while the whole suite runs at once.
 vi.setConfig({ testTimeout: 30_000 })
+
+/** The ids of the task's rows in Glade's own todos table, as `syncTodos` keeps it in step. */
+function existingTodoIds(): string[] {
+  return db
+    .prepare('SELECT id FROM todos WHERE task_id = ?')
+    .pluck()
+    .all(task.id)
+    .map((id) => String(id))
+}
+
+/**
+ * Re-syncs the task's own todos table from whatever its tool log holds right now (#609): this file simulates a live
+ * session making raw TaskCreate/TaskUpdate calls (built-ins, not `create_todo`/`update_todo`), so nothing writes the
+ * table on its own the way a real session would. Safe to call repeatedly, unlike the one-time carry-over.
+ */
+function syncTodos(): void {
+  const calls = listToolCallsNamed(db, task.id, ['TodoWrite', 'TaskCreate', 'TaskUpdate'])
+  const { items, highestIdEverGiven } = replayLegacyTodos(calls)
+  const withIds = items.filter((item): item is NewTodo => item.id !== null)
+  const keep = new Set(withIds.map(({ id }) => id))
+  for (const existing of existingTodoIds()) if (!keep.has(existing)) deleteTodo(db, task.id, existing)
+  if (withIds.length > 0) putTodos(db, task.id, withIds)
+  if (highestIdEverGiven !== null) seedTodoCounterAtLeast(db, task.id, highestIdEverGiven + 1)
+}
+
+/** `settle`, and syncs the todos table from the tool log it just settled (#609). */
+async function settle(): Promise<void> {
+  await settleBackend()
+  syncTodos()
+}
 
 /** A tracker that works out no commit, and remembers what it was told ran. */
 function quietTracker(onFinished: (call: BashEnd) => void = () => undefined): ChangeTracker {
@@ -420,6 +448,7 @@ describe('a call that names its todo', () => {
     expect(logged('Agent')).toEqual([{ description: 'Review the order totals' }])
 
     session().emit(sdk.toolResult('toolu_create_4', 'Task #4 created successfully: Review the order totals'))
+    await settle()
     const handed = await session().startChild({
       toolName: 'Agent',
       input: { description: '[todo 4] Review the order totals' },
@@ -979,90 +1008,7 @@ describe('a task whose session started before the hub was on for every task (#50
   })
 })
 
-describe('a TaskCreate that reuses a number a todo holds (#593)', () => {
-  beforeEach(async () => {
-    await say('Carry the work on.')
-    await threeTodos()
-    // A commit of the agent's, filed under the first todo.
-    addTaskCommit(db, {
-      taskId: task.id,
-      gitDir: '/code/acme-api/.git',
-      repoPath: '/code/acme-api',
-      hash: 'a'.repeat(40),
-      subject: 'Fix the UTC date test',
-      branch: 'main',
-      committedAt: 1_000,
-      additions: 1,
-      deletions: 1,
-      filesChanged: 1,
-      parents: 1,
-      toolUseId: 'toolu_commit',
-      source: CommitSource.Printed,
-    })
-    fileChildren({ db, emit: (event) => events.push(event) }, task.id, [
-      {
-        kind: ChildKind.Commit,
-        key: commitChildKey({ hash: 'a'.repeat(40), repoPath: '/code/acme-api' }),
-        todoId: '1',
-        source: FilingSource.Named,
-      },
-    ])
-    expect(filings()).toEqual([`commit ${'a'.repeat(40)} /code/acme-api #1 named`])
-  })
-
-  it('moves what the old todo had filed to Not under a todo, when the new one has a different subject', async () => {
-    session().emit(sdk.toolUse('toolu_remake', 'TaskCreate', { subject: 'Something else entirely' }))
-    session().emit(sdk.toolResult('toolu_remake', 'Task #1 created successfully: Something else entirely'))
-    await settle()
-
-    // The old todo's commit went to Not under a todo; the new #1 took nothing with it.
-    expect(filings()).toEqual([])
-    expect(placed()).toEqual([[], [], [], ['commit unfiled']])
-  })
-
-  it('keeps what was filed when the new todo has the same subject: the agent recreating its own', async () => {
-    session().emit(sdk.toolUse('toolu_remake', 'TaskCreate', { subject: 'Review the date helpers' }))
-    session().emit(sdk.toolResult('toolu_remake', 'Task #1 created successfully: Review the date helpers'))
-    await settle()
-
-    expect(filings()).toEqual([`commit ${'a'.repeat(40)} /code/acme-api #1 named`])
-    // The recreated todo is placed last in the list, and keeps its commit.
-    expect(placed()).toEqual([[], [], ['commit named'], []])
-  })
-})
-
-describe('a todo the shared list no longer holds (#593)', () => {
-  /** The last `todos.changed`'s list, as [id, stranded]. */
-  function lastChanged(): readonly (readonly [string | null, boolean])[] {
-    const changed = events.filter((event) => event.type === EventType.TodosChanged).at(-1)
-    if (changed === undefined || !('todos' in changed) || changed.todos === null) throw new Error('No todos sent')
-    return changed.todos.items.map(({ id, stranded }) => [id, stranded === true])
-  }
-
-  it('goes to the windows marked stranded', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'glade-stranded-'))
-    const folder = sharedTaskListDir(dir, task.id)
-    mkdirSync(folder, { recursive: true })
-    writeFileSync(join(folder, '1.json'), '{"id":"1","status":"pending"}')
-    runner.close()
-    launch(quietTracker(), dir)
-    await say('Carry on.')
-    await threeTodos()
-    expect(lastChanged()).toEqual([
-      ['1', false],
-      ['2', true],
-      ['3', true],
-    ])
-    rmSync(dir, { recursive: true, force: true })
-  })
-
-  it('marks nothing for a task with no shared folder: the list is as it always was', async () => {
-    await say('Carry on.')
-    await threeTodos()
-    expect(lastChanged()).toEqual([
-      ['1', false],
-      ['2', false],
-      ['3', false],
-    ])
-  })
-})
+// The two describe blocks that lived here ("a TaskCreate that reuses a number a todo holds (#593)" and "a todo
+// the shared list no longer holds (#593)") tested runner.ts reacting generically to a live TaskCreate/TaskUpdate
+// tool call finishing: taking over a filed todo's children, and marking the broadcast list stranded. That hook is
+// gone (#609): create_todo/update_todo emit their own events, ids are never reused, and nothing is ever stranded.

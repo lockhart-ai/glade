@@ -153,8 +153,10 @@ describe('the server', () => {
       GladeTool.RemoveArtifact,
       GladeTool.ListChildren,
       GladeTool.FileChildren,
-      GladeTool.CloseTodo,
       GladeTool.ListOtherTasks,
+      GladeTool.CreateTodo,
+      GladeTool.UpdateTodo,
+      GladeTool.ListTodos,
     ])
     for (const listed of tools) expect(listed._meta).toEqual({ 'anthropic/alwaysLoad': true })
     expect(tools.map((listed) => listed.inputSchema.required)).toEqual([
@@ -169,7 +171,9 @@ describe('the server', () => {
       undefined,
       undefined,
       ['filings'],
-      ['todo'],
+      undefined,
+      ['subject'],
+      ['id'],
       undefined,
     ])
     await client.close()
@@ -205,8 +209,10 @@ describe('the server', () => {
       GladeTool.RemoveArtifact,
       GladeTool.ListChildren,
       GladeTool.FileChildren,
-      GladeTool.CloseTodo,
       GladeTool.ListOtherTasks,
+      GladeTool.CreateTodo,
+      GladeTool.UpdateTodo,
+      GladeTool.ListTodos,
     ])
     await client.close()
   })

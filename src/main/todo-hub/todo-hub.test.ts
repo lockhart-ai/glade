@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
-import { ToolCallState, WatcherKind, WatcherState, type Task } from '../../shared/domain'
+import { TodoState, ToolCallState, WatcherKind, WatcherState, type Task } from '../../shared/domain'
 import {
   ChildFilter,
   ChildKind,
@@ -21,6 +21,7 @@ import {
 import { openAppDatabase } from '../db/database'
 import { addArtifact, addLinkArtifact, setArtifactFile } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
+import { deleteTodo as deleteTodoRow, putTodos, seedTodoCounterAtLeast } from '../db/repositories/glade-todos'
 import { listOwedFilings, oweFilings } from '../db/repositories/owed-filings'
 import { addTaskCommit, CommitSource } from '../db/repositories/task-commits'
 import { deleteTask } from '../db/repositories/tasks'
@@ -78,15 +79,18 @@ function finish(toolUseId: string, output: string, at: number): void {
   updateToolCall(db, { taskId: task.id, toolUseId, state: ToolCallState.Done, output }, at)
 }
 
-/** Adds a todo as Claude Code's `TaskCreate` does: the call's result names its id. */
+/** Adds a todo, by its own id, in Glade's own table (#609); also logs a TaskCreate call, for realism alone. */
 function createTodo(id: string, subject: string, at: number): void {
   call('TaskCreate', `toolu_create_${id}`, { subject }, at)
   finish(`toolu_create_${id}`, `Task #${id} created successfully: ${subject}`, at)
+  putTodos(db, task.id, [{ id, text: subject, note: null, state: TodoState.Todo, completedAt: null }], at)
+  seedTodoCounterAtLeast(db, task.id, Number(id) + 1)
 }
 
 function deleteTodo(id: string, at: number): void {
   call('TaskUpdate', `toolu_delete_${id}`, { taskId: id, status: 'deleted' }, at)
   finish(`toolu_delete_${id}`, `Updated task #${id} deleted`, at)
+  deleteTodoRow(db, task.id, id)
 }
 
 function monitor(toolUseId: string, parent: string | null, at: number) {

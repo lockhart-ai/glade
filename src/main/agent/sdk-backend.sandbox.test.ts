@@ -145,7 +145,7 @@ it('starts a session with the sandbox off exactly as before the sandbox', () => 
     settings: { deniedMcpServers: [{ serverName: 'glade-control' }] },
     systemPrompt: { type: 'preset', preset: 'claude_code', append: 'You are running inside Glade.' },
     mcpServers: {},
-    disallowedTools: ['AskUserQuestion'],
+    disallowedTools: [...DISALLOWED_TOOLS],
     forwardSubagentText: true,
     agentProgressSummaries: true,
     perTaskStopAffordance: true,
@@ -488,14 +488,14 @@ it('adds nothing, and logs it, when the host fails to decide', async () => {
 // outside the workspace root. Claude Code's file tools follow; Glade's bounds stay with the root.
 it('offers a sandboxed session no way into another worktree, and any other session what it always had', () => {
   const sandboxed = sdkOptions({ ...OPTIONS, flagSettings: sandboxStartSettings(ROOT, '/Users/me') }, {})
-  expect(sandboxed.disallowedTools).toEqual(['AskUserQuestion', 'EnterWorktree', 'ExitWorktree'])
+  expect(sandboxed.disallowedTools).toEqual([...DISALLOWED_TOOLS, 'EnterWorktree', 'ExitWorktree'])
   expect(SANDBOX_DISALLOWED_TOOLS).toEqual(['EnterWorktree', 'ExitWorktree'])
 
   for (const flagSettings of [undefined, {}, { sandbox: { enabled: false } }]) {
     const plain = sdkOptions({ ...OPTIONS, ...(flagSettings === undefined ? {} : { flagSettings }) }, {})
-    expect(plain.disallowedTools).toEqual(['AskUserQuestion'])
+    expect(plain.disallowedTools).toEqual([...DISALLOWED_TOOLS])
   }
-  expect(DISALLOWED_TOOLS).toEqual(['AskUserQuestion'])
+  expect(DISALLOWED_TOOLS).toEqual(['AskUserQuestion', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskUpdate', 'TodoWrite'])
 })
 
 // #514, finding 3 and 5: the switches the user's own settings could turn on underneath, and the control endpoint's

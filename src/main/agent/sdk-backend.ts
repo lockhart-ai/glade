@@ -140,13 +140,14 @@ function unpacked(path: string): string {
 }
 
 /**
- * What Glade adds to every session's environment. `CLAUDE_CODE_ENABLE_TODO_TOOLS` gives the session Claude Code's todo
- * tools (`TaskCreate`, `TaskUpdate`, …), which the Todos tab reads: the bundled Claude Code leaves them off for SDK
+ * What Glade adds to every session's environment. `CLAUDE_CODE_ENABLE_TODO_TOOLS` once gave the session Claude
+ * Code's own todo tools (`TaskCreate`, `TaskUpdate`, …), which the bundled Claude Code otherwise leaves off for SDK
  * sessions on newer models (Opus 5.5, Sonnet 5), turning them on by default only for older ones
- * (`docs/sdk-notes.md` §10). The tools the agent schedules its own follow-ups with (background `Bash` and `Agent`,
- * `Monitor`, `ScheduleWakeup`, `CronCreate`) need nothing: SDK sessions have them already (§11).
- * `CLAUDE_CODE_STARTUP_FAILURE_RESULTS` has a session Claude Code can't start end with a result naming why
- * (`startup_failure_reason`), which the error card words, rather than only a failed process.
+ * (`docs/sdk-notes.md` §10). `DISALLOWED_TOOLS` (below) now blocks every one of them regardless, so this is harmless
+ * to leave on — the Todos tab reads Glade's own table, not these, since #609. The tools the agent schedules its own
+ * follow-ups with (background `Bash` and `Agent`, `Monitor`, `ScheduleWakeup`, `CronCreate`) need nothing: SDK
+ * sessions have them already (§11). `CLAUDE_CODE_STARTUP_FAILURE_RESULTS` has a session Claude Code can't start end
+ * with a result naming why (`startup_failure_reason`), which the error card words, rather than only a failed process.
  */
 export const SESSION_ENV: Environment = { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1', CLAUDE_CODE_STARTUP_FAILURE_RESULTS: '1' }
 
@@ -802,8 +803,19 @@ function bashFinishedHook(onBashFinished: NonNullable<SessionHooks['onBashFinish
   }
 }
 
-/** The tools no session of Glade's is offered: Claude Code's own asking tool, which has no UI here. */
-export const DISALLOWED_TOOLS: readonly string[] = ['AskUserQuestion']
+/**
+ * The tools no session of Glade's is offered: Claude Code's own asking tool, which has no UI here, and its own todo
+ * tools (#609), which Glade's own `create_todo`, `update_todo` and `list_todos` (`./glade-tools`) replace, so its
+ * list lives in Glade's database and survives a restart, a source switch and a relaunch the same way every time.
+ */
+export const DISALLOWED_TOOLS: readonly string[] = [
+  'AskUserQuestion',
+  'TaskCreate',
+  'TaskGet',
+  'TaskList',
+  'TaskUpdate',
+  'TodoWrite',
+]
 
 /**
  * The tools a sandboxed session isn't offered either (#514): `EnterWorktree` moves the session's working folder into

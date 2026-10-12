@@ -3,8 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Database } from 'better-sqlite3'
-import { Effort, ToolCallState, type Task, type Workspace } from '../../../shared/domain'
+import { Effort, TodoState, ToolCallState, type Task, type Workspace } from '../../../shared/domain'
 import { openAppDatabase } from '../database'
+import { putTodos, seedTodoCounterAtLeast } from './glade-todos'
 import { createTask } from './tasks'
 import { appendToolCall, updateToolCall } from './tool-events'
 import { createWorkspace } from './workspaces'
@@ -51,8 +52,10 @@ export function sampleLegacyTask(db: Database, workspaceId: string): LegacySampl
 }
 
 /**
- * A todo in a task's list, as Claude Code's `TaskCreate` leaves it in the tool log: `id` is the N of the `Task #N` it
- * answers with, which is what a child is filed under.
+ * A todo in a task's list (#609), by its own id, which is what a child is filed under: a row of Glade's own `todos`
+ * table, with the task's counter raised past it so a later `create_todo` never reuses it. Also logs a `TaskCreate`
+ * call with the same id and subject, as a task migrated from before #609 would still show in its tool log, for a
+ * test that reads the log itself rather than the Todos tab.
  */
 export function sampleTodo(
   db: Database,
@@ -65,4 +68,6 @@ export function sampleTodo(
   appendToolCall(db, { taskId, turn: 1, name: 'TaskCreate', input: { subject }, toolUseId, parentToolUseId: null }, at)
   const output = `Task #${id} created successfully: ${subject}`
   updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Done, output }, at)
+  putTodos(db, taskId, [{ id, text: subject, note: null, state: TodoState.Todo, completedAt: null }], at)
+  seedTodoCounterAtLeast(db, taskId, Number(id) + 1)
 }

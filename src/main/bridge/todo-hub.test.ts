@@ -5,10 +5,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createBridge } from '../../preload/bridge'
 import { BridgeErrorCode, CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
-import { ToolCallState, type Task } from '../../shared/domain'
+import { TodoState, ToolCallState, type Task } from '../../shared/domain'
 import { ChildFilter, ChildKind, FilingSource, UNFILED_TODO_ID } from '../../shared/todoHub'
 import { FakeAgentBackend } from '../agent/fake-backend'
 import { addArtifact } from '../db/repositories/artifacts'
+import { putTodos, seedTodoCounterAtLeast } from '../db/repositories/glade-todos'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
 import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
@@ -50,7 +51,7 @@ afterEach(() => {
   database.close()
 })
 
-/** A todo, as Claude Code's `TaskCreate` leaves it in the tool log. */
+/** A todo, by its own id, in Glade's own table (#609); also logs a TaskCreate call, for realism alone. */
 function createTodo(id: string, subject: string): void {
   const toolUseId = `toolu_create_${id}`
   appendToolCall(
@@ -60,6 +61,8 @@ function createTodo(id: string, subject: string): void {
   )
   const output = `Task #${id} created successfully: ${subject}`
   updateToolCall(database.db, { taskId: task.id, toolUseId, state: ToolCallState.Done, output }, 3_000)
+  putTodos(database.db, task.id, [{ id, text: subject, note: null, state: TodoState.Todo, completedAt: null }], 3_000)
+  seedTodoCounterAtLeast(database.db, task.id, Number(id) + 1)
 }
 
 const hubRows = (): unknown =>

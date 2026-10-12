@@ -29,6 +29,12 @@ import {
 } from '../../shared/todoHub'
 import { addArtifact, addLinkArtifact, removeArtifact } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
+import {
+  deleteTodo,
+  putTodos,
+  seedTodoCounterAtLeast,
+  updateTodo as updateTodoRow,
+} from '../db/repositories/glade-todos'
 import { listRetiredTodoIds } from '../db/repositories/retired-todos'
 import { addTaskCommit, CommitSource } from '../db/repositories/task-commits'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
@@ -97,15 +103,25 @@ function finish(toolUseId: string, output: string, at: number): void {
   updateToolCall(db, { taskId: task.id, toolUseId, state: ToolCallState.Done, output }, at)
 }
 
-/** Adds a todo as Claude Code's `TaskCreate` does: the call's result names its id. */
+const STATUS_TO_STATE: Readonly<Record<string, TodoState>> = {
+  pending: TodoState.Todo,
+  in_progress: TodoState.Doing,
+  completed: TodoState.Done,
+}
+
+/** Adds a todo, by its own id, in Glade's own table (#609); also logs a TaskCreate call, for realism alone. */
 function createTodo(id: string, subject: string, at: number): void {
   call('TaskCreate', `toolu_create_${id}`, { subject }, at)
   finish(`toolu_create_${id}`, `Task #${id} created successfully: ${subject}`, at)
+  putTodos(db, task.id, [{ id, text: subject, note: null, state: TodoState.Todo, completedAt: null }], at)
+  seedTodoCounterAtLeast(db, task.id, Number(id) + 1)
 }
 
 function updateTodo(id: string, status: string, at: number): void {
   call('TaskUpdate', `toolu_${status}_${id}`, { taskId: id, status }, at)
   finish(`toolu_${status}_${id}`, `Updated task #${id} status`, at)
+  if (status === 'deleted') deleteTodo(db, task.id, id)
+  else updateTodoRow(db, task.id, id, { state: STATUS_TO_STATE[status] }, at)
 }
 
 function monitor(toolUseId: string, label: string, parent: string | null, at: number) {
@@ -1052,20 +1068,22 @@ describe('a stranded todo (#593)', () => {
       createTodo('2', 'Fix the UTC date test', 5_100)
     })
 
-    it('takes the closed todo out of the list everywhere, and tells the windows', () => {
+    it('marks it retired and tells the windows, though nothing filters it from the table-based list any more (#609)', () => {
       expect(close('1', sharedList('2'))).toBe(
         "Closed stranded todo #1 Review the date helpers (pending). It is out of the task's list everywhere; " +
           'its history stays in the tool log.',
       )
       expect(listRetiredTodoIds(db, task.id)).toEqual(new Set(['1']))
-      expect(filingTodos(taskChildren(db, task.id).todos).map(({ id }) => id)).toEqual(['2'])
+      // close_todo isn't offered any more, and its handler's old effect (hiding a closed todo from the derived
+      // list) doesn't reach Glade's own table: this is only ever exercised by calling the handler directly.
+      expect(filingTodos(taskChildren(db, task.id).todos).map(({ id }) => id)).toEqual(['1', '2'])
       expect(events.map(({ type }) => type)).toEqual([EventType.TodosChanged, EventType.TaskUpdated])
       const todos = events.find((event) => event.type === EventType.TodosChanged)
       if (todos === undefined || !('todos' in todos) || todos.todos === null) throw new Error('No todos sent')
-      expect(todos.todos.items.map(({ id }) => id)).toEqual(['2'])
+      expect(todos.todos.items.map(({ id }) => id)).toEqual(['1', '2'])
       const updated = events.find((event) => event.type === EventType.TaskUpdated)
       if (updated === undefined || !('task' in updated) || updated.task.todos === null) throw new Error('No task sent')
-      expect(updated.task.todos satisfies TodoSummary).toEqual({ done: 0, total: 1, doing: [] })
+      expect(updated.task.todos satisfies TodoSummary).toEqual({ done: 0, total: 2, doing: [] })
     })
 
     it('refuses a live todo, and every todo of a task with no shared folder', () => {
@@ -1102,7 +1120,10 @@ describe('a stranded todo (#593)', () => {
           '#2 Fix the UTC date test (pending)',
       })
       expect(close('1', dir)).toContain('Closed stranded todo')
-      expect(close('1', dir)).toBe('Todo #1 is already closed.')
+      // "Already closed" relied on a closed todo dropping out of the derived list; nothing drops out of Glade's own
+      // table any more (#609), so closing it again just closes it again. Only reachable by calling the handler
+      // directly: close_todo isn't offered.
+      expect(close('1', dir)).toContain('Closed stranded todo')
     })
   })
 })

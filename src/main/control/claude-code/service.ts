@@ -41,6 +41,7 @@ import {
 } from '../../db/repositories/tool-events'
 import { getWorkspaceByRoot, listWorkspaces } from '../../db/repositories/workspaces'
 import { truncate } from '../../notifications/notifications'
+import { carryOverTodos } from '../../todos/carry-over'
 import { refreshTodos } from '../../todos/todos'
 import { createWorkspaceAt } from '../../workspaces/workspaces'
 import { ControlError, ControlErrorCode } from '../errors'
@@ -429,7 +430,9 @@ async function importSession(
     )
     const windowTokens = created.contextWindowTokens
     for (const turn of transcript.turns) writeTurn(db, created.id, turn, windowTokens, transcript.startedAt)
-    // The session's todo calls leave a list, as a Glade task's do: its row shows the progress.
+    // The session's TaskCreate/TaskUpdate/TodoWrite calls are Claude Code's own (#609): carried into Glade's own
+    // todos table the same way an existing task's history was, so its row shows the progress.
+    carryOverTodos(db, created.id)
     refreshTodos(db, created.id)
     const task = updateTask(
       db,

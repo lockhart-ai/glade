@@ -366,8 +366,6 @@ import {
   emitMessageAppended,
   emitPermissionMarked,
   emitQueueChanged,
-  emitTaskUpdated,
-  emitTodosChanged,
   emitToolEventAppended,
   emitToolEventRemoved,
   emitToolEventUpdated,
@@ -467,7 +465,6 @@ import {
 import { grantingGrant, heldGrants, type GrantingGrant } from '../sandbox/grants'
 import { createQuestionBroker, toolResultFor, type QuestionBroker } from '../questions/questions'
 import { addQueuedMessage } from '../tasks/queue'
-import { changesTodos, liveTodos, refreshTodos, takenOverTodoLogged } from '../todos/todos'
 import { noteAgentReply } from '../tasks/attention'
 import { reopenTask, updateTaskFromRunner, updateTaskFromUser, type TaskServiceContext } from '../tasks/service'
 import {
@@ -540,8 +537,6 @@ import {
 } from './session-context'
 import { summarizeTurn } from './turn-summary'
 import { createChildFiler } from '../todo-hub/filing'
-import { unfileChildren } from '../todo-hub/todo-hub'
-import { listFilings } from '../db/repositories/child-filings'
 
 /** A stuck SDK initialization must release the picker and keep the original session usable. */
 export const MODEL_SWITCH_TIMEOUT_MS = 30_000
@@ -1833,25 +1828,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     live.figureWrites.delete(event.toolUseId)
     const call = updateToolCall(db, { taskId, toolUseId: event.toolUseId, state, output })
     emitToolEventUpdated(emit, call)
-    if (changesTodos(call)) {
-      const { changed } = refreshTodos(db, taskId)
-      // The list the windows are sent is the one the agent holds: a todo its shared list folder no longer has goes
-      // marked stranded (#593). No shared folder (a task that hasn't started since, or a test without one), no marks.
-      emitTodosChanged(emit, taskId, liveTodos(db, taskId, options.dataDir))
-      if (changed !== null) emitTaskUpdated(emit, changed)
-      // A new todo that reuses a number a different subject held must not inherit what was filed under it (#593): the
-      // old todo's children go to Not under a todo. The same subject is the agent recreating its own todo, which keeps
-      // them.
-      if (call.name === 'TaskCreate') {
-        const taken = takenOverTodoLogged(db, taskId, call)
-        if (taken !== null)
-          unfileChildren(
-            { db, emit },
-            taskId,
-            listFilings(db, taskId).filter((filing) => filing.todoId === taken.todoId),
-          )
-      }
-    }
+    // Todos are Glade's own tools now (#609): create_todo and update_todo tell the windows themselves
+    // (../todos/agent-todos), so nothing here reacts to a tool call finishing for them any more.
     watchers.toolResult(taskId, call, event)
     noteBashResult(taskId, call)
     if (parent === null && !turn.stopping && stepFinished(turn)) deliverQueue(taskId, live, turn)

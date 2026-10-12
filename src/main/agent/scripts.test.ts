@@ -50,7 +50,6 @@ import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from
 import { listToolEvents } from '../db/repositories/tool-events'
 import type { NotifyReply } from '../notifications/notifications'
 import { createQuestionBroker } from '../questions/questions'
-import { createdTaskId } from '../todos/schema'
 import { readTodoHub, taskChildren } from '../todo-hub/todo-hub'
 import { todoListFor } from '../todos/todos'
 import { listWatchers } from '../db/repositories/watchers'
@@ -340,10 +339,10 @@ describe('AGENT_SCRIPTS', () => {
       agent.send(task.id, FILES_CHILDREN.prompt)
       await backend.whenIdle()
 
-      // The ids Claude Code gave its todos, in the results of the calls that made them.
+      // The ids Glade gave its todos, in the order create_todo made them.
       const ids = calls()
-        .filter((call) => call.name === 'TaskCreate')
-        .map((call) => createdTaskId(call.output ?? ''))
+        .filter((call) => call.name === 'mcp__glade__create_todo')
+        .map((call) => /^Todo #(\S+) created/.exec(call.output ?? '')?.[1])
       expect(ids).toEqual(['1', '2', '3'])
       expect(todoListFor(database.db, task.id)?.items.map(({ text, state }) => [text, state])).toEqual([
         ['Review the date helpers', TodoState.Done],
@@ -669,13 +668,13 @@ describe('AGENT_SCRIPTS', () => {
         ['mcp__glade__set_title', ToolCallState.Done],
         ['mcp__glade__set_objective', ToolCallState.Done],
         ['mcp__glade__set_status', ToolCallState.Done],
-        ['TaskCreate', ToolCallState.Done],
-        ['TaskUpdate', ToolCallState.Done],
+        ['mcp__glade__create_todo', ToolCallState.Done],
+        ['mcp__glade__update_todo', ToolCallState.Done],
         ['Write', ToolCallState.Done],
         ['Write', ToolCallState.Done],
         ['mcp__glade__add_artifact', ToolCallState.Done],
         ['mcp__glade__add_artifact', ToolCallState.Done],
-        ['TaskUpdate', ToolCallState.Done],
+        ['mcp__glade__update_todo', ToolCallState.Done],
         ['mcp__glade__set_status', ToolCallState.Done],
       ])
       // Both are under the one todo it keeps, as each call said.
@@ -1683,7 +1682,7 @@ describe('AGENT_SCRIPTS', () => {
     expect(activity()).toBe(TaskActivity.Waiting)
   })
 
-  it('keeps-todos: plans with TaskCreate, checks items off with TaskUpdate, and asks partway through', async () => {
+  it('keeps-todos: plans with create_todo, checks items off with update_todo, and asks partway through', async () => {
     const agent = start('keeps-todos')
     await sendAndWaitAnHour(agent, 'Move the image uploads to S3.')
 
@@ -1702,10 +1701,10 @@ describe('AGENT_SCRIPTS', () => {
       expect(reply()).toMatch(/^All 3,900 files are on S3/)
     })
     expect(states()).toEqual([Done, Done, Done, Done, Done, Done, Todo])
-    expect(calls().filter(({ name }) => name === 'TaskCreate')).toHaveLength(7)
+    expect(calls().filter(({ name }) => name === 'mcp__glade__create_todo')).toHaveLength(7)
   })
 
-  it('writes-todos: keeps its list with TodoWrite, checking each item off', async () => {
+  it('writes-todos: keeps its list with create_todo and update_todo, checking each item off', async () => {
     await send(start('writes-todos'), 'Fix the flaky login test.')
 
     expect(reply()).toMatch(/passes 200 runs in a row\.$/)
@@ -1715,11 +1714,12 @@ describe('AGENT_SCRIPTS', () => {
       { text: 'Fix the race', state: TodoState.Done, note: null },
       { text: 'Run the test 200 times', state: TodoState.Done, note: null },
     ])
-    // The first was finished by an earlier write; the last write finished the other two at once.
+    // Each is finished by its own update_todo call, in order.
     const [reproduced, fixed, ran] = items.map(({ completedAt }) => completedAt ?? 0)
-    expect(fixed).toBe(ran)
-    expect(reproduced).toBeLessThan(fixed ?? 0)
-    expect(calls().filter(({ name }) => name === 'TodoWrite')).toHaveLength(3)
+    expect(reproduced).toBeLessThanOrEqual(fixed ?? 0)
+    expect(fixed).toBeLessThanOrEqual(ran ?? 0)
+    expect(calls().filter(({ name }) => name === 'mcp__glade__create_todo')).toHaveLength(3)
+    expect(calls().filter(({ name }) => name === 'mcp__glade__update_todo')).toHaveLength(5)
   })
 
   it('finishes-in-background: reports back in a turn of its own when the build finishes, with no message from you', async () => {

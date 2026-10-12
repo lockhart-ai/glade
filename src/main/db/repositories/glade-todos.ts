@@ -49,6 +49,31 @@ export function getTodo(db: Database, taskId: string, id: string): Todo | undefi
 }
 
 /**
+ * The time anything of a task's todos last changed (a create, an update or a delete); null while it's never had one.
+ * What `TodoList.updatedAt` reads (`../../todos/todos`): the Todos tab shows it only while the list isn't empty, so a
+ * task with none right now never reads this at all.
+ */
+export function latestTodoChangeAt(db: Database, taskId: string): EpochMs | null {
+  const row = db.prepare('SELECT MAX(updated_at) AS at FROM todos WHERE task_id = ?').get(taskId)
+  return row === undefined ? null : new Row('todos', row).nullableInteger('at')
+}
+
+/** `create_todo`: a new todo, not started, with the next id `allocateTodoId` gives the task. Its `id` is never null. */
+export function createTodo(
+  db: Database,
+  taskId: string,
+  { text, note }: { text: string; note: string | null },
+  now: EpochMs = Date.now(),
+): NewTodo {
+  return db.transaction(() => {
+    const id = allocateTodoId(db, taskId)
+    const todo = { id, text, note, state: TodoState.Todo, completedAt: null }
+    putTodos(db, taskId, [todo], now)
+    return todo
+  })()
+}
+
+/**
  * Writes some of a task's todos directly, by their own id: a row of the same id is replaced whole. For the
  * carry-over (`../../todos/carry-over`) and tests; `create_todo` and `update_todo` go through `allocateTodoId` and
  * `updateTodo` instead, which keep `created_at` as it was.

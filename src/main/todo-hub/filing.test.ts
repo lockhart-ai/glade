@@ -26,6 +26,12 @@ import {
 import { ChildTool, nameTodo } from '../agent/child-calls'
 import { addArtifact, addLinkArtifact } from '../db/repositories/artifacts'
 import { listFilings } from '../db/repositories/child-filings'
+import {
+  deleteTodo,
+  putTodos,
+  seedTodoCounterAtLeast,
+  updateTodo as updateTodoRow,
+} from '../db/repositories/glade-todos'
 import { listOwedFilings } from '../db/repositories/owed-filings'
 import { addTaskCommit, CommitSource, findTaskCommit, removeTaskCommit } from '../db/repositories/task-commits'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
@@ -86,15 +92,25 @@ function finished(toolUseId: string, output: string): void {
   updateToolCall(db, { taskId: task.id, toolUseId, state: ToolCallState.Done, output }, clock)
 }
 
-/** Adds a todo as Claude Code's `TaskCreate` does: the call's result names its id. */
+const STATUS_TO_STATE: Readonly<Record<string, TodoState>> = {
+  pending: TodoState.Todo,
+  in_progress: TodoState.Doing,
+  completed: TodoState.Done,
+}
+
+/** Adds a todo, by its own id, in Glade's own table (#609); also logs a TaskCreate call, for realism alone. */
 function createTodo(id: string, subject: string): void {
   logged('TaskCreate', `toolu_create_${id}`, { subject })
   finished(`toolu_create_${id}`, `Task #${id} created successfully: ${subject}`)
+  putTodos(db, task.id, [{ id, text: subject, note: null, state: TodoState.Todo, completedAt: null }], clock)
+  seedTodoCounterAtLeast(db, task.id, Number(id) + 1)
 }
 
 function updateTodo(id: string, status: string): void {
   logged('TaskUpdate', `toolu_${status}_${id}`, { taskId: id, status })
   finished(`toolu_${status}_${id}`, `Updated task #${id} status`)
+  if (status === 'deleted') deleteTodo(db, task.id, id)
+  else updateTodoRow(db, task.id, id, { state: STATUS_TO_STATE[status] }, clock)
 }
 
 /** The watcher the runner makes for a call: a monitor's, a background command's, a wakeup's or a cron job's. */
