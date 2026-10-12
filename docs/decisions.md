@@ -1039,6 +1039,19 @@
     tools that change things ask like other MCP tools; its reads (`list_*`, `get_*`) never ask when the SDK says the
     server is Glade's in-process one.
 
+- **Every task can see what the others are doing (#578, Jared, Oct 11).** Raised after several tasks all claimed the
+  same pull request without knowing it: a read-only tool on every session's own `glade` server, always on, no
+  setting (unlike `glade-control`). `list_other_tasks` answers with the Active tasks across every workspace, most
+  recently updated first, each with its id, title, objective (Goal), status (Now), attention (`taskAttention` in
+  `src/shared/attention.ts`), workspace and link artifacts (the PRs, issues and tickets it has filed); the calling
+  task is included and marked as itself. Never chat, tool output or files. Bounded to 50 tasks (the calling task is
+  always among them, even past the cap), 20 links per task, and 200 (300 for a link's own title or url) characters a
+  field; the answer says when any of that was cut. It's the one Glade tool besides `request_access` that the
+  subagent guard (#366) lets a subagent or a dispatched child call, since they're the ones most likely to pick up a
+  pull request another task already has; a dispatched child's `glade` server always holds it, sandboxed or not. The
+  system prompt gets one sentence: check it before starting work on an existing pull request, issue or branch, and
+  stop and ask if another task already has it. No claims (a task marking a PR as its own) for now.
+
 ## Open
 
 - Exact names and schemas for the model surface tools (a draft is in `model-surface.md`).

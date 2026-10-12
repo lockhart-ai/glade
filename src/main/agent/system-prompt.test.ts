@@ -10,6 +10,7 @@ import {
   handoffSection,
   INSTRUCTION_UPDATES,
   LINK_ARTIFACTS_LINE,
+  OTHER_TASKS_LINE,
   SANDBOX_LINE,
   systemPromptAppend,
   TODO_HUB_ARTIFACTS_LINE,
@@ -58,6 +59,9 @@ describe('systemPromptAppend', () => {
         'When you open or work on a pull request, or the task is about an issue or a ticket (GitHub, Jira), call ' +
           'add_artifact with its url and a short title, so the user finds it in the Todos tab next to the files.',
         '',
+        'Before starting work on an existing pull request, issue or branch, call list_other_tasks and check that no ' +
+          'other task already has it among its links or in its Goal or Now; if one does, stop and ask.',
+        '',
         'When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the ' +
           "Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows " +
           "in the task's Agents tab.",
@@ -87,7 +91,7 @@ describe('systemPromptAppend', () => {
     expect(FINAL_REPLY_LINE).toContain('only your last message of each turn')
     expect(FINAL_REPLY_LINE).toContain('before that reply, not after it')
     // Sessions that started before it get it once, as an instruction added since (`./session-context`).
-    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE])
+    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE])
     for (const update of INSTRUCTION_UPDATES) expect(systemPromptAppend(task)).toContain(update)
   })
 
@@ -171,7 +175,7 @@ describe('the sandbox line', () => {
 })
 
 describe("a dispatched child's prompt (#560)", () => {
-  it("says everything a child needs and nothing of the main agent's Glade instructions", () => {
+  it("says everything a child needs and nothing of the main agent's Glade instructions, but list_other_tasks's (#578)", () => {
     expect(DELEGATED_CHILD_PROMPT).toBe(
       [
         "You are a subagent started by a Glade task's agent to do one task for it.",
@@ -179,6 +183,7 @@ describe("a dispatched child's prompt (#560)", () => {
         'Your final message is the only thing the parent reads, so report there what you did and found.',
         "Only the parent talks to the user and changes Glade's metadata.",
         'Finish your own descendants before returning: remaining work ends with you.',
+        OTHER_TASKS_LINE,
       ].join('\n'),
     )
     for (const line of [FINAL_REPLY_LINE, WATCHERS_LINE, ...TODO_HUB_LINES]) {
@@ -188,6 +193,7 @@ describe("a dispatched child's prompt (#560)", () => {
     expect(DELEGATED_CHILD_PROMPT).not.toContain('set_status')
     expect(DELEGATED_CHILD_PROMPT).not.toContain('add_artifact')
     expect(DELEGATED_CHILD_PROMPT).not.toContain('questions')
+    expect(DELEGATED_CHILD_PROMPT).toContain('list_other_tasks')
   })
 
   it('mentions the sandbox to a sandboxed child only', () => {
@@ -250,7 +256,7 @@ describe("the todo hub's lines", () => {
     // Whether a session has them is tracked by itself (`session-context`): a session's count of the instructions
     // added since it started stays what it was.
     for (const line of TODO_HUB_LINES) expect(INSTRUCTION_UPDATES).not.toContain(line)
-    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE])
+    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE])
   })
 
   it('names no tab the panel no longer has', () => {

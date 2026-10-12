@@ -22,7 +22,7 @@ import { BOUNDED_TOOLS, isOutsideTool, OUTSIDE_TOOLS } from '../permissions/sand
 import { permissionSuggestionSchema } from '../permissions/schema'
 import { AsyncQueue } from './async-queue'
 import { readsTodo, TODO_TOOLS } from './child-calls'
-import { ACCESS_TOOL_NAME, gladeOwnServers, GLADE_SERVER } from './glade-tools'
+import { ACCESS_TOOL_NAME, gladeOwnServers, GLADE_SERVER, LIST_OTHER_TASKS_TOOL_NAME } from './glade-tools'
 import {
   PromptVerdict,
   ToolPermissionBehavior,
@@ -356,10 +356,12 @@ const preToolUseInput = z.looseObject({
  * and is asked before `canUseTool` would be, so denying here means no permission card and no question card ever
  * shows: the call fails outright, with a message the model can act on.
  *
- * One tool is let through: `glade`'s `request_access` (#450, `docs/model-surface.md`). A subagent's commands are
- * sandboxed as the agent's are, so it asks for a folder the same way, and its card names it. The hook tells
- * `onAccessRequested` of every call to that tool, the main agent's too: which call it is and whose, which the tool's
- * handler isn't told.
+ * Two tools are let through: `glade`'s `request_access` (#450) and `list_other_tasks` (#578, both
+ * `docs/model-surface.md`). A subagent's commands are sandboxed as the agent's are, so it asks for a folder the same
+ * way, and its card names it; the hook tells `onAccessRequested` of every call to that tool, the main agent's too:
+ * which call it is and whose, which the tool's handler isn't told. `list_other_tasks` is read-only and needs no such
+ * bookkeeping: a subagent or a dispatched child is also likely to pick up a pull request, an issue or a branch
+ * another task already has, so it may check for itself.
  *
  * Trusts `mcp_server.source`, not the tool's name or its server's name: only `'sdk'` means an in-process server the
  * SDK host (Glade) registered, which nothing configured can impersonate; any other source is a server from
@@ -377,6 +379,7 @@ export function subagentGladeToolGuard(
     const agentId = nativeAgentId ?? managedAgentId
     if (mcpServer === undefined) return Promise.resolve({})
     if (mcpServer.source !== 'sdk' || !isGladeServer(mcpServer.name)) return Promise.resolve({})
+    if (mcpServer.name === GLADE_SERVER && toolName === LIST_OTHER_TASKS_TOOL_NAME) return Promise.resolve({})
     if (mcpServer.name === GLADE_SERVER && toolName === ACCESS_TOOL_NAME) {
       const { tool_use_id: toolUseId, tool_input: toolInput } = parsed.data
       try {

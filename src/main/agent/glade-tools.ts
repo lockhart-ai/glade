@@ -10,11 +10,16 @@
  * `ask` blocks: its handler waits until you answer (`../questions/questions`), however long that takes. Claude Code
  * bounds every MCP tool call, about 28 hours by default, so the server raises its own bound as far as it goes
  * (`GLADE_TOOL_TIMEOUT_MS`, `docs/sdk-notes.md` §3). `request_access` blocks the same way, on its permission card
- * (#450): the agent calls it when the sandbox blocked a command, and it's the one tool a subagent may call too.
+ * (#450): the agent calls it when the sandbox blocked a command, and it's one of the two tools a subagent may call
+ * too (`list_other_tasks`, below, is the other).
  *
  * `list_children` and `file_children` (P16-05, #496) are the agent's side of the todo hub (`../todo-hub/agent-children`),
  * and `add_artifact` takes `todo`, the id of the todo the artifact belongs under, and needs it (P16-04, #495;
  * `../todo-hub/filing`).
+ *
+ * `list_other_tasks` (#578) answers from `./other-tasks`: it's the one tool besides `request_access` that a
+ * subagent or a dispatched child may call too (`./sdk-backend`'s `subagentGladeToolGuard`), since they're the ones
+ * most likely to pick up a pull request, an issue or a branch another task already has.
  */
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
@@ -22,7 +27,7 @@ import { z } from 'zod'
 import type { GladeEvent } from '../../shared/bridge'
 import { ArtifactKind, type Artifact, type ArtifactRef, type Question } from '../../shared/domain'
 import type { Settings } from '../../shared/settings'
-import { REQUEST_ACCESS_TOOL } from '../../shared/toolName'
+import { LIST_OTHER_TASKS_TOOL, REQUEST_ACCESS_TOOL } from '../../shared/toolName'
 import { AGENTS_SERVER } from '../../shared/managed-agents'
 import {
   addTaskArtifact,
@@ -35,6 +40,7 @@ import {
 } from '../artifacts/artifacts'
 import { getTask } from '../db/repositories/tasks'
 import { TOOL_USE_ID_META } from './mcp-tool-caller'
+import { otherTasksAnswer, otherTasksText } from './other-tasks'
 import { FileAccess } from './sandbox-requests'
 import { showTaskFile } from '../files/files'
 import {
@@ -91,8 +97,11 @@ export function gladeOwnServers(servers: Readonly<Record<string, unknown>>): str
   return Object.keys(servers).filter((name) => name === GLADE_SERVER || name === AGENTS_SERVER)
 }
 
-/** `request_access` as the SDK names it: the one Glade tool a subagent may call (#450). */
+/** `request_access` as the SDK names it: one of the two Glade tools a subagent may call (#450). */
 export const ACCESS_TOOL_NAME = REQUEST_ACCESS_TOOL
+
+/** `list_other_tasks` as the SDK names it: the other Glade tool a subagent may call (#578). */
+export const LIST_OTHER_TASKS_TOOL_NAME = LIST_OTHER_TASKS_TOOL
 
 /** The tools' names, as Glade defines them. Draft names: not yet confirmed with Jared. */
 export enum GladeTool {
@@ -107,6 +116,7 @@ export enum GladeTool {
   RequestAccess = 'request_access',
   ListChildren = 'list_children',
   FileChildren = 'file_children',
+  ListOtherTasks = 'list_other_tasks',
 }
 
 export interface SetTitleInput {
@@ -164,6 +174,9 @@ export interface ListChildrenInput {
 export interface FileChildrenInput {
   readonly filings: readonly FilingRequest[]
 }
+
+/** `list_other_tasks` takes no input (#578). */
+export type ListOtherTasksInput = Record<string, never>
 
 /** Text the model sends: trimmed, and never empty. */
 function text(what: string) {
@@ -254,6 +267,8 @@ const fileChildrenInput = z.object({
     .min(1, 'Give at least one filing.')
     .describe('Every filing to make, in this one call: each a child and the todo it goes under.'),
 }) satisfies z.ZodType<FileChildrenInput>
+
+const listOtherTasksInput = z.object({}) satisfies z.ZodType<ListOtherTasksInput>
 
 /** The longest path `request_access` takes: macOS's own limit is far below it. */
 export const ACCESS_PATH_MAX = 4096
@@ -408,6 +423,11 @@ export interface GladeToolHandlers {
    * or a todo isn't there.
    */
   fileChildren(input: FileChildrenInput): GladeToolResult
+  /**
+   * The other Active tasks across every workspace, most recently updated first, with the calling task marked as
+   * itself (#578); never an error (there is always at least the calling task to show, once it has a row).
+   */
+  listOtherTasks(): GladeToolResult
 }
 
 export function createGladeToolHandlers(context: GladeToolContext, taskId: string): GladeToolHandlers {
@@ -526,6 +546,9 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
         return failure(error)
       }
     },
+    listOtherTasks() {
+      return reply(otherTasksText(otherTasksAnswer(context.db, taskId)))
+    },
   }
 }
 
@@ -584,6 +607,14 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
     '#N). Filing a subagent says which todo it works on, and its commits go under that todo with it, so file those ' +
     "apart only to keep them somewhere else. If a child or a todo isn't there, nothing is filed and the error says " +
     'which. Create the todo first (TaskCreate) if none fits.',
+  [GladeTool.ListOtherTasks]:
+    'List the other Active tasks across every workspace, most recently updated first, so you can see what they are ' +
+    "doing: each one's id, title, objective (Goal), status (Now), attention (working, needs you, or idle), its " +
+    'workspace, and the pull requests, issues and tickets it has linked as artifacts. The calling task is included ' +
+    'and marked as itself. Call it before you start work on an existing pull request, issue or branch, to check that ' +
+    'no other task already has it among its links or in its Goal or Now; if one does, stop and ask the user instead ' +
+    'of going on. Read-only: nothing about any task changes through it, and it never shows chat, tool output or ' +
+    "files. Bounded to a cap of tasks and of each field's length; the reply says when something was cut.",
 }
 
 /** The signal an MCP tool call is cancelled by, from the handler's `extra` (MCP's `RequestHandlerExtra`). */
@@ -600,20 +631,28 @@ function toolUseIdOf(extra: unknown): string | null {
 }
 
 /**
- * The `glade` server a dispatched child gets (#560): `request_access` and nothing else, the one Glade tool a subagent
- * may call (#450). A child's work never touches Glade's metadata, so it's offered none of the metadata tools. The
- * tool is in only when there's someone to ask (`GladeToolContext.requestAccess`), as in the main server.
+ * The `glade` server a dispatched child gets (#560): none of the main agent's metadata tools, only the two a
+ * subagent may call too (#450, #578). `list_other_tasks` is always in, sandboxed or not: a child is as likely as the
+ * main agent to pick up a pull request, an issue or a branch another task already has. `request_access` is in only
+ * in a sandboxed session (`sandboxed`) with someone to ask (`GladeToolContext.requestAccess`), as in the main server:
+ * there's nothing to request without a sandbox.
  */
-export function createGladeAccessMcpServer(context: GladeToolContext, taskId: string): McpSdkServerConfigWithInstance {
+export function createGladeAccessMcpServer(
+  context: GladeToolContext,
+  taskId: string,
+  sandboxed: boolean,
+): McpSdkServerConfigWithInstance {
   const handlers = createGladeToolHandlers(context, taskId)
   return createSdkMcpServer({
     name: GLADE_SERVER,
     alwaysLoad: true,
     timeout: GLADE_TOOL_TIMEOUT_MS,
     tools: [
-      ...(context.requestAccess === undefined
-        ? []
-        : [
+      tool(GladeTool.ListOtherTasks, DESCRIPTIONS[GladeTool.ListOtherTasks], listOtherTasksInput.shape, () =>
+        Promise.resolve(handlers.listOtherTasks()),
+      ),
+      ...(sandboxed && context.requestAccess !== undefined
+        ? [
             tool(
               GladeTool.RequestAccess,
               DESCRIPTIONS[GladeTool.RequestAccess],
@@ -621,7 +660,8 @@ export function createGladeAccessMcpServer(context: GladeToolContext, taskId: st
               (input, extra) =>
                 handlers.requestAccess(input, { toolUseId: toolUseIdOf(extra), signal: signalOf(extra) }),
             ),
-          ]),
+          ]
+        : []),
     ],
   })
 }
@@ -679,6 +719,9 @@ export function createGladeMcpServer(
       ),
       tool(GladeTool.FileChildren, DESCRIPTIONS[GladeTool.FileChildren], fileChildrenInput.shape, (input) =>
         Promise.resolve(handlers.fileChildren(input)),
+      ),
+      tool(GladeTool.ListOtherTasks, DESCRIPTIONS[GladeTool.ListOtherTasks], listOtherTasksInput.shape, () =>
+        Promise.resolve(handlers.listOtherTasks()),
       ),
       ...(context.requestAccess === undefined
         ? []
