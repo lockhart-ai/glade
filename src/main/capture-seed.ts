@@ -67,6 +67,7 @@ import {
   appendNarration,
   appendToolCall,
   setAgentCallTokenTotals,
+  setAgentCallTotalTokens,
   setSubagentProgress,
   updateToolCall,
 } from './db/repositories/tool-events'
@@ -160,6 +161,11 @@ export interface SeedToolCall {
    */
   readonly totalInputTokens?: number | undefined
   readonly totalOutputTokens?: number | undefined
+  /**
+   * What the agent this call started has spent in all, in tokens, for its line on the Agents tab (#592) — a running
+   * subagent's combined figure; none unless given.
+   */
+  readonly totalTokens?: number | undefined
 }
 
 /**
@@ -575,6 +581,7 @@ const seedToolEventSchema: z.ZodType<SeedToolEvent> = z.discriminatedUnion('kind
     todo: seedTodoId.optional(),
     totalInputTokens: count.optional(),
     totalOutputTokens: count.optional(),
+    totalTokens: count.optional(),
   }),
   z.strictObject({ kind: z.literal(ToolEventKind.Divider), dividerKind: z.enum(DividerKind), turn, minutesAgo }),
   z.strictObject({
@@ -950,6 +957,9 @@ function seedToolEvent(db: Database, taskId: string, event: SeedToolEvent, now: 
           totalInputTokens: event.totalInputTokens ?? 0,
           totalOutputTokens: event.totalOutputTokens ?? 0,
         })
+      }
+      if (event.totalTokens !== undefined) {
+        setAgentCallTotalTokens(db, { taskId, toolUseId, totalTokens: event.totalTokens })
       }
       return
     }
