@@ -316,6 +316,7 @@ status (open, merged, closed) isn't fetched.
 | `request_access` | `{ path: string, access: "read" \| "write", reason: string }` | Asks the user for the folder a sandboxed command was blocked from, on a permission card, and blocks until answered. See below. |
 | `list_children` | `{ todo?: string }` | Lists what the task made (its children) by the todo each is under, each with its short id. See below. |
 | `file_children` | `{ filings: { child: string, todo: string }[] }` | Files children under todos, or moves them to another, all of them or none. See below. |
+| `close_todo` | `{ todo: string }` | Closes a todo a session restart stranded, once its children are moved. See below. |
 | `list_other_tasks` | `{}` | Read-only; always on. The other Active tasks across every workspace, most recently updated first, each with its title, objective (Goal), status (Now), attention, workspace and link artifacts. See below. |
 
 `Question` (draft):
@@ -406,9 +407,9 @@ resumed from before the sandbox was on has neither in its prompt, so it's told o
 The handler is `requestAccess` in `src/main/agent/runner.ts`, reached through `GladeToolContext.requestAccess`; what
 it asks for and what it answers are in `src/main/permissions/sandbox-ask.ts`.
 
-## Implemented: `list_children` and `file_children` (P16-05, #496)
+## Implemented: `list_children`, `file_children` and `close_todo` (P16-05, #496; stranded todos #593)
 
-Every task's session has these two tools, the agent's side of the todo hub (P16, #491; `src/main/todo-hub/`). Names
+Every task's session has these three tools, the agent's side of the todo hub (P16, #491; `src/main/todo-hub/`). Names
 and schemas are a draft, as the others are.
 
 What a task produced (its **children**: the files and links among its artifacts, and its commits) sits
@@ -458,6 +459,12 @@ agent, kept in SQLite, and never given to another child. A todo is named by Clau
   With `todo`, the list is that todo's group alone (its id, with or without a `#`), or the ones under no todo alone
   (`"none"`); a todo that isn't in the task's list is a tool error that lists the todos there are (`There's no todo #9
   in this task's list. Your todos: #1 … (completed) · #2 …`). Listing files nothing and tells the windows nothing.
+  - **A stranded todo is marked (#593).** When the task's session was restarted and its new list doesn't hold a todo
+    Glade still shows (`liveTodos` in `src/main/todos`), its heading carries one line after it:
+    `Stranded: the session was restarted and its new list no longer holds this todo, so TaskUpdate answers "Task not
+    found". Recreate what is still live about it (TaskCreate), move its children under the todos they belong to now
+    (file_children), then close it (close_todo).` A task with no shared list folder — one that hasn't started since
+    Glade kept the list for it — marks nothing.
 - **`mcp__glade__file_children`** takes `{ filings: { child: string, todo: string }[] }`, at least one: each a
   child's short id and the id of the todo to put it under. One tool files and moves: each child goes from wherever it
   is, the placeholder included.
@@ -481,11 +488,29 @@ agent, kept in SQLite, and never given to another child. A todo is named by Clau
     subagent: c4.`, with `Already there: c1.` for the ones it left, or `Nothing changed. Already there: c1.`
   - **The windows hear it** as they hear any filing: one `filings.changed` with the filings made.
   - It reads ids leniently: `C3` for `c3`, `#2` for `2`. A todo with no id (a `TodoWrite` item) can't hold anything.
+- **`mcp__glade__close_todo`** takes `{ todo: string }`, the id of a stranded todo (`#N` as `list_children` shows it),
+  and takes it out of Glade's list everywhere — the Todos tab, the task's summary, `list_children` and the "Your
+  todos:" line — keeping the todo's history in the tool log (#593). It's how the agent tidies up after a restart
+  stranded the list: recreate what's still live (`TaskCreate`), move the old todo's children to the todos they belong
+  to now (`file_children`), then close the old one.
+  - **A live todo is refused.** One the agent's list still holds — or any todo of a task with no shared list folder,
+    whose whole list is its own — answers `Todo #1 Review the date helpers (pending) is live: change it with
+    TaskUpdate, not close_todo.` and nothing changes.
+  - **A todo with children still filed under it is refused**, naming each by its short id so the agent can move it
+    with one `file_children` call: `Todo #45 Watch CI (pending) still has children filed under it: c3: link "CI on
+    PR #42". Move each to the todo it belongs under with file_children, then close it.`
+  - **An id Glade doesn't hold is refused**, as `file_children` refuses a todo: `There's no todo #9 in this task's
+    list. Your todos: …`. One already closed answers `Todo #9 is already closed.`
+  - **The reply** says what it did: `Closed stranded todo #45 Watch CI (pending). It is out of the task's list
+    everywhere; its history stays in the tool log.` The windows hear it as a `todos.changed` (and a `task.updated`
+    when the summary changed).
+  - It reads the id leniently: `#45` for `45`.
 - **Main agent only**, as every Glade tool but `request_access` and `list_other_tasks` ("Main agent only", above): a
-  subagent's call to either is refused before it runs, and names, files and sends nothing.
+  subagent's call to any of the three is refused before it runs, and names, files and sends nothing.
 
-The handlers are `listForAgent` and `fileForAgent` in `src/main/todo-hub/agent-children.ts`, over the filing store
-(`src/main/todo-hub/todo-hub.ts`) and the resolver (`groupChildren` in `src/shared/todoHub.ts`). The prompt says the
+The handlers are `listForAgent`, `fileForAgent` and `closeForAgent` in `src/main/todo-hub/agent-children.ts`, over the
+filing store (`src/main/todo-hub/todo-hub.ts`), the resolver (`groupChildren` in `src/shared/todoHub.ts`), the todos
+(`src/main/todos`) and the task's shared list folder (`src/main/openrouter/task-list.ts`). The prompt says the
 tools exist in one line ("System prompt", below).
 
 ## Implemented: `list_other_tasks` (#578)

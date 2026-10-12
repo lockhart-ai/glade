@@ -1,3 +1,4 @@
+import { readdirSync, statSync } from 'node:fs'
 import { cp, lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -85,4 +86,38 @@ export async function sdkTaskList(options: TaskListOptions): Promise<string | un
     }
   }
   return listId
+}
+
+/** The folder one task's shared todo list lives in, under Glade's data folder. */
+export function sharedTaskListDir(dataDir: string, taskId: string): string {
+  return join(dataDir, 'sdk-task-lists', cleanId(taskId))
+}
+
+/**
+ * The ids of the todos the task's agent holds live, from its shared list folder's files: one `<id>.json` per live todo,
+ * read by name alone (`liveTodos` in `../todos`, the stranded rule of #593). The folder also holds `.lock` and
+ * `.highwatermark`, and a deleted todo's file is gone, so only `*.json` names count; an entry that can't be read at
+ * all — one that names nothing, say — is not live. Answers null when the task has no shared list, so none of its
+ * todos is stranded.
+ */
+export function liveTodoIds(dataDir: string, taskId: string): ReadonlySet<string> | null {
+  const folder = sharedTaskListDir(dataDir, taskId)
+  let names: string[]
+  try {
+    names = readdirSync(folder)
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null
+    throw error
+  }
+  const ids = new Set<string>()
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue
+    try {
+      statSync(join(folder, name))
+    } catch {
+      continue
+    }
+    ids.add(name.slice(0, -'.json'.length))
+  }
+  return ids
 }

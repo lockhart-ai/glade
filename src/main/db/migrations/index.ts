@@ -6,6 +6,7 @@ import { openRouterManagementMigration } from './0068-openrouter-management'
 import { agentTokenTotalsMigration } from './0069-agent-token-totals'
 import { agentCallTokenTotalsMigration } from './0070-agent-call-token-totals'
 import { agentCallContextTokensMigration } from './0071-agent-call-context-tokens'
+import { retiredTodosMigration } from './0072-retired-todos'
 import { schemaVersionMigration } from './0001-schema-version'
 import { coreTablesMigration } from './0002-core-tables'
 import { taskActivityMigration } from './0003-task-activity'
@@ -142,6 +143,7 @@ export const MIGRATIONS: readonly Migration[] = [
   agentTokenTotalsMigration,
   agentCallTokenTotalsMigration,
   agentCallContextTokensMigration,
+  retiredTodosMigration,
 ]
 
 /** The version a database is at once every migration has run: the last one's, which can skip versions still in flight. */

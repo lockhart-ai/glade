@@ -3,6 +3,9 @@
 // (`docs/sdk-notes.md` §16), with the real Glade tools and a database in memory. Commits are filed, a subagent's todo
 // is recorded, and a watcher's call is left as it is. Each test reads where main puts each thing.
 import type { Database } from 'better-sqlite3'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import { MessageRole, ToolEventKind, type Task, type ToolCallEvent, type ToolInput } from '../../shared/domain'
@@ -28,6 +31,7 @@ import type { BatchCall } from './backend'
 import { readsTodo } from './child-calls'
 import { FakeAgentBackend, settle, type FakeAgentSession } from './fake-backend'
 import { createGladeMcpServer, GLADE_SERVER } from './glade-tools'
+import { sharedTaskListDir } from '../openrouter/task-list'
 import { COMPACT_COMMAND, createAgentRunner, type AgentRunner } from './runner'
 import { INSTRUCTION_UPDATES, TODO_HUB_LINES } from './system-prompt'
 import * as sdk from './test-sdk-messages'
@@ -86,7 +90,7 @@ function committing(commits: Readonly<Record<string, readonly [string, string]>>
  * Starts a runner on the database, as a launch does, with the real Glade tools for each session. Given null for its
  * tracker, it makes its own, as the app's does, reading git with none of the machine's config.
  */
-function launch(changes: ChangeTracker | null = quietTracker()): void {
+function launch(changes: ChangeTracker | null = quietTracker(), dataDir?: string): void {
   backend = new FakeAgentBackend()
   const base = { db, emit: (event: GladeEvent) => events.push(event) }
   const context = { ...base, questions: createQuestionBroker(base) }
@@ -94,6 +98,7 @@ function launch(changes: ChangeTracker | null = quietTracker()): void {
     ...context,
     backend,
     ...(changes === null ? { git: createGit(TEST_GIT_RUN) } : { changes }),
+    ...(dataDir === undefined ? {} : { dataDir }),
     mcpServers: (forTask) => ({ [GLADE_SERVER]: createGladeMcpServer(context, forTask.id, getSettings(db)) }),
   })
 }
@@ -1023,5 +1028,41 @@ describe('a TaskCreate that reuses a number a todo holds (#593)', () => {
     expect(filings()).toEqual([`commit ${'a'.repeat(40)} /code/acme-api #1 named`])
     // The recreated todo is placed last in the list, and keeps its commit.
     expect(placed()).toEqual([[], [], ['commit named'], []])
+  })
+})
+
+describe('a todo the shared list no longer holds (#593)', () => {
+  /** The last `todos.changed`'s list, as [id, stranded]. */
+  function lastChanged(): readonly (readonly [string | null, boolean])[] {
+    const changed = events.filter((event) => event.type === EventType.TodosChanged).at(-1)
+    if (changed === undefined || !('todos' in changed) || changed.todos === null) throw new Error('No todos sent')
+    return changed.todos.items.map(({ id, stranded }) => [id, stranded === true])
+  }
+
+  it('goes to the windows marked stranded', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'glade-stranded-'))
+    const folder = sharedTaskListDir(dir, task.id)
+    mkdirSync(folder, { recursive: true })
+    writeFileSync(join(folder, '1.json'), '{"id":"1","status":"pending"}')
+    runner.close()
+    launch(quietTracker(), dir)
+    await say('Carry on.')
+    await threeTodos()
+    expect(lastChanged()).toEqual([
+      ['1', false],
+      ['2', true],
+      ['3', true],
+    ])
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('marks nothing for a task with no shared folder: the list is as it always was', async () => {
+    await say('Carry on.')
+    await threeTodos()
+    expect(lastChanged()).toEqual([
+      ['1', false],
+      ['2', false],
+      ['3', false],
+    ])
   })
 })

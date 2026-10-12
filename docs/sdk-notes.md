@@ -3190,6 +3190,12 @@ TaskList → 1, 3, 4, 5, 6, 7   TaskCreate Iota → 8
   every main session of a task (#593): one shared list under Glade's data folder, linked into whichever config folder
   the session runs in (`src/main/openrouter/task-list.ts`), seeded on first creation from the session's own list, and
   numbered past the highest todo id Glade holds. A dispatched child is left what it had before.
+- **The list folder on disk [verified] (Oct 12, #593).** Each todo is a `<id>.json` file in the list folder, beside
+  `.lock` and `.highwatermark`. A todo deleted properly (`TaskUpdate` status `deleted`) has its file **removed** from
+  the folder, so "no file for the id" means the list doesn't hold it, without reading a status out of the files.
+  `.highwatermark` holds the **last number used**, and the next id is one past the higher of that mark and the files
+  present. A list behind a symlink (how Glade shares one folder between config folders) works for a Claude-only
+  session: the CLI reads and writes through it.
 - **A deleted todo leaves nothing:** not in `TaskList`, `TaskGet` answers `null`, its number is never reused. The log
   keeps the `TaskUpdate` that deleted it.
 - **Hooks give the id as data:** `TaskCreated` (`{ task_id: "4", task_subject, task_description }`), `TaskCompleted`,
