@@ -48,6 +48,11 @@ other agents), `docs/design/tokens.md` (colours, type, spacing), `docs/keymap.md
   - change
   - change
   ```
+- **One form for everything you name.** `docs/conventions.md`, loaded at the end of this file, says how a Glade task,
+  an issue, a branch, a commit, a PR, a todo and an artifact are named and laid out. Every task and every kitten
+  follows it; don't invent another form.
+- **Keep your todos current.** Each todo's one-line status changes in the same turn as the work does, and says so
+  first when it is waiting on Jared (`Waiting on Jared: review of PR #602`).
 - **Kittens use the glade-team GitHub App for every `gh` call:** run `node scripts/gh-team.mjs <gh args>` (e.g.
   `node scripts/gh-team.mjs pr create …`). Never fall back to Jared's own `gh` login; if the script fails, stop. The
   app's config lives outside the repo in `~/.config/glade-team/`.
@@ -109,3 +114,9 @@ This repo is public (MIT). Anything committed is public forever, even if deleted
 - **Do commit:** source, tests, docs, design screenshots and markup, icons, the lockfile.
 - **Third-party code and assets** only under a licence compatible with MIT, with the licence file included.
 - **Binaries:** keep them small. Ask before adding anything over ~1 MB.
+
+## Conventions
+
+The naming and layout conventions, loaded with this file so that every session has them:
+
+@docs/conventions.md

@@ -16,6 +16,7 @@ from ticket to merged PR.
 | Commit       | `<issue>: Imperative summary`                           | `593: Keep one todo list per task across restarts`      |
 | PR title     | the same as its squash commit                           | `593: Keep one todo list per task across restarts`      |
 | Todo         | `#<issue>: Issue title (PR #<n>)`                       | `#593: Todos: old todos stay after a restart (PR #594)` |
+| Todo's line  | where it stands now and the next step, kept current     | `Waiting on Jared: review of PR #602`                   |
 | Link         | `Issue #<n>: short title`, `PR #<n>: short title`       | `PR #594: one todo list per task`                       |
 | Design       | `<nn>-<kebab-name>.html` and `.png`, next free number   | `50-todo-hub-stranded.html`                             |
 | Migration    | `<nnnn>-<kebab-purpose>.ts`, next free number           | `0071-retired-todos.ts`                                 |
@@ -107,7 +108,16 @@ A task is one long-running piece of ownership, not one ticket.
 - **One todo per issue:** `#<issue>: Issue title (PR #<n>)`, adding each PR number as it opens:
   `#593: Todos: old todos stay after a session restart (PR #594, PR #598)`.
 - **A release** is its own todo: `Release v0.29.0`.
-- **Description:** one line on where it stands now, kept current: `PR #598 in CI; the tab's group is next`.
+- **Description:** one line on where it stands now, naming the PR and the next step: `PR #598 in CI; the tab's group
+  is next`. Set the todo's spinner text (`activeForm`) to the same line, since that is what shows while it is in
+  progress.
+- **Keep every todo current.** The list is how Jared follows the work, so a todo's state and its line change in the
+  same turn as the work does: a kitten started, its plan came back, a push, CI red or green, approved, queued,
+  merged. A todo is in progress only while someone is on it or something it started is still running, and completed
+  only once its PR is merged or the work is dropped (`Merged Oct 12`, `Dropped: not needed after #594`).
+- **Waiting on Jared comes first.** When a todo can't move until he reviews or decides something, its line starts
+  with that and says what he is to look at: `Waiting on Jared: review of PR #602`,
+  `Waiting on Jared: pick a mockup (A or B)`. Change it as soon as he answers.
 - Work that has no issue yet gets an issue first, then a todo.
 - A kitten's description starts with its todo in square brackets, `[todo 95] Fix the coverage gap`, so what it makes
   is filed under that todo.
