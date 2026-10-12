@@ -317,7 +317,7 @@ interface CaptureContext {
 
 /** Fills the database from the spec's seed fixture and seeds its conversation, if it has them, then captures the page of a hidden window. Resolves with the files. */
 async function capture(spec: CaptureSpec, { database, bridge, agent, log }: CaptureContext): Promise<string[]> {
-  if (spec.seed !== undefined) applySeed(database.db, readSeed(spec.seed))
+  if (spec.seed !== undefined) applySeed(database.db, readSeed(spec.seed), Date.now(), app.getPath('userData'))
   // Settings › Control shows the endpoint as the seed's settings have it.
   await bridge.endpoint.sync()
   if (spec.conversation !== undefined) {
@@ -385,7 +385,7 @@ async function runCapture(spec: CaptureSpec, context: CaptureContext): Promise<v
 function seedE2e(spec: E2eSpec, database: AppDatabase, log: Logger): boolean {
   if (spec.seed === undefined) return true
   try {
-    applySeed(database.db, readSeed(spec.seed))
+    applySeed(database.db, readSeed(spec.seed), Date.now(), app.getPath('userData'))
     return true
   } catch (error) {
     log.scoped(LogScope.TestMode).error("the e2e seed couldn't be applied", { seed: spec.seed, error })

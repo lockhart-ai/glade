@@ -356,7 +356,7 @@ const TodoCard = memo(function TodoCard({
         <div className={styles.main}>
           <div className={styles.titleRow}>
             <div className={styles.title}>
-              <span className={styles.hidden}>{`${stranded ? 'Stranded' : STATE_LABELS[todo.state]}: `}</span>
+              <span className={styles.hidden}>{`${stranded ? STRANDED_HEADING : STATE_LABELS[todo.state]}: `}</span>
               <TodoText text={todo.text} links={links} />
             </div>
             {todo.state === TodoState.Done && todo.completedAt !== null && (
