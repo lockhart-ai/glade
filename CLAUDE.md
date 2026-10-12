@@ -15,6 +15,8 @@ Nimbalyst: the whole product is the lifecycle of a task plus the panels around i
    otherwise.
 6. `docs/kitten-sop.md` — how a worker agent takes an issue from ticket to PR, and how the supervisor reviews, merges
    and releases.
+7. `docs/conventions.md` — how tasks, issues, branches, commits, PRs, todos and artifacts are named. Follow it for
+   everything you create.
 
 Reference docs: `docs/model-surface.md` (the tools the app gives the model), `docs/control-api.md` (the MCP API for
 other agents), `docs/design/tokens.md` (colours, type, spacing), `docs/keymap.md`, `docs/context-menus.md`,
@@ -33,7 +35,8 @@ other agents), `docs/design/tokens.md` (colours, type, spacing), `docs/keymap.md
   no remote content in the renderer.
 - All app state lives in SQLite so the app can crash and resume. Don't keep important state only in memory.
 - Each issue lands as its own branch and PR, which closes the issue. Don't merge your own PR; it's reviewed first.
-- Commit messages: imperative subject, reference the ticket id (e.g. `P1-05: stream agent events into the chat`).
+- Commit messages: imperative subject, led by the issue number (e.g. `593: Keep one todo list per task across session
+  restarts`). `docs/conventions.md` has the forms for everything else.
 - PR descriptions are brief, in this shape:
 
   ```
