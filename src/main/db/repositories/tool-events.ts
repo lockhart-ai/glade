@@ -3,6 +3,7 @@ import type { Database } from 'better-sqlite3'
 import {
   CompactionTrigger,
   DividerKind,
+  LIVE_WATCHER_STATES,
   RefusalScope,
   ToolCallState,
   ToolEventKind,
@@ -496,18 +497,27 @@ export function listToolCallsNamed(db: Database, taskId: string, names: readonly
 }
 
 /**
- * Every task's calls to any of the named tools that are still running, by task and then in the order they were made:
- * e.g. the subagents running now, which the task list counts before a task's log is loaded.
+ * Every task's calls to any of the named tools that the task list's subagent count must know about before a task's
+ * log is loaded (#579): one still running, or one whose own turn has ended but that started a watcher still live
+ * (`LIVE_WATCHER_STATES`). A watcher started by a call further up the chain (a subagent of a subagent, say) needs
+ * that call loaded too, so its own activity can say it's still going; one that's merely running or merely watched
+ * loads on its own. By task and then in the order they were made.
  */
-export function listRunningToolCallsNamed(db: Database, names: readonly string[]): ToolCallEvent[] {
+export function listSubagentCallsToPreload(db: Database, names: readonly string[]): ToolCallEvent[] {
   if (names.length === 0) return []
+  const liveStates = LIVE_WATCHER_STATES.map(() => '?').join(', ')
   return db
     .prepare(
       `SELECT ${COLUMNS} FROM tool_events
-      WHERE kind = 'tool_call' AND tool_state = ? AND tool_name IN (${names.map(() => '?').join(', ')})
+      WHERE kind = 'tool_call' AND tool_name IN (${names.map(() => '?').join(', ')})
+      AND (tool_state = ? OR EXISTS (
+        SELECT 1 FROM watchers
+        WHERE watchers.task_id = tool_events.task_id AND watchers.parent_tool_use_id = tool_events.tool_use_id
+        AND watchers.state IN (${liveStates})
+      ))
       ORDER BY task_id, seq`,
     )
-    .all(ToolCallState.Running, ...names)
+    .all(...names, ToolCallState.Running, ...LIVE_WATCHER_STATES)
     .map((raw) => parseToolCall(new Row('tool_events', raw)))
 }
 

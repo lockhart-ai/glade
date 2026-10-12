@@ -2,6 +2,7 @@ import { faEye } from '@fortawesome/free-regular-svg-icons'
 import { faThumbtack } from '@fortawesome/free-solid-svg-icons'
 import { memo, useCallback, useLayoutEffect, useRef, type KeyboardEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { TaskActivity } from '../../shared/domain'
 import { Icon, revealScroll, ScrollRow } from '../components'
 import { classNames } from '../components/classNames'
 import {
@@ -12,7 +13,13 @@ import {
   type ContextMenuTargetProps,
 } from '../context-menus'
 import { useGladeStore, useGladeStoreApi } from '../store/react'
-import { deriveSubagents, subagentLogText } from '../subagents/subagentsModel'
+import {
+  agentActivity,
+  AgentActivity,
+  deriveSubagents,
+  isAgentActive,
+  subagentLogText,
+} from '../subagents/subagentsModel'
 import { hasRunningWatcher, pinnedCount, watchingTitle } from './agentWatchersModel'
 import {
   agentDotLabel,
@@ -64,22 +71,34 @@ interface AgentTabProps {
 }
 
 /**
- * One agent's tab in the strip: Main's, with the sidebar's pin, or a subagent's, with its dot (blue while it runs,
- * slate once it's done) and its name; then an eye with a count while the agent has anything pinned under its tool
- * calls (#537), blue when a watcher's process runs and grey when all it has is scheduled. It reads its own name, state,
- * count and whether it's the one showing from the store, so a change to one agent renders that agent's tab and no
- * other, and picking another renders the two that changed. The tab showing holds the strip's one tab stop. A
- * subagent's tab opens its menu on a right-click and the keyboard's menu key.
+ * One agent's tab in the strip: Main's, with the sidebar's pin, or a subagent's, with its dot; either way it's blue
+ * while the agent is active (its own turn running, or a watcher, wakeup, background command or child it started
+ * still alive under it, #579) and slate once nothing under it is. Then its name, and an eye with a count while the
+ * agent has anything pinned under its tool calls (#537), blue when a watcher's process runs and grey when all it has
+ * is scheduled. It reads its own name, state, count and whether it's the one showing from the store, so a change to
+ * one agent renders that agent's tab and no other, and picking another renders the two that changed. The tab showing
+ * holds the strip's one tab stop. A subagent's tab opens its menu on a right-click and the keyboard's menu key.
  */
 const AgentTab = memo(function AgentTab({ taskId, agentId, onSelect, menuTarget }: AgentTabProps): React.JSX.Element {
   const selected = useGladeStore((state) => selectShownAgent(state, taskId) === agentId)
   const name = useGladeStore((state) =>
     agentId === null ? MAIN_AGENT_NAME : agentName(agentsOf(state.toolEvents[taskId]).calls.get(agentId)),
   )
+  // `data-running` keeps its narrower meaning (the agent's own turn running now), which Stop subagent and the e2e
+  // suite read; the tab's colour and label go by the wider activity rule instead (#579).
   const running = useGladeStore((state) => {
     const call = agentId === null ? undefined : agentsOf(state.toolEvents[taskId]).calls.get(agentId)
     return call !== undefined && isRunning(call)
   })
+  const activity = useGladeStore((state) => {
+    const task = state.tasks[taskId]
+    const mainRunning =
+      task !== undefined && (task.activity === TaskActivity.Working || task.activity === TaskActivity.Paused)
+    return (
+      agentActivity(state.toolEvents[taskId], state.watchers[taskId], mainRunning).get(agentId) ?? AgentActivity.Done
+    )
+  })
+  const active = isAgentActive(activity)
   const watching = useGladeStore((state) => pinnedCount(state.watchers[taskId], agentId))
   const watchingLive = useGladeStore((state) => hasRunningWatcher(state.watchers[taskId], agentId))
   const watchingSays = watching > 0 ? watchingTitle(watching) : null
@@ -109,18 +128,25 @@ const AgentTab = memo(function AgentTab({ taskId, agentId, onSelect, menuTarget 
       title={name}
       {...{ [AGENT_ATTRIBUTE]: agentId ?? '' }}
       data-running={running ? '' : undefined}
+      data-active={active ? '' : undefined}
       onClick={() => {
         onSelect(agentId)
       }}
       {...(agentId === null ? {} : menuTarget(agentId))}
     >
       {agentId === null ? (
-        <Icon icon={faThumbtack} className={styles.pin} />
+        <span
+          className={classNames(styles.pin, active && styles.pinActive)}
+          role="img"
+          aria-label={agentDotLabel(activity)}
+        >
+          <Icon icon={faThumbtack} />
+        </span>
       ) : (
         <span
-          className={classNames(styles.dot, running && styles.running)}
+          className={classNames(styles.dot, active && styles.active)}
           role="img"
-          aria-label={agentDotLabel(running)}
+          aria-label={agentDotLabel(activity)}
         />
       )}
       <span className={styles.name}>{name}</span>

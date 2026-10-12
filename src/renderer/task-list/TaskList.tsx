@@ -24,7 +24,7 @@ import {
   stepSelection,
   type TaskSection,
 } from './sections'
-import { runningSubagentCounts } from '../subagents/subagentsModel'
+import { runningSubagentCounts, waitingSubagentCounts } from '../subagents/subagentsModel'
 import { liveWatcherCount } from '../watchers/watchersModel'
 import { DoneRows } from './DoneRows'
 import { TaskRow } from './TaskRow'
@@ -69,7 +69,8 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
   const store = useGladeStoreApi()
   const tasks = useGladeStore((state) => state.tasks)
   const watchers = useGladeStore((state) => state.watchers)
-  const subagents = useGladeStore(useShallow((state) => runningSubagentCounts(state.toolEvents)))
+  const subagentsRunning = useGladeStore(useShallow((state) => runningSubagentCounts(state.toolEvents, state.watchers)))
+  const subagentsWaiting = useGladeStore(useShallow((state) => waitingSubagentCounts(state.toolEvents, state.watchers)))
   const doneLists = useGladeStore((state) => state.doneLists)
   const uiState = useGladeStore((state) => state.uiState)
   const selectedTaskId = useGladeStore((state) => state.selectedTaskId)
@@ -164,7 +165,8 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
       onCancelRename={cancelRename}
       menuTarget={menu.targetProps(task.id)}
       watching={liveWatcherCount(watchers[task.id])}
-      subagents={subagents[task.id]}
+      subagentsRunning={subagentsRunning[task.id]}
+      subagentsWaiting={subagentsWaiting[task.id]}
     />
   )
   const loadMore = useCallback(() => {

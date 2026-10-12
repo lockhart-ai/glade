@@ -42,7 +42,9 @@ There are no follow-up tasks. One task can refer to another through its folder o
   header; Active and Done keep showing, even at zero. Each row shows a state dot, title and relative time, then a
   one-line status. Under them, only while there's something to show, a compact third line of what's going on in the
   task, in this order: its todo progress (a ring and `3/7`, a check once all are done, the item in progress as its
-  tooltip), its running subagents and its live watchers, each an icon and a count with a tooltip. Unread rows are bold
+  tooltip), its subagents and its live watchers, each an icon and a count with a tooltip. A subagent counts while its
+  own turn runs, or while it's done but a watcher, wakeup or background command it started is still alive (#579); the
+  tooltip says how many of each ("3 subagents: 2 running, 1 waiting on a watcher"). Unread rows are bold
   with a blue dot. At its foot, under a divider, the **usage meter** (see Usage). Resizable, collapsible.
 - **Task card** (centre) — a header card (state dot, title, age, pin toggle, Mark done, goal and status) floating over
   the top of the chat, and the input bar floating over its bottom. The chat, a little narrower than both, scrolls under

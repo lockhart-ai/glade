@@ -383,7 +383,7 @@ describe('TaskList', () => {
         ],
       },
     )
-    const count = (title: string) => within(row(title)).queryByRole('img', { name: /subagents? running$/ })
+    const count = (title: string) => within(row(title)).queryByRole('img', { name: /^\d+ subagents?\b/ })
 
     // None of these tasks is open: the counts come from what main says is running.
     expect(count('Add rate limiting')).toHaveAccessibleName('3 subagents running')
@@ -405,9 +405,49 @@ describe('TaskList', () => {
       })
     })
     expect(count('Move image uploads')).toHaveAccessibleName('1 subagent running')
-    expect(count('Add rate limiting')).toHaveAccessibleName('2 subagents running')
+    // api's own turn ended, but nested, the subagent it started, still runs (#579): api counts too, as waiting.
+    expect(count('Add rate limiting')).toHaveAccessibleName('3 subagents: 2 running, 1 waiting on a watcher')
     expect(count('Upgrade Django')).toBeNull()
     expect(row('Upgrade Django').querySelector('[data-indicators]')).toBeNull()
+  })
+
+  it('counts a subagent whose turn ended with a live watcher, from main on start, and stops once the watcher ends (#579)', async () => {
+    const done = (id: string, taskId: string, change: Partial<ToolCallEvent> = {}): ToolCallEvent => ({
+      id,
+      taskId,
+      turn: 1,
+      createdAt: NOW,
+      kind: ToolEventKind.ToolCall,
+      name: 'Agent',
+      input: { description: id },
+      output: 'Done.',
+      state: ToolCallState.Done,
+      finishedAt: NOW,
+      toolUseId: `use-${id}`,
+      parentToolUseId: null,
+      progressSummary: null,
+      ...change,
+    })
+    const watcher = sampleWatcher('ci', 'a1', { parentToolUseId: 'use-links' })
+    const { fake } = await renderList(
+      TASKS,
+      [{ key: UiStateKey.DoneSectionCollapsed, value: 'false' }],
+      {},
+      { toolEvents: [done('links', 'a1')], watchers: [watcher] },
+    )
+    const count = (title: string) => within(row(title)).queryByRole('img', { name: /^\d+ subagents?\b/ })
+
+    // Today, before the fix, a subagent whose turn ended with a live watcher counts as 0: nothing shows for it.
+    expect(count('Add rate limiting')).toHaveAccessibleName('1 subagent waiting on a watcher')
+
+    act(() => {
+      fake.emit({
+        type: EventType.WatchersChanged,
+        taskId: 'a1',
+        watchers: [{ ...watcher, state: WatcherState.Stopped, endedAt: NOW }],
+      })
+    })
+    expect(count('Add rate limiting')).toBeNull()
   })
 
   it('shows each row’s dot for its indicator', async () => {

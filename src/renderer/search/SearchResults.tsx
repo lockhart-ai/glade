@@ -7,7 +7,7 @@ import { ContextMenu, useContextMenu } from '../context-menus'
 import { TaskRow } from '../task-list/TaskRow'
 import { useRenameTask } from '../task-list/useRenameTask'
 import { useTaskMenu } from '../task-list/useTaskMenu'
-import { runningSubagentCounts } from '../subagents/subagentsModel'
+import { runningSubagentCounts, waitingSubagentCounts } from '../subagents/subagentsModel'
 import { liveWatcherCount } from '../watchers/watchersModel'
 import { useNow } from '../task-list/useNow'
 import { useSearchHighlight } from './Highlight'
@@ -38,7 +38,8 @@ export function SearchResults({ workspaceId }: SearchResultsProps): React.JSX.El
   const text = useGladeStore((state) => state.searchText)
   const tasks = useGladeStore((state) => state.tasks)
   const watchers = useGladeStore((state) => state.watchers)
-  const subagents = useGladeStore(useShallow((state) => runningSubagentCounts(state.toolEvents)))
+  const subagentsRunning = useGladeStore(useShallow((state) => runningSubagentCounts(state.toolEvents, state.watchers)))
+  const subagentsWaiting = useGladeStore(useShallow((state) => waitingSubagentCounts(state.toolEvents, state.watchers)))
   const selectedTaskId = useGladeStore((state) => state.selectedTaskId)
   const openSearchResult = useGladeStore((state) => state.openSearchResult)
   const { renamingTaskId, rename, cancelRename } = useRenameTask()
@@ -82,7 +83,8 @@ export function SearchResults({ workspaceId }: SearchResultsProps): React.JSX.El
               onCancelRename={cancelRename}
               menuTarget={menu.targetProps(task.id)}
               watching={liveWatcherCount(watchers[task.id])}
-              subagents={subagents[task.id]}
+              subagentsRunning={subagentsRunning[task.id]}
+              subagentsWaiting={subagentsWaiting[task.id]}
             />
           </li>
         ))}

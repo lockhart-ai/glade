@@ -22,7 +22,7 @@ import { listQuestionSets } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { searchTasks } from '../db/repositories/search'
 import { countDoneTasks, getTasks, listActiveTasks, listDoneTasks, listTasks } from '../db/repositories/tasks'
-import { listRunningToolCallsNamed, listToolEvents } from '../db/repositories/tool-events'
+import { listSubagentCallsToPreload, listToolEvents } from '../db/repositories/tool-events'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
 import { getSettings, updateSettings } from '../db/repositories/settings'
 import { effortWithModel, listModels } from '../models/models'
@@ -268,7 +268,7 @@ export function createHandlers(context: HandlerContext): Handlers {
       await runner.stopSubagent(taskId, toolUseId)
       return null
     },
-    [CommandName.SubagentsListRunning]: () => ({ calls: listRunningToolCallsNamed(db, SUBAGENT_TOOL_NAMES) }),
+    [CommandName.SubagentsListRunning]: () => ({ calls: listSubagentCallsToPreload(db, SUBAGENT_TOOL_NAMES) }),
     [CommandName.WatchersListLive]: () => ({ watchers: listLiveWatchers(db).map(publicWatcher) }),
     [CommandName.WatchersStop]: async ({ taskId, id }) => {
       await runner.stopWatcher(taskId, id)

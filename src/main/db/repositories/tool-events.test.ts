@@ -8,7 +8,10 @@ import {
   RefusalScope,
   ToolCallState,
   ToolEventKind,
+  WatcherKind,
+  WatcherState,
   type Task,
+  type ToolCallEvent,
 } from '../../../shared/domain'
 import { openAppDatabase } from '../database'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
@@ -23,7 +26,7 @@ import {
   interruptPausedToolCalls,
   interruptRunningToolCall,
   interruptRunningToolCalls,
-  listRunningToolCallsNamed,
+  listSubagentCallsToPreload,
   listToolCallsNamed,
   listToolEvents,
   setSubagentProgress,
@@ -31,6 +34,7 @@ import {
   updateToolCall,
   previousToolCall,
 } from './tool-events'
+import { addWatcher } from './watchers'
 
 let test: TestDatabase
 let task: Task
@@ -615,14 +619,20 @@ describe('previousToolCall', () => {
   })
 })
 
-describe('listRunningToolCallsNamed', () => {
+describe('listSubagentCallsToPreload (#579)', () => {
+  const agent = (toolUseId: string, taskId = task.id, parentToolUseId: string | null = null) => ({
+    ...bashCall(toolUseId, parentToolUseId),
+    taskId,
+    name: 'Agent',
+    input: { description: toolUseId },
+  })
+  /** Appends an `Agent` call and marks it Done at once, as a finished subagent left behind by a relaunch is. */
+  const doneAgent = (toolUseId: string, at: number, parentToolUseId: string | null = null): ToolCallEvent => {
+    appendToolCall(test.db, agent(toolUseId, task.id, parentToolUseId), at)
+    return updateToolCall(test.db, { taskId: task.id, toolUseId, state: ToolCallState.Done, output: 'Done.' })
+  }
+
   it("lists every task's running calls to the named tools, by task and in order, and nothing else", () => {
-    const agent = (toolUseId: string, taskId = task.id) => ({
-      ...bashCall(toolUseId),
-      taskId,
-      name: 'Agent',
-      input: { description: toolUseId },
-    })
     const other = sampleTask(test.db, task.workspaceId)
     const first = appendToolCall(test.db, agent('toolu_1'), 3_000)
     appendToolCall(test.db, bashCall('toolu_2'), 3_100)
@@ -633,9 +643,61 @@ describe('listRunningToolCallsNamed', () => {
     const own = [first, nested]
     const everyTask = task.id < other.id ? [...own, elsewhere] : [elsewhere, ...own]
 
-    expect(listRunningToolCallsNamed(test.db, ['Agent', 'Task'])).toEqual(everyTask)
-    expect(listRunningToolCallsNamed(test.db, ['Agent'])).toEqual(own)
-    expect(listRunningToolCallsNamed(test.db, ['Grep'])).toEqual([])
-    expect(listRunningToolCallsNamed(test.db, [])).toEqual([])
+    expect(listSubagentCallsToPreload(test.db, ['Agent', 'Task'])).toEqual(everyTask)
+    expect(listSubagentCallsToPreload(test.db, ['Agent'])).toEqual(own)
+    expect(listSubagentCallsToPreload(test.db, ['Grep'])).toEqual([])
+    expect(listSubagentCallsToPreload(test.db, [])).toEqual([])
+  })
+
+  it('also lists a call whose own turn ended but that started a watcher still live, nested ones included', () => {
+    const done = doneAgent('toolu_done', 3_000)
+    const nested = doneAgent('toolu_nested', 3_100, 'toolu_done')
+    // Ended with nothing left under it: not preloaded.
+    doneAgent('toolu_quiet', 3_200)
+
+    // A watcher on the nested call, two levels under the task's own agent.
+    addWatcher(
+      test.db,
+      {
+        taskId: task.id,
+        kind: WatcherKind.Monitor,
+        toolUseId: 'toolu_watch',
+        parentToolUseId: 'toolu_nested',
+        sdkId: 'b-toolu_watch',
+        label: 'CI checks',
+        detail: 'gh pr checks 42 --watch',
+        cron: null,
+        schedule: null,
+        recurring: true,
+        state: WatcherState.Running,
+        nextDueAt: null,
+        expiresAt: null,
+      },
+      3_300,
+    )
+
+    expect(listSubagentCallsToPreload(test.db, ['Agent'])).toEqual([nested])
+
+    addWatcher(
+      test.db,
+      {
+        taskId: task.id,
+        kind: WatcherKind.Wakeup,
+        toolUseId: 'toolu_wake',
+        parentToolUseId: 'toolu_done',
+        sdkId: 'b-toolu_wake',
+        label: 'Check back',
+        detail: 'Check back later.',
+        cron: null,
+        schedule: null,
+        recurring: false,
+        state: WatcherState.Scheduled,
+        nextDueAt: 9_000,
+        expiresAt: null,
+      },
+      3_400,
+    )
+    // A scheduled wakeup counts too, and the outer call joins once it has one of its own.
+    expect(listSubagentCallsToPreload(test.db, ['Agent'])).toEqual([done, nested])
   })
 })

@@ -19,7 +19,7 @@ import { isSubagentTool, subagentName } from '../../shared/subagents'
 import { subagentTodo, type Filing } from '../../shared/todoHub'
 import { argumentSummary, firstLine } from '../../shared/toolSummary'
 import type { GladeData } from '../store/state'
-import { elapsedMs, statusLabel, subagentStatus } from '../subagents/subagentsModel'
+import { AgentActivity, elapsedMs, statusLabel, subagentStatus } from '../subagents/subagentsModel'
 import { formatAge } from '../task-header/headerModel'
 import { isAgentEvent } from '../tool-log/toolLogModel'
 
@@ -99,9 +99,22 @@ export function agentName(call: ToolCallEvent | undefined): string {
   return call === undefined ? MAIN_AGENT_NAME : subagentName(call)
 }
 
-/** What a screen reader calls the dot on a subagent's tab: blue while it runs, slate once it has finished. */
-export function agentDotLabel(running: boolean): string {
-  return running ? 'Running' : 'Finished'
+/**
+ * What a screen reader calls an agent's tab dot (#579): blue while it's running or still going in the background
+ * (a watcher, a scheduled wakeup, a background command, or a child that's itself going, however deep), slate once
+ * it's finished (`AgentActivity`). Main's pin reads the same way. "Working in the background" rather than naming a
+ * watcher specifically: the reason can just as well be a child subagent still going after this one's own turn ended
+ * (docs/product.md, "Working in the background").
+ */
+export function agentDotLabel(activity: AgentActivity): string {
+  switch (activity) {
+    case AgentActivity.Running:
+      return 'Running'
+    case AgentActivity.Waiting:
+      return 'Working in the background'
+    case AgentActivity.Done:
+      return 'Finished'
+  }
 }
 
 function sameItems<T>(a: readonly T[], b: readonly T[]): boolean {

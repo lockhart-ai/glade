@@ -191,8 +191,9 @@ export function withAgentTab(
 }
 
 /**
- * Records every task's running subagents, loaded on start, in their tasks' tool logs: what the task list's subagent
- * counts count until a task's logs load. Events then keep them current, as they do any log entry.
+ * Records every subagent call the task list's subagent count needs before a task's logs load (#579): the ones
+ * running, and the ones whose own turn has ended but that started a watcher still live. Events then keep them
+ * current, as they do any log entry.
  */
 export function withRunningSubagents(state: GladeData, calls: readonly ToolCallEvent[]): GladeData {
   return { ...state, toolEvents: calls.reduce<LogsByTask<ToolEvent>>(withAppended, state.toolEvents) }
