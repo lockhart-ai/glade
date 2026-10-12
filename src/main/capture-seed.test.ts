@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -51,8 +51,6 @@ import { getUiState } from './db/repositories/ui-state'
 import { listWatchers } from './db/repositories/watchers'
 import { listTaskCommits } from './db/repositories/task-commits'
 import { readTodoHub, taskChildren } from './todo-hub/todo-hub'
-import { sharedTaskListDir } from './openrouter/task-list'
-import { liveTodos, todoListFor } from './todos/todos'
 import {
   ChildFilter,
   ChildKind,
@@ -213,13 +211,6 @@ describe('readSeed', () => {
     expect(seed.tasks.flatMap((task) => task.watchers ?? []).filter((watcher) => 'todo' in watcher)).toEqual([])
     expect(seed.tasks.flatMap((task) => task.watchers ?? [])).toHaveLength(4)
     expect(seed.tasks.find((task) => task.title === 'Tidy the API reference')?.toolEvents).toBeUndefined()
-  })
-
-  it('reads the stranded todo hub fixture: the stranded ids among the selected task’s todos (#593, #605)', () => {
-    const seed = readSeed(join(FIXTURES, 'todo-hub-stranded.json'))
-    const task = seed.tasks.find((each) => each.selected)
-    expect(task?.strandedTodos).toEqual(['35', '36'])
-    expect(task?.toolEvents?.filter((event) => 'name' in event && event.name === 'TaskCreate')).toHaveLength(6)
   })
 
   it('refuses a sample commit whose hash isn’t a full one, a todo with no id, or a panel filter it doesn’t know', () => {
@@ -943,125 +934,6 @@ describe('applySeed', () => {
       const tidy = readTodoHub(db, idOf('Tidy the API reference'))
       expect(tidy.children.todos).toEqual([])
       expect(tidy.children.unfiled.children).toHaveLength(4)
-    })
-  })
-
-  describe('a stranded todo, written honestly through the shared list folder (#593, #605)', () => {
-    let dataDir: string
-
-    beforeEach(() => {
-      dataDir = mkdtempSync(join(tmpdir(), 'glade-seed-data-'))
-    })
-
-    afterEach(() => {
-      rmSync(dataDir, { recursive: true, force: true })
-    })
-
-    /** A task with three todos, the last named stranded. */
-    const SEED_WITH_TODOS: CaptureSeed = {
-      ...SEED,
-      tasks: [
-        {
-          title: 'Ship it',
-          minutesAgo: 0,
-          toolEvents: [
-            {
-              kind: ToolEventKind.ToolCall,
-              name: 'TaskCreate',
-              input: { subject: 'A', description: 'A' },
-              output: 'Task #1 created successfully: A',
-              turn: 1,
-              minutesAgo: 10,
-            },
-            {
-              kind: ToolEventKind.ToolCall,
-              name: 'TaskCreate',
-              input: { subject: 'B', description: 'B' },
-              output: 'Task #2 created successfully: B',
-              turn: 1,
-              minutesAgo: 10,
-            },
-            {
-              kind: ToolEventKind.ToolCall,
-              name: 'TaskCreate',
-              input: { subject: 'C', description: 'C' },
-              output: 'Task #3 created successfully: C',
-              turn: 1,
-              minutesAgo: 10,
-            },
-          ],
-          strandedTodos: ['3'],
-        },
-      ],
-    }
-
-    function onlyTaskId(): string {
-      return listTasks(database.db, listWorkspaces(database.db)[0]?.id ?? '')[0]?.id ?? ''
-    }
-
-    it('writes a live file for every todo but the ones named, so the real liveTodos marks only those stranded', () => {
-      const { db } = database
-      applySeed(db, SEED_WITH_TODOS, NOW, dataDir)
-      const taskId = onlyTaskId()
-
-      const folder = sharedTaskListDir(dataDir, taskId)
-      expect(readdirSync(folder).sort()).toEqual(['1.json', '2.json'])
-      expect(liveTodos(db, taskId, dataDir)?.items.map(({ id, stranded }) => [id, stranded ?? false])).toEqual([
-        ['1', false],
-        ['2', false],
-        ['3', true],
-      ])
-    })
-
-    it('holds nothing back, whatever strandedTodos names, with no data dir: there is nowhere to write the folder', () => {
-      const { db } = database
-      applySeed(db, SEED_WITH_TODOS, NOW)
-      const taskId = onlyTaskId()
-
-      expect(existsSync(sharedTaskListDir(dataDir, taskId))).toBe(false)
-      expect(todoListFor(db, taskId)?.items.map(({ id }) => id)).toEqual(['1', '2', '3'])
-    })
-
-    it('writes nothing for a task that names no strandedTodos, data dir or not', () => {
-      const { db } = database
-      applySeed(
-        db,
-        { ...SEED_WITH_TODOS, tasks: [{ ...SEED_WITH_TODOS.tasks[0], strandedTodos: undefined } as never] },
-        NOW,
-        dataDir,
-      )
-      const taskId = onlyTaskId()
-
-      expect(existsSync(sharedTaskListDir(dataDir, taskId))).toBe(false)
-    })
-
-    it('writes nothing for a task with no todos, even named as stranded', () => {
-      const { db } = database
-      applySeed(db, { ...SEED, tasks: [{ title: 'Bare', minutesAgo: 0, strandedTodos: ['1'] }] }, NOW, dataDir)
-      const taskId = onlyTaskId()
-
-      expect(existsSync(sharedTaskListDir(dataDir, taskId))).toBe(false)
-    })
-
-    it('applies the stranded todo hub fixture: the named ids are stranded, with their children filed and theirs alone live', () => {
-      const { db } = database
-      applySeed(db, readSeed(join(FIXTURES, 'todo-hub-stranded.json')), NOW, dataDir)
-      const taskId = onlyTaskId()
-
-      const list = liveTodos(db, taskId, dataDir)
-      // The fixture's tool log makes #35 and #36 before #1-#4 (as a restart recreating lower ids after higher ones
-      // would), but the carry-over's table reads lowest id first (#609): the fixture's order no longer survives.
-      expect(list?.items.map(({ id, stranded }) => [id, stranded ?? false])).toEqual([
-        ['1', false],
-        ['2', false],
-        ['3', false],
-        ['4', false],
-        ['35', true],
-        ['36', true],
-      ])
-      const hub = readTodoHub(db, taskId)
-      const strandedGroup = hub.children.todos.find(({ todoId }) => todoId === '35')
-      expect(strandedGroup?.children).toHaveLength(2)
     })
   })
 

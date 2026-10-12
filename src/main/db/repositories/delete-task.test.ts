@@ -35,7 +35,6 @@ import { addTaskPermissionRule } from './task-permission-rules'
 import { addSandboxGrant } from './sandbox-grants'
 import { appendQuestionSet } from './question-sets'
 import { appendQueuedMessage } from './queued-messages'
-import { retireTodo } from './retired-todos'
 import { deleteTask, getTask, listTasks } from './tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 import { appendDivider, appendNarration, appendToolCall } from './tool-events'
@@ -130,7 +129,6 @@ async function fillTask(db: Database, task: Task): Promise<void> {
   assignChildIds(db, taskId, [{ kind: ChildKind.File, key: 'docs/plan.md' }])
   putFilings(db, taskId, [{ kind: ChildKind.File, key: 'docs/plan.md', todoId: '1', source: FilingSource.Named }])
   setTodoPanel(db, { taskId, todoId: '1', open: true, filter: ChildFilter.Files })
-  retireTodo(db, taskId, '45', 9_000)
   putTodos(db, taskId, [
     { id: '1', text: 'Fix the UTC date test', note: null, state: TodoState.Todo, completedAt: null },
   ])
@@ -243,8 +241,6 @@ const FILLED_TABLES = [
   'permission_requests',
   'question_sets',
   'queued_messages',
-  // The todos its agent has closed with close_todo (#593).
-  'retired_todos',
   // The folders and domains its sandbox was granted for it alone (#449).
   'sandbox_grants',
   // The search index's rows for its fields and messages, which a new task and `fillTask`'s message make.

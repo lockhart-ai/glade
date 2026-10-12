@@ -13,12 +13,6 @@ export const REQUEST_ACCESS_TOOL = `${GLADE_PREFIX}request_access`
 export const FILE_CHILDREN_TOOL = `${GLADE_PREFIX}file_children`
 
 /**
- * Glade's `close_todo` tool, as the SDK names it: how the agent closes a todo a session restart stranded (#593),
- * after it has recreated what is still live and moved the old todo's children with `file_children`.
- */
-export const CLOSE_TODO_TOOL = `${GLADE_PREFIX}close_todo`
-
-/**
  * Glade's `list_other_tasks` tool, as the SDK names it: the read-only list of the other tasks across every
  * workspace (#578), the one Glade tool besides `request_access` a subagent or a dispatched child may call too.
  */

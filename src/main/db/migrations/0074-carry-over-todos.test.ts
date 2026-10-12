@@ -96,7 +96,12 @@ it('changes nothing run a second time (idempotent, as `carryOverTodos` already i
     1_000,
   )
 
-  migrate(db, MIGRATIONS)
+  // Run up to 74 alone: migration 75 drops the retired_todos table this migration reads, and the second run here
+  // re-runs `up` by hand, as it did when the table was there.
+  migrate(
+    db,
+    MIGRATIONS.filter(({ version }) => version < 75),
+  )
   const before = listTodos(db, 't1')
   const counter = getTodoCounter(db, 't1')
 

@@ -143,13 +143,14 @@ function unpacked(path: string): string {
  * What Glade adds to every session's environment. `CLAUDE_CODE_ENABLE_TODO_TOOLS` once gave the session Claude
  * Code's own todo tools (`TaskCreate`, `TaskUpdate`, …), which the bundled Claude Code otherwise leaves off for SDK
  * sessions on newer models (Opus 5.5, Sonnet 5), turning them on by default only for older ones
- * (`docs/sdk-notes.md` §10). `DISALLOWED_TOOLS` (below) now blocks every one of them regardless, so this is harmless
- * to leave on — the Todos tab reads Glade's own table, not these, since #609. The tools the agent schedules its own
- * follow-ups with (background `Bash` and `Agent`, `Monitor`, `ScheduleWakeup`, `CronCreate`) need nothing: SDK
- * sessions have them already (§11). `CLAUDE_CODE_STARTUP_FAILURE_RESULTS` has a session Claude Code can't start end
- * with a result naming why (`startup_failure_reason`), which the error card words, rather than only a failed process.
+ * (`docs/sdk-notes.md` §10); #609 took it out — the Todos tab reads Glade's own table, the session is offered
+ * Glade's `create_todo`, `update_todo` and `list_todos` instead, and `DISALLOWED_TOOLS` (below) blocks the built-ins
+ * regardless. The tools the agent schedules its own follow-ups with (background `Bash` and `Agent`, `Monitor`,
+ * `ScheduleWakeup`, `CronCreate`) need nothing: SDK sessions have them already (§11).
+ * `CLAUDE_CODE_STARTUP_FAILURE_RESULTS` has a session Claude Code can't start end with a result naming why
+ * (`startup_failure_reason`), which the error card words, rather than only a failed process.
  */
-export const SESSION_ENV: Environment = { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1', CLAUDE_CODE_STARTUP_FAILURE_RESULTS: '1' }
+export const SESSION_ENV: Environment = { CLAUDE_CODE_STARTUP_FAILURE_RESULTS: '1' }
 
 /**
  * What keeps Claude Code's task tools on in a session's flag settings, whatever a settings file says (#495,

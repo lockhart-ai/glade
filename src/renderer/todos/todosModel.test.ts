@@ -1,14 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { TodoState, type Todo, type TodoList } from '../../shared/domain'
-import {
-  orderTodos,
-  partitionStranded,
-  progressBar,
-  progressHeading,
-  TodoGroup,
-  todoGroup,
-  todoProgress,
-} from './todosModel'
+import { orderTodos, progressBar, progressHeading, TodoGroup, todoGroup, todoProgress } from './todosModel'
 
 const list = (...states: TodoState[]): TodoList => ({
   items: states.map((state, index) => ({
@@ -196,35 +188,5 @@ describe('orderTodos', () => {
       expect(newer).toBeGreaterThanOrEqual(older)
       if (newer === older) expect(after.position).toBeLessThan(before.position)
     }
-  })
-})
-
-describe('partitionStranded (#593)', () => {
-  const todo = (text: string, stranded = false): Todo => ({
-    id: text,
-    text,
-    state: TodoState.Todo,
-    note: null,
-    completedAt: null,
-    ...(stranded ? { stranded: true } : {}),
-  })
-
-  it('splits a list into its live and stranded todos, each keeping the list’s order', () => {
-    const items = [todo('a'), todo('b', true), todo('c'), todo('d', true)]
-    expect(partitionStranded(items)).toEqual({
-      live: [items[0], items[2]],
-      stranded: [items[1], items[3]],
-    })
-  })
-
-  it('is all live with no stranded todos, and all stranded with none live', () => {
-    const live = [todo('a'), todo('b')]
-    expect(partitionStranded(live)).toEqual({ live, stranded: [] })
-    const stranded = [todo('a', true), todo('b', true)]
-    expect(partitionStranded(stranded)).toEqual({ live: [], stranded })
-  })
-
-  it('is empty for an empty list', () => {
-    expect(partitionStranded([])).toEqual({ live: [], stranded: [] })
   })
 })

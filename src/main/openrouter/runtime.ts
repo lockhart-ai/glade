@@ -21,10 +21,6 @@ import {
 } from './transcripts'
 import { openRouterSdkModel } from './sdk-model'
 import { importLocalTranscript } from './local-transcripts'
-import { sdkTaskList } from './task-list'
-import { getTask } from '../db/repositories/tasks'
-import { highestTodoId } from '../todos/todos'
-import { SILENT_LOGGER } from '../logging/logger'
 
 export interface OpenRouterRuntimeOptions {
   readonly db: Database
@@ -38,7 +34,6 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
   const imports = new Set<string>()
   return {
     async prepare(options: AgentSessionOptions, inherited: Environment): Promise<PreparedSdkSession> {
-      const log = options.log ?? SILENT_LOGGER
       const store = sqliteSessionStore(db, options.taskId ?? null)
       const router = agentSource(options.model) === AgentSource.OpenRouter
       const sessionId = options.resumeSessionId
@@ -47,10 +42,6 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
         : ([inherited.CLAUDE_CONFIG_DIR, process.env.CLAUDE_CONFIG_DIR].find(
             (path) => path !== undefined && path !== '',
           ) ?? join(homedir(), '.claude'))
-      const claudeConfig =
-        [inherited.CLAUDE_CONFIG_DIR, process.env.CLAUDE_CONFIG_DIR].find(
-          (path) => path !== undefined && path !== '',
-        ) ?? join(homedir(), '.claude')
       const recoveryDir = sessionId === null ? null : failedTranscriptConfig(db, sessionId, options.taskId ?? null)
       let imported = false
       let adopted = options.provisional !== true
@@ -65,34 +56,6 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
         }
       }
       try {
-        const originalTask = options.taskId === undefined ? undefined : getTask(db, options.taskId)
-        const originalConfig =
-          agentSource(originalTask?.model ?? options.model) === AgentSource.OpenRouter
-            ? join(dataDir, 'openrouter-sdk')
-            : claudeConfig
-        const taskList =
-          options.taskId === undefined
-            ? undefined
-            : await sdkTaskList({
-                taskId: options.taskId,
-                sessionId:
-                  (inherited.CLAUDE_CODE_TASK_LIST_ID === '' ? undefined : inherited.CLAUDE_CODE_TASK_LIST_ID) ??
-                  originalTask?.sessionId ??
-                  sessionId,
-                configDir,
-                dataDir,
-                legacyConfigDir: originalConfig,
-                // Every main session of a task shares the task's one list, so its todos survive a restart (#593). A
-                // dispatched child keeps what it had before: its own list, or the shared one a source switch made.
-                create:
-                  options.managedAgentId !== undefined
-                    ? originalTask !== undefined && agentSource(originalTask.model) !== agentSource(options.model)
-                    : true,
-                highestTodoId: highestTodoId(db, options.taskId) ?? undefined,
-              }).catch((error: unknown) => {
-                log.warn('could not share SDK todos; continuing with the SDK task list', { error })
-                return undefined
-              })
         let mirrored = sessionId !== null && hasTranscript(db, sessionId, options.taskId ?? null)
         // Ordinary Claude tasks keep their existing SDK files. Import only at the first OpenRouter handoff.
         if (sessionId !== null && (recoveryDir !== null || (router && !mirrored))) {
@@ -126,7 +89,6 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
         }
         if (agentSource(options.model) === AgentSource.Anthropic) {
           const env = Object.fromEntries(Object.entries(inherited).filter(([name]) => !name.startsWith('OPENROUTER_')))
-          if (taskList !== undefined) env.CLAUDE_CODE_TASK_LIST_ID = taskList
           for (const name of new Set([...Object.keys(process.env), ...Object.keys(inherited)]))
             if (name.startsWith('OPENROUTER_')) env[name] = ''
           return {
@@ -190,7 +152,6 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
           CLAUDE_CODE_NO_MODEL_FALLBACK: '1',
           // The SDK's unknown-model default is 200K; its installed runtime supports this explicit real-window override.
           CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(contextWindowTokens),
-          ...(taskList === undefined ? {} : { CLAUDE_CODE_TASK_LIST_ID: taskList }),
         })
         return {
           model,

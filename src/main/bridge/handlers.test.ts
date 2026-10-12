@@ -33,7 +33,6 @@ import { setSdkModels } from '../db/repositories/sdk-models'
 import { getTask, listTasks, updateTask } from '../db/repositories/tasks'
 import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
 import { setUiState } from '../db/repositories/ui-state'
-import { sharedTaskListDir } from '../openrouter/task-list'
 import { OpenWith } from '../files/open-path'
 import { createFakeSpawner, fakeTerminalOptions, type FakeSpawner } from '../terminal/fake-pty'
 import { createPlugins } from '../plugins/plugins'
@@ -531,13 +530,8 @@ describe('the changes commands', () => {
   }, 30_000)
 })
 
-describe('a stranded todo, on first load (#593)', () => {
-  const liveTodoDirs: string[] = []
-
-  afterEach(() => {
-    for (const dir of liveTodoDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
-  })
-
+describe("the task's todos on first load", () => {
+  /** Logs a TaskCreate call the old tools made, and puts the todo in Glade's own table with its counter. */
   function logCreate(taskId: string, id: string, subject: string): void {
     const toolUseId = `toolu_create_${id}`
     appendToolCall(
@@ -561,39 +555,7 @@ describe('a stranded todo, on first load (#593)', () => {
     seedTodoCounterAtLeast(database.db, taskId, Number(id) + 1)
   }
 
-  /** A shared list folder holding only the ids given, as `liveTodoIds` reads it. */
-  function sharedList(taskId: string, ...ids: readonly string[]): string {
-    const dir = mkdtempSync(join(tmpdir(), 'glade-handlers-live-todos-'))
-    liveTodoDirs.push(dir)
-    const folder = sharedTaskListDir(dir, taskId)
-    mkdirSync(folder, { recursive: true })
-    for (const id of ids) writeFileSync(join(folder, `${id}.json`), `{"id":"${id}","status":"pending"}`)
-    writeFileSync(join(folder, '.highwatermark'), '90')
-    return dir
-  }
-
-  it('marks a todo the shared list folder no longer holds, the same as a live update already does', async () => {
-    const taskId = sampleTask(database.db, sampleWorkspace(database.db).id).id
-    logCreate(taskId, '1', 'Review the date helpers')
-    logCreate(taskId, '2', 'Fix the UTC date test')
-    const withDataDir = createHandlers({ ...handlerContext(), dataDir: sharedList(taskId, '2') })
-
-    const history = await withDataDir[CommandName.TasksHistory]({ id: taskId })
-
-    expect(history.todos?.items).toEqual([
-      {
-        id: '1',
-        text: 'Review the date helpers',
-        state: TodoState.Todo,
-        note: null,
-        completedAt: null,
-        stranded: true,
-      },
-      { id: '2', text: 'Fix the UTC date test', state: TodoState.Todo, note: null, completedAt: null },
-    ])
-  })
-
-  it('leaves the list unmarked with no data folder, as it always has', async () => {
+  it("answers the todo list Glade's own table holds, exactly as a live update already does", async () => {
     const taskId = sampleTask(database.db, sampleWorkspace(database.db).id).id
     logCreate(taskId, '1', 'Review the date helpers')
 

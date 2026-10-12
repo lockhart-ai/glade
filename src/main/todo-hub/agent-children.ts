@@ -38,12 +38,8 @@ import {
   type TodoId,
 } from '../../shared/todoHub'
 import { CommandFailure } from '../bridge/errors'
-import { emitTaskUpdated, emitTodosChanged } from '../bridge/events'
 import { listFilings } from '../db/repositories/child-filings'
-import { hasRetiredTodo, retireTodo } from '../db/repositories/retired-todos'
 import { truncate } from '../notifications/notifications'
-import { liveTodoIds } from '../openrouter/task-list'
-import { liveTodos, refreshTodos, strandedIds } from '../todos/todos'
 import { childWithId, fileChildren, identifyChildren, taskChildren, wasWatcherId, type FilingContext } from './todo-hub'
 
 /** A todo children can be filed under: one with an id (`TaskCreate`'s; a `TodoWrite` item has none). */
@@ -116,12 +112,6 @@ export const LIST_FOR_IDS = "List the task's children for their ids."
 
 /** What a `file_children` call is refused with for a short id that was a watcher's, before the ids it names. */
 export const WATCHERS_NOT_FILED = "Watchers aren't filed under todos"
-
-/** What `list_children` puts under a stranded todo's heading, telling the agent how to retire it (#593). */
-export const STRANDED_NOTE =
-  'Stranded: the session was restarted and its new list no longer holds this todo, so TaskUpdate answers ' +
-  '"Task not found". Recreate what is still live about it (TaskCreate), move its children under the todos they ' +
-  'belong to now (file_children), then close it (close_todo).'
 
 /** A text on one line, cut to what the agent is shown. */
 function shown(text: string): string {
@@ -288,14 +278,11 @@ export function noSuchTodo(ids: readonly TodoId[], todos: readonly FilingTodo[])
  * todo's group alone (by its id), or the ones under no todo alone (`NO_TODO`). Every child listed has its short id
  * from here on. Never a watcher, nor a subagent that has its todo.
  *
- * Fails with `not_found` for a todo the task's list doesn't have, saying which it does have. With the data folder the
- * task's shared list lives in, a todo that list no longer holds is marked stranded (`STRANDED_NOTE`), so the agent can
- * tell it from one `TaskUpdate` reaches (#593); without one, nothing is stranded.
+ * Fails with `not_found` for a todo the task's list doesn't have, saying which it does have.
  */
-export function listForAgent(db: Database, taskId: string, under?: string, dataDir?: string): ListedGroup[] {
+export function listForAgent(db: Database, taskId: string, under?: string): ListedGroup[] {
   const children = taskChildren(db, taskId)
-  const stranded = strandedIds(children.todos, dataDir === undefined ? null : liveTodoIds(dataDir, taskId))
-  const todos = filingTodos(children.todos).map((todo) => (stranded.has(todo.id) ? { ...todo, stranded: true } : todo))
+  const todos = filingTodos(children.todos)
   const only = under === undefined ? undefined : todoIdOf(under)
   const wanted = only === undefined || only === NO_TODO ? todos : todos.filter(({ id }) => id === only)
   if (only !== undefined && only !== NO_TODO && wanted.length === 0) {
@@ -320,13 +307,11 @@ function count(children: number): string {
   return children === 1 ? '1 child:' : `${String(children)} children:`
 }
 
-/** What `list_children` tells the agent: a heading per group, with how many it holds, and a line per child. A
- * stranded todo's heading carries `STRANDED_NOTE` (#593). */
+/** What `list_children` tells the agent: a heading per group, with how many it holds, and a line per child. */
 export function listingText(groups: readonly ListedGroup[]): string {
   return groups
     .flatMap(({ todo, children }) => [
       `${todo === null ? 'Not under a todo' : todoLabel(todo)}, ${count(children.length)}`,
-      ...(todo?.stranded === true ? [STRANDED_NOTE] : []),
       ...children.map((child) => {
         const follows = child.follows === null ? '' : ` (follows ${child.follows})`
         return `- ${childLabel(child)}${follows}`
@@ -448,59 +433,4 @@ export function filedText({ filed, unchanged, brought }: FilingOutcome): string 
     ...(brought.length === 0 ? [] : [`Moved with their subagent: ${brought.join(', ')}.`]),
     ...(unchanged.length === 0 ? [] : [`Already there: ${unchanged.join(', ')}.`]),
   ].join(' ')
-}
-
-/** What closing a stranded todo needs: the filing context, and the data folder its shared list lives in. Without the
- * folder, nothing of the task is stranded and every todo it holds is live. */
-export interface CloseTodoContext extends FilingContext {
-  readonly dataDir?: string
-}
-
-/**
- * Closes a stranded todo of the task, as `close_todo` asks (#593): the agent has recreated what was still live and
- * moved the old todo's children, and Glade takes the old one out of its list everywhere — the tab, the summaries,
- * `list_children` and the "Your todos:" line — keeping its history in the tool log. The windows hear the list change
- * (`todos.changed`) and the row's (`task.updated`). Answers with what it did.
- *
- * Fails with `invalid_request`, saying which, when the id names no todo of the task's, the task's todo has already
- * been closed, the agent's live list still holds it (`TaskUpdate` reaches a live todo; a task with no shared list
- * folder holds every todo of its own), or children are still filed under it — name each by its short id, so the agent
- * can move it with one `file_children` call.
- */
-export function closeForAgent(
-  context: CloseTodoContext,
-  taskId: string,
-  given: string,
-  now: EpochMs = Date.now(),
-): string {
-  const { db } = context
-  const todoId = todoIdOf(given)
-  const children = taskChildren(db, taskId)
-  const todos = filingTodos(children.todos)
-  const todo = todos.find(({ id }) => id === todoId)
-  if (todo === undefined) {
-    if (hasRetiredTodo(db, taskId, todoId)) return `Todo #${todoId} is already closed.`
-    throw new CommandFailure(BridgeErrorCode.InvalidRequest, noSuchTodo([todoId], todos))
-  }
-  const live = context.dataDir === undefined ? null : liveTodoIds(context.dataDir, taskId)
-  if (live === null || live.has(todoId)) {
-    throw new CommandFailure(
-      BridgeErrorCode.InvalidRequest,
-      `Todo ${todoLabel(todo)} is live: change it with TaskUpdate, not close_todo.`,
-    )
-  }
-  const stillFiled = children.filings.filter((filing) => filing.todoId === todoId)
-  if (stillFiled.length > 0) {
-    const named = nameSome(db, taskId, children, stillFiled).map(childLabel).join(', ')
-    throw new CommandFailure(
-      BridgeErrorCode.InvalidRequest,
-      `Todo ${todoLabel(todo)} still has children filed under it: ${named}. Move each to the todo it belongs under ` +
-        'with file_children, then close it.',
-    )
-  }
-  retireTodo(db, taskId, todoId, now)
-  const { changed } = refreshTodos(db, taskId)
-  emitTodosChanged(context.emit, taskId, liveTodos(db, taskId, context.dataDir))
-  if (changed !== null) emitTaskUpdated(context.emit, changed)
-  return `Closed stranded todo ${todoLabel(todo)}. It is out of the task's list everywhere; its history stays in the tool log.`
 }

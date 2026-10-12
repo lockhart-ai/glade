@@ -54,18 +54,6 @@ export function StateIcon({ state }: { readonly state: TodoState }): React.JSX.E
   }
 }
 
-/**
- * A stranded todo's icon, in place of its state (#593): a dashed slate ring, since nothing about it is live, done or
- * waiting on you. Its own colour, never `currentColor`, so a done or waiting card's icon colour never reaches it.
- */
-export function StrandedIcon(): React.JSX.Element {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="12" r="9" stroke="var(--color-slate)" strokeWidth="2" strokeDasharray="3.6 3.6" />
-    </svg>
-  )
-}
-
 /** What Ask agent about this puts in the message field, for you to finish with your question. */
 export function askAboutTodo(todo: Todo): string {
   return `About the todo “${todo.text}”: `

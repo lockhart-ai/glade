@@ -578,13 +578,6 @@ export interface Todo {
    * done, including one that was done and went back to being worked on.
    */
   readonly completedAt: EpochMs | null
-  /**
-   * Set when the task's agent no longer holds the item in its live list, though Glade still shows it (#593): a restart
-   * of the session started the list again, and `TaskUpdate` can't reach it. The agent recreates what's still live,
-   * moves the item's children with `file_children`, then closes it with `close_todo`. Left unset while the agent holds
-   * it, and for a task with no shared list folder (`liveTodos`, `src/main/todos`).
-   */
-  readonly stranded?: boolean
 }
 
 /**

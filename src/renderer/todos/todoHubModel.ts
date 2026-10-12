@@ -22,12 +22,6 @@ export const NO_HUB_TODOS = 'No todos for this task.'
 /** The placeholder group's heading: the children no todo has. */
 export const UNFILED_HEADING = 'Not under a todo'
 
-/** The stranded group's heading, under the live todos and before `UNFILED_HEADING` (#593). */
-export const STRANDED_HEADING = 'Stranded'
-
-/** What the stranded group's heading says under it, about what the todos there are and how they leave. */
-export const STRANDED_HINT = 'From before a restart; the agent can only close these, once refiled.'
-
 /** One kind of a todo's children, counted. */
 export interface KindCount {
   readonly kind: ProducedKind
@@ -118,13 +112,7 @@ export function sameChildren(a: readonly Child[], b: readonly Child[]): boolean 
 export function sameTodo(a: Todo, b: Todo): boolean {
   return (
     a === b ||
-    (a.id === b.id &&
-      a.text === b.text &&
-      a.state === b.state &&
-      a.note === b.note &&
-      a.completedAt === b.completedAt &&
-      // Whether the session has stranded it (#593): a flag that can flip on its own, nothing else about it changing.
-      (a.stranded ?? false) === (b.stranded ?? false))
+    (a.id === b.id && a.text === b.text && a.state === b.state && a.note === b.note && a.completedAt === b.completedAt)
   )
 }
 
