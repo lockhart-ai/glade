@@ -56,15 +56,9 @@ interface CatalogModel {
   readonly supported_parameters: readonly string[]
   readonly pricing: ModelPricing
 }
-interface ModelsResponse {
-  readonly data: readonly CatalogModel[]
-}
 interface CatalogProvider {
   readonly slug: string
   readonly name: string
-}
-interface ProvidersResponse {
-  readonly data: readonly CatalogProvider[]
 }
 interface CatalogEndpoint {
   readonly provider_name: string
@@ -73,42 +67,44 @@ interface CatalogEndpoint {
   readonly context_length?: number
   readonly pricing?: ModelPricing
 }
-interface ModelEndpoints {
-  readonly endpoints: readonly CatalogEndpoint[]
-}
-interface EndpointsResponse {
-  readonly data: ModelEndpoints
-}
 
-const modelResponse = z.object({
-  data: z.array(
-    z.object({
-      id: z.string().min(1),
-      name: z.string(),
-      description: z.string().default(''),
-      context_length: z.number().int().positive(),
-      architecture: z.object({ input_modalities: z.array(z.string()), output_modalities: z.array(z.string()) }),
-      supported_parameters: z.array(z.string()).default([]),
-      pricing: z.object({ prompt: z.string(), completion: z.string() }),
-    }),
-  ),
-}) satisfies z.ZodType<ModelsResponse>
-const providersResponse = z.object({
-  data: z.array(z.object({ slug: z.string().min(1), name: z.string() })),
-}) satisfies z.ZodType<ProvidersResponse>
-const endpointsResponse = z.object({
-  data: z.object({
-    endpoints: z.array(
-      z.object({
-        provider_name: z.string(),
-        tag: z.string(),
-        supported_parameters: z.array(z.string()).default([]),
-        context_length: z.number().int().positive().optional(),
-        pricing: z.object({ prompt: z.string(), completion: z.string() }).optional(),
-      }),
-    ),
-  }),
-}) satisfies z.ZodType<EndpointsResponse>
+// Each catalog entry is validated on its own and a bad one is skipped rather than failing the whole response
+// (#599): OpenRouter can list a model with, say, context_length: 0 alongside otherwise-valid entries. The
+// envelope itself (the "data" array existing at all) is still validated strictly, so a response that isn't a
+// catalog at all still fails the refresh as before.
+const catalogModelSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  description: z.string().default(''),
+  context_length: z.number().int().positive(),
+  architecture: z.object({ input_modalities: z.array(z.string()), output_modalities: z.array(z.string()) }),
+  supported_parameters: z.array(z.string()).default([]),
+  pricing: z.object({ prompt: z.string(), completion: z.string() }),
+}) satisfies z.ZodType<CatalogModel>
+const modelResponse = z.object({ data: z.array(z.unknown()) })
+
+const catalogProviderSchema = z.object({
+  slug: z.string().min(1),
+  name: z.string(),
+}) satisfies z.ZodType<CatalogProvider>
+const providersResponse = z.object({ data: z.array(z.unknown()) })
+
+const catalogEndpointSchema = z.object({
+  provider_name: z.string(),
+  tag: z.string(),
+  supported_parameters: z.array(z.string()).default([]),
+  context_length: z.number().int().positive().optional(),
+  pricing: z.object({ prompt: z.string(), completion: z.string() }).optional(),
+}) satisfies z.ZodType<CatalogEndpoint>
+const endpointsResponse = z.object({ data: z.object({ endpoints: z.array(z.unknown()) }) })
+
+/** Parse each entry on its own, keeping the ones that validate and dropping the rest (#599). */
+function parseEntries<T>(schema: z.ZodType<T>, entries: readonly unknown[]): readonly T[] {
+  return entries.flatMap((entry) => {
+    const result = schema.safeParse(entry)
+    return result.success ? [result.data] : []
+  })
+}
 
 /** A guardrail read from a management key (`GET /api/v1/guardrails`); it may not name any providers. */
 interface CatalogGuardrail {
@@ -153,9 +149,8 @@ export class OpenRouterClient {
   async catalog(key: string): Promise<OpenRouterCatalog> {
     const [models, providers] = await Promise.all([this.get(key, 'models/user'), this.get(key, 'providers')])
     return {
-      models: modelResponse
-        .parse(models)
-        .data.filter(
+      models: parseEntries(catalogModelSchema, modelResponse.parse(models).data)
+        .filter(
           (model) =>
             model.architecture.input_modalities.includes('text') &&
             model.architecture.output_modalities.includes('text') &&
@@ -171,9 +166,8 @@ export class OpenRouterClient {
           inputPrice: model.pricing.prompt,
           outputPrice: model.pricing.completion,
         })),
-      providers: providersResponse
-        .parse(providers)
-        .data.map(({ slug, name }) => ({ id: slug, name }))
+      providers: parseEntries(catalogProviderSchema, providersResponse.parse(providers).data)
+        .map(({ slug, name }) => ({ id: slug, name }))
         .sort(byName),
     }
   }
@@ -185,9 +179,10 @@ export class OpenRouterClient {
   ): Promise<readonly OpenRouterProvider[]> {
     const path = model.split('/').map(encodeURIComponent).join('/')
     const data = endpointsResponse.parse(await this.get(key, `models/${path}/endpoints`)).data
+    const endpoints = parseEntries(catalogEndpointSchema, data.endpoints)
     return providers
       .flatMap((provider) => {
-        const endpoint = data.endpoints.find(
+        const endpoint = endpoints.find(
           (endpoint) => endpoint.supported_parameters.includes('tools') && endpoint.tag.split('/')[0] === provider.id,
         )
         if (endpoint === undefined) return []
@@ -206,9 +201,8 @@ export class OpenRouterClient {
   }
 
   async providerModels(key: string, provider: OpenRouterProvider): Promise<readonly string[]> {
-    return modelResponse
-      .parse(await this.get(key, `models?providers=${encodeURIComponent(provider.name)}`))
-      .data.map(({ id }) => id)
+    const data = modelResponse.parse(await this.get(key, `models?providers=${encodeURIComponent(provider.name)}`)).data
+    return parseEntries(catalogModelSchema, data).map(({ id }) => id)
   }
 
   async usage(key: string, readAt: number): Promise<OpenRouterUsageReading> {
