@@ -357,7 +357,7 @@ export function ModelsSection(): React.JSX.Element {
             </Button>
           </div>
           {selected.length > 0 && (
-            <div className={styles.models}>
+            <div className={classNames(styles.models, styles.selectedList)} role="list" aria-label="Selected models">
               {selected.map((model) => (
                 <ModelRow
                   key={model.id}
@@ -407,7 +407,7 @@ export function ModelsSection(): React.JSX.Element {
             <span>Model · USD per 1M tokens</span>
             <span>Provider</span>
           </div>
-          <div className={styles.models}>
+          <div className={classNames(styles.models, styles.catalogList)} role="list" aria-label="Model catalog">
             {models.map((model) => (
               <ModelRow
                 key={model.id}
@@ -497,7 +497,7 @@ const ModelRow = memo(function ModelRow({
     },
   }))
   return (
-    <div className={classNames(styles.model, compact && styles.compact)}>
+    <div role="listitem" className={classNames(styles.model, compact && styles.compact)}>
       <input
         type="checkbox"
         aria-label={`Enable ${model.name}`}
