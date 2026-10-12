@@ -65,8 +65,9 @@ export enum AgentEventKind {
    */
   SubagentBackgrounded = 'subagent_backgrounded',
   /**
-   * A running subagent's latest one-line summary of what it's doing (`system/task_progress` with a `summary`, sent about
-   * every 30 seconds with `agentProgressSummaries` on; `docs/sdk-notes.md`, "Subagents").
+   * A running subagent's latest progress (`system/task_progress`, sent after each of its tool calls and about every 30
+   * seconds with `agentProgressSummaries` on; `docs/sdk-notes.md`, "Subagents"): a one-line summary of what it's doing
+   * when it gives one, and what it has spent in all (`usage.total_tokens`, approximate) most times.
    */
   SubagentProgress = 'subagent_progress',
   /**
@@ -151,6 +152,12 @@ export interface ToolResultEvent {
    * on the tool, so whoever reads it parses it for the tool it knows (the watchers do, `../watchers`).
    */
   readonly details: unknown
+  /**
+   * How full the conversation of the agent a foreground subagent's `Agent` call started was at its last request, in
+   * tokens (`tool_use_result.totalTokens`, exact), or null when the result gives none or says nothing was sent (#592).
+   * A context size, not what the run has spent; a backgrounded call's result only says it launched, and carries none.
+   */
+  readonly contextTokens: number | null
 }
 
 export interface ContextUsedEvent {
@@ -306,8 +313,14 @@ export interface SubagentProgressEvent {
   readonly kind: AgentEventKind.SubagentProgress
   /** The `Agent` tool call that started the subagent. */
   readonly toolUseId: string
-  /** What it's doing now, on one line. */
-  readonly summary: string
+  /** What it's doing now, on one line; null on a message that only counts. */
+  readonly summary: string | null
+  /**
+   * How full the subagent's conversation was at its latest request, in tokens (`task_progress.usage.total_tokens`, as
+   * the SDK reports it — a context size, not what it has spent, `docs/sdk-notes.md`); null on a message that gives
+   * none. Never zero: a conversation that holds nothing shows nothing (#592).
+   */
+  readonly contextTokens: number | null
 }
 
 /** How a task started by a tool call ended (the SDK's `task_notification.status`). */
@@ -327,6 +340,12 @@ export interface TaskFinishedEvent {
   readonly outcome: TaskOutcome
   /** What it came to: a subagent's final reply, or what failed. */
   readonly summary: string
+  /**
+   * How full the subagent's conversation was at its last request, in tokens (`task_notification.usage.total_tokens`,
+   * as the SDK reports it — a context size, not what it has spent) — the last word for a subagent that ran in the
+   * background; null when the notification gives none. Never zero (#592).
+   */
+  readonly contextTokens: number | null
 }
 
 export interface ModelRefusalFallbackEvent {
@@ -435,13 +454,21 @@ const taskUpdatedMessage = z.looseObject({
   patch: z.looseObject({ is_backgrounded: z.boolean().optional().catch(undefined) }),
 })
 
-// Only a summary matters, and only for a task started by a tool call. Most progress messages carry none: they only
-// count the task's tool calls and tokens.
+const tokenCount = z.number().int().nonnegative()
+
+/** A subagent run's account of its conversation (`task_progress.usage`, `task_notification.usage`): one figure, the
+ * conversation's size at the run's latest request, as the SDK reports it — not what the run has spent
+ * (`docs/sdk-notes.md`, "Subagents", observed). */
+const taskUsage = z.looseObject({ total_tokens: tokenCount.optional().catch(undefined) })
+
+// A summary or a combined total matters, and only for a task started by a tool call. Most progress messages carry
+// neither: they only count the task's tool calls.
 const taskProgressMessage = z.looseObject({
   type: z.literal('system'),
   subtype: z.literal('task_progress'),
   tool_use_id: z.string().min(1).optional().catch(undefined),
   summary: z.string().optional().catch(undefined),
+  usage: taskUsage.optional().catch(undefined),
 })
 
 // Only a task started by a tool call can be matched to its row; a status Glade doesn't know drops the message.
@@ -452,12 +479,16 @@ const taskNotificationMessage = z.looseObject({
   tool_use_id: z.string().min(1).optional(),
   status: z.enum(TaskOutcome),
   summary: z.string().catch(''),
+  usage: taskUsage.optional().catch(undefined),
 })
 
-/** The SDK's own account of a tool call's result, beside its content: only whether it launched a subagent matters. */
-const toolUseResult = z.looseObject({ status: z.unknown().optional() })
-
-const tokenCount = z.number().int().nonnegative()
+/** The SDK's own account of a tool call's result, beside its content: whether it launched a subagent, and, for an
+ * `Agent` call, how full its subagent's conversation was at its last request (`docs/sdk-notes.md`, "Subagents",
+ * observed). */
+const toolUseResult = z.looseObject({
+  status: z.unknown().optional(),
+  totalTokens: tokenCount.optional().catch(undefined),
+})
 
 const rateLimitMessage = z.looseObject({
   type: z.literal('rate_limit_event'),
@@ -741,12 +772,20 @@ function resultText(content: string | readonly z.infer<typeof block>[] | undefin
     .join('\n')
 }
 
+/** How full a foreground subagent's conversation was at its last request, from its `Agent` call's result
+ * (`tool_use_result.totalTokens`) — exact, where the progress messages' figure is approximate. A result that gives
+ * none, or says nothing was sent, leaves nothing to write (#592). */
+function toContextTokens(totalTokens: number | undefined): number | null {
+  return totalTokens !== undefined && totalTokens > 0 ? totalTokens : null
+}
+
 function fromUser(message: z.infer<typeof userMessage>, log: AgentLog): AgentEvent[] {
   const { content } = message.message
   if (message.isReplay === true || typeof content === 'string') return []
   // The SDK's account of the result belongs to the message's one tool result.
   const launched = message.tool_use_result?.status === 'async_launched'
   const details = message.tool_use_result ?? null
+  const contextTokens = toContextTokens(message.tool_use_result?.totalTokens)
   return content.flatMap((raw): AgentEvent[] => {
     if (raw.type !== 'tool_result') return []
     const result = toolResultBlock.safeParse(raw)
@@ -763,6 +802,7 @@ function fromUser(message: z.infer<typeof userMessage>, log: AgentLog): AgentEve
         isError: is_error ?? false,
         launched,
         details,
+        contextTokens,
       },
     ]
   })
@@ -855,14 +895,26 @@ function oneLine(text: string): string {
 function fromTaskProgress(message: z.infer<typeof taskProgressMessage>): AgentEvent[] {
   const { tool_use_id: toolUseId } = message
   const summary = oneLine(message.summary ?? '')
-  return toolUseId === undefined || summary === ''
+  // A conversation that holds nothing shows nothing, so a zero figure is as good as none (#592).
+  const contextTokens = toContextTokens(message.usage?.total_tokens)
+  return toolUseId === undefined || (summary === '' && contextTokens === null)
     ? []
-    : [{ kind: AgentEventKind.SubagentProgress, toolUseId, summary }]
+    : [
+        {
+          kind: AgentEventKind.SubagentProgress,
+          toolUseId,
+          summary: summary === '' ? null : summary,
+          contextTokens,
+        },
+      ]
 }
 
 function fromTaskNotification(message: z.infer<typeof taskNotificationMessage>): AgentEvent[] {
   const { task_id: sdkTaskId, tool_use_id: toolUseId, status: outcome, summary } = message
-  return toolUseId === undefined ? [] : [{ kind: AgentEventKind.TaskFinished, sdkTaskId, toolUseId, outcome, summary }]
+  const contextTokens = toContextTokens(message.usage?.total_tokens)
+  return toolUseId === undefined
+    ? []
+    : [{ kind: AgentEventKind.TaskFinished, sdkTaskId, toolUseId, outcome, summary, contextTokens }]
 }
 
 /** Parses `raw` with `schema`, or logs why it couldn't and gives nothing. */

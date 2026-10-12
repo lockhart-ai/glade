@@ -2,7 +2,7 @@ import type { Database } from 'better-sqlite3'
 import type { EpochMs } from '../../../shared/domain'
 import { Row } from './rows'
 
-// The stranded todos the agent has closed (`close_todo`, #593; migration 71): which of a task's todos Glade leaves out
+// The stranded todos the agent has closed (`close_todo`, #593; migration 72): which of a task's todos Glade leaves out
 // of its list everywhere once the agent has closed them. The tool log keeps the todo's history; this table only takes
 // it out of what Glade derives (`todoListFor`).
 

@@ -13,7 +13,7 @@ import { listToolEvents } from '../db/repositories/tool-events'
 import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
 import { FakeAgentBackend, settle } from './fake-backend'
-import { RESTARTED_TOOL_NOTE, type AgentRunner } from './runner'
+import { FIGURE_WRITE_INTERVAL_MS, RESTARTED_TOOL_NOTE, type AgentRunner } from './runner'
 import * as sdk from './test-sdk-messages'
 
 let database: TestDatabase
@@ -103,7 +103,8 @@ describe("a running subagent's progress summary", () => {
     backend.session.emit(
       sdk.subagentProgress('toolu_api', 'a1', 'Reading the API PRs, newest first'),
       sdk.subagentProgress('toolu_web', 'a2', 'Listing the merged dashboard PRs'),
-      // Most progress messages carry no summary: they leave the one it has alone.
+      // Most progress messages carry no summary: they leave the one it has alone, and one that brings nothing but a
+      // figure writes at most once in the window (#592) — the one right after the summary's is inside it.
       sdk.subagentProgress('toolu_api', 'a1'),
       sdk.subagentProgress('toolu_api', 'a1', 'Sorting 14 API PRs into features and fixes'),
     )
@@ -221,5 +222,114 @@ describe("a running subagent's progress summary", () => {
       output: RESTARTED_TOOL_NOTE,
       progressSummary: null,
     })
+  })
+
+  it("keeps a figure-only progress message's context size, at most once in the window (#592)", async () => {
+    await twoSubagents()
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    const counting = (totalTokens: number, toolUseId = 'toolu_api'): unknown => ({
+      type: 'system',
+      subtype: 'task_progress',
+      task_id: 'a1',
+      tool_use_id: toolUseId,
+      usage: { total_tokens: totalTokens, tool_uses: 1, duration_ms: 1 },
+    })
+
+    // The first figure-only message writes, and tells the window; the summary it would keep is untouched.
+    backend.session.emit(counting(100))
+    await settle()
+    expect(call('toolu_api')).toMatchObject({ progressSummary: null, contextTokens: 100 })
+    expect(updates()).toEqual(['toolu_api: '])
+
+    // One just after is inside the window: nothing is written, nothing is told.
+    backend.session.emit(counting(200))
+    await settle()
+    expect(call('toolu_api').contextTokens).toBe(100)
+    expect(updates()).toEqual(['toolu_api: '])
+
+    // Once the window has passed, the next figure writes — and a zero figure writes nothing at all.
+    clock.mockReturnValue(1_000_000 + FIGURE_WRITE_INTERVAL_MS)
+    backend.session.emit(counting(0), counting(300))
+    await settle()
+    expect(call('toolu_api')).toMatchObject({ contextTokens: 300 })
+    expect(updates()).toEqual(['toolu_api: ', 'toolu_api: '])
+    clock.mockRestore()
+  })
+
+  it('updates the context size when it rides a summary, whatever the window says (#592)', async () => {
+    await twoSubagents()
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(2_000_000)
+
+    backend.session.emit(sdk.subagentProgress('toolu_api', 'a1', 'Reading the API PRs'))
+    await settle()
+    expect(call('toolu_api')).toMatchObject({ progressSummary: 'Reading the API PRs', contextTokens: 13_530 })
+    clock.mockReturnValue(2_000_000 + 1)
+    backend.session.emit(sdk.subagentProgress('toolu_api', 'a1', 'Sorting 14 API PRs into features and fixes'))
+    await settle()
+    expect(call('toolu_api')).toMatchObject({
+      progressSummary: 'Sorting 14 API PRs into features and fixes',
+      contextTokens: 13_530,
+    })
+    clock.mockRestore()
+  })
+
+  it('settles the context size when a foreground run finishes, exactly (#592)', async () => {
+    await twoSubagents()
+    backend.session.emit(sdk.subagentProgress('toolu_api', 'a1', 'Reading the API PRs'))
+    await settle()
+    expect(call('toolu_api').contextTokens).toBe(13_530)
+
+    // The result's `totalTokens` is exact, where the progress messages' figure is approximate.
+    const result = sdk.toolResult('toolu_api', 'Sorted 14 API PRs.') as Record<string, unknown>
+    backend.session.emit({ ...result, tool_use_result: { totalTokens: 13_700 } })
+    await settle()
+
+    expect(call('toolu_api')).toMatchObject({ state: ToolCallState.Done, contextTokens: 13_700 })
+    // The settled figure rode the one event the call's finishing emitted — a result without one writes none.
+    expect(
+      events.filter(
+        (event) =>
+          event.type === EventType.ToolEventUpdated &&
+          event.toolEvent.kind === ToolEventKind.ToolCall &&
+          event.toolEvent.toolUseId === 'toolu_api',
+      ),
+    ).toHaveLength(2)
+  })
+
+  it('takes the end of the run as the last word on its context size, whatever state the call is in (#592)', async () => {
+    await twoSubagents()
+
+    // A backgrounded call's row still runs when its notification arrives; a foreground one has finished — its
+    // notification still writes, and takes the last word from the result's settled figure.
+    const result = sdk.toolResult('toolu_api', 'Sorted 14 API PRs.') as Record<string, unknown>
+    backend.session.emit({ ...result, tool_use_result: { totalTokens: 13_700 } })
+    await settle()
+    backend.session.emit(...sdk.subagentEnded('toolu_api', 'a1', 'completed', 'All sorted.'))
+    await settle()
+
+    expect(call('toolu_api')).toMatchObject({ state: ToolCallState.Done, contextTokens: 12_688 })
+    // A late progress message after the end still writes nothing.
+    backend.session.emit(sdk.subagentProgress('toolu_api', 'a1', 'Reading the API PRs'))
+    await settle()
+    expect(call('toolu_api')).toMatchObject({ contextTokens: 12_688, progressSummary: null })
+    expect(updates()).toEqual([])
+  })
+
+  it('keeps the context size for good when a background run ends (#592)', async () => {
+    await glade.invoke(CommandName.TasksSend, { id: task.id, text: 'Find why checkout is slow.' })
+    backend.session.emit(
+      sdk.init(),
+      ...sdk.backgroundLaunch('toolu_q', 'aq1', 'Profile the checkout queries'),
+      sdk.text('Started it.', null, 'msg_02'),
+      sdk.result('Started it.'),
+    )
+    await settle()
+
+    // The row runs while its notification arrives, and keeps the figure it brings as its last word.
+    backend.session.emit(...sdk.subagentEnded('toolu_q', 'aq1', 'completed', 'load_cart runs 38 queries.'))
+    await settle()
+    expect(call('toolu_q')).toMatchObject({ state: ToolCallState.Done, contextTokens: 12_688 })
+    expect(call('toolu_q')).not.toHaveProperty('totalInputTokens')
+    expect(call('toolu_q')).not.toHaveProperty('totalOutputTokens')
   })
 })

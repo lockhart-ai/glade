@@ -195,13 +195,15 @@
           "input": {
             "description": "limits-502",
             "prompt": "Per-key limits for /search.",
-            "subagent_type": "general-purpose"
+            "subagent_type": "general-purpose",
+            "model": "claude-haiku-4-5"
           },
           "turn": 1,
           "minutesAgo": 34,
           "toolUseId": "use-limits-502",
           "todo": "2",
-          "progressSummary": "Rerunning tests/test_search_limits.py"
+          "progressSummary": "Rerunning tests/test_search_limits.py",
+          "contextTokens": 478200
         },
         {
           "kind": "tool_call",

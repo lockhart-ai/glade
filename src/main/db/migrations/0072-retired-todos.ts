@@ -7,7 +7,7 @@ import type { Migration } from '../migrate'
  * out of what Glade derives. The todo's id is Claude Code's own (`Task #N`), as `child_filings` names todos by.
  */
 export const retiredTodosMigration: Migration = {
-  version: 71,
+  version: 72,
   name: 'Add the todos the agent closed',
   up(db) {
     db.exec(`

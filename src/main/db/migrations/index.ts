@@ -5,7 +5,8 @@ import { managedAgentWorktreeMigration } from './0067-managed-agent-worktree'
 import { openRouterManagementMigration } from './0068-openrouter-management'
 import { agentTokenTotalsMigration } from './0069-agent-token-totals'
 import { agentCallTokenTotalsMigration } from './0070-agent-call-token-totals'
-import { retiredTodosMigration } from './0071-retired-todos'
+import { agentCallContextTokensMigration } from './0071-agent-call-context-tokens'
+import { retiredTodosMigration } from './0072-retired-todos'
 import { schemaVersionMigration } from './0001-schema-version'
 import { coreTablesMigration } from './0002-core-tables'
 import { taskActivityMigration } from './0003-task-activity'
@@ -141,6 +142,7 @@ export const MIGRATIONS: readonly Migration[] = [
   openRouterManagementMigration,
   agentTokenTotalsMigration,
   agentCallTokenTotalsMigration,
+  agentCallContextTokensMigration,
   retiredTodosMigration,
 ]
 

@@ -20,12 +20,20 @@ for a child in this version.
 | --- | --- | --- |
 | `mcp__glade-agents__list_models` | `{}` | Current Claude models and enabled OpenRouter model/provider selections, including context windows and indicative OpenRouter prices in USD per token. Choose a model on the other source for dispatch. |
 | `mcp__glade-agents__dispatch` | `{ model, prompt, description, run_in_background?, resume?, isolation? }` | The cross-source child's id and result, or its id immediately for background work. |
+| `mcp__glade-agents__message_child` | `{ id, text }` | Confirmation that `text` is queued for the child's next tool call. |
 
 `model` is an exact id from `list_models`; `prompt` supplies the delegated task and necessary context.
 Prefix `description` with `[todo N]` to file the child under that todo. Curation is checked on every dispatch;
 provider choice remains in Settings. `resume` continues a finished child from this task on its original model,
 provided its source still differs from the parent's. Native `SendMessage` cannot address these children.
 Duplicate dispatch tool calls return the saved outcome without starting another child.
+`message_child` (#596) sends `text` to a child still running in the background, marked "Message from your
+parent:" so it knows whose it is: folded into its current turn at its next tool round, never read at once, and
+one way only — nothing comes back beyond the queued confirmation. It only works while the child runs in the
+background (a foreground child's id is unknown until it finishes); a refusal means the id isn't this task's, the
+child isn't running, or it has no live run in this session, and names `dispatch` with `resume` instead. A message
+pushed too close to the child's own end can miss its turn; the completion the parent gets then names it and says
+to resume. The send is noted in the child's own log on the Agents tab.
 
 Dispatched children run the SDK coding preset, workspace, sandbox and task permissions in separate sessions.
 They take the parent's effort at the time of the dispatch, or the model's default when the model doesn't offer that

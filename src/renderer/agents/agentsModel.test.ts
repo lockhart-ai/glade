@@ -24,6 +24,7 @@ import {
   agentStateLine,
   agentTodo,
   agentTodoSelector,
+  agentTokensLine,
   formatDuration,
   isRunning,
   mainAgentStateLine,
@@ -466,6 +467,22 @@ describe('the Main tab’s line (#566)', () => {
     expect(mainTokensLine(1_000, 1_000)).toBe('1k in · 1k out')
     expect(mainTokensLine(1_234_567, 620)).toBe('1.2M in · 620 out')
     expect(mainTokensLine(0, 620)).toBe('0 in · 620 out')
+  })
+
+  it("says a native subagent's context size while its split is not in, as the meter writes it (#592)", () => {
+    expect(agentTokensLine(478_200, undefined, undefined)).toBe('478k context')
+    expect(agentTokensLine(823, undefined, undefined)).toBe('823 context')
+    expect(agentTokensLine(1_000_000, undefined, undefined)).toBe('1M context')
+  })
+
+  it('prefers a dispatched child’s split, and shows nothing while there is no figure or it is zero (#592)', () => {
+    expect(agentTokensLine(478_200, 1_234_567, 45_000)).toBe('1.2M in · 45k out')
+    expect(agentTokensLine(undefined, 999, 620)).toBe('999 in · 620 out')
+    expect(agentTokensLine(undefined, undefined, undefined)).toBeNull()
+    expect(agentTokensLine(0, undefined, undefined)).toBeNull()
+    expect(agentTokensLine(478_200, 0, 0)).toBeNull()
+    expect(agentTokensLine(undefined, 0, undefined)).toBeNull()
+    expect(agentTokensLine(undefined, undefined, 0)).toBeNull()
   })
 
   it('reads Main’s current tool call from the store: its last running one, a subagent’s call never', () => {
