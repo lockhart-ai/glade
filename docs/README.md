@@ -30,6 +30,8 @@ for where to start can read [`llms.txt`](../llms.txt) at the repo root.
 - [Plan](plan.md): the phases, in order, and what each one builds.
 - [Kitten SOP](kitten-sop.md): how a worker agent takes an issue to a PR, how the supervisor reviews, merges and
   releases, and how Dependabot PRs are handled.
+- [Conventions](conventions.md): how Glade tasks, issues, branches, commits, PRs, todos, artifacts, design screens,
+  migrations and releases are named and shaped.
 - [Releasing](releasing.md): cutting a release, from the version bump to the published build, checking a packaged
   build, and where dependency updates come from.
 - [OpenRouter integration](openrouter-integration-spec.md): discovery, curated routes, credential isolation, source

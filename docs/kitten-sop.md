@@ -13,8 +13,9 @@ instead (step 6, below), never through Glade's own tools.
 
 1. **Review your ticket.** Read `CLAUDE.md`, the issue, its phase's meta issue, and any docs and design screens it
    links. If something is unclear or contradicts the docs, stop and report the question instead of guessing.
-2. **Implement.** Work on a branch named after the issue (e.g. `p0-01-scaffold`), cut from the latest `main`. Meet
-   every acceptance criterion. Commit messages are imperative and reference the ticket (`P0-01: …`).
+2. **Implement.** Work on a branch named after the issue (e.g. `593-stable-todo-list`), cut from the latest `main`.
+   Meet every acceptance criterion. Commit messages are imperative and led by the issue number (`593: …`).
+   `docs/conventions.md` has the forms for branches, commits, PRs and the rest.
 
    Build what the designs show: `docs/design/screens/*.png`, with the exact CSS in `docs/design/html/*.html`. Where
    they're silent, make the conservative call and list it under "Decisions" in your report.
