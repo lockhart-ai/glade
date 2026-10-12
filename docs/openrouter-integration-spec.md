@@ -15,10 +15,30 @@ parameters and context window. Provider filtering intersects API results with th
 explicit; cached choices survive relaunch.
 
 Detected providers are hosting options, not configured BYOK credentials. Ordinary inference keys cannot enumerate
-those credentials. Settings links to OpenRouter integrations rather than requesting a management key. Catalog
+those credentials. Settings links to OpenRouter integrations for BYOK credential management. Catalog
 availability is not a paid connection test or a guarantee that every model runs the complete agent workflow.
 [Filtered catalog](https://openrouter.ai/docs/api/api-reference/models/list-models-filtered-by-user-provider-preferences-privacy-settings-and-guardrails),
 [model endpoints](https://openrouter.ai/docs/api/api-reference/endpoints/list-all-endpoints-for-a-model).
+
+### Management key and guardrails (#566)
+
+Settings › Models offers an optional management key beside the inference key, stored and encrypted the same way
+(`setOpenRouterManagementKey`/`openRouterGuardrailProviders`, `src/main/db/repositories/openrouter.ts`). Connecting
+it validates it by reading `GET /api/v1/guardrails`
+([guardrails](https://openrouter.ai/docs/api/api-reference/guardrails/list-guardrails)): a key the API refuses
+changes nothing. The reading filters both provider lists — the catalog's provider filter and each model's own
+provider menu — to the union of every guardrail's `allowed_providers`. Removing the key, or an account with no
+guardrails, degrades both lists back to the whole catalog. A background re-read follows a catalog refresh and app
+launch, throttled to once a minute; a failed or throttled read leaves the last known restriction, never clearing it
+silently. The management key is never used for inference, only this read, and reading it again while the key
+changes under it (removed, replaced, or the inference key replaced) is guarded the same way the inference key's own
+`refresh` guards a stale catalog read, so a stale reading can never overwrite a newer one (`OpenRouterService`,
+`src/main/openrouter/service.ts`).
+
+**Known limitation:** `GET /api/v1/guardrails` returns every guardrail on the account, not only the ones assigned to
+this particular key. The filter Glade applies is the union of `allowed_providers` across all of them, which can be
+wider than what this key is actually restricted to use. Narrowing the filter to the key's own assigned guardrails
+would need an endpoint that names them, which the API does not currently expose.
 
 Choose one provider per model, then enable it. Only enabled choices join Claude models in task, retry and default
 pickers. Providers are chosen in Settings. Changing provider creates a different route; existing tasks retain their
@@ -161,7 +181,8 @@ request completion and popover opening refresh through one coalesced read at mos
 to include the final request of a burst. A 402 marks the sidebar row blocked until inference succeeds; a successful
 metadata read alone does not clear the credit failure. Decryption/read failures cannot crash app launch. Explicit Refresh
 bypasses that cache. A failed read preserves the previous figures/age; unknown remains distinct from zero.
-No figures or key labels reach logs or plugin feeds. Account credit balance needs a management key and is omitted.
+No figures or key labels reach logs or plugin feeds. Account credit balance needs a management key and is omitted;
+the optional management key Settings › Models now accepts (above) only reads guardrails, never the balance.
 [Current key](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-api-key),
 [account credits](https://openrouter.ai/docs/api/api-reference/credits/get-remaining-credits).
 
@@ -210,8 +231,9 @@ chat/log rows, relaunch and selections in both directions. Test mode uses the fa
 prove SDK transcript handoff; mocked SDK/runtime integration tests and the private live probes provide that evidence. Capture/e2e mode uses an offline catalog,
 even if supplied a real key.
 
-Approved UI references are [screens 56–59](design/openrouter-mockups.md). Migrations 65–66 (including upgrades from earlier preview schemas) and typed bridge commands
-extend existing repositories and Settings/picker surfaces without a general backend refactor.
+Approved UI references are [screens 56–64](design/openrouter-mockups.md). Migrations 65, 66 and 68 (including
+upgrades from earlier preview schemas) and typed bridge commands extend existing repositories and Settings/picker
+surfaces without a general backend refactor.
 
 
 ## Landing limitations and follow-ups
@@ -234,6 +256,10 @@ capabilities; the initial change keeps native same-source delegation and Claude-
   a source/route switch. Saving the choice until a safe boundary is not built.
 - **Claude-to-Claude limit recovery:** changing Claude models from the picker leaves a usage-limit pause in place.
 - **Cost attribution:** neither per-task nor per-child billed cost is available for either source.
+- **Guardrails scope:** the management key's `GET /api/v1/guardrails` read returns every guardrail on the account,
+  not only the ones assigned to this key, so the filter Glade applies is the union of `allowed_providers` across
+  all of them (#566). This can be wider than what the key is actually restricted to use; the API gives no way to
+  narrow it to the key's own guardrails.
 - **Provider changes:** choosing another provider disables the previous pair for existing tasks and resets a default
   using that pair to Claude, rather than migrating those selections.
 - **Usage gaps:** a one-request turn may precede OpenRouter's accounting update; a Claude child's final usage read

@@ -41,7 +41,7 @@ test('curates an OpenRouter route, monitors key usage and preserves Glade chat a
   await modal.dialog.getByRole('button', { name: 'Provider for Sample Flash: Select provider' }).click()
   await window.getByRole('menuitemradio', { name: 'Sample Host', exact: true }).click()
   await modal.dialog.getByRole('checkbox', { name: 'Enable Sample Flash' }).click()
-  await expect(modal.dialog.getByText('1 enabled', { exact: true })).toBeVisible()
+  await expect(modal.dialog.getByText('Selected · 1')).toBeVisible()
   await modal.dialog.getByRole('button', { name: 'Filter providers: All providers' }).click()
   await window.getByRole('menuitemradio', { name: 'Sample Host', exact: true }).click()
   await expect(modal.dialog.getByText('Sample Flash', { exact: true })).toBeVisible()
@@ -174,7 +174,7 @@ for (const fromBanner of [false, true]) {
     await modal.dialog.getByRole('button', { name: 'Provider for Sample Flash: Select provider' }).click()
     await window.getByRole('menuitemradio', { name: 'Sample Host', exact: true }).click()
     await modal.dialog.getByRole('checkbox', { name: 'Enable Sample Flash' }).click()
-    await expect(modal.dialog.getByText('1 enabled', { exact: true })).toBeVisible()
+    await expect(modal.dialog.getByText('Selected · 1')).toBeVisible()
     await modal.close.click()
     for (let i = 0; i < (fromBanner ? 2 : 1); i++) {
       await taskList(window).newTask.click()

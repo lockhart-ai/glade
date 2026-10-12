@@ -367,6 +367,8 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         connect: (key) => bridge.invoke(CommandName.OpenRouterConnect, { key }),
         refresh: () => bridge.invoke(CommandName.OpenRouterRefresh, {}),
         remove: () => bridge.invoke(CommandName.OpenRouterRemove, {}),
+        connectManagementKey: (key) => bridge.invoke(CommandName.OpenRouterConnectManagementKey, { key }),
+        removeManagementKey: () => bridge.invoke(CommandName.OpenRouterRemoveManagementKey, {}),
         endpoints: (model) => bridge.invoke(CommandName.OpenRouterEndpoints, { model }),
         select: (choice) => bridge.invoke(CommandName.OpenRouterSelect, choice),
         providerModels: (provider) => bridge.invoke(CommandName.OpenRouterProviderModels, { provider }),

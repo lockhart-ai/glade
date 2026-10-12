@@ -143,4 +143,7 @@ sidebar status line's; the Settings headings' takes the heading's own grey, sinc
 ## OpenRouter integration
 
 [OpenRouter UI mockups](openrouter-mockups.md) cover connecting a key, curating the detected model catalog, choosing
-a hosting provider and using the narrow task model picker (56–59).
+a hosting provider and using the narrow task model picker (56–59), plus the polish round: a Selected section over a
+scrolling catalog, an optional management key that reads the account's guardrails so provider lists filter to the
+allowed providers, tokenised model search (60–63), and the Agents tab's two-row line — the model and provider, then
+the task's status and state — on Main's tab as well as subagents' (64).

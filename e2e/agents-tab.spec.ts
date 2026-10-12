@@ -56,13 +56,16 @@ test('the Agents tab: a tab for every agent with its tool calls, a subagent’s 
   await expect(agents.tab('Main')).toHaveAttribute('aria-selected', 'true')
 
   // Main's tab is the Tool calls tab's list: its calls and notes, each subagent it started an Agent call, live while
-  // the subagent runs. It has no line about a todo.
+  // the subagent runs. Its own line (design 64) names the model it runs on, then the task's status and how long the
+  // task has been working; it has no line about a todo.
   await expect(agents.list).toContainText('Three issues, so three subagents, one for each todo.')
   // While it runs, its call says what it's doing now under its state (#537).
   await expect(agents.agentCall('notes-25')).toContainText(/Running · \d+mReading what each PR changed$/)
   await expect(agents.agentCall('fix-501')).toContainText('Done · 28m · Opened PR #511.')
   await expect(agents.list).not.toContainText('tests/test_burst.py')
-  await expect(agents.line).toHaveCount(0)
+  await expect(agents.line).toHaveText(
+    /^Opus 5\.5All three PRs are merged\. A subagent is drafting the release notes\.Running · \d+m$/,
+  )
 
   // An Agent call goes to its subagent's tab: its own calls, with the panel to itself, and the todo it worked on.
   // The tab is past the strip's end, so the strip scrolls to it, with a chevron where there are tabs past it.

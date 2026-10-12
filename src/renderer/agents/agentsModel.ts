@@ -10,13 +10,14 @@ import {
   ToolCallState,
   ToolEventKind,
   type EpochMs,
+  type Task,
   type Todo,
   type ToolCallEvent,
   type ToolEvent,
 } from '../../shared/domain'
 import { isSubagentTool, subagentName } from '../../shared/subagents'
 import { subagentTodo, type Filing } from '../../shared/todoHub'
-import { firstLine } from '../../shared/toolSummary'
+import { argumentSummary, firstLine } from '../../shared/toolSummary'
 import type { GladeData } from '../store/state'
 import { elapsedMs, statusLabel, subagentStatus } from '../subagents/subagentsModel'
 import { formatAge } from '../task-header/headerModel'
@@ -204,6 +205,52 @@ export function agentTodoSelector(
       read = inputs
       last = agentTodo(filings, todos, agents, agentId)
     }
+    return last
+  }
+}
+
+/**
+ * What the Main tab's line says under its model (#566, design 64): the task's status summary, or, until the agent has
+ * set one, what it's working on now — its running tool call. Null when it has neither.
+ */
+export function mainAgentText(
+  task: Pick<Task, 'status'>,
+  currentCall: ToolCallEvent | null,
+  rootPath: string | undefined,
+): string | null {
+  if (task.status !== '') return task.status
+  if (currentCall === null) return null
+  return `${currentCall.name} ${argumentSummary(currentCall, rootPath)}`.trim()
+}
+
+/**
+ * What the Main tab's line says at its right (design 64): "Running · 42m", by the task's age as the header's title
+ * says it, while it works; nothing otherwise.
+ */
+export function mainAgentStateLine(working: boolean, createdAt: EpochMs, now: EpochMs): string | null {
+  return working ? `Running · ${formatAge(createdAt, now)}` : null
+}
+
+/**
+ * Main's current tool call, from the store: its last one still running, or null. A subagent's `Agent` call is not it —
+ * the subagent has a tab of its own, and the line's fallback is for work the tab's log shows. One per log shown; the
+ * selector remembers what it last read.
+ */
+export function selectMainCurrentCall(taskId: string): (state: Pick<GladeData, 'toolEvents'>) => ToolCallEvent | null {
+  let read: readonly ToolEvent[] | undefined
+  let last: ToolCallEvent | null = null
+  return (state) => {
+    const events = state.toolEvents[taskId]
+    if (events === read) return last
+    read = events
+    last =
+      (events ?? NO_EVENTS).findLast(
+        (event): event is ToolCallEvent =>
+          event.kind === ToolEventKind.ToolCall &&
+          event.parentToolUseId === null &&
+          event.state === ToolCallState.Running &&
+          !isSubagentTool(event.name),
+      ) ?? null
     return last
   }
 }

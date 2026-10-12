@@ -20,6 +20,9 @@ export const testModeOpenRouterRequest: typeof fetch = (input, init) => {
       return Promise.resolve(Response.json(SAMPLE_CATALOG_RESPONSE))
     case '/api/v1/providers':
       return Promise.resolve(Response.json({ data: [{ slug: SAMPLE_PROVIDER.id, name: SAMPLE_PROVIDER.name }] }))
+    case '/api/v1/guardrails':
+      // A management key whose guardrails let the account use the sample provider only.
+      return Promise.resolve(Response.json({ data: [{ allowed_providers: [SAMPLE_PROVIDER.id] }] }))
     case '/api/v1/models/sample/flash/endpoints':
       return Promise.resolve(
         Response.json({

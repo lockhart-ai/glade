@@ -68,6 +68,11 @@ export class Row {
     return Buffer.isBuffer(value) ? value : this.fail(column, 'a blob', value)
   }
 
+  /** Bytes stored as a BLOB that may be null. */
+  nullableBlob(column: string): Buffer | null {
+    return this.value(column) === null ? null : this.blob(column)
+  }
+
   /** A 0/1 integer as a boolean. */
   flag(column: string): boolean {
     const value = this.value(column)

@@ -1,6 +1,7 @@
 import { faChevronDown, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
-import { memo, useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { accountKind, AccountKind } from '../../shared/account'
+import { matchesWords } from '../../shared/textMatch'
 import type {
   OpenRouterActions,
   OpenRouterChoice,
@@ -23,13 +24,14 @@ import {
   type MenuEntry,
 } from '../components'
 import { describeFailure } from '../store/hydrate'
+import { classNames } from '../components/classNames'
 import { useGladeStore } from '../store/react'
 import { Intro, SettingRow } from './SettingsSections'
 import { SettingSelect } from './SettingSelect'
 import { SettingsSection } from './sections'
 import styles from './ModelsSection.module.css'
 
-const EMPTY: OpenRouterStatus = { connected: false, models: [], providers: [], choices: [] }
+const EMPTY: OpenRouterStatus = { connected: false, managementConnected: false, models: [], providers: [], choices: [] }
 
 /** Key entry and model curation in the existing Settings surface, designs 56–57. */
 export function ModelsSection(): React.JSX.Element {
@@ -43,6 +45,10 @@ export function ModelsSection(): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [managementKey, setManagementKey] = useState('')
+  const [managementEditing, setManagementEditing] = useState(false)
+  const [managementBusy, setManagementBusy] = useState(false)
+  const [managementError, setManagementError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('')
   const [filteredIds, setFilteredIds] = useState<readonly string[] | null>(null)
@@ -92,6 +98,25 @@ export function ModelsSection(): React.JSX.Element {
       })
   }
 
+  const runManagement = (operation: () => Promise<OpenRouterStatus>): void => {
+    setManagementBusy(true)
+    setManagementError(null)
+    void operation()
+      .then(
+        (value) => {
+          setStatus(value)
+          setManagementKey('')
+          setManagementEditing(false)
+        },
+        (failure: unknown) => {
+          setManagementError(describeFailure(failure))
+        },
+      )
+      .finally(() => {
+        setManagementBusy(false)
+      })
+  }
+
   useEffect(() => {
     if (filter === '') return
     let active = true
@@ -108,12 +133,29 @@ export function ModelsSection(): React.JSX.Element {
     }
   }, [actions, filter])
 
-  const query = search.trim().toLowerCase()
+  // The models whose box is checked: they lead in their own Selected section (design 60), named alphabetically.
+  const selected = useMemo(
+    () =>
+      status.choices
+        .filter(({ enabled }) => enabled)
+        .map(({ model }) => model)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [status.choices],
+  )
+  const enabledIds = useMemo(() => new Set(selected.map(({ id }) => id)), [selected])
+  // The catalog, without the models that are selected, to the search's every word and the provider filter.
   const models = status.models.filter(
     (model) =>
-      `${model.id} ${model.name}`.toLowerCase().includes(query) && (filter === '' || filteredIds?.includes(model.id)),
+      !enabledIds.has(model.id) &&
+      matchesWords(search, model.id, model.name, model.description) &&
+      (filter === '' || filteredIds?.includes(model.id)),
   )
-  const enabled = status.choices.filter(({ enabled }) => enabled).length
+  // The filter's providers, alphabetised (design 62), whatever order the catalog keeps them in.
+  const providers = useMemo(
+    () => [...status.providers].sort((a, b) => a.name.localeCompare(b.name)),
+    [status.providers],
+  )
+  const enabled = selected.length
   return (
     <>
       <Intro>Choose which models appear in tasks. Changes save automatically.</Intro>
@@ -207,6 +249,89 @@ export function ModelsSection(): React.JSX.Element {
           </form>
         )}
       </SettingRow>
+      {status.connected && (
+        <div className={styles.management}>
+          <div className={styles.managementText}>
+            <span className={styles.managementName}>
+              Management key <span className={styles.optional}>Optional</span>
+            </span>
+            <span className={styles.managementNote}>
+              Reads your guardrails, so the provider lists show only what this key may use.
+            </span>
+          </div>
+          {status.managementConnected && !managementEditing ? (
+            <div className={styles.actions}>
+              <span className={styles.status}>Connected</span>
+              <Button
+                size={ButtonSize.Small}
+                disabled={managementBusy}
+                onClick={() => {
+                  setManagementEditing(true)
+                }}
+              >
+                Replace key
+              </Button>
+              <Button
+                size={ButtonSize.Small}
+                variant={ButtonVariant.Ghost}
+                disabled={managementBusy}
+                onClick={() => {
+                  runManagement(() => actions.removeManagementKey())
+                }}
+              >
+                Remove
+              </Button>
+            </div>
+          ) : (
+            <form
+              className={styles.actions}
+              onSubmit={(event) => {
+                event.preventDefault()
+                runManagement(() => actions.connectManagementKey(managementKey.trim()))
+              }}
+            >
+              <Input
+                className={styles.key}
+                label="OpenRouter management key"
+                type="password"
+                placeholder="Management key"
+                autoComplete="off"
+                value={managementKey}
+                onChange={(event) => {
+                  setManagementKey(event.target.value)
+                }}
+                disabled={managementBusy}
+              />
+              <Button
+                type="submit"
+                size={ButtonSize.Small}
+                variant={ButtonVariant.Primary}
+                disabled={managementBusy || managementKey.trim() === ''}
+              >
+                {managementBusy ? 'Connecting…' : status.managementConnected ? 'Save key' : 'Connect'}
+              </Button>
+              {managementEditing && (
+                <Button
+                  size={ButtonSize.Small}
+                  variant={ButtonVariant.Ghost}
+                  disabled={managementBusy}
+                  onClick={() => {
+                    setManagementKey('')
+                    setManagementEditing(false)
+                  }}
+                >
+                  Cancel
+                </Button>
+              )}
+            </form>
+          )}
+          {managementError !== null && (
+            <p className={styles.error} role="alert">
+              {managementError}
+            </p>
+          )}
+        </div>
+      )}
       {error !== null && (
         <p className={styles.error} role="alert">
           {error}
@@ -218,9 +343,8 @@ export function ModelsSection(): React.JSX.Element {
         </p>
       ) : (
         <>
-          <div className={styles.heading}>
-            <h3>OpenRouter models</h3>
-            <span>{enabled} enabled</span>
+          <div className={classNames(styles.group, styles.groupBar)}>
+            <span>Selected · {String(enabled)}</span>
             <Button
               size={ButtonSize.Small}
               variant={ButtonVariant.Ghost}
@@ -232,6 +356,22 @@ export function ModelsSection(): React.JSX.Element {
               Refresh
             </Button>
           </div>
+          {selected.length > 0 && (
+            <div className={styles.models}>
+              {selected.map((model) => (
+                <ModelRow
+                  key={model.id}
+                  model={model}
+                  choices={status.choices}
+                  actions={actions}
+                  disabled={busy}
+                  onSaved={onSelectionSaved}
+                  compact
+                />
+              ))}
+            </div>
+          )}
+          <div className={styles.group}>Catalog</div>
           <p className={styles.note}>
             The catalog follows your OpenRouter preferences. Detected providers are hosting options; configured provider
             credentials are managed in OpenRouter.
@@ -251,9 +391,11 @@ export function ModelsSection(): React.JSX.Element {
               menuLabel="Filter providers"
               options={[
                 { value: '', label: 'All providers' },
-                ...status.providers.map(({ id, name }) => ({ value: id, label: name })),
+                ...providers.map(({ id, name }) => ({ value: id, label: name })),
               ]}
               value={filter}
+              searchPlaceholder="Search providers…"
+              scrollable
               onChoose={(value) => {
                 setFilter(value)
                 setFilteredIds(null)
@@ -305,6 +447,8 @@ interface ModelRowProps {
   readonly actions: OpenRouterActions
   readonly disabled: boolean
   readonly onSaved: (selection: OpenRouterSelection) => void
+  /** The compact row of the Selected section (design 60). */
+  readonly compact?: boolean
 }
 
 const ModelRow = memo(function ModelRow({
@@ -313,6 +457,7 @@ const ModelRow = memo(function ModelRow({
   actions,
   disabled,
   onSaved,
+  compact = false,
 }: ModelRowProps): React.JSX.Element {
   const saved =
     choices.find((choice) => choice.model.id === model.id && choice.enabled) ??
@@ -352,7 +497,7 @@ const ModelRow = memo(function ModelRow({
     },
   }))
   return (
-    <div className={styles.model}>
+    <div className={classNames(styles.model, compact && styles.compact)}>
       <input
         type="checkbox"
         aria-label={`Enable ${model.name}`}
@@ -406,6 +551,8 @@ const ModelRow = memo(function ModelRow({
           entries={menu}
           anchor={{ kind: MenuAnchorKind.Element, element: anchor, placement: Placement.BottomEnd }}
           open
+          searchPlaceholder="Search providers…"
+          scrollable
           onClose={() => {
             setAnchor(null)
           }}

@@ -88,6 +88,30 @@ describe('OpenRouter discovery', () => {
     })
   })
 
+  it('lists the providers it discovers alphabetised, however the API named them', async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(SAMPLE_CATALOG_RESPONSE))
+      .mockResolvedValueOnce(
+        Response.json({
+          data: [
+            { slug: 'z-host', name: 'Z.ai' },
+            { slug: 'a-host', name: 'AkashML' },
+            { slug: 'n-host', name: 'Novita' },
+          ],
+        }),
+      )
+    const client = new OpenRouterClient(request)
+    expect(await client.catalog('key')).toEqual({
+      models: [SAMPLE_MODEL],
+      providers: [
+        { id: 'a-host', name: 'AkashML' },
+        { id: 'n-host', name: 'Novita' },
+        { id: 'z-host', name: 'Z.ai' },
+      ],
+    })
+  })
+
   it('discovers only tool-capable hosting providers and encodes model paths', async () => {
     const request = vi
       .fn<typeof fetch>()
@@ -121,4 +145,30 @@ describe('OpenRouter discovery', () => {
     )
     await expect(new OpenRouterClient(request).endpoints('private-key', 'sample/flash', [])).rejects.toThrow()
   })
+})
+
+it('reads the guardrails a management key may use, or none when no restriction names a provider', async () => {
+  const request = vi
+    .fn<typeof fetch>()
+    .mockResolvedValueOnce(
+      Response.json({
+        data: [
+          { allowed_providers: ['together', 'novita'], ignored_providers: ['zai'] },
+          { allowed_providers: ['together', 'akasml'] },
+          {},
+        ],
+        total_count: 3,
+      }),
+    )
+    .mockResolvedValueOnce(Response.json({ data: [{ name: 'usage cap' }], total_count: 1 }))
+    .mockResolvedValue(Response.json({ data: [] }, { status: 403 }))
+  const client = new OpenRouterClient(request)
+  // Every guardrail's allowed providers union, alphabetised; other fields ignored.
+  expect(await client.guardrails('management-key')).toEqual(['akasml', 'novita', 'together'])
+  expect(request.mock.calls[0]?.[0]).toBe('https://openrouter.ai/api/v1/guardrails')
+  expect(request.mock.calls[0]?.[1]).toMatchObject({ headers: { Authorization: 'Bearer management-key' } })
+  // No guardrail restricts the account: null, so the provider lists stay whole.
+  expect(await client.guardrails('management-key')).toBeNull()
+  // A refused read throws, which the service degrades from.
+  await expect(client.guardrails('management-key')).rejects.toThrow('OpenRouter returned 403')
 })

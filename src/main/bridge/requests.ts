@@ -659,6 +659,10 @@ export const REQUEST_SCHEMAS = {
   [CommandName.OpenRouterEndpoints]: z.strictObject({
     model: z.string().min(1).max(300),
   }) satisfies z.ZodType<OpenRouterEndpointsRequest>,
+  [CommandName.OpenRouterConnectManagementKey]: z.strictObject({
+    key: z.string().min(1),
+  }) satisfies z.ZodType<OpenRouterConnectRequest>,
+  [CommandName.OpenRouterRemoveManagementKey]: emptyRequest,
   [CommandName.OpenRouterSelect]: z.strictObject({
     model: z.string().min(1).max(300),
     provider: z.string().min(1).max(100),

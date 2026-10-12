@@ -820,6 +820,9 @@ export function startApp({
         bridge.emit(event)
       },
     })
+    // The management key's guardrails, read again at launch in case the account's restrictions changed; a failure
+    // leaves the last reading.
+    void openrouter.refreshGuardrails()
     const bridge: RegisteredBridge = registerBridge({
       openrouter,
       ipc: ipcMain,

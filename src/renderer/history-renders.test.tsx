@@ -30,7 +30,7 @@ import {
 } from '../shared/domain'
 import { FolderAccess, SandboxAskKind } from '../shared/sandbox'
 import { AgentsTab } from './agents'
-import { agentCallResult, agentDotLabel, agentStateLine } from './agents/agentsModel'
+import { agentCallResult, agentDotLabel, agentStateLine, mainAgentStateLine, mainAgentText } from './agents/agentsModel'
 import { endedSummary, pinnedMetaLine, pinnedStatus, watchingTitle } from './agents/agentWatchersModel'
 import { BroadcastDialog } from './broadcast'
 import { attentionLabel, reachText } from './broadcast/broadcastModel'
@@ -49,6 +49,7 @@ import {
   hubFile,
   hubFiling,
   hubLink,
+  hubMain,
   hubStore,
   hubTodo,
   hubWatcher,
@@ -59,6 +60,7 @@ import { kindCounts, tileLabel } from './todos/todoHubModel'
 import { linkReferences, namedBy, todoSegments } from './todos/todoLinks'
 import { ChildFilter } from '../shared/todoHub'
 import { rowStatus } from './task-list/rowStatus'
+import { SECONDS_REFRESH_MS } from './agents/useElapsedNow'
 import { NOW_REFRESH_MS } from './task-list/useNow'
 import { ToolLog } from './tool-log'
 import { resultSummary } from './tool-log/toolLogModel'
@@ -92,7 +94,9 @@ vi.mock('./usage-meter/usageMeterModel', async (importOriginal) => {
 })
 // The Agents tab: every subagent's tab names its dot (one `agentDotLabel` call per render of one), every subagent's
 // `Agent` call says how it's doing under it (one `agentCallResult` call per render of that line), and the line under
-// the strip says the subagent's state (one `agentStateLine` call per render of it).
+// the strip says the subagent's state (one `agentStateLine` call per render of it). Main's own line (#566) works the
+// same way: one `mainAgentText` call per render of its text, and one `mainAgentStateLine` call per render of its
+// ticking state, which is a span of its own so a tick never renders the text beside it.
 vi.mock('./agents/agentsModel', async (importOriginal) => {
   const original = await importOriginal<typeof import('./agents/agentsModel')>()
   return {
@@ -100,6 +104,8 @@ vi.mock('./agents/agentsModel', async (importOriginal) => {
     agentDotLabel: vi.fn(original.agentDotLabel),
     agentCallResult: vi.fn(original.agentCallResult),
     agentStateLine: vi.fn(original.agentStateLine),
+    mainAgentText: vi.fn(original.mainAgentText),
+    mainAgentStateLine: vi.fn(original.mainAgentStateLine),
   }
 })
 
@@ -1188,6 +1194,112 @@ describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', 
       vi.advanceTimersByTime(NOW_REFRESH_MS)
     })
     expect(rendered()).toEqual({ tabs: 0, rows: 0, times: 0, line: 1 })
+  })
+})
+
+describe('Main’s own line in the Agents tab, with a 2,000-call list (#566)', () => {
+  const MAIN_CALLS = 2000
+  const MINUTE = 60_000
+  const EVENTS: ToolEvent[] = Array.from({ length: MAIN_CALLS }, (_, index) => call(`main-${String(index)}`, 1))
+
+  /** How many times Main's text and its ticking state rendered since the last look, which starts the count again. */
+  function rendered(): { text: number; state: number } {
+    const counts = { text: renders(mainAgentText), state: renders(mainAgentStateLine) }
+    for (const counter of [mainAgentText, mainAgentStateLine]) vi.mocked(counter).mockClear()
+    return counts
+  }
+
+  async function renderMain(fields: Partial<Task> = {}): Promise<HubStore> {
+    const main = {
+      ...hubMain({ toolEvents: EVENTS }),
+      tasks: [
+        {
+          ...sampleTask('t1', 'w1'),
+          activity: TaskActivity.Working,
+          createdAt: HUB_NOW,
+          status: 'Throttles applied to the three public viewsets; measuring /search',
+          ...fields,
+        },
+      ],
+    }
+    const wrapper = storeWrapper(main)
+    await act(() => wrapper.store.getState().hydrate())
+    render(<AgentsTab taskId="t1" />, { wrapper: wrapper.wrapper })
+    await act(() => Promise.resolve())
+    expect(screen.getByText('Throttles applied to the three public viewsets; measuring /search')).toBeInTheDocument()
+    expect(screen.getByText('Running · now')).toBeInTheDocument()
+    rendered()
+    return { ...wrapper, main }
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(HUB_NOW)
+    for (const counter of [mainAgentText, mainAgentStateLine]) vi.mocked(counter).mockClear()
+  })
+
+  it('renders nothing of Main’s line when a subagent of the task, or another task, changes', async () => {
+    const { fake } = await renderMain()
+
+    act(() => {
+      fake.emit({
+        type: EventType.ToolEventAppended,
+        toolEvent: hubAgent('agent-new', 'review-new', 0),
+      })
+      fake.emit({
+        type: EventType.TaskUpdated,
+        task: { ...sampleTask('t2', 'w1'), activity: TaskActivity.Working, status: 'Unrelated.' },
+      })
+    })
+    expect(rendered()).toEqual({ text: 0, state: 0 })
+  })
+
+  it('renders only the ticking state as the clock advances, never the text beside it', async () => {
+    await renderMain()
+
+    act(() => {
+      vi.advanceTimersByTime(SECONDS_REFRESH_MS)
+    })
+    // The state's own clock renders it again, under a minute still "now"; the text beside it never re-renders.
+    expect(rendered()).toEqual({ text: 0, state: 1 })
+    expect(screen.getByText('Running · now')).toBeInTheDocument()
+
+    act(() => {
+      vi.advanceTimersByTime(MINUTE)
+    })
+    expect(rendered()).toEqual({ text: 0, state: expect.any(Number) as number })
+    expect(screen.getByText('Running · 1m')).toBeInTheDocument()
+  })
+
+  it('renders the text again when the status changes, and stops saying Running once the task does', async () => {
+    const { fake } = await renderMain()
+
+    act(() => {
+      fake.emit({
+        type: EventType.TaskUpdated,
+        task: {
+          ...sampleTask('t1', 'w1'),
+          activity: TaskActivity.Working,
+          createdAt: HUB_NOW,
+          status: 'Measuring the throttle under load.',
+        },
+      })
+    })
+    expect(rendered().text).toBeGreaterThan(0)
+    expect(screen.getByText('Measuring the throttle under load.')).toBeInTheDocument()
+
+    act(() => {
+      fake.emit({
+        type: EventType.TaskUpdated,
+        task: {
+          ...sampleTask('t1', 'w1'),
+          activity: TaskActivity.Waiting,
+          createdAt: HUB_NOW,
+          status: 'Measuring the throttle under load.',
+        },
+      })
+    })
+    expect(screen.queryByText(/^Running/)).toBeNull()
   })
 })
 

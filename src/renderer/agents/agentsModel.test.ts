@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   DividerKind,
+  TaskActivity,
+  TaskState,
   TodoState,
   ToolCallState,
   ToolEventKind,
@@ -23,7 +25,10 @@ import {
   agentTodoSelector,
   formatDuration,
   isRunning,
+  mainAgentStateLine,
+  mainAgentText,
   MAIN_AGENT_NAME,
+  selectMainCurrentCall,
   selectShownAgent,
   shownAgent,
   todoLineVerb,
@@ -422,5 +427,51 @@ describe('agentTodo', () => {
       expect(select({ filings: {}, todos: {}, toolEvents: {} })).toBeNull()
       expect(select({ filings: { t9: filings }, todos: { t9: null }, toolEvents: { t9: events } })).toBeNull()
     })
+  })
+})
+
+describe('the Main tab’s line (#566)', () => {
+  const working = {
+    state: TaskState.Active,
+    activity: TaskActivity.Working,
+    createdAt: AT,
+    status: 'Throttles applied to the three viewsets; measuring /search',
+  } as const
+  const waiting = { state: TaskState.Active, activity: TaskActivity.Waiting, createdAt: AT, status: '' } as const
+
+  it('says the task’s status summary, falling back to its current tool call', () => {
+    expect(mainAgentText(working, null, undefined)).toBe(working.status)
+    expect(mainAgentText(waiting, null, undefined)).toBeNull()
+    const reading = call('read-1', { name: 'Read', input: { file_path: 'api/views.py' } })
+    expect(mainAgentText(waiting, reading, '/Users/sample/code/api')).toBe('Read api/views.py')
+    // Whatever call it's given is described by its tool and its arguments.
+    expect(mainAgentText(waiting, call('agent-1', { name: 'Agent', input: { description: 'PRs' } }), undefined)).toBe(
+      'Agent PRs',
+    )
+  })
+
+  it('says "Running · 42m" by the task’s age while it works, and nothing otherwise', () => {
+    expect(mainAgentStateLine(true, AT, AT + 42 * MINUTE)).toBe('Running · 42m')
+    expect(mainAgentStateLine(true, AT, AT + 30_000)).toBe('Running · now')
+    expect(mainAgentStateLine(false, AT, AT + 42 * MINUTE)).toBeNull()
+  })
+
+  it('reads Main’s current tool call from the store: its last running one, a subagent’s call never', () => {
+    const events = [
+      call('done-1', { state: ToolCallState.Done }),
+      call('agent-1', { name: 'Agent', input: { description: 'PRs' } }),
+      call('read-1', {
+        name: 'Read',
+        input: { file_path: 'api/views.py' },
+        state: ToolCallState.Running,
+        output: null,
+        finishedAt: null,
+      }),
+    ]
+    const select = selectMainCurrentCall('t1')
+    expect(select({ toolEvents: { t1: events } })).toBe(events[2])
+    // The same log reads the same, and another task's log doesn't reach it.
+    expect(select({ toolEvents: { t1: events } })).toBe(events[2])
+    expect(select({ toolEvents: {} })).toBeNull()
   })
 })
