@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { CompactionTrigger, Effort, PermissionMode } from '../../shared/domain'
-import { AGENTS_SERVER, DISPATCH_AGENT_TOOL } from '../../shared/managed-agents'
+import { AGENTS_SERVER, DISPATCH_AGENT_TOOL, MESSAGE_CHILD_TOOL } from '../../shared/managed-agents'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { SAMPLE_CHOICE, SAMPLE_MODEL, SAMPLE_PROVIDER } from '../../shared/test-openrouter'
 import { setOpenRouterConnection, setOpenRouterChoice } from '../db/repositories/openrouter'
@@ -471,4 +471,124 @@ it('resumes a child with the same child prompt', async () => {
   expect(next.options.systemPromptAppend.startsWith(DELEGATED_CHILD_PROMPT)).toBe(true)
   next.emit(sdk.result('Still 42'))
   await resumed
+})
+
+it("sends a running background child a message, folded into its turn, and notes it under the child's log", async () => {
+  start()
+  await parent.callTool('bg', DISPATCH_AGENT_TOOL, { ...INPUT, run_in_background: true })
+  const agent = await child()
+  const row = record()
+  const id = row.text('id')
+  const toolUseId = row.text('tool_use_id')
+  await parent.callTool('msg', MESSAGE_CHILD_TOOL, { id, text: 'Keep going.' })
+  // agent.sent[0] is the dispatch's own first prompt; the message pushed mid-run is the one after it.
+  expect(agent.sent.slice(1)).toEqual([expect.objectContaining({ text: 'Message from your parent:\n\nKeep going.' })])
+  expect(agent.closed).toBe(false)
+  expect(backend.sessions).toHaveLength(2)
+  expect(record().text('state')).toBe('running')
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      kind: AgentEventKind.Text,
+      parentToolUseId: toolUseId,
+      text: 'Message from your parent:\n\nKeep going.',
+    }),
+  )
+})
+
+it('sends several messages pushed before one tool round, in order', async () => {
+  start()
+  await parent.callTool('bg', DISPATCH_AGENT_TOOL, { ...INPUT, run_in_background: true })
+  const agent = await child()
+  const id = record().text('id')
+  await parent.callTool('m1', MESSAGE_CHILD_TOOL, { id, text: 'First.' })
+  await parent.callTool('m2', MESSAGE_CHILD_TOOL, { id, text: 'Second.' })
+  await parent.callTool('m3', MESSAGE_CHILD_TOOL, { id, text: 'Third.' })
+  // agent.sent[0] is the dispatch's own first prompt; the pushed messages follow it, in order.
+  expect(agent.sent.slice(1).map((message) => message.text)).toEqual([
+    'Message from your parent:\n\nFirst.',
+    'Message from your parent:\n\nSecond.',
+    'Message from your parent:\n\nThird.',
+  ])
+})
+
+it("refuses to message a finished child, an unknown id, or another task's child, sending nothing", async () => {
+  start()
+  const first = parent.callTool('fg', DISPATCH_AGENT_TOOL, INPUT)
+  const agent = await child()
+  agent.emit(sdk.result('Done'))
+  await first
+  const finishedId = record().text('id')
+  const sentBefore = agent.sent.length
+  const emitted = vi.spyOn(parent, 'emit')
+  emitted.mockClear()
+
+  await parent.callTool('m-finished', MESSAGE_CHILD_TOOL, { id: finishedId, text: 'Hi' })
+  expect(JSON.stringify(emitted.mock.calls)).toContain('cannot be messaged now')
+  expect(agent.sent).toHaveLength(sentBefore)
+
+  await parent.callTool('m-unknown', MESSAGE_CHILD_TOOL, { id: 'glade-child-unknown', text: 'Hi' })
+  expect(JSON.stringify(emitted.mock.calls)).toContain('cannot be messaged now')
+  expect(agent.sent).toHaveLength(sentBefore)
+
+  const otherWorkspace = sampleWorkspace(database.db, '/code/other-repo')
+  const otherTask = sampleTask(database.db, otherWorkspace.id)
+  const other = managedBackend({ db: database.db, backend, account }).start({ ...options, taskId: otherTask.id })
+  const otherParent = backend.session
+  const otherEmitted = vi.spyOn(otherParent, 'emit')
+  await otherParent.callTool('m-cross', MESSAGE_CHILD_TOOL, { id: finishedId, text: 'Hi' })
+  expect(JSON.stringify(otherEmitted.mock.calls)).toContain('cannot be messaged now')
+  expect(agent.sent).toHaveLength(sentBefore)
+  other.close()
+})
+
+it("cannot message a foreground child: its id is unknown until it finishes, and by then it isn't running", async () => {
+  start()
+  const dispatched = parent.callTool('fg', DISPATCH_AGENT_TOOL, INPUT)
+  const agent = await child()
+  agent.emit(sdk.result('Done'))
+  await dispatched
+  const id = record().text('id')
+  const sentBefore = agent.sent.length
+  const emitted = vi.spyOn(parent, 'emit')
+  emitted.mockClear()
+  await parent.callTool('msg', MESSAGE_CHILD_TOOL, { id, text: 'Hi' })
+  expect(JSON.stringify(emitted.mock.calls)).toContain('cannot be messaged now')
+  expect(agent.sent).toHaveLength(sentBefore)
+})
+
+it('says in the completion when a pushed message missed the turn it was sent into', async () => {
+  start()
+  await parent.callTool('bg', DISPATCH_AGENT_TOOL, { ...INPUT, run_in_background: true })
+  const agent = await child()
+  const id = record().text('id')
+  const long = 'This message is long enough that only its first eighty characters should show up in the note.'
+  await parent.callTool('msg', MESSAGE_CHILD_TOOL, { id, text: long })
+  // The turn's result names no pushed uuid at all: this message missed it.
+  agent.emit(sdk.result('Done', { user_message_uuids: [] }))
+  await settle()
+  expect(parent.sent.at(-1)?.text).toContain(long.slice(0, 80))
+  expect(parent.sent.at(-1)?.text).toContain('use dispatch with resume')
+})
+
+it("says nothing missed when the pushed message's uuid is in the turn's result", async () => {
+  start()
+  await parent.callTool('bg', DISPATCH_AGENT_TOOL, { ...INPUT, run_in_background: true })
+  const agent = await child()
+  const id = record().text('id')
+  await parent.callTool('msg', MESSAGE_CHILD_TOOL, { id, text: 'Keep going.' })
+  // agent.sent[0] is the dispatch's own first prompt; the message_child push is the one after it.
+  const sentUuid = agent.sent[1]?.uuid
+  agent.emit(sdk.result('Done', { user_message_uuids: [sentUuid] }))
+  await settle()
+  expect(parent.sent.at(-1)?.text).not.toContain('did not reach it')
+})
+
+it("never reports the child's own first prompt as a missed message", async () => {
+  start()
+  await parent.callTool('bg', DISPATCH_AGENT_TOOL, { ...INPUT, run_in_background: true })
+  const agent = await child()
+  // No message_child call at all: the turn's result naming none of its own first-prompt uuid must say nothing missed.
+  agent.emit(sdk.result('Done', { user_message_uuids: [] }))
+  await settle()
+  expect(parent.sent.at(-1)?.text).not.toContain('did not reach it')
 })
