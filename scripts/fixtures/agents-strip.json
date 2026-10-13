@@ -1,0 +1,164 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "panelTab": "agents",
+  "tasks": [
+    {
+      "title": "Work the 2.6 triage",
+      "objective": "Eight issues came in from the 2.6 triage; a subagent each, in parallel.",
+      "status": "Eight issues came in from the 2.6 triage; a subagent each, in parallel.",
+      "activity": "working",
+      "minutesAgo": 0,
+      "startedMinutesAgo": 41,
+      "selected": true,
+      "contextUsedTokens": 88000,
+      "contextWindowTokens": 200000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Eight issues came in from the 2.6 triage; a subagent each, in parallel.",
+          "turn": 1,
+          "minutesAgo": 41
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "narration",
+          "text": "Eight issues, so eight subagents, one for each.",
+          "turn": 1,
+          "minutesAgo": 41
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "webhook-518",
+            "prompt": "Retry webhook deliveries on 5xx.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 40,
+          "toolUseId": "use-webhook-518"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "retry-516",
+            "prompt": "Add a retry budget to the client.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 39,
+          "toolUseId": "use-retry-516"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "auth-514",
+            "prompt": "Rotate the stale API keys.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 38,
+          "toolUseId": "use-auth-514"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "cache-510",
+            "prompt": "Warm the search cache on deploy.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 37,
+          "toolUseId": "use-cache-510"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "docs-503",
+            "prompt": "Document the rate limits.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 36,
+          "toolUseId": "use-docs-503"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "limits-502",
+            "prompt": "Per-key limits for /search.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 35,
+          "toolUseId": "use-limits-502"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "fix-501",
+            "prompt": "Fix #501 and open a PR.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 34,
+          "toolUseId": "use-fix-501"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "notes-25",
+            "prompt": "Draft the 2.5 release notes.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 33,
+          "output": "Done.",
+          "finishedMinutesAgo": 58,
+          "toolUseId": "use-notes-25"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "flags-cleanup",
+            "prompt": "Remove the retired feature flags.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 32,
+          "output": "Done.",
+          "finishedMinutesAgo": 150,
+          "toolUseId": "use-flags-cleanup"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": { "command": "gh pr create --fill" },
+          "turn": 1,
+          "minutesAgo": 10,
+          "output": "https://github.com/acme/api/pull/518",
+          "parentToolUseId": "use-webhook-518"
+        },
+        {
+          "kind": "narration",
+          "text": "PR #518 is open: webhook deliveries retry on a 5xx with backoff.",
+          "turn": 1,
+          "minutesAgo": 9,
+          "parentToolUseId": "use-webhook-518"
+        }
+      ]
+    }
+  ]
+}
