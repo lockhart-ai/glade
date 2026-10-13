@@ -8,10 +8,13 @@ import {
   Effort,
   FileContentKind,
   FileThumbnailKind,
+  QuestionKind,
+  QuestionSetState,
   TaskState,
   TodoState,
   ToolCallState,
   UiStateKey,
+  type Question,
 } from '../../shared/domain'
 import { commitFileKey } from '../../shared/files'
 import { createChangeTracker } from '../changes/tracker'
@@ -26,6 +29,7 @@ import { SearchField } from '../../shared/search'
 import { FakeAgentBackend } from '../agent/fake-backend'
 import { createAgentRunner } from '../agent/runner'
 import { addArtifact, listArtifacts } from '../db/repositories/artifacts'
+import { appendQuestionSet, closeQuestionSet } from '../db/repositories/question-sets'
 import { putTodos, seedTodoCounterAtLeast } from '../db/repositories/glade-todos'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { getSettings } from '../db/repositories/settings'
@@ -564,6 +568,55 @@ describe("the task's todos on first load", () => {
     expect(history.todos?.items).toEqual([
       { id: '1', text: 'Review the date helpers', state: TodoState.Todo, note: null, completedAt: null },
     ])
+  })
+})
+
+describe('the question card’s draft (#615)', () => {
+  const QUESTIONS: Question[] = [
+    { kind: QuestionKind.Pills, prompt: 'Where does the upgrade go?', options: ['Features', 'Leave it out'] },
+  ]
+
+  it('carries the open card’s draft in the history, and stores what questions.draftSet saves', async () => {
+    const taskId = sampleTask(database.db, sampleWorkspace(database.db).id).id
+    const set = appendQuestionSet(database.db, { taskId, turn: 1, questions: QUESTIONS })
+
+    expect((await handlers[CommandName.TasksHistory]({ id: taskId })).questionDraft).toBeNull()
+
+    expect(
+      await handlers[CommandName.QuestionsDraftSet]({
+        taskId,
+        draft: { questionSetId: set.id, draft: { 0: 'Features' }, anythingElse: 'Hurry.' },
+      }),
+    ).toBeNull()
+    expect((await handlers[CommandName.TasksHistory]({ id: taskId })).questionDraft).toEqual({
+      questionSetId: set.id,
+      draft: { 0: 'Features' },
+      anythingElse: 'Hurry.',
+    })
+  })
+
+  it('stores none for a draft with nothing in it, and none onto a set that has closed', async () => {
+    const taskId = sampleTask(database.db, sampleWorkspace(database.db).id).id
+    const set = appendQuestionSet(database.db, { taskId, turn: 1, questions: QUESTIONS })
+
+    await handlers[CommandName.QuestionsDraftSet]({
+      taskId,
+      draft: { questionSetId: set.id, draft: { 0: '  ' }, anythingElse: ' ' },
+    })
+    expect(database.db.prepare('SELECT draft FROM question_sets WHERE id = ?').pluck().get(set.id)).toBeNull()
+
+    await handlers[CommandName.QuestionsDraftSet]({
+      taskId,
+      draft: { questionSetId: set.id, draft: { 0: 'Features' }, anythingElse: '' },
+    })
+    expect(database.db.prepare('SELECT draft FROM question_sets WHERE id = ?').pluck().get(set.id)).not.toBeNull()
+
+    closeQuestionSet(database.db, set.id, { state: QuestionSetState.Withdrawn })
+    await handlers[CommandName.QuestionsDraftSet]({
+      taskId,
+      draft: { questionSetId: set.id, draft: { 0: 'Features' }, anythingElse: 'Too late.' },
+    })
+    expect(database.db.prepare('SELECT draft FROM question_sets WHERE id = ?').pluck().get(set.id)).toBeNull()
   })
 })
 

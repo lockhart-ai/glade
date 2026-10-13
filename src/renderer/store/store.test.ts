@@ -1359,6 +1359,7 @@ describe("a task's artifacts", () => {
       handoff: null,
       watchers: [],
       commits: [],
+      questionDraft: null,
       agentTab: null,
     })
     await load
