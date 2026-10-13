@@ -303,6 +303,7 @@ describe("a task's logs", () => {
       handoff: null,
       watchers: [],
       commits: [],
+      questionDraft: null,
       agentTab: null,
     })
 
@@ -326,6 +327,7 @@ describe("a task's logs", () => {
       handoff: null,
       watchers: [],
       commits: [],
+      questionDraft: null,
       agentTab: null,
     })
 
@@ -359,6 +361,7 @@ describe("a task's logs", () => {
       handoff: null,
       watchers: [],
       commits: [],
+      questionDraft: null,
       agentTab: null,
     })
 
@@ -378,6 +381,7 @@ describe("a task's logs", () => {
         handoff: null,
         watchers: [],
         commits: [],
+        questionDraft: null,
         agentTab: null,
       }).messages,
     ).toEqual({ t2: [] })
@@ -408,6 +412,7 @@ describe("a task's queue", () => {
       handoff: null,
       watchers: [],
       commits: [],
+      questionDraft: null,
       agentTab: null,
     })
     expect(loaded.queuedMessages).toEqual({ t1: [second] })
@@ -451,6 +456,7 @@ describe("a task's questions", () => {
       handoff: null,
       watchers: [],
       commits: [],
+      questionDraft: null,
       agentTab: null,
     }
     expect(withHistory(state, 't1', { ...empty, questionSets: [answered] }).questionSets).toEqual({ t1: [answered] })
@@ -497,6 +503,7 @@ describe("a task's permission requests", () => {
       handoff: null,
       watchers: [],
       commits: [],
+      questionDraft: null,
       agentTab: null,
     }
     // A request opened while the history loaded stays, after the loaded ones.
@@ -540,6 +547,7 @@ describe("a task's permission marks", () => {
       handoff: null,
       watchers: [],
       commits: [],
+      questionDraft: null,
       agentTab: null,
     }
     // The load read `a` before it was named, and a call the window hadn't heard of; `b` came after the load was read.
@@ -570,6 +578,7 @@ describe("a task's open files", () => {
       handoff: null,
       watchers: [],
       commits: [],
+      questionDraft: null,
       agentTab: null,
     }
     expect(withHistory(changed, 't1', { ...empty, openFiles: noOpenFiles('t1') }).openFiles).toEqual({
@@ -616,6 +625,7 @@ describe("a task's artifacts", () => {
     handoff: null,
     watchers: [],
     commits: [],
+    questionDraft: null,
     agentTab: null,
   })
 
@@ -686,6 +696,7 @@ describe("a task's watchers", () => {
     handoff: null,
     watchers,
     commits: [],
+    questionDraft: null,
     agentTab: null,
   })
 
@@ -799,6 +810,7 @@ describe("every task's running subagents", () => {
       handoff: null,
       watchers: [],
       commits: [],
+      questionDraft: null,
       agentTab: null,
     })
     expect(loaded.toolEvents.t1).toEqual([divider, finished])
@@ -839,6 +851,7 @@ describe("a task's commits", () => {
     handoff: null,
     watchers: [],
     commits,
+    questionDraft: null,
     agentTab: null,
   })
 
@@ -872,6 +885,7 @@ describe("a task's handoff note", () => {
     handoff,
     watchers: [],
     commits: [],
+    questionDraft: null,
     agentTab: null,
   })
 
@@ -912,6 +926,7 @@ describe("a task's todo list", () => {
     handoff: null,
     watchers: [],
     commits: [],
+    questionDraft: null,
     agentTab: null,
   })
 

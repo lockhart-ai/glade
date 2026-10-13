@@ -1090,6 +1090,21 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         }
       },
 
+      keepQuestionDraft(taskId, draft) {
+        set(({ questionDrafts }) => {
+          const others = Object.fromEntries(Object.entries(questionDrafts).filter(([id]) => id !== taskId))
+          return draft === null ? { questionDrafts: others } : { questionDrafts: { ...others, [taskId]: draft } }
+        })
+      },
+
+      async saveQuestionDraft(change) {
+        try {
+          await bridge.invoke(CommandName.QuestionsDraftSet, change)
+        } catch {
+          // Left: the card still has the draft, and its next save carries it.
+        }
+      },
+
       setSearchText(text) {
         set({ searchText: text })
       },

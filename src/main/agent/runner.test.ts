@@ -449,6 +449,7 @@ describe('a turn', () => {
       toolEvents: listToolEvents(database.db, task.id),
       queuedMessages: [],
       questionSets: [],
+      questionDraft: null,
       permissionRequests: [],
       permissionMarks: [],
       openFiles: { taskId: task.id, paths: [], activePath: null },

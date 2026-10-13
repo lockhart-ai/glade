@@ -13,6 +13,7 @@ import {
   type FreeTextReply,
   type PillsQuestion,
   type Question,
+  type QuestionCardDraft,
   type QuestionAnswers,
   type QuestionReply,
   type TextQuestion,
@@ -94,6 +95,16 @@ export const questionAnswersSchema = z.record(
   z.string(),
   z.union([z.string(), z.array(z.string()).readonly()]),
 ) satisfies z.ZodType<QuestionAnswers>
+
+/** What you've filled in on an open question card and not sent yet, as `questions.draftSet` takes it. */
+export const questionCardDraftSchema = z.strictObject({
+  questionSetId: z.string(),
+  draft: questionAnswersSchema,
+  anythingElse: z.string(),
+}) satisfies z.ZodType<QuestionCardDraft>
+
+/** What's stored on an open question set's row: the card's answers so far and its "Anything else?" text. */
+export const questionDraftContentsSchema = questionCardDraftSchema.pick({ draft: true, anythingElse: true })
 
 const answersReply = z.strictObject({
   kind: z.literal(QuestionReplyKind.Answers),

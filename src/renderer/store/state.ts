@@ -4,6 +4,7 @@
  */
 import type {
   DraftsSetRequest,
+  QuestionsDraftSetRequest,
   PluginViewBounds,
   TaskUserPatch,
   TerminalAttachResponse,
@@ -43,6 +44,7 @@ import type {
   PermissionMark,
   PermissionRequest,
   QuestionAnswers,
+  QuestionCardDraft,
   QuestionSet,
   QueuedMessage,
   Task,
@@ -331,6 +333,14 @@ export interface GladeData {
    * (`loadInputDraft`).
    */
   readonly inputDrafts: Readonly<Record<string, InputDraft>>
+  /**
+   * Each task's question card's answers (`ask`), by task id, kept as its card goes (another task selected) so it's
+   * there again at once when the task comes back; none for a card with nothing filled in. A draft is only ever for the
+   * question set it was typed on, and goes when that set is answered or withdrawn. Main stores each draft too
+   * (`questions.draftSet`, as you type), and a task's history carries the one it has (`questionDraft`), so after a
+   * relaunch the card is filled back in.
+   */
+  readonly questionDrafts: Readonly<Record<string, QuestionCardDraft>>
   /**
    * What's typed in the sidebar's search field; empty while not searching. While it isn't blank, the sidebar lists the
    * search's results instead of the tasks, and the selected task's header and chat highlight its matches. Not mirrored
@@ -758,6 +768,13 @@ export interface GladeActions {
    * is still in the input bar, and its next save carries it.
    */
   saveInputDraft: (change: DraftsSetRequest) => Promise<void>
+  /** Keeps a task's question card's answers for when its card comes back (see `questionDrafts`); null forgets them. */
+  keepQuestionDraft: (taskId: string, draft: QuestionCardDraft | null) => void
+  /**
+   * Stores what a task's question card has filled in in main (`questions.draftSet`), for after a relaunch or a crash. A
+   * save that fails is left: the card still has it, and its next save carries it.
+   */
+  saveQuestionDraft: (change: QuestionsDraftSetRequest) => Promise<void>
   /** Sets the sidebar's search text (see `searchText`); an empty string ends the search. */
   setSearchText: (text: string) => void
   /** Asks the sidebar's search field to take the focus (see `searchFocusRequest`). */
@@ -858,6 +875,7 @@ export const INITIAL_DATA: GladeData = {
   login: IDLE_LOGIN,
   inputInsertion: null,
   inputDrafts: {},
+  questionDrafts: {},
   searchText: '',
   searchFocusRequest: 0,
   matchRevealRequest: 0,

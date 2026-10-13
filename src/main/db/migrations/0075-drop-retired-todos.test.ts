@@ -6,7 +6,6 @@ import { dropRetiredTodosMigration } from './0075-drop-retired-todos'
 
 it('is migration 75', () => {
   expect(MIGRATIONS.find((migration) => migration.version === 75)).toBe(dropRetiredTodosMigration)
-  expect(MIGRATIONS.at(-1)?.version).toBe(75)
 })
 
 it('drops the retired todos, and with them the rows the closing agent had made', () => {
