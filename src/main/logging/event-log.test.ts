@@ -477,6 +477,7 @@ describe('the tool log', () => {
     logEvent({ type: EventType.HandoffChanged, taskId: 'task-1', handoff: null })
     logEvent({ type: EventType.FileShown, taskId: 'task-1', path: 'src/date.ts', line: 12 })
     logEvent({ type: EventType.FolderChanged, taskId: 'task-1', path: 'src' })
+    logEvent({ type: EventType.HtmlPreviewBlocked, taskId: 'task-1', path: 'reports/report.html' })
     logEvent({
       type: EventType.OpenFilesChanged,
       openFiles: { taskId: 'task-1', paths: ['src/date.ts'], activePath: 'src/date.ts' },
@@ -497,6 +498,11 @@ describe('the tool log', () => {
         level: LogLevel.Debug,
         message: 'folder changed',
         fields: { taskId: 'task-1', path: 'src' },
+      }),
+      expect.objectContaining({
+        level: LogLevel.Debug,
+        message: 'html preview blocked',
+        fields: { taskId: 'task-1', path: 'reports/report.html' },
       }),
       expect.objectContaining({
         level: LogLevel.Debug,

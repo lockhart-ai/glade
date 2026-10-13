@@ -1,0 +1,47 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api",
+    "files": "html-preview-workspace"
+  },
+  "tasks": [
+    {
+      "title": "Write a weekly usage report",
+      "objective": "Write a static HTML report of the public API's weekly usage, with a table and a chart.",
+      "status": "Wrote reports/report.html",
+      "selected": true,
+      "minutesAgo": 4,
+      "startedMinutesAgo": 12,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Write a static HTML report of the public API's weekly usage, with a table and a chart.",
+          "turn": 1,
+          "minutesAgo": 12
+        },
+        {
+          "role": "agent",
+          "body": "Done — reports/report.html, with the week's totals and a chart.",
+          "turn": 1,
+          "minutesAgo": 4
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "Write",
+          "input": { "file_path": "reports/report.html" },
+          "output": "File created successfully at: reports/report.html",
+          "turn": 1,
+          "minutesAgo": 5
+        }
+      ],
+      "openFiles": {
+        "paths": ["reports/report.html"],
+        "activePath": "reports/report.html"
+      }
+    }
+  ],
+  "panelTab": "files",
+  "panelWidth": 780
+}
