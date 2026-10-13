@@ -767,12 +767,16 @@ describe('startApp', () => {
     ])
   })
 
-  it('registers the plugin scheme as a standard, secure one before the app is ready', () => {
+  it('registers the plugin scheme and the HTML preview scheme in the one call Electron takes, before the app is ready', () => {
     electron.app.whenReady.mockReturnValueOnce(new Promise(() => undefined))
     startApp()
 
+    // Electron takes `registerSchemesAsPrivileged` once, and a second call replaces the first, which would strip the
+    // earlier scheme of its privileges.
+    expect(electron.protocol.registerSchemesAsPrivileged).toHaveBeenCalledTimes(1)
     expect(electron.protocol.registerSchemesAsPrivileged).toHaveBeenCalledWith([
       { scheme: 'glade-plugin', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+      { scheme: 'glade-html-preview', privileges: { standard: true, secure: true, supportFetchAPI: true } },
     ])
   })
 

@@ -112,8 +112,8 @@ const {
   createElectronPluginViews,
   pluginEntryUrl,
   pluginPartition,
+  pluginScheme,
   pluginWebPreferences,
-  registerPluginScheme,
   PLUGIN_VIEW_RADIUS,
 } = await import('./electron-view')
 const { PLUGIN_CSP } = await import('./protocol')
@@ -189,14 +189,12 @@ function make(window = fakeWindow(), devTools = false) {
   return { view, fake, ses, window, log, onMessage, onInput, onGone, create }
 }
 
-describe('registerPluginScheme', () => {
-  it('registers the scheme as standard and secure, with fetch', () => {
-    const protocol = { registerSchemesAsPrivileged: vi.fn() }
-    registerPluginScheme(protocol)
-
-    expect(protocol.registerSchemesAsPrivileged).toHaveBeenCalledWith([
-      { scheme: 'glade-plugin', privileges: { standard: true, secure: true, supportFetchAPI: true } },
-    ])
+describe('pluginScheme', () => {
+  it('is the scheme as standard and secure, with fetch, for the one registration call the app makes', () => {
+    expect(pluginScheme()).toEqual({
+      scheme: 'glade-plugin',
+      privileges: { standard: true, secure: true, supportFetchAPI: true },
+    })
   })
 })
 

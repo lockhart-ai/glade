@@ -95,11 +95,10 @@ export function isAllowedHtmlPreviewRequest(raw: string): boolean {
 }
 
 /**
- * Registers the preview's scheme as a standard, secure one, so its page has an origin of its own for its CSP's
- * `'self'` and relative URLs, and can `fetch` its own files. Call before the app is ready.
+ * The preview's scheme as Electron's `registerSchemesAsPrivileged` takes it: standard and secure, so its page has an
+ * origin of its own for its CSP's `'self'` and relative URLs, and can `fetch` its own files. Part of the one call
+ * Glade makes before the app is ready (`./app`), since Electron takes that call once.
  */
-export function registerHtmlPreviewScheme(protocol: Pick<Electron.Protocol, 'registerSchemesAsPrivileged'>): void {
-  protocol.registerSchemesAsPrivileged([
-    { scheme: HTML_PREVIEW_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
-  ])
+export function htmlPreviewScheme(): Electron.CustomScheme {
+  return { scheme: HTML_PREVIEW_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } }
 }

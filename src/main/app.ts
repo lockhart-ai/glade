@@ -89,11 +89,11 @@ import { markQuit, markRunning, noteRelaunch } from './relaunch'
 import { CloseGuard } from './close-guard'
 import { testModeLogsFolder } from './isolation'
 import { checkSecurity, describeViolations } from './security'
-import { createElectronPluginViews, PLUGIN_VIEW_RADIUS, registerPluginScheme } from './plugins/electron-view'
+import { createElectronPluginViews, PLUGIN_VIEW_RADIUS, pluginScheme } from './plugins/electron-view'
 import { createFakeMachineSamplers } from './plugins/machine-fake'
 import { createMachineSamplers } from './plugins/machine-samplers'
 import { createElectronHtmlPreviewView } from './files/html-preview-views'
-import { registerHtmlPreviewScheme } from './files/html-preview-protocol'
+import { htmlPreviewScheme } from './files/html-preview-protocol'
 import { captureViewOf, type CaptureView } from './capture-views'
 import { viewRadius } from './native-view-radius'
 import { seedConversation } from './capture-conversation'
@@ -707,9 +707,10 @@ export function startApp({
   // Paths are shown from the home folder as `~`, in main's own words (a notification's) as in the windows'.
   setHomeFolder(shownHome(testMode))
   // Before the app is ready, as Electron requires: a plugin's page, and the Files viewer's HTML preview, are each
-  // served under their own scheme.
-  registerPluginScheme(protocol)
-  registerHtmlPreviewScheme(protocol)
+  // served under their own scheme. Electron takes one `registerSchemesAsPrivileged` call, and a second replaces the
+  // first — the plugin's page would lose its privileges, and its own relative fetches would fail — so both schemes
+  // go in this one call.
+  protocol.registerSchemesAsPrivileged([pluginScheme(), htmlPreviewScheme()])
   log.info('app starting', {
     version: app.getVersion(),
     electron: process.versions.electron,
@@ -829,6 +830,10 @@ export function startApp({
     // The management key's guardrails, read again at launch in case the account's restrictions changed; a failure
     // leaves the last reading.
     void openrouter.refreshGuardrails()
+    // Finder, the clipboard and the browser: made once, since in e2e mode making the desktop again would put a
+    // fresh, empty recorder on `E2E_DESKTOP_GLOBAL` (e2e.ts), replacing the one main's commands record into, and the
+    // specs would read nothing.
+    const desktop = createDesktop(testMode)
     const bridge: RegisteredBridge = registerBridge({
       openrouter,
       ipc: ipcMain,
@@ -859,7 +864,7 @@ export function startApp({
           ? () => Promise.resolve(e2eChosenFolder(process.env))
           : () => chooseFolder(dialog, BrowserWindow.getFocusedWindow()),
       openPath: createOpenPath(testMode),
-      ...createDesktop(testMode),
+      ...desktop,
       // Glade's own data is shut to sandboxed agents, whatever folder they're granted.
       dataDir: app.getPath('userData'),
       // The settings Claude Code merges under Glade's, for the commands they keep out of the sandbox. A test mode reads
@@ -888,7 +893,7 @@ export function startApp({
       // The Files viewer's HTML preview (#614) goes in Glade's window too, over the viewer's body.
       createHtmlPreviewView: createElectronHtmlPreviewView({
         window: () => mainWindows()[0],
-        openExternal: createDesktop(testMode).openExternal,
+        openExternal: desktop.openExternal,
         devTools: !app.isPackaged,
         offscreen: testMode?.kind === TestModeKind.Capture,
         log: log.scoped(LogScope.Files),

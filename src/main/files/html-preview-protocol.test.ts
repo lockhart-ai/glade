@@ -6,10 +6,10 @@ import { createMemoryLog } from '../logging/memory-sink'
 import {
   createHtmlPreviewFileHandler,
   htmlPreviewEntryUrl,
+  htmlPreviewScheme,
   HTML_PREVIEW_CSP,
   HTML_PREVIEW_SCHEME,
   isAllowedHtmlPreviewRequest,
-  registerHtmlPreviewScheme,
 } from './html-preview-protocol'
 
 let folder: string
@@ -93,20 +93,12 @@ describe('htmlPreviewEntryUrl', () => {
   })
 })
 
-describe('registerHtmlPreviewScheme', () => {
-  it('registers the scheme as standard and secure, with fetch', () => {
-    let registered: unknown[] = []
-    const protocol = {
-      registerSchemesAsPrivileged: (specs: unknown[]) => {
-        registered = specs
-      },
-    }
-
-    registerHtmlPreviewScheme(protocol)
-
-    expect(registered).toEqual([
-      { scheme: HTML_PREVIEW_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
-    ])
+describe('htmlPreviewScheme', () => {
+  it('is the scheme as standard and secure, with fetch, for the one registration call the app makes', () => {
+    expect(htmlPreviewScheme()).toEqual({
+      scheme: HTML_PREVIEW_SCHEME,
+      privileges: { standard: true, secure: true, supportFetchAPI: true },
+    })
   })
 })
 
