@@ -78,9 +78,32 @@ describe('linkReferences', () => {
     )
   })
 
-  it('leaves out a number an issue and a PR share, and one PR given by two of its pages', () => {
+  it('leaves out a number an issue and a PR share', () => {
     expect(references(PR_511, 'https://github.com/acme/web/issues/511')).toBe(NO_REFERENCES)
-    expect(references(PR_511, `${PR_511}/files`)).toBe(NO_REFERENCES)
+  })
+
+  it('counts links to the same thing as one: an issue and its comments name the issue itself', () => {
+    expect([...references(ISSUE_501, `${ISSUE_501}#issuecomment-1`, `${ISSUE_501}#issuecomment-2`)]).toEqual([
+      ['#501', ISSUE_501],
+    ])
+    // The comment links alone, with no plain issue link among them, name it too.
+    expect([...references(`${ISSUE_501}#issuecomment-1`, `${ISSUE_501}#issuecomment-2`)]).toEqual([['#501', ISSUE_501]])
+  })
+
+  it('counts a PR and one of its pages as one PR, and the number opens the PR itself', () => {
+    expect([...references(PR_511, `${PR_511}/files`)]).toEqual([['#511', PR_511]])
+    expect([...references(`${PR_511}/files`, `${PR_511}/commits/abc123`)]).toEqual([['#511', PR_511]])
+  })
+
+  it('links to a link that is already the thing’s own page, over one that isn’t', () => {
+    const www = 'https://www.github.com/acme/api/issues/501#issuecomment-1'
+    expect([...references(www, ISSUE_501)]).toEqual([['#501', ISSUE_501]])
+  })
+
+  it('names a link a file artifact is filed before, and counts its links the same however they are ordered', () => {
+    const before = linkReferences(linkAddresses([hubFile('docs/a.md', 'A'), hubLink(ISSUE_501, 'An issue')]))
+    expect([...before]).toEqual([['#501', ISSUE_501]])
+    expect(before).toStrictEqual(references(`${ISSUE_501}#issuecomment-1`, `${ISSUE_501}#issuecomment-2`))
   })
 
   it('leaves out a key two Jiras share', () => {
