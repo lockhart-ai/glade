@@ -2177,6 +2177,11 @@ describe('tasks.retry', () => {
     expect(current()).toMatchObject({ activity: TaskActivity.Working, error: null })
   })
 
+  // This is only safe because of #625: a mirrored task's Claude session is no longer started with a session
+  // store, so the kept session below reads the real Keychain-backed config, not a copy of the login with its
+  // refresh token stripped (`src/main/openrouter/runtime.test.ts`, "starts a Claude retry of a mirrored,
+  // logged-out task on its real config, not a session store"). `runner.ts` itself is unchanged: it still relies on
+  // Claude Code picking the new login up on its own next 401, which this doesn't re-verify.
   it('keeps the session, retrying in it, when a watcher it started is still live', async () => {
     await loggedOutTurn()
     addWatcher(database.db, {
