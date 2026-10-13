@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { DividerKind, ToolCallState, ToolEventKind, type ToolCallEvent, type ToolEvent } from '../../shared/domain'
-import { FileTouch, formatSize, isChanged, isMarkdown, touchedCount, touchedFiles, touchOfFile } from './filesModel'
+import {
+  FileTouch,
+  formatSize,
+  isChanged,
+  isHtml,
+  isMarkdown,
+  touchedCount,
+  touchedFiles,
+  touchOfFile,
+} from './filesModel'
 
 const ROOT = '/code/acme-api'
 
@@ -88,6 +97,13 @@ describe('isMarkdown', () => {
   it('knows Markdown by its extension', () => {
     expect(['README.md', 'docs/guide.MARKDOWN', 'page.mdx'].map(isMarkdown)).toEqual([true, true, true])
     expect(isMarkdown('md/notes.txt')).toBe(false)
+  })
+})
+
+describe('isHtml', () => {
+  it('knows static HTML by its extension', () => {
+    expect(['report.html', 'docs/page.HTM'].map(isHtml)).toEqual([true, true])
+    expect(isHtml('html/notes.txt')).toBe(false)
   })
 })
 

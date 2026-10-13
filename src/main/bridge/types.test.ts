@@ -143,6 +143,8 @@ const TASK_HANDLERS = {
   [CommandName.FilesExpandedFolders]: () => ({ paths: [] }),
   [CommandName.FilesSetFolderExpanded]: () => null,
   [CommandName.FilesWatchFolders]: () => null,
+  [CommandName.FilesPlaceHtmlPreview]: () => null,
+  [CommandName.FilesReloadHtmlPreview]: () => null,
   [CommandName.WorkspacesUpdate]: () => ({ workspace: WORKSPACE }),
   [CommandName.SettingsGet]: () => ({ settings: DEFAULT_SETTINGS }),
   [CommandName.ModelsList]: () => ({ models: BUILT_IN_MODELS }),
@@ -287,6 +289,8 @@ const TASK_SCHEMAS = {
   [CommandName.FilesExpandedFolders]: REQUEST_SCHEMAS[CommandName.FilesExpandedFolders],
   [CommandName.FilesSetFolderExpanded]: REQUEST_SCHEMAS[CommandName.FilesSetFolderExpanded],
   [CommandName.FilesWatchFolders]: REQUEST_SCHEMAS[CommandName.FilesWatchFolders],
+  [CommandName.FilesPlaceHtmlPreview]: REQUEST_SCHEMAS[CommandName.FilesPlaceHtmlPreview],
+  [CommandName.FilesReloadHtmlPreview]: REQUEST_SCHEMAS[CommandName.FilesReloadHtmlPreview],
   [CommandName.WorkspacesUpdate]: REQUEST_SCHEMAS[CommandName.WorkspacesUpdate],
   [CommandName.SettingsGet]: REQUEST_SCHEMAS[CommandName.SettingsGet],
   [CommandName.SettingsUpdate]: REQUEST_SCHEMAS[CommandName.SettingsUpdate],
@@ -568,6 +572,9 @@ describe('events', () => {
           expectTypeOf(event.line).toEqualTypeOf<number | null>()
           break
         case EventType.FolderChanged:
+          expectTypeOf(event.path).toEqualTypeOf<string>()
+          break
+        case EventType.HtmlPreviewBlocked:
           expectTypeOf(event.path).toEqualTypeOf<string>()
           break
         case EventType.TodosChanged:

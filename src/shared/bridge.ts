@@ -137,6 +137,8 @@ export enum CommandName {
   FilesExpandedFolders = 'files.expandedFolders',
   FilesSetFolderExpanded = 'files.setFolderExpanded',
   FilesWatchFolders = 'files.watchFolders',
+  FilesPlaceHtmlPreview = 'files.placeHtmlPreview',
+  FilesReloadHtmlPreview = 'files.reloadHtmlPreview',
   ArtifactsRemove = 'artifacts.remove',
   ArtifactsAddLink = 'artifacts.addLink',
   ArtifactsWatch = 'artifacts.watch',
@@ -919,6 +921,29 @@ export interface FilesWatchFoldersRequest {
 }
 
 /**
+ * Puts the Files viewer's HTML preview over its body, creating it (in its own sandboxed, offline view) the first
+ * time, or hides it with `bounds: null` while the viewer isn't showing it. At most one preview shows at a time, as
+ * only one file's viewer ever shows: showing another destroys the last. A no-op for a file that's missing or isn't
+ * in the workspace.
+ */
+export interface FilesPlaceHtmlPreviewRequest {
+  readonly taskId: string
+  /** Relative to the workspace root. */
+  readonly path: string
+  readonly bounds: PluginViewBounds | null
+}
+
+/**
+ * Reloads the HTML preview fresh from disk, in place: the file changed on disk. A no-op unless this file's preview
+ * is the one shown.
+ */
+export interface FilesReloadHtmlPreviewRequest {
+  readonly taskId: string
+  /** Relative to the workspace root. */
+  readonly path: string
+}
+
+/**
  * Takes a file or a link off a task's artifacts (Remove from artifacts); a file itself stays. Broadcasts
  * `artifacts.changed`. Fails with `not_found` when it isn't one of the task's artifacts.
  */
@@ -1456,6 +1481,8 @@ export interface CommandMap {
   [CommandName.FilesExpandedFolders]: CommandSpec<FilesExpandedFoldersRequest, FilesExpandedFoldersResponse>
   [CommandName.FilesSetFolderExpanded]: CommandSpec<FilesSetFolderExpandedRequest, null>
   [CommandName.FilesWatchFolders]: CommandSpec<FilesWatchFoldersRequest, null>
+  [CommandName.FilesPlaceHtmlPreview]: CommandSpec<FilesPlaceHtmlPreviewRequest, null>
+  [CommandName.FilesReloadHtmlPreview]: CommandSpec<FilesReloadHtmlPreviewRequest, null>
   [CommandName.ArtifactsRemove]: CommandSpec<ArtifactsRemoveRequest, null>
   [CommandName.ArtifactsAddLink]: CommandSpec<ArtifactsAddLinkRequest, null>
   [CommandName.ArtifactsWatch]: CommandSpec<ArtifactsWatchRequest, null>
@@ -1562,6 +1589,7 @@ export enum EventType {
   OpenFilesChanged = 'openFiles.changed',
   FileShown = 'file.shown',
   FolderChanged = 'files.folderChanged',
+  HtmlPreviewBlocked = 'files.htmlPreviewBlocked',
   TodosChanged = 'todos.changed',
   ArtifactsChanged = 'artifacts.changed',
   HandoffChanged = 'handoff.changed',
@@ -1733,6 +1761,18 @@ export interface FolderChangedEvent {
   readonly type: EventType.FolderChanged
   readonly taskId: string
   /** Relative to the workspace root; `''` for the root. */
+  readonly path: string
+}
+
+/**
+ * The HTML preview's sandboxed page asked for something outside its own file (the network, another file): refused,
+ * so the Files viewer shows its quiet "this preview is offline" notice for `taskId`'s `path`. Sent once per load; a
+ * reload (the file changed on disk, or it's shown again) clears the notice until it recurs.
+ */
+export interface HtmlPreviewBlockedEvent {
+  readonly type: EventType.HtmlPreviewBlocked
+  readonly taskId: string
+  /** Relative to the workspace root. */
   readonly path: string
 }
 
@@ -1948,6 +1988,7 @@ export type GladeEvent =
   | OpenFilesChangedEvent
   | FileShownEvent
   | FolderChangedEvent
+  | HtmlPreviewBlockedEvent
   | TodosChangedEvent
   | ArtifactsChangedEvent
   | HandoffChangedEvent

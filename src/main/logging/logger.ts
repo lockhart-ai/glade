@@ -53,6 +53,8 @@ export enum LogScope {
   Terminal = 'terminal',
   /** The plugins found in the plugins folder, and turned on and off. */
   Plugins = 'plugins',
+  /** The Files viewer: the HTML preview's sandboxed view and what it was refused. */
+  Files = 'files',
   /** Calls to the `glade-control` tools other agents drive Glade with (`docs/control-api.md`). */
   Control = 'control',
   /** Glade's icon in the macOS menu bar: added and removed as Settings › General has it. */

@@ -511,6 +511,32 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         set((state) => ({ pluginStatuses: { ...state.pluginStatuses, [id]: status } }))
       },
 
+      async placeHtmlPreview(taskId, path, bounds) {
+        // Not cleared here: `useViewSlot` calls this on every resize and overlay change, long after a block, which
+        // would otherwise wipe the notice before you ever saw it. `clearHtmlPreviewBlocked` (once, on mount) and a
+        // reload are the only times it's rightly cleared.
+        await bridge.invoke(CommandName.FilesPlaceHtmlPreview, { taskId, path, bounds })
+      },
+
+      clearHtmlPreviewBlocked(taskId, path) {
+        set((state) => ({
+          htmlPreviewBlocked: {
+            ...state.htmlPreviewBlocked,
+            [taskId]: { ...state.htmlPreviewBlocked[taskId], [path]: false },
+          },
+        }))
+      },
+
+      async reloadHtmlPreview(taskId, path) {
+        set((state) => ({
+          htmlPreviewBlocked: {
+            ...state.htmlPreviewBlocked,
+            [taskId]: { ...state.htmlPreviewBlocked[taskId], [path]: false },
+          },
+        }))
+        await bridge.invoke(CommandName.FilesReloadHtmlPreview, { taskId, path })
+      },
+
       async revealWorkspace(workspaceId) {
         await bridge.invoke(CommandName.WorkspacesReveal, { id: workspaceId })
       },

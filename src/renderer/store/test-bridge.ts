@@ -4,6 +4,7 @@ import {
   bridgeError,
   BridgeErrorCode,
   CommandName,
+  type FilesPlaceHtmlPreviewRequest,
   type FilesWriteRequest,
   type LogRendererErrorRequest,
   type PluginsPlaceViewRequest,
@@ -219,6 +220,10 @@ export interface FakeMain {
   reloadedPlugins?: string[]
   /** The status `plugins.placeView` answers with for each plugin, by id; `''` when left out. */
   pluginStatuses?: Record<string, string>
+  /** Where `files.placeHtmlPreview` put the preview, oldest first. */
+  placedHtmlPreviews?: FilesPlaceHtmlPreviewRequest[]
+  /** What `files.reloadHtmlPreview` reloaded, oldest first. */
+  reloadedHtmlPreviews?: { taskId: string; path: string }[]
   /**
    * The sandbox grants `sandbox.listGrants` answers with, by scope (`settingsGrantScopeKey`); none when left out.
    * `sandbox.addGrant`, `sandbox.setFolderAccess` and `sandbox.removeGrant` change a scope's and broadcast them, and
@@ -728,6 +733,14 @@ export function fakeHandlers(
     },
     [CommandName.FilesWatchFolders]: ({ taskId, paths }) => {
       if (main.watchedFolders !== undefined) main.watchedFolders[taskId] = paths
+      return null
+    },
+    [CommandName.FilesPlaceHtmlPreview]: (request) => {
+      main.placedHtmlPreviews = [...(main.placedHtmlPreviews ?? []), request]
+      return null
+    },
+    [CommandName.FilesReloadHtmlPreview]: ({ taskId, path }) => {
+      main.reloadedHtmlPreviews = [...(main.reloadedHtmlPreviews ?? []), { taskId, path }]
       return null
     },
     [CommandName.ArtifactsRemove]: ({ taskId, ref }) => {

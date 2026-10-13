@@ -11,8 +11,9 @@ import { useGladeStore, useGladeStoreApi } from '../store/react'
 import { WindowCommandId } from '../../shared/commands'
 import { useBinding } from '../commands/hooks'
 import { FileSession, isEditable } from './fileSession'
-import { FileTouch, formatSize, isMarkdown, type TouchedFile } from './filesModel'
+import { FileTouch, formatSize, isHtml, isMarkdown, type TouchedFile } from './filesModel'
 import { highlight, languageOf, sourceLines, type Language } from './highlight'
+import { HtmlPreview } from './HtmlPreview'
 import { SourceEditor } from './SourceEditor'
 import { BLOCK_LINES, SourceView, type HighlightedBlocks } from './SourceView'
 import type { OpenEditSession } from './unsaved'
@@ -230,13 +231,23 @@ export function FileViewer({
   const highlighted = colored.lines === lines ? colored.blocks : NO_BLOCKS
 
   const markdown = isMarkdown(shownPath)
-  const preview = markdown && mode === MarkdownMode.Preview
+  // A file as a commit left it has no real folder on disk to serve the preview's assets from relative to that
+  // commit: HTML preview is only for a workspace file, as Open in editor is.
+  const html = inWorkspace && isHtml(shownPath)
+  const preview = (markdown || html) && mode === MarkdownMode.Preview
   const editing = session !== undefined && !preview
+
+  const previewOf = (text: string): React.ReactNode =>
+    markdown ? (
+      <Markdown source={text} className={styles.preview} interactiveCode={false} />
+    ) : (
+      <HtmlPreview taskId={taskId} path={path} version={version} />
+    )
 
   const body = (): React.ReactNode => {
     if (session !== undefined) {
       return preview ? (
-        <Markdown source={session.text()} className={styles.preview} interactiveCode={false} />
+        previewOf(session.text())
       ) : (
         <SourceEditor session={session} focusLine={focusLine} focusRequest={focusRequest} />
       )
@@ -280,7 +291,7 @@ export function FileViewer({
               </p>
             )}
             {preview ? (
-              <Markdown source={content.text} className={styles.preview} interactiveCode={false} />
+              previewOf(content.text)
             ) : (
               <SourceView lines={lines} highlighted={highlighted} focusLine={focusLine} focusRequest={focusRequest} />
             )}
@@ -302,7 +313,7 @@ export function FileViewer({
           </span>
         )}
         <span className={styles.spacer} />
-        {markdown && (
+        {(markdown || html) && (
           <Segmented label="Show as" options={MODES} value={mode} onChange={setMode} className={styles.mode} />
         )}
         {inWorkspace && (

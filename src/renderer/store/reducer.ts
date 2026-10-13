@@ -442,6 +442,14 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, plugins: event.plugins }
     case EventType.PluginStatusChanged:
       return { ...state, pluginStatuses: { ...state.pluginStatuses, [event.id]: event.text } }
+    case EventType.HtmlPreviewBlocked:
+      return {
+        ...state,
+        htmlPreviewBlocked: {
+          ...state.htmlPreviewBlocked,
+          [event.taskId]: { ...state.htmlPreviewBlocked[event.taskId], [event.path]: true },
+        },
+      }
     case EventType.ControlChanged:
       return { ...state, controlStatus: event.status }
     case EventType.AccountChanged:

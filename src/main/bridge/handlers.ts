@@ -41,6 +41,7 @@ import { broadcastMessage } from '../tasks/broadcast'
 import { editQueuedMessage, removeQueuedMessage } from '../tasks/queue'
 import { noteUiStateSet } from '../tasks/attention'
 import { changeTask, createTask, deleteTask, markTaskDone, reopenTask, requireTask } from '../tasks/service'
+import { dirname, basename } from 'node:path'
 import {
   browseTaskFiles,
   closeTaskFile,
@@ -49,6 +50,7 @@ import {
   openTaskFile,
   openTaskFileInEditor,
   readTaskFile,
+  resolveWorkspaceFile,
   writeTaskFile,
   workspaceRoot,
   revealTaskFile,
@@ -56,6 +58,7 @@ import {
   type RevealPath,
   type WriteClipboard,
 } from '../files/files'
+import type { HtmlPreviewViews } from '../files/html-preview'
 import { todoListFor } from '../todos/todos'
 import { agentTabOf, readTodoHub, rememberAgentTab, rememberTodoPanel } from '../todo-hub/todo-hub'
 import { addTaskLinkByHand, removeTaskArtifact } from '../artifacts/artifacts'
@@ -132,6 +135,8 @@ export interface HandlerContext {
   readonly plugins: Plugins
   /** The shown plugin's view. */
   readonly pluginViews: PluginViews
+  /** The Files viewer's shown HTML preview. */
+  readonly htmlPreviewViews: HtmlPreviewViews
   /** The control API's HTTP endpoint, which follows Settings › Control. */
   readonly endpoint: ControlEndpoint
   /** The account the tasks run on and its usage warning. */
@@ -163,8 +168,20 @@ function terminalWorkspace(db: Database, workspaceId: string | null): Workspace 
 }
 
 export function createHandlers(context: HandlerContext): Handlers {
-  const { db, emit, chooseFolder, runner, writeClipboard, terminals, plugins, pluginViews, endpoint, account, login } =
-    context
+  const {
+    db,
+    emit,
+    chooseFolder,
+    runner,
+    writeClipboard,
+    terminals,
+    plugins,
+    pluginViews,
+    htmlPreviewViews,
+    endpoint,
+    account,
+    login,
+  } = context
   const renderer = (context.log ?? SILENT_LOGGER).scoped(LogScope.Renderer)
   const ipcLog = (context.log ?? SILENT_LOGGER).scoped(LogScope.Ipc)
   const changes = { db, emit, git: context.git ?? createGit() }
@@ -379,6 +396,20 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.FilesWatchFolders]: async ({ taskId, paths }) => {
       await context.folderWatch?.watch(taskId, paths)
+      return null
+    },
+    [CommandName.FilesPlaceHtmlPreview]: async ({ taskId, path, bounds }) => {
+      if (bounds === null) {
+        htmlPreviewViews.hide(taskId, path)
+        return null
+      }
+      const real = await resolveWorkspaceFile(workspaceRoot(context, taskId), path)
+      // Missing, or gone since: nothing to show: the viewer's own notice already says so.
+      if (real !== null) htmlPreviewViews.place(taskId, path, dirname(real), basename(real), bounds)
+      return null
+    },
+    [CommandName.FilesReloadHtmlPreview]: ({ taskId, path }) => {
+      htmlPreviewViews.reload(taskId, path)
       return null
     },
     [CommandName.ArtifactsRemove]: ({ taskId, ref }) => {

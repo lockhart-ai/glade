@@ -307,6 +307,12 @@ export interface GladeData {
    */
   readonly pluginStatuses: Readonly<Record<string, string>>
   /**
+   * Whether the Files viewer's HTML preview has had something blocked (#614: a request outside its own file), by
+   * task id then path, for the viewer's quiet "this preview is offline" notice (`files.htmlPreviewBlocked`). Reset
+   * to false whenever the preview is shown or reloaded; not saved.
+   */
+  readonly htmlPreviewBlocked: Readonly<Record<string, Readonly<Record<string, boolean>>>>
+  /**
    * The control API's HTTP endpoint (Settings › Control), as main last answered (`control.status`, which the section asks
    * for when it opens) or broadcast it; null until it's first read.
    */
@@ -449,6 +455,16 @@ export interface GladeActions {
    * answers with (`plugins.placeView`).
    */
   placePluginView: (id: string, bounds: PluginViewBounds | null) => Promise<void>
+  /**
+   * Puts the Files viewer's HTML preview over its body, in the page's CSS pixels, or hides it (`null`)
+   * (`files.placeHtmlPreview`). Called on every resize and overlay change, not only the first time, so it never
+   * touches the blocked notice itself (`clearHtmlPreviewBlocked` does, once, when the preview mounts).
+   */
+  placeHtmlPreview: (taskId: string, path: string, bounds: PluginViewBounds | null) => Promise<void>
+  /** Clears a file's blocked notice, locally: once when its preview mounts, so an earlier block doesn't linger. */
+  clearHtmlPreviewBlocked: (taskId: string, path: string) => void
+  /** Reloads the HTML preview fresh from disk, in place, and clears its blocked notice until it recurs (`files.reloadHtmlPreview`). */
+  reloadHtmlPreview: (taskId: string, path: string) => Promise<void>
   /**
    * Asks for a folder with the native dialog and adds it as a workspace (or finds the one already there) and opens it:
    * New workspace… and Open folder as workspace…. Resolves with the workspace, or null if the dialog was cancelled.
@@ -852,6 +868,7 @@ export const INITIAL_DATA: GladeData = {
   plugins: null,
   sandboxGrants: {},
   pluginStatuses: {},
+  htmlPreviewBlocked: {},
   controlStatus: null,
   accountStatus: { account: null, usage: [] },
   openrouterUsage: EMPTY_OPENROUTER_USAGE,

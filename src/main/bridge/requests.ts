@@ -26,6 +26,8 @@ import {
   type FilesSearchRequest,
   type FilesSetFolderExpandedRequest,
   type FilesWatchFoldersRequest,
+  type FilesPlaceHtmlPreviewRequest,
+  type FilesReloadHtmlPreviewRequest,
   type FolderRequest,
   type WindowSetUnsavedEditsRequest,
   type AttachmentsAddRequest,
@@ -456,6 +458,21 @@ const pluginsPlaceViewRequest = z.strictObject({
 
 const pluginsReloadRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<PluginsReloadRequest>
 
+const filesPlaceHtmlPreviewRequest = z.strictObject({
+  taskId: z.string(),
+  path: z
+    .string()
+    .refine(isWorkspaceRelativePath, 'Expected a normalized path relative to the workspace root, inside it'),
+  bounds: viewBounds.nullable(),
+}) satisfies z.ZodType<FilesPlaceHtmlPreviewRequest>
+
+const filesReloadHtmlPreviewRequest = z.strictObject({
+  taskId: z.string(),
+  path: z
+    .string()
+    .refine(isWorkspaceRelativePath, 'Expected a normalized path relative to the workspace root, inside it'),
+}) satisfies z.ZodType<FilesReloadHtmlPreviewRequest>
+
 /** A scope Settings lists: Glade-wide, or a workspace's. A task's grants aren't Settings', so its scope doesn't parse. */
 const settingsGrantTarget = z.discriminatedUnion('scope', [
   z.strictObject({ scope: z.literal(SandboxGrantScope.Glade) }),
@@ -631,6 +648,8 @@ export const REQUEST_SCHEMAS = {
   [CommandName.FilesExpandedFolders]: filesExpandedFoldersRequest,
   [CommandName.FilesSetFolderExpanded]: filesSetFolderExpandedRequest,
   [CommandName.FilesWatchFolders]: filesWatchFoldersRequest,
+  [CommandName.FilesPlaceHtmlPreview]: filesPlaceHtmlPreviewRequest,
+  [CommandName.FilesReloadHtmlPreview]: filesReloadHtmlPreviewRequest,
   [CommandName.ArtifactsRemove]: artifactsRemoveRequest,
   [CommandName.ArtifactsAddLink]: artifactsAddLinkRequest,
   [CommandName.ArtifactsWatch]: artifactsWatchRequest,

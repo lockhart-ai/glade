@@ -387,7 +387,10 @@ Three tabs, each with a count: **Agents · Files · Todos** (⌘⌥1 – ⌘⌥3
   closing the tab, switching task or quitting asks you to **Save**, **Discard** or **Cancel** first. If the agent
   changes a file you're editing, it simply reloads when you have no unsaved edits; with unsaved edits, a bar says it
   changed on disk, with **Reload** (take the agent's version, dropping yours) and **Keep mine** (your next save writes
-  over it). Markdown has a Preview. Files from a commit and files too large to show whole are read-only. An image
+  over it). Markdown has a Preview; so does a static HTML file (`.html` or `.htm`), rendered in its own sandboxed,
+  offline view: its own styles, scripts and local images and stylesheets show, but it can't reach Glade or the
+  network, and a link in it opens in your browser instead of navigating the preview away. If it tries to reach the
+  network anyway, a quiet note says the preview is offline. Files from a commit and files too large to show whole are read-only. An image
   (PNG, JPEG, GIF, WebP or SVG, up to 8 MB) shows as a picture instead, fit to the panel but never larger than its own
   size, on a checkerboard behind any transparency; click it to see it full size, in the same viewer a todo's file
   tiles open (see Todos, below). A larger, or any other kind of binary, file shows a notice instead of its contents.

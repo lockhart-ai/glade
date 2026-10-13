@@ -98,6 +98,11 @@ export function isMarkdown(path: string): boolean {
   return /\.(md|markdown|mdx)$/i.test(path)
 }
 
+/** Whether a file is static HTML, which the viewer can show as a preview too (#614), in its own sandboxed view. */
+export function isHtml(path: string): boolean {
+  return /\.html?$/i.test(path)
+}
+
 /** A size in bytes, as the viewer's notices say it: "812 bytes", "48 KB", "2.4 MB". */
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${String(bytes)} byte${bytes === 1 ? '' : 's'}`

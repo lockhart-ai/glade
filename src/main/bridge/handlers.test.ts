@@ -38,6 +38,8 @@ import { createFakeSpawner, fakeTerminalOptions, type FakeSpawner } from '../ter
 import { createPlugins } from '../plugins/plugins'
 import { sampleManifest, writePlugin } from '../plugins/test-plugins'
 import { createFakePluginViews, type FakePluginViews } from '../plugins/fake-view'
+import { createHtmlPreviewViews, type HtmlPreviewViews } from '../files/html-preview'
+import { createFakeHtmlPreviewViews, type FakeHtmlPreviewViews } from '../files/fake-html-preview-view'
 import { createPluginFeed } from '../plugins/feed'
 import { databaseFeedSource } from '../plugins/feed-source'
 import { createPluginViews, type PluginViews } from '../plugins/views'
@@ -73,6 +75,7 @@ let handlers: Handlers
 let context: HandlerContext
 let spawner: FakeSpawner
 let views: FakePluginViews
+let fakeHtmlPreview: FakeHtmlPreviewViews
 
 /** The control endpoint, over the test's database; never started here (see `src/main/control/endpoint.test.ts`). */
 function endpointOf(): ControlEndpoint {
@@ -88,8 +91,8 @@ function endpointOf(): ControlEndpoint {
   })
 }
 
-/** The plugins in the test's plugins folder, with their views made by `views`. */
-function pluginsWithViews(): { plugins: Plugins; pluginViews: PluginViews } {
+/** The plugins in the test's plugins folder, with their views made by `views`, and the HTML preview's made by `fakeHtmlPreview`. */
+function pluginsWithViews(): { plugins: Plugins; pluginViews: PluginViews; htmlPreviewViews: HtmlPreviewViews } {
   const folder = join(root, 'plugins')
   const feed = createPluginFeed({ source: databaseFeedSource(database.db), tasks: [] })
   const pluginViews = createPluginViews({ emit, feed, folder, appVersion: '1.2.3', createView: views.create })
@@ -105,7 +108,8 @@ function pluginsWithViews(): { plugins: Plugins; pluginViews: PluginViews } {
       pluginViews.reload(ids)
     },
   })
-  return { plugins, pluginViews }
+  const htmlPreviewViews = createHtmlPreviewViews({ emit, createView: fakeHtmlPreview.create })
+  return { plugins, pluginViews, htmlPreviewViews }
 }
 
 beforeEach(() => {
@@ -117,6 +121,7 @@ beforeEach(() => {
   revealPath = vi.fn()
   writeClipboard = vi.fn(() => Promise.resolve())
   views = createFakePluginViews()
+  fakeHtmlPreview = createFakeHtmlPreviewViews()
   const runner = createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() })
   spawner = createFakeSpawner()
   const terminals = createTerminals({ db: database.db, emit, ...fakeTerminalOptions(spawner) })
@@ -662,6 +667,27 @@ describe('the files commands', () => {
       expect.stringMatching(/\/docs\/rate-limits\.md$/),
       OpenWith.TextEditor,
     )
+  })
+
+  it('places, hides and reloads the HTML preview by the file’s real folder, and does nothing for a missing file', async () => {
+    const taskId = taskInRoot()
+    const bounds = { x: 0, y: 0, width: 400, height: 300 }
+
+    await handlers[CommandName.FilesPlaceHtmlPreview]({ taskId, path: 'docs/rate-limits.md', bounds })
+    expect(fakeHtmlPreview.views).toHaveLength(1)
+    expect(fakeHtmlPreview.last().spec.fileName).toBe('rate-limits.md')
+    expect(fakeHtmlPreview.last().spec.folder).toEqual(expect.stringMatching(/\/docs$/))
+    expect(fakeHtmlPreview.last().bounds).toEqual(bounds)
+
+    await handlers[CommandName.FilesReloadHtmlPreview]({ taskId, path: 'docs/rate-limits.md' })
+    expect(fakeHtmlPreview.last().reloaded).toBe(1)
+
+    await handlers[CommandName.FilesPlaceHtmlPreview]({ taskId, path: 'docs/rate-limits.md', bounds: null })
+    expect(fakeHtmlPreview.last().bounds).toBeNull()
+
+    // A file that isn't there: nothing is placed.
+    await handlers[CommandName.FilesPlaceHtmlPreview]({ taskId, path: 'docs/gone.html', bounds })
+    expect(fakeHtmlPreview.views).toHaveLength(1)
   })
 })
 

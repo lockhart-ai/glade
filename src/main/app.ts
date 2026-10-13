@@ -92,7 +92,10 @@ import { checkSecurity, describeViolations } from './security'
 import { createElectronPluginViews, PLUGIN_VIEW_RADIUS, registerPluginScheme } from './plugins/electron-view'
 import { createFakeMachineSamplers } from './plugins/machine-fake'
 import { createMachineSamplers } from './plugins/machine-samplers'
+import { createElectronHtmlPreviewView } from './files/html-preview-views'
+import { registerHtmlPreviewScheme } from './files/html-preview-protocol'
 import { captureViewOf, type CaptureView } from './capture-views'
+import { viewRadius } from './native-view-radius'
 import { seedConversation } from './capture-conversation'
 import type { TerminalOptions } from './bridge'
 import { spawnNodePty } from './terminal/node-pty'
@@ -331,11 +334,12 @@ async function capture(spec: CaptureSpec, { database, bridge, agent, log }: Capt
     await seedConversation(context, spec.conversation)
   }
   const window = createWindow({ kind: TestModeKind.Capture, spec }, database.db, log)
-  // A plugin's view is drawn over the page, so the capture of the page leaves it out: it's pasted in.
+  // A plugin's view, or the Files viewer's HTML preview, is drawn over the page, so the capture of the page leaves it
+  // out: it's pasted in, at the radius it was made with (the plugin's, for any view never tagged otherwise).
   const nativeViews = (): CaptureView[] =>
     window.contentView.children
       .filter((child) => child instanceof WebContentsView)
-      .map((view) => captureViewOf(view, PLUGIN_VIEW_RADIUS))
+      .map((view) => captureViewOf(view, viewRadius(view, PLUGIN_VIEW_RADIUS)))
   return captureShots(
     {
       setContentSize: (width, height) => {
@@ -702,8 +706,10 @@ export function startApp({
   const stopLoggingCrashes = logCrashes(process, log, testMode === null ? undefined : fatal)
   // Paths are shown from the home folder as `~`, in main's own words (a notification's) as in the windows'.
   setHomeFolder(shownHome(testMode))
-  // Before the app is ready, as Electron requires: a plugin's page is served under its own scheme.
+  // Before the app is ready, as Electron requires: a plugin's page, and the Files viewer's HTML preview, are each
+  // served under their own scheme.
   registerPluginScheme(protocol)
+  registerHtmlPreviewScheme(protocol)
   log.info('app starting', {
     version: app.getVersion(),
     electron: process.versions.electron,
@@ -879,6 +885,14 @@ export function startApp({
         offscreen: testMode?.kind === TestModeKind.Capture,
         log: log.scoped(LogScope.Plugins),
       }),
+      // The Files viewer's HTML preview (#614) goes in Glade's window too, over the viewer's body.
+      createHtmlPreviewView: createElectronHtmlPreviewView({
+        window: () => mainWindows()[0],
+        openExternal: createDesktop(testMode).openExternal,
+        devTools: !app.isPackaged,
+        offscreen: testMode?.kind === TestModeKind.Capture,
+        log: log.scoped(LogScope.Files),
+      }),
       appVersion: app.getVersion(),
       // The Mac's load, for plugins with the `machine` capability on; a test mode's machine is always busy the same way.
       machineSamplers: testMode === null ? createMachineSamplers({ env: () => env }) : createFakeMachineSamplers(),
@@ -977,6 +991,7 @@ export function startApp({
       bridge.login.close()
       void bridge.endpoint.close()
       bridge.pluginViews.close()
+      bridge.htmlPreviewViews.close()
       bridge.machine?.close()
       bridge.artifactWatch.close()
       bridge.folderWatch.close()
