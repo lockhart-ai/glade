@@ -17,10 +17,12 @@ import {
   discardTranscriptImport,
   hasTranscript,
   markTranscriptFailed,
+  sessionProjectKey,
   sqliteSessionStore,
 } from './transcripts'
 import { openRouterSdkModel } from './sdk-model'
 import { importLocalTranscript } from './local-transcripts'
+import { exportSessionToLocal } from './local-export'
 
 export interface OpenRouterRuntimeOptions {
   readonly db: Database
@@ -57,15 +59,20 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
       }
       try {
         let mirrored = sessionId !== null && hasTranscript(db, sessionId, options.taskId ?? null)
-        // Ordinary Claude tasks keep their existing SDK files. Import only at the first OpenRouter handoff.
-        if (sessionId !== null && (recoveryDir !== null || (router && !mirrored))) {
+        // The first handoff to OpenRouter imports Claude's local history into the store. Every later handoff to
+        // OpenRouter re-imports too, merging in whatever a Claude leg wrote locally since (no Claude start mirrors
+        // continuously any more — see the Anthropic branch below): `importLocalTranscript`'s upsert keys on the
+        // entry's own id and never touches an existing row's ordinal, so a repeat import only adds rows, in order,
+        // rather than rebuilding the store. Recovery (`recoveryDir`) still rebuilds outright, as before.
+        if (sessionId !== null && (recoveryDir !== null || router)) {
+          const rebuilding = recoveryDir !== null || !mirrored
           const scope = `${options.taskId ?? ''}:${sessionId}`
           if (imports.has(scope))
             throw new Error('The saved history is still being loaded. Retry when it has finished.')
           imports.add(scope)
-          imported = true
+          imported = rebuilding
           try {
-            beginTranscriptImport(db, sessionId, options.taskId ?? null, recoveryDir)
+            if (rebuilding) beginTranscriptImport(db, sessionId, options.taskId ?? null, recoveryDir)
             const explicitConfig = recoveryDir ?? inherited.CLAUDE_CONFIG_DIR
             if (explicitConfig && explicitConfig !== process.env.CLAUDE_CONFIG_DIR)
               await importLocalTranscript(store, { configDir: explicitConfig, sessionId })
@@ -91,10 +98,33 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
           const env = Object.fromEntries(Object.entries(inherited).filter(([name]) => !name.startsWith('OPENROUTER_')))
           for (const name of new Set([...Object.keys(process.env), ...Object.keys(inherited)]))
             if (name.startsWith('OPENROUTER_')) env[name] = ''
+          // A dispatched child keeps today's behaviour (a resumed child hits this same bug; tracked separately,
+          // not as part of #625). A mirrored task's own session instead exports the store's history into its real
+          // config, below, so it can resume with `resume` alone and never pass `sessionStore` — the one lever that
+          // keeps the Agent SDK from building a `claude-resume-<id>` temporary folder and copying the login in with
+          // its refresh token stripped (`docs/sdk-notes.md`, "Cross-source resume and the login copy"). Losing the
+          // task's OpenRouter history is the greater harm, so any doubt about the export falls back to the store.
+          let useStore = options.managedAgentId !== undefined
+          if (!useStore && mirrored && sessionId !== null) {
+            // `sessionProjectKey` reads the exact rows `hasTranscript` (which `mirrored` is built from) requires to
+            // exist, so it is never null here; the `if` only keeps the type narrowed for `exportSessionToLocal`.
+            const projectKey = sessionProjectKey(db, sessionId, options.taskId ?? null)
+            if (projectKey !== null) {
+              try {
+                await exportSessionToLocal(store, { configDir, projectKey, sessionId })
+              } catch (error) {
+                options.log?.warn(
+                  'could not export the mirrored transcript into the real Claude config; resuming through the session store instead',
+                  { sessionId, error },
+                )
+                useStore = true
+              }
+            }
+          }
           return {
             env,
-            ...(mirrored || options.managedAgentId !== undefined ? { sessionStore: store } : {}),
-            ...(mirrored || options.managedAgentId !== undefined ? { onMirrorError: mirrorFailure } : {}),
+            ...(useStore ? { sessionStore: store } : {}),
+            ...(useStore ? { onMirrorError: mirrorFailure } : {}),
             publishModels: true,
             activate,
             close() {

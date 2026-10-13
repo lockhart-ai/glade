@@ -3510,3 +3510,37 @@ even when the Claude limit did not affect the child's source.
 See [landing limitations and follow-ups](openrouter-integration-spec.md#landing-limitations-and-follow-ups) for
 unbuilt behavior and outstanding smoke tests. Existing bounded live dispatch probes used reduced prompts and no
 filesystem tools; they do not establish production-prompt, sandbox or permission-card compatibility.
+
+## 18. Cross-source resume and the login copy (#625) [verified in the SDK bundle, 0.3.283, not reproduced live]
+
+A task that has ever been mirrored (run once on OpenRouter) got stuck "logged out" on the Keychain account forever
+after, however many times Log in succeeded. Read `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs` (minified;
+names below are its own, e.g. `lze`, `cze`, `_W`, not Glade's) to find why, rather than reproduce it live — it needs
+a real login expiring, which isn't something a test can force.
+
+- **The trigger is exactly `(options.resume || options.continue) && options.sessionStore`, nothing narrower.**
+  `lze()`, the entry point `query()` calls, has that literal condition; only then does it call `cze()`, which is
+  what builds the temporary folder. `sessionStore` given *without* `resume`/`continue` takes the plain path (`lA()`
+  directly) and never builds one. The read-only spike that preceded this issue inferred the same condition from
+  behaviour; this confirms it from the source.
+- **`cze()` builds `<os.tmpdir()>/claude-resume-<random>`,** writes the session's history from the store into
+  `<temp>/projects/<projectKey>/<sessionId>.jsonl` (`_W()`), then copies the *real* config's `.credentials.json`
+  into the temp folder through `nze()`, which does exactly one thing to it: `if (parsed?.claudeAiOauth?.refreshToken)
+  delete parsed.claudeAiOauth.refreshToken`. Everything else in the real config (`.claude.json`, `settings.json`,
+  `cowork_settings.json`) is copied across unchanged. The subprocess then runs with `CLAUDE_CONFIG_DIR` pointed at
+  this temp folder for its entire life; `aze()` deletes the folder when the process exits (`waitForExit().finally`).
+  So a resumed session's access token can expire but never renew, and nothing it does is visible outside that temp
+  folder once it closes — a later `claude auth login` writes to the real config, which this process never reads again.
+- **There is no supported way around this**, confirming the spike: `sessionStore` is the only lever Glade has: pass
+  it on a `resume`/`continue` start and you get the temp folder, full stop. The fix (#625) is accordingly to pass
+  `sessionStore` on a Claude-model start only when there's no alternative (a dispatched child; an export failure),
+  and otherwise give that leg the real config's own transcript file directly (`src/main/openrouter/local-export.ts`)
+  so it resumes on the real `CLAUDE_CONFIG_DIR` with `resume` alone, never `sessionStore`.
+- **The transcript line format, matched exactly so a plain `resume` reads the exported file the same as one of its
+  own:** `bc(path, entries)` (the function `_W()` calls to write the temp folder's `.jsonl`) opens the file with
+  `createWriteStream(path, { mode: 0o600 })` and writes `JSON.stringify(entry) + "\n"` per entry, nothing else — no
+  pretty-printing, no trailing content. Its directory (`<temp>/projects/<projectKey>`) is made with
+  `mkdir(dir, { recursive: true, mode: 0o700 })`. `local-export.ts` uses the same two modes.
+- **Not retested here:** a dispatched child (`managedAgentId`) still gets `sessionStore` unconditionally, on every
+  model, so a *resumed* child on a Claude model hits this exact temp folder too. Filed as its own issue rather than
+  folded into #625's fix, since the issue and its acceptance criteria are about a task's own session.

@@ -80,6 +80,16 @@ export function hasTranscript(
   )
 }
 
+/** The project key the SDK recorded when this session's entries were mirrored, so an export back to the real local
+ * config can place the file where a plain resume (no `sessionStore`) will look for it. Null only when the session
+ * has nothing mirrored at `subpath ''` yet, which callers already gate on via `hasTranscript`. */
+export function sessionProjectKey(db: Database, sessionId: string, taskId: string | null = null): string | null {
+  const raw = db
+    .prepare("SELECT project_key FROM sdk_transcripts WHERE owner = ? AND session_id = ? AND subpath = '' LIMIT 1")
+    .get(taskId ?? '', sessionId)
+  return raw === undefined ? null : new Row('sdk_transcripts', raw).text('project_key')
+}
+
 /** Recovery's source survives a crash during import as well as the original mirror failure. */
 export function failedTranscriptConfig(db: Database, sessionId: string, taskId: string | null): string | null {
   const raw = db

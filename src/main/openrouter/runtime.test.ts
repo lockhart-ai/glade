@@ -1,5 +1,5 @@
 import { importSessionToStore } from '@anthropic-ai/claude-agent-sdk'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -7,12 +7,19 @@ import { Effort, PermissionMode } from '../../shared/domain'
 import type { AgentSessionOptions } from '../agent/backend'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { setOpenRouterChoice } from '../db/repositories/openrouter'
+import { SILENT_LOGGER } from '../logging/logger'
 import { OpenRouterClient } from './client'
 import { createOpenRouterRelay } from './relay'
 import { openRouterRuntime } from './runtime'
 import { OpenRouterService } from './service'
 import { SAMPLE_CHOICE, SAMPLE_MODEL, SAMPLE_PROVIDER } from '../../shared/test-openrouter'
-import { beginTranscriptImport, hasTranscript, markTranscriptFailed, sqliteSessionStore } from './transcripts'
+import {
+  beginTranscriptImport,
+  failedTranscriptConfig,
+  hasTranscript,
+  markTranscriptFailed,
+  sqliteSessionStore,
+} from './transcripts'
 import { openRouterSdkModel } from './sdk-model'
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ importSessionToStore: vi.fn() }))
@@ -201,7 +208,7 @@ it('retries a partial legacy import without resuming its prefix, while Claude ke
   expect(importSessionToStore).toHaveBeenCalledTimes(2)
 })
 
-it('imports legacy main and child history once, and never silently starts without the saved context', async () => {
+it('imports legacy main and child history, merging again on a later handoff, and never silently starts without the saved context', async () => {
   vi.mocked(importSessionToStore).mockImplementation(async (id, store) => {
     await store.append({ projectKey: '-code-sample', sessionId: id }, [
       {
@@ -213,8 +220,10 @@ it('imports legacy main and child history once, and never silently starts withou
   })
   const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
   await runtime.prepare({ ...options, resumeSessionId: 'saved-session' }, { ...inherited, CLAUDE_CONFIG_DIR: '' })
+  // A second start on OpenRouter is a later handoff, not the first: it re-imports to merge in anything a Claude
+  // leg wrote locally meanwhile, rather than skipping because the session is already mirrored.
   await runtime.prepare({ ...options, resumeSessionId: 'saved-session' }, { ...inherited, CLAUDE_CONFIG_DIR: '' })
-  expect(importSessionToStore).toHaveBeenCalledOnce()
+  expect(importSessionToStore).toHaveBeenCalledTimes(2)
   expect(importSessionToStore).toHaveBeenCalledWith('saved-session', expect.anything(), {
     dir: options.cwd,
     includeSubagents: true,
@@ -222,12 +231,24 @@ it('imports legacy main and child history once, and never silently starts withou
   expect(
     await sqliteSessionStore(database.db).load({ projectKey: '-code-sample', sessionId: 'saved-session' }),
   ).toMatchObject([{ uuid: 'original' }])
+  const claudeConfig = join(dir, 'real-claude')
   const returned = await runtime.prepare(
     { ...options, model: 'sonnet', resumeSessionId: 'saved-session' },
-    { ...inherited, CLAUDE_CONFIG_DIR: join(dir, 'unreadable-claude') },
+    { ...inherited, CLAUDE_CONFIG_DIR: claudeConfig },
   )
-  expect(returned.sessionStore).toBeDefined()
-  returned.onMirrorError?.('saved-session')
+  // The mirrored session's history is exported into the real config instead of being resumed through the store,
+  // so this Claude leg never asks the Agent SDK to build a `claude-resume-<id>` temporary folder (#625).
+  expect(returned.sessionStore).toBeUndefined()
+  expect(returned.onMirrorError).toBeUndefined()
+  expect(
+    readFileSync(join(claudeConfig, 'projects', '-code-sample', 'saved-session.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as unknown),
+  ).toMatchObject([{ uuid: 'original' }])
+  // A mirror failure recorded against a source that no longer has the transcript (standing in for `onMirrorError`,
+  // which this Claude leg no longer has to call, having never been given a session store to fail) still recovers.
+  markTranscriptFailed(database.db, 'saved-session', null, join(dir, 'lost-claude'))
   await expect(
     runtime.prepare({ ...options, resumeSessionId: 'saved-session' }, { ...inherited, CLAUDE_CONFIG_DIR: '' }),
   ).rejects.toThrow('history could not be recovered')
@@ -235,6 +256,103 @@ it('imports legacy main and child history once, and never silently starts withou
   await expect(
     runtime.prepare({ ...options, resumeSessionId: 'missing-history' }, { ...inherited, CLAUDE_CONFIG_DIR: '' }),
   ).rejects.toThrow('saved SDK history')
+})
+
+it('falls back to the session store when the mirrored transcript cannot be exported to the real config (#625)', async () => {
+  vi.mocked(importSessionToStore).mockImplementation(async (id, store) => {
+    await store.append({ projectKey: 'sample', sessionId: id }, [{ type: 'user', uuid: 'u1' }])
+  })
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  await runtime.prepare({ ...options, resumeSessionId: 'saved' }, { ...inherited, CLAUDE_CONFIG_DIR: '' })
+  // A file sits where the export would need a directory, so its mkdir fails (ENOTDIR): losing the OpenRouter
+  // history would be the greater harm, so the start falls back to the session store rather than drop it.
+  const blocked = join(dir, 'blocked-claude')
+  mkdirSync(blocked, { recursive: true })
+  writeFileSync(join(blocked, 'projects'), 'not a directory')
+  const warn = vi.fn()
+  const returned = await runtime.prepare(
+    { ...options, model: 'sonnet', resumeSessionId: 'saved', log: { ...SILENT_LOGGER, warn } },
+    { ...inherited, CLAUDE_CONFIG_DIR: blocked },
+  )
+  expect(returned.sessionStore).toBeDefined()
+  expect(await returned.sessionStore?.load({ projectKey: 'sample', sessionId: 'saved' })).toEqual([
+    { type: 'user', uuid: 'u1' },
+  ])
+  expect(warn).toHaveBeenCalledWith(
+    expect.stringContaining('could not export'),
+    expect.objectContaining({ sessionId: 'saved' }),
+  )
+  // The fallback still wires up `onMirrorError`, the same as an ordinary OpenRouter start.
+  returned.onMirrorError?.('saved')
+  expect(failedTranscriptConfig(database.db, 'saved', null)).toBe(blocked)
+})
+
+it('merges a Claude export by the entries’ own ids, and reconstructs the local file across a Claude → OpenRouter → Claude round trip (#625)', async () => {
+  const claudeConfig = join(dir, 'real-claude')
+  mkdirSync(join(claudeConfig, 'projects', 'sample'), { recursive: true })
+  writeFileSync(
+    join(claudeConfig, 'projects', 'sample', 'round-trip.jsonl'),
+    '{"type":"user","uuid":"u1"}\n{"type":"assistant","uuid":"a1"}\n',
+  )
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  // `CLAUDE_CONFIG_DIR` is given explicitly here, so `runtime.ts` reads the real local file through
+  // `importLocalTranscript` rather than the mocked `importSessionToStore` (which is for the login-shell default).
+  await runtime.prepare(
+    { ...options, resumeSessionId: 'round-trip' },
+    { ...inherited, CLAUDE_CONFIG_DIR: claudeConfig },
+  )
+  // While on OpenRouter, a new turn mirrors in (the live SDK's own batcher, stood in for here directly).
+  await sqliteSessionStore(database.db).append({ projectKey: 'sample', sessionId: 'round-trip' }, [
+    { type: 'assistant', uuid: 'or-1' },
+  ])
+  const backOnClaude = await runtime.prepare(
+    { ...options, model: 'sonnet', resumeSessionId: 'round-trip' },
+    { ...inherited, CLAUDE_CONFIG_DIR: claudeConfig },
+  )
+  expect(backOnClaude.sessionStore).toBeUndefined()
+  const exported = readFileSync(join(claudeConfig, 'projects', 'sample', 'round-trip.jsonl'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as unknown)
+  // The two original lines are untouched (matched, not duplicated) and the OpenRouter-only entry is appended after.
+  expect(exported).toEqual([
+    { type: 'user', uuid: 'u1' },
+    { type: 'assistant', uuid: 'a1' },
+    { type: 'assistant', uuid: 'or-1' },
+  ])
+  // A same-leg retry (another prepare() for this Claude leg, nothing new in the store) must not re-export or
+  // duplicate anything: it already has everything the store has.
+  const retried = await runtime.prepare(
+    { ...options, model: 'sonnet', resumeSessionId: 'round-trip' },
+    { ...inherited, CLAUDE_CONFIG_DIR: claudeConfig },
+  )
+  expect(retried.sessionStore).toBeUndefined()
+  expect(
+    readFileSync(join(claudeConfig, 'projects', 'sample', 'round-trip.jsonl'), 'utf8')
+      .trim()
+      .split('\n'),
+  ).toHaveLength(3)
+})
+
+it('starts a Claude retry of a mirrored, logged-out task on its real config, not a session store (#625)', async () => {
+  // Stands in for `runner.ts`'s `restartSession`: a session with background work running is kept alive on a
+  // logged-out retry rather than closed (`runner.test.ts`, "keeps the session, retrying in it, when a watcher it
+  // started is still live"); this is the fact that makes that safe once more — the kept session was never handed
+  // a session store, so it reads the real Keychain-backed config and can renew its own login, retry or not.
+  const claudeConfig = join(dir, 'real-claude')
+  mkdirSync(join(claudeConfig, 'projects', 'sample'), { recursive: true })
+  writeFileSync(join(claudeConfig, 'projects', 'sample', 'retried.jsonl'), '{"type":"user","uuid":"u1"}\n')
+  await sqliteSessionStore(database.db).append({ projectKey: 'sample', sessionId: 'retried' }, [
+    { type: 'user', uuid: 'u1' },
+  ])
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  const env = { ...inherited, CLAUDE_CONFIG_DIR: claudeConfig }
+  const first = await runtime.prepare({ ...options, model: 'sonnet', resumeSessionId: 'retried' }, env)
+  expect(first.sessionStore).toBeUndefined()
+  // The turn fails on an expired login; the session is retried (same `resumeSessionId`, a fresh `prepare()`).
+  const retry = await runtime.prepare({ ...options, model: 'sonnet', resumeSessionId: 'retried' }, env)
+  expect(retry.sessionStore).toBeUndefined()
+  expect(retry.onMirrorError).toBeUndefined()
 })
 
 it('discards uncommitted handoff copies and reimports Claude turns written after a cancelled handoff', async () => {
