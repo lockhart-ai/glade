@@ -24,14 +24,20 @@ test('subagents: a tab per subagent, running first, each saying what it’s doin
   // Three subagents ran side by side: the link check finished, the other two are still at it. Wait for the link
   // check to settle before reading the strip's order, so the snapshot is never mid-transition.
   await expect(panel.tab(/^Agents/)).toHaveText('Agents 4')
-  await expect(agents.tab('Check links in the 2.3 notes')).not.toHaveAttribute('data-running')
-  // The running ones come first, newest first (Dashboard changes started after API changes), then the finished one.
+  // The finished link check is in the caret's dropdown (#617); picking it shows it as the temporary tab after the
+  // running ones, so the strip's order reads the same: the running ones first, newest first (Dashboard changes
+  // started after API changes), then the finished one.
+  await expect(agents.caret).toHaveText('1')
+  await agents.caret.click()
+  await agents.finished('Check links in the 2.3 notes').click()
   expect(await agents.tabs.evaluateAll((tabs) => tabs.map((tab) => tab.getAttribute('title')))).toEqual([
     'Main',
     'Dashboard changes',
     'API changes',
     'Check links in the 2.3 notes',
   ])
+  // Back to Main's log, where the subagents' Agent calls are rows.
+  await agents.tab('Main').click()
 
   // Each running one says what it's doing now; the finished one says how it ended, with what it found.
   const api = agents.agentCall('API changes')

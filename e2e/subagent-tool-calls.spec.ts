@@ -37,21 +37,27 @@ async function checkEveryAgent(window: Page): Promise<void> {
   await expect(agents.list).not.toContainText(/gh pr|redis-cli|throttles|charts\.ts|2\.3\.md|curl|Listing the merged/)
   await expect(agents.list.getByRole('group')).toHaveCount(0)
 
-  // Each subagent's own tab lists its own calls, in order, with how each went. The nested subagent's calls aren't
-  // among them: only the Agent call that started it is, same as Main never shows API changes's own calls.
-  await agents.tab('API changes').click()
+  // By the time the reply is in, the three that ran with the turn have finished; the background one finishes after
+  // it. Each subagent is picked from the caret's dropdown (#617) and shows as the strip's temporary tab, whose
+  // panel lists its own calls, in order, with how each went. The nested subagent's calls aren't among API changes's:
+  // only the Agent call that started it is, same as Main never shows API changes's own calls.
+  await expect(agents.caret).toHaveText('4')
+  await agents.caret.click()
+  await agents.finished('API changes').click()
   await expect(agents.list).toContainText('Listing the merged API PRs.')
   await expect(agents.list.getByRole('button')).toHaveCount(2)
   await expect(agents.list.getByRole('button').nth(0)).toHaveAccessibleName(/^Done Bash gh pr list --label api/)
   await expect(agents.list.getByRole('button').nth(1)).toHaveAccessibleName(/^Done Agent Read PR 1402/)
   // The nested subagent's own calls are on its own tab.
-  await agents.tab('Read PR 1402').click()
+  await agents.caret.click()
+  await agents.finished('Read PR 1402').click()
   await expect(agents.list.getByRole('button')).toHaveCount(2)
   await expect(agents.list.getByRole('button').nth(0)).toHaveAccessibleName(/^Done Bash gh pr view 1402/)
   await expect(agents.list.getByRole('button').nth(1)).toHaveAccessibleName(/^Done Read api\/throttles\.py/)
 
   // The dashboard one's failed call is pink, and opens on its error.
-  await agents.tab('Dashboard changes').click()
+  await agents.caret.click()
+  await agents.finished('Dashboard changes').click()
   await expect(agents.list.getByRole('button')).toHaveCount(3)
   const failed = agents.list.getByRole('button').first()
   await expect(failed).toHaveAccessibleName(/^Failed Bash redis-cli/)
@@ -59,7 +65,8 @@ async function checkEveryAgent(window: Page): Promise<void> {
   await expect(agents.list.getByLabel('Bash output')).toContainText('Connection refused')
 
   // The background one's calls are under its own tab too.
-  await agents.tab('Check links in the 2.3 notes').click()
+  await agents.caret.click()
+  await agents.finished('Check links in the 2.3 notes').click()
   await expect(agents.list.getByRole('button')).toHaveCount(2)
   await expect(agents.list.getByRole('button').first()).toHaveAccessibleName(/^Done Read docs\/releases\/2\.3\.md/)
   await expect(agents.list.getByRole('button').last()).toHaveAccessibleName(/^Done Bash curl -sI/)
