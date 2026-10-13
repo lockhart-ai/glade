@@ -330,8 +330,11 @@ for (const source of ['Claude', 'OpenRouter'] as const) {
     await expect(chat(window).agentReplies.last()).toContainText('Both children finished on their selected models.')
     await taskPanel(window).tab('Agents').click()
     const agents = agentsTab(window)
-    await expect(agents.tabs).toHaveCount(3)
-    await agents.tab('Check the sample file').click()
+    // Both children have finished by now: Main is the strip's only tab, and they're in the caret's dropdown (#617).
+    await expect(agents.tabs).toHaveCount(1)
+    await expect(agents.caret).toHaveText('2')
+    await agents.caret.click()
+    await agents.finished('Check the sample file').click()
     await expect(agents.line).toContainText('Sample Flash · Sample Host')
     await expect(agents.line).toContainText('Done')
     await expect(agents.list).toContainText('Here is a first draft of the release notes.')
@@ -340,7 +343,8 @@ for (const source of ['Claude', 'OpenRouter'] as const) {
       mkdirSync(media, { recursive: true })
       await regions(window).task.screenshot({ path: join(media, `mixed-${source.toLowerCase()}-parent.png`) })
     }
-    await agents.tab('Review the sample test').click()
+    await agents.caret.click()
+    await agents.finished('Review the sample test').click()
     await expect(agents.line).toContainText('Haiku')
     await expect(agents.line).toContainText('Done')
     if (media !== undefined && source === 'OpenRouter') {
