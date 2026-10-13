@@ -28,6 +28,7 @@ import type {
   PermissionMode,
   PermissionRequest,
   QuestionAnswers,
+  QuestionCardDraft,
   QuestionSet,
   QueuedMessage,
   Task,
@@ -120,6 +121,7 @@ export enum CommandName {
   DraftsGet = 'drafts.get',
   DraftsSet = 'drafts.set',
   QuestionsAnswer = 'questions.answer',
+  QuestionsDraftSet = 'questions.draftSet',
   PermissionsAnswer = 'permissions.answer',
   FilesRead = 'files.read',
   FilesWrite = 'files.write',
@@ -584,6 +586,11 @@ export interface TasksHistoryResponse {
   readonly queuedMessages: readonly QueuedMessage[]
   /** Every question set the agent asked, open or closed, in the order it asked them. */
   readonly questionSets: readonly QuestionSet[]
+  /**
+   * What you had filled in on the open question card (`ask`) and not sent yet; null when the task has no open card, or
+   * its card has nothing in it.
+   */
+  readonly questionDraft: QuestionCardDraft | null
   /** Every permission request its agent's tool calls made, open or closed, in the order they were made. */
   readonly permissionRequests: readonly PermissionRequest[]
   /** The tool calls a rule decided, not you: a grant or task rule that let one through, or the sandbox blocking one. */
@@ -741,6 +748,18 @@ export interface QuestionsAnswerRequest {
 export interface QuestionSetResponse {
   /** The question set as it now is: answered, with its answers tidied (text trimmed, the unanswered dropped). */
   readonly questionSet: QuestionSet
+}
+
+/**
+ * Stores what's filled in on a task's open question card and not sent yet (`QuestionCardDraft`), as you type, so the
+ * card shows as you left it when you come back to the task, and after a relaunch. Main keeps it on the open question
+ * set's row, and it goes when the set is answered or withdrawn. A draft that has nothing in it stores none, and one for
+ * a set that isn't open (it has just been answered or withdrawn, and a save is on its way) does nothing.
+ */
+export interface QuestionsDraftSetRequest {
+  readonly taskId: string
+  /** What the card has filled in; null when nothing is left, which stores none. */
+  readonly draft: QuestionCardDraft | null
 }
 
 /**
@@ -1464,6 +1483,7 @@ export interface CommandMap {
   [CommandName.DraftsGet]: CommandSpec<DraftsGetRequest, DraftsGetResponse>
   [CommandName.DraftsSet]: CommandSpec<DraftsSetRequest, null>
   [CommandName.QuestionsAnswer]: CommandSpec<QuestionsAnswerRequest, QuestionSetResponse>
+  [CommandName.QuestionsDraftSet]: CommandSpec<QuestionsDraftSetRequest, null>
   [CommandName.PermissionsAnswer]: CommandSpec<PermissionsAnswerRequest, PermissionRequestResponse>
   [CommandName.FilesRead]: CommandSpec<FilesReadRequest, FilesReadResponse>
   [CommandName.FilesWrite]: CommandSpec<FilesWriteRequest, null>

@@ -1,9 +1,10 @@
 import { faCircleQuestion } from '@fortawesome/free-regular-svg-icons'
 import { faArrowUp } from '@fortawesome/free-solid-svg-icons'
-import { useId, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import {
   QuestionKind,
   QuestionReplyKind,
+  QuestionSetState,
   type ChoiceOption,
   type ChoiceQuestion,
   type PillsQuestion,
@@ -17,7 +18,8 @@ import { Button, ButtonVariant, Icon, IconSize, Input, Textarea, useToast } from
 import { classNames } from '../components/classNames'
 import { LinkedText } from '../links'
 import { describeFailure } from '../store/hydrate'
-import { useGladeStore } from '../store/react'
+import { useGladeStore, useGladeStoreApi } from '../store/react'
+import { DRAFT_SAVE_DELAY_MS } from '../input-bar/InputBar'
 import {
   ANYTHING_ELSE_PLACEHOLDER,
   ANYTHING_ELSE_PROMPT,
@@ -313,26 +315,118 @@ interface OpenCardProps extends QuestionCardProps {
   readonly appear: boolean
 }
 
+/** What the card has filled in, as it keeps it and as main last stored it: saved a pause after a change. */
+interface CardDraftSnapshot {
+  readonly draft: AnswerDraft
+  readonly anythingElse: string
+}
+
+/** Whether two snapshots of a card's draft have the same answers and the same "Anything else?" text. */
+function sameSnapshot(one: CardDraftSnapshot, other: CardDraftSnapshot): boolean {
+  if (one.anythingElse !== other.anythingElse) return false
+  const keys = Object.keys(one.draft)
+  return keys.length === Object.keys(other.draft).length && keys.every((key) => one.draft[key] === other.draft[key])
+}
+
+/** Whether a snapshot has nothing in it: no answers, and nothing typed in the "Anything else?" box. */
+function isEmptySnapshot({ draft, anythingElse }: CardDraftSnapshot): boolean {
+  const answered = Object.values(draft).some((answer) =>
+    typeof answer === 'string' ? answer.trim() !== '' : answer.length > 0,
+  )
+  return !answered && anythingElse.trim() === ''
+}
+
 function OpenCard({ questionSet, appear, highlight }: OpenCardProps) {
   const { questions } = questionSet
+  const taskId = questionSet.taskId
   const answerQuestions = useGladeStore((state) => state.answerQuestions)
+  const keepQuestionDraft = useGladeStore((state) => state.keepQuestionDraft)
+  const saveQuestionDraft = useGladeStore((state) => state.saveQuestionDraft)
   const toast = useToast()
-  const [draft, setDraft] = useState<AnswerDraft>({})
-  const [anythingElse, setAnythingElse] = useState('')
+  // What the card had filled in as it last went, kept for the task (`questionDrafts`): it starts from it. Read once,
+  // as the card mounts. A kept draft for another question set isn't this card's — its question closed while the card
+  // was away — so it's ignored here, and dropped below.
+  const storeApi = useGladeStoreApi()
+  const [kept] = useState(() => storeApi.getState().questionDrafts[taskId])
+  const mine = kept?.questionSetId === questionSet.id ? kept : undefined
+  const [draft, setDraft] = useState<AnswerDraft>(() => mine?.draft ?? {})
+  const [anythingElse, setAnythingElse] = useState(() => mine?.anythingElse ?? '')
   const [focused, setFocused] = useState<Readonly<Record<number, number>>>({})
   const [sending, setSending] = useState(false)
   const card = useRef<HTMLFormElement>(null)
   const answers = answersToSend(questions, draft)
   const ready = answers !== null && !sending
 
+  // The card's draft as it now is, and as main last stored it (or had it, as the card mounted): a change is stored a
+  // pause after it's made, and at once when the card goes (another task selected) or the window does (quitting).
+  const latest = useRef<CardDraftSnapshot>({ draft, anythingElse })
+  const stored = useRef<CardDraftSnapshot>({ draft, anythingElse })
+  const pendingSave = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /** Stores the card's draft in main if it changed since it last was; none, when nothing is left in it. */
+  const saveNow = useCallback(() => {
+    if (pendingSave.current !== null) clearTimeout(pendingSave.current)
+    pendingSave.current = null
+    const current = latest.current
+    if (sameSnapshot(current, stored.current)) return
+    stored.current = current
+    void saveQuestionDraft({
+      taskId,
+      draft: isEmptySnapshot(current)
+        ? null
+        : { questionSetId: questionSet.id, draft: current.draft, anythingElse: current.anythingElse },
+    })
+  }, [questionSet.id, saveQuestionDraft, taskId])
+
   const send = (): void => {
     if (!ready) return
     setSending(true)
-    answerQuestions(questionSet.id, answers, tidyAnythingElse(anythingElse)).catch((error: unknown) => {
-      setSending(false)
-      toast.show({ message: `Couldn’t send your answers: ${describeFailure(error)}` })
-    })
+    answerQuestions(questionSet.id, answers, tidyAnythingElse(anythingElse))
+      .then(() => {
+        // Sent, so the card has no draft now: over any save of it on its way, and forgotten as the card goes.
+        if (pendingSave.current !== null) clearTimeout(pendingSave.current)
+        pendingSave.current = null
+        latest.current = { draft: {}, anythingElse: '' }
+        stored.current = { draft: {}, anythingElse: '' }
+      })
+      .catch((error: unknown) => {
+        setSending(false)
+        toast.show({ message: `Couldn’t send your answers: ${describeFailure(error)}` })
+      })
   }
+
+  useEffect(() => {
+    latest.current = { draft, anythingElse }
+    if (pendingSave.current !== null) clearTimeout(pendingSave.current)
+    pendingSave.current = sameSnapshot(latest.current, stored.current) ? null : setTimeout(saveNow, DRAFT_SAVE_DELAY_MS)
+  }, [draft, anythingElse, saveNow])
+
+  // The draft as it is goes with the card, should its task come back, and is stored when the window goes. A draft is
+  // only kept for its question set still being open: the card may be going because its answers were sent, or its
+  // question withdrawn, and neither leaves a draft behind. What you emptied of the card goes too.
+  useEffect(() => {
+    const flush = saveNow
+    window.addEventListener('beforeunload', flush)
+    return () => {
+      window.removeEventListener('beforeunload', flush)
+      flush()
+      const current = latest.current
+      const stillOpen = (storeApi.getState().questionSets[taskId] ?? []).some(
+        ({ id, state }) => id === questionSet.id && state === QuestionSetState.Open,
+      )
+      keepQuestionDraft(
+        taskId,
+        stillOpen && !isEmptySnapshot(current)
+          ? { questionSetId: questionSet.id, draft: current.draft, anythingElse: current.anythingElse }
+          : null,
+      )
+    }
+  }, [keepQuestionDraft, questionSet.id, saveNow, storeApi, taskId])
+
+  // A kept draft for a question set that isn't this card's is nobody's any more: dropped.
+  useEffect(() => {
+    if (kept !== undefined && kept.questionSetId !== questionSet.id) keepQuestionDraft(taskId, null)
+  }, [kept, keepQuestionDraft, questionSet.id, taskId])
 
   const focus = (move: Move): void => {
     const root = card.current

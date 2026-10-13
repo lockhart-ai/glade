@@ -10,6 +10,7 @@ import {
   type Message,
   type PermissionMark,
   type PermissionRequest,
+  type QuestionCardDraft,
   type QuestionSet,
   type TodoList,
   type ToolCallEvent,
@@ -170,6 +171,8 @@ export function withHistory(
     handoffs: { ...state.handoffs, [taskId]: newerHandoff(history.handoff, state.handoffs[taskId]) },
     // Like the queue, watchers change in place: the loaded ones are as new as any event before them.
     watchers: withWatchers(state.watchers, taskId, history.watchers),
+    // The card's draft as main has it: the card reads it once, as it mounts.
+    questionDrafts: withQuestionDraft(state.questionDrafts, taskId, history.questionDraft),
     // Commits, too: the loaded list is the task's whole list as it was then.
     commits: { ...state.commits, [taskId]: history.commits },
     // Only this window picks it, and it has by the time a load that follows its pick answers.
@@ -188,6 +191,28 @@ export function withAgentTab(
 ): GladeData['agentTabs'] {
   if ((agentTabs[taskId] ?? null) === agentId) return agentTabs
   return agentId === null ? without(agentTabs, taskId) : { ...agentTabs, [taskId]: agentId }
+}
+
+/** The task's card draft as its history loaded it: dropped when it has none, since a null entry would lie. */
+function withQuestionDraft(
+  drafts: GladeData['questionDrafts'],
+  taskId: string,
+  draft: QuestionCardDraft | null,
+): GladeData['questionDrafts'] {
+  if (draft === null) return without(drafts, taskId)
+  return { ...drafts, [taskId]: draft }
+}
+
+/**
+ * A question set that closed (answered, or withdrawn): replaced in its task's sets, and its card's draft forgotten —
+ * nothing can send it now, so none is left behind.
+ */
+function withClosedQuestionSet(state: GladeData, set: QuestionSet): GladeData {
+  const drafts =
+    state.questionDrafts[set.taskId]?.questionSetId === set.id
+      ? without(state.questionDrafts, set.taskId)
+      : state.questionDrafts
+  return { ...state, questionSets: withReplaced(state.questionSets, set), questionDrafts: drafts }
 }
 
 /**
@@ -326,6 +351,7 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     todoPanels: without(state.todoPanels, taskId),
     agentTabs: without(state.agentTabs, taskId),
     inputDrafts: without(state.inputDrafts, taskId),
+    questionDrafts: without(state.questionDrafts, taskId),
     fileFocus: state.fileFocus?.taskId === taskId ? null : state.fileFocus,
     toolLogFocus: state.toolLogFocus?.taskId === taskId ? null : state.toolLogFocus,
     todoFocus: state.todoFocus?.taskId === taskId ? null : state.todoFocus,
@@ -383,7 +409,7 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, questionSets: withAppended(state.questionSets, event.questionSet) }
     case EventType.QuestionAnswered:
     case EventType.QuestionWithdrawn:
-      return { ...state, questionSets: withReplaced(state.questionSets, event.questionSet) }
+      return withClosedQuestionSet(state, event.questionSet)
     case EventType.PermissionOpened:
       return { ...state, permissionRequests: withAppended(state.permissionRequests, event.permissionRequest) }
     case EventType.PermissionAnswered:

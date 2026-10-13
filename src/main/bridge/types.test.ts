@@ -27,6 +27,7 @@ import {
   type OpenFiles,
   type PermissionMark,
   type PermissionRequest,
+  type QuestionCardDraft,
   type QuestionSet,
   type QueuedMessage,
   type Task,
@@ -99,6 +100,7 @@ const TASK_HANDLERS = {
     toolEvents: [],
     queuedMessages: [],
     questionSets: [],
+    questionDraft: null,
     permissionRequests: [],
     permissionMarks: [],
     openFiles: { taskId: 't', paths: [], activePath: null },
@@ -120,6 +122,7 @@ const TASK_HANDLERS = {
   [CommandName.DraftsGet]: () => ({ draft: null }),
   [CommandName.DraftsSet]: () => null,
   [CommandName.QuestionsAnswer]: () => ({ questionSet: {} as QuestionSet }),
+  [CommandName.QuestionsDraftSet]: () => null,
   [CommandName.PermissionsAnswer]: () => ({ permissionRequest: {} as PermissionRequest }),
   [CommandName.FilesRead]: () => ({ content: { kind: FileContentKind.Missing } }),
   [CommandName.FilesWrite]: () => null,
@@ -266,6 +269,7 @@ const TASK_SCHEMAS = {
   [CommandName.DraftsGet]: REQUEST_SCHEMAS[CommandName.DraftsGet],
   [CommandName.DraftsSet]: REQUEST_SCHEMAS[CommandName.DraftsSet],
   [CommandName.QuestionsAnswer]: REQUEST_SCHEMAS[CommandName.QuestionsAnswer],
+  [CommandName.QuestionsDraftSet]: REQUEST_SCHEMAS[CommandName.QuestionsDraftSet],
   [CommandName.PermissionsAnswer]: REQUEST_SCHEMAS[CommandName.PermissionsAnswer],
   [CommandName.FilesRead]: REQUEST_SCHEMAS[CommandName.FilesRead],
   [CommandName.FilesWrite]: REQUEST_SCHEMAS[CommandName.FilesWrite],
@@ -359,6 +363,7 @@ describe('the command map', () => {
       readonly toolEvents: readonly ToolEvent[]
       readonly queuedMessages: readonly QueuedMessage[]
       readonly questionSets: readonly QuestionSet[]
+      readonly questionDraft: QuestionCardDraft | null
       readonly permissionRequests: readonly PermissionRequest[]
       readonly permissionMarks: readonly PermissionMark[]
       readonly openFiles: OpenFiles
