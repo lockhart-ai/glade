@@ -8,9 +8,12 @@
  * each todo's card only the ones its own text names (`namedBy`): a link added or removed renders the cards that name
  * it, and no other. Pure, so it's tested on its own.
  */
-import { linkLabel, LinkKind, recogniseLink } from '../../shared/artifactLinks'
+import { linkLabel, LinkKind, recogniseLink, type RecognisedLink } from '../../shared/artifactLinks'
 import { ArtifactKind, type Artifact, type Todo } from '../../shared/domain'
 import { linkSegments, SegmentKind, type Segment } from '../links'
+
+/** A link that names something: a PR, an issue or a ticket (a link to any other page has nothing to be named by). */
+type NamedLink = Extract<RecognisedLink, { kind: LinkKind.PullRequest | LinkKind.Issue | LinkKind.Ticket }>
 
 /**
  * What a todo's text may name, each with the address it opens: a PR or issue by its number as it's written (`#511`),
@@ -32,24 +35,73 @@ export function linkAddresses(artifacts: readonly Artifact[]): string {
 
 /**
  * What a todo of the task may name, from its links' addresses (`linkAddresses`): each PR, issue and ticket among them,
- * by its number or key. One that two of the links share (the same number in two repositories, or one PR's page given
- * twice over) names neither, so it's left out and stays plain text. A link to any other page has nothing to be named
- * by.
+ * by its number or key. Links to the same thing count as one: a comment on an issue, or a PR's Files page, is that
+ * issue or PR, and the number links to the thing's own page (no fragment, query or sub-page), preferring a link that
+ * is already that address. A name that links to different things share (the same number in two repositories, an issue
+ * and a PR, or one key on two Jiras) names neither, so it stays plain text. A link to any other page has nothing to
+ * be named by.
  */
 export function linkReferences(addresses: string): LinkReferences {
-  /** Each name's address, or null once a second link has the name. */
-  const found = new Map<string, string | null>()
+  /** Each name's links so far, or null once a second link to a different thing has the name. */
+  const found = new Map<string, { target: string; links: (readonly [string, NamedLink])[] } | null>()
   for (const url of addresses === '' ? [] : addresses.split('\n')) {
     const link = recogniseLink(url)
     if (link.kind === LinkKind.Web) continue
-    const name = linkLabel(link)
-    found.set(name, found.has(name) ? null : url)
+    const named: NamedLink = link
+    const name = linkLabel(named)
+    const target = targetOf(url, named)
+    const entry = found.get(name)
+    if (entry === undefined) found.set(name, { target, links: [[url, named]] })
+    else if (entry !== null && entry.target === target) entry.links.push([url, named])
+    else found.set(name, null)
   }
   const references = new Map<string, string>()
-  for (const [name, url] of found) {
-    if (url !== null) references.set(name, url)
+  for (const [name, entry] of found) {
+    if (entry !== null) references.set(name, ownAddress(entry.links))
   }
   return references.size === 0 ? NO_REFERENCES : references
+}
+
+/**
+ * What two links name the same of, as `recogniseLink` reads it: a PR or issue's kind, repository and number, or a
+ * ticket's host and key (the same key on two Jiras is two tickets). A fragment, a query or a sub-page of a PR or
+ * issue isn't part of it, so a comment on an issue names that issue.
+ */
+function targetOf(url: string, link: NamedLink): string {
+  switch (link.kind) {
+    case LinkKind.PullRequest:
+    case LinkKind.Issue:
+      return `${link.kind} ${link.repo}/${String(link.number)}`
+    case LinkKind.Ticket:
+      return `${link.kind} ${new URL(url).host}/${link.key}`
+  }
+}
+
+/** The thing's own page: a PR or issue's plain address (no fragment, query or sub-page), or a ticket's page. */
+function plainAddress(url: string, link: NamedLink): string {
+  const parsed = new URL(url)
+  switch (link.kind) {
+    case LinkKind.PullRequest:
+    case LinkKind.Issue:
+      return `${parsed.origin}/${link.repo}/${link.kind === LinkKind.PullRequest ? 'pull' : 'issues'}/${String(link.number)}`
+    case LinkKind.Ticket:
+      return parsed.origin + parsed.pathname.replace(/\/$/, '')
+  }
+}
+
+/**
+ * The address the name opens: a link that is already the thing's own page, as it is; otherwise its own page, built
+ * from the first link's parts.
+ */
+function ownAddress(links: readonly (readonly [string, NamedLink])[]): string {
+  /** The first link's own page, kept for when none of the links is already at it. */
+  let built: string | undefined
+  for (const [url, link] of links) {
+    const plain = plainAddress(url, link)
+    if (url === plain) return plain
+    built ??= plain
+  }
+  return built ?? ''
 }
 
 /** Whether two sets of references name the same things, at the same addresses. */
