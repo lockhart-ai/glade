@@ -97,6 +97,35 @@ it('matches entries with no uuid by their content, so a repeat export never dupl
   expect((await readFile(path, 'utf8')).trim().split('\n')).toHaveLength(1)
 })
 
+it('separates what it appends from an existing last line that has no trailing newline (#625)', async () => {
+  const store = sqliteSessionStore(database.db)
+  const key = { projectKey: 'sample', sessionId: 'saved' }
+  await mkdir(join(dir, 'projects', 'sample'), { recursive: true })
+  const path = join(dir, 'projects', 'sample', 'saved.jsonl')
+  await writeFile(path, '{"type":"user","uuid":"u1"}')
+  await store.append(key, [{ type: 'assistant', uuid: 'a1' }])
+  await exportSessionToLocal(store, { configDir: dir, ...key })
+  // A newline ahead of the appended entry keeps the unterminated last line its own entry: no gluing, no loss.
+  expect(
+    (await readFile(path, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as unknown),
+  ).toEqual([
+    { type: 'user', uuid: 'u1' },
+    { type: 'assistant', uuid: 'a1' },
+  ])
+})
+
+it('rejects an existing line that is not an entry object, rather than trusting the file’s shape (#625)', async () => {
+  const store = sqliteSessionStore(database.db)
+  const key = { projectKey: 'sample', sessionId: 'saved' }
+  await store.append(key, [{ type: 'user', uuid: 'u1' }])
+  await mkdir(join(dir, 'projects', 'sample'), { recursive: true })
+  await writeFile(join(dir, 'projects', 'sample', 'saved.jsonl'), '"just a string"\n')
+  await expect(exportSessionToLocal(store, { configDir: dir, ...key })).rejects.toThrow('not an entry object')
+})
+
 it('rejects an unreadable existing file and a write it cannot make, rather than guess', async () => {
   const store = sqliteSessionStore(database.db)
   const key = { projectKey: 'sample', sessionId: 'saved' }

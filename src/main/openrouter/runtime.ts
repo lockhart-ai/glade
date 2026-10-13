@@ -107,9 +107,19 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
           let useStore = options.managedAgentId !== undefined
           if (!useStore && mirrored && sessionId !== null) {
             // `sessionProjectKey` reads the exact rows `hasTranscript` (which `mirrored` is built from) requires to
-            // exist, so it is never null here; the `if` only keeps the type narrowed for `exportSessionToLocal`.
+            // exist, so it is never null here. The code stays safe if that ever stops holding: resuming with neither
+            // the store nor an export would drop the task's history, the greater harm, so a missing key falls back
+            // to the store with a warning, exactly like a failed export.
             const projectKey = sessionProjectKey(db, sessionId, options.taskId ?? null)
-            if (projectKey !== null) {
+            if (projectKey === null) {
+              options.log?.warn(
+                'the mirrored transcript has no project key to export under; resuming through the session store instead',
+                {
+                  sessionId,
+                },
+              )
+              useStore = true
+            } else {
               try {
                 await exportSessionToLocal(store, { configDir, projectKey, sessionId })
               } catch (error) {

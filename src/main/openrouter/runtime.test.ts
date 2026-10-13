@@ -20,6 +20,7 @@ import {
   markTranscriptFailed,
   sqliteSessionStore,
 } from './transcripts'
+import * as transcripts from './transcripts'
 import { openRouterSdkModel } from './sdk-model'
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ importSessionToStore: vi.fn() }))
@@ -285,6 +286,31 @@ it('falls back to the session store when the mirrored transcript cannot be expor
   // The fallback still wires up `onMirrorError`, the same as an ordinary OpenRouter start.
   returned.onMirrorError?.('saved')
   expect(failedTranscriptConfig(database.db, 'saved', null)).toBe(blocked)
+})
+
+it('falls back to the session store when a mirrored session has no project key to export under (#625)', async () => {
+  vi.mocked(importSessionToStore).mockImplementation(async (id, store) => {
+    await store.append({ projectKey: 'sample', sessionId: id }, [{ type: 'user', uuid: 'u1' }])
+  })
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  await runtime.prepare({ ...options, resumeSessionId: 'saved' }, { ...inherited, CLAUDE_CONFIG_DIR: '' })
+  // `sessionProjectKey` should never return null for a mirrored session (it reads the rows `hasTranscript` just
+  // required), but if that ever stops holding, the start must fall back to the store rather than resume with
+  // neither the store nor an export — the history would be lost.
+  vi.spyOn(transcripts, 'sessionProjectKey').mockReturnValue(null)
+  const warn = vi.fn()
+  const returned = await runtime.prepare(
+    { ...options, model: 'sonnet', resumeSessionId: 'saved', log: { ...SILENT_LOGGER, warn } },
+    { ...inherited, CLAUDE_CONFIG_DIR: '' },
+  )
+  expect(returned.sessionStore).toBeDefined()
+  expect(await returned.sessionStore?.load({ projectKey: 'sample', sessionId: 'saved' })).toEqual([
+    { type: 'user', uuid: 'u1' },
+  ])
+  expect(warn).toHaveBeenCalledWith(
+    expect.stringContaining('no project key'),
+    expect.objectContaining({ sessionId: 'saved' }),
+  )
 })
 
 it('merges a Claude export by the entries’ own ids, and reconstructs the local file across a Claude → OpenRouter → Claude round trip (#625)', async () => {

@@ -1,4 +1,4 @@
-import type { SessionStore, SessionStoreEntry } from '@anthropic-ai/claude-agent-sdk'
+import type { SessionStore } from '@anthropic-ai/claude-agent-sdk'
 import { createHash } from 'node:crypto'
 import { appendFile, mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -16,10 +16,14 @@ export interface LocalTranscriptExport {
  * has no identity either place ever gives it twice, so a content hash stands in, to keep a repeat export of the
  * same leg from appending it again rather than to match anything the store itself would.
  */
-function entryIdentity(entry: SessionStoreEntry): string {
-  return entry.uuid === undefined
+function entryIdentity(entry: unknown): string {
+  const uuid =
+    typeof entry === 'object' && entry !== null && typeof (entry as { uuid?: unknown }).uuid === 'string'
+      ? ((entry as { uuid?: unknown }).uuid as string)
+      : undefined
+  return uuid === undefined
     ? `hash:${createHash('sha256').update(JSON.stringify(entry)).digest('hex')}`
-    : `uuid:${entry.uuid}`
+    : `uuid:${uuid}`
 }
 
 /**
@@ -51,7 +55,14 @@ export async function exportSessionToLocal(
   }
   for (const line of current.split('\n')) {
     if (line.trim() === '') continue
-    existing.add(entryIdentity(JSON.parse(line) as SessionStoreEntry))
+    // Parsed to `unknown` and taken only as an object: nothing else about the file's lines is trusted, so a line
+    // that isn't one fails the export (and the caller falls back to the session store) rather than slipping past
+    // with an identity that never matches.
+    const entry: unknown = JSON.parse(line)
+    if (typeof entry !== 'object' || entry === null) {
+      throw new Error(`A line in the existing transcript is not an entry object: ${path}`)
+    }
+    existing.add(entryIdentity(entry))
   }
   const entries = (await store.load({ projectKey, sessionId })) ?? []
   const missing = entries.filter((entry) => !existing.has(entryIdentity(entry)))
@@ -59,5 +70,8 @@ export async function exportSessionToLocal(
   // Mode 0o700 for the directory, 0o600 for the file: the Agent SDK's own modes when it writes a resumed session's
   // temporary folder (`sdk.mjs`, the `claude-resume-<id>` writer), matched so a plain `resume` finds the same thing.
   await mkdir(dir, { recursive: true, mode: 0o700 })
-  await appendFile(path, missing.map((entry) => `${JSON.stringify(entry)}\n`).join(''), { mode: 0o600 })
+  // A file whose last line has no trailing newline (a truncated or hand-edited one) would glue the first appended
+  // entry onto it, corrupting both; a newline ahead of the entries keeps every line its own. One write either way.
+  const separator = current === '' || current.endsWith('\n') ? '' : '\n'
+  await appendFile(path, separator + missing.map((entry) => `${JSON.stringify(entry)}\n`).join(''), { mode: 0o600 })
 }
