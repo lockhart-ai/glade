@@ -220,15 +220,33 @@ export function agentsTab(page: Page) {
   const tab = (name: string) => strip.getByTitle(name, { exact: true })
   const watching = panel.getByRole('group', { name: 'Watching' })
   const pinned = (label: string) => watching.getByRole('group', { name: label, exact: true })
+  // A plain CSS locator, the whole way from the page down, not `getByRole` at any step: while the dropdown is open,
+  // Floating UI makes the rest of the window inert, including the task panel region and the strip themselves, which
+  // a role query doesn't see past even with `includeHidden` on its own last step.
+  const caret = page.locator(
+    '[role="complementary"][aria-label="Task panel"] [role="tablist"][aria-label="Agents"] button[aria-haspopup="menu"]',
+  )
+  // The dropdown's own floating content isn't made inert (it's the foreground), so this is reached normally.
+  const finishedMenu = page.getByRole('menu', { name: 'Finished subagents' })
   return {
     strip,
     /**
-     * Every agent's tab, in the strip's order: Main, then the running subagents, then the finished ones, the newest
-     * first within each. A tab's `title` is its agent's name; a running subagent's has `data-running`.
+     * Every tab in the strip's order (#617): Main, then the active subagents, running first, then, while it's the
+     * one showing, the temporary tab of a finished one picked from the caret's dropdown. A tab's `title` is its
+     * agent's name; a running subagent's has `data-running`.
      */
     tabs: strip.getByRole('tab'),
-    /** An agent's tab, by its name; `aria-selected` while it's the one showing. */
+    /** An agent's tab, by its name; `aria-selected` while it's the one showing. Only Main, an active subagent or
+     * the strip's one temporary tab is ever found this way (#617): a finished subagent otherwise isn't a tab at
+     * all, until it's picked from the caret's dropdown (`caret`, `finished`). */
     tab,
+    /** The caret that opens the finished subagents' dropdown (#617): its text is how many have finished, and it's
+     * there at all only once something has. */
+    caret,
+    /** The caret's open dropdown: "Finished, newest first", newest first. */
+    finishedMenu,
+    /** A finished subagent's row in the dropdown, by its name: picking it shows it as the strip's temporary tab. */
+    finished: (name: string) => finishedMenu.getByRole('menuitem', { name: new RegExp(`^${name}`) }),
     /**
      * The eye on an agent's tab, named "2 watching": its text is how many watchers the agent has pinned, and it has
      * `data-live` (it's blue) while one of them has its process running.
@@ -248,8 +266,6 @@ export function agentsTab(page: Page) {
     endedWatcher: (label: string) => list.locator('[data-watcher]').filter({ hasText: label }),
     /** Every row of the agent's list, top to bottom: calls, notes, dividers and ended watchers. */
     rows: list.locator(':scope > div > *'),
-    /** The chevron over an end of the strip with more agents past it. */
-    scroll: (side: 'left' | 'right') => strip.getByRole('button', { name: `Scroll agents ${side}` }),
     /** The agent showing's side of the tab, named by its tab: the line about its todo, and its tool calls. */
     agentPanel: panel.locator('#agent-panel'),
     /** The line under the strip on a subagent's tab: "Working on <its todo>", then its state and how long ("Done · 28m"). */

@@ -1243,10 +1243,11 @@ describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', 
     })
     render(<AgentsTab taskId="t1" />, { wrapper: wrapper.wrapper })
     await act(() => Promise.resolve())
-    // A tab per agent, and Main's list alone: its own calls, and one row per subagent it started. Every tab names
-    // its dot once on mount, Main's pin included (#579).
-    expect(screen.getAllByRole('tab')).toHaveLength(SUBAGENTS + 1)
-    expect(rendered()).toEqual({ tabs: SUBAGENTS + 1, rows: MAIN_CALLS + SUBAGENTS, times: SUBAGENTS, line: 0 })
+    // A tab per active agent (#617; the 40 finished ones are named in the caret's dropdown, not tabs), and Main's
+    // list alone: its own calls, and one row per subagent it started. Every tab names its dot once on mount,
+    // Main's included (#579).
+    expect(screen.getAllByRole('tab')).toHaveLength(RUNNING + 1)
+    expect(rendered()).toEqual({ tabs: RUNNING + 1, rows: MAIN_CALLS + SUBAGENTS, times: SUBAGENTS, line: 0 })
     return wrapper
   }
 
@@ -1469,40 +1470,45 @@ describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', 
     await renderAgents()
 
     fireEvent.click(tab('review-49'))
-    // The subagent picked, and Main, whose own tab is no longer the one shown (#579: its pin names its activity
+    // The subagent picked, and Main, whose own tab is no longer the one shown (#579: its dot names its activity
     // too, so leaving it renders it like any other tab). Its list is its note and its call.
     expect(rendered()).toEqual({ tabs: 2, rows: 2, times: 0, line: 1 })
 
-    fireEvent.click(tab('review-7'))
+    // Another active one (review-45, among the 10 still running): the same two tabs change.
+    fireEvent.click(tab('review-45'))
     expect(rendered()).toEqual({ tabs: 2, rows: 2, times: 0, line: 1 })
-    expect(screen.getAllByRole('tab')).toHaveLength(SUBAGENTS + 1)
+    expect(screen.getAllByRole('tab')).toHaveLength(RUNNING + 1)
   })
 
-  it('renders one tab when a subagent finishes, is woken or starts, as it moves, and no row of another’s list', async () => {
+  it('renders only the tabs that mount or unmount as a subagent finishes, is woken or starts (#617)', async () => {
     const { fake } = await renderAgents()
     fireEvent.click(tab('review-48'))
     rendered()
 
+    // review-49 finishes, unselected: it's no longer active, so it drops off the strip altogether (into the
+    // caret's dropdown) rather than just move — no tab renders for a subagent that isn't shown any more.
     act(() => {
       fake.emit({
         type: EventType.ToolEventUpdated,
         toolEvent: { ...agent(49), state: ToolCallState.Done, output: 'Looks good.', finishedAt: HUB_NOW },
       })
     })
-    expect(rendered()).toEqual({ tabs: 1, rows: 0, times: 0, line: 0 })
-    expect(tab('review-49')).not.toHaveAttribute('data-running')
+    expect(rendered()).toEqual({ tabs: 0, rows: 0, times: 0, line: 0 })
+    expect(screen.queryByRole('tab', { name: /review-49$/ })).toBeNull()
 
-    // Woken after it finished (#395).
+    // Woken after it finished (#395): review-0 joins the active ones, mounting a tab of its own.
     act(() => {
       fake.emit({ type: EventType.ToolEventUpdated, toolEvent: { ...agent(0), state: ToolCallState.Running } })
     })
     expect(rendered()).toEqual({ tabs: 1, rows: 0, times: 0, line: 0 })
+    expect(tab('review-0')).toHaveAttribute('data-running')
 
     act(() => {
       fake.emit({ type: EventType.ToolEventAppended, toolEvent: hubAgent('agent-new', 'review-new', 0) })
     })
     expect(rendered()).toEqual({ tabs: 1, rows: 0, times: 0, line: 0 })
-    expect(screen.getAllByRole('tab')).toHaveLength(SUBAGENTS + 2)
+    // review-49 left, review-0 and review-new joined: one fewer, two more than the running ten started with.
+    expect(screen.getAllByRole('tab')).toHaveLength(RUNNING + 2)
   })
 
   it('renders only the times as the clock ticks: no tab, and no row', async () => {
@@ -1731,8 +1737,9 @@ describe('watchers in the Agents tab, five pinned under a 2,000-call list (P16, 
       states: PINNED.length,
       // Main's, and the running subagent's.
       eyes: 2,
-      // Every tab names its dot once on mount: the finished subagent's, the running one's, and Main's pin (#579).
-      tabs: 3,
+      // Every tab names its dot once on mount: Main's and the running subagent's (#579). The finished one, with no
+      // watcher of its own, isn't a tab at all (#617): it's named in the caret's dropdown instead.
+      tabs: 2,
     })
     return wrapper
   }

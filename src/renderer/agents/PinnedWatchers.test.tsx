@@ -121,9 +121,27 @@ async function renderAgents(
 }
 
 const strip = (): HTMLElement => screen.getByRole('tablist', { name: 'Agents' })
-const tab = (name: string): HTMLElement => within(strip()).getByTitle(name, { exact: true })
-/** The eye on an agent's tab, if it has one. */
-const eye = (name: string): HTMLElement | null => within(tab(name)).queryByRole('img', { name: /watching$/ })
+/** An agent's tab, if it's in the strip: Main, an active subagent, or the temporary one that's finished and
+ * selected. A finished subagent otherwise isn't a tab at all (#617): it's named in the caret's dropdown instead. */
+const tabOrNull = (name: string): HTMLElement | null => within(strip()).queryByTitle(name, { exact: true })
+const tab = (name: string): HTMLElement => {
+  const found = tabOrNull(name)
+  if (found === null) throw new Error(`No tab named “${name}”.`)
+  return found
+}
+/** The eye on an agent's tab, if it has one and if it's a tab at all. */
+const eye = (name: string): HTMLElement | null => {
+  const found = tabOrNull(name)
+  return found === null ? null : within(found).queryByRole('img', { name: /watching$/ })
+}
+/** Opens the caret's dropdown and picks a finished subagent by name, as the strip's temporary tab (#617). */
+async function pickFinished(name: string): Promise<void> {
+  fireEvent.click(screen.getByRole('button', { name: /finished subagents$/ }))
+  await act(() => Promise.resolve())
+  const menu = screen.getByRole('menu', { name: 'Finished subagents' })
+  fireEvent.click(within(menu).getByRole('menuitem', { name }))
+  await act(() => Promise.resolve())
+}
 const list = (): HTMLElement => screen.getByRole('log', { name: 'Tool log' })
 const pinned = (): HTMLElement | null => screen.queryByRole('group', { name: 'Watching' })
 /** The pinned cards, top to bottom, each by its watcher's label. */
@@ -640,7 +658,8 @@ describe('a subagent’s watcher', () => {
     expect(cards()).toEqual([CI.label, PREVIEW.label])
     fireEvent.click(tab('limits-502'))
     expect(cards()).toEqual([TESTS.label])
-    fireEvent.click(tab('fix-501'))
+    // fix-501 has finished and started no watcher of its own: it's not a tab until picked from the caret's dropdown.
+    await pickFinished('fix-501')
     expect(pinned()).toBeNull()
     fireEvent.click(tab('Main'))
     expect(cards()).toEqual([CI.label, PREVIEW.label])
@@ -704,6 +723,8 @@ describe('a subagent’s tab menu', () => {
   }
 
   async function open(name: string): Promise<string[]> {
+    // A finished subagent with no tab of its own yet needs picking from the caret's dropdown first (#617).
+    if (tabOrNull(name) === null) await pickFinished(name)
     fireEvent.contextMenu(tab(name))
     await act(() => Promise.resolve())
     return screen.queryAllByRole('menuitem').map((item) => item.textContent)

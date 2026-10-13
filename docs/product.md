@@ -146,11 +146,14 @@ There are no follow-up tasks. One task can refer to another through its folder o
   that's never chosen one starts from Agents.
 
   **Agents** is activity: a strip of tabs under the panel's own, one for every agent in the task, and under it that
-  agent's tool calls, the notes between them and their output. **Main**, the task's own agent, is pinned first and
-  stays fixed while the rest scroll; then the subagents that are running, then the finished ones, newest first within
-  each, the strip scrolling sideways past what fits, with a chevron over a fade at the end that has tabs past it. A
-  subagent's tab has a dot, blue while it runs and slate once it's done, and an eye, blue while a watcher it has live
-  is running and grey when all it has is scheduled. Main's list shows each subagent it started as an `Agent` call,
+  agent's tool calls, the notes between them and their output. **Main**, the task's own agent, is pinned first, its
+  dot alone, no pin icon (#617); then every active subagent — running, or waiting on something it started — sharing
+  the rest of the strip's width evenly, down to a 56px floor past which its name shrinks to whatever still fits; then,
+  only once something has finished, a caret carrying that count, opening "Finished, newest first". Picking a finished
+  one from it shows it as a temporary tab after the active ones, with a grey dot and a dashed outline, staying for as
+  long as it's the one selected (even if it finishes while already shown) and gone once Main or an active subagent is
+  chosen. A subagent's tab has a dot, blue while it runs and slate once it's done, and an eye, blue while a watcher it
+  has live is running and grey when all it has is scheduled. Main's list shows each subagent it started as an `Agent` call,
   live while that subagent runs ("Running · 29m") and "Done · 28m · opened PR #511" once it has finished; clicking it
   opens that subagent's tab. A subagent's tab says which todo it's working on, in a line under the strip ("Working on
   #501 Return Retry-After on 429s"), the todo's title a link to that todo in Todos; one subagent works on one todo.
@@ -162,6 +165,7 @@ There are no follow-up tasks. One task can refer to another through its folder o
   watcher belongs to the agent that started it, so a subagent's pins to its own tab, not Main's. A subagent's tab has
   a menu, Stop subagent and Copy log; Main's has none.
   ![Agents](design/screens/50-agents.png)
+  ![Agents strip, crowded](design/screens/54-agents-strip-crowded.png)
 
   **Todos** is produced work: every todo is a card, whether it's active, not started or done, and whether or not it
   has produced anything, the cards 4px apart. A todo closed is three lines: its title, its status line, and one row

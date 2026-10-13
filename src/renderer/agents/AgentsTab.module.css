@@ -1,6 +1,6 @@
-/* The Agents tab (P16, #536), from docs/design/html/50-agents.html, 51-agents-subagent.html and 54-agents-overflow.html:
-   a strip with a tab for every agent, the line that names a subagent's todo, and the agent's tool calls, which are the
-   tool log's own rows (../tool-log/ToolLog.module.css). */
+/* The Agents tab (P16, #536; #617), from docs/design/html/50-agents.html, 51-agents-subagent.html and
+   54-agents-strip-*.html: a strip with a tab for every agent, the line that names a subagent's todo, and the agent's
+   tool calls, which are the tool log's own rows (../tool-log/ToolLog.module.css). */
 .agents {
   flex-grow: 1;
   min-height: 0;
@@ -8,7 +8,8 @@
   flex-direction: column;
 }
 
-/* The strip: Main first, which stays put, then the subagents, which scroll sideways when they don't fit. */
+/* The strip: Main first, which stays put (its dot alone, no pin, #617), then the active subagents sharing the rest
+   of the width, then, only once something has finished, the caret. Nothing in it scrolls any more. */
 .strip {
   flex-shrink: 0;
   display: flex;
@@ -18,16 +19,12 @@
   border-bottom: 1px solid var(--color-inner-border);
 }
 
-/* The subagents' part of the strip: a row that scrolls with a chevron over a fade, as the panel's own tabs do
-   (../components/Tabs/ScrollRow). A chevron is a tab's height here. */
+/* The active subagents' row (#617): each tab shares it evenly (`.activeTab`'s `flex: 1 1 0`), so the row never
+   scrolls or overflows. `ROW_GAP_PX` in AgentStrip.tsx must track this gap. */
 .rest {
-  --tabs-height: 24px;
-
-  flex-grow: 1;
-}
-
-.rest > .row {
-  flex-grow: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
   gap: var(--space-xs);
 }
 
@@ -78,28 +75,39 @@
   outline-offset: 1px;
 }
 
+/* An active subagent's tab (the strip's temporary finished one too, #617): shares the row's width evenly instead of
+   sitting at its own content width, down to the 56px floor (`MIN_ACTIVE_TAB_WIDTH`). */
+.activeTab {
+  flex: 1 1 0;
+  min-width: 0;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
+/* Past the 56px floor (#617, the "crowded" mockup 2b): smaller type and tighter padding, so the name's ellipsis
+   leaves just the one or two letters that still fit; the tab's title still carries the full name. `.crowded` is
+   toggled on `.rest` itself by a `ResizeObserver` (AgentStrip.tsx), never by React state, so measuring the row never
+   costs a tab its own re-render. */
+.rest.crowded .activeTab {
+  gap: 4px;
+  padding: 0 4px;
+  font-size: 10px;
+}
+
+/* The strip's temporary tab (#617): a finished subagent shown because it's the one selected. A dashed outline marks
+   it apart from an active tab's solid one, without the alarm of pink. */
+.temporaryTab {
+  border-style: dashed;
+}
+
 .name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* Main's pin, the sidebar's: faint while Main is finished, blue while it's active (#579). */
-.pin {
-  flex-shrink: 0;
-  display: flex;
-  font-size: 10px;
-  color: var(--color-faint);
-}
-
-.pin.pinActive {
-  /* The same blue as a subagent's dot (not the paler `--color-blue-text`), so Main's pin reads unmistakably blue
-     beside them, not just a slightly different grey (#579). */
-  color: var(--color-blue);
-}
-
 /* A subagent's dot: blue while it's active (its own turn running, or something it started still alive, #579), slate
-   once it's finished. */
+   once it's finished. Main's tab has the same dot, with no pin (#617). */
 .dot {
   flex-shrink: 0;
   width: 6px;
@@ -110,6 +118,85 @@
 
 .dot.active {
   background: var(--color-blue);
+}
+
+/* The caret, after the active row, only while something has finished (#617): the count of finished subagents, and
+   a chevron that turns to face its open dropdown. */
+.caret {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 0 7px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-button-sm);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+  cursor: pointer;
+}
+
+.caret:hover {
+  background: var(--color-inner-hover);
+  color: var(--color-text);
+}
+
+.caret:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 1px;
+}
+
+.caretIcon {
+  font-size: 10px;
+  transition: transform var(--motion-duration-fast) var(--motion-ease);
+}
+
+.caretIconOpen {
+  transform: rotate(180deg);
+}
+
+/* The caret's dropdown (#617): "Finished, newest first", capped at 8 rows (32px each) before it scrolls. The CSS
+   reaches past Menu's own markup by position, since Menu takes no prop for a custom cap. */
+.finishedMenu {
+  width: 280px;
+}
+
+.finishedMenu > div {
+  max-height: 256px;
+  overflow-y: auto;
+}
+
+.finishedItem {
+  height: 32px;
+}
+
+.finishedRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.finishedName {
+  flex-grow: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.finishedAgo {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+  white-space: nowrap;
 }
 
 /* The agent's side of the tab: the line about its todo, then its tool calls. */

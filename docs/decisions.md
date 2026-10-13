@@ -665,14 +665,16 @@
       once per change of the todos or the links, and gives each card only its own. So a link added or removed renders
       the cards that name it and no other, and a card reads its text again only when its text or what it names
       changed. A task with no PR, issue or ticket among its links reads no todo for what it names.
-  - **The Agents tab** (P16-13, #536; `design/screens/50-agents.png`, `51-agents-subagent.png`,
-    `54-agents-overflow.png`; `src/renderer/agents/`). With the switch on the right panel has three tabs, **Agents ·
-    Files · Todos** (⌘⌥1 – ⌘⌥3); with it off, today's seven. Both paths exist until #501.
+  - **The Agents tab** (P16-13, #536; `design/screens/50-agents.png`, `51-agents-subagent.png`; `src/renderer/agents/`).
+    With the switch on the right panel has three tabs, **Agents · Files · Todos** (⌘⌥1 – ⌘⌥3); with it off, today's
+    seven. Both paths exist until #501.
     - **A tab for every agent.** Main, the task's own agent, is pinned first and stays put; then the subagents that
       are running, then the finished ones, the newest first within each (the order they started, reversed), nested
       ones among the rest. The subagents' part scrolls sideways when they don't fit, as the panel's own tabs do (one
       shared row, `ScrollRow`): no scroll bar, a chevron over a fade at an end with more past it. A subagent's tab has
       a dot, blue while it runs and slate once it has ended; the panel's Agents tab counts the agents, Main included.
+      Replaced in #617 (`design/screens/54-agents-strip-*.png`): the strip no longer scrolls — active subagents share
+      its width, and the finished ones move into a caret's dropdown.
     - **A tab's content is that agent's tool calls,** drawn by the Tool calls tab's own list and rows (`ToolLog`): the
       calls, the notes between them, their output. Main's is exactly the Tool calls tab's; a subagent's is its own
       calls and notes, with the panel to itself. A subagent an agent started is an `Agent` call in that agent's list,
