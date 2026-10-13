@@ -102,10 +102,14 @@ test('context menus: copy and quote an agent reply, act on tool calls, file tabs
   await fileMenu.item('Close all').click()
   await expect(files.tab('date.ts')).toHaveCount(0)
 
-  // A subagent's tab menu copies its log.
+  // A subagent's tab menu copies its log. The subagent has finished, so it's picked from the caret's dropdown (#617),
+  // which shows it as the strip's temporary tab.
   const agents = agentsTab(window)
   const subagentMenu = contextMenu(window, 'Subagent actions')
   await panel.tab(/^Agents/).click()
+  await expect(agents.caret).toHaveText('1')
+  await agents.caret.click()
+  await agents.finished('Find flaky tests').click()
   await agents.tab('Find flaky tests').click({ button: 'right' })
   await expect(subagentMenu.items).toHaveText(['Copy log'])
   await subagentMenu.item('Copy log').click()

@@ -6,22 +6,28 @@ import {
   TodoState,
   ToolCallState,
   ToolEventKind,
+  WatcherState,
   type NarrationEvent,
   type Todo,
   type ToolCallEvent,
   type ToolEvent,
+  type Watcher,
 } from '../../shared/domain'
 import { ChildKind, FilingSource, type Filing } from '../../shared/todoHub'
+import { sampleTask, sampleWatcher } from '../store/test-bridge'
 import { AgentActivity } from '../subagents/subagentsModel'
 import { agentLogRows, isAgentEvent } from '../tool-log/toolLogModel'
 import {
+  activeTabsCrowded,
   agentCallResult,
   agentCount,
   agentDotLabel,
   agentEventsSelector,
+  agentFinishedAgo,
   agentName,
   agentsOf,
   agentStateLine,
+  agentTabsOf,
   agentTodo,
   agentTodoSelector,
   agentTokensLine,
@@ -31,9 +37,12 @@ import {
   mainAgentText,
   mainTokensLine,
   MAIN_AGENT_NAME,
+  mainTurnRunning,
+  selectAgentTabs,
   selectMainCurrentCall,
   selectShownAgent,
   shownAgent,
+  shownAgentFinished,
   todoLineVerb,
 } from './agentsModel'
 
@@ -502,5 +511,145 @@ describe('the Main tab’s line (#566)', () => {
     // The same log reads the same, and another task's log doesn't reach it.
     expect(select({ toolEvents: { t1: events } })).toBe(events[2])
     expect(select({ toolEvents: {} })).toBeNull()
+  })
+})
+
+describe('mainTurnRunning', () => {
+  it('is true only while the task’s own turn works or is paused', () => {
+    expect(mainTurnRunning(undefined)).toBe(false)
+    expect(mainTurnRunning({ activity: TaskActivity.Working })).toBe(true)
+    expect(mainTurnRunning({ activity: TaskActivity.Paused })).toBe(true)
+    expect(mainTurnRunning({ activity: TaskActivity.Waiting })).toBe(false)
+  })
+})
+
+describe('agentTabsOf (#617)', () => {
+  const live = (id: string, parentToolUseId: string | null = null): Watcher =>
+    sampleWatcher(id, 't1', { parentToolUseId, state: WatcherState.Running })
+
+  it('splits running subagents from finished ones, newest first within each', () => {
+    const events = [agent('fix-501', done(28)), agent('docs-503'), agent('limits-502')]
+
+    const tabs = agentTabsOf(events, undefined, false)
+
+    expect(tabs.active).toEqual(['limits-502', 'docs-503'])
+    expect(tabs.finished).toEqual(['fix-501'])
+  })
+
+  it('lists the finished ones by when they finished, not when they started', () => {
+    // fix-501 started first, at AT, and finished at AT+28m; docs-503 started later and finished at AT+29m, so it leads.
+    const events = [
+      agent('fix-501', { ...done(28), createdAt: AT }),
+      agent('docs-503', { ...done(29), createdAt: AT + MINUTE }),
+    ]
+
+    expect(agentTabsOf(events, undefined, false).finished).toEqual(['docs-503', 'fix-501'])
+  })
+
+  it('sorts a finished one with no recorded end last, ties keeping the order they started in, the active order as it was', () => {
+    const events = [
+      agent('fix-501', { ...done(28), createdAt: AT }),
+      agent('docs-503', { ...done(28), createdAt: AT + MINUTE }), // ended with fix-501, started after it
+      agent('limits-502', { state: ToolCallState.Done, output: 'Done.', finishedAt: null }),
+      agent('notes-25'),
+    ]
+
+    const tabs = agentTabsOf(events, undefined, false)
+
+    expect(tabs.finished).toEqual(['docs-503', 'fix-501', 'limits-502'])
+    expect(tabs.active).toEqual(['notes-25'])
+  })
+
+  it('keeps a subagent active while a watcher it started is still live, though its own call is done', () => {
+    const events = [agent('fix-501', done(28))]
+
+    expect(agentTabsOf(events, [], false).finished).toEqual(['fix-501'])
+    expect(agentTabsOf(events, [live('w1', 'fix-501')], false).active).toEqual(['fix-501'])
+    expect(agentTabsOf(events, [live('w1', 'fix-501')], false).finished).toEqual([])
+    // Ended: finished again.
+    const ended = { ...live('w1', 'fix-501'), state: WatcherState.Finished }
+    expect(agentTabsOf(events, [ended], false).finished).toEqual(['fix-501'])
+  })
+
+  it('keeps Main active while its own turn runs or something it started is still alive, by the same rule', () => {
+    const events = [agent('fix-501', done(28))]
+
+    expect(agentTabsOf(events, undefined, false).active).toEqual([])
+    expect(agentTabsOf(events, undefined, true).active).toEqual([])
+    expect(agentTabsOf(events, [live('w1')], false).active).toEqual([])
+  })
+
+  it('is empty for a task with no subagents, and the same object every time', () => {
+    expect(agentTabsOf(undefined, undefined, false)).toEqual({ active: [], finished: [] })
+    expect(agentTabsOf([], [], false)).toBe(agentTabsOf([], [], false))
+  })
+
+  it('works a log out once, by its agent order and its activity, however many read it', () => {
+    const events = [agent('a')]
+    const watchers: Watcher[] = []
+
+    expect(agentTabsOf(events, watchers, false)).toBe(agentTabsOf(events, watchers, false))
+    // A new log, or new watchers, or Main's own turn starting: worked out again.
+    expect(agentTabsOf([...events], watchers, false)).not.toBe(agentTabsOf(events, watchers, false))
+    expect(agentTabsOf(events, [...watchers], false)).not.toBe(agentTabsOf(events, watchers, false))
+    expect(agentTabsOf(events, watchers, true)).not.toBe(agentTabsOf(events, watchers, false))
+  })
+
+  it('reads the store by the task’s id', () => {
+    const events = [agent('fix-501', done(28)), agent('limits-502')]
+    const state = {
+      toolEvents: { t1: events },
+      watchers: {},
+      tasks: { t1: { ...sampleTask('t1', 'w1'), activity: TaskActivity.Working } },
+    }
+
+    expect(selectAgentTabs(state, 't1')).toEqual({ active: ['limits-502'], finished: ['fix-501'] })
+    expect(selectAgentTabs(state, 't9')).toEqual({ active: [], finished: [] })
+  })
+})
+
+describe('shownAgentFinished (#617)', () => {
+  const events = [agent('fix-501', done(28)), agent('limits-502')]
+  const state = {
+    toolEvents: { t1: events },
+    watchers: {},
+    tasks: {},
+    agentTabs: {},
+  }
+
+  it('is false for Main and an active subagent, true only for a finished one that’s selected', () => {
+    expect(shownAgentFinished(state, 't1')).toBe(false)
+    expect(shownAgentFinished({ ...state, agentTabs: { t1: 'limits-502' } }, 't1')).toBe(false)
+    expect(shownAgentFinished({ ...state, agentTabs: { t1: 'fix-501' } }, 't1')).toBe(true)
+    // Gone, or no log: falls back to Main, so false.
+    expect(shownAgentFinished({ ...state, agentTabs: { t1: 'gone' } }, 't1')).toBe(false)
+    expect(shownAgentFinished(state, 't9')).toBe(false)
+  })
+})
+
+describe('agentFinishedAgo (#617)', () => {
+  it('reads how long ago a finished subagent ended, by formatDuration', () => {
+    expect(agentFinishedAgo({ finishedAt: AT }, AT + 2 * MINUTE)).toBe('2m')
+    expect(agentFinishedAgo({ finishedAt: AT }, AT + 109 * MINUTE)).toBe('1h 49m')
+  })
+
+  it('is null for one Glade never recorded an end for', () => {
+    expect(agentFinishedAgo({ finishedAt: null }, AT)).toBeNull()
+  })
+})
+
+describe('activeTabsCrowded (#617)', () => {
+  it('is false with no active tabs, whatever the width', () => {
+    expect(activeTabsCrowded(0, 0, 4)).toBe(false)
+    expect(activeTabsCrowded(400, 0, 4)).toBe(false)
+  })
+
+  it('is true once each tab’s fair share, less the gaps between them, drops under the 56px floor', () => {
+    // 3 tabs in 200px, 2 gaps of 4px: (200 - 8) / 3 = 64px each, at the floor's far side.
+    expect(activeTabsCrowded(200, 3, 4)).toBe(false)
+    // 10 tabs in 400px, 9 gaps of 4px: (400 - 36) / 10 = 36.4px each, under it.
+    expect(activeTabsCrowded(400, 10, 4)).toBe(true)
+    // Exactly 56px per tab: not yet crowded.
+    expect(activeTabsCrowded(56, 1, 4)).toBe(false)
   })
 })

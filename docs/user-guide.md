@@ -345,11 +345,15 @@ Settings › General › **Show Glade in the menu bar** turns the icon off, and 
 
 Three tabs, each with a count: **Agents · Files · Todos** (⌘⌥1 – ⌘⌥3). ⌘⌥B hides the panel; drag its edge to resize it.
 
-- **Agents:** a strip of tabs, one for each agent in the task. **Main**, the task's own agent, is pinned first, with
-  the sidebar's pin; after it come the subagents that are running, then the finished ones, newest first within each,
-  in a row that scrolls sideways when they don't fit (← and → move between tabs). A subagent's tab has a dot (blue
-  while it runs, grey once it's done) and, once it has anything pinned under it, an eye with a count: blue while a
-  watcher's process runs, grey when all it has is scheduled.
+- **Agents:** a strip of tabs, one for each active agent in the task, with a caret for the finished ones. **Main**,
+  the task's own agent, is pinned first, its dot alone (← and → move between tabs); after it come the subagents that
+  are active — running, or waiting on something they started — sharing the rest of the strip's width evenly, down to
+  a 56px floor past which a name shrinks to whatever still fits (hover, or its title, for the whole of it). Once
+  something has finished, a caret past the active tabs carries that count and opens "Finished, newest first"; picking
+  one from it shows it as a temporary tab after the active ones, with a grey dot and a dashed outline, staying there
+  for as long as it's the one selected and gone once Main or an active subagent is chosen. A subagent's tab has a dot
+  (blue while it's active, grey once it's done) and, once it has anything pinned under it, an eye with a count: blue
+  while a watcher's process runs, grey when all it has is scheduled.
 
   Main's tab has, under the strip, a line naming the model and provider it runs on, with what its turns have spent
   so far at the row's right ("1.2M in · 45k out" — nothing until a turn has spent something); under that, its status,

@@ -29,6 +29,7 @@ import {
   type HubTask,
 } from '../todos/test-hub'
 import { AgentsTab } from './AgentsTab'
+import styles from './AgentsTab.module.css'
 
 const MINUTE = 60_000
 
@@ -119,8 +120,26 @@ async function renderAgents(task: HubTask = SHIP, agentTabs: Record<string, stri
 
 const strip = (): HTMLElement => screen.getByRole('tablist', { name: 'Agents' })
 const tabs = (): HTMLElement[] => within(strip()).getAllByRole('tab')
-const tab = (name: string): HTMLElement => within(strip()).getByRole('tab', { name: new RegExp(`${name}$`) })
+/** An agent's tab, if it's in the strip: Main, an active subagent, or the temporary one that's finished and
+ * selected. A finished subagent otherwise isn't a tab at all (#617): it's named in the caret's dropdown instead. */
+const tabOrNull = (name: string): HTMLElement | null =>
+  within(strip()).queryByRole('tab', { name: new RegExp(`${name}$`) })
+const tab = (name: string): HTMLElement => {
+  const found = tabOrNull(name)
+  if (found === null) throw new Error(`No tab named “${name}”.`)
+  return found
+}
 const shown = (): string | undefined => tabs().find((each) => each.getAttribute('aria-selected') === 'true')?.title
+/** The caret that opens the finished subagents' dropdown, if any have finished. */
+const caret = (): HTMLElement | null => screen.queryByRole('button', { name: /finished subagents$/ })
+/** Opens the caret's dropdown and picks a finished subagent by name, showing it as the strip's temporary tab. */
+async function pickFinished(name: string): Promise<void> {
+  fireEvent.click(within(strip()).getByRole('button', { name: /finished subagents$/ }))
+  await act(() => Promise.resolve())
+  const menu = screen.getByRole('menu', { name: 'Finished subagents' })
+  fireEvent.click(within(menu).getByRole('menuitem', { name }))
+  await act(() => Promise.resolve())
+}
 const panel = (): HTMLElement => screen.getByRole('tabpanel')
 const rows = (): string[] =>
   [...panel().querySelectorAll('[data-state]')]
@@ -133,57 +152,99 @@ const setTab = (fake: HubStore['fake']): unknown[] =>
   fake.invoke.mock.calls.filter(([command]) => command === CommandName.AgentsSetTab).map(([, request]) => request)
 
 describe('the strip', () => {
-  it('has a tab for every agent: Main pinned first, then the running subagents, then the finished, newest first', async () => {
+  it('has a tab for Main and every active subagent, the newest first, with a caret for the finished', async () => {
     await renderAgents()
 
-    expect(tabs().map((each) => each.title)).toEqual(['Main', 'limits-502', 'docs-503', 'fix-501'])
-    expect(tabs().map((each) => each.hasAttribute('data-running'))).toEqual([false, true, true, false])
-    // Main has the pin, with its own activity label; a subagent's dot says whether it's running or finished. Main
-    // is still going (#579): the two subagents it started directly, limits-502 and docs-503, are still running.
-    expect(tab('Main').querySelector('svg')).not.toBeNull()
+    // fix-501 has finished and started no watcher: it's named in the caret's dropdown, not a tab.
+    expect(tabs().map((each) => each.title)).toEqual(['Main', 'limits-502', 'docs-503'])
+    expect(tabs().map((each) => each.hasAttribute('data-running'))).toEqual([false, true, true])
+    // Main's dot has its own activity label, with no pin icon (#617); a subagent's dot says whether it's running or
+    // finished. Main is still going (#579): the two subagents it started directly are still running.
     expect(within(tab('Main')).getByRole('img', { name: 'Working in the background' })).toBeInTheDocument()
     expect(tab('Main')).toHaveAttribute('data-active', '')
     expect(within(tab('limits-502')).getByRole('img', { name: 'Running' })).toBeInTheDocument()
-    expect(within(tab('fix-501')).getByRole('img', { name: 'Finished' })).toBeInTheDocument()
+    expect(caret()).toHaveTextContent('1')
+    expect(caret()).toHaveAttribute('aria-label', '1 finished subagents')
+  })
+
+  it('has no caret while nothing has finished', async () => {
+    await renderAgents({ ...SHIP, toolEvents: (SHIP.toolEvents ?? []).filter((event) => event !== FIX) })
+
+    expect(caret()).toBeNull()
   })
 
   it('starts on Main, which holds the one tab stop and labels the list', async () => {
     await renderAgents()
 
     expect(shown()).toBe('Main')
-    expect(tabs().map((each) => each.tabIndex)).toEqual([0, -1, -1, -1])
+    expect(tabs().map((each) => each.tabIndex)).toEqual([0, -1, -1])
     expect(panel()).toHaveAttribute('aria-labelledby', tab('Main').id)
     expect(tab('Main')).toHaveAttribute('aria-controls', panel().id)
-    expect(tab('fix-501')).not.toHaveAttribute('aria-controls')
+    expect(tab('limits-502')).not.toHaveAttribute('aria-controls')
   })
 
-  it('is Main alone for a task whose agent started no subagent', async () => {
+  it('is Main alone, with no caret, for a task whose agent started no subagent', async () => {
     await renderAgents({ toolEvents: [call('only', 4)] })
 
     expect(tabs().map((each) => each.title)).toEqual(['Main'])
+    expect(caret()).toBeNull()
     expect(rows()).toEqual(['Bashpytest tests/only.py14:2614 passed'])
   })
 
-  it('picks an agent on click, at once, and remembers it for the task', async () => {
+  it('picks an active agent on click, at once, and remembers it for the task', async () => {
     const { fake, store } = await renderAgents()
 
-    fireEvent.click(tab('fix-501'))
+    fireEvent.click(tab('docs-503'))
 
-    expect(shown()).toBe('fix-501')
-    expect(tabs().map((each) => each.tabIndex)).toEqual([-1, -1, -1, 0])
-    expect(panel()).toHaveAttribute('aria-labelledby', tab('fix-501').id)
-    expect(store.getState().agentTabs).toEqual({ t1: 'fix-501' })
-    expect(setTab(fake)).toEqual([{ taskId: 't1', agentId: 'fix-501' }])
+    expect(shown()).toBe('docs-503')
+    expect(tabs().map((each) => each.tabIndex)).toEqual([-1, -1, 0])
+    expect(panel()).toHaveAttribute('aria-labelledby', tab('docs-503').id)
+    expect(store.getState().agentTabs).toEqual({ t1: 'docs-503' })
+    expect(setTab(fake)).toEqual([{ taskId: 't1', agentId: 'docs-503' }])
 
     // The tab it's already on: nothing more to remember.
-    fireEvent.click(tab('fix-501'))
+    fireEvent.click(tab('docs-503'))
     fireEvent.click(tab('Main'))
     expect(shown()).toBe('Main')
     expect(store.getState().agentTabs).toEqual({})
     expect(setTab(fake)).toEqual([
-      { taskId: 't1', agentId: 'fix-501' },
+      { taskId: 't1', agentId: 'docs-503' },
       { taskId: 't1', agentId: null },
     ])
+  })
+
+  it('picks a finished agent from the caret’s dropdown, as a temporary tab after the active ones', async () => {
+    const { fake, store } = await renderAgents()
+
+    await pickFinished('fix-501')
+
+    expect(shown()).toBe('fix-501')
+    expect(tabs().map((each) => each.title)).toEqual(['Main', 'limits-502', 'docs-503', 'fix-501'])
+    expect(tab('fix-501')).toHaveAttribute('aria-selected', 'true')
+    expect(within(tab('fix-501')).getByRole('img', { name: 'Finished' })).toBeInTheDocument()
+    expect(store.getState().agentTabs).toEqual({ t1: 'fix-501' })
+    expect(setTab(fake)).toEqual([{ taskId: 't1', agentId: 'fix-501' }])
+
+    // Main or an active subagent picked again: the temporary tab goes, back to the caret's list alone.
+    fireEvent.click(tab('Main'))
+    expect(tabs().map((each) => each.title)).toEqual(['Main', 'limits-502', 'docs-503'])
+    expect(caret()).toHaveTextContent('1')
+  })
+
+  it('keeps the temporary tab if the subagent it names finishes while it’s still selected', async () => {
+    const { fake } = await renderAgents()
+    fireEvent.click(tab('docs-503'))
+
+    act(() => {
+      fake.emit({ type: EventType.ToolEventUpdated, toolEvent: { ...DOCS, ...finished(0, 'Opened PR #512.') } })
+    })
+
+    expect(shown()).toBe('docs-503')
+    expect(tab('docs-503')).toHaveAttribute('aria-selected', 'true')
+    expect(tab('docs-503')).not.toHaveAttribute('data-running')
+    expect(within(tab('docs-503')).getByRole('img', { name: 'Finished' })).toBeInTheDocument()
+    // It's no longer among the active ones that share the row: just the one temporary tab after them.
+    expect(tabs().map((each) => each.title)).toEqual(['Main', 'limits-502', 'docs-503'])
   })
 
   it('still shows the agent picked when main couldn’t remember it', async () => {
@@ -212,10 +273,11 @@ describe('the strip', () => {
 
       fireEvent.keyDown(tab('limits-502'), { key: 'ArrowLeft' })
       expect(shown()).toBe('Main')
+      // fix-501 has finished, so it's not among the tabs the arrows reach: Left from Main wraps to the last active one.
       fireEvent.keyDown(tab('Main'), { key: 'ArrowLeft' })
-      expect(shown()).toBe('fix-501')
-      expect(tab('fix-501')).toHaveFocus()
-      fireEvent.keyDown(tab('fix-501'), { key: 'ArrowRight' })
+      expect(shown()).toBe('docs-503')
+      expect(tab('docs-503')).toHaveFocus()
+      fireEvent.keyDown(tab('docs-503'), { key: 'ArrowRight' })
       expect(shown()).toBe('Main')
       expect(tab('Main')).toHaveFocus()
       expect(tabs().filter((each) => each.tabIndex === 0)).toEqual([tab('Main')])
@@ -290,7 +352,7 @@ describe('an agent’s tool calls', () => {
   it('are a subagent’s own, with the whole panel: its notes, and each call with its result under it', async () => {
     await renderAgents()
 
-    fireEvent.click(tab('fix-501'))
+    await pickFinished('fix-501')
 
     expect(panel()).toHaveTextContent('The header goes in throttle.py.')
     expect(rows()).toEqual(['Bashpytest tests/test_throttle.py14:1014 passed'])
@@ -317,7 +379,9 @@ describe('an agent’s tool calls', () => {
       ...SHIP,
       toolEvents: [...(SHIP.toolEvents ?? []), inner, call('test_links', 2, { parentToolUseId: 'inner' })],
     })
-    expect(tabs().map((each) => each.title)).toEqual(['Main', 'check-links', 'limits-502', 'docs-503', 'fix-501'])
+    // fix-501 has finished and started no watcher: it's in the caret's dropdown, not a tab.
+    expect(tabs().map((each) => each.title)).toEqual(['Main', 'check-links', 'limits-502', 'docs-503'])
+    expect(caret()).toHaveTextContent('1')
     // Main's list has only the subagents Main started.
     expect(rows()).toHaveLength(4)
 
@@ -365,14 +429,17 @@ describe('a subagent moving between the running and the finished', () => {
     act(() => {
       fake.emit({ type: EventType.ToolEventUpdated, toolEvent: { ...LIMITS, ...finished(0, 'Opened PR #513.') } })
     })
-    expect(tabs().map((each) => each.title)).toEqual(['Main', 'docs-503', 'limits-502', 'fix-501'])
+    // It finished while selected: it keeps its tab, now the temporary one after the active ones (#617); fix-501,
+    // finished since before and never selected, stays off the strip, in the caret's dropdown.
+    expect(tabs().map((each) => each.title)).toEqual(['Main', 'docs-503', 'limits-502'])
     expect(tab('limits-502')).not.toHaveAttribute('data-running')
     expect(shown()).toBe('limits-502')
     // The list is the one it was, with the call you opened still open.
     expect(within(panel()).getByRole('log')).toBe(list)
     expect(within(list).getByLabelText('Bash output')).toBe(output)
 
-    // Woken after it finished (#395): its call runs again.
+    // Woken after it finished (#395): its call runs again, so it rejoins the active ones; the temporary tab, still
+    // selected, stays last.
     act(() => {
       fake.emit({ type: EventType.ToolEventUpdated, toolEvent: { ...FIX, state: ToolCallState.Running, output: null } })
     })
@@ -384,7 +451,7 @@ describe('a subagent moving between the running and the finished', () => {
 
   it('adds a subagent’s tab when it starts, first among the running, leaving the tab showing', async () => {
     const { fake } = await renderAgents()
-    fireEvent.click(tab('fix-501'))
+    await pickFinished('fix-501')
 
     act(() => {
       fake.emit({ type: EventType.ToolEventAppended, toolEvent: hubAgent('notes-25', 'notes-25', 0) })
@@ -408,14 +475,14 @@ describe('the line under the strip, on a subagent’s tab', () => {
   it('says what it worked on, and how long it ran, once it has finished', async () => {
     await renderAgents()
 
-    fireEvent.click(tab('fix-501'))
+    await pickFinished('fix-501')
 
     expect(line()).toHaveTextContent(/^Worked on #501 Return Retry-After on 429sDone · 28m$/)
   })
 
   it('goes to that todo in the Todos tab when its title is clicked', async () => {
     const { store } = await renderAgents()
-    fireEvent.click(tab('fix-501'))
+    await pickFinished('fix-501')
 
     fireEvent.click(todoLink())
 
@@ -431,7 +498,7 @@ describe('the line under the strip, on a subagent’s tab', () => {
     fireEvent.click(tab('docs-503'))
     expect(line()).toBeNull()
 
-    fireEvent.click(tab('fix-501'))
+    await pickFinished('fix-501')
     expect(line()).not.toBeNull()
     act(() => {
       fake.emit({
@@ -481,7 +548,7 @@ describe('the line under the strip, on a subagent’s tab', () => {
     render(<AgentsTab taskId="t1" />, { wrapper: hub.wrapper })
     await act(() => Promise.resolve())
 
-    fireEvent.click(tab('fix-501'))
+    await pickFinished('fix-501')
 
     expect(line()).toBeNull()
     expect(rows()).toHaveLength(1)
@@ -573,13 +640,9 @@ describe('which agent a task is on', () => {
   })
 })
 
-describe('a strip with more agents than fit', () => {
-  const TAB_WIDTH = 90
-  const layout = { scrollLeft: 0, clientWidth: 300 }
+describe('the active tabs’ shared width, and the caret’s dropdown (#617)', () => {
+  const layout = { clientWidth: 400 }
   const observers = new Set<() => void>()
-  const scrollTo = vi.fn((options: ScrollToOptions) => {
-    layout.scrollLeft = options.left ?? 0
-  })
   const MANY: HubTask = {
     toolEvents: Array.from({ length: 50 }, (_, index) =>
       hubAgent(`s${String(index)}`, `agent-${String(index)}`, 60 - index, index < 40 ? finished(1, 'Done.') : {}),
@@ -587,21 +650,9 @@ describe('a strip with more agents than fit', () => {
   }
 
   beforeEach(() => {
-    Object.assign(layout, { scrollLeft: 0, clientWidth: 300 })
+    layout.clientWidth = 400
     observers.clear()
-    scrollTo.mockClear()
-    const subagentTabs = (row: HTMLElement): HTMLElement[] => [...row.querySelectorAll<HTMLElement>('[role="tab"]')]
-    vi.spyOn(HTMLElement.prototype, 'scrollLeft', 'get').mockImplementation(() => layout.scrollLeft)
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => layout.clientWidth)
-    vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) {
-      return Math.max(subagentTabs(this).length * TAB_WIDTH, layout.clientWidth)
-    })
-    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(TAB_WIDTH)
-    vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(function (this: HTMLElement) {
-      const row = this.parentElement
-      return row === null ? 0 : subagentTabs(row).indexOf(this) * TAB_WIDTH
-    })
-    HTMLElement.prototype.scrollTo = scrollTo as unknown as HTMLElement['scrollTo']
     vi.stubGlobal(
       'ResizeObserver',
       class {
@@ -625,93 +676,70 @@ describe('a strip with more agents than fit', () => {
     vi.unstubAllGlobals()
   })
 
-  it('has all 50, the running first, with a chevron at the end that has more past it', async () => {
+  it('has all 10 active tabs and no more, the newest first, sharing the row evenly', async () => {
     await renderAgents(MANY)
 
-    expect(tabs()).toHaveLength(51)
-    expect(
-      tabs()
-        .slice(0, 4)
-        .map((each) => each.title),
-    ).toEqual(['Main', 'agent-49', 'agent-48', 'agent-47'])
-    expect(tabs().at(-1)?.title).toBe('agent-0')
+    expect(tabs().map((each) => each.title)).toEqual([
+      'Main',
+      ...Array.from({ length: 10 }, (_, index) => `agent-${String(49 - index)}`),
+    ])
     expect(tabs().filter((each) => each.hasAttribute('data-running'))).toHaveLength(10)
-    expect(screen.getByRole('button', { name: 'Scroll agents right' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Scroll agents left' })).toBeNull()
-    // Main stays put: it's outside the row that scrolls.
-    expect(tab('Main').parentElement).toBe(strip())
-    expect(tab('agent-49').parentElement).not.toBe(strip())
   })
 
-  it('scrolls the tab picked into view, and not for Main, which never scrolls', async () => {
+  it('crowds past the 56px floor, by a class toggled on the row rather than React state, and names the full agent on the tab’s title even then', async () => {
     await renderAgents(MANY)
-    expect(scrollTo).not.toHaveBeenCalled()
+    const row = within(strip()).getByRole('presentation')
 
-    fireEvent.click(tab('agent-0'))
-    expect(scrollTo).toHaveBeenLastCalledWith({ left: 50 * TAB_WIDTH - layout.clientWidth, behavior: 'auto' })
+    // 10 active tabs share 400px, less 9 gaps of 4px: ~36px each, under the 56px floor. Toggled by a ResizeObserver
+    // directly on the row (#617), so it costs no tab a re-render: tab() still finds agent-49 by its title.
+    expect(row).toHaveClass(styles.crowded ?? '')
+    expect(tab('agent-49')).toHaveAttribute('title', 'agent-49')
 
-    scrollTo.mockClear()
-    fireEvent.click(tab('Main'))
-    expect(scrollTo).not.toHaveBeenCalled()
-  })
-
-  it('goes straight to the tab a task was left on, the first time it shows', async () => {
-    await renderAgents(MANY, { t1: 's0' })
-
-    expect(shown()).toBe('agent-0')
-    expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ left: 50 * TAB_WIDTH - layout.clientWidth, behavior: 'instant' })
-  })
-
-  it('keeps the tab showing in view when it moves, and leaves the strip where it is when another does', async () => {
-    const { fake } = await renderAgents(MANY)
-    const running = MANY.toolEvents?.[49] as ToolCallEvent
-    fireEvent.click(tab('agent-49'))
-    scrollTo.mockClear()
-
-    // Another subagent finishes: the tab showing hasn't moved.
-    act(() => {
-      fake.emit({
-        type: EventType.ToolEventUpdated,
-        toolEvent: { ...(MANY.toolEvents?.[45] as ToolCallEvent), ...finished(0, 'Done.') },
-      })
-    })
-    expect(scrollTo).not.toHaveBeenCalled()
-
-    // The one showing finishes: it's now tenth, past the row's end.
-    act(() => {
-      fake.emit({ type: EventType.ToolEventUpdated, toolEvent: { ...running, ...finished(0, 'Done.') } })
-    })
-    expect(
-      tabs()
-        .map((each) => each.title)
-        .indexOf('agent-49'),
-    ).toBe(9)
-    expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ left: 9 * TAB_WIDTH - layout.clientWidth, behavior: 'instant' })
-  })
-
-  it('keeps the tab showing in view as the panel is resized, and only then', async () => {
-    await renderAgents(MANY)
-    fireEvent.click(tab('agent-45'))
-    scrollTo.mockClear()
-
-    // Watched, but no narrower.
+    layout.clientWidth = 2000
     for (const observer of observers) observer()
-    expect(scrollTo).not.toHaveBeenCalled()
-
-    layout.clientWidth = 200
-    layout.scrollLeft = 0
-    for (const observer of observers) observer()
-    expect(scrollTo).toHaveBeenLastCalledWith({ left: 5 * TAB_WIDTH - 200, behavior: 'instant' })
+    expect(row).not.toHaveClass(styles.crowded ?? '')
   })
 
-  it('scrolls on its chevron, by about a tab', async () => {
-    const scrollBy = vi.fn()
-    HTMLElement.prototype.scrollBy = scrollBy
+  it('has a caret with the finished count, hidden once none are left', async () => {
     await renderAgents(MANY)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Scroll agents right' }))
+    expect(caret()).toHaveTextContent('40')
+    expect(caret()).toHaveAttribute('aria-label', '40 finished subagents')
+    expect(caret()).toHaveAttribute('aria-expanded', 'false')
 
-    expect(scrollBy).toHaveBeenCalledExactlyOnceWith({ left: TAB_WIDTH })
+    const onlyActive = { toolEvents: MANY.toolEvents?.filter((_, index) => index >= 40) }
+    cleanup()
+    await renderAgents(onlyActive)
+    expect(caret()).toBeNull()
+  })
+
+  it('opens the finished ones newest first, every one of them, capped and scrolling past it by CSS alone', async () => {
+    await renderAgents(MANY)
+
+    // Once open, Floating UI hides the rest of the page from assistive technology, the caret included (as the
+    // workspace switcher's own menu does): keep the reference from before, rather than query for it again.
+    const button = caret()
+    if (button === null) throw new Error('No caret in the strip.')
+    fireEvent.click(button)
+    await act(() => Promise.resolve())
+
+    expect(button).toHaveAttribute('aria-expanded', 'true')
+    const menu = screen.getByRole('menu', { name: 'Finished subagents' })
+    expect(menu).toHaveTextContent(/^Finished, newest first/)
+    const items = within(menu).getAllByRole('menuitem')
+    expect(items).toHaveLength(40)
+    expect(items[0]).toHaveTextContent('agent-391m')
+    expect(items.at(-1)).toHaveTextContent('agent-01m')
+  })
+
+  it('picks a finished one from the dropdown, as a temporary tab after the active ones', async () => {
+    await renderAgents(MANY)
+
+    await pickFinished('agent-20')
+
+    expect(shown()).toBe('agent-20')
+    expect(tabs().at(-1)?.title).toBe('agent-20')
+    expect(within(tab('agent-20')).getByRole('img', { name: 'Finished' })).toBeInTheDocument()
   })
 })
 

@@ -370,7 +370,11 @@ test("a subagent's card says which subagent, opens on Deny when a stray key must
     .tab(/^Agents/)
     .click()
   const agents = agentsTab(window)
-  await agents.tab(SUBAGENT_PERMISSION.subagent).click()
+  // The subagent has finished, so it's in the caret's dropdown, not a tab (#617); picking it shows it as the strip's
+  // temporary tab.
+  await expect(agents.caret).toHaveText('1')
+  await agents.caret.click()
+  await agents.finished(SUBAGENT_PERMISSION.subagent).click()
   await expect(agents.list).toContainText(SUBAGENT_PERMISSION.file)
   await expect(taskPanel(window).permissionLines).toHaveText(['Allowed once'])
 })

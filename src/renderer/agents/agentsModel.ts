@@ -7,6 +7,7 @@
  * null.
  */
 import {
+  TaskActivity,
   ToolCallState,
   ToolEventKind,
   type EpochMs,
@@ -14,12 +15,20 @@ import {
   type Todo,
   type ToolCallEvent,
   type ToolEvent,
+  type Watcher,
 } from '../../shared/domain'
 import { isSubagentTool, subagentName } from '../../shared/subagents'
 import { subagentTodo, type Filing } from '../../shared/todoHub'
 import { argumentSummary, firstLine } from '../../shared/toolSummary'
 import type { GladeData } from '../store/state'
-import { AgentActivity, elapsedMs, statusLabel, subagentStatus } from '../subagents/subagentsModel'
+import {
+  AgentActivity,
+  agentActivity,
+  elapsedMs,
+  isAgentActive,
+  statusLabel,
+  subagentStatus,
+} from '../subagents/subagentsModel'
 import { formatAge } from '../task-header/headerModel'
 import { formatTokens } from '../context-meter/format'
 import { isAgentEvent } from '../tool-log/toolLogModel'
@@ -95,6 +104,113 @@ export function selectShownAgent(state: Pick<GladeData, 'toolEvents' | 'agentTab
   return shownAgent(state.toolEvents[taskId], state.agentTabs[taskId])
 }
 
+/** Whether the task's own agent's turn is running right now, what `agentActivity` needs for Main (#579): read the
+ * same way wherever an agent's activity is worked out, so a tab and its dot can never disagree. */
+export function mainTurnRunning(task: Pick<Task, 'activity'> | undefined): boolean {
+  return task !== undefined && (task.activity === TaskActivity.Working || task.activity === TaskActivity.Paused)
+}
+
+/**
+ * A task's agent tabs, split the way the strip shows them (#617): the ones that share its width — running, or
+ * waiting on something they started (`AgentActivity`, #579, the same rule the dot uses) — and the finished ones,
+ * named only in the caret's dropdown. Main isn't among either: it's pinned before them both.
+ */
+export interface AgentTabs {
+  /** Newest first, as `agentsOf`'s order already has them. */
+  readonly active: readonly string[]
+  /**
+   * By when each finished, the most recently finished first: the caret's "Finished, newest first". One Glade never
+   * recorded an end for sorts after those that have one; ties keep the order they started in.
+   */
+  readonly finished: readonly string[]
+}
+
+const NO_TABS: AgentTabs = { active: [], finished: [] }
+
+function deriveAgentTabs(
+  ids: readonly string[],
+  calls: ReadonlyMap<string, ToolCallEvent>,
+  activity: ReadonlyMap<string | null, AgentActivity>,
+): AgentTabs {
+  const active: string[] = []
+  const finished: string[] = []
+  for (const id of ids) {
+    if (isAgentActive(activity.get(id) ?? AgentActivity.Done)) active.push(id)
+    else finished.push(id)
+  }
+  // `ids` has them by when they started; the dropdown reads "Finished, newest first", so by when they ended. A
+  // stable sort keeps ties, and the ones with no recorded end, in the order they started in.
+  finished.sort((a, b) => {
+    const endA = calls.get(a)?.finishedAt ?? null
+    const endB = calls.get(b)?.finishedAt ?? null
+    if (endA === endB) return 0
+    if (endA === null) return 1
+    if (endB === null) return -1
+    return endB - endA
+  })
+  return active.length === 0 && finished.length === 0 ? NO_TABS : { active, finished }
+}
+
+/** What's been worked out from one task's agent order and activity, so everything that reads its tabs for the same
+ * render works it out once. */
+const tabsCache = new WeakMap<readonly string[], WeakMap<ReadonlyMap<string | null, AgentActivity>, AgentTabs>>()
+
+/** A task's agent tabs (`AgentTabs`, `deriveAgentTabs`), worked out once per (agent order, activity) pair, however
+ * many read it. */
+export function agentTabsOf(
+  events: readonly ToolEvent[] | undefined,
+  watchers: readonly Watcher[] | undefined,
+  mainRunning: boolean,
+): AgentTabs {
+  const { ids, calls } = agentsOf(events)
+  const activity = agentActivity(events, watchers, mainRunning)
+  let byActivity = tabsCache.get(ids)
+  if (byActivity === undefined) {
+    byActivity = new WeakMap()
+    tabsCache.set(ids, byActivity)
+  }
+  let tabs = byActivity.get(activity)
+  if (tabs === undefined) {
+    tabs = deriveAgentTabs(ids, calls, activity)
+    byActivity.set(activity, tabs)
+  }
+  return tabs
+}
+
+/** `AgentTabs` from the store, by the task's id (#617). */
+export function selectAgentTabs(
+  state: Pick<GladeData, 'toolEvents' | 'watchers' | 'tasks'>,
+  taskId: string,
+): AgentTabs {
+  return agentTabsOf(state.toolEvents[taskId], state.watchers[taskId], mainTurnRunning(state.tasks[taskId]))
+}
+
+/**
+ * Whether the agent a task's Agents tab shows is a finished one (#617): true only while a finished subagent's tab is
+ * picked, the strip's temporary tab after the active ones. Main and an active subagent are never finished.
+ */
+export function shownAgentFinished(
+  state: Pick<GladeData, 'toolEvents' | 'watchers' | 'tasks' | 'agentTabs'>,
+  taskId: string,
+): boolean {
+  const agentId = selectShownAgent(state, taskId)
+  return agentId !== null && selectAgentTabs(state, taskId).finished.includes(agentId)
+}
+
+/** Below this, an active tab's name drops to the smaller type and whatever of it still fits (#617, the mockups'
+ * "56px minimum"). */
+export const MIN_ACTIVE_TAB_WIDTH = 56
+
+/**
+ * Whether the strip's active tabs (the temporary finished one among them included) are crowded past the 56px floor
+ * (#617): each tab's fair share of `rowWidth`, once `gap` between them is taken out, is under `MIN_ACTIVE_TAB_WIDTH`.
+ */
+export function activeTabsCrowded(rowWidth: number, count: number, gap: number): boolean {
+  if (count === 0) return false
+  const perTab = (rowWidth - gap * (count - 1)) / count
+  return perTab < MIN_ACTIVE_TAB_WIDTH
+}
+
 /** What an agent's tab is called: Main, or a subagent's name (`subagentName`). */
 export function agentName(call: ToolCallEvent | undefined): string {
   return call === undefined ? MAIN_AGENT_NAME : subagentName(call)
@@ -158,6 +274,14 @@ export function agentStateLine(call: ToolCallEvent, now: EpochMs): string {
   const label = statusLabel(subagentStatus(call.state))
   const elapsed = elapsedMs({ call }, now)
   return elapsed === null ? label : `${label} · ${formatDuration(elapsed)}`
+}
+
+/**
+ * How long ago a finished subagent ended, as the caret's dropdown says it ("2m", "1h 12m", #617): `formatDuration`
+ * from when it finished. Null for one Glade never recorded an end for (`agentStateLine`'s same fallback).
+ */
+export function agentFinishedAgo(call: Pick<ToolCallEvent, 'finishedAt'>, now: EpochMs): string | null {
+  return call.finishedAt === null ? null : formatDuration(now - call.finishedAt)
 }
 
 /**

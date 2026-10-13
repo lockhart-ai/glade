@@ -58,14 +58,21 @@ task search; in the editor, its own ⌘F finds in the file, and anywhere else �
 The right panel has three tabs, **Agents · Files · Todos** (P16, #536; `decisions.md`), and ⌘⌥1 – ⌘⌥3 pick them.
 ⌘⌥4 – ⌘⌥7, which picked tabs the panel no longer has, are no command's.
 
-The Agents tab's strip of agents (`design/screens/50-agents.png`) is one Tab stop, on the tab of the agent showing.
-With the focus on it, ← and → pick the agent before or after, Main included, wrapping at the ends, and the focus goes
-with the tab picked; ↵ or Space on a tab picks it, as a click does. Held with ⌘, ⌃, ⌥ or ⇧, the arrows are left to
-whatever command has them. These keys are fixed. Tab then reaches, in order: on a subagent's tab, the todo's title in
-the line under the strip (↵ or Space shows that todo in the Todos tab, with the focus on it); then each tool call of
-the agent showing, where ↵ or Space opens a call's output, and on a subagent's `Agent` call goes to that subagent's
-tab; Context menu (⇧F10) on a call opens the tool call's menu. Under the calls, each pinned watcher's **Stop** (#537)
-is a Tab stop: ↵ or Space stops that watcher. A watcher's row in the list isn't one: it does nothing.
+The Agents tab's strip (`design/screens/54-agents-strip-main.png`, #617) is one Tab stop, on the tab of the agent
+showing: Main, every active subagent (running, or waiting on something it started, #579), and, while it's selected,
+the temporary tab of a finished one picked from the caret's dropdown. With the focus on it, ← and → pick the agent
+before or after, wrapping at the ends, and the focus goes with the tab picked; ↵ or Space on a tab picks it, as a
+click does. Held with ⌘, ⌃, ⌥ or ⇧, the arrows are left to whatever command has them. These keys are fixed.
+
+Past the active tabs, the caret that opens the finished subagents' dropdown — present only once something has
+finished — is its own Tab stop, reached by Tab, never by the arrows: ↵ or Space opens it, and its list answers the
+keys menus do (↑↓ / ↵ / Esc). Picking one shows it as the strip's temporary tab, after the active ones.
+
+Tab then reaches, in order: on a subagent's tab, the todo's title in the line under the strip (↵ or Space shows that
+todo in the Todos tab, with the focus on it); then each tool call of the agent showing, where ↵ or Space opens a
+call's output, and on a subagent's `Agent` call goes to that subagent's tab; Context menu (⇧F10) on a call opens the
+tool call's menu. Under the calls, each pinned watcher's **Stop** (#537) is a Tab stop: ↵ or Space stops that
+watcher. A watcher's row in the list isn't one: it does nothing.
 
 Context menu (⇧F10), or the keyboard's menu key, on a subagent's tab in the strip opens that subagent's menu (#537):
 Copy log, and Stop subagent while it runs. Main's tab has none.

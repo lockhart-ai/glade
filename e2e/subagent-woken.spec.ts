@@ -43,10 +43,12 @@ test('a subagent the agent messages after it finished runs again, then ends agai
   await expect(agents.list.getByRole('button')).toHaveCount(4)
   await agents.tab('Main').click()
 
-  // Its new run ends: done again, with what it came to, and the agent reports it.
+  // Its new run ends: done again, back in the caret's dropdown instead of a tab (#617), with what it came to, and
+  // the agent reports it.
   await expect(call).toContainText('Done', { timeout: 20_000 })
   await expect(call).toContainText(WAKES_A_SUBAGENT.fixed)
-  await expect(agents.tab(SUBAGENT)).not.toHaveAttribute('data-running')
+  await expect(agents.tab(SUBAGENT)).toHaveCount(0)
+  await expect(agents.caret).toHaveText('1')
   await expect(list.subagentCount(list.taskRow(title))).toHaveCount(0)
   await expect(agentReplies.nth(2)).toContainText(WAKES_A_SUBAGENT.reported)
 })

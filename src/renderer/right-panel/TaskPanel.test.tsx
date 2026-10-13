@@ -151,6 +151,16 @@ function agentTab(name: string): HTMLElement {
   return within(screen.getByRole('tablist', { name: 'Agents' })).getByRole('tab', { name: new RegExp(`${name}$`) })
 }
 
+/** Opens the caret's dropdown and picks a finished subagent by name, showing it as the strip's temporary tab. */
+async function pickFinishedAgent(name: string): Promise<void> {
+  fireEvent.click(
+    within(screen.getByRole('tablist', { name: 'Agents' })).getByRole('button', { name: /finished subagents$/ }),
+  )
+  await act(() => Promise.resolve())
+  fireEvent.click(within(screen.getByRole('menu', { name: 'Finished subagents' })).getByRole('menuitem', { name }))
+  await act(() => Promise.resolve())
+}
+
 function row(name: RegExp): HTMLElement {
   return within(log()).getByRole('button', { name })
 }
@@ -628,7 +638,7 @@ describe('TaskPanel', () => {
       expect(screen.queryByRole('group', { name: 'Agent subagent calls' })).toBeNull()
       expect(tab(/^Agents/)).toHaveTextContent('Agents 2')
 
-      fireEvent.click(agentTab('Find the settings'))
+      await pickFinishedAgent('Find the settings')
       expect(log()).toHaveTextContent('Looking for the throttle settings.')
       expect(within(log()).getByRole('button')).toHaveTextContent('GrepTHROTTLE')
     })
@@ -669,11 +679,12 @@ describe('TaskPanel', () => {
       // Main and its three subagents, the nested one among them.
       expect(tab(/^Agents/)).toHaveTextContent('Agents 4')
 
-      // Each subagent's tab lists its own calls, in order; the nested one's Agent call is one row there too.
+      // Each agent's panel lists its own calls, in order; the nested one's Agent call is one row there too. The
+      // nested one has finished, so it's picked from the caret's dropdown, as a temporary tab.
       const starts = (): string[] => calls().map((text) => /^.*?10:44/.exec(text)?.[0] ?? text)
       fireEvent.click(agentTab('API changes'))
       expect(starts()).toEqual(['Bashgh pr list10:44', 'AgentRead PR 140210:44'])
-      fireEvent.click(agentTab('Read PR 1402'))
+      await pickFinishedAgent('Read PR 1402')
       expect(starts()).toEqual(['Grepratelimit10:44'])
       fireEvent.click(agentTab('Dashboard changes'))
       expect(starts()).toEqual(['Bashredis-cli info10:44', 'Readweb/charts.ts10:44'])

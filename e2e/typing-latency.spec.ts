@@ -122,7 +122,8 @@ async function typesPromptly(window: Page): Promise<void> {
 }
 
 // The same task with the Agents tab open on it (P16, #536), which the panel shows in place of the old Tool calls,
-// Subagents and Watchers tabs: a tab for each of its 90 subagents and Main, and Main's list, the whole tool log of the
+// Subagents and Watchers tabs: a tab for Main and its 2 still-running subagents, the caret counting its 88 finished
+// ones, and Main's list, the whole tool log of the
 // task's own agent. Every event of the turn reaches them; a tab renders only when its own agent's name or state
 // changed, and a row only when its own event did, so the keys don't wait on them. (The test above waits on the
 // Agents tab's count instead, as a plainer check that the same history loaded.)
@@ -139,7 +140,10 @@ test('typing stays prompt with the Agents tab open on a task with a very long hi
   const agents = agentsTab(window)
   await expect(panel.tabs).toHaveCount(3)
   await expect(panel.tab(/^Agents/)).toHaveText(`Agents ${String(LONG_HISTORY.subagents + 1)}`)
-  await expect(agents.tabs).toHaveCount(LONG_HISTORY.subagents + 1)
+  // The seed's 2 still-running subagents are tabs with Main; the other 88 finished ones are counted on the caret's
+  // dropdown (#617), so they still all load.
+  await expect(agents.tabs).toHaveCount(3)
+  await expect(agents.caret).toHaveText(String(LONG_HISTORY.subagents - 2))
   await expect(agents.tab('Main')).toHaveAttribute('aria-selected', 'true')
   // Main's list is there, with every subagent it started as a call of its own.
   await expect(agents.list.locator('[data-agent-call]')).toHaveCount(LONG_HISTORY.subagents)
