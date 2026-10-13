@@ -404,6 +404,10 @@ export function filesTab(page: Page) {
     unsaved: (name: string) => openFiles.getByRole('button', { name: `Close ${name} (unsaved edits)`, exact: true }),
     /** The bar that says the file changed on disk under your unsaved edits. */
     changedOnDisk: panel.getByRole('alert').filter({ hasText: 'changed on disk' }),
+    /** The HTML preview's quiet notice, while it's had something blocked (#614). */
+    previewBlocked: panel.getByRole('status').filter({ hasText: 'this preview is offline' }),
+    /** The HTML preview's native view slot, over the body main draws its view on. */
+    htmlPreviewSlot: panel.getByTestId('html-preview-slot'),
     reload: panel.getByRole('button', { name: 'Reload', exact: true }),
     keepMine: panel.getByRole('button', { name: 'Keep mine', exact: true }),
     /** The editor's find bar (⌘F). */

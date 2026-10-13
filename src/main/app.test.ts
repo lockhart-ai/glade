@@ -689,6 +689,39 @@ describe('startApp', () => {
     expect(view?.webContents.close).toHaveBeenCalledOnce()
   })
 
+  it('shows the Files viewer’s HTML preview over the body in its own sandboxed view, and ends it when the app quits', async () => {
+    await startAndWaitUntilReady()
+    // Only this test's view: a plugin's, in an earlier test, uses the same fake WebContentsView.
+    electron.pluginViews.length = 0
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'glade-app-preview-')))
+    try {
+      writeFileSync(join(root, 'report.html'), '<!doctype html><title>Report</title>')
+      const db = new Database(join(electron.app.userData, 'glade.db'))
+      const taskId = sampleTask(db, sampleWorkspace(db, root).id).id
+      db.close()
+      const window = onlyWindow()
+      const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+      const bounds = { x: 10, y: 20, width: 300, height: 200 }
+      await expect(
+        handler?.(fromWindow(), CommandName.FilesPlaceHtmlPreview, { taskId, path: 'report.html', bounds }),
+      ).resolves.toEqual({ ok: true, value: null })
+
+      const [view] = electron.pluginViews
+      expect(electron.pluginViews).toHaveLength(1)
+      expect(window.contentView.addChildView).toHaveBeenCalledWith(view)
+      expect(view?.webContents.loadURL).toHaveBeenCalledWith('glade-html-preview://preview/report.html')
+      expect(view?.setBounds).toHaveBeenCalledWith(bounds)
+      expect(view?.options).toMatchObject({ webPreferences: { sandbox: true, devTools: true } })
+      expect(view?.options).not.toHaveProperty('webPreferences.preload')
+
+      appHandler('will-quit')()
+      expect(view?.webContents.close).toHaveBeenCalledOnce()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('answers commands and broadcasts their events to every open window', async () => {
     await startAndWaitUntilReady()
     const window = onlyWindow()
@@ -734,12 +767,16 @@ describe('startApp', () => {
     ])
   })
 
-  it('registers the plugin scheme as a standard, secure one before the app is ready', () => {
+  it('registers the plugin scheme and the HTML preview scheme in the one call Electron takes, before the app is ready', () => {
     electron.app.whenReady.mockReturnValueOnce(new Promise(() => undefined))
     startApp()
 
+    // Electron takes `registerSchemesAsPrivileged` once, and a second call replaces the first, which would strip the
+    // earlier scheme of its privileges.
+    expect(electron.protocol.registerSchemesAsPrivileged).toHaveBeenCalledTimes(1)
     expect(electron.protocol.registerSchemesAsPrivileged).toHaveBeenCalledWith([
       { scheme: 'glade-plugin', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+      { scheme: 'glade-html-preview', privileges: { standard: true, secure: true, supportFetchAPI: true } },
     ])
   })
 

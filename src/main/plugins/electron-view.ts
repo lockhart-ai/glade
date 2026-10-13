@@ -23,14 +23,12 @@ const VIEW_BACKGROUND = '#181921'
 export const PLUGIN_VIEW_RADIUS = 15
 
 /**
- * Registers the plugin scheme as a standard, secure one, so a plugin's page has an origin of its own
- * (`glade-plugin://<id>`) for its CSP's `'self'` and relative URLs, and can `fetch` its own files. Call before the app
- * is ready.
+ * The plugin scheme as Electron's `registerSchemesAsPrivileged` takes it: standard and secure, so a plugin's page has
+ * an origin of its own (`glade-plugin://<id>`) for its CSP's `'self'` and relative URLs, and can `fetch` its own
+ * files. Part of the one call Glade makes before the app is ready (`../app`), since Electron takes that call once.
  */
-export function registerPluginScheme(protocol: Pick<Electron.Protocol, 'registerSchemesAsPrivileged'>): void {
-  protocol.registerSchemesAsPrivileged([
-    { scheme: PLUGIN_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
-  ])
+export function pluginScheme(): Electron.CustomScheme {
+  return { scheme: PLUGIN_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } }
 }
 
 /** A plugin's session partition: its own, and in memory, so it shares no storage with Glade or another plugin. */

@@ -42,6 +42,8 @@ import { createMachineMonitor, type MachineMonitor, type MachineSamplers } from 
 import { databaseFeedSource } from '../plugins/feed-source'
 import { createPlugins, type Plugins } from '../plugins/plugins'
 import { createPluginViews, type CreatePluginView, type PluginViews } from '../plugins/views'
+import { createHtmlPreviewViews, type HtmlPreviewViews } from '../files/html-preview'
+import type { CreateHtmlPreviewView } from '../files/html-preview-views'
 import { createQuestionBroker } from '../questions/questions'
 import { createBroadcast, createDispatcher, type EventTarget } from './dispatcher'
 import type { Emit } from './events'
@@ -102,6 +104,8 @@ export interface BridgeOptions {
   readonly pluginsFolder: string
   /** Makes the shown plugin's view (`../plugins/electron-view`). None by default: placing it does nothing. */
   readonly createPluginView?: CreatePluginView
+  /** Makes the Files viewer's HTML preview (`../files/html-preview-views`). None by default: placing it does nothing. */
+  readonly createHtmlPreviewView?: CreateHtmlPreviewView
   /** Glade's version, which plugins are told in `hello`. */
   readonly appVersion?: string
   /**
@@ -167,6 +171,8 @@ export interface RegisteredBridge {
   readonly plugins: Plugins
   /** The shown plugin's view, which ends when the app quits. */
   readonly pluginViews: PluginViews
+  /** The Files viewer's shown HTML preview, which ends when the app quits. */
+  readonly htmlPreviewViews: HtmlPreviewViews
   /** What samples the Mac's load for plugins, which stops when the app quits; null without `machineSamplers`. */
   readonly machine: MachineMonitor | null
   /** The control API (`glade-control`), which other agents drive Glade with. */
@@ -217,6 +223,7 @@ export function registerBridge({
   terminal,
   pluginsFolder,
   createPluginView,
+  createHtmlPreviewView,
   appVersion = '0.0.0',
   machineSamplers,
   isTrustedSender = () => true,
@@ -389,6 +396,11 @@ export function registerBridge({
     ...(machine === null ? {} : { machine }),
     log: log.scoped(LogScope.Plugins),
   })
+  const htmlPreviewViews = createHtmlPreviewViews({
+    emit,
+    createView: createHtmlPreviewView,
+    log: log.scoped(LogScope.Files),
+  })
   const plugins = createPlugins({
     db,
     emit,
@@ -425,6 +437,7 @@ export function registerBridge({
       terminals,
       plugins,
       pluginViews,
+      htmlPreviewViews,
       endpoint,
       account,
       login,
@@ -447,6 +460,7 @@ export function registerBridge({
     terminals,
     plugins,
     pluginViews,
+    htmlPreviewViews,
     machine,
     control,
     endpoint,
