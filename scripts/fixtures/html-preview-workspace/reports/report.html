@@ -1,22 +1,51 @@
 <!doctype html>
 <html>
-<head>
-<style>
-  body { font-family: sans-serif; background: #f6f3ff; color: #241f3d; margin: 0; padding: 24px; }
-  h1 { color: #5b3df0; }
-  table { border-collapse: collapse; width: 320px; }
-  th, td { border: 1px solid #c9bdf7; padding: 8px 12px; text-align: left; }
-  th { background: #e6ddff; }
-</style>
-</head>
-<body>
-  <h1>Acme API — Weekly Usage</h1>
-  <table>
-    <tr><th>Endpoint</th><th>Calls</th></tr>
-    <tr><td>/search</td><td id="calls">…</td></tr>
-    <tr><td>Everything else</td><td>201,600</td></tr>
-  </table>
-  <p><img src="chart.png" alt="Usage chart" width="120" height="120"></p>
-  <script>document.getElementById('calls').textContent = (60 * 24 * 7).toLocaleString()</script>
-</body>
+  <head>
+    <style>
+      body {
+        font-family: sans-serif;
+        background: #f6f3ff;
+        color: #241f3d;
+        margin: 0;
+        padding: 24px;
+      }
+      h1 {
+        color: #5b3df0;
+      }
+      table {
+        border-collapse: collapse;
+        width: 320px;
+      }
+      th,
+      td {
+        border: 1px solid #c9bdf7;
+        padding: 8px 12px;
+        text-align: left;
+      }
+      th {
+        background: #e6ddff;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Acme API — Weekly Usage</h1>
+    <table>
+      <tr>
+        <th>Endpoint</th>
+        <th>Calls</th>
+      </tr>
+      <tr>
+        <td>/search</td>
+        <td id="calls">…</td>
+      </tr>
+      <tr>
+        <td>Everything else</td>
+        <td>201,600</td>
+      </tr>
+    </table>
+    <p><img src="chart.png" alt="Usage chart" width="120" height="120" /></p>
+    <script>
+      document.getElementById('calls').textContent = (60 * 24 * 7).toLocaleString()
+    </script>
+  </body>
 </html>
