@@ -73,7 +73,7 @@ note the agent reads.
 tasks. Here, [Nekomata](https://github.com/lockhart-ai/nekomata) draws each task as a cat and each subagent as a
 kitten; the cat with a raised paw is waiting on you.
 
-![The Nekomata plugin beside the terminal, with a cat per task and a question bubble over the one waiting on you](docs/images/nekomata.png)
+![The Nekomata plugin beside the terminal, in its 32bit style: a cat at a desk for each task, and kittens for their subagents](docs/images/nekomata.png)
 
 **Other agents can drive it.** Turn on Settings › Control and any Claude Code chat or script on your Mac can list,
 create and update tasks, import your Claude Code history, or backfill past work from your notes.

@@ -17,6 +17,12 @@ Each image is captured in a window that's never shown, then saved with a 256-col
 every image here already is. Regenerating overwrites the file in `docs/images/` in place; look it over (and check it's
 under about 150 KB, and shows no `/var/folders` or `/Users/` path) before committing.
 
+**The committed `nekomata.png` is a composite (#631).** Its plugin panel is Nekomata's own canned screenshot of the
+32bit style (`docs/style-32bit.png` in its repo), scaled to the panel's width, cropped to its height and pasted in
+with the panel's rounded corners, over a capture made with the recipe below. So the scene is Nekomata's sample
+scene, not this fixture's tasks, and the panel's header count doesn't match it. Regenerating with the recipe
+replaces it with a live capture of whichever style the built plugin draws.
+
 **Nekomata** (`nekomata.png`) needs its built Glade plugin, from its own repo
 (github.com/lockhart-ai/nekomata, `./build.sh glade`), which isn't in this one: pass its folder as an extra argument
 after `--`, or set `NEKOMATA_PLUGIN`:
@@ -52,7 +58,7 @@ above 0 clears it (`APPEAR_WINDOW_MS` in `src/renderer/questions/QuestionCard.ts
 | `subagents.png` | A task working with three subagents running and one done, each its own tab in Agents. | `--seed subagents.json --size 1600x1000` |
 | `question.png` | A question card: the agent's reply, four questions, Anything else. | `--seed question.json --size 1600x1100` |
 | `permission.png` | A permission card for a Bash command, and another for a file edit's diff; in the Agents tab, what was decided about the calls answered before them. | `--seed permission-card.json --size 1600x1000` |
-| `nekomata.png` | The Nekomata plugin beside the terminal: a cat per task, a question bubble over the one waiting on you. | `nekomata.mjs` (needs the built plugin) |
+| `nekomata.png` | The Nekomata plugin beside the terminal, in its 32bit style: a cat at a desk for each task, kittens for their subagents. | `nekomata.mjs` (needs the built plugin); see the note below |
 | `control.png` | Settings › Control, turned on, with the endpoint and the connect command. | `--seed settings-control.json --size 1600x1000`, clicked to Control |
 | `guide/window.png` | The whole window: task list, chat and header, right panel, terminal. | `--seed task-workspace.json --size 1440x960` |
 | `guide/welcome.png` | The first-run welcome screen. | no seed, `--size 1280x800` |
