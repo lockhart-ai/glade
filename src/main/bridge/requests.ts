@@ -41,6 +41,7 @@ import {
   type QueueEditRequest,
   type QueueRemoveRequest,
   type QuestionsAnswerRequest,
+  type QuestionsDraftSetRequest,
   type SearchQueryRequest,
   type SubagentsStopRequest,
   type WatchersStopRequest,
@@ -98,7 +99,7 @@ import { MAX_TERMINAL_NAME, MAX_TERMINAL_SIZE, MAX_TERMINAL_WRITE } from '../../
 import { ChildFilter } from '../../shared/todoHub'
 import { SETTING_SCHEMAS } from '../db/repositories/settings'
 import { permissionDecisionSchema } from '../permissions/schema'
-import { questionAnswersSchema } from '../questions/schema'
+import { questionAnswersSchema, questionCardDraftSchema } from '../questions/schema'
 
 /**
  * A zod schema for each command's request, which arrives from the renderer as `unknown`. The named interfaces in
@@ -305,6 +306,12 @@ const questionsAnswerRequest = z.strictObject({
   answers: questionAnswersSchema,
   anythingElse: z.string().optional(),
 }) satisfies z.ZodType<QuestionsAnswerRequest>
+
+/** A draft can hold anything typed, and blank text answers: an empty one stores none. */
+const questionsDraftSetRequest = z.strictObject({
+  taskId: z.string(),
+  draft: questionCardDraftSchema.nullable(),
+}) satisfies z.ZodType<QuestionsDraftSetRequest>
 
 const permissionsAnswerRequest = z.strictObject({
   id: z.string(),
@@ -614,6 +621,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.DraftsGet]: draftsGetRequest,
   [CommandName.DraftsSet]: draftsSetRequest,
   [CommandName.QuestionsAnswer]: questionsAnswerRequest,
+  [CommandName.QuestionsDraftSet]: questionsDraftSetRequest,
   [CommandName.PermissionsAnswer]: permissionsAnswerRequest,
   [CommandName.FilesRead]: openFileRequest,
   [CommandName.FilesWrite]: filesWriteRequest,

@@ -720,6 +720,19 @@ export type QuestionAnswer = string | readonly string[]
  */
 export type QuestionAnswers = Readonly<Record<string, QuestionAnswer>>
 
+/**
+ * What you've filled in on a task's open question card (`ask`) and not sent yet: which set it's for, the answers keyed
+ * by question index so far, and what's typed in the card's "Anything else?" box. Kept the way the input bar's unsent
+ * message is (`questionDrafts` in the renderer's store), so a card you left and came back to shows as you left it, and
+ * a relaunched app fills the card back in.
+ */
+export interface QuestionCardDraft {
+  /** The question set the card is answering. */
+  readonly questionSetId: string
+  readonly draft: QuestionAnswers
+  readonly anythingElse: string
+}
+
 /** Where a question set is in its life. */
 export enum QuestionSetState {
   /** Waiting on your answers. */

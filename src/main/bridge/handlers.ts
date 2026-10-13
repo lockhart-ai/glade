@@ -18,7 +18,7 @@ import { listMessages } from '../db/repositories/messages'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { listPermissionMarks } from '../db/repositories/permission-marks'
 import { listPermissionRequests } from '../db/repositories/permission-requests'
-import { listQuestionSets } from '../db/repositories/question-sets'
+import { getOpenQuestionDraft, listQuestionSets, setQuestionDraft } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { searchTasks } from '../db/repositories/search'
 import { countDoneTasks, getTasks, listActiveTasks, listDoneTasks, listTasks } from '../db/repositories/tasks'
@@ -281,6 +281,7 @@ export function createHandlers(context: HandlerContext): Handlers {
         toolEvents: listToolEvents(db, id),
         queuedMessages: listQueuedMessages(db, id),
         questionSets: listQuestionSets(db, id),
+        questionDraft: getOpenQuestionDraft(db, id),
         permissionRequests: listPermissionRequests(db, id),
         permissionMarks: listPermissionMarks(db, id),
         openFiles: getOpenFiles(db, id),
@@ -329,6 +330,10 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.QuestionsAnswer]: ({ id, answers, anythingElse }) => ({
       questionSet: runner.answer(id, answers, anythingElse),
     }),
+    [CommandName.QuestionsDraftSet]: ({ taskId, draft }) => {
+      setQuestionDraft(db, taskId, draft)
+      return null
+    },
     [CommandName.PermissionsAnswer]: ({ id, decision }) => ({
       permissionRequest: runner.answerPermission(id, decision),
     }),

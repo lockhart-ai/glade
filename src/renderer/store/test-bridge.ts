@@ -58,6 +58,7 @@ import {
   type OpenFiles,
   type PermissionMark,
   type PermissionRequest,
+  type QuestionCardDraft,
   type QuestionSet,
   type QueuedMessage,
   type Task,
@@ -117,6 +118,11 @@ export interface FakeMain {
   readonly drafts?: Record<string, InputDraft>
   /** Every task's question sets; none when left out. `questions.answer` answers one, without checking the answers. */
   readonly questionSets?: QuestionSet[]
+  /**
+   * Every task's stored question card draft, by task id; none when left out. `questions.draftSet` changes them as main
+   * does: what the card has filled in goes on its open set, and nothing left stores none.
+   */
+  readonly questionDrafts?: Record<string, QuestionCardDraft>
   /**
    * Every task's permission requests; none when left out. `permissions.answer` allows or denies an open one, refusing
    * one that isn't open, as main does.
@@ -346,6 +352,7 @@ export function fakeHandlers(
     })
   const queue = main.queuedMessages ?? []
   const drafts = main.drafts ?? {}
+  const questionDrafts = main.questionDrafts ?? {}
   const queueOf = (taskId: string): QueuedMessage[] => queue.filter((message) => message.taskId === taskId)
   const queueChanged = (taskId: string): void => {
     emit({ type: EventType.QueueChanged, taskId, queuedMessages: queueOf(taskId) })
@@ -522,6 +529,7 @@ export function fakeHandlers(
       toolEvents: (main.toolEvents ?? []).filter((event) => event.taskId === id),
       queuedMessages: queueOf(id),
       questionSets: (main.questionSets ?? []).filter((set) => set.taskId === id),
+      questionDraft: questionDrafts[id] ?? null,
       permissionRequests: (main.permissionRequests ?? []).filter((request) => request.taskId === id),
       permissionMarks: (main.permissionMarks ?? []).filter((mark) => mark.taskId === id),
       openFiles: openFilesOf(id),
@@ -579,6 +587,15 @@ export function fakeHandlers(
       } else drafts[taskId] = draft
       return null
     },
+    [CommandName.QuestionsDraftSet]: ({ taskId, draft }) => {
+      const stillOpen = (main.questionSets ?? []).some(
+        (set) => set.taskId === taskId && set.id === draft?.questionSetId && set.state === QuestionSetState.Open,
+      )
+      // Main keeps the draft on the open set's row, and nothing of it is left on one that has closed.
+      if (draft === null || !stillOpen) Reflect.deleteProperty(questionDrafts, taskId)
+      else questionDrafts[taskId] = draft
+      return null
+    },
     [CommandName.PermissionsAnswer]: ({ id, decision }) => {
       const requests = main.permissionRequests ?? []
       const index = requests.findIndex((request) => request.id === id)
@@ -630,6 +647,8 @@ export function fakeHandlers(
         closedAt: 3_000,
       }
       sets[index] = questionSet
+      // Main takes the closed set's card draft with it (`closeQuestionSet`).
+      Reflect.deleteProperty(questionDrafts, questionSet.taskId)
       emit({ type: EventType.QuestionAnswered, questionSet })
       return { questionSet }
     },
