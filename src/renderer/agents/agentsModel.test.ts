@@ -536,6 +536,30 @@ describe('agentTabsOf (#617)', () => {
     expect(tabs.finished).toEqual(['fix-501'])
   })
 
+  it('lists the finished ones by when they finished, not when they started', () => {
+    // fix-501 started first, at AT, and finished at AT+28m; docs-503 started later and finished at AT+29m, so it leads.
+    const events = [
+      agent('fix-501', { ...done(28), createdAt: AT }),
+      agent('docs-503', { ...done(29), createdAt: AT + MINUTE }),
+    ]
+
+    expect(agentTabsOf(events, undefined, false).finished).toEqual(['docs-503', 'fix-501'])
+  })
+
+  it('sorts a finished one with no recorded end last, ties keeping the order they started in, the active order as it was', () => {
+    const events = [
+      agent('fix-501', { ...done(28), createdAt: AT }),
+      agent('docs-503', { ...done(28), createdAt: AT + MINUTE }), // ended with fix-501, started after it
+      agent('limits-502', { state: ToolCallState.Done, output: 'Done.', finishedAt: null }),
+      agent('notes-25'),
+    ]
+
+    const tabs = agentTabsOf(events, undefined, false)
+
+    expect(tabs.finished).toEqual(['docs-503', 'fix-501', 'limits-502'])
+    expect(tabs.active).toEqual(['notes-25'])
+  })
+
   it('keeps a subagent active while a watcher it started is still live, though its own call is done', () => {
     const events = [agent('fix-501', done(28))]
 

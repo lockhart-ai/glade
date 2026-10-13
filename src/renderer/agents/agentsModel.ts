@@ -118,19 +118,36 @@ export function mainTurnRunning(task: Pick<Task, 'activity'> | undefined): boole
 export interface AgentTabs {
   /** Newest first, as `agentsOf`'s order already has them. */
   readonly active: readonly string[]
-  /** Newest first: the caret's "Finished, newest first". */
+  /**
+   * By when each finished, the most recently finished first: the caret's "Finished, newest first". One Glade never
+   * recorded an end for sorts after those that have one; ties keep the order they started in.
+   */
   readonly finished: readonly string[]
 }
 
 const NO_TABS: AgentTabs = { active: [], finished: [] }
 
-function deriveAgentTabs(ids: readonly string[], activity: ReadonlyMap<string | null, AgentActivity>): AgentTabs {
+function deriveAgentTabs(
+  ids: readonly string[],
+  calls: ReadonlyMap<string, ToolCallEvent>,
+  activity: ReadonlyMap<string | null, AgentActivity>,
+): AgentTabs {
   const active: string[] = []
   const finished: string[] = []
   for (const id of ids) {
     if (isAgentActive(activity.get(id) ?? AgentActivity.Done)) active.push(id)
     else finished.push(id)
   }
+  // `ids` has them by when they started; the dropdown reads "Finished, newest first", so by when they ended. A
+  // stable sort keeps ties, and the ones with no recorded end, in the order they started in.
+  finished.sort((a, b) => {
+    const endA = calls.get(a)?.finishedAt ?? null
+    const endB = calls.get(b)?.finishedAt ?? null
+    if (endA === endB) return 0
+    if (endA === null) return 1
+    if (endB === null) return -1
+    return endB - endA
+  })
   return active.length === 0 && finished.length === 0 ? NO_TABS : { active, finished }
 }
 
@@ -145,7 +162,7 @@ export function agentTabsOf(
   watchers: readonly Watcher[] | undefined,
   mainRunning: boolean,
 ): AgentTabs {
-  const { ids } = agentsOf(events)
+  const { ids, calls } = agentsOf(events)
   const activity = agentActivity(events, watchers, mainRunning)
   let byActivity = tabsCache.get(ids)
   if (byActivity === undefined) {
@@ -154,7 +171,7 @@ export function agentTabsOf(
   }
   let tabs = byActivity.get(activity)
   if (tabs === undefined) {
-    tabs = deriveAgentTabs(ids, activity)
+    tabs = deriveAgentTabs(ids, calls, activity)
     byActivity.set(activity, tabs)
   }
   return tabs

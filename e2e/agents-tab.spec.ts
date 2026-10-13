@@ -220,10 +220,12 @@ test('the Agents tab: a subagent’s tab moving to the finished ones as it ends'
   await expect.poll(() => names(agents.tabs)).toEqual(['Main', BISECT])
   await expect(agents.caret).toHaveText('3')
   await agents.caret.click()
+  // "Finished, newest first" reads by when each ended: bisect was stopped first, then the cache's and the queries'
+  // steps ran out, in that order.
   await expect(agents.finishedMenu.getByRole('menuitem')).toHaveText([
-    new RegExp(`^${BISECT}`),
-    new RegExp(`^${CACHE}`),
     new RegExp(`^${QUERIES}`),
+    new RegExp(`^${CACHE}`),
+    new RegExp(`^${BISECT}`),
   ])
   await window.keyboard.press('Escape')
   await agents.tab('Main').click()
