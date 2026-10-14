@@ -7,6 +7,7 @@ import { classNames } from '../components/classNames'
 import type { ContextMenuTargetProps } from '../context-menus'
 import { Dot, Icon, IconSize } from '../components'
 import { Highlighted, Marked } from '../search/Highlight'
+import { countRowRender } from '../perf/row-renders' // #637 spike: temporary instrumentation, see that file
 import { formatRelativeTime } from './relativeTime'
 import { RowIndicators } from './RowIndicators'
 import { rowStatus, sameRowStatus, type RowStatusSource } from './rowStatus'
@@ -159,6 +160,7 @@ export function TaskRow({
   subagentsRunning = 0,
   subagentsWaiting = 0,
 }: TaskRowProps): React.JSX.Element {
+  countRowRender('taskRow') // #637 spike: temporary instrumentation, see src/renderer/perf/row-renders.ts
   const indicators = (
     <RowIndicators
       todos={task.todos}

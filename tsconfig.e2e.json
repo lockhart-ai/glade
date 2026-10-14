@@ -60,6 +60,12 @@
     "src/shared/subagents.ts",
     "src/shared/terminal.ts",
     "src/shared/todoHub.ts",
-    "src/renderer/tokens.ts"
+    "src/renderer/tokens.ts",
+    // #637 spike: temporary instrumentation's global augmentations, so the spec's `window`/`globalThis` accesses
+    // typecheck; see docs/kitten-sop.md on this being a measurement spike, not a kept change.
+    "src/renderer/perf/switch-timing.ts",
+    "src/renderer/perf/profiler-mark.ts",
+    "src/renderer/perf/row-renders.ts",
+    "src/main/perf/switch-timing.ts"
   ]
 }

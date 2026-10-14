@@ -41,6 +41,7 @@ import { broadcastMessage } from '../tasks/broadcast'
 import { editQueuedMessage, removeQueuedMessage } from '../tasks/queue'
 import { noteUiStateSet } from '../tasks/attention'
 import { changeTask, createTask, deleteTask, markTaskDone, reopenTask, requireTask } from '../tasks/service'
+import { recordSwitchTiming, timeCommand, timeStep, type SwitchTimingStep } from '../perf/switch-timing'
 import { dirname, basename } from 'node:path'
 import {
   browseTaskFiles,
@@ -202,16 +203,18 @@ export function createHandlers(context: HandlerContext): Handlers {
       if (creation.created) emit({ type: EventType.WorkspaceUpdated, workspace: creation.workspace })
       return creation
     },
-    [CommandName.WorkspacesOpen]: ({ id }) => {
-      const { workspace, selectedTaskId, uiState } = openWorkspace(db, id)
-      emit({ type: EventType.WorkspaceUpdated, workspace })
-      for (const entry of uiState) {
-        emit({ type: EventType.UiStateChanged, entry })
-        // The restored selection is the task you're now viewing, so it's read.
-        noteUiStateSet(context, entry)
-      }
-      return { workspace, selectedTaskId }
-    },
+    // #637 spike: times the whole handler, temporarily (see src/main/perf/switch-timing.ts).
+    [CommandName.WorkspacesOpen]: ({ id }) =>
+      timeCommand('WorkspacesOpen', () => {
+        const { workspace, selectedTaskId, uiState } = openWorkspace(db, id)
+        emit({ type: EventType.WorkspaceUpdated, workspace })
+        for (const entry of uiState) {
+          emit({ type: EventType.UiStateChanged, entry })
+          // The restored selection is the task you're now viewing, so it's read.
+          noteUiStateSet(context, entry)
+        }
+        return { workspace, selectedTaskId }
+      }),
     [CommandName.WorkspacesReveal]: ({ id }) => {
       const workspace = getWorkspace(db, id)
       if (workspace === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${id}`)
@@ -293,24 +296,66 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.TasksHistory]: ({ id }) => {
       requireTask(db, id)
-      return {
-        messages: listMessages(db, id),
-        toolEvents: listToolEvents(db, id),
-        queuedMessages: listQueuedMessages(db, id),
-        questionSets: listQuestionSets(db, id),
-        questionDraft: getOpenQuestionDraft(db, id),
-        permissionRequests: listPermissionRequests(db, id),
-        permissionMarks: listPermissionMarks(db, id),
-        openFiles: getOpenFiles(db, id),
-        // The list the window first loads is the one Glade's own table holds, exactly as a live update already does
-        // (`runner.ts`).
-        todos: todoListFor(db, id),
-        artifacts: listArtifacts(db, id),
-        handoff: getHandoff(db, id) ?? null,
-        watchers: listWatchers(db, id).map(publicWatcher),
-        commits: listTaskCommits(db, id),
-        agentTab: agentTabOf(db, id),
+      // #637 spike: times each query and the whole handler, temporarily (see src/main/perf/switch-timing.ts).
+      const receivedAt = Date.now()
+      const start = performance.now()
+      const steps: SwitchTimingStep[] = []
+      const messages = timeStep(steps, 'messages', () => listMessages(db, id))
+      const toolEvents = timeStep(steps, 'toolEvents', () => listToolEvents(db, id))
+      const queuedMessages = timeStep(steps, 'queuedMessages', () => listQueuedMessages(db, id))
+      const questionSets = timeStep(steps, 'questionSets', () => listQuestionSets(db, id))
+      const questionDraft = timeStep(steps, 'questionDraft', () => getOpenQuestionDraft(db, id))
+      const permissionRequests = timeStep(steps, 'permissionRequests', () => listPermissionRequests(db, id))
+      const permissionMarks = timeStep(steps, 'permissionMarks', () => listPermissionMarks(db, id))
+      const openFiles = timeStep(steps, 'openFiles', () => getOpenFiles(db, id))
+      // The list the window first loads is the one Glade's own table holds, exactly as a live update already does
+      // (`runner.ts`).
+      const todos = timeStep(steps, 'todos', () => todoListFor(db, id))
+      const artifacts = timeStep(steps, 'artifacts', () => listArtifacts(db, id))
+      const handoff = timeStep(steps, 'handoff', () => getHandoff(db, id) ?? null)
+      const watchers = timeStep(steps, 'watchers', () => listWatchers(db, id).map(publicWatcher))
+      const commits = timeStep(steps, 'commits', () => listTaskCommits(db, id))
+      const agentTab = timeStep(steps, 'agentTab', () => agentTabOf(db, id))
+      // #637 spike: an opt-in experiment, off unless a spec sets it with `inMain` — caps what's sent to the chat and
+      // tool logs' last N entries, to see what a smaller payload would save. No effect while it's unset.
+      const cap = globalThis.__capHistoryMessages
+      const result = {
+        messages: cap === undefined ? messages : messages.slice(-cap),
+        toolEvents: cap === undefined ? toolEvents : toolEvents.slice(-cap),
+        queuedMessages,
+        questionSets,
+        questionDraft,
+        permissionRequests,
+        permissionMarks,
+        openFiles,
+        todos,
+        artifacts,
+        handoff,
+        watchers,
+        commits,
+        agentTab,
       }
+      const totalMs = performance.now() - start
+      recordSwitchTiming({
+        taskId: id,
+        receivedAt,
+        respondedAt: Date.now(),
+        steps,
+        totalMs,
+        bytes: Buffer.byteLength(JSON.stringify(result)),
+        rowCounts: {
+          messages: result.messages.length,
+          toolEvents: result.toolEvents.length,
+          questionSets: questionSets.length,
+          permissionRequests: permissionRequests.length,
+          permissionMarks: permissionMarks.length,
+          todos: todos?.items.length ?? 0,
+          artifacts: artifacts.length,
+          watchers: watchers.length,
+          commits: commits.length,
+        },
+      })
+      return result
     },
     [CommandName.ChangesFiles]: async ({ taskId, id }) => ({ files: await commitFiles(changes, taskId, id) }),
     [CommandName.ChangesOpenFile]: async ({ taskId, id, path }) => ({
@@ -455,13 +500,15 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.UiStateGet]: ({ key }) => ({ value: getUiState(db, key) ?? null }),
     [CommandName.UiStateGetAll]: () => ({ entries: listUiState(db) }),
-    [CommandName.UiStateSet]: (entry) => {
-      noteSelection(db, entry)
-      setUiState(db, entry)
-      emit({ type: EventType.UiStateChanged, entry })
-      noteUiStateSet(context, entry)
-      return null
-    },
+    [CommandName.UiStateSet]: (entry) =>
+      // #637 spike: times the whole handler, temporarily (see src/main/perf/switch-timing.ts).
+      timeCommand(`UiStateSet:${entry.key}`, () => {
+        noteSelection(db, entry)
+        setUiState(db, entry)
+        emit({ type: EventType.UiStateChanged, entry })
+        noteUiStateSet(context, entry)
+        return null
+      }),
     [CommandName.SettingsGet]: () => ({ settings: getSettings(db) }),
     [CommandName.ModelsList]: () => ({ models: listModels(db) }),
     [CommandName.OpenRouterStatus]: () => {

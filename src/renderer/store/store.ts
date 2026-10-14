@@ -18,6 +18,7 @@ import {
 import type { ImageData } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import { describeFailure, lastOpenedWorkspace, loadSnapshot } from './hydrate'
+import { mark, skipReloadIfCached } from '../perf/switch-timing' // #637 spike: temporary instrumentation
 import { isLoaded, withDoneCounts, withDonePage, withLoadedTasks } from './doneLists'
 import { applyEvent, withAgentTab, withHistory, withOpenedWorkspace, withSandboxGrants, withTodoHub } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState, type TerminalEvent } from './state'
@@ -312,9 +313,12 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     // first.
     // The task main restored as the workspace's selection has its logs loaded, as selecting it would.
     const open = async (workspaceId: string): Promise<Workspace> => {
+      mark('openWorkspace:enter') // #637 spike
       const { workspace, selectedTaskId } = await bridge.invoke(CommandName.WorkspacesOpen, { id: workspaceId })
+      mark('openWorkspace:invokeEnd') // #637 spike
       if (selectedTaskId !== null) await loadTasks([selectedTaskId])
       set((state) => withOpenedWorkspace(state, workspace, selectedTaskId))
+      mark('openWorkspace:reducerApplied') // #637 spike
       if (selectedTaskId !== null) await get().loadHistory(selectedTaskId)
       return workspace
     }
@@ -621,14 +625,19 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       async selectTask(taskId) {
+        mark('selectTask:enter') // #637 spike
         if (!(await confirmLeavingTask(taskId))) return
+        mark('selectTask:confirmedLeaving') // #637 spike
         if (taskId !== null) await loadTasks([taskId])
+        mark('selectTask:tasksLoaded') // #637 spike
         const { selectedWorkspaceId, tasks } = get()
         const task = taskId === null ? undefined : tasks[taskId]
         if (task !== undefined && task.workspaceId !== selectedWorkspaceId) {
           await setUiState({ key: UiStateKey.ActiveWorkspaceId, value: task.workspaceId })
+          mark('selectTask:activeWorkspaceSet') // #637 spike
         }
         await setUiState({ key: UiStateKey.SelectedTaskId, value: taskId ?? NONE })
+        mark('selectTask:selectedTaskSet') // #637 spike
         if (taskId !== null) await get().loadHistory(taskId)
       },
 
@@ -668,11 +677,24 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       async loadHistory(taskId) {
+        // #637 spike: an opt-in experiment, off unless a spec sets `window.__skipReloadIfCached` with `inMain` —
+        // skips reloading (and re-rendering) a task the store already has loaded, to see what that would save.
+        if (skipReloadIfCached() && taskId in get().messages) {
+          mark('loadHistory:skippedAlreadyCached')
+          return
+        }
         // Captured before the request goes out: if an `artifacts.changed` lands before this answers, the load is
         // stale for artifacts and must not override it (see `newerArtifacts` in `./reducer`).
         const artifactsVersionAtLoad = get().artifactsVersion[taskId] ?? 0
+        mark('loadHistory:invokeStart') // #637 spike
         const history = await bridge.invoke(CommandName.TasksHistory, { id: taskId })
+        mark('loadHistory:invokeEnd', {
+          messages: history.messages.length,
+          toolEvents: history.toolEvents.length,
+          bytes: JSON.stringify(history).length,
+        }) // #637 spike
         set((state) => withHistory(state, taskId, history, artifactsVersionAtLoad))
+        mark('loadHistory:reducerApplied') // #637 spike
       },
 
       setUiState,

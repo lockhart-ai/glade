@@ -40,6 +40,8 @@
     "src/renderer/watchers/watchersModel.ts",
     "src/renderer/permissions/permissionCardModel.ts",
     "src/renderer/permissions/permissionLineModel.ts",
-    "src/renderer/permissions/permissionLines.ts"
+    "src/renderer/permissions/permissionLines.ts",
+    // #637 spike: temporary instrumentation `store.ts` imports; framework-free like the rest of this list.
+    "src/renderer/perf/switch-timing.ts"
   ]
 }

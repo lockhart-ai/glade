@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react'
+import { Profiler, type ReactNode } from 'react'
 import { Chat } from './chat'
+import { recordRender } from './perf/profiler-mark' // #637 spike: temporary instrumentation, see that file
 import { ContextMeter } from './context-meter'
 import { ToastProvider } from './components'
 import { FirstRun } from './first-run/FirstRun'
@@ -141,7 +142,14 @@ function Layout(): React.JSX.Element {
             {workspace !== undefined && (
               <>
                 <TaskListToolbar workspaceId={workspace.id} />
-                {searching ? <SearchResults workspaceId={workspace.id} /> : <TaskList workspaceId={workspace.id} />}
+                {searching ? (
+                  <SearchResults workspaceId={workspace.id} />
+                ) : (
+                  // #637 spike: temporary Profiler, see src/renderer/perf/profiler-mark.ts
+                  <Profiler id="taskList" onRender={recordRender}>
+                    <TaskList workspaceId={workspace.id} />
+                  </Profiler>
+                )}
               </>
             )}
           </Sidebar>
@@ -153,9 +161,18 @@ function Layout(): React.JSX.Element {
           panelsMoving={isMoving(sidebarPresence.phase) || isMoving(rightPanelPhase)}
           titleBar={sidebar.collapsed && !hasTask ? <PanelToggle panel={Panel.Sidebar} /> : undefined}
           header={<SelectedTaskHeader />}
-          chat={<Chat />}
+          // #637 spike: temporary Profilers, see src/renderer/perf/profiler-mark.ts
+          chat={
+            <Profiler id="chat" onRender={recordRender}>
+              <Chat />
+            </Profiler>
+          }
           inputBar={<InputBar contextMeter={<ContextMeter />} />}
-          rightPanel={<TaskPanel />}
+          rightPanel={
+            <Profiler id="rightPanel" onRender={recordRender}>
+              <TaskPanel />
+            </Profiler>
+          }
         />
       }
       overlay={
