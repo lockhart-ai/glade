@@ -240,7 +240,7 @@ describe('queued images', () => {
   })
 
   it('adds nothing when an image can’t be stored', () => {
-    const bad = { mediaType: 'image/tiff' as ImageMediaType, data: PNG.data }
+    const bad = { mediaType: 'image/tiff' as unknown as ImageMediaType, data: PNG.data }
     expect(() => appendQueuedMessage(test.db, { taskId: task.id, body: 'Hi', images: [PNG, bad] })).toThrow(/CHECK/)
     expect(listQueuedMessages(test.db, task.id)).toEqual([])
     expect(test.db.prepare('SELECT COUNT(*) FROM images').pluck().get()).toBe(0)

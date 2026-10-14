@@ -218,6 +218,7 @@ function getHighlighter(): Promise<HighlighterCore> {
   return highlighter
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unsafe-enum-assignment -- 0 is FontStyle.None, which shiki doesn't re-export as a value
 function toToken({ content, color, fontStyle = 0 }: ThemedToken): HighlightToken {
   const hex = color?.toLowerCase()
   return {

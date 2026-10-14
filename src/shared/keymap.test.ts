@@ -12,6 +12,7 @@ import {
   formatBinding,
   formatChord,
   isRebindable,
+  isShortcutId,
   KEYMAP_LAYOUT,
   matchCommand,
   parseChord,
@@ -331,6 +332,24 @@ describe('withBinding and withDefault', () => {
       [WorkspaceCommandId.Switch]: 'Ctrl+1',
     })
     expect(withBinding({}, WorkspaceCommandId.Switch, chord('Meta+6'))).toEqual({})
+  })
+
+  it('drop an id this version doesn’t know, and an override with nothing in it', () => {
+    const stored = {
+      [AppCommandId.NewTask]: 'Meta+Shift+T',
+      'app.bogus': 'Meta+X',
+      [TaskCommandId.MarkDone]: undefined,
+    }
+    expect(withDefault(stored, TaskCommandId.MarkDone)).toEqual({ [AppCommandId.NewTask]: 'Meta+Shift+T' })
+    expect(withDefault(stored, AppCommandId.NewTask)).toEqual({})
+  })
+})
+
+describe('isShortcutId', () => {
+  it('accepts a command in the keymap, and rejects one that isn’t', () => {
+    expect(isShortcutId(AppCommandId.NewTask)).toBe(true)
+    expect(isShortcutId(TaskCommandId.Reopen)).toBe(false)
+    expect(isShortcutId('app.bogus')).toBe(false)
   })
 })
 

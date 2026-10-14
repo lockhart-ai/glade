@@ -57,9 +57,19 @@ export function loginRowDescription(login: LoginStatus): string {
   }
 }
 
+/** The member of a string enum's values that `value` equals, or null when none does. */
+function enumValue<T extends string>(values: readonly T[], value: string): T | null {
+  return values.find((candidate) => candidate === value) ?? null
+}
+
+/** The `ApiKeySource` `source` names, or null when this version doesn't know it. */
+function parseApiKeySource(source: string): ApiKeySource | null {
+  return enumValue(Object.values(ApiKeySource), source)
+}
+
 /** Where Claude Code found an API key, in words. A source this version doesn't know shows as Claude Code names it. */
 export function apiKeySourceLabel(source: string): string {
-  switch (source as ApiKeySource) {
+  switch (parseApiKeySource(source)) {
     case ApiKeySource.AnthropicApiKey:
       return 'ANTHROPIC_API_KEY variable'
     case ApiKeySource.ApiKeyHelper:
@@ -78,6 +88,7 @@ export function apiKeySourceLabel(source: string): string {
       return 'A temporary key'
     case ApiKeySource.OAuth:
       return 'Claude Code login'
+    case null:
     default:
       return source
   }
@@ -88,9 +99,14 @@ export function tokenSourceLabel(source: string | null): string {
   return source === null || source === 'claude.ai' ? 'Claude Code login' : source
 }
 
+/** The `ApiProvider` `provider` names, or null when this version doesn't know it. */
+function parseApiProvider(provider: string): ApiProvider | null {
+  return enumValue(Object.values(ApiProvider), provider)
+}
+
 /** A cloud provider or gateway, by name. One this version doesn't know shows as Claude Code names it. */
 export function apiProviderLabel(provider: string): string {
-  switch (provider as ApiProvider) {
+  switch (parseApiProvider(provider)) {
     case ApiProvider.FirstParty:
       return 'Anthropic'
     case ApiProvider.Bedrock:
@@ -107,6 +123,7 @@ export function apiProviderLabel(provider: string): string {
       return 'Mantle'
     case ApiProvider.Gateway:
       return 'An enterprise gateway'
+    case null:
     default:
       return provider
   }

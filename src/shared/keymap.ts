@@ -350,9 +350,14 @@ export const COMMANDS: readonly CommandDefinition[] = [
 
 const BY_ID = new Map<string, CommandDefinition>(COMMANDS.map((definition) => [definition.id, definition]))
 
+/** Whether a string names one of the keymap's commands, i.e. is a `ShortcutId`. */
+export function isShortcutId(value: string): value is ShortcutId {
+  return BY_ID.has(value)
+}
+
 /** Whether a command has a shortcut: the menu bar's Reopen, say, has none. */
 export function hasShortcut(id: string): id is ShortcutId {
-  return BY_ID.has(id)
+  return isShortcutId(id)
 }
 
 /** A command's definition. */
@@ -542,9 +547,15 @@ export function withBinding(overrides: KeyBindingOverrides, id: ShortcutId, chor
   return { ...overrides, [id]: serializeChord(binding) }
 }
 
-/** The overrides once command `id` is back at its default. */
+/** The overrides once command `id` is back at its default. An id this version doesn't know, or an empty one, is dropped. */
 export function withDefault(overrides: KeyBindingOverrides, id: ShortcutId): KeyBindingOverrides {
-  return Object.fromEntries((Object.entries(overrides) as [ShortcutId, string][]).filter(([key]) => key !== id))
+  const rest: Partial<Record<ShortcutId, string>> = {}
+  for (const key of Object.keys(overrides)) {
+    if (!isShortcutId(key) || key === id) continue
+    const chord = overrides[key]
+    if (chord !== undefined) rest[key] = chord
+  }
+  return rest
 }
 
 /**

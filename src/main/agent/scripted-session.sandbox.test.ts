@@ -906,7 +906,7 @@ describe('a malformed sandbox step', () => {
     [
       'a denial of no file operation',
       sandboxedBash('cat', 'cat x', 'ok', {
-        denials: [{ process: 'cat', operation: 'network-outbound' as SandboxOperation, path: '/x' }],
+        denials: [{ process: 'cat', operation: 'network-outbound' as unknown as SandboxOperation, path: '/x' }],
       }),
       'Malformed sandboxed_bash step "cat": "network-outbound" isn\'t a file operation Seatbelt denies',
     ],
