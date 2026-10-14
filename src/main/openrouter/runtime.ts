@@ -109,14 +109,14 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
           const env = Object.fromEntries(Object.entries(inherited).filter(([name]) => !name.startsWith('OPENROUTER_')))
           for (const name of new Set([...Object.keys(process.env), ...Object.keys(inherited)]))
             if (name.startsWith('OPENROUTER_')) env[name] = ''
-          // A dispatched child keeps today's behaviour (a resumed child hits this same bug; tracked separately,
-          // not as part of #625). A mirrored task's own session instead exports the store's history into its real
-          // config, below, so it can resume with `resume` alone and never pass `sessionStore` — the one lever that
-          // keeps the Agent SDK from building a `claude-resume-<id>` temporary folder and copying the login in with
-          // its refresh token stripped (`docs/sdk-notes.md`, "Cross-source resume and the login copy"). Losing the
-          // task's OpenRouter history is the greater harm, so any doubt about the export falls back to the store.
-          let useStore = options.managedAgentId !== undefined
-          if (!useStore && mirrored && sessionId !== null) {
+          // A mirrored session — a task's own, or a dispatched child's (#627): same scoping, by `taskId` and its
+          // own `sessionId` — exports the store's history into its real config, below, so it can resume with
+          // `resume` alone and never pass `sessionStore` — the one lever that keeps the Agent SDK from building a
+          // `claude-resume-<id>` temporary folder and copying the login in with its refresh token stripped
+          // (`docs/sdk-notes.md`, "Cross-source resume and the login copy"). Losing the OpenRouter history is the
+          // greater harm, so any doubt about the export falls back to the store.
+          let useStore = false
+          if (mirrored && sessionId !== null) {
             // `sessionProjectKey` reads the exact rows `hasTranscript` (which `mirrored` is built from) requires to
             // exist, so it is never null here. The code stays safe if that ever stops holding: resuming with neither
             // the store nor an export would drop the task's history, the greater harm, so a missing key falls back

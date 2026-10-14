@@ -3541,6 +3541,11 @@ a real login expiring, which isn't something a test can force.
   `createWriteStream(path, { mode: 0o600 })` and writes `JSON.stringify(entry) + "\n"` per entry, nothing else — no
   pretty-printing, no trailing content. Its directory (`<temp>/projects/<projectKey>`) is made with
   `mkdir(dir, { recursive: true, mode: 0o700 })`. `local-export.ts` uses the same two modes.
-- **Not retested here:** a dispatched child (`managedAgentId`) still gets `sessionStore` unconditionally, on every
-  model, so a *resumed* child on a Claude model hits this exact temp folder too. Filed as its own issue rather than
-  folded into #625's fix, since the issue and its acceptance criteria are about a task's own session.
+- **Fixed for dispatched children too (#627).** A dispatched child's session is scoped the same way a task's own
+  session is — `sdk_transcripts` keys on the parent `taskId` as owner and the child's own `sessionId`, since
+  `managed-backend.ts`'s `dispatch()` never overrides `taskId` on a child's options — so the Anthropic branch's
+  mirrored/export/fallback path (above) applies unchanged. `runtime.ts` no longer special-cases
+  `managedAgentId`: a child on a Claude model only gets `sessionStore` when it was mirrored and its export fails
+  or has no project key, exactly like a task's own session. A dispatch's own `resume` is only accepted on the
+  same model as the child's first run (`managed-backend.ts`), so a child's session never has to switch sources
+  mid-life — only its *first* run can be on the other source than its parent.
