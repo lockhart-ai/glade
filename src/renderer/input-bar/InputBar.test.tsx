@@ -546,6 +546,27 @@ describe('InputBar', () => {
       expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
       expect(sendButton()).toBeEnabled()
     })
+
+    it('shows Stop while a permission card waits on you, and stopping withdraws the card (#511)', async () => {
+      // The turn still runs, but the task's activity is waiting: Stop was hidden then, so the card couldn't be
+      // withdrawn from the UI.
+      const fake = await renderBar({ task: { activity: TaskActivity.Waiting, awaitingPermission: true } })
+
+      expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+        await Promise.resolve()
+      })
+      expect(stops(fake)).toEqual([{ id: 't1' }])
+
+      // The card answered, the turn still running: Stop goes back to hiding until the agent works again.
+      const task = fake.store.getState().tasks.t1
+      if (task === undefined) throw new Error('No task t1')
+      act(() => {
+        fake.emit({ type: EventType.TaskUpdated, task: { ...task, awaitingPermission: false } })
+      })
+      expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
+    })
   })
 
   describe('the pickers', () => {
