@@ -491,7 +491,7 @@ describe('what a todo remembers', () => {
     'opens a todo remembered on the %s filter, which is gone, on All, and remembers the next one you pick',
     async (removed) => {
       // As a window that had the panel from before #535 would: main itself reads such a row as All.
-      const stored = removed as ChildFilter
+      const stored = removed as unknown as ChildFilter
       const { main } = await renderHub({
         ...SHIP,
         todoPanels: [

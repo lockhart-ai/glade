@@ -194,7 +194,7 @@ describe('the bridge', () => {
   })
 
   it('rejects an unknown command with a typed error', async () => {
-    await expect(glade.invoke('tasks.explode' as CommandName, {})).rejects.toEqual(
+    await expect(glade.invoke('tasks.explode' as unknown as CommandName, {})).rejects.toEqual(
       bridgeError(BridgeErrorCode.UnknownCommand, 'Unknown command tasks.explode'),
     )
   })

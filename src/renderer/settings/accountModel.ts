@@ -59,7 +59,7 @@ export function loginRowDescription(login: LoginStatus): string {
 
 /** Where Claude Code found an API key, in words. A source this version doesn't know shows as Claude Code names it. */
 export function apiKeySourceLabel(source: string): string {
-  switch (source as ApiKeySource) {
+  switch (source as unknown as ApiKeySource) {
     case ApiKeySource.AnthropicApiKey:
       return 'ANTHROPIC_API_KEY variable'
     case ApiKeySource.ApiKeyHelper:
@@ -90,7 +90,7 @@ export function tokenSourceLabel(source: string | null): string {
 
 /** A cloud provider or gateway, by name. One this version doesn't know shows as Claude Code names it. */
 export function apiProviderLabel(provider: string): string {
-  switch (provider as ApiProvider) {
+  switch (provider as unknown as ApiProvider) {
     case ApiProvider.FirstParty:
       return 'Anthropic'
     case ApiProvider.Bedrock:

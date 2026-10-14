@@ -173,7 +173,7 @@ describe('settings', () => {
   const STYLE = {
     key: 'style',
     label: 'Art style',
-    type: 'select',
+    type: PluginSettingType.Select,
     options: [
       { value: 'ink', label: 'Ink' },
       { value: 'chalk', label: 'Chalk' },
@@ -190,7 +190,7 @@ describe('settings', () => {
   }
 
   it('reads a select setting: its key, label, options in order and default', () => {
-    expect(settingsOf([STYLE])).toEqual([{ ...STYLE, type: PluginSettingType.Select }])
+    expect(settingsOf([STYLE])).toEqual([STYLE])
   })
 
   it('reads none from an empty list, or from a manifest without any', () => {

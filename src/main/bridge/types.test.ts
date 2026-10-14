@@ -399,6 +399,7 @@ describe('the command map', () => {
 
   it('refuses a renderer call whose request disagrees with the map', () => {
     // @ts-expect-error: the key must be a UiStateKey.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-assignment -- 'theme' is deliberately no UiStateKey
     void glade.invoke(CommandName.UiStateGet, { key: 'theme' })
     // @ts-expect-error: uiState.set needs a value.
     void glade.invoke(CommandName.UiStateSet, { key: UiStateKey.ActiveWorkspaceId })
@@ -421,10 +422,12 @@ describe('the command map', () => {
     // @ts-expect-error: the agent sets the status, through main's task service.
     void glade.invoke(CommandName.TasksUpdate, { id: 't', patch: { status: 'Done' } })
     // @ts-expect-error: the effort must be an Effort.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-assignment -- 'huge' is deliberately no Effort
     void glade.invoke(CommandName.TasksUpdate, { id: 't', patch: { effort: 'huge' } })
     // @ts-expect-error: tasks.send needs the message's text.
     void glade.invoke(CommandName.TasksSend, { id: 't' })
     // @ts-expect-error: not a command.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-assignment -- 'tasks.explode' is deliberately no command
     void glade.invoke('tasks.explode', {})
   })
 
@@ -457,6 +460,7 @@ describe('the command map', () => {
       [CommandName.TasksList]: z.strictObject({ workspaceId: z.string() }),
       [CommandName.UiStateGetAll]: z.strictObject({}),
       // @ts-expect-error: uiState.get's key is a UiStateKey, not any string.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-assignment -- the map refuses any string, as this wrong schema shows
       [CommandName.UiStateGet]: z.strictObject({ key: z.string() }),
       [CommandName.UiStateSet]: z.strictObject({ key: z.enum(UiStateKey), value: z.string() }),
     }

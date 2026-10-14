@@ -544,7 +544,9 @@ export function withBinding(overrides: KeyBindingOverrides, id: ShortcutId, chor
 
 /** The overrides once command `id` is back at its default. */
 export function withDefault(overrides: KeyBindingOverrides, id: ShortcutId): KeyBindingOverrides {
-  return Object.fromEntries((Object.entries(overrides) as [ShortcutId, string][]).filter(([key]) => key !== id))
+  return Object.fromEntries(
+    (Object.entries(overrides) as unknown as [ShortcutId, string][]).filter(([key]) => key !== id),
+  )
 }
 
 /**

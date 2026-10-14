@@ -679,7 +679,9 @@ describe('a server with odd characters in its name', () => {
     expect(only('toolu_search').sandbox).toEqual(asked)
     await answer('toolu_search', FOR_WORKSPACE)
     await search.decision
-    expect(grantsOf(workspaceTarget())).toEqual([{ ...asked, kind: SandboxGrantKind.McpServer }])
+    expect(grantsOf(workspaceTarget())).toEqual([
+      { kind: SandboxGrantKind.McpServer, server: asked.server, name: asked.name },
+    ])
     const again = await starts(session, 'toolu_again', 'mcp__Sam_s_notes____work___read', {}, { mcpServer: odd })
     await expect(again.decision).resolves.toBeNull()
     // A server whose key only starts the same is another server.

@@ -31,13 +31,13 @@ export function useCommands(handlers: CommandHandlers): void {
   useEffect(() => {
     latest.current = handlers
   })
-  const ids = (Object.keys(handlers) as ShortcutId[])
+  const ids = (Object.keys(handlers) as unknown as ShortcutId[])
     .filter((id) => handlers[id] != null)
     .sort()
     .join(' ')
   useEffect(() => {
     const registry = commandRegistry(store)
-    const removals = (ids === '' ? [] : (ids.split(' ') as ShortcutId[])).map((id) =>
+    const removals = (ids === '' ? [] : (ids.split(' ') as unknown as ShortcutId[])).map((id) =>
       registry.register(id, (match) => {
         latest.current[id]?.(match)
       }),
