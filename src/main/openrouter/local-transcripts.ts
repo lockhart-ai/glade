@@ -1,9 +1,11 @@
 import type { SessionKey, SessionStore, SessionStoreEntry } from '@anthropic-ai/claude-agent-sdk'
+import type { Database } from 'better-sqlite3'
 import { createReadStream } from 'node:fs'
 import { access, readdir, readFile } from 'node:fs/promises'
 import { basename, join, relative, sep } from 'node:path'
 import { createInterface } from 'node:readline'
 import { z } from 'zod'
+import { sessionProjectKey } from './transcripts'
 
 export interface LocalTranscriptImport {
   readonly configDir: string
@@ -74,4 +76,29 @@ export async function importLocalTranscript(
     return
   }
   throw new Error('The saved SDK transcript file was not found.')
+}
+
+/** The local transcript file a merge import would read for an already-mirrored session, or null when there is none
+ * — the session has only ever run where nothing was written locally, so the store already holds its whole history.
+ * The path is the one the SDK and `exportSessionToLocal` use, `<config>/projects/<project key>/<session id>.jsonl`,
+ * keyed on the project key the session's mirror was recorded under (`sessionProjectKey`, which the SDK derives from
+ * the same working directory both legs share). Only a merge may treat a missing file as nothing to do; a first
+ * import or a recovery must fail without it. Anything other than an absent file is thrown, so the caller fails the
+ * start the same way an import of it would. */
+export async function findLocalTranscript(
+  db: Database,
+  configDir: string,
+  sessionId: string,
+  taskId: string | null = null,
+): Promise<string | null> {
+  const projectKey = sessionProjectKey(db, sessionId, taskId)
+  if (projectKey === null) return null
+  const path = join(configDir, 'projects', projectKey, `${sessionId}.jsonl`)
+  try {
+    await access(path)
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null
+    throw error
+  }
+  return path
 }
