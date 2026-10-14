@@ -381,6 +381,78 @@ it('starts a Claude retry of a mirrored, logged-out task on its real config, not
   expect(retry.onMirrorError).toBeUndefined()
 })
 
+it('gives a dispatched child on a Claude model its real config, cross-source dispatched then resumed (#627)', async () => {
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  const env = { ...inherited, CLAUDE_CONFIG_DIR: join(dir, 'real-claude') }
+  // A child dispatched onto Claude from an OpenRouter parent never touched this bug on its first run (`resume` is
+  // false), but the fix also means it is never handed a session store that would bite it on a later resume.
+  const first = await runtime.prepare(
+    { ...options, model: 'sonnet', managedAgentId: 'glade-child-1', resumeSessionId: null },
+    env,
+  )
+  expect(first.sessionStore).toBeUndefined()
+  expect(first.onMirrorError).toBeUndefined()
+  // Claude Code writes the child's own transcript locally, same as any ordinary session; its resume (the dispatch
+  // tool's own `resume`, always on the same model) never needed Glade's mirror at all.
+  const resumed = await runtime.prepare(
+    { ...options, model: 'sonnet', managedAgentId: 'glade-child-1', resumeSessionId: 'glade-child-1-session' },
+    env,
+  )
+  expect(resumed.sessionStore).toBeUndefined()
+  expect(resumed.onMirrorError).toBeUndefined()
+  expect(importSessionToStore).not.toHaveBeenCalled()
+})
+
+it('exports a legacy-mirrored child’s history on resume and falls back like a mirrored task (#627)', async () => {
+  // Stands in for a child mirrored before this fix, when every dispatched child was given `sessionStore`
+  // unconditionally: its entries already sit in the store under the parent task's id, never having been exported.
+  const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+  await sqliteSessionStore(database.db, task.id).append({ projectKey: 'sample', sessionId: 'glade-child-legacy' }, [
+    { type: 'user', uuid: 'u1' },
+  ])
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  const claudeConfig = join(dir, 'real-claude')
+  const returned = await runtime.prepare(
+    {
+      ...options,
+      model: 'sonnet',
+      taskId: task.id,
+      managedAgentId: 'glade-child-legacy',
+      resumeSessionId: 'glade-child-legacy',
+    },
+    { ...inherited, CLAUDE_CONFIG_DIR: claudeConfig },
+  )
+  expect(returned.sessionStore).toBeUndefined()
+  expect(
+    readFileSync(join(claudeConfig, 'projects', 'sample', 'glade-child-legacy.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as unknown),
+  ).toMatchObject([{ uuid: 'u1' }])
+  // A blocked export still falls back to the store rather than drop the child's history, exactly like a mirrored
+  // task's own session (#625).
+  const blocked = join(dir, 'blocked-child-claude')
+  mkdirSync(blocked, { recursive: true })
+  writeFileSync(join(blocked, 'projects'), 'not a directory')
+  const warn = vi.fn()
+  const fallback = await runtime.prepare(
+    {
+      ...options,
+      model: 'sonnet',
+      taskId: task.id,
+      managedAgentId: 'glade-child-legacy',
+      resumeSessionId: 'glade-child-legacy',
+      log: { ...SILENT_LOGGER, warn },
+    },
+    { ...inherited, CLAUDE_CONFIG_DIR: blocked },
+  )
+  expect(fallback.sessionStore).toBeDefined()
+  expect(warn).toHaveBeenCalledWith(
+    expect.stringContaining('could not export'),
+    expect.objectContaining({ sessionId: 'glade-child-legacy' }),
+  )
+})
+
 it('discards uncommitted handoff copies and reimports Claude turns written after a cancelled handoff', async () => {
   const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
   const env = { ...inherited, CLAUDE_CONFIG_DIR: '' }
