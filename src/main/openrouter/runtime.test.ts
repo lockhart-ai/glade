@@ -1,5 +1,5 @@
 import { importSessionToStore } from '@anthropic-ai/claude-agent-sdk'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -29,6 +29,7 @@ vi.mock('./relay', () => ({ createOpenRouterRelay: vi.fn() }))
 let database: TestDatabase
 let service: OpenRouterService
 let dir: string
+let savedConfigEnv: string | undefined
 const relayClose = vi.fn()
 const options: AgentSessionOptions = {
   model: SAMPLE_CHOICE.id,
@@ -74,8 +75,13 @@ beforeEach(async () => {
     close: relayClose,
   })
   vi.mocked(importSessionToStore).mockReset()
+  // The merge check for the SDK's default-config import route reads `process.env.CLAUDE_CONFIG_DIR ?? ~/.claude`;
+  // point it inside the temporary directory so no test consults a real login's projects.
+  savedConfigEnv = process.env.CLAUDE_CONFIG_DIR
+  process.env.CLAUDE_CONFIG_DIR = join(dir, 'sdk-config')
 })
 afterEach(() => {
+  process.env.CLAUDE_CONFIG_DIR = savedConfigEnv
   database.close()
   rmSync(dir, { recursive: true, force: true })
   vi.restoreAllMocks()
@@ -222,7 +228,14 @@ it('imports legacy main and child history, merging again on a later handoff, and
   const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
   await runtime.prepare({ ...options, resumeSessionId: 'saved-session' }, { ...inherited, CLAUDE_CONFIG_DIR: '' })
   // A second start on OpenRouter is a later handoff, not the first: it re-imports to merge in anything a Claude
-  // leg wrote locally meanwhile, rather than skipping because the session is already mirrored.
+  // leg wrote locally meanwhile, rather than skipping because the session is already mirrored. The leg's entries
+  // sit in a local transcript (the SDK default config here), whose existence the merge checks for (#639) — a
+  // session with no local transcript at all has nothing to merge and skips the import instead.
+  mkdirSync(join(process.env.CLAUDE_CONFIG_DIR ?? '', 'projects', '-code-sample'), { recursive: true })
+  writeFileSync(
+    join(process.env.CLAUDE_CONFIG_DIR ?? '', 'projects', '-code-sample', 'saved-session.jsonl'),
+    '{"type":"user","uuid":"original"}\n',
+  )
   await runtime.prepare({ ...options, resumeSessionId: 'saved-session' }, { ...inherited, CLAUDE_CONFIG_DIR: '' })
   expect(importSessionToStore).toHaveBeenCalledTimes(2)
   expect(importSessionToStore).toHaveBeenCalledWith('saved-session', expect.anything(), {
@@ -257,6 +270,64 @@ it('imports legacy main and child history, merging again on a later handoff, and
   await expect(
     runtime.prepare({ ...options, resumeSessionId: 'missing-history' }, { ...inherited, CLAUDE_CONFIG_DIR: '' }),
   ).rejects.toThrow('saved SDK history')
+})
+
+it('resumes a mirrored session with no local transcript on its store history alone (#639)', async () => {
+  // The real SDK import stands in for the mocked one here, so a start that imports without a local transcript
+  // fails exactly as it does in the app: "Session <id> not found".
+  vi.mocked(importSessionToStore).mockImplementation(
+    (await vi.importActual<typeof import('@anthropic-ai/claude-agent-sdk')>('@anthropic-ai/claude-agent-sdk'))
+      .importSessionToStore,
+  )
+  // The session has only ever run on OpenRouter, so its first history lives only in the store: there is no local
+  // transcript to merge, and importing anyway fails with "Session not found". The start carries on with the
+  // store's history instead of failing.
+  await sqliteSessionStore(database.db).append(
+    { projectKey: 'sample', sessionId: '293fc588-8b0e-4b57-9b60-1c9e0b7f4b7c' },
+    [{ type: 'user', uuid: 'u1' }],
+  )
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  const resumed = await runtime.prepare(
+    { ...options, resumeSessionId: '293fc588-8b0e-4b57-9b60-1c9e0b7f4b7c' },
+    { ...inherited, CLAUDE_CONFIG_DIR: '' },
+  )
+  expect(importSessionToStore).not.toHaveBeenCalled()
+  expect(resumed.sessionStore).toBeDefined()
+  expect(
+    await resumed.sessionStore?.load({ projectKey: 'sample', sessionId: '293fc588-8b0e-4b57-9b60-1c9e0b7f4b7c' }),
+  ).toEqual([{ type: 'user', uuid: 'u1' }])
+})
+
+it('still merges new Claude-leg entries into an already-mirrored session that has a local transcript (#639)', async () => {
+  const claudeConfig = join(dir, 'merge-claude')
+  mkdirSync(join(claudeConfig, 'projects', 'sample'), { recursive: true })
+  writeFileSync(join(claudeConfig, 'projects', 'sample', 'merged.jsonl'), '{"type":"user","uuid":"u1"}\n')
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  const env = { ...inherited, CLAUDE_CONFIG_DIR: claudeConfig }
+  await runtime.prepare({ ...options, resumeSessionId: 'merged' }, env)
+  // A Claude leg runs locally after the first handoff and appends to the same transcript file; the next
+  // OpenRouter start still merges it in, as #629 intended.
+  appendFileSync(join(claudeConfig, 'projects', 'sample', 'merged.jsonl'), '{"type":"assistant","uuid":"a1"}\n')
+  const later = await runtime.prepare({ ...options, resumeSessionId: 'merged' }, env)
+  expect(importSessionToStore).not.toHaveBeenCalled()
+  expect(await later.sessionStore?.load({ projectKey: 'sample', sessionId: 'merged' })).toEqual([
+    { type: 'user', uuid: 'u1' },
+    { type: 'assistant', uuid: 'a1' },
+  ])
+})
+
+it('still fails a mirrored start whose local transcript cannot be imported (#639)', async () => {
+  const claudeConfig = join(dir, 'broken-claude')
+  mkdirSync(join(claudeConfig, 'projects', 'sample'), { recursive: true })
+  writeFileSync(join(claudeConfig, 'projects', 'sample', 'broken.jsonl'), 'not an entry\n')
+  await sqliteSessionStore(database.db).append({ projectKey: 'sample', sessionId: 'broken' }, [
+    { type: 'user', uuid: 'u1' },
+  ])
+  const runtime = openRouterRuntime({ db: database.db, service, dataDir: dir, request: vi.fn() })
+  // The transcript exists, so the merge goes ahead and its failure is not swallowed as "nothing to merge".
+  await expect(
+    runtime.prepare({ ...options, resumeSessionId: 'broken' }, { ...inherited, CLAUDE_CONFIG_DIR: claudeConfig }),
+  ).rejects.toThrow()
 })
 
 it('falls back to the session store when the mirrored transcript cannot be exported to the real config (#625)', async () => {

@@ -21,7 +21,7 @@ import {
   sqliteSessionStore,
 } from './transcripts'
 import { openRouterSdkModel } from './sdk-model'
-import { importLocalTranscript } from './local-transcripts'
+import { findLocalTranscript, importLocalTranscript } from './local-transcripts'
 import { exportSessionToLocal } from './local-export'
 
 export interface OpenRouterRuntimeOptions {
@@ -66,30 +66,41 @@ export function openRouterRuntime({ db, service, dataDir, request }: OpenRouterR
         // rather than rebuilding the store. Recovery (`recoveryDir`) still rebuilds outright, as before.
         if (sessionId !== null && (recoveryDir !== null || router)) {
           const rebuilding = recoveryDir !== null || !mirrored
-          const scope = `${options.taskId ?? ''}:${sessionId}`
-          if (imports.has(scope))
-            throw new Error('The saved history is still being loaded. Retry when it has finished.')
-          imports.add(scope)
-          imported = rebuilding
-          try {
-            if (rebuilding) beginTranscriptImport(db, sessionId, options.taskId ?? null, recoveryDir)
-            const explicitConfig = recoveryDir ?? inherited.CLAUDE_CONFIG_DIR
-            if (explicitConfig && explicitConfig !== process.env.CLAUDE_CONFIG_DIR)
-              await importLocalTranscript(store, { configDir: explicitConfig, sessionId })
-            else await importSessionToStore(sessionId, store, { dir: options.cwd, includeSubagents: true })
-          } catch (error) {
-            if (recoveryDir !== null)
-              throw new Error(
-                'The complete SDK history could not be recovered. Retry after restoring the transcript file, or start a new task and copy the context you need from this task’s saved chat.',
-                { cause: error },
-              )
-            throw error
-          } finally {
-            imports.delete(scope)
+          // A session that has only ever run on OpenRouter has no local transcript to merge (its earliest history
+          // lives only in the store, the SDK's temporary transcript folder being gone), and importing anyway fails
+          // with "Session <id> not found". A merge without the file has nothing to add, so it is skipped and the
+          // store's history stands (#639). A first import or a recovery still requires the file, as before.
+          const explicitConfig = recoveryDir ?? inherited.CLAUDE_CONFIG_DIR
+          // The config the import reads: an explicit one when given, otherwise the SDK's own default.
+          const mergeConfig =
+            explicitConfig && explicitConfig !== process.env.CLAUDE_CONFIG_DIR
+              ? explicitConfig
+              : (process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'))
+          if (rebuilding || (await findLocalTranscript(db, mergeConfig, sessionId, options.taskId ?? null)) !== null) {
+            const scope = `${options.taskId ?? ''}:${sessionId}`
+            if (imports.has(scope))
+              throw new Error('The saved history is still being loaded. Retry when it has finished.')
+            imports.add(scope)
+            imported = rebuilding
+            try {
+              if (rebuilding) beginTranscriptImport(db, sessionId, options.taskId ?? null, recoveryDir)
+              if (explicitConfig && explicitConfig !== process.env.CLAUDE_CONFIG_DIR)
+                await importLocalTranscript(store, { configDir: explicitConfig, sessionId })
+              else await importSessionToStore(sessionId, store, { dir: options.cwd, includeSubagents: true })
+            } catch (error) {
+              if (recoveryDir !== null)
+                throw new Error(
+                  'The complete SDK history could not be recovered. Retry after restoring the transcript file, or start a new task and copy the context you need from this task’s saved chat.',
+                  { cause: error },
+                )
+              throw error
+            } finally {
+              imports.delete(scope)
+            }
+            mirrored = hasTranscript(db, sessionId, options.taskId ?? null, true)
+            if (!mirrored) throw new Error('The saved SDK history could not be loaded. The model was not switched.')
+            if (adopted) activate()
           }
-          mirrored = hasTranscript(db, sessionId, options.taskId ?? null, true)
-          if (!mirrored) throw new Error('The saved SDK history could not be loaded. The model was not switched.')
-          if (adopted) activate()
         }
         const mirrorFailure = (failedSessionId: string): void => {
           markTranscriptFailed(db, failedSessionId, options.taskId ?? null, configDir)

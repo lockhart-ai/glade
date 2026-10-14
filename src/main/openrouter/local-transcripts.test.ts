@@ -1,9 +1,10 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { openTestDatabase, type TestDatabase } from '../db/repositories/test-database'
-import { importLocalTranscript } from './local-transcripts'
+import { findLocalTranscript, importLocalTranscript } from './local-transcripts'
+import * as transcripts from './transcripts'
 import { sqliteSessionStore } from './transcripts'
 
 let dir: string
@@ -70,4 +71,27 @@ it('loads a transcript without children and refuses absent, invalid or corrupt h
   await writeFile(join(dir, 'projects', 'sample', 'saved', 'subagents', 'agent.jsonl'), '{"type":"assistant"}')
   await writeFile(join(dir, 'projects', 'sample', 'saved', 'subagents', 'agent.meta.json'), 'invalid JSON')
   await expect(importLocalTranscript(store, { configDir: dir, sessionId: 'saved' })).rejects.toThrow()
+})
+
+it('finds a mirrored session’s local transcript under its recorded project key (#639)', async () => {
+  await writeFile(join(dir, 'projects', 'sample', 'saved.jsonl'), '{"type":"user","uuid":"u1"}\n')
+  await sqliteSessionStore(database.db).append({ projectKey: 'sample', sessionId: 'saved' }, [
+    { type: 'user', uuid: 'u1' },
+  ])
+  expect(await findLocalTranscript(database.db, dir, 'saved')).toBe(join(dir, 'projects', 'sample', 'saved.jsonl'))
+})
+
+it('reports a session with no local transcript as missing, and anything else as an error (#639)', async () => {
+  await sqliteSessionStore(database.db).append({ projectKey: 'sample', sessionId: 'saved' }, [
+    { type: 'user', uuid: 'u1' },
+  ])
+  expect(await findLocalTranscript(database.db, dir, 'saved')).toBeNull()
+  // A project key is required — a session with nothing mirrored has no recorded key to look under, and a merge
+  // would have nothing to read into either.
+  vi.spyOn(transcripts, 'sessionProjectKey').mockReturnValue(null)
+  expect(await findLocalTranscript(database.db, dir, 'saved')).toBeNull()
+  vi.restoreAllMocks()
+  // An unreachable path (`projects` here standing in for a file) is not "missing": the caller fails the start.
+  await writeFile(join(dir, 'blocked'), 'not a directory')
+  await expect(findLocalTranscript(database.db, join(dir, 'blocked'), 'saved')).rejects.toThrow('ENOTDIR')
 })
