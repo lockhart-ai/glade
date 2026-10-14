@@ -11,6 +11,7 @@ import { gladeTodosMigration } from './0073-glade-todos'
 import { carryOverTodosMigration } from './0074-carry-over-todos'
 import { dropRetiredTodosMigration } from './0075-drop-retired-todos'
 import { questionCardDraftsMigration } from './0076-question-card-drafts'
+import { stoppedWorkNoteMigration } from './0077-stopped-work-note'
 import { schemaVersionMigration } from './0001-schema-version'
 import { coreTablesMigration } from './0002-core-tables'
 import { taskActivityMigration } from './0003-task-activity'
@@ -152,6 +153,7 @@ export const MIGRATIONS: readonly Migration[] = [
   carryOverTodosMigration,
   dropRetiredTodosMigration,
   questionCardDraftsMigration,
+  stoppedWorkNoteMigration,
 ]
 
 /** The version a database is at once every migration has run: the last one's, which can skip versions still in flight. */

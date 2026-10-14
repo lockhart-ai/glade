@@ -675,6 +675,34 @@ it('gives the switch note to a limit-paused task switched back to a Claude model
   expect(firstMessage).toContain('Note what the tests cover.')
 })
 
+it('gives the switch note to a limit-paused task after a relaunch before its first prompt', async () => {
+  const { original, child } = await limitPausedWithWork(true)
+  await runner.changeModel(task.id, 'claude-sonnet-5')
+  expect(original.closed).toBe(true)
+  expect(child.closed).toBe(true)
+  expect(backend.session.sent).toHaveLength(0)
+  // The relaunch: everything the runner held dies with it, and the database carries the task on.
+  runner.close()
+  runner = createAgentRunner({ db: database.db, backend, emit: (event) => events.push(event) })
+  runner.resumePaused(task.id)
+  const firstMessage = backend.session.sent[0]?.text ?? ''
+  expect(firstMessage).toContain('Glade stopped the following background work')
+  expect(firstMessage).toContain('wakeup: Follow up — Check tests')
+  expect(firstMessage).toContain('monitor: Watch tests — tail -f test.log')
+  expect(firstMessage).toContain('Child: Watch progress')
+  expect(firstMessage).toContain('Child: Read sample implementation')
+  expect(firstMessage).toContain('Note what the tests cover.')
+  // The note is given once, as it would have been without the relaunch.
+  backend.session.emit(sdk.init())
+  backend.session.emit(sdk.result('On it.'))
+  await settle()
+  runner.send(task.id, 'Also check the docs.')
+  expect(backend.session.sent.at(-1)?.text).toBe('Also check the docs.')
+  backend.session.emit(sdk.result('Checked.'))
+  await settle()
+  expect(backend.session.sent.filter((sent) => sent.text.includes('Glade stopped'))).toHaveLength(1)
+})
+
 it('rejects a smaller context window before preparing or committing a handoff', async () => {
   await previousTurn()
   const original = backend.session
