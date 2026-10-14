@@ -42,7 +42,13 @@ import {
 } from '../db/repositories/permission-requests'
 import { appendQuestionSet, closeQuestionSet } from '../db/repositories/question-sets'
 import { createTask, listTasks, updateTask } from '../db/repositories/tasks'
-import { appendNarration, appendToolCall, setSubagentProgress, updateToolCall } from '../db/repositories/tool-events'
+import {
+  appendNarration,
+  appendToolCall,
+  deleteToolEvent,
+  setSubagentProgress,
+  updateToolCall,
+} from '../db/repositories/tool-events'
 import { createWorkspace, listWorkspaces, updateWorkspace } from '../db/repositories/workspaces'
 import { openTestDatabase, type TestDatabase } from '../db/repositories/test-database'
 import { createMemoryLog } from '../logging/memory-sink'
@@ -555,6 +561,52 @@ describe('agent events', () => {
     expect(sent).toEqual([])
     ended(task, 'toolu_s', ToolCallState.Done, 'Three features.')
     expect(sent.map((event) => event.type)).toEqual([PluginEventType.AgentToolCall, PluginEventType.SubagentUpdated])
+  })
+
+  it('ends a subagent its refusal fallback evicts, and nothing for a row no subagent had (#503)', () => {
+    const agent = started(task, 'toolu_s', 'Agent', { description: 'Sort the PRs', prompt: 'Sort them' })
+    sent.length = 0
+    deleteToolEvent(database.db, task.id, agent.id)
+    emit({ type: EventType.ToolEventRemoved, taskId: task.id, toolEventId: agent.id })
+
+    expect(sent).toEqual([
+      {
+        type: PluginEventType.SubagentUpdated,
+        subagent: {
+          id: 'toolu_s',
+          taskId: task.id,
+          name: 'Sort the PRs',
+          state: PluginSubagentState.Stopped,
+          latest: null,
+          startedAt: 5_000,
+          endedAt: null,
+        },
+      },
+    ])
+
+    // A removed row that was never a subagent's call, or is gone already: nothing.
+    emit({ type: EventType.ToolEventRemoved, taskId: task.id, toolEventId: agent.id })
+    emit({ type: EventType.ToolEventRemoved, taskId: task.id, toolEventId: 'toolu_other' })
+    expect(sent.length).toBe(1)
+  })
+
+  it('ends a subagent its refusal fallback evicts for one that only the snapshot knows (#503)', () => {
+    const agent = started(task, 'toolu_s', 'Agent', { description: 'Sort the PRs' })
+    sent.length = 0
+
+    // A subscriber that joined while the call ran knows it from its snapshot alone.
+    const later: Sent[] = []
+    feed.subscribe(sinkInto(later))
+    expect(later.shift()).toMatchObject({ type: PluginEventType.Snapshot, subagents: [{ id: 'toolu_s' }] })
+    deleteToolEvent(database.db, task.id, agent.id)
+    emit({ type: EventType.ToolEventRemoved, taskId: task.id, toolEventId: agent.id })
+
+    expect(later).toEqual([
+      {
+        type: PluginEventType.SubagentUpdated,
+        subagent: expect.objectContaining({ id: 'toolu_s', state: PluginSubagentState.Stopped }) as unknown,
+      },
+    ])
   })
 
   it('sends nothing for dividers and compactions', () => {
