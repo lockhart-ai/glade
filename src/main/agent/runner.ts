@@ -527,6 +527,7 @@ import { describeSdkMessage } from './sdk-message-log'
 import { systemPromptAppend } from './system-prompt'
 import { getHandoff } from '../db/repositories/backfills'
 import { getSessionContext, setSessionContext } from '../db/repositories/session-context'
+import { getStoppedWorkNote, setStoppedWorkNote } from '../db/repositories/stopped-work-notes'
 import {
   contextAfter,
   contextBlock,
@@ -976,7 +977,10 @@ interface LiveSession {
    * prompt of Glade's own is never a wake, nor turned away.
    */
   readonly handed: string[]
-  /** Background work ended by a limit-switch, prepended once to the destination's next prompt. */
+  /**
+   * Background work ended by a limit-switch, prepended once to the destination's next prompt. Kept in the database
+   * (#564) so a relaunch between the switch and the next prompt doesn't lose it: `start` reads it back from there.
+   */
   stoppedWorkNote: string | null
   /**
    * What the compaction under way carried over, from its `PostCompact` hook, until the SDK reports it done
@@ -1723,6 +1727,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (live.stoppedWorkNote !== null) {
       text = `${live.stoppedWorkNote}\n\n${text}`
       live.stoppedWorkNote = null
+      setStoppedWorkNote(db, live.owner.id, null)
     }
     live.handed.push(text)
     live.handed.splice(0, Math.max(0, live.handed.length - MAX_HANDED))
@@ -3456,7 +3461,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       figureWrites: new Map(),
       callParents: new Map(),
       handed: [],
-      stoppedWorkNote: null,
+      stoppedWorkNote: getStoppedWorkNote(db, task.id),
       compactSummary: null,
     }
     decide = (call) => decideToolCall(task.id, live, call)
@@ -4013,6 +4018,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
               listWatchers(db, taskId).some(({ state }) => LIVE_WATCHER_STATES.includes(state))))
         )
           throw new CommandFailure(BridgeErrorCode.Busy, 'The agent started work while its new session started.')
+        let note: string | null = null
         if (limited) {
           const endedWork = [
             ...listWatchers(db, taskId)
@@ -4023,10 +4029,15 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
               .map((call) => `Child: ${subagentName(call)}`),
           ]
           if (endedWork.length > 0)
-            candidate.stoppedWorkNote = `Glade stopped the following background work when this usage-limit-paused task switched models:\n${endedWork.map((name) => `- ${name}`).join('\n')}\nThese watchers, wakeups and children will not report back. Restart any work you still need.`
+            note = `Glade stopped the following background work when this usage-limit-paused task switched models:\n${endedWork.map((name) => `- ${name}`).join('\n')}\nThese watchers, wakeups and children will not report back. Restart any work you still need.`
         }
         const changed = db.transaction(() => {
           const changed = updateTaskFromUser(context, taskId, { model, effort })
+          // The note commits with the switch, so a relaunch before the next prompt keeps it (#564).
+          if (candidate !== undefined && note !== null) {
+            candidate.stoppedWorkNote = note
+            setStoppedWorkNote(db, taskId, note)
+          }
           candidate?.session.activate?.()
           return changed
         })()

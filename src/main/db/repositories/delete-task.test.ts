@@ -25,6 +25,7 @@ import { ChildFilter, ChildKind, FilingSource } from '../../../shared/todoHub'
 import { addArtifact, addLinkArtifact } from './artifacts'
 import { setExternalId, setHandoff } from './backfills'
 import { setSessionContext } from './session-context'
+import { setStoppedWorkNote } from './stopped-work-notes'
 import { setInputDraft } from './input-drafts'
 import { appendMessage } from './messages'
 import { recordNotification } from './notifications'
@@ -174,6 +175,7 @@ async function fillTask(db: Database, task: Task): Promise<void> {
     sandbox: true,
     todoHub: false,
   })
+  setStoppedWorkNote(db, taskId, 'Glade stopped the background work when the task switched models.')
   setInputDraft(db, { taskId, text: 'And the admin views', images: [PNG], files: [attachedFile(taskId, 'admin.pdf')] })
   recordNotification(db, { taskId, title: 'Add rate limiting', body: 'Which limit should /search use?' })
   addWatcher(db, {
@@ -250,6 +252,8 @@ const FILLED_TABLES = [
   'search_documents',
   // What its agent session has been given of Glade's instructions and its handoff note.
   'session_context',
+  // The note a limit-switch left it, waiting for its next prompt (#564).
+  'stopped_work_notes',
   // Its handoff note and the caller's own id for it, from a backfill through the control API.
   'task_backfills',
   // The commits its agent made (the Changes tab).

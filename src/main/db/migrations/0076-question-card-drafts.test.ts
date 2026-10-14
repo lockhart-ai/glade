@@ -17,7 +17,6 @@ function openQuestionSet(db: Database, id: string): void {
 
 it('is migration 76', () => {
   expect(MIGRATIONS.find((migration) => migration.version === 76)).toBe(questionCardDraftsMigration)
-  expect(MIGRATIONS.at(-1)?.version).toBe(76)
 })
 
 it('adds the question sets a nullable draft column, and leaves every set without one', () => {
