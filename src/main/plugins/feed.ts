@@ -105,6 +105,8 @@ interface TaskSubagents {
   readonly subagents: readonly PluginSubagent[]
   /** The subagent of each call made inside one, by the call's tool_use id. */
   readonly parents: ReadonlyMap<string, string>
+  /** The subagent call each still-running log row holds, by the row's id: what a row's eviction ends (#503). */
+  readonly rows: ReadonlyMap<string, string>
 }
 
 /**
@@ -124,6 +126,8 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
   const watching = new Map<string, number>()
   /** The subagent each call made inside one belongs to, by the call's tool_use id: for its permission requests. */
   const parents = new Map<string, string>()
+  /** The subagent call each tool-log row holds, by the row's id: a row's eviction ends its subagent (#503). */
+  const rows = new Map<string, string>()
   const subscribers = new Set<Subscriber>()
   /** Events that arrived while a snapshot was read, to apply once it's sent. */
   let held: GladeEvent[] | null = null
@@ -251,10 +255,16 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       parents.set(call.toolUseId, call.parentToolUseId)
       latestChanged(call.parentToolUseId, latestLine(call, root))
     }
-    // A permission request waits on a running call only.
-    if (call.state !== ToolCallState.Running) parents.delete(call.toolUseId)
+    // A permission request waits on a running call only, and a row's eviction ends only a running subagent.
+    if (call.state !== ToolCallState.Running) {
+      parents.delete(call.toolUseId)
+      rows.delete(call.id)
+    }
     broadcast({ type: PluginEventType.AgentToolCall, call: pluginToolCall(call, root) })
-    if (startsSubagent(call)) subagentCall(call, appended)
+    if (startsSubagent(call)) {
+      rows.set(call.id, call.toolUseId)
+      subagentCall(call, appended)
+    }
   }
 
   const toolEvent = (event: ToolEvent, appended: boolean): void => {
@@ -275,6 +285,21 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       case ToolEventKind.Compaction:
       case ToolEventKind.RefusalFallback:
         return
+    }
+  }
+
+  /**
+   * A tool-log row was evicted by a refusal fallback (#503): its subagent stopped, for the subscribers that were told
+   * of it running. A row that held no running subagent's call, or is gone already, sends nothing.
+   */
+  const subagentEvicted = (rowId: string): void => {
+    const toolUseId = rows.get(rowId)
+    if (toolUseId === undefined) return
+    rows.delete(rowId)
+    for (const subscriber of subscribers) {
+      const known = subscriber.subagents.get(toolUseId)
+      if (known === undefined) continue
+      subagentUpdated(subscriber, { ...known, state: PluginSubagentState.Stopped, endedAt: null })
     }
   }
 
@@ -329,6 +354,9 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       case EventType.ToolEventUpdated:
         toolEvent(event.toolEvent, false)
         return
+      case EventType.ToolEventRemoved:
+        subagentEvicted(event.toolEventId)
+        return
       case EventType.QuestionOpened:
       case EventType.QuestionAnswered:
       case EventType.QuestionWithdrawn:
@@ -342,10 +370,8 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       // Not a plugin's business: what's said in the chat and queued for it, the Files, Todos, Todos
       // tab, the handoff note, the terminal, the window's own state, settings, the models the pickers offer,
       // plugins and the control endpoint (whose token no plugin may see). A removed workspace's tasks are deleted one by one.
-      // A refusal-fallback eviction is rare and best-effort here: a plugin keeps whatever it already showed for it.
       // Nor which rule decided a call: its mark names a folder or a command.
       case EventType.PermissionMarked:
-      case EventType.ToolEventRemoved:
       case EventType.WorkspaceRemoved:
       case EventType.MessageAppended:
       case EventType.QueueChanged:
@@ -383,6 +409,7 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
   const taskSubagents = (taskId: string, root: string | undefined): TaskSubagents => {
     const found = new Map<string, PluginSubagent>()
     const made = new Map<string, string>()
+    const held = new Map<string, string>()
     for (const event of source.toolEvents(taskId)) {
       if (event.kind !== ToolEventKind.ToolCall && event.kind !== ToolEventKind.Narration) continue
       const parent = event.parentToolUseId === null ? undefined : found.get(event.parentToolUseId)
@@ -391,9 +418,12 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       if (event.parentToolUseId !== null && event.state === ToolCallState.Running) {
         made.set(event.toolUseId, event.parentToolUseId)
       }
-      if (startsSubagent(event)) found.set(event.toolUseId, pluginSubagent(event, null))
+      if (startsSubagent(event)) {
+        if (event.state === ToolCallState.Running) held.set(event.id, event.toolUseId)
+        found.set(event.toolUseId, pluginSubagent(event, null))
+      }
     }
-    return { subagents: [...found.values()], parents: made }
+    return { subagents: [...found.values()], parents: made, rows: held }
   }
 
   const snapshot = (subscriber: Subscriber): PluginSnapshotEvent => {
@@ -407,6 +437,7 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       const root = rootOf(task.id)
       const found = taskSubagents(task.id, root)
       for (const [call, parent] of found.parents) parents.set(call, parent)
+      for (const [row, toolUseId] of found.rows) rows.set(row, toolUseId)
       for (const subagent of found.subagents) {
         if (subagent.state !== PluginSubagentState.Running) continue
         subscriber.subagents.set(subagent.id, subagent)
