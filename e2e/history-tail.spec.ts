@@ -12,8 +12,12 @@ import { HISTORY_PAGE } from '../src/shared/bridge'
 import { LONG_TASK_TITLES, writeSwitchLatencySeed } from './switch-latency-seed'
 import { taskHeader, taskList } from './selectors'
 
-/** The slowest a switch to an unvisited long task may be, at the median: generous, for a slow CI runner. */
-const MEDIAN_LIMIT_MS = 200
+/**
+ * The slowest a switch to an unvisited long task may be, at the median. CI's runners measured 212 ms once the timer
+ * waited for the new task's own rows (#654); the measurement's whole-history switch was 493 ms on a fast Mac, so twice
+ * CI's figure still catches a return to rendering everything.
+ */
+const MEDIAN_LIMIT_MS = 450
 
 /** How many unvisited long tasks the timing round switches to, all in the workspace the window opens on. */
 const SWITCHES = 4
