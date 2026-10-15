@@ -1,7 +1,8 @@
 // A task shows its last screenful of history first, and older history loads as you scroll up (#637): switching to a
-// long task (about 1,000 messages and 1,500 tool events, `./switch-latency-seed`) once rendered the whole history,
-// which took about 450 ms of a 493 ms switch. The seed is the measurement's (`origin/637-switch-measurements`), made
-// up Acme workspaces and all; the window opens on its first long task.
+// long task (about 1,000 messages and 1,500 tool events) once rendered the whole history, which took about 450 ms of
+// a 493 ms switch. The seed is long tasks at the measurement's scale (`./switch-latency-seed`), but only this spec's
+// own: one workspace, enough long tasks for its switches and a couple of small ones (#654); the window opens on the
+// first long task.
 //
 // The switch is timed from the DOM click to the frame after the task's header shows it, the way the typing-latency
 // spec times a key, and the scroll checks that a page of older messages loads with the scroll position kept.
@@ -16,6 +17,17 @@ const MEDIAN_LIMIT_MS = 200
 
 /** How many unvisited long tasks the timing round switches to, all in the workspace the window opens on. */
 const SWITCHES = 4
+
+/**
+ * What this spec seeds: the workspace the window opens on only, one more long task than it switches to and two small
+ * ones — nothing medium — so launching stays well inside `firstWindow`'s timeout on CI (#654).
+ */
+const TAIL_SEED = {
+  workspaces: 1,
+  longPerWorkspace: SWITCHES + 1,
+  mediumPerWorkspace: 0,
+  smallPerWorkspace: 2,
+}
 
 /** What the page records about one switch: when the click landed, and when the frame after the header showed it did. */
 interface SwitchSample {
@@ -95,14 +107,13 @@ test('switching to an unvisited long task shows its last screenful first, prompt
   tempFolder,
 }) => {
   test.setTimeout(180_000)
-  const seed = writeSwitchLatencySeed(tempFolder())
+  const seed = writeSwitchLatencySeed(tempFolder(), TAIL_SEED)
   const { window } = await launch({ seed })
   const first = LONG_TASK_TITLES[0] ?? ''
   await expect(taskHeader(window).title).toHaveText(first)
 
-  // The tail is what shows: a screenful of each log, not the task's whole history.: a screenful of each log, not the task's whole history. The Agents tab's count still names
+  // The tail is what shows: a screenful of each log, not the task's whole history. The Agents tab's count still names
   // every subagent the task ever started, whose calls are sent whole.
-  await expect(taskHeader(window).title).toHaveText(first)
 
   // Switching to long tasks never yet visited stays prompt: the tail is all it sends and renders.
   const unvisited = LONG_TASK_TITLES.slice(1, 1 + SWITCHES)
@@ -119,7 +130,7 @@ test('older history loads as the chat scrolls up, keeping the scroll position (#
   tempFolder,
 }) => {
   test.setTimeout(120_000)
-  const seed = writeSwitchLatencySeed(tempFolder())
+  const seed = writeSwitchLatencySeed(tempFolder(), TAIL_SEED)
   const { window } = await launch({ seed })
   const log = window.locator('[role="log"][aria-label="Conversation"]')
   await expect(taskHeader(window).title).toHaveText(LONG_TASK_TITLES[0] ?? '')
@@ -160,7 +171,7 @@ test('the tool log pages in the whole log as you scroll its top, with no hole at
   tempFolder,
 }) => {
   test.setTimeout(120_000)
-  const seed = writeSwitchLatencySeed(tempFolder())
+  const seed = writeSwitchLatencySeed(tempFolder(), TAIL_SEED)
   const { window } = await launch({ seed })
   await expect(taskHeader(window).title).toHaveText(LONG_TASK_TITLES[0] ?? '')
 
