@@ -78,12 +78,6 @@ export const ASKING_PLACEHOLDER = 'Or reply in your own words…'
 export const DONE_PLACEHOLDER = 'Send a message to reopen this task…'
 export const ERROR_PLACEHOLDER = 'Reply, or press Retry…'
 export const QUEUE_PLACEHOLDER = 'Add a message. It will be queued until the agent finishes its current step.'
-/**
- * Why images, files or pasted text can't go while the agent's questions are open: a reply then answers them, and an
- * answer is words.
- */
-export const ASKING_ATTACHMENTS_REFUSAL =
-  'Images, files and pasted text can’t go with an answer to the agent’s questions. Answer in words, then send them after.'
 
 /** A task's queue when it has none. */
 const NO_QUEUE: readonly QueuedMessage[] = []
@@ -449,10 +443,6 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     const text = draft.trim()
     const images = attachments.map(({ image }) => image)
     if (!canSend || (text === '' && images.length === 0 && files.length === 0)) return
-    if (task.asking && (images.length > 0 || pastedBlocks.length > 0 || files.length > 0)) {
-      setRefusals([ASKING_ATTACHMENTS_REFUSAL])
-      return
-    }
     setSending(true)
     try {
       // A message to an agent waiting on answers to its questions answers them, so it's sent, whatever else holds the task.

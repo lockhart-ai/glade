@@ -40,7 +40,8 @@ import {
 import { registerBridge } from '../bridge'
 import { fakeIpcPair } from '../bridge/fake-ipc'
 import type { ImageData } from '../../shared/images'
-import { pasteToken, wrapPastedBlock } from '../../shared/pastedContent'
+import { AttachedFileKind, type AttachedFile, withAttachedFiles } from '../../shared/attachedFiles'
+import { agentText, pasteToken, wrapPastedBlock } from '../../shared/pastedContent'
 import { GIF, JPEG, PNG, WEBP } from '../../shared/test-images'
 import { ImageOwnerKind, imagesOf } from '../db/repositories/images'
 import { listMessages } from '../db/repositories/messages'
@@ -3148,6 +3149,60 @@ describe('questions', () => {
     expect(current()).toMatchObject({ activity: TaskActivity.Working, asking: false })
   })
 
+  it('sends an answer with an image, a file and pasted text, and the ask result carries them all', async () => {
+    const { returned } = await ask()
+    const trace: PastedBlock = { id: 'k3f9', text: 'Traceback (most recent call last)\nKeyError: user_id' }
+    const sales: AttachedFile = {
+      name: 'sales.csv',
+      path: `.glade/attachments/${task.id}/sales.csv`,
+      size: 23,
+      kind: AttachedFileKind.Text,
+    }
+
+    const message = (
+      await glade.invoke(CommandName.TasksSend, {
+        id: task.id,
+        text: `Like this: ${pasteToken(trace.text)}`,
+        images: [PNG],
+        pastedBlocks: [trace],
+        files: [sales],
+      })
+    ).message
+    await returned
+    await settle()
+
+    // The message keeps its attachments as any sent message does, in the turn that asked.
+    expect(message).toMatchObject({
+      role: MessageRole.User,
+      body: `Like this: ${pasteToken(trace.text)}`,
+      turn: 1,
+      pastedBlocks: [trace],
+      files: [sales],
+    })
+    expect(imagesOf(database.db, { kind: ImageOwnerKind.Message, id: message.id })).toEqual([PNG])
+    // The set's reply carries them, so they're there for the agent and for a delivery after a relaunch.
+    expect(listQuestionSets(database.db, task.id)[0]?.reply).toEqual({
+      kind: QuestionReplyKind.FreeText,
+      text: `Like this: ${pasteToken(trace.text)}`,
+      images: message.images,
+      pastedBlocks: [trace],
+      files: [sales],
+    })
+    // The ask result's text composes the pasted text and the file's line the way a message does; the image goes
+    // beside it as a content block the log doesn't repeat.
+    expect(askRow()).toMatchObject({
+      state: ToolCallState.Done,
+      output: JSON.stringify({
+        freeText: withAttachedFiles(
+          agentText(`Like this: ${pasteToken(trace.text)}`, [trace]),
+          [sales],
+          workspace.rootPath,
+        ),
+      }),
+    })
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, asking: false })
+  })
+
   it('leaves a message queued before the questions opened queued until they are answered', async () => {
     await send('Draft the release notes for 2.4.')
     await glade.invoke(CommandName.QueueAdd, { taskId: task.id, text: 'Keep it short.' })
@@ -3240,8 +3295,8 @@ describe('questions', () => {
       } as const
       expect(backend.sessions).toHaveLength(1)
       expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
-      expect(backend.session.sent.map(({ text }) => text)).toEqual([answeredAfterRestart(reply)])
-      expect(answeredAfterRestart(reply)).toContain(
+      expect(backend.session.sent.map(({ text }) => text)).toEqual([answeredAfterRestart(reply, workspace.rootPath)])
+      expect(answeredAfterRestart(reply, workspace.rootPath)).toContain(
         '{"0":"by-area","1":"Leave it out","2":"Mention the new rate limits."}',
       )
       expect(current()).toMatchObject({ activity: TaskActivity.Working, asking: false })
@@ -3267,11 +3322,14 @@ describe('questions', () => {
       await answer(open.id, { 0: 'by-area' }, 'Skip the Django question: it shipped in 2.3.')
 
       expect(backend.session.sent.map(({ text }) => text)).toEqual([
-        answeredAfterRestart({
-          kind: QuestionReplyKind.Answers,
-          answers: { 0: 'by-area' },
-          anythingElse: 'Skip the Django question: it shipped in 2.3.',
-        }),
+        answeredAfterRestart(
+          {
+            kind: QuestionReplyKind.Answers,
+            answers: { 0: 'by-area' },
+            anythingElse: 'Skip the Django question: it shipped in 2.3.',
+          },
+          workspace.rootPath,
+        ),
       ])
       expect(backend.session.sent[0]?.text).toContain(
         '{"0":"by-area","anythingElse":"Skip the Django question: it shipped in 2.3."}',
@@ -3285,8 +3343,47 @@ describe('questions', () => {
 
       expect(chat().at(-1)).toEqual({ role: MessageRole.User, body: 'By area, please.', turn: 1 })
       expect(backend.session.sent.map(({ text }) => text)).toEqual([
-        answeredAfterRestart({ kind: QuestionReplyKind.FreeText, text: 'By area, please.' }),
+        answeredAfterRestart({ kind: QuestionReplyKind.FreeText, text: 'By area, please.' }, workspace.rootPath),
       ])
+      expect(current()).toMatchObject({ activity: TaskActivity.Working, asking: false })
+    })
+
+    it('hands an answer in words with its image, file and pasted text to the resumed session too', async () => {
+      await askThenRelaunch()
+      const trace: PastedBlock = { id: 'k3f9', text: 'Traceback (most recent call last)\nKeyError: user_id' }
+      const sales: AttachedFile = {
+        name: 'sales.csv',
+        path: `.glade/attachments/${task.id}/sales.csv`,
+        size: 23,
+        kind: AttachedFileKind.Text,
+      }
+      const sent = (
+        await glade.invoke(CommandName.TasksSend, {
+          id: task.id,
+          text: `Like this: ${pasteToken(trace.text)}`,
+          images: [PNG],
+          pastedBlocks: [trace],
+          files: [sales],
+        })
+      ).message
+
+      const reply = {
+        kind: QuestionReplyKind.FreeText,
+        text: `Like this: ${pasteToken(trace.text)}`,
+        images: sent.images,
+        pastedBlocks: [trace],
+        files: [sales],
+      } as const
+      expect(backend.sessions).toHaveLength(1)
+      expect(backend.session.sent.map(({ text, images }) => ({ text, images }))).toEqual([
+        {
+          text: answeredAfterRestart(reply, workspace.rootPath),
+          images: [PNG],
+        },
+      ])
+      // The pasted text and the file's line are in the result's JSON, as ask would have returned them.
+      expect(backend.session.sent[0]?.text).toContain('<pasted_content id=\\"k3f9\\">')
+      expect(backend.session.sent[0]?.text).toContain(sales.path)
       expect(current()).toMatchObject({ activity: TaskActivity.Working, asking: false })
     })
 
@@ -4494,7 +4591,7 @@ describe('pasted images', () => {
     })
   })
 
-  it('refuses images with an answer to the agent’s questions, keeping the questions open', async () => {
+  it('sends an image with an answer to the agent’s questions, and the ask result carries it', async () => {
     await send('Draft the release notes for 2.4.')
     backend.session.emit(sdk.init())
     void backend.session
@@ -4506,11 +4603,17 @@ describe('pasted images', () => {
       if (getOpenQuestionSet(database.db, task.id) === undefined) throw new Error('No question is open yet')
     })
 
-    await expect(sendWith('Like this.', [PNG])).rejects.toMatchObject({ code: BridgeErrorCode.InvalidRequest })
+    const message = await sendWith('Like this.', [PNG])
 
-    expect(getOpenQuestionSet(database.db, task.id)).toBeDefined()
-    expect(chat()).toEqual([{ role: MessageRole.User, body: 'Draft the release notes for 2.4.', turn: 1 }])
-    expect(database.db.prepare('SELECT COUNT(*) FROM images').pluck().get()).toBe(0)
+    expect(message).toMatchObject({ role: MessageRole.User, body: 'Like this.', turn: 1 })
+    expect(imagesOf(database.db, { kind: ImageOwnerKind.Message, id: message.id })).toEqual([PNG])
+    // The send answered the questions, and the reply keeps the image's ref.
+    expect(listQuestionSets(database.db, task.id)).toEqual([
+      expect.objectContaining({
+        state: QuestionSetState.Answered,
+        reply: { kind: QuestionReplyKind.FreeText, text: 'Like this.', images: message.images },
+      }),
+    ])
   })
 })
 
@@ -4584,7 +4687,7 @@ describe('pasted text blocks', () => {
     expect(listQueuedMessages(database.db, task.id)).toEqual([queued])
   })
 
-  it('refuses a pasted block with an answer to the agent’s questions, keeping the questions open', async () => {
+  it('sends a pasted block with an answer to the agent’s questions, and the ask result carries it', async () => {
     await send('Draft the release notes for 2.4.')
     backend.session.emit(sdk.init())
     void backend.session
@@ -4596,12 +4699,14 @@ describe('pasted text blocks', () => {
       if (getOpenQuestionSet(database.db, task.id) === undefined) throw new Error('No question is open yet')
     })
 
-    await expect(sendWith(pasteToken(trace.text), [trace])).rejects.toMatchObject({
-      code: BridgeErrorCode.InvalidRequest,
-    })
+    const message = await sendWith(pasteToken(trace.text), [trace])
 
-    expect(getOpenQuestionSet(database.db, task.id)).toBeDefined()
-    expect(chat()).toEqual([{ role: MessageRole.User, body: 'Draft the release notes for 2.4.', turn: 1 }])
-    expect(database.db.prepare('SELECT COUNT(*) FROM pasted_blocks').pluck().get()).toBe(0)
+    expect(message).toMatchObject({ role: MessageRole.User, body: pasteToken(trace.text), turn: 1 })
+    expect(listQuestionSets(database.db, task.id)).toEqual([
+      expect.objectContaining({
+        state: QuestionSetState.Answered,
+        reply: { kind: QuestionReplyKind.FreeText, text: pasteToken(trace.text), pastedBlocks: [trace] },
+      }),
+    ])
   })
 })

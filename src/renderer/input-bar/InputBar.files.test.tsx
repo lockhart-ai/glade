@@ -21,7 +21,7 @@ import {
   type FakeHandlers,
 } from '../store/test-bridge'
 import { REVEAL_TITLE } from '../attached-files/FileChip'
-import { ASKING_ATTACHMENTS_REFUSAL, attachFailureMessage, InputBar } from './InputBar'
+import { attachFailureMessage, InputBar } from './InputBar'
 
 interface Setup {
   readonly task?: Partial<Task>
@@ -366,7 +366,7 @@ describe('sending files', () => {
     ])
   })
 
-  it('refuses them with an answer to the agent’s questions, keeping them in the bar', async () => {
+  it('sends them with an answer to the agent’s questions', async () => {
     const fake = await renderBar({ task: { asking: true } })
     type('Yes, that one.')
     await drop([fileOnDisk(SALES)])
@@ -374,9 +374,11 @@ describe('sending files', () => {
 
     await send()
 
-    expect(requests(fake, CommandName.TasksSend)).toEqual([])
-    expect(screen.getByRole('alert')).toHaveTextContent(ASKING_ATTACHMENTS_REFUSAL)
-    expect(chips()).toEqual(['sales.csv'])
+    expect(requests(fake, CommandName.TasksSend)).toEqual([
+      { id: 't1', text: 'Yes, that one.', files: [sampleAttachedFile('t1', SALES)] },
+    ])
+    expect(chips()).toEqual([])
+    expect(field()).toHaveValue('')
   })
 })
 

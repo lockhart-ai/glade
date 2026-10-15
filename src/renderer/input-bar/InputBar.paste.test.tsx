@@ -21,7 +21,7 @@ import {
 import { settleFloating } from '../components/settleFloating'
 import { VIEWER_LABEL } from '../images/ImageViewer'
 import { IMAGE_LABEL } from '../images/StoredImage'
-import { ASKING_ATTACHMENTS_REFUSAL, InputBar } from './InputBar'
+import { InputBar } from './InputBar'
 
 interface Setup {
   readonly task?: Partial<Task>
@@ -378,7 +378,7 @@ describe('pasted text blocks', () => {
     expect(row).toHaveTextContent(`See this: ${pasteToken(trace)}`)
   })
 
-  it('refuses to send pasted text as an answer to the agent’s questions, keeping it and the text', async () => {
+  it('sends pasted text as part of an answer to the agent’s questions', async () => {
     const fake = await renderBar({ task: { asking: true } })
     type('This one: ')
     paste({ text: trace })
@@ -387,13 +387,11 @@ describe('pasted text blocks', () => {
 
     await send()
 
-    expect(requests(fake, CommandName.TasksSend)).toEqual([])
-    expect(refusals()).toEqual([ASKING_ATTACHMENTS_REFUSAL])
-    expect(chips()).toHaveLength(1)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Remove pasted text' }))
-    await send()
-    expect(requests(fake, CommandName.TasksSend)).toEqual([{ id: 't1', text: 'This one:' }])
+    const blocks = pastedBlocksSent(fake, CommandName.TasksSend)
+    expect(blocks).toEqual([{ id: expect.any(String) as string, text: trace }])
+    expect(requests(fake, CommandName.TasksSend)).toHaveLength(1)
+    expect(refusals()).toEqual([])
+    expect(chips()).toEqual([])
   })
 
   it('keeps each task’s pasted blocks with its draft, apart from another task’s', async () => {
@@ -700,7 +698,7 @@ describe('refusing what can’t be attached', () => {
     expect(refusals()).toEqual([])
   })
 
-  it('refuses to send images as an answer to the agent’s questions, keeping them and the text', async () => {
+  it('sends images with an answer to the agent’s questions', async () => {
     const fake = await renderBar({ task: { asking: true } })
     type('This layout.')
     paste({ files: [imageFile(PNG)] })
@@ -708,13 +706,9 @@ describe('refusing what can’t be attached', () => {
 
     await send()
 
-    expect(requests(fake, CommandName.TasksSend)).toEqual([])
-    expect(refusals()).toEqual([ASKING_ATTACHMENTS_REFUSAL])
-    expect(field()).toHaveValue('This layout.')
-    expect(thumbnails()).toHaveLength(1)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Remove image 1' }))
-    await send()
-    expect(requests(fake, CommandName.TasksSend)).toEqual([{ id: 't1', text: 'This layout.' }])
+    expect(requests(fake, CommandName.TasksSend)).toEqual([{ id: 't1', text: 'This layout.', images: [PNG] }])
+    expect(field()).toHaveValue('')
+    expect(thumbnails()).toEqual([])
+    expect(refusals()).toEqual([])
   })
 })

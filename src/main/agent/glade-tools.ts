@@ -42,7 +42,7 @@ import { getTask } from '../db/repositories/tasks'
 import { TOOL_USE_ID_META } from './mcp-tool-caller'
 import { otherTasksAnswer, otherTasksText } from './other-tasks'
 import { FileAccess } from './sandbox-requests'
-import { showTaskFile } from '../files/files'
+import { showTaskFile, workspaceRoot } from '../files/files'
 import {
   ACCESS_PATH_NOT_ABSOLUTE,
   AccessOutcomeKind,
@@ -51,7 +51,8 @@ import {
   type AccessOutcome,
   type AccessRequest,
 } from '../permissions/sandbox-ask'
-import { toolResultFor, type QuestionBroker } from '../questions/questions'
+import { replyImages, toolResultFor, type QuestionBroker } from '../questions/questions'
+import type { QuestionReply } from '../../shared/domain'
 import { preambleSchema, questionsSchema } from '../questions/schema'
 import { updateTaskFromAgent, type TaskServiceContext } from '../tasks/service'
 import {
@@ -350,6 +351,24 @@ function reply(message: string): GladeToolResult {
   return { content: [{ type: 'text', text: message }] }
 }
 
+/**
+ * The `ask` result for a reply: its JSON as text, with each image the answer carried beside it as an image content
+ * block (#648), which the model sees as the image itself. An answer without images is just the text, as any tool
+ * result is.
+ */
+function askResult(context: TaskServiceContext, taskId: string, reply: QuestionReply): GladeToolResult {
+  return {
+    content: [
+      { type: 'text', text: toolResultFor(reply, workspaceRoot(context, taskId)) },
+      ...replyImages(context.db, reply).map(({ data, mediaType }) => ({
+        type: 'image' as const,
+        data,
+        mimeType: mediaType,
+      })),
+    ],
+  }
+}
+
 /** What `update_artifact` tells the model when it gives neither a new title nor a new path. */
 export const UPDATE_CHANGES_NOTHING =
   'Give a new title, a newPath (for a file) or a newUrl (for a link), or both: an update with neither changes nothing.'
@@ -500,7 +519,7 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
     },
     async ask(input, signal) {
       const answered = await context.questions.ask(taskId, input, signal)
-      return answered === null ? { ...reply(QUESTIONS_WITHDRAWN), isError: true } : reply(toolResultFor(answered))
+      return answered === null ? { ...reply(QUESTIONS_WITHDRAWN), isError: true } : askResult(context, taskId, answered)
     },
     async showFile({ path, line }) {
       try {
