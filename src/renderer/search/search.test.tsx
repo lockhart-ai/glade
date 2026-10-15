@@ -16,6 +16,8 @@ import {
   type FakeBridge,
   type FakeHandlers,
 } from '../store/test-bridge'
+import { noOpenFiles } from '../../shared/files'
+import { NO_TOUCHED_FILES } from '../../shared/touchedFiles'
 import { SEARCH_NOTE } from './SearchResults'
 
 const TASKS: Task[] = [
@@ -261,6 +263,150 @@ describe('opening a result', () => {
     fireEvent.keyDown(searchField(), { key: 'Escape' })
     expect(screen.getByRole('main', { name: 'Task' }).querySelectorAll('mark')).toHaveLength(0)
     expect(store.getState().selectedTaskId).toBe('t1')
+  })
+
+  it('loads older history until the match shows, when it is in a page not loaded yet (#637)', async () => {
+    const older = { ...sampleMessage('m1', 't1', 'Add rate limiting to public API with a Retry-After header.'), seq: 1 }
+    const tail = { ...sampleMessage('m9', 't1', 'Nothing matching here.'), seq: 2 }
+    const { store } = await renderApp({
+      [CommandName.TasksHistory]: ({ id }) => ({
+        messages: [tail],
+        toolEvents: [],
+        hasOlderMessages: true,
+        hasOlderEvents: false,
+        messagesBefore: 2,
+        eventsBefore: null,
+        touchedFiles: NO_TOUCHED_FILES,
+        queuedMessages: [],
+        questionSets: [],
+        questionDraft: null,
+        permissionRequests: [],
+        permissionMarks: [],
+        openFiles: noOpenFiles(id),
+        todos: null,
+        artifacts: [],
+        handoff: null,
+        watchers: [],
+        commits: [],
+        agentTab: null,
+      }),
+      [CommandName.TasksHistoryBefore]: () => ({
+        messages: [older],
+        messagesBefore: 1,
+        hasOlderMessages: false,
+        toolEvents: [],
+        eventsBefore: null,
+        hasOlderEvents: false,
+      }),
+    })
+
+    await searchFor('Retry-After', 3)
+    fireEvent.click(within(results()).getByRole('button', { name: /^Add rate limiting to public API/ }))
+
+    await waitFor(() => {
+      expect(store.getState().messages.t1?.map(({ id }) => id)).toEqual(['m1', 'm9'])
+    })
+    const chat = await screen.findByRole('log', { name: 'Conversation' })
+    await waitFor(() => {
+      expect(chat.querySelectorAll('mark')).toHaveLength(1)
+    })
+    // The match came in with the page, marked where it is in the chat.
+    expect(marked(chat)).toContain('with a [Retry-After] header.')
+  })
+
+  it('loads as many older pages as the match takes, two pages back revealing it too (#637)', async () => {
+    const tail = { ...sampleMessage('m9', 't1', 'Nothing matching here.'), seq: 6 }
+    const middle = { ...sampleMessage('m5', 't1', 'Still nothing matching.'), seq: 4 }
+    const older = { ...sampleMessage('m1', 't1', 'Add rate limiting to public API with a Retry-After header.'), seq: 1 }
+    let pages = 0
+    const { store } = await renderApp({
+      [CommandName.TasksHistory]: ({ id }) => ({
+        messages: [tail],
+        toolEvents: [],
+        hasOlderMessages: true,
+        hasOlderEvents: false,
+        messagesBefore: 6,
+        eventsBefore: null,
+        touchedFiles: NO_TOUCHED_FILES,
+        queuedMessages: [],
+        questionSets: [],
+        questionDraft: null,
+        permissionRequests: [],
+        permissionMarks: [],
+        openFiles: noOpenFiles(id),
+        todos: null,
+        artifacts: [],
+        handoff: null,
+        watchers: [],
+        commits: [],
+        agentTab: null,
+      }),
+      [CommandName.TasksHistoryBefore]: () => {
+        pages += 1
+        return {
+          // The first page is older history without the match; the second brings it.
+          messages: pages === 1 ? [middle] : [older],
+          messagesBefore: pages === 1 ? 4 : 1,
+          hasOlderMessages: pages === 1,
+          toolEvents: [],
+          eventsBefore: null,
+          hasOlderEvents: false,
+        }
+      },
+    })
+
+    await searchFor('Retry-After', 3)
+    fireEvent.click(within(results()).getByRole('button', { name: /^Add rate limiting to public API/ }))
+
+    await waitFor(() => {
+      expect(store.getState().messages.t1?.map(({ id }) => id)).toEqual(['m1', 'm5', 'm9'])
+    })
+    const chat = await screen.findByRole('log', { name: 'Conversation' })
+    await waitFor(() => {
+      expect(chat.querySelectorAll('mark')).toHaveLength(1)
+    })
+    expect(marked(chat)).toContain('with a [Retry-After] header.')
+  })
+
+  it('gives up revealing when an older page fails to load, until it is asked again (#637)', async () => {
+    const tail = { ...sampleMessage('m9', 't1', 'Nothing matching here.'), seq: 2 }
+    const before = vi.fn(() => refuse(bridgeError(BridgeErrorCode.Internal, 'busy')))
+    const { store } = await renderApp({
+      [CommandName.TasksHistory]: ({ id }) => ({
+        messages: [tail],
+        toolEvents: [],
+        hasOlderMessages: true,
+        hasOlderEvents: false,
+        messagesBefore: 2,
+        eventsBefore: null,
+        touchedFiles: NO_TOUCHED_FILES,
+        queuedMessages: [],
+        questionSets: [],
+        questionDraft: null,
+        permissionRequests: [],
+        permissionMarks: [],
+        openFiles: noOpenFiles(id),
+        todos: null,
+        artifacts: [],
+        handoff: null,
+        watchers: [],
+        commits: [],
+        agentTab: null,
+      }),
+      [CommandName.TasksHistoryBefore]: before,
+    })
+
+    await searchFor('Retry-After', 3)
+    fireEvent.click(within(results()).getByRole('button', { name: /^Add rate limiting to public API/ }))
+
+    await waitFor(() => {
+      expect(store.getState().selectedTaskId).toBe('t1')
+    })
+    // The reveal asked for the older page, it failed, and the chat stayed as it was, with no match to reveal.
+    await waitFor(() => {
+      expect(before).toHaveBeenCalledOnce()
+    })
+    expect(store.getState().messages.t1?.map(({ id }) => id)).toEqual(['m9'])
   })
 })
 

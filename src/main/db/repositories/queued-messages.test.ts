@@ -152,6 +152,7 @@ describe('takeQueuedMessages', () => {
       pastedBlocks: [],
       files: [],
       broadcast: false,
+      seq: expect.any(Number) as unknown,
     })
     expect(delivered).toEqual([expected('One'), expected('Two')])
     expect(listMessages(test.db, task.id)).toEqual(delivered)

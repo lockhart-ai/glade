@@ -35,6 +35,8 @@ interface SeedMessage {
 
 type SeedToolEvent =
   | { readonly kind: 'divider'; readonly dividerKind: 'turn'; readonly turn: number; readonly minutesAgo: number }
+  // The dividers that mark the task's life, which a first load always sends whole however old (#637).
+  | { readonly kind: 'divider'; readonly dividerKind: 'reopened'; readonly turn: number; readonly minutesAgo: number }
   | { readonly kind: 'narration'; readonly text: string; readonly turn: number; readonly minutesAgo: number }
   | {
       readonly kind: 'tool_call'
@@ -64,7 +66,9 @@ interface SeedTodoPanel {
   readonly open: boolean
 }
 
-interface SeedTask {
+// Exported for e2e/switch-latency-seed.ts (#637), which scales this up to a large multi-workspace installation to
+// measure task- and workspace-switch latency; kept narrow (no behaviour change) so it stays easy to drop.
+export interface SeedTask {
   readonly title: string
   readonly objective: string
   readonly status: string
@@ -153,7 +157,7 @@ function share(count: number, turns: number, turn: number): number {
  * subagents and artifacts are filed under its todos, and its first three todos are open; and it has the PR each
  * todo's title names as a link artifact (#500), filed under a todo other than the first, so each title links to it.
  */
-function historyTask(title: string, scale: HistoryScale, selected: boolean, hub = false): SeedTask {
+export function historyTask(title: string, scale: HistoryScale, selected: boolean, hub = false): SeedTask {
   const turns = Math.max(1, Math.floor(scale.messages / 2))
   // One minute per turn, oldest first.
   const at = (turn: number): number => turns - turn + 1

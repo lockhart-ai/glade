@@ -9,9 +9,10 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsageLevel, UsageLimitKind, type UsageReading } from '../shared/account'
-import { EventType } from '../shared/bridge'
+import { CommandName, EventType } from '../shared/bridge'
 import { SAMPLE_USAGE } from '../shared/test-openrouter'
 import {
+  DividerKind,
   MessageRole,
   PermissionRequestState,
   TaskActivity,
@@ -238,18 +239,26 @@ afterEach(() => {
 })
 
 describe('the chat, with a long history', () => {
-  async function renderChat(permissionRequests: PermissionRequest[] = []): Promise<StoreWrapper> {
-    const wrapper = storeWrapper({
-      workspaces: [sampleWorkspace('w1')],
-      tasks: [sampleTask('t1', 'w1')],
-      uiState: [
-        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
-        { key: UiStateKey.SelectedTaskId, value: 't1' },
-      ],
-      messages: [...MESSAGES],
-      toolEvents: [...TOOL_EVENTS],
-      permissionRequests,
-    })
+  async function renderChat(
+    permissionRequests: PermissionRequest[] = [],
+    overrides: Parameters<typeof storeWrapper>[1] = {},
+    extra: Partial<Parameters<typeof storeWrapper>[0]> = {},
+  ): Promise<StoreWrapper> {
+    const wrapper = storeWrapper(
+      {
+        workspaces: [sampleWorkspace('w1')],
+        tasks: [sampleTask('t1', 'w1')],
+        uiState: [
+          { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+          { key: UiStateKey.SelectedTaskId, value: 't1' },
+        ],
+        messages: [...MESSAGES],
+        toolEvents: [...TOOL_EVENTS],
+        permissionRequests,
+        ...extra,
+      },
+      overrides,
+    )
     render(<Chat />, { wrapper: wrapper.wrapper })
     await act(() => wrapper.store.getState().hydrate())
     await screen.findByText(`Go ahead with part ${String(TURNS)}.`)
@@ -289,6 +298,78 @@ describe('the chat, with a long history', () => {
     })
     expect(renders(clockTime)).toBe(1)
   })
+
+  it('renders none of its entries again when an older page of history loads in above them (#637)', async () => {
+    const page = [
+      { ...message(0, MessageRole.User), id: 'old-1', seq: 1 },
+      { ...message(0, MessageRole.Agent), id: 'old-2', seq: 2 },
+    ]
+    const { store } = await renderChat(undefined, {
+      [CommandName.TasksHistoryBefore]: () => ({
+        messages: page,
+        messagesBefore: 1,
+        hasOlderMessages: false,
+        toolEvents: [],
+        eventsBefore: null,
+        hasOlderEvents: false,
+      }),
+    })
+    // The task's first load left older history behind, which the next page brings in.
+    store.setState({
+      historyTails: {
+        t1: { hasOlderMessages: true, hasOlderEvents: false, messagesBefore: null, eventsBefore: null, loading: false },
+      },
+    })
+    vi.mocked(clockTime).mockClear()
+
+    await act(() => store.getState().loadOlderHistory('t1'))
+
+    // Only the two entries the page brought rendered; every row already shown kept its identity.
+    expect(renders(clockTime)).toBe(2)
+    expect(screen.getByText('Go ahead with part 0.')).toBeDefined()
+  })
+
+  it('shows none of a carried divider older than the cursor until its page loads (#637)', async () => {
+    // A Reopened divider is sent whole however old (#637): in the window's log it can sit far older than the tail,
+    // and the chat shows it once its page does. The chat's rows below it never move for it.
+    const carried: ToolEvent = {
+      kind: ToolEventKind.Divider,
+      id: 'd0',
+      taskId: 't1',
+      turn: 1,
+      createdAt: AT,
+      dividerKind: DividerKind.Reopened,
+      seq: 1,
+    }
+    const { store } = await renderChat(
+      undefined,
+      {
+        [CommandName.TasksHistoryBefore]: () => ({
+          messages: [],
+          messagesBefore: null,
+          hasOlderMessages: false,
+          toolEvents: [],
+          eventsBefore: 0,
+          hasOlderEvents: false,
+        }),
+      },
+      { toolEvents: [carried, ...TOOL_EVENTS] },
+    )
+    // The tail's cursor is past the divider, which the window holds without its page.
+    act(() => {
+      store.setState({
+        historyTails: {
+          t1: { hasOlderMessages: false, hasOlderEvents: true, messagesBefore: null, eventsBefore: 5, loading: false },
+        },
+      })
+    })
+    expect(screen.queryByRole('separator', { name: 'Reopened' })).toBeNull()
+
+    await act(() => store.getState().loadOlderHistory('t1'))
+
+    // The page moved the cursor back past it, and it shows where it belongs.
+    expect(screen.getByRole('separator', { name: 'Reopened' })).toBeDefined()
+  })
 })
 
 describe('the tool log, with a long history', () => {
@@ -316,6 +397,79 @@ describe('the tool log, with a long history', () => {
     vi.mocked(clockTime).mockClear()
     rerender(<ToolLog taskId="t1" events={TOOL_EVENTS} rootPath="/Users/sample/code/api" />)
     expect(renders(clockTime)).toBe(TURNS)
+  })
+
+  it('asks for an older page of events when the log scrolls to its top, without rendering the rows shown again (#637)', () => {
+    const older = [note('old-note', 0)]
+    const before = vi.fn(() => ({
+      messages: [],
+      messagesBefore: null,
+      hasOlderMessages: false,
+      toolEvents: older,
+      eventsBefore: null,
+      hasOlderEvents: false,
+    }))
+    const harness = storeWrapper({}, { [CommandName.TasksHistoryBefore]: before })
+    harness.store.setState({
+      historyTails: {
+        t1: { hasOlderMessages: false, hasOlderEvents: true, messagesBefore: null, eventsBefore: null, loading: false },
+      },
+    })
+    const { rerender } = render(<ToolLog taskId="t1" events={TOOL_EVENTS} />, { wrapper: harness.wrapper })
+    vi.mocked(clockTime).mockClear()
+
+    fireEvent.scroll(screen.getByRole('log', { name: 'Tool log' }))
+    expect(before).toHaveBeenCalledOnce() // the scroll asked for the task's next older page
+    expect(renders(clockTime)).toBe(0) // the log's rows come from props; nothing rendered again
+
+    // The page went in above; only its own row rendered, the rows shown keeping their identity.
+    rerender(<ToolLog taskId="t1" events={[...older, ...TOOL_EVENTS]} />)
+    expect(renders(clockTime)).toBe(1)
+  })
+
+  it('shows none of a carried entry older than the cursor until its page loads (#637)', async () => {
+    // A subagent-starting call and a Reopened divider are sent whole however old (#637): in the window's log they
+    // can sit far older than the tail, and the task's own log shows them once their page does.
+    const carried: ToolEvent[] = [
+      {
+        kind: ToolEventKind.Divider,
+        id: 'd0',
+        taskId: 't1',
+        turn: 1,
+        createdAt: AT,
+        dividerKind: DividerKind.Reopened,
+        seq: 1,
+      },
+      call('agent-0', 1, { name: 'Agent', input: { description: 'Scout', prompt: 'Scout.' }, seq: 2 }),
+    ]
+    const page = [call('early', 1, { seq: 0 })]
+    const before = vi.fn(() => ({
+      messages: [],
+      messagesBefore: null,
+      hasOlderMessages: false,
+      toolEvents: page,
+      eventsBefore: 0,
+      hasOlderEvents: false,
+    }))
+    const harness = storeWrapper({}, { [CommandName.TasksHistoryBefore]: before })
+    harness.store.setState({
+      historyTails: {
+        t1: { hasOlderMessages: false, hasOlderEvents: true, messagesBefore: null, eventsBefore: 5, loading: false },
+      },
+    })
+    render(<ToolLog taskId="t1" events={[...carried, ...TOOL_EVENTS]} />, { wrapper: harness.wrapper })
+
+    // Older than the cursor, the carried entries stay out: the log starts at the tail's oldest row.
+    expect(screen.queryByRole('separator', { name: /reopened/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Agent/ })).toBeNull()
+
+    await act(async () => {
+      await harness.store.getState().loadOlderHistory('t1')
+    })
+
+    // The page moved the cursor back past them, and they show where they belong.
+    expect(screen.getByRole('separator', { name: /reopened/ })).toBeDefined()
+    expect(screen.getByRole('button', { name: /Agent/ })).toBeDefined()
   })
 
   it('renders only the row whose permission request opened, was answered or was withdrawn (#459)', () => {

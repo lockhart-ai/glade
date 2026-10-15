@@ -71,6 +71,7 @@ import {
   type Workspace,
 } from '../../shared/domain'
 import { commitFileKey, noOpenFiles, withClosedFile, withOpenedFile } from '../../shared/files'
+import { NO_TOUCHED_FILES } from '../../shared/touchedFiles'
 import { isSubagentTool } from '../../shared/subagents'
 import { taskPermissionRule } from '../../shared/permissions'
 import type { ImageData, ImageRef } from '../../shared/images'
@@ -532,6 +533,12 @@ export function fakeHandlers(
     [CommandName.TasksHistory]: ({ id }) => ({
       messages: (main.messages ?? []).filter((message) => message.taskId === id),
       toolEvents: (main.toolEvents ?? []).filter((event) => event.taskId === id),
+      hasOlderMessages: false,
+      hasOlderEvents: false,
+      // The fake main holds each task's whole history, so each log's cursor is its oldest entry's `seq` (#637).
+      messagesBefore: (main.messages ?? []).find((message) => message.taskId === id)?.seq ?? null,
+      eventsBefore: (main.toolEvents ?? []).find((event) => event.taskId === id)?.seq ?? null,
+      touchedFiles: NO_TOUCHED_FILES,
       queuedMessages: queueOf(id),
       questionSets: (main.questionSets ?? []).filter((set) => set.taskId === id),
       questionDraft: questionDrafts[id] ?? null,
@@ -544,6 +551,24 @@ export function fakeHandlers(
       watchers: (main.watchers ?? []).filter((watcher) => watcher.taskId === id),
       commits: (main.commits ?? []).filter((commit) => commit.taskId === id),
       agentTab: main.agentTabs?.[id] ?? null,
+    }),
+    // The fake main holds each task's whole history, so there's never anything older to load (#637): the pages are
+    // empty and say so, each log's cursor what was asked. A test that wants pages overrides this handler.
+    [CommandName.TasksHistoryBefore]: ({ messagesBefore, eventsBefore }) => ({
+      messages: [],
+      messagesBefore,
+      hasOlderMessages: false,
+      toolEvents: [],
+      eventsBefore,
+      hasOlderEvents: false,
+    }),
+    [CommandName.TasksHistoryAgent]: ({ taskId, agentId }) => ({
+      toolEvents: (main.toolEvents ?? []).filter(
+        (event) =>
+          event.taskId === taskId &&
+          (event.kind === ToolEventKind.ToolCall || event.kind === ToolEventKind.Narration) &&
+          event.parentToolUseId === agentId,
+      ),
     }),
     [CommandName.QueueAdd]: ({ taskId, text, images: added }) => {
       queued += 1

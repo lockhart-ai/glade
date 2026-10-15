@@ -13,6 +13,7 @@ import type {
   Unsubscribe,
   WorkspaceUserPatch,
 } from '../../shared/bridge'
+import type { TouchedFiles } from '../../shared/touchedFiles'
 import { EMPTY_OPENROUTER_USAGE, type OpenRouterUsageStatus, type OpenRouterActions } from '../../shared/openrouter'
 import type { BroadcastOutcome } from '../../shared/broadcast'
 import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
@@ -167,6 +168,25 @@ export interface DoneListPages {
   readonly hasMore: boolean
 }
 
+/**
+ * How much of a task's history is still in main (#637), set by each history load's answer: whether the chat log and
+ * the tool log each have entries older than the ones loaded (`loadOlderHistory` brings a page of each in), and
+ * whether a page is loading right now — one at a time per task.
+ */
+export interface HistoryTail {
+  readonly hasOlderMessages: boolean
+  readonly hasOlderEvents: boolean
+  /**
+   * Each log's cursor (#637): the oldest `seq` of the contiguous tail loaded so far, as the load that set it answered
+   * (`tasks.history` before the carried events joined, `tasks.historyBefore` from its page). What `loadOlderHistory`
+   * pages from, and what the task's own chat and tool log show from (everything from here up); null when the log has
+   * nothing loaded.
+   */
+  readonly messagesBefore: number | null
+  readonly eventsBefore: number | null
+  readonly loading: boolean
+}
+
 /** Everything the store holds. `applyEvent` maps one of these to the next. */
 export interface GladeData {
   readonly hydration: Hydration
@@ -187,6 +207,17 @@ export interface GladeData {
   readonly messages: Readonly<Record<string, readonly Message[]>>
   /** Each task's tool log, by task id: loaded when the task is selected, then kept current by events. */
   readonly toolEvents: Readonly<Record<string, readonly ToolEvent[]>>
+  /**
+   * How much older history each task has to load from main, by task id (#637): a task's history loads as its last
+   * screenful (`HISTORY_PAGE` messages and tool events), and the rest loads page by page as you scroll up. Whether a
+   * page is loading is here too: one at a time per task.
+   */
+  readonly historyTails: Readonly<Record<string, HistoryTail>>
+  /**
+   * The files each task's agent changed or read over its whole history (the Files tab's list), by task id, worked out
+   * in main (#637), which has the whole log: loaded with the logs, and merged with what the loaded log's calls say.
+   */
+  readonly touchedFiles: Readonly<Record<string, TouchedFiles>>
   /** Each task's message queue, in order, by task id: loaded with its logs, then kept current by events. */
   readonly queuedMessages: Readonly<Record<string, readonly QueuedMessage[]>>
   /**
@@ -535,6 +566,17 @@ export interface GladeActions {
   loadDoneThrough: (workspaceId: string, taskId: string | null) => Promise<void>
   /** Loads a task's chat log and tool log from main. */
   loadHistory: (taskId: string) => Promise<void>
+  /**
+   * Loads the task's next older page of chat messages and tool events (`tasks.historyBefore`, #637), when its last
+   * history load left older ones behind. Does nothing while a page of this task's is loading, or once it has none
+   * older to load.
+   */
+  loadOlderHistory: (taskId: string) => Promise<void>
+  /**
+   * Loads a subagent's own tool calls and working notes whole (`tasks.historyAgent`, #637): what its tab of the
+   * Agents tab shows, which the task's log tail may hold only some of. What opening its tab asks for.
+   */
+  loadAgentHistory: (taskId: string, agentId: string) => Promise<void>
   setUiState: (entry: UiStateEntry) => Promise<void>
   /**
    * Creates an active, empty task in the workspace and selects it. Resolves with the new task; or null, making none,
@@ -855,6 +897,8 @@ export const INITIAL_DATA: GladeData = {
   selectedTaskId: null,
   messages: {},
   toolEvents: {},
+  historyTails: {},
+  touchedFiles: {},
   queuedMessages: {},
   questionSets: {},
   permissionRequests: {},

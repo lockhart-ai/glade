@@ -1,5 +1,5 @@
 import { faWrench } from '@fortawesome/free-solid-svg-icons'
-import { memo, useMemo, useRef } from 'react'
+import { memo, useCallback, useMemo, useRef } from 'react'
 import {
   PermissionRequestState,
   type Message,
@@ -15,6 +15,7 @@ import { useGladeStore } from '../store/react'
 import {
   ChatEntryKind,
   chatEntries,
+  chatEntryKey,
   clockTime,
   compactedLabel,
   markedDoneLabel,
@@ -53,6 +54,8 @@ import { BroadcastTag } from './BroadcastTag'
 import { PastedBlockRow } from './PastedBlockRow'
 import { useSearchHighlight } from '../search/Highlight'
 import { useRevealMatch } from '../search/useRevealMatch'
+import { useKeepScrollOnPrepend, useLoadOlderOnScroll } from '../history/useOlderHistory'
+import { visibleLog } from '../store/visibleLog'
 import { useStickToBottom } from './useStickToBottom'
 import styles from './Chat.module.css'
 
@@ -354,9 +357,19 @@ function NewTaskPrompt({ root }: NewTaskPromptProps): React.JSX.Element {
  */
 export function Chat(): React.JSX.Element {
   const task = useGladeStore(selectSelectedTask)
-  const messages = useGladeStore((state) => (task === undefined ? undefined : state.messages[task.id])) ?? NO_MESSAGES
+  // The chat shows the contiguous tail of each log and the older pages loaded onto it (#637): a carried divider sent
+  // whole however old can sit far older in the window's log, and joins the chat once its page does. The permission
+  // cards read the whole log, which is what the subagent a card names comes from.
+  const messages = useGladeStore((state) =>
+    task === undefined
+      ? NO_MESSAGES
+      : visibleLog(state.messages[task.id] ?? NO_MESSAGES, state.historyTails[task.id]?.messagesBefore ?? null),
+  )
   const toolEvents =
     useGladeStore((state) => (task === undefined ? undefined : state.toolEvents[task.id])) ?? NO_TOOL_EVENTS
+  const eventsBefore = useGladeStore((state) =>
+    task === undefined ? null : (state.historyTails[task.id]?.eventsBefore ?? null),
+  )
   const focusTurn = useGladeStore((state) => state.focusTurn)
   const insertIntoInput = useGladeStore((state) => state.insertIntoInput)
   const questionSets =
@@ -370,8 +383,9 @@ export function Chat(): React.JSX.Element {
   const handoff = useGladeStore((state) => (task === undefined ? undefined : state.handoffs[task.id])) ?? null
 
   const entries = useMemo(
-    () => (task === undefined ? [] : chatEntries(task, messages, toolEvents, questionSets, permissionRequests)),
-    [task, messages, toolEvents, questionSets, permissionRequests],
+    () =>
+      task === undefined ? [] : chatEntries(task, messages, toolEvents, questionSets, permissionRequests, eventsBefore),
+    [task, messages, toolEvents, questionSets, permissionRequests, eventsBefore],
   )
   // The first open permission card takes the focus; once it's answered, the next one does.
   const firstOpen = permissionRequests.find(({ state }) => state === PermissionRequestState.Open)?.id
@@ -384,13 +398,28 @@ export function Chat(): React.JSX.Element {
     `${String(entries.length)}:${working ?? ''}:${String(stopped)}:${paused ?? ''}:${questionSets.map(({ state }) => state).join()}:${permissionRequests.map(({ state }) => state).join()}`,
     task?.id,
   )
+  // Older history loads as this scroll comes near the top (#637), which keeps its place while the page goes in above.
+  const taskId = task?.id ?? ''
+  const loadOlderOnScroll = useLoadOlderOnScroll(ref, taskId, task !== undefined)
+  // The entry an older page of history is spotted by (#637): the first that isn't a card. Cards are whole in the
+  // payload however old, so an old question card can sit at the top of the chat and stay there while pages of older
+  // messages go in under it.
+  const anchorEntry =
+    entries.find((entry) => entry.kind !== ChatEntryKind.Question && entry.kind !== ChatEntryKind.Permission) ??
+    entries[0]
+  const firstId = anchorEntry === undefined ? null : chatEntryKey(anchorEntry)
+  useKeepScrollOnPrepend(ref, firstId, taskId, task !== undefined, entries)
+  const onChatScroll = useCallback(() => {
+    onScroll()
+    loadOlderOnScroll()
+  }, [onScroll, loadOlderOnScroll])
   // A backfilled task shows its handoff note in place of what to write.
   const isNew = task !== undefined && entries.length === 0 && narration === null && handoff === null
   const highlight = useSearchHighlight()
-  useRevealMatch(ref)
+  useRevealMatch(ref, taskId)
 
   return (
-    <div ref={ref} onScroll={onScroll} role="log" aria-label="Conversation" className={styles.scroller}>
+    <div ref={ref} onScroll={onChatScroll} role="log" aria-label="Conversation" className={styles.scroller}>
       {isNew && root !== undefined && <NewTaskPrompt root={root} />}
       <div className={styles.thread}>
         {handoff !== null && <HandoffCard key={task?.id} handoff={handoff} />}

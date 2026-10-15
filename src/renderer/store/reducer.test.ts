@@ -23,6 +23,7 @@ import {
   type Watcher,
 } from '../../shared/domain'
 import { noOpenFiles } from '../../shared/files'
+import { NO_TOUCHED_FILES } from '../../shared/touchedFiles'
 import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
 import { ChildFilter, ChildKind, FilingSource, UNFILED_TODO_ID, type Filing } from '../../shared/todoHub'
 import {
@@ -35,8 +36,10 @@ import {
 import {
   applyEvent,
   idFromUiState,
+  withAgentEvents,
   withHistory,
   withLiveWatchers,
+  withOlderHistory,
   withOpenedWorkspace,
   withRunningSubagents,
   withTodoHub,
@@ -304,6 +307,11 @@ describe("a task's logs", () => {
       watchers: [],
       commits: [],
       questionDraft: null,
+      hasOlderMessages: false,
+      hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
+      touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     })
 
@@ -328,6 +336,11 @@ describe("a task's logs", () => {
       watchers: [],
       commits: [],
       questionDraft: null,
+      hasOlderMessages: false,
+      hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
+      touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     })
 
@@ -362,6 +375,11 @@ describe("a task's logs", () => {
       watchers: [],
       commits: [],
       questionDraft: null,
+      hasOlderMessages: false,
+      hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
+      touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     })
 
@@ -382,9 +400,227 @@ describe("a task's logs", () => {
         watchers: [],
         commits: [],
         questionDraft: null,
+        hasOlderMessages: false,
+        hasOlderEvents: false,
+        messagesBefore: null,
+        eventsBefore: null,
+        touchedFiles: NO_TOUCHED_FILES,
         agentTab: null,
       }).messages,
     ).toEqual({ t2: [] })
+  })
+
+  describe('an older page of history (#637)', () => {
+    const early = { ...sampleMessage('m1', 't1'), seq: 5 }
+    const late = { ...sampleMessage('m2', 't1', 'And fix it.'), seq: 10 }
+    const live = { ...sampleMessage('m3', 't1', 'One more thing.'), seq: 20 }
+    const page = {
+      messages: [early],
+      messagesBefore: 5,
+      hasOlderMessages: false,
+      toolEvents: [],
+      eventsBefore: null,
+      hasOlderEvents: true,
+    }
+
+    it('prepends in log order, once each, keeping what the log shows its own object', () => {
+      const loaded = withHistory(
+        {
+          ...state,
+          messages: { ...state.messages, t1: [late] },
+          historyTails: {
+            t1: {
+              hasOlderMessages: true,
+              hasOlderEvents: false,
+              messagesBefore: null,
+              eventsBefore: null,
+              loading: true,
+            },
+          },
+        },
+        't1',
+        {
+          messages: [late],
+          toolEvents: [],
+          hasOlderMessages: true,
+          hasOlderEvents: false,
+          messagesBefore: null,
+          eventsBefore: null,
+          touchedFiles: NO_TOUCHED_FILES,
+          queuedMessages: [],
+          questionSets: [],
+          permissionRequests: [],
+          permissionMarks: [],
+          openFiles: noOpenFiles('t1'),
+          todos: null,
+          artifacts: [],
+          handoff: null,
+          watchers: [],
+          commits: [],
+          questionDraft: null,
+          agentTab: null,
+        },
+      )
+
+      const next = withOlderHistory(loaded, 't1', page)
+
+      expect(next.messages.t1).toEqual([early, late])
+      expect(next.messages.t1?.[1]).toBe(late)
+      expect(next.historyTails.t1).toEqual({
+        hasOlderMessages: false,
+        messagesBefore: 5,
+        hasOlderEvents: true,
+        eventsBefore: null,
+        loading: false,
+      })
+    })
+
+    it('keeps an event that arrived while the page was loading, in log order', () => {
+      const loaded = withHistory(state, 't1', {
+        messages: [late],
+        toolEvents: [],
+        hasOlderMessages: true,
+        hasOlderEvents: false,
+        messagesBefore: null,
+        eventsBefore: null,
+        touchedFiles: NO_TOUCHED_FILES,
+        queuedMessages: [],
+        questionSets: [],
+        permissionRequests: [],
+        permissionMarks: [],
+        openFiles: noOpenFiles('t1'),
+        todos: null,
+        artifacts: [],
+        handoff: null,
+        watchers: [],
+        commits: [],
+        questionDraft: null,
+        agentTab: null,
+      })
+      const whileLoading = applyEvent(loaded, { type: EventType.MessageAppended, message: live })
+
+      expect(withOlderHistory(whileLoading, 't1', page).messages.t1).toEqual([early, late, live])
+    })
+
+    it('brings nothing in over a page the log already has, and says nothing is older', () => {
+      const loaded = withHistory(state, 't1', {
+        messages: [early],
+        toolEvents: [],
+        hasOlderMessages: true,
+        hasOlderEvents: false,
+        messagesBefore: null,
+        eventsBefore: null,
+        touchedFiles: NO_TOUCHED_FILES,
+        queuedMessages: [],
+        questionSets: [],
+        permissionRequests: [],
+        permissionMarks: [],
+        openFiles: noOpenFiles('t1'),
+        todos: null,
+        artifacts: [],
+        handoff: null,
+        watchers: [],
+        commits: [],
+        questionDraft: null,
+        agentTab: null,
+      })
+
+      const next = withOlderHistory(loaded, 't1', { ...page, messages: [early], hasOlderMessages: false })
+
+      expect(next.messages.t1).toBe(loaded.messages.t1)
+      expect(next.historyTails.t1).toEqual({
+        hasOlderMessages: false,
+        messagesBefore: 5,
+        hasOlderEvents: true,
+        eventsBefore: null,
+        loading: false,
+      })
+    })
+
+    it('keeps the further cursor on a repeat load, with its own flag, since the older pages stay loaded', () => {
+      // The window loaded a page back to `seq` 5, then the task was left and came back: the tail is what the second
+      // load sends, but the store keeps the page, so its own cursor and flag stand.
+      const back = withHistory(
+        {
+          ...state,
+          messages: { ...state.messages, t1: [early, late] },
+          historyTails: {
+            t1: {
+              hasOlderMessages: true,
+              hasOlderEvents: false,
+              messagesBefore: 5,
+              eventsBefore: null,
+              loading: false,
+            },
+          },
+        },
+        't1',
+        {
+          messages: [late],
+          toolEvents: [],
+          hasOlderMessages: true,
+          hasOlderEvents: false,
+          messagesBefore: 10,
+          eventsBefore: null,
+          touchedFiles: NO_TOUCHED_FILES,
+          queuedMessages: [],
+          questionSets: [],
+          permissionRequests: [],
+          permissionMarks: [],
+          openFiles: noOpenFiles('t1'),
+          todos: null,
+          artifacts: [],
+          handoff: null,
+          watchers: [],
+          commits: [],
+          questionDraft: null,
+          agentTab: null,
+        },
+      )
+
+      expect(back.historyTails.t1).toEqual({
+        hasOlderMessages: true,
+        messagesBefore: 5,
+        hasOlderEvents: false,
+        eventsBefore: null,
+        loading: false,
+      })
+    })
+  })
+
+  describe("a subagent's log, loaded whole (#637)", () => {
+    const subagentCall = { ...call, parentToolUseId: 'agent-1', seq: 3 }
+
+    it("merges the subagent's calls into the task's log, keeping the rows it shows their objects", () => {
+      const loaded = withHistory(state, 't1', {
+        messages: [],
+        toolEvents: [subagentCall],
+        hasOlderMessages: false,
+        hasOlderEvents: false,
+        messagesBefore: null,
+        eventsBefore: null,
+        touchedFiles: NO_TOUCHED_FILES,
+        queuedMessages: [],
+        questionSets: [],
+        permissionRequests: [],
+        permissionMarks: [],
+        openFiles: noOpenFiles('t1'),
+        todos: null,
+        artifacts: [],
+        handoff: null,
+        watchers: [],
+        commits: [],
+        questionDraft: null,
+        agentTab: null,
+      })
+      const fresh = { ...subagentCall, output: 'ok', state: ToolCallState.Done }
+      const older = { ...subagentCall, id: 'e0', toolUseId: 'toolu_00', seq: 1 }
+
+      const next = withAgentEvents(loaded, 't1', [fresh, older])
+
+      expect(next.toolEvents.t1).toEqual([older, subagentCall])
+      expect(next.toolEvents.t1?.[1]).toBe(subagentCall)
+    })
   })
 })
 
@@ -413,6 +649,11 @@ describe("a task's queue", () => {
       watchers: [],
       commits: [],
       questionDraft: null,
+      hasOlderMessages: false,
+      hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
+      touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     })
     expect(loaded.queuedMessages).toEqual({ t1: [second] })
@@ -457,6 +698,11 @@ describe("a task's questions", () => {
       watchers: [],
       commits: [],
       questionDraft: null,
+      hasOlderMessages: false,
+      hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
+      touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     }
     expect(withHistory(state, 't1', { ...empty, questionSets: [answered] }).questionSets).toEqual({ t1: [answered] })
@@ -504,6 +750,11 @@ describe("a task's permission requests", () => {
       watchers: [],
       commits: [],
       questionDraft: null,
+      hasOlderMessages: false,
+      hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
+      touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     }
     // A request opened while the history loaded stays, after the loaded ones.
@@ -548,6 +799,11 @@ describe("a task's permission marks", () => {
       watchers: [],
       commits: [],
       questionDraft: null,
+      hasOlderMessages: false,
+      hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
+      touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     }
     // The load read `a` before it was named, and a call the window hadn't heard of; `b` came after the load was read.
@@ -579,6 +835,11 @@ describe("a task's open files", () => {
       watchers: [],
       commits: [],
       questionDraft: null,
+      hasOlderMessages: false,
+      hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
+      touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     }
     expect(withHistory(changed, 't1', { ...empty, openFiles: noOpenFiles('t1') }).openFiles).toEqual({
@@ -626,6 +887,11 @@ describe("a task's artifacts", () => {
     watchers: [],
     commits: [],
     questionDraft: null,
+    hasOlderMessages: false,
+    hasOlderEvents: false,
+    messagesBefore: null,
+    eventsBefore: null,
+    touchedFiles: NO_TOUCHED_FILES,
     agentTab: null,
   })
 
@@ -697,6 +963,11 @@ describe("a task's watchers", () => {
     watchers,
     commits: [],
     questionDraft: null,
+    hasOlderMessages: false,
+    hasOlderEvents: false,
+    messagesBefore: null,
+    eventsBefore: null,
+    touchedFiles: NO_TOUCHED_FILES,
     agentTab: null,
   })
 
@@ -811,6 +1082,11 @@ describe("every task's running subagents", () => {
       watchers: [],
       commits: [],
       questionDraft: null,
+      hasOlderMessages: false,
+      hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
+      touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     })
     expect(loaded.toolEvents.t1).toEqual([divider, finished])
@@ -852,6 +1128,11 @@ describe("a task's commits", () => {
     watchers: [],
     commits,
     questionDraft: null,
+    hasOlderMessages: false,
+    hasOlderEvents: false,
+    messagesBefore: null,
+    eventsBefore: null,
+    touchedFiles: NO_TOUCHED_FILES,
     agentTab: null,
   })
 
@@ -886,6 +1167,11 @@ describe("a task's handoff note", () => {
     watchers: [],
     commits: [],
     questionDraft: null,
+    hasOlderMessages: false,
+    hasOlderEvents: false,
+    messagesBefore: null,
+    eventsBefore: null,
+    touchedFiles: NO_TOUCHED_FILES,
     agentTab: null,
   })
 
@@ -927,6 +1213,11 @@ describe("a task's todo list", () => {
     watchers: [],
     commits: [],
     questionDraft: null,
+    hasOlderMessages: false,
+    hasOlderEvents: false,
+    messagesBefore: null,
+    eventsBefore: null,
+    touchedFiles: NO_TOUCHED_FILES,
     agentTab: null,
   })
 

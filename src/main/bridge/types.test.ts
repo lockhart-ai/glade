@@ -51,6 +51,7 @@ import type { AccountStatus } from '../../shared/account'
 import { IDLE_LOGIN, type LoginStatus } from '../../shared/login'
 import { REQUEST_SCHEMAS, type RequestSchemas } from './requests'
 import { groupChildren, type ChildRef, type Filing, type GroupedChildren } from '../../shared/todoHub'
+import { NO_TOUCHED_FILES, type TouchedFiles } from '../../shared/touchedFiles'
 
 const NO_CHILDREN: GroupedChildren = groupChildren({
   todos: [],
@@ -98,6 +99,11 @@ const TASK_HANDLERS = {
   [CommandName.TasksHistory]: () => ({
     messages: [],
     toolEvents: [],
+    hasOlderMessages: false,
+    hasOlderEvents: false,
+    messagesBefore: null,
+    eventsBefore: null,
+    touchedFiles: NO_TOUCHED_FILES,
     queuedMessages: [],
     questionSets: [],
     questionDraft: null,
@@ -111,6 +117,15 @@ const TASK_HANDLERS = {
     commits: [],
     agentTab: null,
   }),
+  [CommandName.TasksHistoryBefore]: () => ({
+    messages: [],
+    messagesBefore: null,
+    hasOlderMessages: false,
+    toolEvents: [],
+    eventsBefore: null,
+    hasOlderEvents: false,
+  }),
+  [CommandName.TasksHistoryAgent]: () => ({ toolEvents: [] }),
   [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueRemove]: () => null,
@@ -361,6 +376,11 @@ describe('the command map', () => {
     expectTypeOf(glade.invoke(CommandName.TasksHistory, { id: 't' })).resolves.toEqualTypeOf<{
       readonly messages: readonly Message[]
       readonly toolEvents: readonly ToolEvent[]
+      readonly hasOlderMessages: boolean
+      readonly hasOlderEvents: boolean
+      readonly messagesBefore: number | null
+      readonly eventsBefore: number | null
+      readonly touchedFiles: TouchedFiles
       readonly queuedMessages: readonly QueuedMessage[]
       readonly questionSets: readonly QuestionSet[]
       readonly questionDraft: QuestionCardDraft | null

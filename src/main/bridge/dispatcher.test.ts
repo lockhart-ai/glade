@@ -15,6 +15,7 @@ import {
 } from '../../shared/domain'
 import { BUILT_IN_MODELS } from '../../shared/models'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
+import { NO_TOUCHED_FILES } from '../../shared/touchedFiles'
 import { commandTaskId, createBroadcast, createDispatcher } from './dispatcher'
 import { CommandFailure } from './errors'
 import type { TerminalTab } from '../../shared/terminal'
@@ -75,6 +76,11 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.TasksHistory]: () => ({
       messages: [],
       toolEvents: [],
+      hasOlderMessages: false,
+      hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
+      touchedFiles: NO_TOUCHED_FILES,
       queuedMessages: [],
       questionSets: [],
       questionDraft: null,
@@ -88,6 +94,15 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
       commits: [],
       agentTab: null,
     }),
+    [CommandName.TasksHistoryBefore]: () => ({
+      messages: [],
+      messagesBefore: null,
+      hasOlderMessages: false,
+      toolEvents: [],
+      eventsBefore: null,
+      hasOlderEvents: false,
+    }),
+    [CommandName.TasksHistoryAgent]: () => ({ toolEvents: [] }),
     [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
     [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
     [CommandName.QueueRemove]: () => null,

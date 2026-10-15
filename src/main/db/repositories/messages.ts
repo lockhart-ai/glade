@@ -35,7 +35,7 @@ export interface NewMessage {
 const MESSAGE_ROLES = Object.values(MessageRole)
 
 const COLUMNS =
-  'id, task_id, role, body, turn, created_at, duration_ms, files_changed, lines_added, lines_removed, broadcast'
+  'id, task_id, role, body, turn, created_at, duration_ms, files_changed, lines_added, lines_removed, broadcast, seq'
 
 /** A reply's summary, which it has exactly when `files_changed` is set. */
 function parseSummary(row: Row): TurnSummary | null {
@@ -64,6 +64,7 @@ function parseMessage(
     body: row.text('body'),
     turn: row.integer('turn'),
     createdAt: row.integer('created_at'),
+    seq: row.integer('seq'),
     summary: parseSummary(row),
     images: images.get(id) ?? [],
     pastedBlocks: pastedBlocks.get(id) ?? [],
@@ -76,20 +77,25 @@ function parseMessage(
 export function appendMessage(db: Database, input: NewMessage, now: EpochMs = Date.now()): Message {
   const { summary = null, images = [], pastedBlocks = [], files = [], broadcast = false, ...fields } = input
   const id = randomUUID()
-  db.prepare(
-    `INSERT INTO messages (${COLUMNS}, seq)
+  const appended = db
+    .prepare(
+      `INSERT INTO messages (${COLUMNS})
     VALUES (@id, @taskId, @role, @body, @turn, @createdAt, @durationMs, @filesChanged, @linesAdded, @linesRemoved,
-      @broadcast, (SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE task_id = @taskId))`,
-  ).run({
-    id,
-    ...fields,
-    createdAt: now,
-    durationMs: summary?.durationMs ?? null,
-    filesChanged: summary?.filesChanged ?? null,
-    linesAdded: summary?.linesAdded ?? null,
-    linesRemoved: summary?.linesRemoved ?? null,
-    broadcast: broadcast ? 1 : 0,
-  })
+      @broadcast, (SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE task_id = @taskId))
+    RETURNING seq`,
+    )
+    .get({
+      id,
+      ...fields,
+      createdAt: now,
+      durationMs: summary?.durationMs ?? null,
+      filesChanged: summary?.filesChanged ?? null,
+      linesAdded: summary?.linesAdded ?? null,
+      linesRemoved: summary?.linesRemoved ?? null,
+      broadcast: broadcast ? 1 : 0,
+    })
+  // The `seq` the log gave the message, which the row returns (`RETURNING seq` above).
+  const seq = new Row('messages', appended).integer('seq')
   const refs = addImages(db, { taskId: fields.taskId, owner: { kind: ImageOwnerKind.Message, id }, images }, now)
   const blocks = addPastedBlocks(
     db,
@@ -101,7 +107,17 @@ export function appendMessage(db: Database, input: NewMessage, now: EpochMs = Da
     { taskId: fields.taskId, owner: { kind: AttachedFileOwnerKind.Message, id }, files },
     now,
   )
-  return { id, ...fields, createdAt: now, summary, images: refs, pastedBlocks: blocks, files: attached, broadcast }
+  return {
+    id,
+    ...fields,
+    createdAt: now,
+    summary,
+    images: refs,
+    pastedBlocks: blocks,
+    files: attached,
+    broadcast,
+    seq,
+  }
 }
 
 /** A task's chat log, in the order it was appended. */
@@ -113,6 +129,18 @@ export function listMessages(db: Database, taskId: string): Message[] {
     .prepare(`SELECT ${COLUMNS} FROM messages WHERE task_id = ? ORDER BY seq`)
     .all(taskId)
     .map((row) => parseMessage(row, images, pastedBlocks, files))
+}
+
+/** A page of a task's older chat log: up to `limit` of the messages before `before` (a `seq`), oldest first. */
+export function listMessagesBefore(db: Database, taskId: string, before: number, limit: number): Message[] {
+  const images = imageRefsByOwner(db, taskId, ImageOwnerKind.Message)
+  const pastedBlocks = pastedBlocksByOwner(db, taskId, PastedBlockOwnerKind.Message)
+  const files = attachedFilesByOwner(db, taskId, AttachedFileOwnerKind.Message)
+  return db
+    .prepare(`SELECT ${COLUMNS} FROM messages WHERE task_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?`)
+    .all(taskId, before, limit)
+    .map((row) => parseMessage(row, images, pastedBlocks, files))
+    .reverse()
 }
 
 /**

@@ -1,5 +1,5 @@
 import { faEye } from '@fortawesome/free-regular-svg-icons'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ToolCallState,
   ToolEventKind,
@@ -14,6 +14,9 @@ import { endedLabel, endedOutputLine, endedSummary, endedTime } from '../agents/
 import { useElapsedNow } from '../agents/useElapsedNow'
 import { clockTime } from '../chat/chatModel'
 import { InlineMarkdown } from '../chat/Markdown'
+import { useKeepScrollOnPrepend, useLoadOlderOnScroll } from '../history/useOlderHistory'
+import { useGladeStore, useGladeStoreApi } from '../store/react'
+import { visibleLog } from '../store/visibleLog'
 import { useStickToBottom } from '../chat/useStickToBottom'
 import { classNames } from '../components/classNames'
 import { moduleClass } from '../components/moduleClass'
@@ -387,45 +390,96 @@ export function ToolLog({
   onOpenAgent,
   watchers,
 }: ToolLogProps): React.JSX.Element {
+  // The task's own log shows the contiguous tail and the older pages loaded onto it (#637): carried entries sent
+  // whole however old, and a subagent's whole log once it loads, can sit far older in the window's log, and join the
+  // list once their page does. A subagent's tab shows its own log whole.
+  const eventsBefore = useGladeStore((state) =>
+    agentId === null ? (state.historyTails[taskId]?.eventsBefore ?? null) : null,
+  )
+  const shown = useMemo(() => visibleLog(events, eventsBefore), [events, eventsBefore])
   const rows = useMemo(
-    () => agentLogRows(events, agentId, permissions, watchers),
-    [events, agentId, permissions, watchers],
+    () => agentLogRows(shown, agentId, permissions, watchers),
+    [shown, agentId, permissions, watchers],
   )
   // A permission line coming or going changes a row's height, as a new row changes the log's.
   const { ref, onScroll } = useStickToBottom(rows, taskId)
+  // Older history loads as this scroll comes near the top (#637), the task's own log only: a subagent's loads whole
+  // when its tab opens. The scroll keeps its place while the page goes in above.
+  const store = useGladeStoreApi()
+  const loadOlderOnScroll = useLoadOlderOnScroll(ref, taskId, agentId === null)
+  const firstRow = rows[0]
+  const firstId =
+    firstRow === undefined
+      ? null
+      : firstRow.kind === AgentLogRowKind.Watcher
+        ? firstRow.watcher.id
+        : rowEvent(firstRow).id
+  useKeepScrollOnPrepend(ref, firstId, taskId, agentId === null, rows)
+  const onLogScroll = useCallback(() => {
+    onScroll()
+    loadOlderOnScroll()
+  }, [onScroll, loadOlderOnScroll])
 
   const highlighted = useRef<Highlight | null>(null)
 
   // Scrolls to and highlights the turn asked for. The highlight is a class set on the row directly, not React state,
   // since it's a moment's decoration of the DOM; it's taken off on a timer, which outlives `focus` being cleared.
+  // A turn in history the log hasn't loaded yet (#637): older pages load until its first row is among them, then it
+  // shows the same way — as many pages as it takes, until there's none older to bring in.
   useEffect(() => {
     if (focus === null || focus === undefined) return
     onFocusShown?.()
-    const target = ref.current?.querySelector<HTMLElement>(`[${TURN_START}="${String(focus.turn)}"]`)
-    if (target === null || target === undefined) return
-    target.scrollIntoView({ block: 'start' })
+    const show = async (): Promise<void> => {
+      for (;;) {
+        const target = ref.current?.querySelector<HTMLElement>(`[${TURN_START}="${String(focus.turn)}"]`) ?? null
+        if (target !== null) {
+          const shown = target
+          shown.scrollIntoView({ block: 'start' })
 
-    const previous = highlighted.current
-    if (previous !== null) {
-      clearTimeout(previous.timer)
-      previous.element.classList.remove(HIGHLIGHT_CLASS)
+          const previous = highlighted.current
+          if (previous !== null) {
+            clearTimeout(previous.timer)
+            previous.element.classList.remove(HIGHLIGHT_CLASS)
+          }
+          // Reading the layout restarts the animation when the same row is highlighted again.
+          shown.getBoundingClientRect()
+          shown.classList.add(HIGHLIGHT_CLASS)
+          const timer = setTimeout(() => {
+            shown.classList.remove(HIGHLIGHT_CLASS)
+            highlighted.current = null
+          }, FOCUS_HIGHLIGHT_MS)
+          highlighted.current = { element: shown, timer }
+          return
+        }
+        // The turn isn't loaded: it may be in history not loaded yet (#637). Stop when there's none older to bring
+        // in, or a load failed; after one that answers, wait for the frame that shows its rows before looking again.
+        const tail = store.getState().historyTails[taskId]
+        if (tail?.hasOlderEvents !== true) return
+        const loaded = await store
+          .getState()
+          .loadOlderHistory(taskId)
+          .then(
+            () => true,
+            () => false,
+          )
+        if (!loaded) return
+        // Wait for the frame that shows the page's rows before looking for the turn's first row again.
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            resolve()
+          })
+        })
+      }
     }
-    // Reading the layout restarts the animation when the same row is highlighted again.
-    target.getBoundingClientRect()
-    target.classList.add(HIGHLIGHT_CLASS)
-    const timer = setTimeout(() => {
-      target.classList.remove(HIGHLIGHT_CLASS)
-      highlighted.current = null
-    }, FOCUS_HIGHLIGHT_MS)
-    highlighted.current = { element: target, timer }
-  }, [focus, onFocusShown, ref])
+    void show()
+  }, [focus, onFocusShown, ref, store, taskId])
 
   if (rows.length === 0) return <p className={styles.empty}>No tool calls yet.</p>
 
   const seen = new Set<number>()
   return (
     <ToolCallMenu taskId={taskId} rootPath={rootPath}>
-      <div ref={ref} onScroll={onScroll} role="log" aria-label="Tool log" className={styles.scroller}>
+      <div ref={ref} onScroll={onLogScroll} role="log" aria-label="Tool log" className={styles.scroller}>
         <div className={styles.log}>
           {rows.map((row) => {
             // A watcher is no part of a turn: the row after it may still be its turn's first.

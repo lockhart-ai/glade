@@ -22,7 +22,16 @@ import { describeFailure } from '../store/hydrate'
 import { useGladeStore } from '../store/react'
 import { BrowseTab } from './BrowseTab'
 import { FileViewer, type FileVersion } from './FileViewer'
-import { isChanged, touchedCount, touchedFiles, touchOfFile, type TouchedFile, type TouchedFiles } from './filesModel'
+import {
+  isChanged,
+  mergeTouched,
+  NO_TOUCHED_FILES,
+  touchedCount,
+  touchedFiles,
+  touchOfFile,
+  type TouchedFile,
+  type TouchedFiles,
+} from './filesModel'
 import type { OpenFileEdit } from './unsaved'
 import styles from './FilesTab.module.css'
 
@@ -95,7 +104,14 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
   const toast = useToast()
   const menu = useContextMenu<string>()
   const { run, copy, hints } = useMenuCommands()
-  const touched = useMemo(() => touchedFiles(events, rootPath), [events, rootPath])
+  // What the agent touched: the summary main worked out over the whole log (#637, `history.touchedFiles`), with what
+  // the loaded log's calls say — a call that finished since it loaded adds its file. Both cover the log's tail, and
+  // a file changed by either stays changed.
+  const touchedSummary = useGladeStore((state) => state.touchedFiles[taskId]) ?? NO_TOUCHED_FILES
+  const touched = useMemo(
+    () => mergeTouched(touchedSummary, touchedFiles(events, rootPath)),
+    [touchedSummary, events, rootPath],
+  )
   // The list button, while its menu is open.
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
   const searchField = useRef<HTMLInputElement>(null)

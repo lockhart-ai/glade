@@ -4,6 +4,7 @@ import {
   BridgeErrorCode,
   CommandName,
   EventType,
+  HISTORY_PAGE,
   type DraftsGetResponse,
   type TasksHistoryResponse,
 } from '../../shared/bridge'
@@ -19,14 +20,19 @@ import {
   QuestionSetState,
   TaskActivity,
   TaskState,
+  ToolCallState,
   ToolEventKind,
   UiStateKey,
   WatcherState,
+  type ToolEvent,
+  type ToolCallEvent,
+  type NarrationEvent,
   type Artifact,
   type UiStateEntry,
 } from '../../shared/domain'
 import { AppCommandId, CommandScope } from '../../shared/commands'
 import { noOpenFiles } from '../../shared/files'
+import { NO_TOUCHED_FILES } from '../../shared/touchedFiles'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { GIF, JPEG, PNG } from '../../shared/test-images'
 import { ChildFilter, ChildKind, FilingSource, UNFILED_TODO_ID, type Filing } from '../../shared/todoHub'
@@ -838,6 +844,281 @@ describe("a task's logs", () => {
     expect(store.getState().messages.t1).toEqual([first, reply])
   })
 
+  it("loads an older page of the selected task's history once, page by page (#637)", async () => {
+    // The task's first load is its tail, with older history behind it; the pages bring the rest.
+    const older = { ...sampleMessage('m0', 't1'), seq: 1 }
+    let pages = 0
+    const fake = fakeBridge(
+      { ...main(), messages: [{ ...sampleMessage('m1', 't1'), seq: 2 }] },
+      {
+        [CommandName.TasksHistory]: ({ id }) => ({
+          messages: [{ ...sampleMessage('m1', 't1'), seq: 2 }],
+          toolEvents: [],
+          hasOlderMessages: true,
+          hasOlderEvents: false,
+          messagesBefore: 2,
+          eventsBefore: null,
+          touchedFiles: NO_TOUCHED_FILES,
+          queuedMessages: [],
+          questionSets: [],
+          questionDraft: null,
+          permissionRequests: [],
+          permissionMarks: [],
+          openFiles: noOpenFiles(id),
+          todos: null,
+          artifacts: [],
+          handoff: null,
+          watchers: [],
+          commits: [],
+          agentTab: null,
+        }),
+        [CommandName.TasksHistoryBefore]: ({ messagesBefore }) => {
+          pages += 1
+          return {
+            messages: pages === 1 && messagesBefore === 2 ? [older] : [],
+            messagesBefore: pages === 1 && messagesBefore === 2 ? 1 : messagesBefore,
+            hasOlderMessages: false,
+            toolEvents: [],
+            eventsBefore: null,
+            hasOlderEvents: false,
+          }
+        },
+      },
+    )
+    const store = createGladeStore(fake.bridge)
+    await store.getState().hydrate()
+    await store.getState().selectTask('t1')
+    expect(store.getState().historyTails.t1).toEqual({
+      hasOlderMessages: true,
+      messagesBefore: 2,
+      hasOlderEvents: false,
+      eventsBefore: null,
+      loading: false,
+    })
+
+    // The first scroll up brings the older message in, in front, and says nothing is older.
+    await store.getState().loadOlderHistory('t1')
+    expect(store.getState().messages.t1?.map(({ id }) => id)).toEqual(['m0', 'm1'])
+    expect(store.getState().historyTails.t1).toEqual({
+      hasOlderMessages: false,
+      messagesBefore: 1,
+      hasOlderEvents: false,
+      eventsBefore: null,
+      loading: false,
+    })
+
+    // A second call loads nothing: the fake would have answered empty, and the store doesn't ask again.
+    await store.getState().loadOlderHistory('t1')
+    expect(pages).toBe(1)
+  })
+
+  it("says why when an older page can't be loaded, ready to try again on the next scroll (#637)", async () => {
+    const failure = bridgeError(BridgeErrorCode.Internal, 'tasks.historyBefore failed: busy')
+    const fake = fakeBridge(
+      { ...main(), messages: [{ ...sampleMessage('m1', 't1'), seq: 2 }] },
+      {
+        [CommandName.TasksHistory]: ({ id }) => ({
+          messages: [{ ...sampleMessage('m1', 't1'), seq: 2 }],
+          toolEvents: [],
+          hasOlderMessages: true,
+          hasOlderEvents: false,
+          messagesBefore: 2,
+          eventsBefore: null,
+          touchedFiles: NO_TOUCHED_FILES,
+          queuedMessages: [],
+          questionSets: [],
+          questionDraft: null,
+          permissionRequests: [],
+          permissionMarks: [],
+          openFiles: noOpenFiles(id),
+          todos: null,
+          artifacts: [],
+          handoff: null,
+          watchers: [],
+          commits: [],
+          agentTab: null,
+        }),
+        [CommandName.TasksHistoryBefore]: () => refuse(failure),
+      },
+    )
+    const store = createGladeStore(fake.bridge)
+    await store.getState().hydrate()
+    await store.getState().selectTask('t1')
+
+    await expect(store.getState().loadOlderHistory('t1')).rejects.toMatchObject({ message: failure.message })
+    // The loading flag went back down, so the next scroll asks again.
+    expect(store.getState().historyTails.t1).toEqual({
+      hasOlderMessages: true,
+      messagesBefore: 2,
+      hasOlderEvents: false,
+      eventsBefore: null,
+      loading: false,
+    })
+  })
+
+  // The log the paging tests run over: 409 ordinary notes, and the carried entry at seq 10.
+  const pageEvent = (seq: number): NarrationEvent => ({
+    kind: ToolEventKind.Narration,
+    id: `e${String(seq)}`,
+    taskId: 't1',
+    turn: 1,
+    createdAt: 1_000 + seq,
+    text: `Note ${String(seq)}.`,
+    parentToolUseId: null,
+    seq,
+  })
+  const carriedCases = [
+    {
+      name: 'a subagent-starting call',
+      carried: {
+        kind: ToolEventKind.ToolCall,
+        id: 'agent-10',
+        taskId: 't1',
+        turn: 1,
+        createdAt: 1_010,
+        name: 'Agent',
+        input: { description: 'Scout', prompt: 'Scout.' },
+        state: ToolCallState.Done,
+        output: 'ok',
+        finishedAt: 2_000,
+        toolUseId: 'use-agent-10',
+        parentToolUseId: null,
+        progressSummary: null,
+        seq: 10,
+      } satisfies ToolCallEvent,
+    },
+    {
+      name: 'a Reopened divider',
+      carried: {
+        kind: ToolEventKind.Divider,
+        id: 'div-10',
+        taskId: 't1',
+        turn: 1,
+        createdAt: 1_010,
+        dividerKind: DividerKind.Reopened,
+        seq: 10,
+      } satisfies ToolEvent,
+    },
+  ]
+
+  it.each(carriedCases)("pages older history from the tail's own cursor, past $name (#637)", async ({ carried }) => {
+    // The log: the carried entry at seq 10 and 409 more events. The tail is the last 150 (seq 261..410), sent with
+    // the carried entry whole; paging from the oldest entry the window holds — the carried one, at seq 10 — would
+    // ask before seq 10 and never bring seq 11..260 in. The tail's own cursor pages the whole log in.
+    const events: ToolEvent[] = Array.from({ length: 410 }, (_, index) =>
+      index + 1 === 10 ? carried : pageEvent(index + 1),
+    )
+    const fake = fakeBridge(main(), {
+      [CommandName.TasksHistory]: ({ id }) => {
+        const tail = events.slice(-HISTORY_PAGE)
+        const sent = [...tail, carried]
+        const sentIds = new Set(sent.map(({ id: eventId }) => eventId))
+        return {
+          messages: [],
+          toolEvents: sent,
+          hasOlderMessages: false,
+          hasOlderEvents: events.some(({ id }) => !sentIds.has(id)),
+          messagesBefore: null,
+          eventsBefore: tail[0]?.seq ?? null,
+          touchedFiles: NO_TOUCHED_FILES,
+          queuedMessages: [],
+          questionSets: [],
+          questionDraft: null,
+          permissionRequests: [],
+          permissionMarks: [],
+          openFiles: noOpenFiles(id),
+          todos: null,
+          artifacts: [],
+          handoff: null,
+          watchers: [],
+          commits: [],
+          agentTab: null,
+        }
+      },
+      [CommandName.TasksHistoryBefore]: ({ eventsBefore, limit }) => {
+        const before = eventsBefore ?? 0
+        const fetched = events.filter(({ seq }) => (seq ?? 0) < before).slice(-(limit + 1))
+        const page = fetched.slice(-limit)
+        return {
+          messages: [],
+          messagesBefore: null,
+          hasOlderMessages: false,
+          toolEvents: page,
+          eventsBefore: page[0]?.seq ?? before,
+          hasOlderEvents: fetched.length > limit,
+        }
+      },
+    })
+    const store = createGladeStore(fake.bridge)
+    await store.getState().hydrate()
+    await store.getState().selectTask('t1')
+    expect(store.getState().historyTails.t1).toEqual({
+      hasOlderMessages: false,
+      messagesBefore: null,
+      hasOlderEvents: true,
+      eventsBefore: 261,
+      loading: false,
+    })
+
+    for (let page = 0; page < 4 && (store.getState().historyTails.t1?.hasOlderEvents ?? false); page += 1) {
+      await store.getState().loadOlderHistory('t1')
+    }
+
+    // Every event is in, exactly once, in log order — the carried one included — and nothing older remains.
+    const log = store.getState().toolEvents.t1 ?? []
+    expect(log.map(({ seq }) => seq)).toEqual(events.map(({ seq }) => seq))
+    expect(new Set(log.map(({ id }) => id)).size).toBe(log.length)
+    expect(log).toHaveLength(410)
+    expect(store.getState().historyTails.t1?.hasOlderEvents).toBe(false)
+  })
+
+  it("loads a subagent's log whole when its tab opens (#637)", async () => {
+    const divider = {
+      kind: ToolEventKind.Divider,
+      id: 'e1',
+      taskId: 't1',
+      turn: 1,
+      createdAt: 3_000,
+      dividerKind: DividerKind.Turn,
+    } as const
+    const note = {
+      kind: ToolEventKind.Narration,
+      id: 'e0',
+      taskId: 't1',
+      turn: 1,
+      createdAt: 2_000,
+      text: 'Scouting.',
+      parentToolUseId: 'agent-1',
+      seq: 1,
+    } as const
+    const { store, emit } = await hydrated({
+      ...main(),
+      toolEvents: [note, divider],
+    })
+
+    await store.getState().selectTask('t1')
+    // The fake main holds the whole history, so an older page brings nothing and says so.
+    store.setState({
+      historyTails: {
+        t1: { hasOlderMessages: true, hasOlderEvents: false, messagesBefore: null, eventsBefore: null, loading: false },
+      },
+    })
+    await store.getState().loadOlderHistory('t1')
+    expect(store.getState().historyTails.t1).toEqual({
+      hasOlderMessages: false,
+      messagesBefore: null,
+      hasOlderEvents: false,
+      eventsBefore: null,
+      loading: false,
+    })
+    await store.getState().loadAgentHistory('t1', 'agent-1')
+
+    // The subagent's note is in the log where it belongs; a live event of the task's own still appends after it.
+    expect(store.getState().toolEvents.t1?.map(({ id }) => id)).toEqual(['e0', 'e1'])
+    emit({ type: EventType.ToolEventAppended, toolEvent: { ...divider, id: 'e2' } })
+    expect(store.getState().toolEvents.t1?.map(({ id }) => id)).toEqual(['e0', 'e1', 'e2'])
+  })
+
   it('loads nothing when the selection is cleared', async () => {
     const { store, invoke } = await hydrated()
 
@@ -1349,6 +1630,11 @@ describe("a task's artifacts", () => {
     resolveHistory?.({
       messages: [],
       toolEvents: [],
+      hasOlderMessages: false,
+      hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
+      touchedFiles: NO_TOUCHED_FILES,
       queuedMessages: [],
       questionSets: [],
       permissionRequests: [],

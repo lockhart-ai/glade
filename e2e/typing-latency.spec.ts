@@ -4,6 +4,7 @@
 // rendered the whole chat and tool log again and laid them out twice over, so keys waited a second or more.
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
+import { HISTORY_PAGE } from '../src/shared/bridge'
 import {
   HUB_CHILDREN_UNDER_FIRST,
   LONG_HISTORY,
@@ -93,9 +94,9 @@ test('typing stays prompt in a task with a very long history, idle and while the
   const seed = writeLongHistorySeed(tempFolder(), SelectedHistory.Long)
   const { window } = await launch({ seed, agentScript: 'multi-tool-turn' })
   await expect(taskHeader(window).title).toHaveText(LONG_TASK_TITLE)
-  // The whole history is there: every message, and the tool log's rows.
-  await expect(chat(window).userMessages).toHaveCount(LONG_HISTORY.messages / 2)
-  await expect(chat(window).agentReplies).toHaveCount(LONG_HISTORY.messages / 2)
+  // The chat shows the tail first (#637): the last screenful of messages, older history loading as you scroll up.
+  await expect(chat(window).userMessages).toHaveCount(HISTORY_PAGE / 2)
+  await expect(chat(window).agentReplies).toHaveCount(HISTORY_PAGE / 2)
   await expect(taskPanel(window).tab(/^Agents/)).toHaveText(`Agents ${String(LONG_HISTORY.subagents + 1)}`)
 
   await typesPromptly(window)
@@ -118,15 +119,16 @@ async function typesPromptly(window: Page): Promise<void> {
   const working = await typeAndMeasure(window, TEXT)
   expect(median(working)).toBeLessThan(MEDIAN_LIMIT_MS)
   await expect(bar.field).toHaveValue(TEXT)
-  await expect(chat(window).agentReplies).toHaveCount(LONG_HISTORY.messages / 2 + 1)
+  await expect(chat(window).agentReplies).toHaveCount(HISTORY_PAGE / 2 + 1)
 }
 
 // The same task with the Agents tab open on it (P16, #536), which the panel shows in place of the old Tool calls,
 // Subagents and Watchers tabs: a tab for Main and its 2 still-running subagents, the caret counting its 88 finished
-// ones, and Main's list, the whole tool log of the
-// task's own agent. Every event of the turn reaches them; a tab renders only when its own agent's name or state
-// changed, and a row only when its own event did, so the keys don't wait on them. (The test above waits on the
-// Agents tab's count instead, as a plainer check that the same history loaded.)
+// ones, and Main's list, the tail of the
+// tool log of the task's own agent, older pages loading as you scroll up (#637). Every event of the turn reaches
+// them; a tab renders only when its own agent's name or state changed, and a row only when its own event did, so the
+// keys don't wait on them. (The test above waits on the Agents tab's count instead, as a plainer check that the same
+// history loaded.)
 test('typing stays prompt with the Agents tab open on a task with a very long history', async ({
   launch,
   tempFolder,
@@ -135,7 +137,7 @@ test('typing stays prompt with the Agents tab open on a task with a very long hi
   const seed = writeLongHistorySeed(tempFolder(), SelectedHistory.Long, 'agents', true)
   const { window } = await launch({ seed, agentScript: 'multi-tool-turn' })
   await expect(taskHeader(window).title).toHaveText(LONG_TASK_TITLE)
-  await expect(chat(window).agentReplies).toHaveCount(LONG_HISTORY.messages / 2)
+  await expect(chat(window).agentReplies).toHaveCount(HISTORY_PAGE / 2)
   const panel = taskPanel(window)
   const agents = agentsTab(window)
   await expect(panel.tabs).toHaveCount(3)
@@ -145,8 +147,11 @@ test('typing stays prompt with the Agents tab open on a task with a very long hi
   await expect(agents.tabs).toHaveCount(3)
   await expect(agents.caret).toHaveText(String(LONG_HISTORY.subagents - 2))
   await expect(agents.tab('Main')).toHaveAttribute('aria-selected', 'true')
-  // Main's list is there, with every subagent it started as a call of its own.
-  await expect(agents.list.locator('[data-agent-call]')).toHaveCount(LONG_HISTORY.subagents)
+  // Main's list is there, with the subagent calls of the tail it shows first (#637) — the older ones join as their
+  // pages load — while the tabs and the caret still count every subagent, whose call is sent whole however old.
+  const calls = agents.list.locator('[data-agent-call]')
+  expect(await calls.count()).toBeGreaterThan(0)
+  expect(await calls.count()).toBeLessThan(LONG_HISTORY.subagents)
 
   await typesPromptly(window)
   await expect(agents.tab('Main')).toHaveAttribute('aria-selected', 'true')
@@ -165,7 +170,7 @@ test('typing stays prompt with the todo hub open on a task with a very long hist
   const seed = writeLongHistorySeed(tempFolder(), SelectedHistory.Long, 'todos', true)
   const { window } = await launch({ seed, agentScript: 'multi-tool-turn' })
   await expect(taskHeader(window).title).toHaveText(LONG_TASK_TITLE)
-  await expect(chat(window).agentReplies).toHaveCount(LONG_HISTORY.messages / 2)
+  await expect(chat(window).agentReplies).toHaveCount(HISTORY_PAGE / 2)
   const hub = todoHub(window)
   await expect(hub.cards).toHaveCount(LONG_HISTORY.todos)
   await expect(hub.tiles(hub.cards.first())).toHaveCount(HUB_CHILDREN_UNDER_FIRST)

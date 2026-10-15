@@ -126,6 +126,27 @@ export type ChatEntry =
   | QuestionEntry
   | PermissionEntry
 
+/** What React keys an entry's row on, and what says whether an older page of history went in above it (#637). */
+export function chatEntryKey(entry: ChatEntry): string {
+  switch (entry.kind) {
+    case ChatEntryKind.User:
+    case ChatEntryKind.Agent:
+      return entry.message.id
+    case ChatEntryKind.Restarted:
+    case ChatEntryKind.MarkedDone:
+    case ChatEntryKind.Reopened:
+      return entry.divider.id
+    case ChatEntryKind.Compacted:
+      return entry.compaction.id
+    case ChatEntryKind.RefusalFallback:
+      return entry.event.id
+    case ChatEntryKind.Question:
+      return entry.questionSet.id
+    case ChatEntryKind.Permission:
+      return entry.request.id
+  }
+}
+
 /** The chat's cards: the agent's questions, and its calls that wait on your OK. */
 export type CardEntry = QuestionEntry | PermissionEntry
 
@@ -300,6 +321,10 @@ export function sameAgentEntry(a: AgentEntry, b: AgentEntry): boolean {
  * each after its turn's message and before its reply, and a marked done divider before each reopening message. Each
  * question set, and each permission request still open, shows as a card where it was made: after the messages before
  * it, and before the dividers after it, in the order they were made.
+ *
+ * `eventsBefore` is the tool log's cursor (`HistoryTail.eventsBefore`, #637): a divider older than it is one the
+ * window holds without its page — a carried one, sent whole however old — and stays out until that page loads. The
+ * other readers of the log (a reply's tool-call count, a question's lead) read the whole set.
  */
 export function chatEntries(
   task: Task,
@@ -307,10 +332,12 @@ export function chatEntries(
   toolEvents: readonly ToolEvent[],
   questionSets: readonly QuestionSet[] = [],
   permissionRequests: readonly PermissionRequest[] = [],
+  eventsBefore: number | null = null,
 ): ChatEntry[] {
   const counts = toolCallsByTurn(toolEvents)
   const turn = currentTurn(messages, toolEvents)
   const dividers = toolEvents.flatMap((event) => {
+    if (eventsBefore !== null && (event.seq ?? Number.POSITIVE_INFINITY) < eventsBefore) return []
     const entry = toolEventEntry(task, event, turn)
     return entry === null ? [] : [entry]
   })

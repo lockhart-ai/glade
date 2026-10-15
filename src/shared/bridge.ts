@@ -58,6 +58,7 @@ import type {
 } from './openrouter'
 import type { Settings, SettingsPatch } from './settings'
 import type { SearchResult } from './search'
+import type { TouchedFiles } from './touchedFiles'
 import type { DoneCounts, DonePage, DonePageRequest } from './doneList'
 import type { TerminalTab } from './terminal'
 import type { InstalledPlugin, PluginCapability } from './plugins'
@@ -112,6 +113,8 @@ export enum CommandName {
   ChangesFiles = 'changes.files',
   ChangesOpenFile = 'changes.openFile',
   TasksHistory = 'tasks.history',
+  TasksHistoryBefore = 'tasks.historyBefore',
+  TasksHistoryAgent = 'tasks.historyAgent',
   QueueAdd = 'queue.add',
   QueueEdit = 'queue.edit',
   QueueRemove = 'queue.remove',
@@ -338,6 +341,60 @@ export interface TasksCreateRequest {
 /** Names one task. */
 export interface TaskIdRequest {
   readonly id: string
+}
+
+/**
+ * How many of a task's messages and tool events its history sends first (#637): a screenful and a bit, the tail of
+ * each log. The rest loads as you scroll up, a page of this many at a time (`tasks.historyBefore`).
+ */
+export const HISTORY_PAGE = 150
+
+/**
+ * The next older page of a task's chat log and tool log, before what the window has loaded (#637): up to `limit` of
+ * each, oldest first, that lie before `messagesBefore` and `eventsBefore` — the `seq` of the oldest entry the window
+ * has of each, or null when it has none (which brings an empty page). What scrolling up loads. Fails with `not_found`
+ * when there's no such task.
+ */
+export interface TasksHistoryBeforeRequest {
+  readonly taskId: string
+  /** The `seq` of the oldest message the window has, or null when it has none. */
+  readonly messagesBefore: number | null
+  /** The `seq` of the oldest tool event the window has, or null when it has none. */
+  readonly eventsBefore: number | null
+  /** How many of each to send at most (`HISTORY_PAGE`). */
+  readonly limit: number
+}
+
+/**
+ * What `tasks.historyBefore` answers: the two pages, each oldest first, without repeating what was asked before. Each
+ * log's cursor here is the page's new oldest `seq` (`HistoryTail.messagesBefore`, `.eventsBefore`, #637), or what was
+ * asked when that log's page is empty — which is also when nothing older follows it.
+ */
+export interface TasksHistoryBeforeResponse {
+  readonly messages: readonly Message[]
+  readonly toolEvents: readonly ToolEvent[]
+  /** The page's oldest `seq`, or the `messagesBefore` asked, when the page is empty. */
+  readonly messagesBefore: number | null
+  readonly eventsBefore: number | null
+  /** Whether each log still has entries older than the page sent. */
+  readonly hasOlderMessages: boolean
+  readonly hasOlderEvents: boolean
+}
+
+/**
+ * A subagent's own tool calls and working notes, whole, by the `Agent` call's `tool_use` id that started it (#637):
+ * the first load sends only the tail of the task's tool log, so a subagent's tab loads its own log when it opens.
+ * Fails with `not_found` when there's no such task.
+ */
+export interface TasksHistoryAgentRequest {
+  readonly taskId: string
+  /** The subagent's `Agent` call's `tool_use` id. */
+  readonly agentId: string
+}
+
+export interface TasksHistoryAgentResponse {
+  /** The subagent's calls and notes, in the order they were logged. */
+  readonly toolEvents: readonly ToolEvent[]
 }
 
 /**
@@ -612,6 +669,27 @@ export interface TasksHistoryResponse {
    * Main, which is also where a task that never picked one is.
    */
   readonly agentTab: string | null
+  /**
+   * Whether the task's chat log and tool log each have entries older than this load carries (#637), for the chat and
+   * the tool log to load them from as you scroll up (`tasks.historyBefore`). Every subagent-starting call and every
+   * Reopened, Marked done and Resumed divider is always sent whole, however old, so the flags are about what remains
+   * beyond them.
+   */
+  readonly hasOlderMessages: boolean
+  readonly hasOlderEvents: boolean
+  /**
+   * The oldest `seq` of the contiguous tail this load carries of each log (#637): the chat log's is the tail's oldest
+   * message, and the tool log's is the tail's oldest event, carried events sent whole however old extending it when
+   * they join onto it. What `tasks.historyBefore` pages from (`HistoryTail.messagesBefore`, `.eventsBefore`); null
+   * when the log has nothing in it.
+   */
+  readonly messagesBefore: number | null
+  readonly eventsBefore: number | null
+  /**
+   * The files the task's agent changed or read over its whole history (the Files tab's list), worked out in main,
+   * which has the whole log (#637). Live calls update it as they finish; the Files tab merges them in.
+   */
+  readonly touchedFiles: TouchedFiles
 }
 
 /**
@@ -1474,6 +1552,8 @@ export interface CommandMap {
   [CommandName.ChangesFiles]: CommandSpec<ChangesFilesRequest, ChangesFilesResponse>
   [CommandName.ChangesOpenFile]: CommandSpec<ChangesOpenFileRequest, OpenFilesResponse>
   [CommandName.TasksHistory]: CommandSpec<TaskIdRequest, TasksHistoryResponse>
+  [CommandName.TasksHistoryBefore]: CommandSpec<TasksHistoryBeforeRequest, TasksHistoryBeforeResponse>
+  [CommandName.TasksHistoryAgent]: CommandSpec<TasksHistoryAgentRequest, TasksHistoryAgentResponse>
   [CommandName.QueueAdd]: CommandSpec<QueueAddRequest, QueuedMessageResponse>
   [CommandName.QueueEdit]: CommandSpec<QueueEditRequest, QueuedMessageResponse>
   [CommandName.QueueRemove]: CommandSpec<QueueRemoveRequest, null>

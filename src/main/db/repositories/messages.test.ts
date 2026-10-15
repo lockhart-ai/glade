@@ -39,6 +39,7 @@ describe('appendMessage', () => {
       pastedBlocks: [],
       files: [],
       broadcast: false,
+      seq: expect.any(Number) as unknown,
     })
     expect(listMessages(test.db, task.id)).toEqual([message])
   })
