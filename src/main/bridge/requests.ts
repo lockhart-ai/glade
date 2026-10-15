@@ -46,6 +46,8 @@ import {
   type QuestionsDraftSetRequest,
   type SearchQueryRequest,
   type SubagentsStopRequest,
+  type TasksHistoryAgentRequest,
+  type TasksHistoryBeforeRequest,
   type WatchersStopRequest,
   type ChangesFilesRequest,
   type ChangesOpenFileRequest,
@@ -256,6 +258,18 @@ const subagentsStopRequest = z.strictObject({
   taskId: z.string(),
   toolUseId: z.string(),
 }) satisfies z.ZodType<SubagentsStopRequest>
+
+const tasksHistoryBeforeRequest = z.strictObject({
+  taskId: z.string(),
+  messagesBefore: z.int().nullable(),
+  eventsBefore: z.int().nullable(),
+  limit: z.int().positive(),
+}) satisfies z.ZodType<TasksHistoryBeforeRequest>
+
+const tasksHistoryAgentRequest = z.strictObject({
+  taskId: z.string(),
+  agentId: z.string(),
+}) satisfies z.ZodType<TasksHistoryAgentRequest>
 
 const watchersStopRequest = z.strictObject({
   taskId: z.string(),
@@ -629,6 +643,8 @@ export const REQUEST_SCHEMAS = {
   [CommandName.ChangesFiles]: changesFilesRequest,
   [CommandName.ChangesOpenFile]: changesOpenFileRequest,
   [CommandName.TasksHistory]: taskIdRequest,
+  [CommandName.TasksHistoryBefore]: tasksHistoryBeforeRequest,
+  [CommandName.TasksHistoryAgent]: tasksHistoryAgentRequest,
   [CommandName.QueueAdd]: queueAddRequest,
   [CommandName.QueueEdit]: queueEditRequest,
   [CommandName.QueueRemove]: queueRemoveRequest,

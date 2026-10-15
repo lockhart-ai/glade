@@ -27,6 +27,7 @@ import {
 } from '../../shared/domain'
 import { AppCommandId, CommandScope } from '../../shared/commands'
 import { noOpenFiles } from '../../shared/files'
+import { NO_TOUCHED_FILES } from '../../shared/touchedFiles'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { GIF, JPEG, PNG } from '../../shared/test-images'
 import { ChildFilter, ChildKind, FilingSource, UNFILED_TODO_ID, type Filing } from '../../shared/todoHub'
@@ -838,6 +839,131 @@ describe("a task's logs", () => {
     expect(store.getState().messages.t1).toEqual([first, reply])
   })
 
+  it("loads an older page of the selected task's history once, page by page (#637)", async () => {
+    // The task's first load is its tail, with older history behind it; the pages bring the rest.
+    const older = { ...sampleMessage('m0', 't1'), seq: 1 }
+    let pages = 0
+    const fake = fakeBridge(
+      { ...main(), messages: [{ ...sampleMessage('m1', 't1'), seq: 2 }] },
+      {
+        [CommandName.TasksHistory]: ({ id }) => ({
+          messages: [{ ...sampleMessage('m1', 't1'), seq: 2 }],
+          toolEvents: [],
+          hasOlderMessages: true,
+          hasOlderEvents: false,
+          touchedFiles: NO_TOUCHED_FILES,
+          queuedMessages: [],
+          questionSets: [],
+          questionDraft: null,
+          permissionRequests: [],
+          permissionMarks: [],
+          openFiles: noOpenFiles(id),
+          todos: null,
+          artifacts: [],
+          handoff: null,
+          watchers: [],
+          commits: [],
+          agentTab: null,
+        }),
+        [CommandName.TasksHistoryBefore]: ({ messagesBefore }) => {
+          pages += 1
+          return {
+            messages: pages === 1 && messagesBefore === 2 ? [older] : [],
+            hasOlderMessages: false,
+            toolEvents: [],
+            hasOlderEvents: false,
+          }
+        },
+      },
+    )
+    const store = createGladeStore(fake.bridge)
+    await store.getState().hydrate()
+    await store.getState().selectTask('t1')
+    expect(store.getState().historyTails.t1).toEqual({ hasOlderMessages: true, hasOlderEvents: false, loading: false })
+
+    // The first scroll up brings the older message in, in front, and says nothing is older.
+    await store.getState().loadOlderHistory('t1')
+    expect(store.getState().messages.t1?.map(({ id }) => id)).toEqual(['m0', 'm1'])
+    expect(store.getState().historyTails.t1).toEqual({ hasOlderMessages: false, hasOlderEvents: false, loading: false })
+
+    // A second call loads nothing: the fake would have answered empty, and the store doesn't ask again.
+    await store.getState().loadOlderHistory('t1')
+    expect(pages).toBe(1)
+  })
+
+  it("says why when an older page can't be loaded, ready to try again on the next scroll (#637)", async () => {
+    const failure = bridgeError(BridgeErrorCode.Internal, 'tasks.historyBefore failed: busy')
+    const fake = fakeBridge(
+      { ...main(), messages: [{ ...sampleMessage('m1', 't1'), seq: 2 }] },
+      {
+        [CommandName.TasksHistory]: ({ id }) => ({
+          messages: [{ ...sampleMessage('m1', 't1'), seq: 2 }],
+          toolEvents: [],
+          hasOlderMessages: true,
+          hasOlderEvents: false,
+          touchedFiles: NO_TOUCHED_FILES,
+          queuedMessages: [],
+          questionSets: [],
+          questionDraft: null,
+          permissionRequests: [],
+          permissionMarks: [],
+          openFiles: noOpenFiles(id),
+          todos: null,
+          artifacts: [],
+          handoff: null,
+          watchers: [],
+          commits: [],
+          agentTab: null,
+        }),
+        [CommandName.TasksHistoryBefore]: () => refuse(failure),
+      },
+    )
+    const store = createGladeStore(fake.bridge)
+    await store.getState().hydrate()
+    await store.getState().selectTask('t1')
+
+    await expect(store.getState().loadOlderHistory('t1')).rejects.toMatchObject({ message: failure.message })
+    // The loading flag went back down, so the next scroll asks again.
+    expect(store.getState().historyTails.t1).toEqual({ hasOlderMessages: true, hasOlderEvents: false, loading: false })
+  })
+
+  it("loads a subagent's log whole when its tab opens (#637)", async () => {
+    const divider = {
+      kind: ToolEventKind.Divider,
+      id: 'e1',
+      taskId: 't1',
+      turn: 1,
+      createdAt: 3_000,
+      dividerKind: DividerKind.Turn,
+    } as const
+    const note = {
+      kind: ToolEventKind.Narration,
+      id: 'e0',
+      taskId: 't1',
+      turn: 1,
+      createdAt: 2_000,
+      text: 'Scouting.',
+      parentToolUseId: 'agent-1',
+      seq: 1,
+    } as const
+    const { store, emit } = await hydrated({
+      ...main(),
+      toolEvents: [note, divider],
+    })
+
+    await store.getState().selectTask('t1')
+    // The fake main holds the whole history, so an older page brings nothing and says so.
+    store.setState({ historyTails: { t1: { hasOlderMessages: true, hasOlderEvents: false, loading: false } } })
+    await store.getState().loadOlderHistory('t1')
+    expect(store.getState().historyTails.t1).toEqual({ hasOlderMessages: false, hasOlderEvents: false, loading: false })
+    await store.getState().loadAgentHistory('t1', 'agent-1')
+
+    // The subagent's note is in the log where it belongs; a live event of the task's own still appends after it.
+    expect(store.getState().toolEvents.t1?.map(({ id }) => id)).toEqual(['e0', 'e1'])
+    emit({ type: EventType.ToolEventAppended, toolEvent: { ...divider, id: 'e2' } })
+    expect(store.getState().toolEvents.t1?.map(({ id }) => id)).toEqual(['e0', 'e1', 'e2'])
+  })
+
   it('loads nothing when the selection is cleared', async () => {
     const { store, invoke } = await hydrated()
 
@@ -1349,6 +1475,9 @@ describe("a task's artifacts", () => {
     resolveHistory?.({
       messages: [],
       toolEvents: [],
+      hasOlderMessages: false,
+      hasOlderEvents: false,
+      touchedFiles: NO_TOUCHED_FILES,
       queuedMessages: [],
       questionSets: [],
       permissionRequests: [],

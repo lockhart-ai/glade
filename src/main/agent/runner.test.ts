@@ -59,6 +59,7 @@ import { GLADE_SERVER } from './glade-tools'
 import { McpServerAudience } from './backend'
 import { needsYou } from '../../shared/attention'
 import { todoProgress } from '../../shared/todoSummary'
+import { NO_TOUCHED_FILES } from '../../shared/touchedFiles'
 import {
   COMPACT_COMMAND,
   answeredAfterRestart,
@@ -448,6 +449,9 @@ describe('a turn', () => {
     await expect(glade.invoke(CommandName.TasksHistory, { id: task.id })).resolves.toEqual({
       messages: listMessages(database.db, task.id),
       toolEvents: listToolEvents(database.db, task.id),
+      hasOlderMessages: false,
+      hasOlderEvents: false,
+      touchedFiles: NO_TOUCHED_FILES,
       queuedMessages: [],
       questionSets: [],
       questionDraft: null,

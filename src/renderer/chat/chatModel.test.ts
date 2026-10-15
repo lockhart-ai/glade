@@ -8,6 +8,7 @@ import {
   QuestionSetState,
   TaskActivity,
   TaskState,
+  RefusalScope,
   ToolCallState,
   ToolEventKind,
   type CompactionEvent,
@@ -17,10 +18,11 @@ import {
   type QuestionSet,
   type ToolEvent,
 } from '../../shared/domain'
-import { samplePermissionRequest, sampleTask } from '../store/test-bridge'
+import { samplePermissionRequest, sampleQuestionSet, sampleTask } from '../store/test-bridge'
 import {
   ChatEntryKind,
   chatEntries,
+  chatEntryKey,
   clockTime,
   COMPACTING_NARRATION,
   compactedLabel,
@@ -97,6 +99,53 @@ const divider: ToolEvent = {
   kind: ToolEventKind.Divider,
   dividerKind: DividerKind.Turn,
 }
+
+describe('chatEntryKey', () => {
+  it('names each entry by what it shows, as the rows are keyed and an older page is spotted by (#637)', () => {
+    const divider = {
+      kind: ToolEventKind.Divider,
+      id: 'd',
+      taskId: 't',
+      turn: 1,
+      createdAt: 1_000,
+      dividerKind: DividerKind.Resumed,
+    } as const
+    const compaction = {
+      ...divider,
+      kind: ToolEventKind.Compaction,
+      id: 'c',
+      trigger: CompactionTrigger.Auto,
+      state: ToolCallState.Done,
+      preTokens: 1,
+      postTokens: 1,
+      windowTokens: 1,
+      summary: null,
+    } as const
+    const refusal = {
+      ...divider,
+      kind: ToolEventKind.RefusalFallback,
+      id: 'r',
+      originalModel: 'm',
+      fallbackModel: 'f',
+      category: null,
+      scope: RefusalScope.Local,
+    } as const
+
+    expect(chatEntryKey({ kind: ChatEntryKind.User, message: message('ask', MessageRole.User, 1) })).toBe('ask')
+    expect(
+      chatEntryKey({ kind: ChatEntryKind.Agent, message: message('reply', MessageRole.Agent, 1), toolCalls: 0 }),
+    ).toBe('reply')
+    expect(chatEntryKey({ kind: ChatEntryKind.Restarted, divider, resuming: false })).toBe('d')
+    expect(chatEntryKey({ kind: ChatEntryKind.MarkedDone, divider: { ...divider, id: 'md' } })).toBe('md')
+    expect(chatEntryKey({ kind: ChatEntryKind.Reopened, divider: { ...divider, id: 'ro' } })).toBe('ro')
+    expect(chatEntryKey({ kind: ChatEntryKind.Compacted, compaction })).toBe('c')
+    expect(chatEntryKey({ kind: ChatEntryKind.RefusalFallback, event: refusal })).toBe('r')
+    expect(chatEntryKey({ kind: ChatEntryKind.Question, questionSet: sampleQuestionSet('q', 't1'), lead: null })).toBe(
+      'q',
+    )
+    expect(chatEntryKey({ kind: ChatEntryKind.Permission, request: samplePermissionRequest('p', 't1') })).toBe('p')
+  })
+})
 
 describe('currentTurn', () => {
   it("is the latest message's turn, or 0 before any", () => {

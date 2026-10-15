@@ -4,6 +4,7 @@
 // rendered the whole chat and tool log again and laid them out twice over, so keys waited a second or more.
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
+import { HISTORY_PAGE } from '../src/shared/bridge'
 import {
   HUB_CHILDREN_UNDER_FIRST,
   LONG_HISTORY,
@@ -93,9 +94,9 @@ test('typing stays prompt in a task with a very long history, idle and while the
   const seed = writeLongHistorySeed(tempFolder(), SelectedHistory.Long)
   const { window } = await launch({ seed, agentScript: 'multi-tool-turn' })
   await expect(taskHeader(window).title).toHaveText(LONG_TASK_TITLE)
-  // The whole history is there: every message, and the tool log's rows.
-  await expect(chat(window).userMessages).toHaveCount(LONG_HISTORY.messages / 2)
-  await expect(chat(window).agentReplies).toHaveCount(LONG_HISTORY.messages / 2)
+  // The chat shows the tail first (#637): the last screenful of messages, older history loading as you scroll up.
+  await expect(chat(window).userMessages).toHaveCount(HISTORY_PAGE / 2)
+  await expect(chat(window).agentReplies).toHaveCount(HISTORY_PAGE / 2)
   await expect(taskPanel(window).tab(/^Agents/)).toHaveText(`Agents ${String(LONG_HISTORY.subagents + 1)}`)
 
   await typesPromptly(window)
@@ -118,7 +119,7 @@ async function typesPromptly(window: Page): Promise<void> {
   const working = await typeAndMeasure(window, TEXT)
   expect(median(working)).toBeLessThan(MEDIAN_LIMIT_MS)
   await expect(bar.field).toHaveValue(TEXT)
-  await expect(chat(window).agentReplies).toHaveCount(LONG_HISTORY.messages / 2 + 1)
+  await expect(chat(window).agentReplies).toHaveCount(HISTORY_PAGE / 2 + 1)
 }
 
 // The same task with the Agents tab open on it (P16, #536), which the panel shows in place of the old Tool calls,
@@ -135,7 +136,7 @@ test('typing stays prompt with the Agents tab open on a task with a very long hi
   const seed = writeLongHistorySeed(tempFolder(), SelectedHistory.Long, 'agents', true)
   const { window } = await launch({ seed, agentScript: 'multi-tool-turn' })
   await expect(taskHeader(window).title).toHaveText(LONG_TASK_TITLE)
-  await expect(chat(window).agentReplies).toHaveCount(LONG_HISTORY.messages / 2)
+  await expect(chat(window).agentReplies).toHaveCount(HISTORY_PAGE / 2)
   const panel = taskPanel(window)
   const agents = agentsTab(window)
   await expect(panel.tabs).toHaveCount(3)
@@ -165,7 +166,7 @@ test('typing stays prompt with the todo hub open on a task with a very long hist
   const seed = writeLongHistorySeed(tempFolder(), SelectedHistory.Long, 'todos', true)
   const { window } = await launch({ seed, agentScript: 'multi-tool-turn' })
   await expect(taskHeader(window).title).toHaveText(LONG_TASK_TITLE)
-  await expect(chat(window).agentReplies).toHaveCount(LONG_HISTORY.messages / 2)
+  await expect(chat(window).agentReplies).toHaveCount(HISTORY_PAGE / 2)
   const hub = todoHub(window)
   await expect(hub.cards).toHaveCount(LONG_HISTORY.todos)
   await expect(hub.tiles(hub.cards.first())).toHaveCount(HUB_CHILDREN_UNDER_FIRST)

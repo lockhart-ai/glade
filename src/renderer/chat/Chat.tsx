@@ -1,5 +1,5 @@
 import { faWrench } from '@fortawesome/free-solid-svg-icons'
-import { memo, useMemo, useRef } from 'react'
+import { memo, useCallback, useMemo, useRef } from 'react'
 import {
   PermissionRequestState,
   type Message,
@@ -15,6 +15,7 @@ import { useGladeStore } from '../store/react'
 import {
   ChatEntryKind,
   chatEntries,
+  chatEntryKey,
   clockTime,
   compactedLabel,
   markedDoneLabel,
@@ -53,6 +54,7 @@ import { BroadcastTag } from './BroadcastTag'
 import { PastedBlockRow } from './PastedBlockRow'
 import { useSearchHighlight } from '../search/Highlight'
 import { useRevealMatch } from '../search/useRevealMatch'
+import { useKeepScrollOnPrepend, useLoadOlderOnScroll } from '../history/useOlderHistory'
 import { useStickToBottom } from './useStickToBottom'
 import styles from './Chat.module.css'
 
@@ -384,13 +386,28 @@ export function Chat(): React.JSX.Element {
     `${String(entries.length)}:${working ?? ''}:${String(stopped)}:${paused ?? ''}:${questionSets.map(({ state }) => state).join()}:${permissionRequests.map(({ state }) => state).join()}`,
     task?.id,
   )
+  // Older history loads as this scroll comes near the top (#637), which keeps its place while the page goes in above.
+  const taskId = task?.id ?? ''
+  const loadOlderOnScroll = useLoadOlderOnScroll(ref, taskId, task !== undefined)
+  // The entry an older page of history is spotted by (#637): the first that isn't a card. Cards are whole in the
+  // payload however old, so an old question card can sit at the top of the chat and stay there while pages of older
+  // messages go in under it.
+  const anchorEntry =
+    entries.find((entry) => entry.kind !== ChatEntryKind.Question && entry.kind !== ChatEntryKind.Permission) ??
+    entries[0]
+  const firstId = anchorEntry === undefined ? null : chatEntryKey(anchorEntry)
+  useKeepScrollOnPrepend(ref, firstId, taskId, task !== undefined, entries)
+  const onChatScroll = useCallback(() => {
+    onScroll()
+    loadOlderOnScroll()
+  }, [onScroll, loadOlderOnScroll])
   // A backfilled task shows its handoff note in place of what to write.
   const isNew = task !== undefined && entries.length === 0 && narration === null && handoff === null
   const highlight = useSearchHighlight()
-  useRevealMatch(ref)
+  useRevealMatch(ref, taskId)
 
   return (
-    <div ref={ref} onScroll={onScroll} role="log" aria-label="Conversation" className={styles.scroller}>
+    <div ref={ref} onScroll={onChatScroll} role="log" aria-label="Conversation" className={styles.scroller}>
       {isNew && root !== undefined && <NewTaskPrompt root={root} />}
       <div className={styles.thread}>
         {handoff !== null && <HandoffCard key={task?.id} handoff={handoff} />}

@@ -77,6 +77,7 @@ describe('appendNarration', () => {
       createdAt: 3_000,
       text: "I'll check the test config.",
       parentToolUseId: null,
+      seq: expect.any(Number) as unknown,
     })
     expect(listToolEvents(test.db, task.id)).toEqual([event])
   })
@@ -111,6 +112,7 @@ describe('appendToolCall', () => {
       toolUseId: 'toolu_bash',
       parentToolUseId: null,
       progressSummary: null,
+      seq: expect.any(Number) as unknown,
     })
     expect(listToolEvents(test.db, task.id)).toEqual([event])
   })
@@ -140,6 +142,7 @@ describe('appendDivider', () => {
       turn: 2,
       createdAt: 3_000,
       dividerKind: DividerKind.Turn,
+      seq: expect.any(Number) as unknown,
     })
     expect(listToolEvents(test.db, task.id)).toEqual(dividers)
   })
@@ -488,6 +491,7 @@ describe('compactions', () => {
       ...running(),
       createdAt: 3_000,
       summary: null,
+      seq: expect.any(Number) as unknown,
     })
     expect(listToolEvents(test.db, task.id)).toEqual([event])
 
@@ -590,6 +594,7 @@ describe('appendRefusalFallback and deleteToolEvent', () => {
       fallbackModel: 'claude-sonnet-5',
       category: 'cyber',
       scope: RefusalScope.Session,
+      seq: expect.any(Number) as unknown,
     })
     expect(listToolEvents(test.db, task.id)).toEqual([event])
 

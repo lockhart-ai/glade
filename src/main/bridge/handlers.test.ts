@@ -23,7 +23,14 @@ import { openTestRepos, TEST_GIT_RUN } from '../git/test-repos'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { BUILT_IN_MODELS } from '../../shared/models'
 import { SDK_MODELS } from '../../shared/test-models'
-import { BridgeErrorCode, CommandName, EventType, RendererErrorKind, type GladeEvent } from '../../shared/bridge'
+import {
+  BridgeErrorCode,
+  CommandName,
+  EventType,
+  HISTORY_PAGE,
+  RendererErrorKind,
+  type GladeEvent,
+} from '../../shared/bridge'
 import { EMPTY_MENU_STATE } from '../../shared/commands'
 import { SearchField } from '../../shared/search'
 import { FakeAgentBackend } from '../agent/fake-backend'
@@ -35,7 +42,7 @@ import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from
 import { getSettings } from '../db/repositories/settings'
 import { setSdkModels } from '../db/repositories/sdk-models'
 import { getTask, listTasks, updateTask } from '../db/repositories/tasks'
-import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
+import { appendDivider, appendNarration, appendToolCall, updateToolCall } from '../db/repositories/tool-events'
 import { setUiState } from '../db/repositories/ui-state'
 import { OpenWith } from '../files/open-path'
 import { createFakeSpawner, fakeTerminalOptions, type FakeSpawner } from '../terminal/fake-pty'
@@ -65,7 +72,7 @@ import { createMemoryLog } from '../logging/memory-sink'
 import { OpenRouterClient } from '../openrouter/client'
 import { OpenRouterService } from '../openrouter/service'
 import { SAMPLE_MODEL, SAMPLE_PROVIDER, SAMPLE_CHOICE } from '../../shared/test-openrouter'
-import { MessageRole, TaskActivity } from '../../shared/domain'
+import { DividerKind, MessageRole, TaskActivity, ToolEventKind } from '../../shared/domain'
 import { appendMessage } from '../db/repositories/messages'
 
 let database: TestDatabase
@@ -537,6 +544,205 @@ describe('the changes commands', () => {
     }
     // It runs real git commands: slow while the whole suite runs at once.
   }, 30_000)
+})
+
+describe("the task's history on first load (#637)", () => {
+  const ROOT = '/code/acme-api'
+  /** A task to load, with `turns` of a message and a reply each and `events` of a note and a call each. */
+  function seededTask(turns: number, events: number, root = ROOT): string {
+    const taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+    let at = 1_000
+    for (let turn = 1; turn <= turns; turn += 1) {
+      appendMessage(database.db, { taskId, role: MessageRole.User, body: `Part ${String(turn)}?`, turn }, at)
+      at += 1
+      appendMessage(database.db, { taskId, role: MessageRole.Agent, body: `Part ${String(turn)} done.`, turn }, at)
+      at += 1
+    }
+    for (let index = 1; index <= events; index += 1) {
+      appendNarration(database.db, { taskId, turn: 1, text: `Note ${String(index)}.` }, at)
+      at += 1
+      const call = appendToolCall(
+        database.db,
+        {
+          taskId,
+          turn: 1,
+          name: 'Read',
+          input: { file_path: `${root}/src/${String(index)}.py` },
+          toolUseId: `u${String(index)}`,
+          parentToolUseId: null,
+        },
+        at,
+      )
+      updateToolCall(database.db, { taskId, toolUseId: call.toolUseId, state: ToolCallState.Done, output: 'ok' }, at)
+      at += 1
+    }
+    return taskId
+  }
+
+  it('sends the last page of each log first, saying how much older history there is', async () => {
+    const taskId = seededTask(200, 200, `${ROOT}-1`)
+
+    const history = await handlers[CommandName.TasksHistory]({ id: taskId })
+
+    expect(history.messages).toHaveLength(HISTORY_PAGE)
+    expect(history.hasOlderMessages).toBe(true)
+    expect(history.toolEvents).toHaveLength(HISTORY_PAGE)
+    expect(history.hasOlderEvents).toBe(true)
+    // The tail: its oldest message is turn 126's (75 pairs to the page), its newest the last reply.
+    expect(history.messages[0]?.body).toBe('Part 126?')
+    expect(history.messages.at(-1)?.body).toBe('Part 200 done.')
+    // A short task has no older history.
+    const short = await handlers[CommandName.TasksHistory]({ id: seededTask(2, 2, `${ROOT}-2`) })
+    expect(short.hasOlderMessages).toBe(false)
+    expect(short.hasOlderEvents).toBe(false)
+  })
+
+  it('always sends every subagent-starting call and the dividers that mark its life, however old', async () => {
+    const taskId = sampleTask(database.db, sampleWorkspace(database.db, `${ROOT}-1`).id).id
+    // Old entries, from the task's first turn, out of the page the tail covers: a subagent's call, a marked-done and
+    // a reopened divider. The turn divider is what scrolling up loads, not carried.
+    const agent = appendToolCall(
+      database.db,
+      { taskId, turn: 1, name: 'Agent', input: { description: 'Scout' }, toolUseId: 'agent-1', parentToolUseId: null },
+      1,
+    )
+    appendDivider(database.db, { taskId, turn: 1, dividerKind: DividerKind.MarkedDone }, 2)
+    appendDivider(database.db, { taskId, turn: 1, dividerKind: DividerKind.Reopened }, 3)
+    appendNarration(database.db, { taskId, turn: 1, text: 'Filler.' }, 4)
+    for (let index = 1; index <= 160; index += 1) {
+      const call = appendToolCall(
+        database.db,
+        {
+          taskId,
+          turn: 1,
+          name: 'Read',
+          input: {},
+          toolUseId: `u${String(index)}`,
+          parentToolUseId: null,
+        },
+        4 + index,
+      )
+      updateToolCall(database.db, { taskId, toolUseId: call.toolUseId, state: ToolCallState.Done, output: 'ok' }, 4)
+    }
+
+    const history = await handlers[CommandName.TasksHistory]({ id: taskId })
+
+    expect(history.hasOlderEvents).toBe(true)
+    const ids = history.toolEvents.map(({ id }) => id)
+    expect(ids).toHaveLength(HISTORY_PAGE + 3) // the page, then the carried call and dividers
+    expect(ids).toContain(agent.id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('carries the files the agent changed or read over its whole history', async () => {
+    const taskId = seededTask(1, 0)
+    const early = appendToolCall(
+      database.db,
+      {
+        taskId,
+        turn: 1,
+        name: 'Write',
+        input: { file_path: `${ROOT}/src/early.py`, content: '' },
+        toolUseId: 'early',
+        parentToolUseId: null,
+      },
+      1,
+    )
+    updateToolCall(database.db, { taskId, toolUseId: early.toolUseId, state: ToolCallState.Done, output: 'ok' }, 2)
+
+    const history = await handlers[CommandName.TasksHistory]({ id: taskId })
+
+    // `early.py` was written before the page the tail covers; the summary still has it.
+    expect(history.touchedFiles.changed.map(({ path }) => path)).toEqual(['src/early.py'])
+  })
+
+  describe('tasks.historyBefore', () => {
+    it('pages back from the oldest entry loaded, oldest first, and says when the history ends', async () => {
+      const taskId = seededTask(100, 100)
+
+      const first = await handlers[CommandName.TasksHistory]({ id: taskId })
+      expect(first.messages).toHaveLength(HISTORY_PAGE)
+      const before = first.messages[0]?.seq
+      expect(before).toBe(51)
+
+      const page = await handlers[CommandName.TasksHistoryBefore]({
+        taskId,
+        messagesBefore: before ?? 0,
+        eventsBefore: null,
+        limit: HISTORY_PAGE,
+      })
+      expect(page.messages.map(({ seq }) => seq)).toEqual(Array.from({ length: 50 }, (_, index) => 1 + index))
+      expect(page.hasOlderMessages).toBe(false)
+      // The tool log pages the same way, from its oldest entry loaded.
+      const eventsBefore = first.toolEvents[0]?.seq
+      expect(eventsBefore).toBe(51)
+      const eventPage = await handlers[CommandName.TasksHistoryBefore]({
+        taskId,
+        messagesBefore: null,
+        eventsBefore: eventsBefore ?? 0,
+        limit: 10,
+      })
+      expect(eventPage.toolEvents.map(({ seq }) => seq)).toEqual([41, 42, 43, 44, 45, 46, 47, 48, 49, 50])
+      expect(eventPage.hasOlderEvents).toBe(true)
+      // A page cut off says more older follow it.
+      const shortPage = await handlers[CommandName.TasksHistoryBefore]({
+        taskId,
+        messagesBefore: 10,
+        eventsBefore: null,
+        limit: 5,
+      })
+      expect(shortPage.messages.map(({ seq }) => seq)).toEqual([5, 6, 7, 8, 9])
+      expect(shortPage.hasOlderMessages).toBe(true)
+      // Paging from nothing brings an empty page, saying there's nothing older.
+      const empty = await handlers[CommandName.TasksHistoryBefore]({
+        taskId,
+        messagesBefore: null,
+        eventsBefore: null,
+        limit: HISTORY_PAGE,
+      })
+      expect(empty.messages).toEqual([])
+      expect(empty.hasOlderMessages).toBe(false)
+    })
+
+    it('refuses a task that is gone', () => {
+      expect(() =>
+        handlers[CommandName.TasksHistoryBefore]({
+          taskId: 'gone',
+          messagesBefore: null,
+          eventsBefore: null,
+          limit: 5,
+        }),
+      ).toThrow(expect.objectContaining({ code: BridgeErrorCode.NotFound }))
+      expect(() => handlers[CommandName.TasksHistoryAgent]({ taskId: 'gone', agentId: 'a1' })).toThrow(
+        expect.objectContaining({ code: BridgeErrorCode.NotFound }),
+      )
+    })
+
+    it('answers a subagent log whole, by the call that started it', async () => {
+      const taskId = seededTask(1, 0)
+      appendNarration(database.db, { taskId, turn: 1, text: 'Main note.', parentToolUseId: null }, 1)
+      appendNarration(database.db, { taskId, turn: 1, text: 'Scout note.', parentToolUseId: 'agent-1' }, 2)
+      appendToolCall(
+        database.db,
+        { taskId, turn: 1, name: 'Read', input: {}, toolUseId: 'sub-1', parentToolUseId: 'agent-1' },
+        3,
+      )
+      appendToolCall(
+        database.db,
+        { taskId, turn: 1, name: 'Read', input: {}, toolUseId: 'main-1', parentToolUseId: null },
+        4,
+      )
+
+      const { toolEvents } = await handlers[CommandName.TasksHistoryAgent]({ taskId, agentId: 'agent-1' })
+
+      // The subagent's note and call, in log order; not Main's, and not the task's dividers.
+      expect(toolEvents).toHaveLength(2)
+      expect(
+        toolEvents.filter((event) => event.kind === ToolEventKind.ToolCall).map((event) => event.toolUseId),
+      ).toEqual(['sub-1'])
+      expect(toolEvents.every(({ kind }) => kind !== ToolEventKind.Divider)).toBe(true)
+    })
+  })
 })
 
 describe("the task's todos on first load", () => {

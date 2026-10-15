@@ -50,6 +50,7 @@ it('leaves existing messages without a summary, and refuses negative counts', ()
       pastedBlocks: [],
       files: [],
       broadcast: false,
+      seq: expect.any(Number) as unknown,
     },
   ])
   expect(() => db.prepare("UPDATE messages SET files_changed = -1 WHERE id = 'm'").run()).toThrow(

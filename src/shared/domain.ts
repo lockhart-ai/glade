@@ -331,6 +331,12 @@ export interface Message {
   readonly id: string
   readonly taskId: string
   readonly role: MessageRole
+  /**
+   * The message's place in its task's chat log, as the `messages` table numbers it: what paging through a task's
+   * older history (#637) and keeping the merged log in order go by. Set by main, which reads or assigns it with the
+   * row; absent on objects made without one, which keep the order they were made in.
+   */
+  readonly seq?: number
   /** Markdown, with an inline token standing for each of `pastedBlocks`, in order (`shared/pastedContent.ts`). */
   readonly body: string
   readonly turn: number
@@ -439,6 +445,12 @@ export interface ToolEventBase {
   readonly taskId: string
   readonly turn: number
   readonly createdAt: EpochMs
+  /**
+   * The entry's place in its task's tool log, as the `tool_events` table numbers it: what paging through a task's
+   * older history (#637) and keeping the merged log in order go by. Set by main, which reads or assigns it with the
+   * row; absent on objects made without one, which keep the order they were made in.
+   */
+  readonly seq?: number
 }
 
 /** A tool's input: always a JSON object. */

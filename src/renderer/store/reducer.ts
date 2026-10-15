@@ -1,6 +1,6 @@
 import { shallow } from 'zustand/shallow'
 import { EventType, type FilingsChangedEvent, type GladeEvent } from '../../shared/bridge'
-import type { TasksHistoryResponse, TodoHubGetResponse } from '../../shared/bridge'
+import type { TasksHistoryBeforeResponse, TasksHistoryResponse, TodoHubGetResponse } from '../../shared/bridge'
 import {
   ToolCallState,
   ToolEventKind,
@@ -125,6 +125,31 @@ function merged<T extends LogEntry>(loaded: readonly T[], current: readonly T[] 
   return [...loaded, ...current.filter(({ id }) => !ids.has(id))]
 }
 
+/** A log entry that also carries its place in the log (`Message.seq`, `ToolEvent.seq`): messages and tool events. */
+type SequencedLogEntry = LogEntry & { readonly seq?: number }
+
+/** Log order: by `seq`, where both have one; an entry without one sorts last, keeping the order it came in. */
+function bySeq(a: SequencedLogEntry, b: SequencedLogEntry): number {
+  return (a.seq ?? Number.POSITIVE_INFINITY) - (b.seq ?? Number.POSITIVE_INFINITY)
+}
+
+/**
+ * Merges entries main loaded into a task's log, in log order, dropping any the log already has. Keeping the log's own
+ * object for an entry it has (`keepKnown`, an older page's or a subagent's load, #637) leaves every row already shown
+ * its identity, so none renders again; otherwise the loaded entry stands, as a history load's fresh copy did.
+ */
+function mergedBySeq<T extends SequencedLogEntry>(
+  loaded: readonly T[],
+  current: readonly T[],
+  keepKnown: boolean,
+): readonly T[] {
+  const kept = keepKnown ? current : loaded
+  const known = new Set(kept.map(({ id }) => id))
+  const additions = (keepKnown ? loaded : current).filter(({ id }) => !known.has(id))
+  if (additions.length === 0) return kept
+  return [...kept, ...additions].sort(bySeq)
+}
+
 /**
  * Records a task's chat log and tool log as loaded from main, keeping anything newer events already brought.
  * `artifactsVersionAtLoad` is the task's `artifactsVersion` at the moment this load started (`loadHistory` in
@@ -138,8 +163,25 @@ export function withHistory(
 ): GladeData {
   return {
     ...state,
-    messages: { ...state.messages, [taskId]: merged<Message>(history.messages, state.messages[taskId]) },
-    toolEvents: { ...state.toolEvents, [taskId]: merged<ToolEvent>(history.toolEvents, state.toolEvents[taskId]) },
+    messages: {
+      ...state.messages,
+      [taskId]: mergedBySeq<Message>(history.messages, state.messages[taskId] ?? [], false),
+    },
+    toolEvents: {
+      ...state.toolEvents,
+      [taskId]: mergedBySeq<ToolEvent>(history.toolEvents, state.toolEvents[taskId] ?? [], false),
+    },
+    // How much older history remains, as this load's answer had it (#637); `loadOlderHistory` brings the rest in.
+    historyTails: {
+      ...state.historyTails,
+      [taskId]: {
+        hasOlderMessages: history.hasOlderMessages,
+        hasOlderEvents: history.hasOlderEvents,
+        loading: false,
+      },
+    },
+    // The touched-files summary main worked out over the whole log (the Files tab's list), as of this load (#637).
+    touchedFiles: { ...state.touchedFiles, [taskId]: history.touchedFiles },
     // The queue changes in place, so events can't be merged into it: the loaded one is as new as any event before it.
     queuedMessages: { ...state.queuedMessages, [taskId]: history.queuedMessages },
     questionSets: {
@@ -177,6 +219,47 @@ export function withHistory(
     commits: { ...state.commits, [taskId]: history.commits },
     // Only this window picks it, and it has by the time a load that follows its pick answers.
     agentTabs: withAgentTab(state.agentTabs, taskId, history.agentTab),
+  }
+}
+
+/**
+ * Prepends the task's next older page of chat messages and tool events (#637, `loadOlderHistory`), keeping anything
+ * the log already has — its objects, so no row already shown renders again — and any event a live update brought
+ * while the page loaded, each in log order. The page's own `hasOlder` flags say how much older history remains.
+ */
+export function withOlderHistory(state: GladeData, taskId: string, page: TasksHistoryBeforeResponse): GladeData {
+  return {
+    ...state,
+    messages: {
+      ...state.messages,
+      [taskId]: mergedBySeq<Message>(page.messages, state.messages[taskId] ?? [], true),
+    },
+    toolEvents: {
+      ...state.toolEvents,
+      [taskId]: mergedBySeq<ToolEvent>(page.toolEvents, state.toolEvents[taskId] ?? [], true),
+    },
+    historyTails: {
+      ...state.historyTails,
+      [taskId]: {
+        hasOlderMessages: page.hasOlderMessages,
+        hasOlderEvents: page.hasOlderEvents,
+        loading: false,
+      },
+    },
+  }
+}
+
+/**
+ * Records a subagent's own tool calls and working notes, whole (#637, `loadAgentHistory`), keeping the log's own
+ * object for anything it already has, in log order with the rest of the task's log.
+ */
+export function withAgentEvents(state: GladeData, taskId: string, events: readonly ToolEvent[]): GladeData {
+  return {
+    ...state,
+    toolEvents: {
+      ...state.toolEvents,
+      [taskId]: mergedBySeq<ToolEvent>(events, state.toolEvents[taskId] ?? [], true),
+    },
   }
 }
 
@@ -357,6 +440,8 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     todoFocus: state.todoFocus?.taskId === taskId ? null : state.todoFocus,
     renamingTaskId: state.renamingTaskId === taskId ? null : state.renamingTaskId,
     deletingTaskId: state.deletingTaskId === taskId ? null : state.deletingTaskId,
+    historyTails: without(state.historyTails, taskId),
+    touchedFiles: without(state.touchedFiles, taskId),
   }
 }
 

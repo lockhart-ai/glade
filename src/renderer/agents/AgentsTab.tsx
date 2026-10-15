@@ -38,6 +38,13 @@ function AgentLog({
   const events = useGladeStore(select)
   const selectWatchers = useMemo(() => logWatchersSelector(taskId, agentId), [taskId, agentId])
   const watchers = useGladeStore(selectWatchers)
+  const loadAgentHistory = useGladeStore((state) => state.loadAgentHistory)
+  // The first load sends only the tail of the task's tool log (#637), so a subagent's tab loads its own log whole
+  // when it opens. One the tail already holds most of is merged, its rows keeping their identity.
+  useEffect(() => {
+    if (agentId === null) return
+    loadAgentHistory(taskId, agentId).catch(() => undefined)
+  }, [agentId, loadAgentHistory, taskId])
   return (
     <ToolLog
       taskId={taskId}

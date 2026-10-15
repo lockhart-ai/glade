@@ -25,8 +25,10 @@ import { requestClose } from '../commands/closeRequest'
 import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
+import { bridgeError, BridgeErrorCode } from '../../shared/bridge'
 import {
   fakeBridge,
+  refuse,
   sampleTask,
   sampleWatcher,
   sampleWorkspace,
@@ -804,6 +806,50 @@ describe('TaskPanel', () => {
       await act(() => store.getState().selectTask('t2'))
       await act(() => store.getState().selectTask('t1'))
       expect(tab('Files')).toHaveAttribute('aria-selected', 'true')
+    })
+
+    it('loads older history until the turn shows, when it is in a page not loaded yet (#637)', async () => {
+      const page = [divider('d9', 9), call('c9', { turn: 9 })]
+      const { store } = await renderPanel({
+        handlers: {
+          [CommandName.TasksHistoryBefore]: () => ({
+            messages: [],
+            hasOlderMessages: false,
+            toolEvents: page,
+            hasOlderEvents: false,
+          }),
+        },
+      })
+      store.setState({ historyTails: { t1: { hasOlderMessages: false, hasOlderEvents: true, loading: false } } })
+      act(() => {
+        store.getState().focusTurn('t1', 9)
+      })
+      await waitFor(() => {
+        expect(scrollIntoView.mock.contexts.at(-1)).toBe(
+          within(log()).getByRole('separator', { name: 'turn 9 · 11:20' }),
+        )
+      })
+      expect(within(log()).getByRole('separator', { name: 'turn 9 · 11:20' })).toHaveClass(HIGHLIGHT_CLASS)
+    })
+
+    it('gives up on a turn whose older page fails to load, and highlights nothing (#637)', async () => {
+      const { store } = await renderPanel({
+        handlers: {
+          [CommandName.TasksHistoryBefore]: () =>
+            refuse(bridgeError(BridgeErrorCode.Internal, 'tasks.historyBefore failed: busy')),
+        },
+      })
+      store.setState({ historyTails: { t1: { hasOlderMessages: false, hasOlderEvents: true, loading: false } } })
+      fireEvent.click(tab('Files'))
+
+      act(() => {
+        store.getState().focusTurn('t1', 9)
+      })
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      expect(scrollIntoView).not.toHaveBeenCalled()
+      expect(tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
     })
   })
 

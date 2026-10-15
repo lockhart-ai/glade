@@ -9,7 +9,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsageLevel, UsageLimitKind, type UsageReading } from '../shared/account'
-import { EventType } from '../shared/bridge'
+import { CommandName, EventType } from '../shared/bridge'
 import { SAMPLE_USAGE } from '../shared/test-openrouter'
 import {
   MessageRole,
@@ -238,18 +238,24 @@ afterEach(() => {
 })
 
 describe('the chat, with a long history', () => {
-  async function renderChat(permissionRequests: PermissionRequest[] = []): Promise<StoreWrapper> {
-    const wrapper = storeWrapper({
-      workspaces: [sampleWorkspace('w1')],
-      tasks: [sampleTask('t1', 'w1')],
-      uiState: [
-        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
-        { key: UiStateKey.SelectedTaskId, value: 't1' },
-      ],
-      messages: [...MESSAGES],
-      toolEvents: [...TOOL_EVENTS],
-      permissionRequests,
-    })
+  async function renderChat(
+    permissionRequests: PermissionRequest[] = [],
+    overrides: Parameters<typeof storeWrapper>[1] = {},
+  ): Promise<StoreWrapper> {
+    const wrapper = storeWrapper(
+      {
+        workspaces: [sampleWorkspace('w1')],
+        tasks: [sampleTask('t1', 'w1')],
+        uiState: [
+          { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+          { key: UiStateKey.SelectedTaskId, value: 't1' },
+        ],
+        messages: [...MESSAGES],
+        toolEvents: [...TOOL_EVENTS],
+        permissionRequests,
+      },
+      overrides,
+    )
     render(<Chat />, { wrapper: wrapper.wrapper })
     await act(() => wrapper.store.getState().hydrate())
     await screen.findByText(`Go ahead with part ${String(TURNS)}.`)
@@ -289,6 +295,32 @@ describe('the chat, with a long history', () => {
     })
     expect(renders(clockTime)).toBe(1)
   })
+
+  it('renders none of its entries again when an older page of history loads in above them (#637)', async () => {
+    const page = [
+      { ...message(0, MessageRole.User), id: 'old-1', seq: 1 },
+      { ...message(0, MessageRole.Agent), id: 'old-2', seq: 2 },
+    ]
+    const { store } = await renderChat(undefined, {
+      [CommandName.TasksHistoryBefore]: () => ({
+        messages: page,
+        hasOlderMessages: false,
+        toolEvents: [],
+        hasOlderEvents: false,
+      }),
+    })
+    // The task's first load left older history behind, which the next page brings in.
+    store.setState({
+      historyTails: { t1: { hasOlderMessages: true, hasOlderEvents: false, loading: false } },
+    })
+    vi.mocked(clockTime).mockClear()
+
+    await act(() => store.getState().loadOlderHistory('t1'))
+
+    // Only the two entries the page brought rendered; every row already shown kept its identity.
+    expect(renders(clockTime)).toBe(2)
+    expect(screen.getByText('Go ahead with part 0.')).toBeDefined()
+  })
 })
 
 describe('the tool log, with a long history', () => {
@@ -316,6 +348,30 @@ describe('the tool log, with a long history', () => {
     vi.mocked(clockTime).mockClear()
     rerender(<ToolLog taskId="t1" events={TOOL_EVENTS} rootPath="/Users/sample/code/api" />)
     expect(renders(clockTime)).toBe(TURNS)
+  })
+
+  it('asks for an older page of events when the log scrolls to its top, without rendering the rows shown again (#637)', () => {
+    const older = [note('old-note', 0)]
+    const before = vi.fn(() => ({
+      messages: [],
+      hasOlderMessages: false,
+      toolEvents: older,
+      hasOlderEvents: false,
+    }))
+    const harness = storeWrapper({}, { [CommandName.TasksHistoryBefore]: before })
+    harness.store.setState({
+      historyTails: { t1: { hasOlderMessages: false, hasOlderEvents: true, loading: false } },
+    })
+    const { rerender } = render(<ToolLog taskId="t1" events={TOOL_EVENTS} />, { wrapper: harness.wrapper })
+    vi.mocked(clockTime).mockClear()
+
+    fireEvent.scroll(screen.getByRole('log', { name: 'Tool log' }))
+    expect(before).toHaveBeenCalledOnce() // the scroll asked for the task's next older page
+    expect(renders(clockTime)).toBe(0) // the log's rows come from props; nothing rendered again
+
+    // The page went in above; only its own row rendered, the rows shown keeping their identity.
+    rerender(<ToolLog taskId="t1" events={[...older, ...TOOL_EVENTS]} />)
+    expect(renders(clockTime)).toBe(1)
   })
 
   it('renders only the row whose permission request opened, was answered or was withdrawn (#459)', () => {

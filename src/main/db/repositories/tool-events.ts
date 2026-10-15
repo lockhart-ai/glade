@@ -125,7 +125,7 @@ const ROW_COLUMNS = `id, task_id, kind, turn, created_at, text, tool_name, tool_
 
 /** Every column a read or `RETURNING` names, the row's own plus the agent call token totals only their writer sets. */
 const COLUMNS = `${ROW_COLUMNS},
-  total_input_tokens, total_output_tokens, context_tokens`
+  total_input_tokens, total_output_tokens, context_tokens, seq`
 
 const KINDS = Object.values(ToolEventKind)
 const TOOL_CALL_STATES = Object.values(ToolCallState)
@@ -204,6 +204,7 @@ function parseBase(row: Row): ToolEventBase {
     taskId: row.text('task_id'),
     turn: row.integer('turn'),
     createdAt: row.integer('created_at'),
+    seq: row.integer('seq'),
   }
 }
 
@@ -277,15 +278,19 @@ function parseToolEvent(raw: unknown): ToolEvent {
   }
 }
 
-/** Appends an entry to the end of its task's tool log. */
-function append(db: Database, event: ToolEvent): void {
-  db.prepare(
-    `INSERT INTO tool_events (seq, ${ROW_COLUMNS})
+/** Appends an entry to the end of its task's tool log, and answers the `seq` the log gave it. */
+function append(db: Database, event: ToolEvent): number {
+  const row: unknown = db
+    .prepare(
+      `INSERT INTO tool_events (seq, ${ROW_COLUMNS})
     VALUES ((SELECT COALESCE(MAX(seq), 0) + 1 FROM tool_events WHERE task_id = @taskId), @id, @taskId, @kind, @turn,
       @createdAt, @text, @toolName, @toolInput, @toolOutput, @finishedAt, @toolState, @toolUseId, @parentToolUseId, @dividerKind,
       @compactTrigger, @preTokens, @postTokens, @windowTokens, @progressSummary, @compactSummary, @refusalOriginalModel,
-      @refusalFallbackModel, @refusalCategory, @refusalScope)`,
-  ).run(toParams(event))
+      @refusalFallbackModel, @refusalCategory, @refusalScope)
+    RETURNING seq`,
+    )
+    .get(toParams(event))
+  return new Row('tool_events', row).integer('seq')
 }
 
 export function appendNarration(db: Database, input: NewNarration, now: EpochMs = Date.now()): NarrationEvent {
@@ -298,8 +303,7 @@ export function appendNarration(db: Database, input: NewNarration, now: EpochMs 
     text: input.text,
     parentToolUseId: input.parentToolUseId ?? null,
   }
-  append(db, event)
-  return event
+  return { ...event, seq: append(db, event) }
 }
 
 export function appendToolCall(db: Database, input: NewToolCall, now: EpochMs = Date.now()): ToolCallEvent {
@@ -318,8 +322,7 @@ export function appendToolCall(db: Database, input: NewToolCall, now: EpochMs = 
     parentToolUseId: input.parentToolUseId,
     progressSummary: null,
   }
-  append(db, event)
-  return event
+  return { ...event, seq: append(db, event) }
 }
 
 export function appendDivider(db: Database, input: NewDivider, now: EpochMs = Date.now()): DividerEvent {
@@ -331,8 +334,7 @@ export function appendDivider(db: Database, input: NewDivider, now: EpochMs = Da
     createdAt: now,
     dividerKind: input.dividerKind,
   }
-  append(db, event)
-  return event
+  return { ...event, seq: append(db, event) }
 }
 
 export function appendCompaction(db: Database, input: NewCompaction, now: EpochMs = Date.now()): CompactionEvent {
@@ -349,8 +351,7 @@ export function appendCompaction(db: Database, input: NewCompaction, now: EpochM
     windowTokens: input.windowTokens,
     summary: emptyAsNull(input.summary),
   }
-  append(db, event)
-  return event
+  return { ...event, seq: append(db, event) }
 }
 
 /** Appends a refusal-fallback notice to the end of its task's tool log. */
@@ -370,8 +371,7 @@ export function appendRefusalFallback(
     category: input.category,
     scope: input.scope,
   }
-  append(db, event)
-  return event
+  return { ...event, seq: append(db, event) }
 }
 
 /** A summary as stored: none for a missing or blank one. */
@@ -413,6 +413,52 @@ export function failRunningCompactions(db: Database, taskId: string): Compaction
 /** A task's tool log, in the order it was appended. */
 export function listToolEvents(db: Database, taskId: string): ToolEvent[] {
   return db.prepare(`SELECT ${COLUMNS} FROM tool_events WHERE task_id = ? ORDER BY seq`).all(taskId).map(parseToolEvent)
+}
+
+/** A page of a task's older tool log: up to `limit` of the entries before `before` (a `seq`), oldest first. */
+export function listToolEventsBefore(db: Database, taskId: string, before: number, limit: number): ToolEvent[] {
+  return db
+    .prepare(`SELECT ${COLUMNS} FROM tool_events WHERE task_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?`)
+    .all(taskId, before, limit)
+    .map(parseToolEvent)
+    .reverse()
+}
+
+const LIVE_DIVIDER_KINDS = `'${DividerKind.MarkedDone}', '${DividerKind.Reopened}', '${DividerKind.Resumed}'`
+
+/**
+ * The task's subagent-starting calls and its Reopened, Marked done and Resumed dividers, however old, in log order
+ * (#637): few per task, and readers of the whole history need them even when only the tail of the log is sent —
+ * the Agents tab's tabs and token totals, the Todos tab's maker names, the header's reopened dot.
+ */
+export function listCarriedToolEvents(db: Database, taskId: string, subagentNames: readonly string[]): ToolEvent[] {
+  const names = subagentNames.map((name) => `'${name}'`).join(', ')
+  return db
+    .prepare(
+      `SELECT ${COLUMNS} FROM tool_events
+      WHERE task_id = ? AND (
+        (kind = 'tool_call' AND tool_name IN (${names}))
+        OR (kind = 'divider' AND divider_kind IN (${LIVE_DIVIDER_KINDS}))
+      )
+      ORDER BY seq`,
+    )
+    .all(taskId)
+    .map(parseToolEvent)
+}
+
+/**
+ * A subagent's own tool calls and working notes, whole, in log order (#637): what its tab of the Agents tab shows,
+ * which the task's log tail may hold only some of.
+ */
+export function listAgentEvents(db: Database, taskId: string, agentId: string): ToolEvent[] {
+  return db
+    .prepare(
+      `SELECT ${COLUMNS} FROM tool_events
+      WHERE task_id = ? AND parent_tool_use_id = ? AND kind IN ('tool_call', 'narration')
+      ORDER BY seq`,
+    )
+    .all(taskId, agentId)
+    .map(parseToolEvent)
 }
 
 /**

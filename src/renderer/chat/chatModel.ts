@@ -126,6 +126,27 @@ export type ChatEntry =
   | QuestionEntry
   | PermissionEntry
 
+/** What React keys an entry's row on, and what says whether an older page of history went in above it (#637). */
+export function chatEntryKey(entry: ChatEntry): string {
+  switch (entry.kind) {
+    case ChatEntryKind.User:
+    case ChatEntryKind.Agent:
+      return entry.message.id
+    case ChatEntryKind.Restarted:
+    case ChatEntryKind.MarkedDone:
+    case ChatEntryKind.Reopened:
+      return entry.divider.id
+    case ChatEntryKind.Compacted:
+      return entry.compaction.id
+    case ChatEntryKind.RefusalFallback:
+      return entry.event.id
+    case ChatEntryKind.Question:
+      return entry.questionSet.id
+    case ChatEntryKind.Permission:
+      return entry.request.id
+  }
+}
+
 /** The chat's cards: the agent's questions, and its calls that wait on your OK. */
 export type CardEntry = QuestionEntry | PermissionEntry
 

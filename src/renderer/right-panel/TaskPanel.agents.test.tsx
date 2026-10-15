@@ -14,7 +14,8 @@ import {
   type ToolEvent,
   type UiStateEntry,
 } from '../../shared/domain'
-import { sampleTask } from '../store/test-bridge'
+import { refuse, sampleTask } from '../store/test-bridge'
+import { bridgeError, BridgeErrorCode, CommandName } from '../../shared/bridge'
 import { storeWrapper, type StoreWrapper } from '../store/test-wrapper'
 import { hubAgent, hubFiling, hubMain, hubTodo, minutesAgo, refOf, type HubTask } from '../todos/test-hub'
 import { HIGHLIGHT_CLASS } from '../tool-log/ToolLog'
@@ -188,6 +189,24 @@ describe('the right panel', () => {
     expect(shownAgent()).toBe('fix-501')
     expect(log()).toHaveTextContent('api/throttle.py')
     expect(screen.getByText(/^Worked on/)).toHaveTextContent('Worked on #501 Return Retry-After on 429s')
+  })
+
+  it('asks for the subagent log whole when the tab opens, and carries on when main refuses (#637)', async () => {
+    const refusing = vi.fn(() => refuse(bridgeError(BridgeErrorCode.Internal, 'tasks.historyAgent failed: busy')))
+    const wrapper = storeWrapper(
+      { ...hubMain(SHIP), agentTabs: { t1: 'fix-501' } },
+      { [CommandName.TasksHistoryAgent]: refusing },
+    )
+    render(<TaskPanel />, { wrapper: wrapper.wrapper })
+    await act(async () => {
+      await wrapper.store.getState().hydrate()
+      await Promise.resolve()
+    })
+
+    expect(refusing).toHaveBeenCalledExactlyOnceWith({ taskId: 't1', agentId: 'fix-501' })
+    // The tab still shows, with what the task's log tail holds of the subagent's.
+    expect(shownAgent()).toBe('fix-501')
+    expect(log()).toBeInTheDocument()
   })
 
   describe('showing a turn the chat asks for', () => {

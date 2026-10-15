@@ -60,6 +60,8 @@
     "src/shared/subagents.ts",
     "src/shared/terminal.ts",
     "src/shared/todoHub.ts",
+    "src/shared/files.ts",
+    "src/shared/touchedFiles.ts",
     "src/renderer/tokens.ts"
   ]
 }

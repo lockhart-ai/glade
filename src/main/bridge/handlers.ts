@@ -1,10 +1,18 @@
 import { MessageRole, TaskActivity, TaskState } from '../../shared/domain'
 import { AgentSource, agentSource } from '../../shared/openrouter'
 import type { Database } from 'better-sqlite3'
-import { BridgeErrorCode, CommandName, EventType, type CommandRequest, type CommandResponse } from '../../shared/bridge'
+import {
+  BridgeErrorCode,
+  CommandName,
+  EventType,
+  HISTORY_PAGE,
+  type CommandRequest,
+  type CommandResponse,
+} from '../../shared/bridge'
 import type { MenuState } from '../../shared/commands'
-import type { Workspace } from '../../shared/domain'
+import type { ToolEvent, Workspace } from '../../shared/domain'
 import { SUBAGENT_TOOL_NAMES } from '../../shared/subagents'
+import { touchedFiles } from '../../shared/touchedFiles'
 import type { AgentRunner } from '../agent/runner'
 import { listArtifacts } from '../db/repositories/artifacts'
 import { listLiveWatchers, listWatchers, publicWatcher } from '../db/repositories/watchers'
@@ -14,7 +22,7 @@ import { createGit, type Git } from '../git/git'
 import { getHandoff } from '../db/repositories/backfills'
 import { getImage } from '../db/repositories/images'
 import { getInputDraft, setInputDraft } from '../db/repositories/input-drafts'
-import { listMessages } from '../db/repositories/messages'
+import { listMessages, listMessagesBefore } from '../db/repositories/messages'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { listPermissionMarks } from '../db/repositories/permission-marks'
 import { listPermissionRequests } from '../db/repositories/permission-requests'
@@ -22,7 +30,13 @@ import { getOpenQuestionDraft, listQuestionSets, setQuestionDraft } from '../db/
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { searchTasks } from '../db/repositories/search'
 import { countDoneTasks, getTasks, listActiveTasks, listDoneTasks, listTasks } from '../db/repositories/tasks'
-import { listSubagentCallsToPreload, listToolEvents } from '../db/repositories/tool-events'
+import {
+  listAgentEvents,
+  listCarriedToolEvents,
+  listSubagentCallsToPreload,
+  listToolEvents,
+  listToolEventsBefore,
+} from '../db/repositories/tool-events'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
 import { getSettings, updateSettings } from '../db/repositories/settings'
 import { effortWithModel, listModels } from '../models/models'
@@ -159,6 +173,15 @@ export interface HandlerContext {
   readonly folderWatch?: FolderWatcher
 }
 
+/**
+ * A log tail with the entries the first load always carries whole (#637, `listCarriedToolEvents`): the tail last, as
+ * sent, then any carried one the tail doesn't already hold. The store merges them into log order.
+ */
+function withCarriedEvents(tail: ToolEvent[], carried: ToolEvent[]): ToolEvent[] {
+  const ids = new Set(tail.map(({ id }) => id))
+  return [...tail, ...carried.filter(({ id }) => !ids.has(id))]
+}
+
 /** The workspace a new terminal tab belongs to and starts in, or null for none. */
 function terminalWorkspace(db: Database, workspaceId: string | null): Workspace | null {
   if (workspaceId === null) return null
@@ -293,9 +316,23 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.TasksHistory]: ({ id }) => {
       requireTask(db, id)
+      // The chat and tool log show their last screenful first (#637): the tail of each log, with the rest loading
+      // page by page as you scroll up (`tasks.historyBefore`). What readers of the whole history need regardless is
+      // sent whole: every subagent-starting call (the Agents tab's tabs and token totals, the task list's marks, the
+      // Todos tab's maker names and commit tiles) and every Reopened, Marked done and Resumed divider (the header's
+      // reopened dot) — a few entries per task; the touched-files summary, worked out here over the whole log; and
+      // everything else in the payload.
+      const messages = listMessages(db, id)
+      const events = listToolEvents(db, id)
+      const sent = withCarriedEvents(events.slice(-HISTORY_PAGE), listCarriedToolEvents(db, id, SUBAGENT_TOOL_NAMES))
+      const sentIds = new Set(sent.map(({ id: eventId }) => eventId))
+      const rootPath = workspaceRoot(context, id)
       return {
-        messages: listMessages(db, id),
-        toolEvents: listToolEvents(db, id),
+        messages: messages.slice(-HISTORY_PAGE),
+        hasOlderMessages: messages.length > HISTORY_PAGE,
+        toolEvents: sent,
+        hasOlderEvents: events.some(({ id: eventId }) => !sentIds.has(eventId)),
+        touchedFiles: touchedFiles(events, rootPath),
         queuedMessages: listQueuedMessages(db, id),
         questionSets: listQuestionSets(db, id),
         questionDraft: getOpenQuestionDraft(db, id),
@@ -311,6 +348,23 @@ export function createHandlers(context: HandlerContext): Handlers {
         commits: listTaskCommits(db, id),
         agentTab: agentTabOf(db, id),
       }
+    },
+    [CommandName.TasksHistoryBefore]: ({ taskId, messagesBefore, eventsBefore, limit }) => {
+      requireTask(db, taskId)
+      // One more than the page, so the answer can say whether older entries still follow it.
+      const messages = messagesBefore === null ? [] : listMessagesBefore(db, taskId, messagesBefore, limit + 1)
+      const events = eventsBefore === null ? [] : listToolEventsBefore(db, taskId, eventsBefore, limit + 1)
+      // Of the page-plus-one fetched, the newest `limit` are the page; the extra one only says more follow.
+      return {
+        messages: messages.slice(-limit),
+        hasOlderMessages: messages.length > limit,
+        toolEvents: events.slice(-limit),
+        hasOlderEvents: events.length > limit,
+      }
+    },
+    [CommandName.TasksHistoryAgent]: ({ taskId, agentId }) => {
+      requireTask(db, taskId)
+      return { toolEvents: listAgentEvents(db, taskId, agentId) }
     },
     [CommandName.ChangesFiles]: async ({ taskId, id }) => ({ files: await commitFiles(changes, taskId, id) }),
     [CommandName.ChangesOpenFile]: async ({ taskId, id, path }) => ({

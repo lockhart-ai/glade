@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
-import { CloseKind, CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
+import { CloseKind, CommandName, EventType, HISTORY_PAGE, type GladeBridge, type GladeEvent } from '../../shared/bridge'
 import type { Command } from '../../shared/commands'
 import { PluginStatus, withGrant, withSetting } from '../../shared/plugins'
 import { UiStateKey, type OpenFiles, type Task, type UiStateEntry, type Workspace } from '../../shared/domain'
@@ -19,7 +19,16 @@ import type { ImageData } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import { describeFailure, lastOpenedWorkspace, loadSnapshot } from './hydrate'
 import { isLoaded, withDoneCounts, withDonePage, withLoadedTasks } from './doneLists'
-import { applyEvent, withAgentTab, withHistory, withOpenedWorkspace, withSandboxGrants, withTodoHub } from './reducer'
+import {
+  applyEvent,
+  withAgentEvents,
+  withAgentTab,
+  withHistory,
+  withOlderHistory,
+  withOpenedWorkspace,
+  withSandboxGrants,
+  withTodoHub,
+} from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState, type TerminalEvent } from './state'
 import {
   UnsavedChoice,
@@ -673,6 +682,40 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         const artifactsVersionAtLoad = get().artifactsVersion[taskId] ?? 0
         const history = await bridge.invoke(CommandName.TasksHistory, { id: taskId })
         set((state) => withHistory(state, taskId, history, artifactsVersionAtLoad))
+      },
+
+      async loadOlderHistory(taskId) {
+        const tail = get().historyTails[taskId]
+        if (tail === undefined || tail.loading || !(tail.hasOlderMessages || tail.hasOlderEvents)) return
+        // The oldest entry the window has of each log is where the next older page starts; one without any sends
+        // `null`, which brings an empty page and says so.
+        const messagesBefore = get().messages[taskId]?.[0]?.seq ?? null
+        const eventsBefore = get().toolEvents[taskId]?.[0]?.seq ?? null
+        set((state) => ({
+          ...state,
+          historyTails: { ...state.historyTails, [taskId]: { ...tail, loading: true } },
+        }))
+        try {
+          const page = await bridge.invoke(CommandName.TasksHistoryBefore, {
+            taskId,
+            messagesBefore,
+            eventsBefore,
+            limit: HISTORY_PAGE,
+          })
+          set((state) => withOlderHistory(state, taskId, page))
+        } catch (error) {
+          // The next scroll up asks again; until then the tail is as it was.
+          set((state) => ({
+            ...state,
+            historyTails: { ...state.historyTails, [taskId]: { ...tail, loading: false } },
+          }))
+          throw error
+        }
+      },
+
+      async loadAgentHistory(taskId, agentId) {
+        const { toolEvents } = await bridge.invoke(CommandName.TasksHistoryAgent, { taskId, agentId })
+        set((state) => withAgentEvents(state, taskId, toolEvents))
       },
 
       setUiState,
