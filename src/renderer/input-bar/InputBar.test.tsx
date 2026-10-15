@@ -567,6 +567,27 @@ describe('InputBar', () => {
       })
       expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
     })
+
+    it('shows Stop while a question card waits on your answers, and stopping withdraws the questions (#647)', async () => {
+      // The turn still runs, but the task's activity is waiting on the open questions: Stop was hidden then, so
+      // the card couldn't be withdrawn from the UI.
+      const fake = await renderBar({ task: { activity: TaskActivity.Waiting, asking: true } })
+
+      expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+        await Promise.resolve()
+      })
+      expect(stops(fake)).toEqual([{ id: 't1' }])
+
+      // The questions were answered, the turn still running: Stop goes back to hiding until the agent works again.
+      const task = fake.store.getState().tasks.t1
+      if (task === undefined) throw new Error('No task t1')
+      act(() => {
+        fake.emit({ type: EventType.TaskUpdated, task: { ...task, asking: false } })
+      })
+      expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
+    })
   })
 
   describe('the pickers', () => {

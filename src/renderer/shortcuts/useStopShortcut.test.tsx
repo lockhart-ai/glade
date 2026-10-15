@@ -74,6 +74,25 @@ describe('useStopShortcut', () => {
     expect(stopCalls(invoke)).toEqual([{ id: 't1' }])
   })
 
+  it('stops a task waiting on a question card too, since stopping withdraws the questions (#647)', async () => {
+    const waiting = sampleTask('t1', 'w1', 'Add rate limiting')
+    const { invoke, store } = await renderShortcut([waiting])
+
+    act(() => {
+      store.setState({ tasks: { ...store.getState().tasks, t1: { ...waiting, asking: true } } })
+    })
+    fireEvent.keyDown(window, { key: '.', metaKey: true })
+    await act(() => Promise.resolve())
+    expect(stopCalls(invoke)).toEqual([{ id: 't1' }])
+
+    // The questions were answered: ⌘. goes back to doing nothing while the task waits on nothing.
+    act(() => {
+      store.setState({ tasks: { ...store.getState().tasks, t1: waiting } })
+    })
+    fireEvent.keyDown(window, { key: '.', metaKey: true })
+    expect(stopCalls(invoke)).toEqual([{ id: 't1' }])
+  })
+
   it('does nothing when the selected task is not working, or no task is selected', async () => {
     const idle = await renderShortcut([sampleTask('t1', 'w1')])
     fireEvent.keyDown(window, { key: '.', metaKey: true })
