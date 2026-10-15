@@ -43,6 +43,22 @@ export const TASKS_PER_WORKSPACE = LONG_PER_WORKSPACE + MEDIUM_PER_WORKSPACE + S
 /** The titles of the long tasks (the ones a switch-latency spec picks for its "long task" runs), oldest first. */
 export const LONG_TASK_TITLES: string[] = []
 
+/** How big an installation `writeSwitchLatencySeed` builds: how many of each task, in how many workspaces. */
+export interface SeedSize {
+  readonly workspaces: number
+  readonly longPerWorkspace: number
+  readonly mediumPerWorkspace: number
+  readonly smallPerWorkspace: number
+}
+
+/** The measurement's own size: every workspace, 25 tasks in each, 5 of them long. */
+const DEFAULT_SIZE: SeedSize = {
+  workspaces: WORKSPACES.length,
+  longPerWorkspace: LONG_PER_WORKSPACE,
+  mediumPerWorkspace: MEDIUM_PER_WORKSPACE,
+  smallPerWorkspace: SMALL_PER_WORKSPACE,
+}
+
 const WATCHER_KINDS = ['monitor', 'command', 'wakeup', 'cron'] as const
 
 /** A couple of watchers, a few permission requests and (for every third long task) an open question. */
@@ -139,13 +155,14 @@ function withEarlyCarried(task: SeedTask): SeedTask {
 }
 
 /** Builds the installation's tasks, one workspace at a time, long tasks first in each. */
-function buildTasks(): SeedTask[] {
+function buildTasks(size: SeedSize): SeedTask[] {
   const tasks: SeedTask[] = []
+  LONG_TASK_TITLES.length = 0
   // A steadily increasing `minutesAgo` keeps every task's update time distinct, oldest at the back of the list.
   let minutesAgo = 1
-  for (const [workspaceIndex, workspace] of WORKSPACES.entries()) {
+  for (const [workspaceIndex, workspace] of WORKSPACES.slice(0, size.workspaces).entries()) {
     const extra = workspaceIndex === 0 ? {} : { workspace }
-    for (let index = 0; index < LONG_PER_WORKSPACE; index += 1) {
+    for (let index = 0; index < size.longPerWorkspace; index += 1) {
       const title = `Ship the ${workspace.name} release ${String(index + 1)}`
       LONG_TASK_TITLES.push(title)
       const selected = workspaceIndex === 0 && index === 0
@@ -155,13 +172,13 @@ function buildTasks(): SeedTask[] {
       tasks.push(selected ? withEarlyCarried(seeded) : seeded)
       minutesAgo += 1
     }
-    for (let index = 0; index < MEDIUM_PER_WORKSPACE; index += 1) {
+    for (let index = 0; index < size.mediumPerWorkspace; index += 1) {
       const title = `Fix the ${workspace.name} bug ${String(index + 1)}`
       const base = historyTask(title, MEDIUM_SCALE, false)
       tasks.push({ ...base, minutesAgo, ...extra })
       minutesAgo += 1
     }
-    for (let index = 0; index < SMALL_PER_WORKSPACE; index += 1) {
+    for (let index = 0; index < size.smallPerWorkspace; index += 1) {
       const title = `Look at the ${workspace.name} report ${String(index + 1)}`
       const base = historyTask(title, SMALL_SCALE, false)
       tasks.push({ ...base, minutesAgo, ...extra })
@@ -172,17 +189,18 @@ function buildTasks(): SeedTask[] {
 }
 
 /**
- * Writes the large installation into `folder` (about 4 workspaces, 100 tasks, at least 20 with a long history) and
- * returns the seed's path. The fixture's own workspace (`WORKSPACES[0]`) is the one that opens; the window starts on
- * its first long task.
+ * Writes the installation into `folder` and returns the seed's path. The fixture's own workspace (`WORKSPACES[0]`)
+ * is the one that opens; the window starts on its first long task. `size` shrinks the installation for a spec that
+ * only needs a few tasks (so it launches fast on CI); it defaults to the measurement's (about 4 workspaces, 100
+ * tasks, at least 20 with a long history).
  */
-export function writeSwitchLatencySeed(folder: string): string {
+export function writeSwitchLatencySeed(folder: string, size: SeedSize = DEFAULT_SIZE): string {
   const [first] = WORKSPACES
   if (first === undefined) throw new Error('WORKSPACES must have at least one workspace')
   const seed = {
     workspace: first,
     panelTab: 'agents',
-    tasks: buildTasks(),
+    tasks: buildTasks(size),
   }
   const path = join(folder, 'switch-latency.json')
   writeFileSync(path, JSON.stringify(seed))
