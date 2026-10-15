@@ -371,3 +371,20 @@ test('ask: a card asked without a preamble leads with what the agent said just b
   await expect(closedQuestions).toContainText('5 questions · answered')
   expect(await drawn(closedQuestions)).toEqual(REPLY_PURPLE)
 })
+
+test('ask: stopping the task withdraws the open questions, stopped through the Stop button (#647)', async ({
+  launch,
+  tempFolder,
+}) => {
+  const glade = await launch({ agentScript: 'asks-a-question', chosenFolder: workspaceRoot(tempFolder) })
+  const { window } = glade
+  await askForReleaseNotes(glade)
+
+  // Stop shows while a question card waits on you too (#647): stopped as the user would, through the button.
+  await inputBar(window).stop.click()
+
+  await expect.poll(async () => (await questionSets(window))[0]?.state).toBe(QuestionSetState.Withdrawn)
+  await expect.poll(async () => (await onlyTask(window))?.asking).toBe(false)
+  await expect(chat(window).questionCard).toHaveCount(0)
+  await expect(chat(window).closedQuestions).toContainText('withdrawn')
+})

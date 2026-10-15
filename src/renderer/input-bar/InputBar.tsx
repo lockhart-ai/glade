@@ -257,7 +257,8 @@ interface TaskInputBarProps extends InputBarProps {
  * as thumbnails above the field, and they go with it, alone or with text. A file dropped onto the bar, or pasted from
  * Finder, is copied into the workspace and attached as a chip beside them (#396); the agent gets its path. Anything else
  * pasted is refused, saying why. While the agent works, sending queues the message instead and Stop shows beside Send
- * (it shows while a permission card waits on you too, since stopping withdraws the card, #511);
+ * (it shows while a permission card waits on you too, since stopping withdraws the card, #511, and while a question
+ * card waits, since stopping withdraws the questions, #647);
  * while its turn is paused, sending queues it too, until the task resumes. The queue
  * shows above the settings, where each message can be edited in place or removed; ↑ in the empty field edits the last.
  */
@@ -310,8 +311,10 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
 
   const working = task.state === TaskState.Active && task.activity === TaskActivity.Working
   // A permission card waiting on you holds the turn (its activity is waiting), but stopping it still withdraws the
-  // card, so Stop is offered then too (#511), as ⌘. is.
+  // card, so Stop is offered then too (#511), as ⌘. is. A question card waiting on your answers is the same (#647):
+  // stopping withdraws the open questions.
   const awaitingPermission = task.state === TaskState.Active && task.awaitingPermission
+  const asking = task.state === TaskState.Active && task.asking
   // A paused turn resumes on its own: messages wait in the queue until then.
   const paused = task.state === TaskState.Active && task.activity === TaskActivity.Paused
   // An empty draft doesn't disable Send (the design shows it ready); sending one just does nothing.
@@ -799,7 +802,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
             onScroll={syncOverlayScroll}
           />
         </div>
-        {(working || awaitingPermission) && (
+        {(working || awaitingPermission || asking) && (
           <button
             type="button"
             aria-label="Stop"
