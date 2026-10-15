@@ -53,7 +53,9 @@ async function armSwitchTimer(window: Page, target: string): Promise<void> {
   await window.evaluate((goal: string) => {
     const globals = globalThis as unknown as SwitchGlobals
     const conversation = document.querySelector('[role="log"][aria-label="Conversation"]')
-    const showing = conversation?.querySelector('article')?.textContent ?? ''
+    // The first message's element, not its text: every seeded long task's messages read the same (#654), and the chat
+    // keys its rows by message id, so the new task's history shows as a new element.
+    const showing = conversation?.querySelector('article') ?? null
     globals.__switch = { at: 0, paint: null }
     const sample = globals.__switch
     document.addEventListener(
@@ -63,7 +65,7 @@ async function armSwitchTimer(window: Page, target: string): Promise<void> {
         const waitForHistory = (): void => {
           const heading = document.querySelector('[role="region"][aria-label="Task header"] h1')
           const first = document.querySelector('[role="log"][aria-label="Conversation"] article')
-          if (heading?.textContent !== goal || first?.textContent === showing) {
+          if (heading?.textContent !== goal || first === null || first === showing) {
             requestAnimationFrame(waitForHistory)
             return
           }
