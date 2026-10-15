@@ -9,7 +9,13 @@ freezing them.
 The parent chooses each child's model; there is no blanket subagent picker or saved child default.
 Use the built-in `Agent` tool for children on the parent's own source. Claude-only tasks retain the native agent
 types, worktree isolation and `SendMessage` behavior. With no OpenRouter key connected, Glade adds no delegation
-tools or instructions to the session.
+tools or instructions to the session. The `Agent` tool's worktree isolation is Claude Code's own, and it is not the
+kept worktree `dispatch` gives: a worktree the `Agent` tool makes is removed, with its branch, when the child's run
+ends with nothing changed ("auto-cleaned if unchanged", #635), so a child that plans first and waits for approval has
+no worktree left when it is resumed. Have such a child plan without a worktree and be started (or given one) for the
+build, or be dispatched instead. A background child resumed with `SendMessage` may also be shown its siblings' live
+status by Claude Code (#636): it sees a status line for every background agent in the process, so message it plainly
+with what to do rather than expecting the message alone to carry.
 
 With a key connected, the in-process `glade-agents` server offers **cross-source** delegation only:
 Claude account → OpenRouter or OpenRouter → Claude account. Same-source dispatch is refused with instructions to
@@ -47,8 +53,10 @@ flag does, at `.claude/worktrees/<child id>` in the repository on branch `worktr
 default branch unless the `worktree.baseRef` setting says `head`. The worktree and branch are kept when the child
 ends, changed or not; the result names them, and the parent uses and removes them. A resumed child goes back into
 the worktree its first run had, and a child's own children share it unless they ask for one. It needs a git
-repository, and a sandboxed session refuses it, as it isn't offered `EnterWorktree` (#514). Their text and tool
-calls appear under their dispatch in
+repository, and a sandboxed session refuses it, as it isn't offered `EnterWorktree` (#514). The kept-worktree
+statements in this paragraph are `dispatch`'s alone: the built-in `Agent` tool's isolation worktree is Claude Code's
+own, and is removed when the child's run ends with nothing changed ("Choosing subagent models", above). Their text
+and tool calls appear under their dispatch in
 Agents, alongside the model. A background result is delivered to the live parent when it finishes. Stop covers the
 child and descendants; ending a delegation ends remaining descendants. An unfinished saved child can be resumed
 explicitly after a relaunch, with the same cross-source restriction.

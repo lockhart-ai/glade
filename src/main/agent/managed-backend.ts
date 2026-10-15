@@ -83,7 +83,9 @@ const dispatchInput = z.object({
     .enum(DispatchIsolation)
     .optional()
     .describe(
-      '"worktree" starts the child in its own git worktree, kept afterwards. A resumed child keeps what it had.',
+      '"worktree" starts the child in its own git worktree, kept afterwards whether or not the child changed ' +
+        "anything. A resumed child keeps what it had. (A built-in Agent subagent's isolation worktree is not kept: " +
+        'Claude Code removes it, with its branch, when its run ends with nothing changed.)',
     ),
 }) satisfies z.ZodType<DispatchAgentInput>
 const messageChildInput = z.object({
@@ -551,7 +553,7 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
     const parent = backend.start({
       ...options,
       mcpServers: { ...options.mcpServers, [AGENTS_SERVER]: server },
-      systemPromptAppend: `${options.systemPromptAppend}\nUse the built-in Agent tool for subagents on your own source, retaining its agent types, worktree isolation and SendMessage. Only to start a child on the other source (Claude account or OpenRouter), call mcp__glade-agents__list_models for current models and OpenRouter prices, then use ${DISPATCH_AGENT_TOOL}. Pass isolation: "worktree" to start that child in its own git worktree, which is kept afterwards for you to use and remove. Choose that child's model for its job; provider selection is controlled by Settings. Native Agent children under OpenRouter use this process's current route; another OpenRouter route is not supported for a child. Resume cross-source children with dispatch's resume id while their source differs from yours; SendMessage only addresses native children. While a background child still runs, ${MESSAGE_CHILD_TOOL} can send it more text, one way, folded into its current turn.`,
+      systemPromptAppend: `${options.systemPromptAppend}\nUse the built-in Agent tool for subagents on your own source, retaining its agent types, worktree isolation and SendMessage. Only to start a child on the other source (Claude account or OpenRouter), call mcp__glade-agents__list_models for current models and OpenRouter prices, then use ${DISPATCH_AGENT_TOOL}. Pass isolation: "worktree" to start that child in its own git worktree, which is kept afterwards for you to use and remove. The two kinds of child differ there: a dispatched child's worktree is kept whether or not its run changed anything, while a built-in Agent subagent's worktree is removed by Claude Code, with its branch, when its run ends with nothing changed — so a subagent that plans first has no worktree left when you resume it; have it plan without a worktree and start it (or give it one) for the build, or dispatch it instead. A resumed background subagent may also be shown its siblings' live status by Claude Code: message it plainly with what to do. Choose that child's model for its job; provider selection is controlled by Settings. Native Agent children under OpenRouter use this process's current route; another OpenRouter route is not supported for a child. Resume cross-source children with dispatch's resume id while their source differs from yours; SendMessage only addresses native children. While a background child still runs, ${MESSAGE_CHILD_TOOL} can send it more text, one way, folded into its current turn.`,
       hooks: {
         onPrompt: () => PromptVerdict.Allow,
         onTurnEnded: () => undefined,

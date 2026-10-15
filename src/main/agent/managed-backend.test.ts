@@ -374,6 +374,12 @@ it('adds only cross-source delegation instructions when an OpenRouter key is con
   expect(parent.options.systemPromptAppend).toContain('Use the built-in Agent tool for subagents on your own source')
   expect(parent.options.systemPromptAppend).toContain('Only to start a child on the other source')
   expect(parent.options.systemPromptAppend).toContain('Pass isolation: "worktree"')
+  // #635: the append says which kind of child keeps its worktree, and what to do for a plan-first subagent.
+  expect(parent.options.systemPromptAppend).toContain("a dispatched child's worktree is kept whether or not")
+  expect(parent.options.systemPromptAppend).toContain("a built-in Agent subagent's worktree is removed by Claude Code")
+  expect(parent.options.systemPromptAppend).toContain('have it plan without a worktree')
+  // #636: the append says a resumed subagent may see its siblings' status.
+  expect(parent.options.systemPromptAppend).toContain("may also be shown its siblings' live status by Claude Code")
   expect(parent.options.mcpServers).toHaveProperty(AGENTS_SERVER)
 })
 
