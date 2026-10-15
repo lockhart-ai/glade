@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import {
   ArtifactKind,
+  MessageRole,
   QuestionKind,
   QuestionReplyKind,
   QuestionSetState,
@@ -18,6 +19,9 @@ import {
   type Task,
 } from '../../shared/domain'
 import { ChildKind, FilingSource } from '../../shared/todoHub'
+import { AttachedFileKind, withAttachedFiles } from '../../shared/attachedFiles'
+import { PNG } from '../../shared/test-images'
+import { appendMessage } from '../db/repositories/messages'
 import { addArtifact, listFileArtifacts } from '../db/repositories/artifacts'
 import { putFilings } from '../db/repositories/child-filings'
 import { listTodos } from '../db/repositories/glade-todos'
@@ -362,6 +366,48 @@ describe('ask', () => {
     context.questions.answer(open.id, { kind: QuestionReplyKind.FreeText, text: 'By type, and no credits.' })
 
     await expect(outcome).resolves.toEqual({ output: '{"freeText":"By type, and no credits."}', isError: false })
+  })
+
+  it('returns an answer’s image beside its text as an image content block (#648)', async () => {
+    const handlers = createGladeToolHandlers(context, task.id)
+    const outcome = handlers.ask({ questions: QUESTIONS })
+    const open = await vi.waitFor(() => {
+      const set = getOpenQuestionSet(database.db, task.id)
+      if (set === undefined) throw new Error('No question is open yet')
+      return set
+    })
+    // The answer's message keeps the image; its reply names it by id, and the result carries its bytes.
+    const { images } = appendMessage(database.db, {
+      taskId: task.id,
+      role: MessageRole.User,
+      body: 'Like this.',
+      turn: open.turn,
+      images: [PNG],
+    })
+    const sales = {
+      name: 'sales.csv',
+      path: '.glade/attachments/x/sales.csv',
+      size: 23,
+      kind: AttachedFileKind.Text,
+    } as const
+
+    context.questions.answer(open.id, {
+      kind: QuestionReplyKind.FreeText,
+      text: 'Like this.',
+      images,
+      files: [sales],
+    })
+
+    // The file's line is in the text, against the task's workspace root; the image is a block of its own.
+    await expect(outcome).resolves.toEqual({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({ freeText: withAttachedFiles('Like this.', [sales], '/code/acme-api') }),
+        },
+        { type: 'image', data: PNG.data, mimeType: PNG.mediaType },
+      ],
+    })
   })
 
   it('tells the model when the questions are withdrawn', async () => {

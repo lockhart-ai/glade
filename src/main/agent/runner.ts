@@ -284,7 +284,9 @@
  * session with its text, each time it's handed over: when it's sent or delivered from the queue, retried, or sent to a
  * new session on launch. So do the **files attached** to it (#396, `../attachments/attachments`): a line with each
  * one's path at the end of its text, and each image among them as an image too, read from its copy as it's handed
- * over. A reply in words to the agent's questions can't carry images or files: its `ask` call takes text.
+ * over. A reply in words to the agent's questions can carry them too (#648): its message keeps them as any message
+ * does, its `ask` result carries its images as image content blocks, and a delivery after a restart hands them to the
+ * resumed session.
  *
  * Every write is broadcast to the windows as it happens. Only the in-flight turn's bookkeeping (its held-back text and
  * running calls) is kept in memory.
@@ -463,7 +465,7 @@ import {
   type RunningCommand,
 } from '../permissions/sandbox-ask'
 import { grantingGrant, heldGrants, type GrantingGrant } from '../sandbox/grants'
-import { createQuestionBroker, toolResultFor, type QuestionBroker } from '../questions/questions'
+import { createQuestionBroker, replyImages, toolResultFor, type QuestionBroker } from '../questions/questions'
 import { addQueuedMessage } from '../tasks/queue'
 import { noteAgentReply } from '../tasks/attention'
 import { reopenTask, updateTaskFromRunner, updateTaskFromUser, type TaskServiceContext } from '../tasks/service'
@@ -1050,8 +1052,8 @@ export const ANSWERED_AFTER_RESTART_PROMPT =
   'user has answered them now. Carry on from there.'
 
 /** The message that hands the agent the answer to a question the app quit on. */
-export function answeredAfterRestart(reply: QuestionReply): string {
-  return `${ANSWERED_AFTER_RESTART_PROMPT}\n\nTheir answers, as ask would have returned them:\n${toolResultFor(reply)}`
+export function answeredAfterRestart(reply: QuestionReply, rootPath: string): string {
+  return `${ANSWERED_AFTER_RESTART_PROMPT}\n\nTheir answers, as ask would have returned them:\n${toolResultFor(reply, rootPath)}`
 }
 
 /** What the agent is told when you deny a tool call, with your note if you gave one. */
@@ -3920,7 +3922,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const uuid = randomUUID()
     live.turn = newTurn(set.turn)
     live.turn.awaiting.add(uuid)
-    give(live, answeredAfterRestart(reply), uuid)
+    give(live, answeredAfterRestart(reply, rootOf(task.id)), uuid, replyImages(db, reply))
   }
 
   /**
@@ -3950,13 +3952,34 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   /**
    * Answers the open question set in your own words: the message goes to the chat log as your reply, in the turn that
-   * asked, and the agent gets it as the answer.
+   * asked, with its images, pasted text and files kept as any message's are, and the agent gets it as the answer, with
+   * them (#648).
    */
-  const answerInWords = (set: QuestionSet, text: string): Message => {
+  const answerInWords = (
+    set: QuestionSet,
+    text: string,
+    images: readonly ImageData[] = [],
+    pastedBlocks: readonly PastedBlock[] = [],
+    files: readonly AttachedFile[] = [],
+  ): Message => {
     const task = answerable(set)
-    const message = appendMessage(db, { taskId: task.id, role: MessageRole.User, body: text, turn: set.turn })
+    const message = appendMessage(db, {
+      taskId: task.id,
+      role: MessageRole.User,
+      body: text,
+      turn: set.turn,
+      images,
+      pastedBlocks,
+      files,
+    })
     emitMessageAppended(emit, message)
-    replyTo(task, set, { kind: QuestionReplyKind.FreeText, text })
+    replyTo(task, set, {
+      kind: QuestionReplyKind.FreeText,
+      text,
+      ...(message.images.length > 0 ? { images: message.images } : {}),
+      ...(message.pastedBlocks.length > 0 ? { pastedBlocks: message.pastedBlocks } : {}),
+      ...(message.files.length > 0 ? { files: message.files } : {}),
+    })
     return message
   }
 
@@ -4084,13 +4107,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
             'The agent is waiting on your answers; queue the message instead',
           )
         }
-        if (images.length > 0 || pastedBlocks.length > 0 || files.length > 0) {
-          throw new CommandFailure(
-            BridgeErrorCode.InvalidRequest,
-            'An answer to the agent’s questions can’t have images, files or pasted text',
-          )
-        }
-        return answerInWords(open, text)
+        return answerInWords(open, text, images, pastedBlocks, files)
       }
       if (waitsOnRestartRequests(taskId)) {
         throw new CommandFailure(

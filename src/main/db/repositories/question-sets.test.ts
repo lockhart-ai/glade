@@ -7,6 +7,8 @@ import {
   type QuestionReply,
   type Task,
 } from '../../../shared/domain'
+import { AttachedFileKind } from '../../../shared/attachedFiles'
+import { ImageMediaType } from '../../../shared/images'
 import {
   appendQuestionSet,
   closeQuestionSet,
@@ -111,6 +113,21 @@ describe('question sets', () => {
   it('keeps an answer in words', () => {
     const set = appendQuestionSet(test.db, { taskId: task.id, turn: 1, questions: QUESTIONS })
     const words: QuestionReply = { kind: QuestionReplyKind.FreeText, text: 'By type, please.' }
+
+    closeQuestionSet(test.db, set.id, { state: QuestionSetState.Answered, reply: words })
+
+    expect(getQuestionSet(test.db, set.id)?.reply).toEqual(words)
+  })
+
+  it('keeps an answer in words with its images, pasted text and files (#648)', () => {
+    const set = appendQuestionSet(test.db, { taskId: task.id, turn: 1, questions: QUESTIONS })
+    const words: QuestionReply = {
+      kind: QuestionReplyKind.FreeText,
+      text: 'Like this.',
+      images: [{ id: 'img-1', mediaType: ImageMediaType.Png }],
+      pastedBlocks: [{ id: 'k3f9', text: 'KeyError: user_id' }],
+      files: [{ name: 'sales.csv', path: '.glade/attachments/t1/sales.csv', size: 23, kind: AttachedFileKind.Text }],
+    }
 
     closeQuestionSet(test.db, set.id, { state: QuestionSetState.Answered, reply: words })
 

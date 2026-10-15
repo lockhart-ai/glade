@@ -23,10 +23,15 @@ import {
   type QuestionReply,
   type QuestionSet,
 } from '../../shared/domain'
+import { agentText } from '../../shared/pastedContent'
+import { withAttachedFiles } from '../../shared/attachedFiles'
 import { answersResult } from '../../shared/questions'
 import { CommandFailure } from '../bridge/errors'
 import { emitQuestionSet, emitTaskUpdated } from '../bridge/events'
 import { lastTurn } from '../db/repositories/messages'
+import { getImage } from '../db/repositories/images'
+import type { Database } from 'better-sqlite3'
+import type { ImageData } from '../../shared/images'
 import {
   appendQuestionSet,
   closeQuestionSet,
@@ -70,15 +75,28 @@ export interface QuestionBroker {
 
 /**
  * What the `ask` tool gives the model for a reply: the answers keyed by question index, with `anythingElse` when the
- * card's "Anything else?" box has text, or `{ freeText }`.
+ * card's "Anything else?" box has text, or `{ freeText }`. A free-text reply's text carries its pasted text and its
+ * attached files' lines the way a message does (`shared/pastedContent.ts`, `shared/attachedFiles.ts`); the images
+ * don't show here, as they go beside this text as image content blocks (`replyImages`).
  */
-export function toolResultFor(reply: QuestionReply): string {
+export function toolResultFor(reply: QuestionReply, rootPath: string): string {
   switch (reply.kind) {
     case QuestionReplyKind.Answers:
       return JSON.stringify(answersResult(reply))
     case QuestionReplyKind.FreeText:
-      return JSON.stringify({ freeText: reply.text })
+      return JSON.stringify({
+        freeText: withAttachedFiles(agentText(reply.text, reply.pastedBlocks ?? []), reply.files ?? [], rootPath),
+      })
   }
+}
+
+/** The images a reply carries, with their bytes, as their ids name them in the images table; none when it has no images. */
+export function replyImages(db: Database, reply: QuestionReply): ImageData[] {
+  if (reply.kind !== QuestionReplyKind.FreeText || reply.images === undefined) return []
+  return reply.images.flatMap(({ id }) => {
+    const image = getImage(db, id)
+    return image === undefined ? [] : [image]
+  })
 }
 
 /**

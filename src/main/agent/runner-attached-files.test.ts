@@ -186,7 +186,7 @@ describe('attached files', () => {
     })
   })
 
-  it('refuses files with an answer to the agent’s questions, keeping the questions open', async () => {
+  it('answers the agent’s questions with files, keeping them on the answer’s message (#648)', async () => {
     await glade.invoke(CommandName.TasksSend, { id: task.id, text: 'Draft the release notes for 2.4.' })
     backend.session.emit(sdk.init())
     void backend.session
@@ -195,13 +195,15 @@ describe('attached files', () => {
     await vi.waitFor(() => {
       if (getOpenQuestionSet(database.db, task.id) === undefined) throw new Error('No question is open yet')
     })
+    const sales = await attach('sales.csv')
 
-    await expect(sendWith('Like this.', [await attach('sales.csv')])).rejects.toMatchObject({
-      code: BridgeErrorCode.InvalidRequest,
-    })
-    expect(getOpenQuestionSet(database.db, task.id)).toBeDefined()
-    expect(listMessages(database.db, task.id).map(({ role, body }) => ({ role, body }))).toEqual([
-      { role: MessageRole.User, body: 'Draft the release notes for 2.4.' },
+    const answer = await sendWith('Like this.', [sales])
+
+    expect(answer).toMatchObject({ role: MessageRole.User, body: 'Like this.', files: [sales] })
+    expect(getOpenQuestionSet(database.db, task.id)).toBeUndefined()
+    expect(listMessages(database.db, task.id).map(({ body, files }) => ({ body, files }))).toEqual([
+      { body: 'Draft the release notes for 2.4.', files: [] },
+      { body: 'Like this.', files: [sales] },
     ])
   })
 

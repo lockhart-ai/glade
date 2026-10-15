@@ -172,15 +172,15 @@ scroll: the chat passes under them.
   pick an option, ← → move between options, ↵ sends, and ⌘↵ in the Anything else box, where ↵ starts a new line). Or
   just type a reply in the input bar: it answers the questions in your own words.
 - **Pasted images:** paste a screenshot or image (PNG, JPEG, GIF or WebP, up to 3.75 MB each) into the input bar. It
-  shows as a thumbnail you can remove, and goes to the agent with your message. Images can't go with an answer to a
-  question card; send them after. Once sent (or queued), click a thumbnail, or press ↵ or Space on it, to see the image
-  full size; ← and → step through the message's other images, and Esc or a click beside the image closes it.
+  shows as a thumbnail you can remove, and goes to the agent with your message, an answer to a question card
+  included. Once sent (or queued), click a thumbnail, or press ↵ or Space on it, to see the image full size; ← and →
+  step through the message's other images, and Esc or a click beside the image closes it.
 - **Pasted text:** paste more than one line, or ~80 characters or more, and it's marked as its own block instead of
   landing in the field: a short token stands for it there, and a chip shows above the field ("Pasted text · 42
   lines"), with a ✕ to remove it and a click to expand or edit. A shorter paste (a path, a word, a URL) is left as
   plain text. Glade marks it this way so the agent knows to be wary of instructions hidden inside it. In the chat,
   your message shows your own words with the block collapsed to its line count; click it to see the pasted text in
-  place. Pasted blocks can't go with an answer to a question card either.
+  place.
 - **Attached files:** drop any file onto the input bar, or copy it in Finder and paste it (⌘V), to hand it to the
   agent without pasting its contents: a CSV, a PDF, a log. Glade copies it into the workspace, at
   `.glade/attachments/<task id>/`, and shows a chip with its icon, name, type and size; click the chip to see the copy
@@ -188,7 +188,6 @@ scroll: the chat passes under them.
   tools. In the chat, click a sent file's chip to open it in the Files tab (or in Finder, for a file the Files tab
   can't show). Folders and files over 200 MB can't be attached; a toast says why. Glade keeps the copies out of git
   (in the repository's own `.git/info/exclude`, never your `.gitignore`), and deletes them when you delete the task.
-  Files can't go with an answer to a question card either.
 - **Right-click a reply** to copy it (as text or Markdown), quote it in your reply, or show that turn's tool calls.
 - **Links open in your browser.** A link or a bare URL in a reply, your message, a card, the tool log, the header, a
   todo or anywhere else Glade shows what the agent or you wrote is clickable (⌘-click works too, and ↵ on a focused

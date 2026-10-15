@@ -762,6 +762,15 @@ export interface AnswersReply {
 export interface FreeTextReply {
   readonly kind: QuestionReplyKind.FreeText
   readonly text: string
+  /**
+   * The images pasted into the answer, as the answer's message stores them (#648); left out for a typed-only reply.
+   * Their bytes are fetched by id, so the `ask` result and a post-restart delivery can carry them.
+   */
+  readonly images?: readonly ImageRef[]
+  /** The text pasted into the answer; left out when none was. */
+  readonly pastedBlocks?: readonly PastedBlock[]
+  /** The files attached to the answer; left out when none were. */
+  readonly files?: readonly AttachedFile[]
 }
 
 export type QuestionReply = AnswersReply | FreeTextReply

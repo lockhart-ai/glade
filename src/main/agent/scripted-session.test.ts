@@ -1106,7 +1106,7 @@ describe('ScriptedSession', () => {
     const resumed = play([], { script })
     resumed.session.send(RESUME_PROMPT, 'resume-1')
     resumed.session.send('a', 'user-1')
-    resumed.session.send(answeredAfterRestart({ kind: QuestionReplyKind.FreeText, text: 'By type.' }), 'answer-1')
+    resumed.session.send(answeredAfterRestart({ kind: QuestionReplyKind.FreeText, text: 'By type.' }, ''), 'answer-1')
     const plain = play([[say('One.'), result()]])
     plain.session.send(RESUME_PROMPT, 'resume-1')
     await flush()

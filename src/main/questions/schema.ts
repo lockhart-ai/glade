@@ -11,6 +11,7 @@ import {
   type ChoiceOption,
   type ChoiceQuestion,
   type FreeTextReply,
+  type PastedBlock,
   type PillsQuestion,
   type Question,
   type QuestionCardDraft,
@@ -18,6 +19,8 @@ import {
   type QuestionReply,
   type TextQuestion,
 } from '../../shared/domain'
+import { AttachedFileKind, type AttachedFile } from '../../shared/attachedFiles'
+import { ImageMediaType, type ImageRef } from '../../shared/images'
 
 /** Text the model sends: trimmed, and never empty. */
 function text(what: string) {
@@ -113,9 +116,30 @@ const answersReply = z.strictObject({
   anythingElse: z.string().optional(),
 }) satisfies z.ZodType<AnswersReply>
 
+const imageRef = z.object({
+  id: z.string(),
+  mediaType: z.enum(ImageMediaType),
+}) satisfies z.ZodType<ImageRef>
+
+const pastedBlock = z.object({
+  id: z.string(),
+  text: z.string(),
+}) satisfies z.ZodType<PastedBlock>
+
+const attachedFile = z.object({
+  name: z.string(),
+  path: z.string(),
+  size: z.number(),
+  kind: z.enum(AttachedFileKind),
+}) satisfies z.ZodType<AttachedFile>
+
 const freeTextReply = z.strictObject({
   kind: z.literal(QuestionReplyKind.FreeText),
   text: z.string(),
+  // Attachments sent with the answer (#648), as its message stores them; left out for a typed-only reply.
+  images: z.array(imageRef).optional(),
+  pastedBlocks: z.array(pastedBlock).optional(),
+  files: z.array(attachedFile).optional(),
 }) satisfies z.ZodType<FreeTextReply>
 
 /** How the user answered a question set, as it's stored. */

@@ -6,17 +6,23 @@ import {
   QuestionReplyKind,
   QuestionSetState,
   TaskActivity,
+  type PastedBlock,
   type Question,
   type QuestionReply,
   type Task,
   UiStateKey,
 } from '../../shared/domain'
+import { AttachedFileKind, type AttachedFile } from '../../shared/attachedFiles'
+import { PNG } from '../../shared/test-images'
+import { ImageMediaType } from '../../shared/images'
+import { agentText, pasteToken } from '../../shared/pastedContent'
+import { withAttachedFiles } from '../../shared/attachedFiles'
 import { appendMessage } from '../db/repositories/messages'
 import { appendQuestionSet, getQuestionSet } from '../db/repositories/question-sets'
 import { getTask } from '../db/repositories/tasks'
 import { setUiState } from '../db/repositories/ui-state'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
-import { createQuestionBroker, notificationText, toolResultFor, type QuestionBroker } from './questions'
+import { createQuestionBroker, notificationText, replyImages, toolResultFor, type QuestionBroker } from './questions'
 
 const QUESTIONS: Question[] = [
   { kind: QuestionKind.Pills, prompt: 'Credit contributors?', options: ['GitHub handles', 'No credits'] },
@@ -68,22 +74,87 @@ function drain(): unknown[] {
 
 describe('toolResultFor', () => {
   it('gives the answers keyed by question index, or the answer in words as free text', () => {
-    expect(toolResultFor({ kind: QuestionReplyKind.Answers, answers: { 0: 'by-type', 2: ['a', 'b'] } })).toBe(
+    expect(toolResultFor({ kind: QuestionReplyKind.Answers, answers: { 0: 'by-type', 2: ['a', 'b'] } }, '')).toBe(
       '{"0":"by-type","2":["a","b"]}',
     )
-    expect(toolResultFor({ kind: QuestionReplyKind.FreeText, text: 'By type, "please".' })).toBe(
+    expect(toolResultFor({ kind: QuestionReplyKind.FreeText, text: 'By type, "please".' }, '')).toBe(
       '{"freeText":"By type, \\"please\\"."}',
     )
   })
 
   it('gives "Anything else?" text under anythingElse, after the answers, and nothing for none answered', () => {
     expect(
-      toolResultFor({ kind: QuestionReplyKind.Answers, answers: { 1: 'Full names' }, anythingElse: 'Thank Sam too.' }),
+      toolResultFor(
+        { kind: QuestionReplyKind.Answers, answers: { 1: 'Full names' }, anythingElse: 'Thank Sam too.' },
+        '',
+      ),
     ).toBe('{"1":"Full names","anythingElse":"Thank Sam too."}')
-    expect(toolResultFor({ kind: QuestionReplyKind.Answers, answers: {}, anythingElse: 'None fit.' })).toBe(
+    expect(toolResultFor({ kind: QuestionReplyKind.Answers, answers: {}, anythingElse: 'None fit.' }, '')).toBe(
       '{"anythingElse":"None fit."}',
     )
-    expect(toolResultFor({ kind: QuestionReplyKind.Answers, answers: {} })).toBe('{}')
+    expect(toolResultFor({ kind: QuestionReplyKind.Answers, answers: {} }, '')).toBe('{}')
+  })
+
+  it('composes a free-text answer’s pasted text and attached files the way a message does, and names none of its images', () => {
+    const trace: PastedBlock = { id: 'k3f9', text: 'Traceback (most recent call last)\nKeyError: user_id' }
+    const sales: AttachedFile = {
+      name: 'sales.csv',
+      path: '.glade/attachments/t1/sales.csv',
+      size: 23,
+      kind: AttachedFileKind.Text,
+    }
+    expect(
+      toolResultFor(
+        {
+          kind: QuestionReplyKind.FreeText,
+          text: `See this: ${pasteToken(trace.text)}`,
+          pastedBlocks: [trace],
+          files: [sales],
+        },
+        '/code/acme-api',
+      ),
+    ).toBe(
+      JSON.stringify({
+        freeText: withAttachedFiles(
+          agentText(`See this: ${pasteToken(trace.text)}`, [trace]),
+          [sales],
+          '/code/acme-api',
+        ),
+      }),
+    )
+  })
+
+  it('leaves a free-text answer without attachments byte-for-byte as it was', () => {
+    expect(toolResultFor({ kind: QuestionReplyKind.FreeText, text: 'By type.' }, '/code/acme-api')).toBe(
+      '{"freeText":"By type."}',
+    )
+  })
+})
+
+describe('replyImages', () => {
+  it('answers with the bytes of each image the reply names, and none for a reply without images', () => {
+    const { images } = appendMessage(database.db, {
+      taskId: task.id,
+      role: MessageRole.User,
+      body: 'x',
+      turn: 1,
+      images: [PNG],
+    })
+    const ref = images[0]
+    expect(ref).toBeDefined()
+    expect(
+      replyImages(database.db, { kind: QuestionReplyKind.FreeText, text: 'x', images: ref === undefined ? [] : [ref] }),
+    ).toEqual([PNG])
+    expect(replyImages(database.db, { kind: QuestionReplyKind.FreeText, text: 'x' })).toEqual([])
+    expect(replyImages(database.db, { kind: QuestionReplyKind.Answers, answers: {} })).toEqual([])
+    // An image that isn't there any more is skipped, not a failure.
+    expect(
+      replyImages(database.db, {
+        kind: QuestionReplyKind.FreeText,
+        text: 'x',
+        images: [{ id: 'gone', mediaType: ImageMediaType.Png }],
+      }),
+    ).toEqual([])
   })
 })
 
