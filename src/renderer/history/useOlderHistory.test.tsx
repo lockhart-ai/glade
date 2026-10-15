@@ -20,7 +20,11 @@ function storeWith(handlers: Partial<FakeHandlers> = {}): GladeStore {
     handlers,
   )
   const store = createGladeStore(fake.bridge)
-  store.setState({ historyTails: { t1: { hasOlderMessages: true, hasOlderEvents: false, loading: false } } })
+  store.setState({
+    historyTails: {
+      t1: { hasOlderMessages: true, hasOlderEvents: false, messagesBefore: null, eventsBefore: null, loading: false },
+    },
+  })
   return store
 }
 
@@ -50,8 +54,10 @@ describe('useLoadOlderOnScroll', () => {
   it('asks for the next older page when the scroller is near its top, and only then', async () => {
     const before = vi.fn(() => ({
       messages: [],
+      messagesBefore: null,
       hasOlderMessages: false,
       toolEvents: [],
+      eventsBefore: null,
       hasOlderEvents: false,
     }))
     const store = storeWith({ [CommandName.TasksHistoryBefore]: before })
@@ -68,7 +74,13 @@ describe('useLoadOlderOnScroll', () => {
       await Promise.resolve()
     })
     expect(before).toHaveBeenCalledOnce()
-    expect(store.getState().historyTails.t1).toEqual({ hasOlderMessages: false, hasOlderEvents: false, loading: false })
+    expect(store.getState().historyTails.t1).toEqual({
+      hasOlderMessages: false,
+      hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
+      loading: false,
+    })
 
     // Far from the top, or a scroller that isn't the task's own log, asks for nothing.
     Object.defineProperty(probe, 'scrollTop', { value: 500, configurable: true })
@@ -86,7 +98,14 @@ describe('useLoadOlderOnScroll', () => {
   })
 
   it('asks for nothing when the task has no older history to load', () => {
-    const before = vi.fn(() => ({ messages: [], hasOlderMessages: false, toolEvents: [], hasOlderEvents: false }))
+    const before = vi.fn(() => ({
+      messages: [],
+      messagesBefore: null,
+      hasOlderMessages: false,
+      toolEvents: [],
+      eventsBefore: null,
+      hasOlderEvents: false,
+    }))
     const store = storeWith({ [CommandName.TasksHistoryBefore]: before })
     store.setState({ historyTails: {} })
     const { getByTestId } = render(
@@ -116,7 +135,13 @@ describe('useLoadOlderOnScroll', () => {
 
     expect(failing).toHaveBeenCalledOnce()
     // The tail went back to not loading, so the next scroll asks again.
-    expect(store.getState().historyTails.t1).toEqual({ hasOlderMessages: true, hasOlderEvents: false, loading: false })
+    expect(store.getState().historyTails.t1).toEqual({
+      hasOlderMessages: true,
+      hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
+      loading: false,
+    })
   })
 })
 
@@ -188,7 +213,14 @@ describe('useKeepScrollOnPrepend', () => {
 
 describe('the scroller going away', () => {
   it('leaves the hooks quiet when nothing is mounted', () => {
-    const before = vi.fn(() => ({ messages: [], hasOlderMessages: false, toolEvents: [], hasOlderEvents: false }))
+    const before = vi.fn(() => ({
+      messages: [],
+      messagesBefore: null,
+      hasOlderMessages: false,
+      toolEvents: [],
+      eventsBefore: null,
+      hasOlderEvents: false,
+    }))
     const store = storeWith({ [CommandName.TasksHistoryBefore]: before })
     const { unmount } = render(
       <GladeStoreProvider store={store}>

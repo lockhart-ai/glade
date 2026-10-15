@@ -176,6 +176,14 @@ export interface DoneListPages {
 export interface HistoryTail {
   readonly hasOlderMessages: boolean
   readonly hasOlderEvents: boolean
+  /**
+   * Each log's cursor (#637): the oldest `seq` of the contiguous tail loaded so far, as the load that set it answered
+   * (`tasks.history` before the carried events joined, `tasks.historyBefore` from its page). What `loadOlderHistory`
+   * pages from, and what the task's own chat and tool log show from (everything from here up); null when the log has
+   * nothing loaded.
+   */
+  readonly messagesBefore: number | null
+  readonly eventsBefore: number | null
   readonly loading: boolean
 }
 

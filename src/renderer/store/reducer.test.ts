@@ -309,6 +309,8 @@ describe("a task's logs", () => {
       questionDraft: null,
       hasOlderMessages: false,
       hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     })
@@ -336,6 +338,8 @@ describe("a task's logs", () => {
       questionDraft: null,
       hasOlderMessages: false,
       hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     })
@@ -373,6 +377,8 @@ describe("a task's logs", () => {
       questionDraft: null,
       hasOlderMessages: false,
       hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     })
@@ -396,6 +402,8 @@ describe("a task's logs", () => {
         questionDraft: null,
         hasOlderMessages: false,
         hasOlderEvents: false,
+        messagesBefore: null,
+        eventsBefore: null,
         touchedFiles: NO_TOUCHED_FILES,
         agentTab: null,
       }).messages,
@@ -408,8 +416,10 @@ describe("a task's logs", () => {
     const live = { ...sampleMessage('m3', 't1', 'One more thing.'), seq: 20 }
     const page = {
       messages: [early],
+      messagesBefore: 5,
       hasOlderMessages: false,
       toolEvents: [],
+      eventsBefore: null,
       hasOlderEvents: true,
     }
 
@@ -418,7 +428,15 @@ describe("a task's logs", () => {
         {
           ...state,
           messages: { ...state.messages, t1: [late] },
-          historyTails: { t1: { hasOlderMessages: true, hasOlderEvents: false, loading: true } },
+          historyTails: {
+            t1: {
+              hasOlderMessages: true,
+              hasOlderEvents: false,
+              messagesBefore: null,
+              eventsBefore: null,
+              loading: true,
+            },
+          },
         },
         't1',
         {
@@ -426,6 +444,8 @@ describe("a task's logs", () => {
           toolEvents: [],
           hasOlderMessages: true,
           hasOlderEvents: false,
+          messagesBefore: null,
+          eventsBefore: null,
           touchedFiles: NO_TOUCHED_FILES,
           queuedMessages: [],
           questionSets: [],
@@ -446,7 +466,13 @@ describe("a task's logs", () => {
 
       expect(next.messages.t1).toEqual([early, late])
       expect(next.messages.t1?.[1]).toBe(late)
-      expect(next.historyTails.t1).toEqual({ hasOlderMessages: false, hasOlderEvents: true, loading: false })
+      expect(next.historyTails.t1).toEqual({
+        hasOlderMessages: false,
+        messagesBefore: 5,
+        hasOlderEvents: true,
+        eventsBefore: null,
+        loading: false,
+      })
     })
 
     it('keeps an event that arrived while the page was loading, in log order', () => {
@@ -455,6 +481,8 @@ describe("a task's logs", () => {
         toolEvents: [],
         hasOlderMessages: true,
         hasOlderEvents: false,
+        messagesBefore: null,
+        eventsBefore: null,
         touchedFiles: NO_TOUCHED_FILES,
         queuedMessages: [],
         questionSets: [],
@@ -480,6 +508,8 @@ describe("a task's logs", () => {
         toolEvents: [],
         hasOlderMessages: true,
         hasOlderEvents: false,
+        messagesBefore: null,
+        eventsBefore: null,
         touchedFiles: NO_TOUCHED_FILES,
         queuedMessages: [],
         questionSets: [],
@@ -498,7 +528,63 @@ describe("a task's logs", () => {
       const next = withOlderHistory(loaded, 't1', { ...page, messages: [early], hasOlderMessages: false })
 
       expect(next.messages.t1).toBe(loaded.messages.t1)
-      expect(next.historyTails.t1).toEqual({ hasOlderMessages: false, hasOlderEvents: true, loading: false })
+      expect(next.historyTails.t1).toEqual({
+        hasOlderMessages: false,
+        messagesBefore: 5,
+        hasOlderEvents: true,
+        eventsBefore: null,
+        loading: false,
+      })
+    })
+
+    it('keeps the further cursor on a repeat load, with its own flag, since the older pages stay loaded', () => {
+      // The window loaded a page back to `seq` 5, then the task was left and came back: the tail is what the second
+      // load sends, but the store keeps the page, so its own cursor and flag stand.
+      const back = withHistory(
+        {
+          ...state,
+          messages: { ...state.messages, t1: [early, late] },
+          historyTails: {
+            t1: {
+              hasOlderMessages: true,
+              hasOlderEvents: false,
+              messagesBefore: 5,
+              eventsBefore: null,
+              loading: false,
+            },
+          },
+        },
+        't1',
+        {
+          messages: [late],
+          toolEvents: [],
+          hasOlderMessages: true,
+          hasOlderEvents: false,
+          messagesBefore: 10,
+          eventsBefore: null,
+          touchedFiles: NO_TOUCHED_FILES,
+          queuedMessages: [],
+          questionSets: [],
+          permissionRequests: [],
+          permissionMarks: [],
+          openFiles: noOpenFiles('t1'),
+          todos: null,
+          artifacts: [],
+          handoff: null,
+          watchers: [],
+          commits: [],
+          questionDraft: null,
+          agentTab: null,
+        },
+      )
+
+      expect(back.historyTails.t1).toEqual({
+        hasOlderMessages: true,
+        messagesBefore: 5,
+        hasOlderEvents: false,
+        eventsBefore: null,
+        loading: false,
+      })
     })
   })
 
@@ -511,6 +597,8 @@ describe("a task's logs", () => {
         toolEvents: [subagentCall],
         hasOlderMessages: false,
         hasOlderEvents: false,
+        messagesBefore: null,
+        eventsBefore: null,
         touchedFiles: NO_TOUCHED_FILES,
         queuedMessages: [],
         questionSets: [],
@@ -563,6 +651,8 @@ describe("a task's queue", () => {
       questionDraft: null,
       hasOlderMessages: false,
       hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     })
@@ -610,6 +700,8 @@ describe("a task's questions", () => {
       questionDraft: null,
       hasOlderMessages: false,
       hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     }
@@ -660,6 +752,8 @@ describe("a task's permission requests", () => {
       questionDraft: null,
       hasOlderMessages: false,
       hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     }
@@ -707,6 +801,8 @@ describe("a task's permission marks", () => {
       questionDraft: null,
       hasOlderMessages: false,
       hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     }
@@ -741,6 +837,8 @@ describe("a task's open files", () => {
       questionDraft: null,
       hasOlderMessages: false,
       hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     }
@@ -791,6 +889,8 @@ describe("a task's artifacts", () => {
     questionDraft: null,
     hasOlderMessages: false,
     hasOlderEvents: false,
+    messagesBefore: null,
+    eventsBefore: null,
     touchedFiles: NO_TOUCHED_FILES,
     agentTab: null,
   })
@@ -865,6 +965,8 @@ describe("a task's watchers", () => {
     questionDraft: null,
     hasOlderMessages: false,
     hasOlderEvents: false,
+    messagesBefore: null,
+    eventsBefore: null,
     touchedFiles: NO_TOUCHED_FILES,
     agentTab: null,
   })
@@ -982,6 +1084,8 @@ describe("every task's running subagents", () => {
       questionDraft: null,
       hasOlderMessages: false,
       hasOlderEvents: false,
+      messagesBefore: null,
+      eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
     })
@@ -1026,6 +1130,8 @@ describe("a task's commits", () => {
     questionDraft: null,
     hasOlderMessages: false,
     hasOlderEvents: false,
+    messagesBefore: null,
+    eventsBefore: null,
     touchedFiles: NO_TOUCHED_FILES,
     agentTab: null,
   })
@@ -1063,6 +1169,8 @@ describe("a task's handoff note", () => {
     questionDraft: null,
     hasOlderMessages: false,
     hasOlderEvents: false,
+    messagesBefore: null,
+    eventsBefore: null,
     touchedFiles: NO_TOUCHED_FILES,
     agentTab: null,
   })
@@ -1107,6 +1215,8 @@ describe("a task's todo list", () => {
     questionDraft: null,
     hasOlderMessages: false,
     hasOlderEvents: false,
+    messagesBefore: null,
+    eventsBefore: null,
     touchedFiles: NO_TOUCHED_FILES,
     agentTab: null,
   })

@@ -55,6 +55,7 @@ import { PastedBlockRow } from './PastedBlockRow'
 import { useSearchHighlight } from '../search/Highlight'
 import { useRevealMatch } from '../search/useRevealMatch'
 import { useKeepScrollOnPrepend, useLoadOlderOnScroll } from '../history/useOlderHistory'
+import { visibleLog } from '../store/visibleLog'
 import { useStickToBottom } from './useStickToBottom'
 import styles from './Chat.module.css'
 
@@ -356,9 +357,19 @@ function NewTaskPrompt({ root }: NewTaskPromptProps): React.JSX.Element {
  */
 export function Chat(): React.JSX.Element {
   const task = useGladeStore(selectSelectedTask)
-  const messages = useGladeStore((state) => (task === undefined ? undefined : state.messages[task.id])) ?? NO_MESSAGES
+  // The chat shows the contiguous tail of each log and the older pages loaded onto it (#637): a carried divider sent
+  // whole however old can sit far older in the window's log, and joins the chat once its page does. The permission
+  // cards read the whole log, which is what the subagent a card names comes from.
+  const messages = useGladeStore((state) =>
+    task === undefined
+      ? NO_MESSAGES
+      : visibleLog(state.messages[task.id] ?? NO_MESSAGES, state.historyTails[task.id]?.messagesBefore ?? null),
+  )
   const toolEvents =
     useGladeStore((state) => (task === undefined ? undefined : state.toolEvents[task.id])) ?? NO_TOOL_EVENTS
+  const eventsBefore = useGladeStore((state) =>
+    task === undefined ? null : (state.historyTails[task.id]?.eventsBefore ?? null),
+  )
   const focusTurn = useGladeStore((state) => state.focusTurn)
   const insertIntoInput = useGladeStore((state) => state.insertIntoInput)
   const questionSets =
@@ -372,8 +383,9 @@ export function Chat(): React.JSX.Element {
   const handoff = useGladeStore((state) => (task === undefined ? undefined : state.handoffs[task.id])) ?? null
 
   const entries = useMemo(
-    () => (task === undefined ? [] : chatEntries(task, messages, toolEvents, questionSets, permissionRequests)),
-    [task, messages, toolEvents, questionSets, permissionRequests],
+    () =>
+      task === undefined ? [] : chatEntries(task, messages, toolEvents, questionSets, permissionRequests, eventsBefore),
+    [task, messages, toolEvents, questionSets, permissionRequests, eventsBefore],
   )
   // The first open permission card takes the focus; once it's answered, the next one does.
   const firstOpen = permissionRequests.find(({ state }) => state === PermissionRequestState.Open)?.id

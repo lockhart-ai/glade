@@ -591,10 +591,15 @@ describe("the task's history on first load (#637)", () => {
     // The tail: its oldest message is turn 126's (75 pairs to the page), its newest the last reply.
     expect(history.messages[0]?.body).toBe('Part 126?')
     expect(history.messages.at(-1)?.body).toBe('Part 200 done.')
+    // Each log's cursor is the tail's oldest `seq` (#637), what `tasks.historyBefore` pages from.
+    expect(history.messagesBefore).toBe(251)
+    expect(history.eventsBefore).toBe(251)
     // A short task has no older history.
     const short = await handlers[CommandName.TasksHistory]({ id: seededTask(2, 2, `${ROOT}-2`) })
     expect(short.hasOlderMessages).toBe(false)
     expect(short.hasOlderEvents).toBe(false)
+    expect(short.messagesBefore).toBe(1)
+    expect(short.eventsBefore).toBe(1)
   })
 
   it('always sends every subagent-starting call and the dividers that mark its life, however old', async () => {
@@ -632,6 +637,44 @@ describe("the task's history on first load (#637)", () => {
     expect(ids).toHaveLength(HISTORY_PAGE + 3) // the page, then the carried call and dividers
     expect(ids).toContain(agent.id)
     expect(new Set(ids).size).toBe(ids.length)
+    // The carried entries sit apart from the tail (a page's worth of Reads between), so they leave the tail's cursor
+    // where it was: they show once their page loads (#637).
+    expect(history.eventsBefore).toBe(15)
+  })
+
+  it('extends the tail with the carried entries that join onto it, so their page never loads', async () => {
+    const taskId = sampleTask(database.db, sampleWorkspace(database.db, `${ROOT}-1`).id).id
+    // Ten old Reads, then — joining onto the tail the page covers — a reopened divider and a subagent's call, then
+    // the Reads the tail covers. The window holds from the divider up, so the cursor reaches back to it.
+    for (let index = 1; index <= 10; index += 1) {
+      const call = appendToolCall(
+        database.db,
+        { taskId, turn: 1, name: 'Read', input: {}, toolUseId: `old-${String(index)}`, parentToolUseId: null },
+        index,
+      )
+      updateToolCall(database.db, { taskId, toolUseId: call.toolUseId, state: ToolCallState.Done, output: 'ok' }, 1)
+    }
+    appendDivider(database.db, { taskId, turn: 1, dividerKind: DividerKind.Reopened }, 11)
+    appendToolCall(
+      database.db,
+      { taskId, turn: 1, name: 'Agent', input: { description: 'Scout' }, toolUseId: 'agent-1', parentToolUseId: null },
+      12,
+    )
+    for (let index = 1; index <= 150; index += 1) {
+      const call = appendToolCall(
+        database.db,
+        { taskId, turn: 1, name: 'Read', input: {}, toolUseId: `u${String(index)}`, parentToolUseId: null },
+        12 + index,
+      )
+      updateToolCall(database.db, { taskId, toolUseId: call.toolUseId, state: ToolCallState.Done, output: 'ok' }, 13)
+    }
+
+    const history = await handlers[CommandName.TasksHistory]({ id: taskId })
+
+    // The tail is the last 150 Reads (seq 13..162); the carried two join onto it, so the cursor is the divider's.
+    expect(history.toolEvents).toHaveLength(HISTORY_PAGE + 2)
+    expect(history.hasOlderEvents).toBe(true)
+    expect(history.eventsBefore).toBe(11)
   })
 
   it('carries the files the agent changed or read over its whole history', async () => {
@@ -673,6 +716,8 @@ describe("the task's history on first load (#637)", () => {
       })
       expect(page.messages.map(({ seq }) => seq)).toEqual(Array.from({ length: 50 }, (_, index) => 1 + index))
       expect(page.hasOlderMessages).toBe(false)
+      // The page's cursor is its new oldest `seq` (#637), what the next page pages from.
+      expect(page.messagesBefore).toBe(1)
       // The tool log pages the same way, from its oldest entry loaded.
       const eventsBefore = first.toolEvents[0]?.seq
       expect(eventsBefore).toBe(51)
@@ -684,6 +729,7 @@ describe("the task's history on first load (#637)", () => {
       })
       expect(eventPage.toolEvents.map(({ seq }) => seq)).toEqual([41, 42, 43, 44, 45, 46, 47, 48, 49, 50])
       expect(eventPage.hasOlderEvents).toBe(true)
+      expect(eventPage.eventsBefore).toBe(41)
       // A page cut off says more older follow it.
       const shortPage = await handlers[CommandName.TasksHistoryBefore]({
         taskId,
@@ -693,7 +739,8 @@ describe("the task's history on first load (#637)", () => {
       })
       expect(shortPage.messages.map(({ seq }) => seq)).toEqual([5, 6, 7, 8, 9])
       expect(shortPage.hasOlderMessages).toBe(true)
-      // Paging from nothing brings an empty page, saying there's nothing older.
+      expect(shortPage.messagesBefore).toBe(5)
+      // Paging from nothing brings an empty page, saying there's nothing older, each cursor what was asked.
       const empty = await handlers[CommandName.TasksHistoryBefore]({
         taskId,
         messagesBefore: null,
@@ -702,6 +749,8 @@ describe("the task's history on first load (#637)", () => {
       })
       expect(empty.messages).toEqual([])
       expect(empty.hasOlderMessages).toBe(false)
+      expect(empty.messagesBefore).toBeNull()
+      expect(empty.eventsBefore).toBeNull()
     })
 
     it('refuses a task that is gone', () => {

@@ -154,3 +154,55 @@ test('older history loads as the chat scrolls up, keeping the scroll position (#
     })
     .toBeLessThanOrEqual(24)
 })
+
+test('the tool log pages in the whole log as you scroll its top, with no hole at the carried entries (#637)', async ({
+  launch,
+  tempFolder,
+}) => {
+  test.setTimeout(120_000)
+  const seed = writeSwitchLatencySeed(tempFolder())
+  const { window } = await launch({ seed })
+  await expect(taskHeader(window).title).toHaveText(LONG_TASK_TITLES[0] ?? '')
+
+  // The log holds the tail first (the last screenful of about 1,600 events), with the seed's early Reopened divider
+  // and subagent call sent whole however old, far older than it. Paging goes by the tail's own cursor: from the
+  // oldest entry the window holds — one of those — would ask before seq 2 and never load what lies between, and the
+  // log would stop growing a page into it. So: scroll to the top over and over, and watch the loaded rows grow by
+  // about a page each time until the whole log is there, ending at the carried divider.
+  const samples = await window.evaluate(async () => {
+    const log = document.querySelector<HTMLElement>('[role="log"][aria-label="Tool log"]')
+    if (log === null) return { counts: [] as number[], top: '' }
+    const count = (): number => log.firstElementChild?.children.length ?? 0
+    const counts = [count()]
+    for (let round = 0; round < 20; round += 1) {
+      const before = count()
+      log.scrollTop = 0
+      // One scroll loads at most one page; wait for it, or for the end of the log, before looking again.
+      const deadline = performance.now() + 5_000
+      while (performance.now() < deadline) {
+        await new Promise((resolve) => requestAnimationFrame(resolve))
+        if (count() !== before) break
+      }
+      const after = count()
+      counts.push(after)
+      if (after === before) break
+    }
+    const first = log.firstElementChild?.children[0]
+    return { counts, top: first?.getAttribute('aria-label') ?? first?.textContent ?? '' }
+  })
+
+  // The tail only, then page after page: the count grew over several scrolls, each page about a page of rows — no
+  // hole — and the log holds its whole length in the end. The last growth can be short: a partial page, or just the
+  // carried entries joining as the cursor passes them.
+  expect(samples.counts[0]).toBeLessThan(160)
+  expect(samples.counts.length).toBeGreaterThan(5)
+  const growths = samples.counts
+    .slice(1)
+    .map((count, index) => count - (samples.counts[index] ?? 0))
+    .filter((growth) => growth > 0)
+  for (const growth of growths.slice(0, -1)) {
+    expect(growth).toBeGreaterThanOrEqual(50)
+  }
+  expect(samples.counts.at(-1)).toBeGreaterThan(1_000)
+  expect(samples.top).toContain('reopened')
+})

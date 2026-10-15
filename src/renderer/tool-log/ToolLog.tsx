@@ -15,7 +15,8 @@ import { useElapsedNow } from '../agents/useElapsedNow'
 import { clockTime } from '../chat/chatModel'
 import { InlineMarkdown } from '../chat/Markdown'
 import { useKeepScrollOnPrepend, useLoadOlderOnScroll } from '../history/useOlderHistory'
-import { useGladeStoreApi } from '../store/react'
+import { useGladeStore, useGladeStoreApi } from '../store/react'
+import { visibleLog } from '../store/visibleLog'
 import { useStickToBottom } from '../chat/useStickToBottom'
 import { classNames } from '../components/classNames'
 import { moduleClass } from '../components/moduleClass'
@@ -389,9 +390,16 @@ export function ToolLog({
   onOpenAgent,
   watchers,
 }: ToolLogProps): React.JSX.Element {
+  // The task's own log shows the contiguous tail and the older pages loaded onto it (#637): carried entries sent
+  // whole however old, and a subagent's whole log once it loads, can sit far older in the window's log, and join the
+  // list once their page does. A subagent's tab shows its own log whole.
+  const eventsBefore = useGladeStore((state) =>
+    agentId === null ? (state.historyTails[taskId]?.eventsBefore ?? null) : null,
+  )
+  const shown = useMemo(() => visibleLog(events, eventsBefore), [events, eventsBefore])
   const rows = useMemo(
-    () => agentLogRows(events, agentId, permissions, watchers),
-    [events, agentId, permissions, watchers],
+    () => agentLogRows(shown, agentId, permissions, watchers),
+    [shown, agentId, permissions, watchers],
   )
   // A permission line coming or going changes a row's height, as a new row changes the log's.
   const { ref, onScroll } = useStickToBottom(rows, taskId)
@@ -417,52 +425,50 @@ export function ToolLog({
   // Scrolls to and highlights the turn asked for. The highlight is a class set on the row directly, not React state,
   // since it's a moment's decoration of the DOM; it's taken off on a timer, which outlives `focus` being cleared.
   // A turn in history the log hasn't loaded yet (#637): older pages load until its first row is among them, then it
-  // shows the same way.
+  // shows the same way — as many pages as it takes, until there's none older to bring in.
   useEffect(() => {
     if (focus === null || focus === undefined) return
     onFocusShown?.()
     const show = async (): Promise<void> => {
-      let target = ref.current?.querySelector<HTMLElement>(`[${TURN_START}="${String(focus.turn)}"]`) ?? null
       for (;;) {
-        if (target === null) {
-          // The turn isn't loaded: it may be in history not loaded yet (#637). Stop when there's none older to bring
-          // in, or a load failed; after one that answers, wait for the frame that shows its rows before looking again.
-          const tail = store.getState().historyTails[taskId]
-          if (tail?.hasOlderEvents !== true) return
-          const loaded = await store
-            .getState()
-            .loadOlderHistory(taskId)
-            .then(
-              () => true,
-              () => false,
-            )
-          if (!loaded) return
-          // Wait for the frame that shows the page's rows before looking for the turn's first row again.
-          await new Promise<void>((resolve) => {
-            requestAnimationFrame(() => {
-              resolve()
-            })
-          })
-          target = ref.current?.querySelector<HTMLElement>(`[${TURN_START}="${String(focus.turn)}"]`) ?? null
-          if (target === null) return
-        }
-        const shown = target
-        shown.scrollIntoView({ block: 'start' })
+        const target = ref.current?.querySelector<HTMLElement>(`[${TURN_START}="${String(focus.turn)}"]`) ?? null
+        if (target !== null) {
+          const shown = target
+          shown.scrollIntoView({ block: 'start' })
 
-        const previous = highlighted.current
-        if (previous !== null) {
-          clearTimeout(previous.timer)
-          previous.element.classList.remove(HIGHLIGHT_CLASS)
+          const previous = highlighted.current
+          if (previous !== null) {
+            clearTimeout(previous.timer)
+            previous.element.classList.remove(HIGHLIGHT_CLASS)
+          }
+          // Reading the layout restarts the animation when the same row is highlighted again.
+          shown.getBoundingClientRect()
+          shown.classList.add(HIGHLIGHT_CLASS)
+          const timer = setTimeout(() => {
+            shown.classList.remove(HIGHLIGHT_CLASS)
+            highlighted.current = null
+          }, FOCUS_HIGHLIGHT_MS)
+          highlighted.current = { element: shown, timer }
+          return
         }
-        // Reading the layout restarts the animation when the same row is highlighted again.
-        shown.getBoundingClientRect()
-        shown.classList.add(HIGHLIGHT_CLASS)
-        const timer = setTimeout(() => {
-          shown.classList.remove(HIGHLIGHT_CLASS)
-          highlighted.current = null
-        }, FOCUS_HIGHLIGHT_MS)
-        highlighted.current = { element: shown, timer }
-        return
+        // The turn isn't loaded: it may be in history not loaded yet (#637). Stop when there's none older to bring
+        // in, or a load failed; after one that answers, wait for the frame that shows its rows before looking again.
+        const tail = store.getState().historyTails[taskId]
+        if (tail?.hasOlderEvents !== true) return
+        const loaded = await store
+          .getState()
+          .loadOlderHistory(taskId)
+          .then(
+            () => true,
+            () => false,
+          )
+        if (!loaded) return
+        // Wait for the frame that shows the page's rows before looking for the turn's first row again.
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            resolve()
+          })
+        })
       }
     }
     void show()

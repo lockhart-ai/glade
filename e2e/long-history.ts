@@ -35,6 +35,8 @@ interface SeedMessage {
 
 type SeedToolEvent =
   | { readonly kind: 'divider'; readonly dividerKind: 'turn'; readonly turn: number; readonly minutesAgo: number }
+  // The dividers that mark the task's life, which a first load always sends whole however old (#637).
+  | { readonly kind: 'divider'; readonly dividerKind: 'reopened'; readonly turn: number; readonly minutesAgo: number }
   | { readonly kind: 'narration'; readonly text: string; readonly turn: number; readonly minutesAgo: number }
   | {
       readonly kind: 'tool_call'

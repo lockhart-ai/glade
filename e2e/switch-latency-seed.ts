@@ -113,6 +113,31 @@ function withExtras(task: SeedTask, index: number, workspace: number): SeedTask 
   } as SeedTask
 }
 
+/**
+ * Plants the log's first two entries of the first long task: a Reopened divider and a subagent-starting `Agent` call
+ * (#637), the two kinds a first load always sends whole however old. They sit a tail's length older than the last
+ * screenful, so paging the log in as you scroll up goes by the tail's own cursor: from the oldest entry the window
+ * holds — one of these — would ask before `seq` 2 and never load what lies between.
+ */
+function withEarlyCarried(task: SeedTask): SeedTask {
+  return {
+    ...task,
+    toolEvents: [
+      { kind: 'divider', dividerKind: 'reopened', turn: 1, minutesAgo: task.startedMinutesAgo + 2 },
+      {
+        kind: 'tool_call',
+        name: 'Agent',
+        input: { description: 'Scout the release', prompt: 'Scout the release.' },
+        output: 'The release looks on track.',
+        toolUseId: 'agent-early',
+        turn: 1,
+        minutesAgo: task.startedMinutesAgo + 1,
+      },
+      ...task.toolEvents,
+    ],
+  }
+}
+
 /** Builds the installation's tasks, one workspace at a time, long tasks first in each. */
 function buildTasks(): SeedTask[] {
   const tasks: SeedTask[] = []
@@ -125,7 +150,9 @@ function buildTasks(): SeedTask[] {
       LONG_TASK_TITLES.push(title)
       const selected = workspaceIndex === 0 && index === 0
       const base = historyTask(title, LONG_SCALE, selected, true)
-      tasks.push({ ...withExtras(base, index, workspaceIndex), minutesAgo, ...extra })
+      const seeded = { ...withExtras(base, index, workspaceIndex), minutesAgo, ...extra }
+      // The task the window opens on carries the early entries the paging spec checks (#637).
+      tasks.push(selected ? withEarlyCarried(seeded) : seeded)
       minutesAgo += 1
     }
     for (let index = 0; index < MEDIUM_PER_WORKSPACE; index += 1) {

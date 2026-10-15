@@ -101,6 +101,8 @@ const TASK_HANDLERS = {
     toolEvents: [],
     hasOlderMessages: false,
     hasOlderEvents: false,
+    messagesBefore: null,
+    eventsBefore: null,
     touchedFiles: NO_TOUCHED_FILES,
     queuedMessages: [],
     questionSets: [],
@@ -117,8 +119,10 @@ const TASK_HANDLERS = {
   }),
   [CommandName.TasksHistoryBefore]: () => ({
     messages: [],
+    messagesBefore: null,
     hasOlderMessages: false,
     toolEvents: [],
+    eventsBefore: null,
     hasOlderEvents: false,
   }),
   [CommandName.TasksHistoryAgent]: () => ({ toolEvents: [] }),
@@ -374,6 +378,8 @@ describe('the command map', () => {
       readonly toolEvents: readonly ToolEvent[]
       readonly hasOlderMessages: boolean
       readonly hasOlderEvents: boolean
+      readonly messagesBefore: number | null
+      readonly eventsBefore: number | null
       readonly touchedFiles: TouchedFiles
       readonly queuedMessages: readonly QueuedMessage[]
       readonly questionSets: readonly QuestionSet[]

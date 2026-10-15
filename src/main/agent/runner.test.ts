@@ -451,6 +451,8 @@ describe('a turn', () => {
       toolEvents: listToolEvents(database.db, task.id),
       hasOlderMessages: false,
       hasOlderEvents: false,
+      messagesBefore: listMessages(database.db, task.id)[0]?.seq ?? null,
+      eventsBefore: listToolEvents(database.db, task.id)[0]?.seq ?? null,
       touchedFiles: NO_TOUCHED_FILES,
       queuedMessages: [],
       questionSets: [],

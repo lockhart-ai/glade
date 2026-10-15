@@ -687,10 +687,10 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       async loadOlderHistory(taskId) {
         const tail = get().historyTails[taskId]
         if (tail === undefined || tail.loading || !(tail.hasOlderMessages || tail.hasOlderEvents)) return
-        // The oldest entry the window has of each log is where the next older page starts; one without any sends
-        // `null`, which brings an empty page and says so.
-        const messagesBefore = get().messages[taskId]?.[0]?.seq ?? null
-        const eventsBefore = get().toolEvents[taskId]?.[0]?.seq ?? null
+        // Each log pages from the tail's own cursor (#637), not the oldest entry the window holds: carried events and
+        // a subagent's whole log can sit far older, and paging from those would skip what lies between. One without
+        // any sends `null`, which brings an empty page and says so.
+        const { messagesBefore, eventsBefore } = tail
         set((state) => ({
           ...state,
           historyTails: { ...state.historyTails, [taskId]: { ...tail, loading: true } },

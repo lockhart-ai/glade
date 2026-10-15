@@ -365,10 +365,17 @@ export interface TasksHistoryBeforeRequest {
   readonly limit: number
 }
 
-/** What `tasks.historyBefore` answers: the two pages, each oldest first, without repeating what was asked before. */
+/**
+ * What `tasks.historyBefore` answers: the two pages, each oldest first, without repeating what was asked before. Each
+ * log's cursor here is the page's new oldest `seq` (`HistoryTail.messagesBefore`, `.eventsBefore`, #637), or what was
+ * asked when that log's page is empty — which is also when nothing older follows it.
+ */
 export interface TasksHistoryBeforeResponse {
   readonly messages: readonly Message[]
   readonly toolEvents: readonly ToolEvent[]
+  /** The page's oldest `seq`, or the `messagesBefore` asked, when the page is empty. */
+  readonly messagesBefore: number | null
+  readonly eventsBefore: number | null
   /** Whether each log still has entries older than the page sent. */
   readonly hasOlderMessages: boolean
   readonly hasOlderEvents: boolean
@@ -670,6 +677,14 @@ export interface TasksHistoryResponse {
    */
   readonly hasOlderMessages: boolean
   readonly hasOlderEvents: boolean
+  /**
+   * The oldest `seq` of the contiguous tail this load carries of each log (#637): the chat log's is the tail's oldest
+   * message, and the tool log's is the tail's oldest event, carried events sent whole however old extending it when
+   * they join onto it. What `tasks.historyBefore` pages from (`HistoryTail.messagesBefore`, `.eventsBefore`); null
+   * when the log has nothing in it.
+   */
+  readonly messagesBefore: number | null
+  readonly eventsBefore: number | null
   /**
    * The files the task's agent changed or read over its whole history (the Files tab's list), worked out in main,
    * which has the whole log (#637). Live calls update it as they finish; the Files tab merges them in.

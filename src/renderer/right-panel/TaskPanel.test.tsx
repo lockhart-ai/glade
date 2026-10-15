@@ -814,15 +814,62 @@ describe('TaskPanel', () => {
         handlers: {
           [CommandName.TasksHistoryBefore]: () => ({
             messages: [],
+            messagesBefore: null,
             hasOlderMessages: false,
             toolEvents: page,
+            eventsBefore: null,
             hasOlderEvents: false,
           }),
         },
       })
-      store.setState({ historyTails: { t1: { hasOlderMessages: false, hasOlderEvents: true, loading: false } } })
+      store.setState({
+        historyTails: {
+          t1: { hasOlderMessages: false, hasOlderEvents: true, messagesBefore: null, eventsBefore: 5, loading: false },
+        },
+      })
       act(() => {
         store.getState().focusTurn('t1', 9)
+      })
+      await waitFor(() => {
+        expect(scrollIntoView.mock.contexts.at(-1)).toBe(
+          within(log()).getByRole('separator', { name: 'turn 9 · 11:20' }),
+        )
+      })
+      expect(within(log()).getByRole('separator', { name: 'turn 9 · 11:20' })).toHaveClass(HIGHLIGHT_CLASS)
+    })
+
+    it('loads as many older pages as the turn takes, two pages back revealing it too (#637)', async () => {
+      // The first page is older history without the turn; the second brings it. The reveal keeps loading until the
+      // turn shows, or nothing older remains.
+      const middle = [divider('d8', 8), call('c8', { turn: 8 })]
+      const last = [divider('d9', 9), call('c9', { turn: 9 })]
+      let pages = 0
+      const { store } = await renderPanel({
+        handlers: {
+          [CommandName.TasksHistoryBefore]: () => {
+            pages += 1
+            const page = pages === 1 ? middle : last
+            return {
+              messages: [],
+              messagesBefore: null,
+              hasOlderMessages: false,
+              toolEvents: page,
+              eventsBefore: null,
+              hasOlderEvents: pages === 1,
+            }
+          },
+        },
+      })
+      store.setState({
+        historyTails: {
+          t1: { hasOlderMessages: false, hasOlderEvents: true, messagesBefore: null, eventsBefore: 5, loading: false },
+        },
+      })
+      act(() => {
+        store.getState().focusTurn('t1', 9)
+      })
+      await waitFor(() => {
+        expect(pages).toBe(2)
       })
       await waitFor(() => {
         expect(scrollIntoView.mock.contexts.at(-1)).toBe(
@@ -839,7 +886,11 @@ describe('TaskPanel', () => {
             refuse(bridgeError(BridgeErrorCode.Internal, 'tasks.historyBefore failed: busy')),
         },
       })
-      store.setState({ historyTails: { t1: { hasOlderMessages: false, hasOlderEvents: true, loading: false } } })
+      store.setState({
+        historyTails: {
+          t1: { hasOlderMessages: false, hasOlderEvents: true, messagesBefore: null, eventsBefore: 5, loading: false },
+        },
+      })
       fireEvent.click(tab('Files'))
 
       act(() => {

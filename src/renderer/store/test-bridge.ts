@@ -535,6 +535,9 @@ export function fakeHandlers(
       toolEvents: (main.toolEvents ?? []).filter((event) => event.taskId === id),
       hasOlderMessages: false,
       hasOlderEvents: false,
+      // The fake main holds each task's whole history, so each log's cursor is its oldest entry's `seq` (#637).
+      messagesBefore: (main.messages ?? []).find((message) => message.taskId === id)?.seq ?? null,
+      eventsBefore: (main.toolEvents ?? []).find((event) => event.taskId === id)?.seq ?? null,
       touchedFiles: NO_TOUCHED_FILES,
       queuedMessages: queueOf(id),
       questionSets: (main.questionSets ?? []).filter((set) => set.taskId === id),
@@ -550,11 +553,13 @@ export function fakeHandlers(
       agentTab: main.agentTabs?.[id] ?? null,
     }),
     // The fake main holds each task's whole history, so there's never anything older to load (#637): the pages are
-    // empty and say so. A test that wants pages overrides this handler.
-    [CommandName.TasksHistoryBefore]: () => ({
+    // empty and say so, each log's cursor what was asked. A test that wants pages overrides this handler.
+    [CommandName.TasksHistoryBefore]: ({ messagesBefore, eventsBefore }) => ({
       messages: [],
+      messagesBefore,
       hasOlderMessages: false,
       toolEvents: [],
+      eventsBefore,
       hasOlderEvents: false,
     }),
     [CommandName.TasksHistoryAgent]: ({ taskId, agentId }) => ({

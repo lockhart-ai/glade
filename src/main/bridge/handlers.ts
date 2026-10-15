@@ -10,7 +10,7 @@ import {
   type CommandResponse,
 } from '../../shared/bridge'
 import type { MenuState } from '../../shared/commands'
-import type { ToolEvent, Workspace } from '../../shared/domain'
+import type { Message, ToolEvent, Workspace } from '../../shared/domain'
 import { SUBAGENT_TOOL_NAMES } from '../../shared/subagents'
 import { touchedFiles } from '../../shared/touchedFiles'
 import type { AgentRunner } from '../agent/runner'
@@ -182,6 +182,22 @@ function withCarriedEvents(tail: ToolEvent[], carried: ToolEvent[]): ToolEvent[]
   return [...tail, ...carried.filter(({ id }) => !ids.has(id))]
 }
 
+/**
+ * The oldest `seq` of the contiguous tail `sentIds` holds, of the whole log `log` runs newest last in (#637): walking
+ * down from the newest entry while each is among the ones sent. A carried entry sent whole however old extends the
+ * tail when it joins onto it — one that sits older than the tail leaves the tail where it was, and that entry shows
+ * once its page loads. Null when nothing of the log is sent.
+ */
+function contiguousBefore(log: readonly (ToolEvent | Message)[], sentIds: ReadonlySet<string>): number | null {
+  let before: number | null = null
+  for (let index = log.length - 1; index >= 0; index -= 1) {
+    const entry = log[index]
+    if (entry === undefined || !sentIds.has(entry.id) || entry.seq === undefined) break
+    before = entry.seq
+  }
+  return before
+}
+
 /** The workspace a new terminal tab belongs to and starts in, or null for none. */
 function terminalWorkspace(db: Database, workspaceId: string | null): Workspace | null {
   if (workspaceId === null) return null
@@ -330,8 +346,12 @@ export function createHandlers(context: HandlerContext): Handlers {
       return {
         messages: messages.slice(-HISTORY_PAGE),
         hasOlderMessages: messages.length > HISTORY_PAGE,
+        // Each log's cursor: the oldest `seq` of the contiguous tail the load carries (#637), what
+        // `tasks.historyBefore` pages from.
+        messagesBefore: contiguousBefore(messages, new Set(messages.slice(-HISTORY_PAGE).map(({ id }) => id))),
         toolEvents: sent,
         hasOlderEvents: events.some(({ id: eventId }) => !sentIds.has(eventId)),
+        eventsBefore: contiguousBefore(events, sentIds),
         touchedFiles: touchedFiles(events, rootPath),
         queuedMessages: listQueuedMessages(db, id),
         questionSets: listQuestionSets(db, id),
@@ -354,11 +374,16 @@ export function createHandlers(context: HandlerContext): Handlers {
       // One more than the page, so the answer can say whether older entries still follow it.
       const messages = messagesBefore === null ? [] : listMessagesBefore(db, taskId, messagesBefore, limit + 1)
       const events = eventsBefore === null ? [] : listToolEventsBefore(db, taskId, eventsBefore, limit + 1)
-      // Of the page-plus-one fetched, the newest `limit` are the page; the extra one only says more follow.
+      const messagePage = messages.slice(-limit)
+      const eventPage = events.slice(-limit)
+      // Of the page-plus-one fetched, the newest `limit` are the page; the extra one only says more follow. Each
+      // log's cursor is the page's new oldest `seq`, or what was asked when the page is empty (#637).
       return {
-        messages: messages.slice(-limit),
+        messages: messagePage,
+        messagesBefore: messagePage[0]?.seq ?? messagesBefore,
         hasOlderMessages: messages.length > limit,
-        toolEvents: events.slice(-limit),
+        toolEvents: eventPage,
+        eventsBefore: eventPage[0]?.seq ?? eventsBefore,
         hasOlderEvents: events.length > limit,
       }
     },

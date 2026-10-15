@@ -23,7 +23,7 @@ import { settingsGrantScopeKey, type Grant, type SettingsGrantTarget } from '../
 import { isSubagentTool } from '../../shared/subagents'
 import { refKey } from '../../shared/todoHub'
 import { withCountedChange, withoutDoneLists } from './doneLists'
-import type { GladeData } from './state'
+import type { GladeData, HistoryTail } from './state'
 
 /** A stored selection id: the empty string means nothing is selected. */
 export function idFromUiState(value: string): string | null {
@@ -150,6 +150,42 @@ function mergedBySeq<T extends SequencedLogEntry>(
   return [...kept, ...additions].sort(bySeq)
 }
 
+/** One log's cursor and older-history flag, as a history load answers it (#637). */
+interface LogTail {
+  readonly hasOlder: boolean
+  readonly before: number | null
+}
+
+/**
+ * One log's cursor and older-history flag, as a history load leaves them (#637): a first load takes the answer as it
+ * is; a repeat one (switching back to a task) keeps whichever cursor reaches further back, with its own flag, since
+ * the store keeps the older pages it already loaded.
+ */
+function keptLogTail(loaded: LogTail, current: LogTail | undefined): LogTail {
+  if (current === undefined) return loaded
+  if (loaded.before === null) return current.before === null ? loaded : current
+  return current.before === null || current.before >= loaded.before ? loaded : current
+}
+
+/** `withHistory`'s two logs' tails, as one history load leaves them. */
+function keptTails(history: TasksHistoryResponse, current: HistoryTail | undefined): HistoryTail {
+  const messages = keptLogTail(
+    { hasOlder: history.hasOlderMessages, before: history.messagesBefore },
+    current === undefined ? undefined : { hasOlder: current.hasOlderMessages, before: current.messagesBefore },
+  )
+  const events = keptLogTail(
+    { hasOlder: history.hasOlderEvents, before: history.eventsBefore },
+    current === undefined ? undefined : { hasOlder: current.hasOlderEvents, before: current.eventsBefore },
+  )
+  return {
+    hasOlderMessages: messages.hasOlder,
+    messagesBefore: messages.before,
+    hasOlderEvents: events.hasOlder,
+    eventsBefore: events.before,
+    loading: false,
+  }
+}
+
 /**
  * Records a task's chat log and tool log as loaded from main, keeping anything newer events already brought.
  * `artifactsVersionAtLoad` is the task's `artifactsVersion` at the moment this load started (`loadHistory` in
@@ -171,14 +207,11 @@ export function withHistory(
       ...state.toolEvents,
       [taskId]: mergedBySeq<ToolEvent>(history.toolEvents, state.toolEvents[taskId] ?? [], false),
     },
-    // How much older history remains, as this load's answer had it (#637); `loadOlderHistory` brings the rest in.
+    // How much older history remains, and how far back the loaded tail reaches, as this load answers it (#637);
+    // `loadOlderHistory` brings the rest in, paging from the tail's own cursor.
     historyTails: {
       ...state.historyTails,
-      [taskId]: {
-        hasOlderMessages: history.hasOlderMessages,
-        hasOlderEvents: history.hasOlderEvents,
-        loading: false,
-      },
+      [taskId]: keptTails(history, state.historyTails[taskId]),
     },
     // The touched-files summary main worked out over the whole log (the Files tab's list), as of this load (#637).
     touchedFiles: { ...state.touchedFiles, [taskId]: history.touchedFiles },
@@ -242,7 +275,11 @@ export function withOlderHistory(state: GladeData, taskId: string, page: TasksHi
       ...state.historyTails,
       [taskId]: {
         hasOlderMessages: page.hasOlderMessages,
+        // The page's own cursors say how far back the loaded tail now reaches (#637); one whose page is empty
+        // answers what was asked, which is the cursor it already was.
+        messagesBefore: page.messagesBefore,
         hasOlderEvents: page.hasOlderEvents,
+        eventsBefore: page.eventsBefore,
         loading: false,
       },
     },
