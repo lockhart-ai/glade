@@ -3549,3 +3549,32 @@ a real login expiring, which isn't something a test can force.
   or has no project key, exactly like a task's own session. A dispatch's own `resume` is only accepted on the
   same model as the child's first run (`managed-backend.ts`), so a child's session never has to switch sources
   mid-life — only its *first* run can be on the other source than its parent.
+
+## 19. Subagent worktrees and a resumed subagent's siblings (#635, #636) [read in the bundle, 2.1.283, not probed live]
+
+Two behaviours of Claude Code's own, read in the bundled binary (2.1.283, the one `@anthropic-ai/claude-agent-sdk`
+0.3.283 runs) rather than reproduced live; both were seen in a Glade task and diagnosed from Glade's source and the
+bundle (#635, #636). The function and attachment names below are the bundle's own.
+
+- **The `Agent` tool removes a subagent's worktree when its run changed nothing (#635).** The tool's description says
+  so itself: "`isolation: "worktree"` gives the agent its own git worktree (auto-cleaned if unchanged)". The cleanup
+  lives in the bundle's worktree-session code: at the end of a run, `cleanupWorktree` reads the worktree's changes
+  (`getAgentWorktreeChanges`, commits ahead and tracked changes against the baseline it read when the worktree was
+  made) and, when the run ended with no new commits and no changed files, `removeAgentWorktree` removes the worktree
+  and its branch. They are kept when the run changed something, when a `WorktreeRemove` hook keeps the worktree (the
+  bundle: "WorktreeRemove hook …; kept worktree at"), or when a safety check refuses (a lock from a live session,
+  unverifiable paths — "unverifiable file(s); only an explicit discard may dispatch the remove hook"). A plan-only
+  turn changes nothing, so the worktree and branch are gone before the parent resumes the child, and `EnterWorktree`
+  then refuses a child whose cwd is a worktree override ("it would mutate the parent session's process-wide working
+  directory…"). The failing-hook lever can't be aimed: the hook is not told which subagent a worktree belongs to, so
+  keeping one would keep every one; not recommended without a live probe.
+- **A resumed subagent is shown its siblings' live status (#636).** When a turn is assembled, a
+  `background_task_status` attachment is built from the background work in the process. Background shell commands are
+  filtered to their owner; background agents are not: every background agent except the agent the turn belongs to is
+  listed, each as a system reminder — `Background agent "<name>" is still running. Progress: <…> Do NOT spawn a
+  duplicate. You will be notified when it completes. Send it a message with …`. A resumed subagent, running in the
+  parent's process, therefore sees its siblings' descriptions and progress lines and may answer them as if it were
+  the main agent. No SDK option turns the attachment off, and Glade adds no such list itself (its context hook
+  returns nothing for a subagent's call). Glade's wording to the parent (the delegation append in
+  `managed-backend.ts`) says a resumed subagent may be shown its siblings' status and to message it plainly with
+  what to do.
