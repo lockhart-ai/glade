@@ -173,7 +173,8 @@ scroll: the chat passes under them.
   just type a reply in the input bar: it answers the questions in your own words.
 - **Pasted images:** paste a screenshot or image (PNG, JPEG, GIF or WebP, up to 3.75 MB each) into the input bar. It
   shows as a thumbnail you can remove, and goes to the agent with your message, an answer to a question card
-  included. Once sent (or queued), click a thumbnail, or press ↵ or Space on it, to see the image full size; ← and → step through the message's other images, and Esc or a click beside the image closes it.
+  included. Once sent (or queued), click a thumbnail, or press ↵ or Space on it, to see the image full size; ← and →
+  step through the message's other images, and Esc or a click beside the image closes it.
 - **Pasted text:** paste more than one line, or ~80 characters or more, and it's marked as its own block instead of
   landing in the field: a short token stands for it there, and a chip shows above the field ("Pasted text · 42
   lines"), with a ✕ to remove it and a click to expand or edit. A shorter paste (a path, a word, a URL) is left as
