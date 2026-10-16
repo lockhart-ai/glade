@@ -332,6 +332,34 @@ describe('the Browse tab watching a task’s folders', () => {
   })
 })
 
+describe('the Files tab watching its open files (#646)', () => {
+  it('broadcasts an open file changed on disk from outside the agent', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'glade-round-trip-'))
+    try {
+      writeFileSync(join(root, 'notes.md'), '# Notes\n')
+      const taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+      const events: GladeEvent[] = []
+      glade.subscribe((event) => events.push(event))
+
+      await glade.invoke(CommandName.FilesOpen, { taskId, path: 'notes.md' })
+
+      // Written again each try: FSEvents can take a moment to start reporting a folder just watched.
+      let writes = 0
+      await vi.waitFor(
+        () => {
+          writeFileSync(join(root, 'notes.md'), `# Notes ${String(writes++)}\n`)
+          expect(events).toContainEqual(
+            expect.objectContaining({ type: EventType.FileChanged, taskId, path: 'notes.md' }) as unknown,
+          )
+        },
+        { timeout: 10_000, interval: 200 },
+      )
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('a plugin reinstalled while Glade runs', () => {
   it('reloads its view, shown or not, once a rescan finds it changed on disk', async () => {
     const pluginsFolder = mkdtempSync(join(tmpdir(), 'glade-round-trip-plugins-'))

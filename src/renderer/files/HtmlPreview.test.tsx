@@ -55,14 +55,11 @@ interface Rendered {
   readonly store: GladeStore
   readonly main: FakeMain
   readonly emit: ReturnType<typeof fakeBridge>['emit']
-  readonly rerender: (version: string | undefined) => void
+  readonly rerender: (version: number) => void
   readonly unmount: () => void
 }
 
-async function renderPreview(
-  version: string | undefined = 'v1',
-  overrides: Partial<FakeHandlers> = {},
-): Promise<Rendered> {
+async function renderPreview(version = 1, overrides: Partial<FakeHandlers> = {}): Promise<Rendered> {
   const main: FakeMain = {
     workspaces: [sampleWorkspace('w1')],
     tasks: [sampleTask('t1', 'w1')],
@@ -71,7 +68,7 @@ async function renderPreview(
   const fake = fakeBridge(main, overrides)
   const store = createGladeStore(fake.bridge)
   await act(() => store.getState().hydrate())
-  const tree = (v: string | undefined): React.JSX.Element => (
+  const tree = (v: number): React.JSX.Element => (
     <GladeStoreProvider store={store}>
       <ToastProvider>
         <HtmlPreview taskId="t1" path="report.html" version={v} />
@@ -93,7 +90,7 @@ async function renderPreview(
 
 describe('HtmlPreview', () => {
   it('places the view over its slot, hides it on unmount, and reloads it when the file’s version changes', async () => {
-    const { main, unmount, rerender } = await renderPreview('v1')
+    const { main, unmount, rerender } = await renderPreview(1)
 
     await waitFor(() => {
       expect(main.placedHtmlPreviews).toEqual([
@@ -101,10 +98,10 @@ describe('HtmlPreview', () => {
       ])
     })
 
-    rerender('v1')
+    rerender(1)
     expect(main.reloadedHtmlPreviews ?? []).toHaveLength(0)
 
-    rerender('v2')
+    rerender(2)
     await waitFor(() => {
       expect(main.reloadedHtmlPreviews).toEqual([{ taskId: 't1', path: 'report.html' }])
     })
@@ -124,13 +121,13 @@ describe('HtmlPreview', () => {
     // The tab was closed and the file reopened (or the viewer shows it again): the view main kept may hold the
     // file's page from before, with the file since changed on disk. The fresh showing's first place says reopen;
     // later places (a resize, an overlay's giving way) only move the view.
-    const first = await renderPreview('v1')
+    const first = await renderPreview(1)
     await waitFor(() => {
       expect(first.main.placedHtmlPreviews).toHaveLength(1)
     })
     first.unmount()
 
-    const { main } = await renderPreview('v1')
+    const { main } = await renderPreview(1)
     await waitFor(() => {
       expect(main.placedHtmlPreviews).toEqual([
         { taskId: 't1', path: 'report.html', bounds: { x: 10, y: 20, width: 300, height: 200 }, reopen: true },
@@ -153,7 +150,7 @@ describe('HtmlPreview', () => {
   })
 
   it('shows a quiet notice once something is blocked, and clears it on the next reload', async () => {
-    const { emit, rerender } = await renderPreview('v1')
+    const { emit, rerender } = await renderPreview(1)
     expect(screen.queryByText(/this preview is offline/)).not.toBeInTheDocument()
 
     act(() => {
@@ -161,14 +158,14 @@ describe('HtmlPreview', () => {
     })
     expect(await screen.findByRole('status')).toHaveTextContent('Some content was blocked: this preview is offline.')
 
-    rerender('v2')
+    rerender(2)
     await waitFor(() => {
       expect(screen.queryByText(/this preview is offline/)).not.toBeInTheDocument()
     })
   })
 
   it('keeps the notice through a later resize: placing the view again never clears it', async () => {
-    const { main, emit } = await renderPreview('v1')
+    const { main, emit } = await renderPreview(1)
     await waitFor(() => {
       expect(main.placedHtmlPreviews).toHaveLength(1)
     })
@@ -195,7 +192,7 @@ describe('HtmlPreview', () => {
   })
 
   it('sends the box’s new bounds when the box itself resizes, as the panel around it narrows or the bottom panel opens', async () => {
-    const { main } = await renderPreview('v1')
+    const { main } = await renderPreview(1)
     await waitFor(() => {
       expect(main.placedHtmlPreviews).toEqual([
         { taskId: 't1', path: 'report.html', bounds: { x: 10, y: 20, width: 300, height: 200 }, reopen: true },
@@ -220,16 +217,16 @@ describe('HtmlPreview', () => {
 
   it('shows a toast when placing the view fails', async () => {
     const failure = bridgeError(BridgeErrorCode.Internal, 'The preview went wrong')
-    await renderPreview('v1', { [CommandName.FilesPlaceHtmlPreview]: () => refuse(failure) })
+    await renderPreview(1, { [CommandName.FilesPlaceHtmlPreview]: () => refuse(failure) })
 
     expect(await screen.findByText(/The preview went wrong/)).toBeInTheDocument()
   })
 
   it('shows a toast when reloading the view fails', async () => {
     const failure = bridgeError(BridgeErrorCode.Internal, 'The reload went wrong')
-    const { rerender } = await renderPreview('v1', { [CommandName.FilesReloadHtmlPreview]: () => refuse(failure) })
+    const { rerender } = await renderPreview(1, { [CommandName.FilesReloadHtmlPreview]: () => refuse(failure) })
 
-    rerender('v2')
+    rerender(2)
 
     expect(await screen.findByText(/The reload went wrong/)).toBeInTheDocument()
   })
