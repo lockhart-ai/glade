@@ -308,6 +308,7 @@ describe('FilesTab', () => {
         taskId: 't1',
         path: 'reports/report.html',
         bounds: { x: 0, y: 0, width: 0, height: 0 },
+        reopen: true,
       })
     })
   })

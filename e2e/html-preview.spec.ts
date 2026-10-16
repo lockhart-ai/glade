@@ -6,8 +6,9 @@ import type { AddressInfo } from 'node:net'
 import { dirname, join } from 'node:path'
 import { desktop, expect, test, type Glade } from './fixtures'
 import { expectPreviewOverSlot, htmlPreviewPages, htmlPreviewView, inHtmlPreview } from './html-preview'
+import { drag, resize } from './window-layout'
 import { PNG } from '../src/shared/test-images'
-import { filesTab, firstRun, taskList } from './selectors'
+import { filesTab, firstRun, panelToggles, taskList, taskPanel } from './selectors'
 
 /** Makes a workspace folder holding `files` (path → content, text or bytes), in a throwaway folder. */
 function workspace(tempFolder: () => string, files: Readonly<Record<string, string | Buffer>>): string {
@@ -68,6 +69,48 @@ async function openTask(window: Glade['window']): Promise<void> {
   await taskList(window).newTask.click()
 }
 
+/** Opens `REPORT` in its preview, so a test that moves the layout around can check the view stays in its box. */
+async function openReportPreview(glade: Glade): Promise<void> {
+  const { window } = glade
+  await openTask(window)
+  await window.keyboard.press('Meta+Alt+Digit2')
+  const files = filesTab(window)
+  await files.treeRow('reports').click()
+  await files.treeRow('report.html').click()
+  await window.keyboard.press('Enter')
+  await files.mode('Preview').click()
+  await expectPreviewOverSlot(glade)
+}
+
+test("the preview's view stays over its slot as the layout around it changes", async ({ launch, tempFolder }) => {
+  const root = workspace(tempFolder, {
+    'reports/report.html': REPORT,
+    'reports/chart.png': Buffer.from(PNG.data, 'base64'),
+  })
+  const glade = await launch({ chosenFolder: root })
+  await openReportPreview(glade)
+
+  // Dragging the right panel's splitter is a burst of resizes: each one re-places the view, and the last ask wins.
+  const handle = taskPanel(glade.window).resizeHandle
+  await drag(glade.window, handle, -60, 0)
+  await expectPreviewOverSlot(glade)
+  await drag(glade.window, handle, 90, 0)
+  await expectPreviewOverSlot(glade)
+
+  // The bottom panel collapsing takes the box taller; opening it again puts it back, and the view follows.
+  const { collapseBottomBar, showBottomBar } = panelToggles(glade.window)
+  await collapseBottomBar.click()
+  await expectPreviewOverSlot(glade)
+  await showBottomBar.click()
+  await expectPreviewOverSlot(glade)
+
+  // And the window itself resizing, wider and taller.
+  await resize(glade, 1500, 950)
+  await expectPreviewOverSlot(glade)
+  await resize(glade, 1100, 700)
+  await expectPreviewOverSlot(glade)
+})
+
 test('html preview: a static report renders as it would in a browser, opening on the preview and following the file', async ({
   launch,
   tempFolder,
@@ -114,6 +157,60 @@ test('html preview: a static report renders as it would in a browser, opening on
   await files.tab('report.html').click()
   await expect(files.mode('Preview')).toHaveAttribute('aria-checked', 'true')
   await expectPreviewOverSlot(glade)
+})
+
+test('html preview: a file closed and rewritten on disk shows its new contents when reopened', async ({
+  launch,
+  tempFolder,
+}) => {
+  const root = workspace(tempFolder, {
+    'reports/report.html': REPORT,
+    'notes/summary.md': '# Acme API\n\nCalls were steady this week.\n',
+  })
+  const glade = await launch({ chosenFolder: root })
+  const { window } = glade
+  await openTask(window)
+  await window.keyboard.press('Meta+Alt+Digit2')
+  const files = filesTab(window)
+
+  // The report, in preview.
+  await files.treeRow('reports').click()
+  await files.treeRow('report.html').click()
+  await window.keyboard.press('Enter')
+  await files.mode('Preview').click()
+  await expectPreviewOverSlot(glade)
+  expect(await inHtmlPreview(glade, 'document.querySelector("h1").textContent')).toBe('Acme API — Weekly Usage')
+
+  // A shell script rewrites the report straight to disk — not through the agent's tools — and the tab closes.
+  const rewritten = REPORT.replace('Weekly Usage', 'Monthly Usage').replace('(60 * 24 * 7).toLocaleString()', '42')
+  writeFileSync(join(root, 'reports/report.html'), rewritten)
+  await files.close('report.html').click()
+  await expect(files.tab('report.html')).toHaveCount(0)
+
+  // Reopening shows what is on disk now: the source first, then the preview.
+  await files.treeRow('report.html').click()
+  await window.keyboard.press('Enter')
+  await expect(files.editor).toContainText('Monthly Usage')
+  await files.mode('Preview').click()
+  await expectPreviewOverSlot(glade)
+  expect(await inHtmlPreview(glade, 'document.querySelector("h1").textContent')).toBe('Acme API — Monthly Usage')
+  expect(await inHtmlPreview(glade, 'document.getElementById("calls").textContent')).toBe('42')
+
+  // The same for a Markdown file's preview.
+  await files.browse.click()
+  await files.treeRow('notes').click()
+  await files.treeRow('summary.md').click()
+  await window.keyboard.press('Enter')
+  await files.mode('Preview').click()
+  await expect(files.contents).toContainText('Calls were steady this week.')
+  await files.close('summary.md').click()
+  writeFileSync(join(root, 'notes/summary.md'), '# Acme API\n\nCalls doubled this month.\n')
+  await files.browse.click()
+  await files.treeRow('summary.md').click()
+  await window.keyboard.press('Enter')
+  await expect(files.editor).toContainText('Calls doubled this month.')
+  await files.mode('Preview').click()
+  await expect(files.contents).toContainText('Calls doubled this month.')
 })
 
 test('html preview: a hostile page is contained like a plugin’s view: no bridge, no network, no escape, no navigation', async ({

@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import {
   ArtifactKind,
@@ -19,6 +19,7 @@ import {
 import { commitFileKey } from '../../shared/files'
 import { createChangeTracker } from '../changes/tracker'
 import { createGit } from '../git/git'
+import { resolveWorkspaceFile, workspaceRoot } from '../files/files'
 import { openTestRepos, TEST_GIT_RUN } from '../git/test-repos'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { BUILT_IN_MODELS } from '../../shared/models'
@@ -119,7 +120,15 @@ function pluginsWithViews(): { plugins: Plugins; pluginViews: PluginViews; htmlP
       pluginViews.reload(ids)
     },
   })
-  const htmlPreviewViews = createHtmlPreviewViews({ emit, createView: fakeHtmlPreview.create })
+  const htmlPreviewViews = createHtmlPreviewViews({
+    emit,
+    createView: fakeHtmlPreview.create,
+    // The file's folder on disk, as production resolves it (`bridge/index.ts`).
+    resolveFile: async (taskId, path) => {
+      const real = await resolveWorkspaceFile(workspaceRoot({ db: database.db, emit }, taskId), path)
+      return real === null ? null : { folder: dirname(real), fileName: basename(real) }
+    },
+  })
   return { plugins, pluginViews, htmlPreviewViews }
 }
 
@@ -981,20 +990,44 @@ describe('the files commands', () => {
     const taskId = taskInRoot()
     const bounds = { x: 0, y: 0, width: 400, height: 300 }
 
-    await handlers[CommandName.FilesPlaceHtmlPreview]({ taskId, path: 'docs/rate-limits.md', bounds })
-    expect(fakeHtmlPreview.views).toHaveLength(1)
+    await handlers[CommandName.FilesPlaceHtmlPreview]({ taskId, path: 'docs/rate-limits.md', bounds, reopen: false })
+    await vi.waitFor(() => {
+      expect(fakeHtmlPreview.views).toHaveLength(1)
+    })
     expect(fakeHtmlPreview.last().spec.fileName).toBe('rate-limits.md')
     expect(fakeHtmlPreview.last().spec.folder).toEqual(expect.stringMatching(/\/docs$/))
     expect(fakeHtmlPreview.last().bounds).toEqual(bounds)
 
+    // While the file's view shows, the bounds go straight through, in the ask's own turn.
+    const narrower = { x: 4, y: 8, width: 200, height: 150 }
+    await handlers[CommandName.FilesPlaceHtmlPreview]({
+      taskId,
+      path: 'docs/rate-limits.md',
+      bounds: narrower,
+      reopen: false,
+    })
+    expect(fakeHtmlPreview.last().bounds).toEqual(narrower)
+
     await handlers[CommandName.FilesReloadHtmlPreview]({ taskId, path: 'docs/rate-limits.md' })
     expect(fakeHtmlPreview.last().reloaded).toBe(1)
 
-    await handlers[CommandName.FilesPlaceHtmlPreview]({ taskId, path: 'docs/rate-limits.md', bounds: null })
+    await handlers[CommandName.FilesPlaceHtmlPreview]({
+      taskId,
+      path: 'docs/rate-limits.md',
+      bounds: null,
+      reopen: false,
+    })
     expect(fakeHtmlPreview.last().bounds).toBeNull()
 
+    // Reopening the same file (its tab was closed) places the view it kept and reloads it fresh from disk.
+    await handlers[CommandName.FilesPlaceHtmlPreview]({ taskId, path: 'docs/rate-limits.md', bounds, reopen: true })
+    expect(fakeHtmlPreview.views).toHaveLength(1)
+    expect(fakeHtmlPreview.last().bounds).toEqual(bounds)
+    expect(fakeHtmlPreview.last().reloaded).toBe(2)
+
     // A file that isn't there: nothing is placed.
-    await handlers[CommandName.FilesPlaceHtmlPreview]({ taskId, path: 'docs/gone.html', bounds })
+    await handlers[CommandName.FilesPlaceHtmlPreview]({ taskId, path: 'docs/gone.html', bounds, reopen: true })
+    await new Promise<void>((done) => setTimeout(done, 10))
     expect(fakeHtmlPreview.views).toHaveLength(1)
   })
 })

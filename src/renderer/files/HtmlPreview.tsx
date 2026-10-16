@@ -25,6 +25,8 @@ export interface HtmlPreviewProps {
  */
 export function HtmlPreview({ taskId, path, version }: HtmlPreviewProps): React.JSX.Element {
   const slot = useRef<HTMLDivElement>(null)
+  // Whether this showing has placed the view over a real box yet (false once it has, till the next mount).
+  const shownYet = useRef(true)
   const placeHtmlPreview = useGladeStore((state) => state.placeHtmlPreview)
   const clearHtmlPreviewBlocked = useGladeStore((state) => state.clearHtmlPreviewBlocked)
   const reloadHtmlPreview = useGladeStore((state) => state.reloadHtmlPreview)
@@ -40,7 +42,12 @@ export function HtmlPreview({ taskId, path, version }: HtmlPreviewProps): React.
 
   const place = useCallback<PlaceView>(
     (bounds: PluginViewBounds | null) => {
-      placeHtmlPreview(taskId, path, bounds).catch((error: unknown) => {
+      // This showing's first place over a real box: the view main holds may be this file's page from an earlier
+      // showing, with the file since changed on disk while it was hidden, so `reopen` has main reload it fresh. A
+      // later place (a resize, an overlay's giving way) only moves the view, so its page keeps its state.
+      const reopen = shownYet.current && bounds !== null
+      if (bounds !== null) shownYet.current = false
+      placeHtmlPreview(taskId, path, bounds, reopen).catch((error: unknown) => {
         toast.show({ message: describeFailure(error) })
       })
     },
