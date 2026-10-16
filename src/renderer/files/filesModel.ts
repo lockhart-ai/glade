@@ -12,6 +12,7 @@ import {
   type TouchedFile,
   type TouchedFiles,
 } from '../../shared/touchedFiles'
+import { FileContentKind, type FileContent } from '../../shared/domain'
 
 export { FileTouch, fileOfCall, mergeTouched, NO_TOUCHED_FILES, touchedFiles }
 export type { TouchedFile, TouchedFiles }
@@ -45,6 +46,21 @@ export function isMarkdown(path: string): boolean {
 /** Whether a file is static HTML, which the viewer can show as a preview too (#614), in its own sandboxed view. */
 export function isHtml(path: string): boolean {
   return /\.html?$/i.test(path)
+}
+
+/** Whether two readings of a file are of the same contents: the viewer shows nothing again when they are (#646). */
+export function sameFileContent(a: FileContent, b: FileContent): boolean {
+  if (a.kind !== b.kind) return false
+  switch (a.kind) {
+    case FileContentKind.Text:
+      return b.kind === FileContentKind.Text && a.text === b.text && a.truncated === b.truncated
+    case FileContentKind.Image:
+      return b.kind === FileContentKind.Image && a.dataUrl === b.dataUrl
+    case FileContentKind.Binary:
+      return b.kind === FileContentKind.Binary && a.size === b.size
+    case FileContentKind.Missing:
+      return true
+  }
 }
 
 /** A size in bytes, as the viewer's notices say it: "812 bytes", "48 KB", "2.4 MB". */

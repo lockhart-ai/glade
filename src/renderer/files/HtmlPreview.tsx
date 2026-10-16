@@ -11,8 +11,8 @@ export interface HtmlPreviewProps {
   readonly taskId: string
   /** Relative to the workspace root. */
   readonly path: string
-  /** Changes whenever the file on disk may have (the agent's latest touch): the preview reloads to match. */
-  readonly version: string | undefined
+  /** How many times a read of the file has found it different from the read before: the preview reloads to match. */
+  readonly version: number
 }
 
 /**

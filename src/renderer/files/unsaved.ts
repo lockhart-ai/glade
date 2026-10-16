@@ -54,6 +54,17 @@ export interface OpenFileEdit extends FileEditState {
 /** Every file being edited, by task, then by path relative to its workspace root. */
 export type FileEdits = Readonly<Record<string, Readonly<Record<string, OpenFileEdit>>>>
 
+/** How many times each open file has been seen to change on disk (`files.fileChanged`), by task, then by path. */
+export type FileVersions = Readonly<Record<string, Readonly<Record<string, number>>>>
+
+/**
+ * The count to keep for a `files.fileChanged`: one past what was kept, or main's own count for the file when that has
+ * gone past it — its watch started again while the count was kept (the file was closed and opened again).
+ */
+export function bumpedFileVersion(previous: number | undefined, version: number): number {
+  return Math.max((previous ?? 0) + 1, version)
+}
+
 /** A file of a task's workspace. */
 export interface TaskFile {
   readonly taskId: string
@@ -96,7 +107,7 @@ export function withFileEdit(edits: FileEdits, { taskId, path }: TaskFile, edit:
 }
 
 /** `edits` without a task's files. */
-export function withoutTask(edits: FileEdits, taskId: string): FileEdits {
+export function withoutTask<T>(edits: Readonly<Record<string, T>>, taskId: string): Readonly<Record<string, T>> {
   if (!(taskId in edits)) return edits
   return Object.fromEntries(Object.entries(edits).filter(([task]) => task !== taskId))
 }

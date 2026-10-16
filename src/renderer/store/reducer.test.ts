@@ -862,6 +862,45 @@ describe("a task's open files", () => {
   })
 })
 
+describe("a file changing on disk under the Files tab's watch", () => {
+  it('counts the file up, one past what was kept, as each change comes', () => {
+    const first = applyEvent(state, {
+      type: EventType.FileChanged,
+      taskId: 't1',
+      path: 'docs/rate-limits.md',
+      version: 1,
+    })
+    expect(first.fileVersions).toEqual({ t1: { 'docs/rate-limits.md': 1 } })
+
+    const second = applyEvent(first, {
+      type: EventType.FileChanged,
+      taskId: 't1',
+      path: 'docs/rate-limits.md',
+      version: 1,
+    })
+    expect(second.fileVersions).toEqual({ t1: { 'docs/rate-limits.md': 2 } })
+    expect(second.openFiles).toBe(first.openFiles)
+  })
+
+  it('takes main’s count when it has gone past what was kept, as it does when a file’s watch started again', () => {
+    const counted = applyEvent(state, {
+      type: EventType.FileChanged,
+      taskId: 't1',
+      path: 'docs/rate-limits.md',
+      version: 3,
+    })
+    expect(counted.fileVersions).toEqual({ t1: { 'docs/rate-limits.md': 3 } })
+  })
+
+  it('counts each task, and each file, on its own', () => {
+    const both = applyEvent(
+      applyEvent(state, { type: EventType.FileChanged, taskId: 't1', path: 'docs/rate-limits.md', version: 1 }),
+      { type: EventType.FileChanged, taskId: 't2', path: 'api/throttles.py', version: 1 },
+    )
+    expect(both.fileVersions).toEqual({ t1: { 'docs/rate-limits.md': 1 }, t2: { 'api/throttles.py': 1 } })
+  })
+})
+
 describe("a task's artifacts", () => {
   const artifact = (path: string, updatedAt: number, modifiedAt: number | null = null): Artifact => ({
     kind: ArtifactKind.File,

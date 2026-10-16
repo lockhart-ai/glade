@@ -11,7 +11,7 @@ import { useGladeStore, useGladeStoreApi } from '../store/react'
 import { WindowCommandId } from '../../shared/commands'
 import { useBinding } from '../commands/hooks'
 import { FileSession, isEditable } from './fileSession'
-import { FileTouch, formatSize, isHtml, isMarkdown, type TouchedFile } from './filesModel'
+import { FileTouch, formatSize, isHtml, isMarkdown, sameFileContent, type TouchedFile } from './filesModel'
 import { highlight, languageOf, sourceLines, type Language } from './highlight'
 import { HtmlPreview } from './HtmlPreview'
 import { SourceEditor } from './SourceEditor'
@@ -134,8 +134,10 @@ function ImageFileView({ content, name, onOpen }: ImageFileViewProps): React.JSX
  * shown whole is edited in place (`SourceEditor`), looking just as the read-only source does; its edits stay while
  * other tabs show, until you save them (⌘S) or discard them. A Markdown file can show a preview instead. A file as a
  * commit left it, or one too large to show whole, shows read-only (`SourceView`), the latter its first lines, with a
- * notice; a binary or missing one, a notice only. It's read again when the agent touches it: an editor with no unsaved
- * edits takes the new text quietly, and one with unsaved edits shows a bar to Reload or Keep mine.
+ * notice; a binary or missing one, a notice only. It's read again when the agent touches it, or the watch on the open
+ * file says it changed on disk (#646): an editor with no unsaved edits takes the new text quietly, and one with
+ * unsaved edits shows a bar to Reload or Keep mine. The HTML preview reloads when a read finds the file different
+ * from the read before it, so the same text again leaves it be.
  */
 export function FileViewer({
   taskId,
@@ -160,7 +162,14 @@ export function FileViewer({
   const [colored, setColored] = useState<Colored>({ lines: [], blocks: [] })
   const [viewingImage, setViewingImage] = useState(false)
   const imageButtonFocus = useRef<HTMLElement | null>(null)
-  const version = touched?.file.eventId
+  const touchedVersion = touched?.file.eventId
+  // How many times the watch on the open file has seen it change on disk (`files.fileChanged`): each one reads it
+  // again, as the agent's touch does. A file as a commit left it is never watched, so never changes this way.
+  const diskVersion = useGladeStore((state) => state.fileVersions[taskId]?.[path])
+  // How many reads have found the file different from the read before: what the HTML preview reloads by. The same
+  // text again (an agent's Read, a rewrite of the same bytes) doesn't count, so it changes nothing visible.
+  const [previewVersion, setPreviewVersion] = useState(0)
+  const lastLoaded = useRef<FileContent | null>(null)
   // A file as a commit left it is named by its path in the commit.
   const shownPath = fromCommit?.path ?? path
   const language = languageOf(shownPath)
@@ -181,6 +190,9 @@ export function FileViewer({
             store.getState().stopEditing(file)
           }
         }
+        const changed = lastLoaded.current !== null && !sameFileContent(lastLoaded.current, content)
+        lastLoaded.current = content
+        if (changed) setPreviewVersion((bumps) => bumps + 1)
         setLoaded({ state: 'loaded', content })
       },
       (error: unknown) => {
@@ -190,7 +202,7 @@ export function FileViewer({
     return () => {
       current = false
     }
-  }, [readFile, startEditing, store, inWorkspace, language, taskId, path, version])
+  }, [readFile, startEditing, store, inWorkspace, language, taskId, path, touchedVersion, diskVersion])
 
   const lastRead = loaded.state === 'loaded' ? loaded.content : null
 
@@ -243,7 +255,7 @@ export function FileViewer({
         <Markdown source={text} className={styles.previewColumn} interactiveCode={false} />
       </div>
     ) : (
-      <HtmlPreview taskId={taskId} path={path} version={version} />
+      <HtmlPreview taskId={taskId} path={path} version={previewVersion} />
     )
 
   const body = (): React.ReactNode => {

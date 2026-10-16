@@ -26,7 +26,7 @@ import type { AccountStatus } from '../../shared/account'
 import type { FileSearchResult, FolderEntry } from '../../shared/browse'
 import { IDLE_LOGIN, type LoginStatus } from '../../shared/login'
 import type { SettingsSection } from '../settings/sections'
-import type { FileEdits, OpenEditSession, TaskFile, UnsavedChoice, UnsavedPrompt } from '../files/unsaved'
+import type { FileEdits, FileVersions, OpenEditSession, TaskFile, UnsavedChoice, UnsavedPrompt } from '../files/unsaved'
 import type { Command, MenuState } from '../../shared/commands'
 import type {
   Artifact,
@@ -409,6 +409,12 @@ export interface GladeData {
    * window or quitting with unsaved edits asks first (`unsavedPrompt`).
    */
   readonly fileEdits: FileEdits
+  /**
+   * How many times each open file has been seen to change on disk (`files.fileChanged`), by task, then by path: the
+   * Files viewer reads a file again because this went up, as it does for the agent's own edits. Only the window's, like
+   * `fileEdits`: a count to read again by, not state main keeps.
+   */
+  readonly fileVersions: FileVersions
   /** The Save / Discard / Cancel prompt showing, about unsaved edits; null when none is. */
   readonly unsavedPrompt: UnsavedPrompt | null
   /**
@@ -947,6 +953,7 @@ export const INITIAL_DATA: GladeData = {
   terminalFocusRequest: 0,
   terminalPaste: null,
   fileEdits: {},
+  fileVersions: {},
   unsavedPrompt: null,
   openModalCount: 0,
 }
