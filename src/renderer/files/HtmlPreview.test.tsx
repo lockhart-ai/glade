@@ -192,7 +192,7 @@ describe('HtmlPreview', () => {
   })
 
   it('sends the box’s new bounds when the box itself resizes, as the panel around it narrows or the bottom panel opens', async () => {
-    const { main } = await renderPreview('v1')
+    const { main } = await renderPreview(1)
     await waitFor(() => {
       expect(main.placedHtmlPreviews).toEqual([
         { taskId: 't1', path: 'report.html', bounds: { x: 10, y: 20, width: 300, height: 200 }, reopen: true },
