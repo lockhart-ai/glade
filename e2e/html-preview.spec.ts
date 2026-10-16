@@ -187,14 +187,14 @@ test('html preview: a file closed and rewritten on disk shows its new contents w
   await files.close('report.html').click()
   await expect(files.tab('report.html')).toHaveCount(0)
 
-  // Reopening shows what is on disk now: the source first, then the preview.
+  // Reopening shows what is on disk now: the preview it opens on (#657), then the source.
   await files.treeRow('report.html').click()
   await window.keyboard.press('Enter')
-  await expect(files.editor).toContainText('Monthly Usage')
-  await files.mode('Preview').click()
   await expectPreviewOverSlot(glade)
   expect(await inHtmlPreview(glade, 'document.querySelector("h1").textContent')).toBe('Acme API — Monthly Usage')
   expect(await inHtmlPreview(glade, 'document.getElementById("calls").textContent')).toBe('42')
+  await files.mode('Source').click()
+  await expect(files.editor).toContainText('Monthly Usage')
 
   // The same for a Markdown file's preview.
   await files.browse.click()
@@ -208,9 +208,9 @@ test('html preview: a file closed and rewritten on disk shows its new contents w
   await files.browse.click()
   await files.treeRow('summary.md').click()
   await window.keyboard.press('Enter')
-  await expect(files.editor).toContainText('Calls doubled this month.')
-  await files.mode('Preview').click()
   await expect(files.contents).toContainText('Calls doubled this month.')
+  await files.mode('Source').click()
+  await expect(files.editor).toContainText('Calls doubled this month.')
 })
 
 test('html preview: a hostile page is contained like a plugin’s view: no bridge, no network, no escape, no navigation', async ({
