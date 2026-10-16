@@ -1696,6 +1696,7 @@ export enum EventType {
   OpenFilesChanged = 'openFiles.changed',
   FileShown = 'file.shown',
   FolderChanged = 'files.folderChanged',
+  FileChanged = 'files.fileChanged',
   HtmlPreviewBlocked = 'files.htmlPreviewBlocked',
   TodosChanged = 'todos.changed',
   ArtifactsChanged = 'artifacts.changed',
@@ -1869,6 +1870,21 @@ export interface FolderChangedEvent {
   readonly taskId: string
   /** Relative to the workspace root; `''` for the root. */
   readonly path: string
+}
+
+/**
+ * A file open in the Files tab changed on disk — its open file's watch (`./file-watch`) saw it — by something other
+ * than the agent's file tools: a shell command, a script, git, another editor. The window reads the file again, as it
+ * would for the agent's own edit. `version` counts the changes the watch has seen for the file, and goes up with
+ * every one.
+ */
+export interface FileChangedEvent {
+  readonly type: EventType.FileChanged
+  readonly taskId: string
+  /** Relative to the workspace root. */
+  readonly path: string
+  /** How many times the file's watch has seen it change, from 1. */
+  readonly version: number
 }
 
 /**
@@ -2095,6 +2111,7 @@ export type GladeEvent =
   | OpenFilesChangedEvent
   | FileShownEvent
   | FolderChangedEvent
+  | FileChangedEvent
   | HtmlPreviewBlockedEvent
   | TodosChangedEvent
   | ArtifactsChangedEvent

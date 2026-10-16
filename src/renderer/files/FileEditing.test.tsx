@@ -287,6 +287,76 @@ describe('editing a file', () => {
   })
 })
 
+describe('a file changing on disk under the open file’s watch', () => {
+  /** Runs what the watch says when something outside the agent changed the file: the window reads it again. */
+  function diskChanged(emit: Rendered['emit'], path = 'docs/rate-limits.md'): void {
+    act(() => {
+      emit({ type: EventType.FileChanged, taskId: 't1', path, version: 1 })
+    })
+  }
+
+  it('takes the change quietly while there are no unsaved edits, as the agent’s edit does', async () => {
+    const { files, emit } = await renderEditing()
+
+    files['docs/rate-limits.md'] = text('# Rate limits\n\n| /search | 30 |\n')
+    diskChanged(emit)
+
+    await waitFor(() => {
+      expect(view().state.doc.line(3).text).toBe('| /search | 30 |')
+    })
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(unsavedDot('rate-limits.md')).toBeNull()
+  })
+
+  it('says the file changed on disk under unsaved edits, as the agent’s edit does', async () => {
+    const { files, emit } = await renderEditing()
+    type('Draft: ')
+
+    files['docs/rate-limits.md'] = text('# Rate limits\n\n| /search | 30 |\n')
+    diskChanged(emit)
+
+    const bar = await screen.findByRole('alert')
+    expect(bar).toHaveTextContent('This file changed on disk.')
+    expect(view().state.doc.line(1).text).toBe('Draft: # Rate limits')
+  })
+
+  it('changes nothing visible when the file is written again with the same text', async () => {
+    const { files, emit } = await renderEditing()
+
+    files['docs/rate-limits.md'] = text(LIMITS)
+    diskChanged(emit)
+
+    await act(() => Promise.resolve())
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(unsavedDot('rate-limits.md')).toBeNull()
+    expect(view().state.doc.line(1).text).toBe('# Rate limits')
+  })
+
+  it('reloads the HTML preview when the file changes on disk, and not when the same text is written again', async () => {
+    const open: OpenFiles = { taskId: 't1', paths: ['reports/report.html'], activePath: 'reports/report.html' }
+    // `onDisk` is what main's `files.read` answers with, so a change to it is the file changing on disk.
+    const onDisk: Record<string, FileContent> = { 'reports/report.html': text('<!doctype html>\n<h1>Acme API</h1>\n') }
+    const { emit, main } = await renderEditing(open, { files: onDisk })
+    expect(main.reloadedHtmlPreviews ?? []).toEqual([])
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Preview' }))
+    await screen.findByTestId('html-preview-slot')
+    expect(main.reloadedHtmlPreviews ?? []).toEqual([])
+
+    // The report is rewritten on disk by something outside the agent: the preview reloads for it.
+    onDisk['reports/report.html'] = text('<!doctype html>\n<h1>Acme API, monthly</h1>\n')
+    diskChanged(emit, 'reports/report.html')
+    await waitFor(() => {
+      expect(main.reloadedHtmlPreviews).toEqual([{ taskId: 't1', path: 'reports/report.html' }])
+    })
+
+    // The same text written again isn't a change: the preview stays as it is.
+    diskChanged(emit, 'reports/report.html')
+    await act(() => Promise.resolve())
+    expect(main.reloadedHtmlPreviews).toHaveLength(1)
+  })
+})
+
 describe('closing a file with unsaved edits', () => {
   it('asks first: Cancel keeps it, edits and all', async () => {
     const { written } = await renderEditing()

@@ -36,9 +36,11 @@ import type { OpenExternal } from '../links/links'
 import type { Thumbnails } from '../artifacts/thumbnails'
 import { createArtifactWatcher, type ArtifactWatcher } from '../artifacts/artifact-watch'
 import { createFolderWatcher, type FolderWatcher } from '../files/folder-watch'
+import { createFileWatcher, type FileWatcher } from '../files/file-watch'
 import type { MenuBarCommands } from '../menu-bar/menu-bar'
 import type { NotifyReply } from '../notifications/notifications'
 import { getSettings } from '../db/repositories/settings'
+import { getOpenFiles } from '../db/repositories/open-files'
 import { listTasks } from '../db/repositories/tasks'
 import { listWorkspaces } from '../db/repositories/workspaces'
 import { createEventLog } from '../logging/event-log'
@@ -202,6 +204,8 @@ export interface RegisteredBridge {
   readonly artifactWatch: ArtifactWatcher
   /** What watches the folders the Browse tab shows, which stops when the app quits. */
   readonly folderWatch: FolderWatcher
+  /** What watches the files open in the Files tab, which stops when the app quits. */
+  readonly fileWatch: FileWatcher
 }
 
 /** Every task, in every workspace: what the event log and the plugin feed know of them to begin with. */
@@ -276,6 +280,18 @@ export function registerBridge({
       },
     },
   })
+  // The files open in each task's Files tab, watched for changes from outside the agent (#646): it hears what's open
+  // changing, seeded with what each task already has open, and broadcasts the files that changed.
+  const fileWatch = createFileWatcher({
+    context: {
+      db,
+      emit: (event) => {
+        emit(event)
+      },
+    },
+    log: log.scoped(LogScope.Files),
+  })
+  for (const task of tasks) void fileWatch.watch(task.id, getOpenFiles(db, task.id).paths)
   // A subagent or a watcher starting or ending changes whether its task has background work, which the task is read
   // with: the task is sent again when it does, after the event that changed it.
   const backgroundWork = createBackgroundWorkWatch(
@@ -304,6 +320,7 @@ export function registerBridge({
     logEvent(event)
     feed.observe(event)
     artifactWatch.observe(event)
+    fileWatch.observe(event)
     windows.emit(event)
     observe?.(event)
     backgroundWork.observe(event)
@@ -482,5 +499,6 @@ export function registerBridge({
     login,
     artifactWatch,
     folderWatch,
+    fileWatch,
   }
 }

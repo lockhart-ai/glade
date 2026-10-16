@@ -376,6 +376,7 @@ async function runCapture(spec: CaptureSpec, context: CaptureContext): Promise<v
   context.bridge.artifactWatch.close()
   context.bridge.machine?.close()
   context.bridge.folderWatch.close()
+  context.bridge.fileWatch.close()
   await context.bridge.endpoint.close()
   context.bridge.terminals.shutdown()
   context.database.db.close()
@@ -1000,6 +1001,7 @@ export function startApp({
       bridge.machine?.close()
       bridge.artifactWatch.close()
       bridge.folderWatch.close()
+      bridge.fileWatch.close()
       menuBar?.close()
       // The shells end with the app; their tabs and recent output stay, for the next launch to show.
       if (database.db.open) bridge.terminals.shutdown()

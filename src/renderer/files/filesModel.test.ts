@@ -1,11 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { DividerKind, ToolCallState, ToolEventKind, type ToolCallEvent, type ToolEvent } from '../../shared/domain'
+import {
+  DividerKind,
+  FileContentKind,
+  ToolCallState,
+  ToolEventKind,
+  WorkspaceImageMediaType,
+  type FileContent,
+  type ToolCallEvent,
+  type ToolEvent,
+} from '../../shared/domain'
 import {
   FileTouch,
   formatSize,
   isChanged,
   isHtml,
   isMarkdown,
+  sameFileContent,
   touchedCount,
   touchedFiles,
   touchOfFile,
@@ -113,5 +123,50 @@ describe('formatSize', () => {
     expect(formatSize(812)).toBe('812 bytes')
     expect(formatSize(48 * 1024 + 100)).toBe('48 KB')
     expect(formatSize(2.4 * 1024 * 1024)).toBe('2.4 MB')
+  })
+})
+
+describe('sameFileContent', () => {
+  const text = (value: string): FileContent => ({
+    kind: FileContentKind.Text,
+    text: value,
+    truncated: false,
+    size: value.length,
+  })
+
+  it('says the same text again is the same, and different text, or a different truncation, is not', () => {
+    expect(sameFileContent(text('# Acme API\n'), text('# Acme API\n'))).toBe(true)
+    expect(sameFileContent(text('# Acme API\n'), text('# Acme API, again\n'))).toBe(false)
+    expect(
+      sameFileContent(text('# Acme API\n'), {
+        kind: FileContentKind.Text,
+        text: '# Acme API\n',
+        truncated: true,
+        size: 12,
+      }),
+    ).toBe(false)
+  })
+
+  it('says an image is the same by its data URL, a binary by its size, and a missing file by being missing', () => {
+    const image: FileContent = {
+      kind: FileContentKind.Image,
+      mediaType: WorkspaceImageMediaType.Png,
+      dataUrl: 'data:image/png;base64,AAA',
+      size: 3,
+    }
+    expect(sameFileContent(image, image)).toBe(true)
+    expect(sameFileContent(image, { ...image, dataUrl: 'data:image/png;base64,BBB' })).toBe(false)
+    expect(
+      sameFileContent({ kind: FileContentKind.Binary, size: 12 }, { kind: FileContentKind.Binary, size: 12 }),
+    ).toBe(true)
+    expect(
+      sameFileContent({ kind: FileContentKind.Binary, size: 12 }, { kind: FileContentKind.Binary, size: 13 }),
+    ).toBe(false)
+    expect(sameFileContent({ kind: FileContentKind.Missing }, { kind: FileContentKind.Missing })).toBe(true)
+  })
+
+  it('says different kinds are never the same', () => {
+    expect(sameFileContent(text('# Acme API\n'), { kind: FileContentKind.Missing })).toBe(false)
+    expect(sameFileContent({ kind: FileContentKind.Missing }, text('# Acme API\n'))).toBe(false)
   })
 })

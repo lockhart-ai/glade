@@ -22,6 +22,7 @@ import {
 import { settingsGrantScopeKey, type Grant, type SettingsGrantTarget } from '../../shared/sandbox'
 import { isSubagentTool } from '../../shared/subagents'
 import { refKey } from '../../shared/todoHub'
+import { bumpedFileVersion } from '../files/unsaved'
 import { withCountedChange, withoutDoneLists } from './doneLists'
 import type { GladeData, HistoryTail } from './state'
 
@@ -541,6 +542,17 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, permissionMarks: withMark(state.permissionMarks, event.mark) }
     case EventType.OpenFilesChanged:
       return { ...state, openFiles: { ...state.openFiles, [event.openFiles.taskId]: event.openFiles } }
+    case EventType.FileChanged:
+      return {
+        ...state,
+        fileVersions: {
+          ...state.fileVersions,
+          [event.taskId]: {
+            ...state.fileVersions[event.taskId],
+            [event.path]: bumpedFileVersion(state.fileVersions[event.taskId]?.[event.path], event.version),
+          },
+        },
+      }
     case EventType.FileShown: {
       const { taskId, path, line } = event
       return { ...state, fileFocus: { taskId, path, line, request: (state.fileFocus?.request ?? 0) + 1 } }

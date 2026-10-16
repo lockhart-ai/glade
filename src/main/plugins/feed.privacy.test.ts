@@ -457,6 +457,9 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
     ],
     [EventType.FileShown]: [{ type: EventType.FileShown, taskId: created.id, path: secret('shown_file'), line: 3 }],
     [EventType.FolderChanged]: [{ type: EventType.FolderChanged, taskId: created.id, path: secret('changed_folder') }],
+    [EventType.FileChanged]: [
+      { type: EventType.FileChanged, taskId: created.id, path: secret('changed_file'), version: 1 },
+    ],
     [EventType.HtmlPreviewBlocked]: [
       { type: EventType.HtmlPreviewBlocked, taskId: created.id, path: secret('blocked_preview_path') },
     ],

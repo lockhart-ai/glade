@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { unsavedFiles, withFileEdit, withoutTask, type EditSession, type FileEdits, type OpenFileEdit } from './unsaved'
+import {
+  bumpedFileVersion,
+  unsavedFiles,
+  withFileEdit,
+  withoutTask,
+  type EditSession,
+  type FileEdits,
+  type OpenFileEdit,
+} from './unsaved'
 
 /** An editor that does nothing: these functions only keep track of them. */
 const SESSION: EditSession = {
@@ -71,5 +79,18 @@ describe('unsavedFiles', () => {
     ])
     expect(unsavedFiles(edits, 't2')).toEqual([{ taskId: 't2', path: 'c.md' }])
     expect(unsavedFiles(edits, 't9')).toEqual([])
+  })
+})
+
+describe('bumpedFileVersion', () => {
+  it('counts one past what was kept', () => {
+    expect(bumpedFileVersion(undefined, 1)).toBe(1)
+    expect(bumpedFileVersion(1, 1)).toBe(2)
+    expect(bumpedFileVersion(3, 1)).toBe(4)
+  })
+
+  it('takes main’s count when it has gone past what was kept, as it does when a file’s watch started again', () => {
+    expect(bumpedFileVersion(3, 5)).toBe(5)
+    expect(bumpedFileVersion(3, 3)).toBe(4)
   })
 })

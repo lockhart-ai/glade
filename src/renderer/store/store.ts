@@ -164,8 +164,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       }
       if (event.type === EventType.TaskDeleted) {
         deletedTaskIds.add(event.taskId)
-        // A deleted task's files are no longer open anywhere: their editors go with it.
-        set(({ fileEdits }) => ({ fileEdits: withoutTask(fileEdits, event.taskId) }))
+        // A deleted task's files are no longer open anywhere: their editors go with it, and their change counts.
+        set(({ fileEdits, fileVersions }) => ({
+          fileEdits: withoutTask(fileEdits, event.taskId),
+          fileVersions: withoutTask(fileVersions, event.taskId),
+        }))
         reportUnsaved()
       }
       if (event.type === EventType.UiStateChanged && supersededByOwnWrite(event.entry)) return

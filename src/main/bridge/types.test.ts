@@ -597,6 +597,9 @@ describe('events', () => {
         case EventType.OpenFilesChanged:
           expectTypeOf(event.openFiles).toEqualTypeOf<OpenFiles>()
           break
+        case EventType.FileChanged:
+          expectTypeOf(event.version).toEqualTypeOf<number>()
+          break
         case EventType.FileShown:
           expectTypeOf(event.line).toEqualTypeOf<number | null>()
           break
