@@ -93,6 +93,9 @@ async function renderEditing(openFiles: OpenFiles = OPEN, main: Partial<FakeMain
       </ToastProvider>
     </GladeStoreProvider>,
   )
+  // A file with a preview opens on it; these tests type, so they switch to the source, as one would to edit.
+  const source = screen.queryByRole('radio', { name: 'Source' })
+  if (source !== null) fireEvent.click(source)
   await screen.findByTestId('editor')
   return { store, files, written, main: fakeMain, emit: fake.emit }
 }
@@ -193,6 +196,8 @@ describe('editing a file', () => {
     expect(unsavedDot('rate-limits.md')).not.toBeNull()
 
     fireEvent.click(within(tabs()).getByRole('button', { name: /rate-limits\.md/, pressed: false }))
+    // Showing it again starts on its preview; editing needs the source.
+    fireEvent.click(screen.getByRole('radio', { name: 'Source' }))
     await waitFor(() => {
       expect(view().state.doc.line(1).text).toBe('Draft: # Rate limits')
     })

@@ -94,6 +94,8 @@ test('the todo hub: a commit’s tile opens to its branch, the subagent that mad
     .click()
   await expect(taskPanel(window).panel.getByText(`As of ${guide} · read-only`)).toBeVisible()
   await expect(filesTab(window).contents).toContainText('Run the migrations before you start the server.')
+  // A Markdown file opens on its preview (#657); its source, as the commit left it, is read-only.
+  await filesTab(window).mode('Source').click()
   await expect(filesTab(window).source).toBeVisible()
   await expect(filesTab(window).editor).toHaveCount(0)
   await expect(filesTab(window).openInEditor).toHaveCount(0)

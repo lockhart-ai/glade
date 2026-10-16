@@ -132,12 +132,13 @@ function ImageFileView({ content, name, onOpen }: ImageFileViewProps): React.JSX
 /**
  * A file of the task's workspace: its path, how the agent last touched it, and Open in editor over its source. A file
  * shown whole is edited in place (`SourceEditor`), looking just as the read-only source does; its edits stay while
- * other tabs show, until you save them (⌘S) or discard them. A Markdown file can show a preview instead. A file as a
- * commit left it, or one too large to show whole, shows read-only (`SourceView`), the latter its first lines, with a
- * notice; a binary or missing one, a notice only. It's read again when the agent touches it, or the watch on the open
- * file says it changed on disk (#646): an editor with no unsaved edits takes the new text quietly, and one with
- * unsaved edits shows a bar to Reload or Keep mine. The HTML preview reloads when a read finds the file different
- * from the read before it, so the same text again leaves it be.
+ * other tabs show, until you save them (⌘S) or discard them. A Markdown file, and a workspace's static HTML file,
+ * open on their preview, with the source beside it (`Source`); a line the agent shows brings the source back to mark
+ * it. A file as a commit left it, or one too large to show whole, shows read-only (`SourceView`), the latter its
+ * first lines, with a notice; a binary or missing one, a notice only. It's read again when the agent touches it, or
+ * the watch on the open file says it changed on disk (#646): an editor with no unsaved edits takes the new text
+ * quietly, and one with unsaved edits shows a bar to Reload or Keep mine. The HTML preview reloads when a read finds
+ * the file different from the read before it, so the same text again leaves it be.
  */
 export function FileViewer({
   taskId,
@@ -158,7 +159,8 @@ export function FileViewer({
   const edit = useGladeStore((state) => (inWorkspace ? state.fileEdits[taskId]?.[path] : undefined))
   const openInEditorKeys = useBinding(WindowCommandId.OpenInEditor)
   const [loaded, setLoaded] = useState<Loaded>({ state: 'loading' })
-  const [mode, setMode] = useState(MarkdownMode.Source)
+  // A file with a preview opens on it; one the agent is showing at a line starts on the source, so the line can show.
+  const [mode, setMode] = useState(focusLine === null ? MarkdownMode.Preview : MarkdownMode.Source)
   const [colored, setColored] = useState<Colored>({ lines: [], blocks: [] })
   const [viewingImage, setViewingImage] = useState(false)
   const imageButtonFocus = useRef<HTMLElement | null>(null)
@@ -174,6 +176,15 @@ export function FileViewer({
   const shownPath = fromCommit?.path ?? path
   const language = languageOf(shownPath)
   const session = edit?.session
+
+  // A line the agent shows is marked in the source, so each request for one switches back to it. Done while rendering
+  // (React's pattern for adjusting state when a prop changes): while the file shows the viewer is already mounted, and
+  // `focusRequest` goes up with every request, so this fires again for each.
+  const [revealed, setRevealed] = useState(focusRequest)
+  if (focusRequest !== revealed) {
+    setRevealed(focusRequest)
+    if (focusLine !== null) setMode(MarkdownMode.Source)
+  }
 
   useEffect(() => {
     let current = true
