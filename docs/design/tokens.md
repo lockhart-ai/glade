@@ -13,6 +13,7 @@ can nest one level (header and right panel float inside the task card).
 | `inner` | `#222430` | Nested cards (header, right panel, the agent's reply cards) |
 | `inner-hover` | `#282B39` | The row under the pointer inside a nested card: halfway from `inner` to `inner-2` (the Browse tree, #431) |
 | `inner-2` | `#2E3243` | Active tab, highlighted rows inside nested cards |
+| `preview` | `#2C3040` | The Markdown preview's lifted dark reading surface, laid over the `inner` card (the Files tab's preview, #659) |
 | `border` | `#2F3343` | Top-level card borders |
 | `inner-border` | `#373C4F` | Nested card borders and dividers |
 | `strong` | `#3D425E` | Button outlines, input bar border |
@@ -20,6 +21,7 @@ can nest one level (header and right panel float inside the task card).
 | `text` | `#E6E8F0` | Primary text |
 | `muted` | `#AEB3C3` | Secondary text |
 | `faint` | `#999DB0` | Labels, timestamps, hints |
+| `preview-text` | `#F0F2F8` | The preview's body text (#659) |
 | `blue` | `#5B8DEF` | Working, primary buttons, links (`#8FB2F5` for text on dark) |
 | `purple` | `#C8B2FF` | Waiting on you (a question, a permission card, an unread reply), questions, the lit blade |
 | `purple-bg` | `#2E2748` | Background for `purple` on a filled surface: a workspace's badge, the closed switcher's "needs you" count pill |
@@ -64,13 +66,16 @@ quietly slip back:
 | `question-surface-border-hover` on `question-surface` | 2 |
 | `question-outline` on `question-surface` | 3.9 |
 | `question-outline` on `question-border` | 3.2 |
+| `preview` on `inner` | 1.17 |
+| `preview-text` on `preview` | 11.69 |
 
 `live` is the one surface that doesn't step up from what it sits on: a live tile is no lighter than the `inner-2` card
 around it, and stands off it by its blue and by its outline, which the last two rows hold.
 
 `text`, `muted` and `faint` each meet 4.5:1 on every surface: `bg`, `panel`, `raised`, `inner`, `inner-hover`,
-`inner-2`, `menu`, `live`, `question-bg` and `question-surface` (the lowest is `faint` on `inner-2`, 4.72:1). So does
-the blue for text on `live`, where a live tile says it's running.
+`inner-2`, `menu`, `live`, `question-bg`, `question-surface` and `preview` (the lowest is `faint` on `inner-2`,
+4.72:1). So does the blue for text on `live`, where a live tile says it's running, and `preview-text` on `preview`,
+where the Markdown preview's body reads (11.7:1, #659).
 
 Inside a question or permission card (#538), a picked option is filled with `question-border`, a step lighter than
 the tiles around it, under the `question-outline`: its label (`text`, 9.27:1) and detail (`muted`, 5.42:1) keep

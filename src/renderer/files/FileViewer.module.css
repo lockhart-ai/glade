@@ -140,10 +140,23 @@
   color: var(--color-muted);
 }
 
+/*
+ * The Markdown preview (08 · Open a file): a lifted dark reading surface laid over the inner card (#659). Only a
+ * Markdown preview lifts; the HTML preview and the source view stay on the card's own colours.
+ */
 .preview {
-  padding: 16px 20px;
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 20px 24px 28px;
+  background: var(--color-preview);
+}
+
+/* The reading column: about 70 characters, left in the pane as the design shows. */
+.previewColumn {
+  max-width: 70ch;
   font-size: var(--font-size-body);
-  line-height: 1.6;
+  line-height: 1.7;
+  color: var(--color-preview-text);
 }
 
 /* An image file: centred in the panel, fit to it but never scaled past its own size (08 · Open a file). */
