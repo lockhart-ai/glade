@@ -68,7 +68,7 @@ async function openTask(window: Glade['window']): Promise<void> {
   await taskList(window).newTask.click()
 }
 
-test('html preview: a static report renders as it would in a browser, following the file and remembering the mode', async ({
+test('html preview: a static report renders as it would in a browser, opening on the preview and following the file', async ({
   launch,
   tempFolder,
 }) => {
@@ -86,10 +86,8 @@ test('html preview: a static report renders as it would in a browser, following 
   await window.keyboard.press('Enter')
   await expect(files.tab('report.html')).toHaveAttribute('aria-pressed', 'true')
 
-  // Source shows by default, as Markdown's does; Preview draws the native view over the slot.
-  await expect(files.mode('Source')).toHaveAttribute('aria-checked', 'true')
-  await expect(files.editorLine(1)).toContainText('<!doctype html>')
-  await files.mode('Preview').click()
+  // A file with a preview opens on it (#657); the preview draws the native view over the slot.
+  await expect(files.mode('Preview')).toHaveAttribute('aria-checked', 'true')
   await expectPreviewOverSlot(glade)
   expect(await htmlPreviewView(glade)).toMatchObject({
     url: 'glade-html-preview://preview/report.html',
@@ -100,7 +98,7 @@ test('html preview: a static report renders as it would in a browser, following 
   expect(await inHtmlPreview(glade, 'document.querySelector("img").naturalWidth > 0')).toBe(true)
   expect(await inHtmlPreview(glade, 'getComputedStyle(document.querySelector("h1")).color')).toBe('rgb(91, 61, 240)')
 
-  // Switching to Source and back remembers Preview, as Markdown's mode does.
+  // Switch to Source for the file's text, and back.
   await files.mode('Source').click()
   await expect(files.editorLine(1)).toContainText('<!doctype html>')
   await files.mode('Preview').click()
@@ -112,10 +110,9 @@ test('html preview: a static report renders as it would in a browser, following 
   await expect(files.htmlPreviewSlot).toHaveCount(0)
   await expect.poll(async () => (await htmlPreviewView(glade))?.visible).toBe(false)
 
-  // Back on the file, Preview draws the view again (a fresh mount starts on Source, as Markdown's does too).
+  // Back on the file, a fresh mount opens on Preview again, as Markdown's does too.
   await files.tab('report.html').click()
-  await expect(files.mode('Source')).toHaveAttribute('aria-checked', 'true')
-  await files.mode('Preview').click()
+  await expect(files.mode('Preview')).toHaveAttribute('aria-checked', 'true')
   await expectPreviewOverSlot(glade)
 })
 
@@ -137,7 +134,6 @@ test('html preview: a hostile page is contained like a plugin’s view: no bridg
     await files.treeRow('reports').click()
     await files.treeRow('hostile.html').click()
     await window.keyboard.press('Enter')
-    await files.mode('Preview').click()
     await expectPreviewOverSlot(glade)
 
     // No preload, no bridge.

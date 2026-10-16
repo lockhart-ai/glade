@@ -98,7 +98,16 @@ async function renderTab({
   overrides = {},
   focus,
   commits = [],
-}: Setup = {}): Promise<FakeBridge & { store: GladeStore; opened: string[]; copied: string[]; revealed: string[] }> {
+}: Setup = {}): Promise<
+  FakeBridge & {
+    store: GladeStore
+    opened: string[]
+    copied: string[]
+    revealed: string[]
+    /** Shows a line of the Markdown file the tests open, as a fresh `show_file` would. */
+    showLine: (line: number) => void
+  }
+> {
   const opened: string[] = []
   const copied: string[] = []
   const revealed: string[] = []
@@ -122,14 +131,25 @@ async function renderTab({
   )
   const store = createGladeStore(fake.bridge)
   await act(() => store.getState().hydrate())
-  render(
+  const tree = (shown: FileLineFocus | null): React.JSX.Element => (
     <GladeStoreProvider store={store}>
       <ToastProvider>
-        <FilesTab taskId="t1" rootPath={ROOT} focus={focus ?? null} />
+        <FilesTab taskId="t1" rootPath={ROOT} focus={shown} />
       </ToastProvider>
-    </GladeStoreProvider>,
+    </GladeStoreProvider>
   )
-  return { ...fake, store, opened, copied, revealed }
+  const rendered = render(tree(focus ?? null))
+  return {
+    ...fake,
+    store,
+    opened,
+    copied,
+    revealed,
+    // Shows a new line the agent asks for, as the panel would hand the tab one.
+    showLine: (line: number) => {
+      rendered.rerender(tree({ path: 'docs/rate-limits.md', line, request: 1 }))
+    },
+  }
 }
 
 function openTabs(): HTMLElement {
@@ -199,7 +219,7 @@ describe('FilesTab', () => {
       expect(within(openTabs()).getByRole('button', { name: /rate-limits\.md/, pressed: true })).toBeInTheDocument()
     })
     expect(invoke).toHaveBeenCalledWith(CommandName.FilesOpen, { taskId: 't1', path: 'docs/rate-limits.md' })
-    expect(await screen.findByTestId('editor')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Rate limits' })).toBeInTheDocument()
   })
 
   it('shows a tab per open file, a blue dot on the ones the agent changed, and switches and closes them', async () => {
@@ -233,6 +253,7 @@ describe('FilesTab', () => {
 
   it('shows the file in its editor, with line numbers, how the agent last touched it, and colours it', async () => {
     await renderTab({ openFiles: OPEN })
+    fireEvent.click(screen.getByRole('radio', { name: 'Source' }))
 
     expect(screen.getByText('Edited by the agent · 11:22')).toBeInTheDocument()
     await waitFor(() => {
@@ -258,17 +279,62 @@ describe('FilesTab', () => {
     expect(screen.getByText('Read by the agent · 11:22')).toBeInTheDocument()
   })
 
-  it('switches a Markdown file between its source and a preview', async () => {
-    await renderTab({ openFiles: OPEN })
-    await screen.findByTestId('editor')
+  it('opens a Markdown file on its preview, with the source a switch away', async () => {
+    const { invoke } = await renderTab({ openFiles: OPEN })
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Preview' }))
-
-    expect(screen.getByRole('heading', { level: 1, name: 'Rate limits' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Rate limits' })).toBeInTheDocument()
     expect(screen.getByRole('table')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Preview' })).toHaveAttribute('aria-checked', 'true')
     expect(screen.queryByTestId('editor')).toBeNull()
+
     fireEvent.click(screen.getByRole('radio', { name: 'Source' }))
     expect(screen.getByTestId('editor')).toBeInTheDocument()
+    expect(invoke).toHaveBeenCalledWith(CommandName.FilesRead, { taskId: 't1', path: 'docs/rate-limits.md' })
+  })
+
+  it('opens an HTML file on its preview too, drawn over its slot', async () => {
+    const REPORT = '<!doctype html>\n<html><body><h1>Report</h1></body></html>\n'
+    const { invoke } = await renderTab({
+      openFiles: { taskId: 't1', paths: ['reports/report.html'], activePath: 'reports/report.html' },
+      files: {
+        'reports/report.html': { kind: FileContentKind.Text, text: REPORT, truncated: false, size: REPORT.length },
+      },
+    })
+
+    expect(await screen.findByTestId('html-preview-slot')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Preview' })).toHaveAttribute('aria-checked', 'true')
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(CommandName.FilesPlaceHtmlPreview, {
+        taskId: 't1',
+        path: 'reports/report.html',
+        bounds: { x: 0, y: 0, width: 0, height: 0 },
+      })
+    })
+  })
+
+  it('switches a Markdown file between its source and a preview', async () => {
+    await renderTab({ openFiles: OPEN })
+    expect(await screen.findByRole('heading', { level: 1, name: 'Rate limits' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Source' }))
+    expect(screen.getByTestId('editor')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('radio', { name: 'Preview' }))
+    expect(screen.getByRole('heading', { level: 1, name: 'Rate limits' })).toBeInTheDocument()
+    expect(screen.queryByTestId('editor')).toBeNull()
+  })
+
+  it('brings the source back to mark a line the agent shows while the preview is on', async () => {
+    const { showLine } = await renderTab({ openFiles: OPEN })
+    expect(await screen.findByRole('heading', { level: 1, name: 'Rate limits' })).toBeInTheDocument()
+
+    showLine(7)
+
+    await waitFor(() => {
+      expect(screen.getByRole('radio', { name: 'Source' })).toHaveAttribute('aria-checked', 'true')
+    })
+    await waitFor(() => {
+      expect(editor().querySelector('.cm-line.cm-glade-marked')?.textContent).toBe('| /search  | 60    |')
+    })
   })
 
   it('offers no preview for a file that isn’t Markdown', async () => {
@@ -382,6 +448,7 @@ describe('FilesTab', () => {
 
   it('reads the file again when the agent changes it', async () => {
     const { emit, invoke } = await renderTab({ openFiles: OPEN })
+    fireEvent.click(screen.getByRole('radio', { name: 'Source' }))
     await waitFor(() => {
       expect(editorLines()).toHaveLength(9)
     })
@@ -404,6 +471,8 @@ describe('FilesTab', () => {
 
   it('marks and scrolls to the line the agent shows, while its file shows', async () => {
     await renderTab({ openFiles: OPEN, focus: { path: 'docs/rate-limits.md', line: 7, request: 1 } })
+    // A line to mark needs the source, so the reveal opens on it even though the file has a preview.
+    expect(screen.getByRole('radio', { name: 'Source' })).toHaveAttribute('aria-checked', 'true')
     await waitFor(() => {
       expect(editorLines()).toHaveLength(9)
     })
@@ -416,6 +485,7 @@ describe('FilesTab', () => {
 
   it('marks no line for another file', async () => {
     await renderTab({ openFiles: OPEN, focus: { path: 'api/throttles.py', line: 1, request: 1 } })
+    fireEvent.click(screen.getByRole('radio', { name: 'Source' }))
     await waitFor(() => {
       expect(editorLines()).toHaveLength(9)
     })
@@ -542,6 +612,7 @@ describe('a file as a commit left it', () => {
 
   it('shows read-only, named by its path in the commit and labelled with the hash, with no Open in editor', async () => {
     const { opened } = await renderCommitFile()
+    fireEvent.click(screen.getByRole('radio', { name: 'Source' }))
 
     const tab = within(openTabs()).getByRole('button', { name: 'upgrading.mdabc1234', pressed: true })
     expect(tab.parentElement).toHaveAttribute('title', 'docs/upgrading.md (abc1234)')
