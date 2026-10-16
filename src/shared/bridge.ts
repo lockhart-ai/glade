@@ -1028,6 +1028,13 @@ export interface FilesPlaceHtmlPreviewRequest {
   /** Relative to the workspace root. */
   readonly path: string
   readonly bounds: PluginViewBounds | null
+  /**
+   * This place is the preview's first show for a fresh showing of the viewer (the tab was closed, or the file shows
+   * again): the view main kept may hold this file's page from before, with the file since changed on disk, so main
+   * reloads it fresh. A later place (a resize, an overlay's giving way) only moves the view, so its page keeps its
+   * state.
+   */
+  readonly reopen: boolean
 }
 
 /**

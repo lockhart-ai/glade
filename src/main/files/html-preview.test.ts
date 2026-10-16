@@ -62,6 +62,37 @@ describe('createHtmlPreviewViews', () => {
     expect(fake.last().destroyed).toBe(false)
   })
 
+  it('reloads the kept page fresh from disk when a hidden file is placed again to reopen it, and only then', () => {
+    const emit = vi.fn()
+    const fake = createFakeHtmlPreviewViews()
+    const views = createHtmlPreviewViews({ emit, createView: fake.create })
+    views.place('t1', 'index.html', '/root', 'index.html', BOUNDS)
+    views.hide('t1', 'index.html')
+
+    // Reopened (its tab was closed, or the file shows again): the page the view kept may be stale — the file could
+    // have changed on disk while it wasn't showing. Placing it again reloads it, and shows it.
+    views.place('t1', 'index.html', '/root', 'index.html', BOUNDS, true)
+    expect(fake.last().reloaded).toBe(1)
+    expect(fake.last().bounds).toEqual(BOUNDS)
+    expect(fake.last().destroyed).toBe(false)
+
+    // A later place (a resize, an overlay's giving way) only moves the view: its page keeps its state.
+    views.place('t1', 'index.html', '/root', 'index.html', { ...BOUNDS, width: 400 })
+    expect(fake.last().reloaded).toBe(1)
+    expect(fake.last().bounds).toEqual({ ...BOUNDS, width: 400 })
+
+    // A fresh page after the reload: a block again tells the window again.
+    fake.last().block()
+    expect(emit).toHaveBeenCalledWith({ type: EventType.HtmlPreviewBlocked, taskId: 't1', path: 'index.html' })
+    emit.mockClear()
+
+    // A different file reopened still destroys the kept view and makes a fresh one (which loads fresh itself).
+    views.place('t1', 'other.html', '/root', 'other.html', BOUNDS, true)
+    expect(fake.views).toHaveLength(2)
+    expect(fake.last().destroyed).toBe(false)
+    expect(fake.views.at(0)?.destroyed ?? false).toBe(true)
+  })
+
   it('reloads only the shown file’s view, clearing its blocked notice so it can recur', () => {
     const emit = vi.fn()
     const fake = createFakeHtmlPreviewViews()

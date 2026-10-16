@@ -981,7 +981,7 @@ describe('the files commands', () => {
     const taskId = taskInRoot()
     const bounds = { x: 0, y: 0, width: 400, height: 300 }
 
-    await handlers[CommandName.FilesPlaceHtmlPreview]({ taskId, path: 'docs/rate-limits.md', bounds })
+    await handlers[CommandName.FilesPlaceHtmlPreview]({ taskId, path: 'docs/rate-limits.md', bounds, reopen: false })
     expect(fakeHtmlPreview.views).toHaveLength(1)
     expect(fakeHtmlPreview.last().spec.fileName).toBe('rate-limits.md')
     expect(fakeHtmlPreview.last().spec.folder).toEqual(expect.stringMatching(/\/docs$/))
@@ -990,11 +990,22 @@ describe('the files commands', () => {
     await handlers[CommandName.FilesReloadHtmlPreview]({ taskId, path: 'docs/rate-limits.md' })
     expect(fakeHtmlPreview.last().reloaded).toBe(1)
 
-    await handlers[CommandName.FilesPlaceHtmlPreview]({ taskId, path: 'docs/rate-limits.md', bounds: null })
+    await handlers[CommandName.FilesPlaceHtmlPreview]({
+      taskId,
+      path: 'docs/rate-limits.md',
+      bounds: null,
+      reopen: false,
+    })
     expect(fakeHtmlPreview.last().bounds).toBeNull()
 
+    // Reopening the same file (its tab was closed) places the view it kept and reloads it fresh from disk.
+    await handlers[CommandName.FilesPlaceHtmlPreview]({ taskId, path: 'docs/rate-limits.md', bounds, reopen: true })
+    expect(fakeHtmlPreview.views).toHaveLength(1)
+    expect(fakeHtmlPreview.last().bounds).toEqual(bounds)
+    expect(fakeHtmlPreview.last().reloaded).toBe(2)
+
     // A file that isn't there: nothing is placed.
-    await handlers[CommandName.FilesPlaceHtmlPreview]({ taskId, path: 'docs/gone.html', bounds })
+    await handlers[CommandName.FilesPlaceHtmlPreview]({ taskId, path: 'docs/gone.html', bounds, reopen: true })
     expect(fakeHtmlPreview.views).toHaveLength(1)
   })
 })

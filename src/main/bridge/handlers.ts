@@ -482,14 +482,14 @@ export function createHandlers(context: HandlerContext): Handlers {
       await context.folderWatch?.watch(taskId, paths)
       return null
     },
-    [CommandName.FilesPlaceHtmlPreview]: async ({ taskId, path, bounds }) => {
+    [CommandName.FilesPlaceHtmlPreview]: async ({ taskId, path, bounds, reopen }) => {
       if (bounds === null) {
         htmlPreviewViews.hide(taskId, path)
         return null
       }
       const real = await resolveWorkspaceFile(workspaceRoot(context, taskId), path)
       // Missing, or gone since: nothing to show: the viewer's own notice already says so.
-      if (real !== null) htmlPreviewViews.place(taskId, path, dirname(real), basename(real), bounds)
+      if (real !== null) htmlPreviewViews.place(taskId, path, dirname(real), basename(real), bounds, reopen)
       return null
     },
     [CommandName.FilesReloadHtmlPreview]: ({ taskId, path }) => {
