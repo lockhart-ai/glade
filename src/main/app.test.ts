@@ -712,8 +712,11 @@ describe('startApp', () => {
         }),
       ).resolves.toEqual({ ok: true, value: null })
 
+      // The view opens once the file's folder has resolved, a tick after the command answers.
+      await vi.waitFor(() => {
+        expect(electron.pluginViews).toHaveLength(1)
+      })
       const [view] = electron.pluginViews
-      expect(electron.pluginViews).toHaveLength(1)
       expect(window.contentView.addChildView).toHaveBeenCalledWith(view)
       expect(view?.webContents.loadURL).toHaveBeenCalledWith('glade-html-preview://preview/report.html')
       expect(view?.setBounds).toHaveBeenCalledWith(bounds)
