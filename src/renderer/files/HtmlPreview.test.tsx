@@ -8,21 +8,37 @@ import { fakeBridge, refuse, sampleTask, sampleWorkspace, type FakeHandlers, typ
 import { HtmlPreview } from './HtmlPreview'
 
 /** A ResizeObserver a test can fire, standing in for jsdom's missing layout (mirrors `../plugins/PluginPanel.test.tsx`). */
+const observers: { callback: () => void; observed: Element[]; disconnected: boolean }[] = []
 class TestResizeObserver {
-  observe(): void {
-    // Nothing fires in these tests: the slot's box is read once, synchronously, when it's placed.
+  readonly entry: { callback: () => void; observed: Element[]; disconnected: boolean }
+  constructor(callback: () => void) {
+    this.entry = { callback, observed: [], disconnected: false }
+    observers.push(this.entry)
+  }
+  observe(element: Element): void {
+    this.entry.observed.push(element)
   }
   unobserve(): void {
     // Never called: the hook disconnects instead.
   }
   disconnect(): void {
-    // Nothing to tear down: this test's observer never kept anything of its own.
+    this.entry.disconnected = true
+  }
+}
+
+/** Fires every observer watching the slot, as the page's layout would when the box it sits in resizes. */
+function resizeSlot(): void {
+  for (const observer of observers) {
+    if (observer.observed.some((element) => element.getAttribute('data-testid') === 'html-preview-slot')) {
+      observer.callback()
+    }
   }
 }
 
 let slotBox = new DOMRect(10, 20, 300, 200)
 
 beforeEach(() => {
+  observers.length = 0
   slotBox = new DOMRect(10, 20, 300, 200)
   vi.stubGlobal('ResizeObserver', TestResizeObserver)
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
@@ -176,6 +192,30 @@ describe('HtmlPreview', () => {
       })
     })
     expect(screen.getByRole('status')).toHaveTextContent('Some content was blocked: this preview is offline.')
+  })
+
+  it('sends the box’s new bounds when the box itself resizes, as the panel around it narrows or the bottom panel opens', async () => {
+    const { main } = await renderPreview('v1')
+    await waitFor(() => {
+      expect(main.placedHtmlPreviews).toEqual([
+        { taskId: 't1', path: 'report.html', bounds: { x: 10, y: 20, width: 300, height: 200 }, reopen: true },
+      ])
+    })
+
+    // The layout around the viewer moves (the right panel's splitter, the bottom panel opening): the slot's box
+    // resizes without the window doing so, and the bounds sent follow it.
+    slotBox = new DOMRect(10, 20, 400, 250)
+    act(() => {
+      resizeSlot()
+    })
+    await waitFor(() => {
+      expect(main.placedHtmlPreviews?.at(-1)).toEqual({
+        taskId: 't1',
+        path: 'report.html',
+        bounds: { x: 10, y: 20, width: 400, height: 250 },
+        reopen: false,
+      })
+    })
   })
 
   it('shows a toast when placing the view fails', async () => {
