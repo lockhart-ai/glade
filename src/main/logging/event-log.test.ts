@@ -477,6 +477,7 @@ describe('the tool log', () => {
     logEvent({ type: EventType.HandoffChanged, taskId: 'task-1', handoff: null })
     logEvent({ type: EventType.FileShown, taskId: 'task-1', path: 'src/date.ts', line: 12 })
     logEvent({ type: EventType.FolderChanged, taskId: 'task-1', path: 'src' })
+    logEvent({ type: EventType.FileChanged, taskId: 'task-1', path: 'src/date.ts', version: 2 })
     logEvent({ type: EventType.HtmlPreviewBlocked, taskId: 'task-1', path: 'reports/report.html' })
     logEvent({
       type: EventType.OpenFilesChanged,
@@ -498,6 +499,11 @@ describe('the tool log', () => {
         level: LogLevel.Debug,
         message: 'folder changed',
         fields: { taskId: 'task-1', path: 'src' },
+      }),
+      expect.objectContaining({
+        level: LogLevel.Debug,
+        message: 'file changed on disk',
+        fields: { taskId: 'task-1', path: 'src/date.ts', version: 2 },
       }),
       expect.objectContaining({
         level: LogLevel.Debug,
