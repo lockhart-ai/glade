@@ -24,7 +24,14 @@ import {
   type LoginService,
   type RunLogin,
 } from '../account/login'
-import type { OpenPath, RevealPath, WriteClipboard } from '../files/files'
+import { dirname, basename } from 'node:path'
+import {
+  resolveWorkspaceFile,
+  workspaceRoot,
+  type OpenPath,
+  type RevealPath,
+  type WriteClipboard,
+} from '../files/files'
 import type { OpenExternal } from '../links/links'
 import type { Thumbnails } from '../artifacts/thumbnails'
 import { createArtifactWatcher, type ArtifactWatcher } from '../artifacts/artifact-watch'
@@ -399,6 +406,12 @@ export function registerBridge({
   const htmlPreviewViews = createHtmlPreviewViews({
     emit,
     createView: createHtmlPreviewView,
+    // Only when a preview's view opens: the file's own folder on disk, symlinks resolved, for the sandbox to serve.
+    resolveFile: async (taskId, path) => {
+      const real = await resolveWorkspaceFile(workspaceRoot({ db, emit }, taskId), path)
+      // Missing, or gone since: nothing to show: the viewer's own notice already says so.
+      return real === null ? null : { folder: dirname(real), fileName: basename(real) }
+    },
     log: log.scoped(LogScope.Files),
   })
   const plugins = createPlugins({

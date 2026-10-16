@@ -55,7 +55,6 @@ import { broadcastMessage } from '../tasks/broadcast'
 import { editQueuedMessage, removeQueuedMessage } from '../tasks/queue'
 import { noteUiStateSet } from '../tasks/attention'
 import { changeTask, createTask, deleteTask, markTaskDone, reopenTask, requireTask } from '../tasks/service'
-import { dirname, basename } from 'node:path'
 import {
   browseTaskFiles,
   closeTaskFile,
@@ -64,7 +63,6 @@ import {
   openTaskFile,
   openTaskFileInEditor,
   readTaskFile,
-  resolveWorkspaceFile,
   writeTaskFile,
   workspaceRoot,
   revealTaskFile,
@@ -482,14 +480,14 @@ export function createHandlers(context: HandlerContext): Handlers {
       await context.folderWatch?.watch(taskId, paths)
       return null
     },
-    [CommandName.FilesPlaceHtmlPreview]: async ({ taskId, path, bounds }) => {
+    // The bounds go straight through: the file's folder resolves only when its view opens (`html-preview.ts`), so a
+    // burst of resizes is never reordered on the way (#656).
+    [CommandName.FilesPlaceHtmlPreview]: ({ taskId, path, bounds }) => {
       if (bounds === null) {
         htmlPreviewViews.hide(taskId, path)
         return null
       }
-      const real = await resolveWorkspaceFile(workspaceRoot(context, taskId), path)
-      // Missing, or gone since: nothing to show: the viewer's own notice already says so.
-      if (real !== null) htmlPreviewViews.place(taskId, path, dirname(real), basename(real), bounds)
+      htmlPreviewViews.place(taskId, path, bounds)
       return null
     },
     [CommandName.FilesReloadHtmlPreview]: ({ taskId, path }) => {
