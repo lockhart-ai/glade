@@ -173,6 +173,8 @@ test('editor: unsaved edits ask before the tab closes, the task switches, or Gla
   // Switching task asks. Save writes the edits, then the new task shows.
   await files.list.click()
   await files.listed(DOC).click()
+  // The file opens on its preview now (#657); typing needs the source.
+  await files.mode('Source').click()
   await typeAtEndOf(window, 1, ' (saved on the way out)')
   await taskList(window).newTask.click()
   await expect(prompt.dialog).toContainText('Save your edits before switching task?')
@@ -182,6 +184,7 @@ test('editor: unsaved edits ask before the tab closes, the task switches, or Gla
 
   // Quitting asks. Cancel keeps Glade open; Discard quits.
   await taskList(window).taskRow('Document the rate limits').click()
+  await files.mode('Source').click()
   await typeAtEndOf(window, 1, '!')
   await inMain(glade.app, ({ app }) => {
     app.quit()
