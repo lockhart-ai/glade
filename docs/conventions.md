@@ -112,8 +112,9 @@ A task is one long-running piece of ownership, not one ticket.
   group is next` (#609).
 - **Keep every todo current.** The list is how Jared follows the work, so a todo's state and its line change in the
   same turn as the work does: a kitten started, its plan came back, a push, CI red or green, approved, queued,
-  merged. A todo is in progress only while someone is on it or something it started is still running, and completed
-  only once its PR is merged or the work is dropped (`Merged Oct 12`, `Dropped: not needed after #594`).
+  merged. A todo goes in progress when work on it starts and stays in progress until it is completed, including
+  while it waits on Jared or between runs (#660); it never goes back to not started. It is completed only once its PR
+  is merged or the work is dropped (`Merged Oct 12`, `Dropped: not needed after #594`).
 - **Waiting on Jared comes first.** When a todo can't move until he reviews or decides something, its line starts
   with that and says what he is to look at: `Waiting on Jared: review of PR #602`,
   `Waiting on Jared: pick a mockup (A or B)`. Change it as soon as he answers.
