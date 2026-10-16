@@ -499,9 +499,11 @@ export interface GladeActions {
   /**
    * Puts the Files viewer's HTML preview over its body, in the page's CSS pixels, or hides it (`null`)
    * (`files.placeHtmlPreview`). Called on every resize and overlay change, not only the first time, so it never
-   * touches the blocked notice itself (`clearHtmlPreviewBlocked` does, once, when the preview mounts).
+   * touches the blocked notice itself (`clearHtmlPreviewBlocked` does, once, when the preview mounts). `reopen` on a
+   * place that shows the view: this is the preview's first show for a fresh showing of the viewer (the tab was
+   * closed, or the file shows again), so main reloads the page it kept, which may hold stale contents.
    */
-  placeHtmlPreview: (taskId: string, path: string, bounds: PluginViewBounds | null) => Promise<void>
+  placeHtmlPreview: (taskId: string, path: string, bounds: PluginViewBounds | null, reopen: boolean) => Promise<void>
   /** Clears a file's blocked notice, locally: once when its preview mounts, so an earlier block doesn't linger. */
   clearHtmlPreviewBlocked: (taskId: string, path: string) => void
   /** Reloads the HTML preview fresh from disk, in place, and clears its blocked notice until it recurs (`files.reloadHtmlPreview`). */

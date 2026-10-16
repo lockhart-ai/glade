@@ -97,7 +97,7 @@ describe('HtmlPreview', () => {
 
     await waitFor(() => {
       expect(main.placedHtmlPreviews).toEqual([
-        { taskId: 't1', path: 'report.html', bounds: { x: 10, y: 20, width: 300, height: 200 } },
+        { taskId: 't1', path: 'report.html', bounds: { x: 10, y: 20, width: 300, height: 200 }, reopen: true },
       ])
     })
 
@@ -111,7 +111,44 @@ describe('HtmlPreview', () => {
 
     unmount()
     await waitFor(() => {
-      expect(main.placedHtmlPreviews?.at(-1)).toEqual({ taskId: 't1', path: 'report.html', bounds: null })
+      expect(main.placedHtmlPreviews?.at(-1)).toEqual({
+        taskId: 't1',
+        path: 'report.html',
+        bounds: null,
+        reopen: false,
+      })
+    })
+  })
+
+  it('asks main to reopen the view fresh from disk when the preview shows again after a remount', async () => {
+    // The tab was closed and the file reopened (or the viewer shows it again): the view main kept may hold the
+    // file's page from before, with the file since changed on disk. The fresh showing's first place says reopen;
+    // later places (a resize, an overlay's giving way) only move the view.
+    const first = await renderPreview('v1')
+    await waitFor(() => {
+      expect(first.main.placedHtmlPreviews).toHaveLength(1)
+    })
+    first.unmount()
+
+    const { main } = await renderPreview('v1')
+    await waitFor(() => {
+      expect(main.placedHtmlPreviews).toEqual([
+        { taskId: 't1', path: 'report.html', bounds: { x: 10, y: 20, width: 300, height: 200 }, reopen: true },
+      ])
+    })
+
+    // A later place on this mount (the slot's box changing) doesn't reopen the view.
+    slotBox = new DOMRect(10, 20, 400, 250)
+    act(() => {
+      window.dispatchEvent(new Event('resize'))
+    })
+    await waitFor(() => {
+      expect(main.placedHtmlPreviews?.at(-1)).toEqual({
+        taskId: 't1',
+        path: 'report.html',
+        bounds: { x: 10, y: 20, width: 400, height: 250 },
+        reopen: false,
+      })
     })
   })
 
@@ -151,6 +188,7 @@ describe('HtmlPreview', () => {
         taskId: 't1',
         path: 'report.html',
         bounds: { x: 10, y: 20, width: 400, height: 250 },
+        reopen: false,
       })
     })
     expect(screen.getByRole('status')).toHaveTextContent('Some content was blocked: this preview is offline.')
@@ -160,7 +198,7 @@ describe('HtmlPreview', () => {
     const { main } = await renderPreview('v1')
     await waitFor(() => {
       expect(main.placedHtmlPreviews).toEqual([
-        { taskId: 't1', path: 'report.html', bounds: { x: 10, y: 20, width: 300, height: 200 } },
+        { taskId: 't1', path: 'report.html', bounds: { x: 10, y: 20, width: 300, height: 200 }, reopen: true },
       ])
     })
 
@@ -175,6 +213,7 @@ describe('HtmlPreview', () => {
         taskId: 't1',
         path: 'report.html',
         bounds: { x: 10, y: 20, width: 400, height: 250 },
+        reopen: false,
       })
     })
   })

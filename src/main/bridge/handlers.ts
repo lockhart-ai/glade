@@ -482,12 +482,12 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     // The bounds go straight through: the file's folder resolves only when its view opens (`html-preview.ts`), so a
     // burst of resizes is never reordered on the way (#656).
-    [CommandName.FilesPlaceHtmlPreview]: ({ taskId, path, bounds }) => {
+    [CommandName.FilesPlaceHtmlPreview]: ({ taskId, path, bounds, reopen }) => {
       if (bounds === null) {
         htmlPreviewViews.hide(taskId, path)
         return null
       }
-      htmlPreviewViews.place(taskId, path, bounds)
+      htmlPreviewViews.place(taskId, path, bounds, reopen)
       return null
     },
     [CommandName.FilesReloadHtmlPreview]: ({ taskId, path }) => {

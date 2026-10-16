@@ -485,6 +485,7 @@ const filesPlaceHtmlPreviewRequest = z.strictObject({
     .string()
     .refine(isWorkspaceRelativePath, 'Expected a normalized path relative to the workspace root, inside it'),
   bounds: viewBounds.nullable(),
+  reopen: z.boolean(),
 }) satisfies z.ZodType<FilesPlaceHtmlPreviewRequest>
 
 const filesReloadHtmlPreviewRequest = z.strictObject({

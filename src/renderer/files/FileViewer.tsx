@@ -239,7 +239,9 @@ export function FileViewer({
 
   const previewOf = (text: string): React.ReactNode =>
     markdown ? (
-      <Markdown source={text} className={styles.preview} interactiveCode={false} />
+      <div className={styles.preview}>
+        <Markdown source={text} className={styles.previewColumn} interactiveCode={false} />
+      </div>
     ) : (
       <HtmlPreview taskId={taskId} path={path} version={version} />
     )

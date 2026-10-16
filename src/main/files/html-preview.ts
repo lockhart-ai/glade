@@ -30,9 +30,12 @@ export interface HtmlPreviewViews {
   /**
    * Shows `taskId`'s `path` over the viewer's body at `bounds`: while that file's view is showing, straight away; the
    * first time (or for a different file, destroying the last), once its folder on disk has resolved, in the order the
-   * asks came — the newest one wins, so a burst never shows an ask that came before it.
+   * asks came — the newest one wins, so a burst never shows an ask that came before it. With `reopen`, this is the
+   * preview's first show for a fresh showing of the viewer (the tab was closed, or the file shows again): a view kept
+   * for this file may hold its page from before, with the file since changed on disk, so it's reloaded fresh (#658).
+   * A later place (a resize, an overlay's giving way) only moves the view, so its page keeps its state.
    */
-  place(taskId: string, path: string, bounds: PluginViewBounds): void
+  place(taskId: string, path: string, bounds: PluginViewBounds, reopen?: boolean): void
   /** Hides the view for `taskId`'s `path`, keeping its page; a no-op for a file that isn't the one shown. */
   hide(taskId: string, path: string): void
   /** Reloads the file fresh from disk, if it's the one shown; a no-op otherwise. */
@@ -124,10 +127,16 @@ export function createHtmlPreviewViews({
   }
 
   return {
-    place(taskId, path, bounds) {
+    place(taskId, path, bounds, reopen = false) {
       // That file's view is showing already: its bounds go straight through, in the order they came, so the view is
       // never left at stale ones after a burst of resizes (#656). Only an open waits on the file's folder on disk.
       if (shown !== null && shown.taskId === taskId && shown.path === path) {
+        if (reopen) {
+          // The view already holds this file's page, from before it was hidden: reload it fresh from disk, since the
+          // file may have changed on disk while it wasn't showing (#658). A new page means the blocked notice can recur.
+          shown.blockedNotified = false
+          shown.view.reload()
+        }
         shown.view.place(bounds)
         return
       }
