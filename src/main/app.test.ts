@@ -704,7 +704,12 @@ describe('startApp', () => {
 
       const bounds = { x: 10, y: 20, width: 300, height: 200 }
       await expect(
-        handler?.(fromWindow(), CommandName.FilesPlaceHtmlPreview, { taskId, path: 'report.html', bounds }),
+        handler?.(fromWindow(), CommandName.FilesPlaceHtmlPreview, {
+          taskId,
+          path: 'report.html',
+          bounds,
+          reopen: false,
+        }),
       ).resolves.toEqual({ ok: true, value: null })
 
       const [view] = electron.pluginViews

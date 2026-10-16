@@ -520,11 +520,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         set((state) => ({ pluginStatuses: { ...state.pluginStatuses, [id]: status } }))
       },
 
-      async placeHtmlPreview(taskId, path, bounds) {
+      async placeHtmlPreview(taskId, path, bounds, reopen) {
         // Not cleared here: `useViewSlot` calls this on every resize and overlay change, long after a block, which
         // would otherwise wipe the notice before you ever saw it. `clearHtmlPreviewBlocked` (once, on mount) and a
         // reload are the only times it's rightly cleared.
-        await bridge.invoke(CommandName.FilesPlaceHtmlPreview, { taskId, path, bounds })
+        await bridge.invoke(CommandName.FilesPlaceHtmlPreview, { taskId, path, bounds, reopen })
       },
 
       clearHtmlPreviewBlocked(taskId, path) {

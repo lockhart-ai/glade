@@ -119,6 +119,60 @@ test('html preview: a static report renders as it would in a browser, following 
   await expectPreviewOverSlot(glade)
 })
 
+test('html preview: a file closed and rewritten on disk shows its new contents when reopened', async ({
+  launch,
+  tempFolder,
+}) => {
+  const root = workspace(tempFolder, {
+    'reports/report.html': REPORT,
+    'notes/summary.md': '# Acme API\n\nCalls were steady this week.\n',
+  })
+  const glade = await launch({ chosenFolder: root })
+  const { window } = glade
+  await openTask(window)
+  await window.keyboard.press('Meta+Alt+Digit2')
+  const files = filesTab(window)
+
+  // The report, in preview.
+  await files.treeRow('reports').click()
+  await files.treeRow('report.html').click()
+  await window.keyboard.press('Enter')
+  await files.mode('Preview').click()
+  await expectPreviewOverSlot(glade)
+  expect(await inHtmlPreview(glade, 'document.querySelector("h1").textContent')).toBe('Acme API — Weekly Usage')
+
+  // A shell script rewrites the report straight to disk — not through the agent's tools — and the tab closes.
+  const rewritten = REPORT.replace('Weekly Usage', 'Monthly Usage').replace('(60 * 24 * 7).toLocaleString()', '42')
+  writeFileSync(join(root, 'reports/report.html'), rewritten)
+  await files.close('report.html').click()
+  await expect(files.tab('report.html')).toHaveCount(0)
+
+  // Reopening shows what is on disk now: the source first, then the preview.
+  await files.treeRow('report.html').click()
+  await window.keyboard.press('Enter')
+  await expect(files.editor).toContainText('Monthly Usage')
+  await files.mode('Preview').click()
+  await expectPreviewOverSlot(glade)
+  expect(await inHtmlPreview(glade, 'document.querySelector("h1").textContent')).toBe('Acme API — Monthly Usage')
+  expect(await inHtmlPreview(glade, 'document.getElementById("calls").textContent')).toBe('42')
+
+  // The same for a Markdown file's preview.
+  await files.browse.click()
+  await files.treeRow('notes').click()
+  await files.treeRow('summary.md').click()
+  await window.keyboard.press('Enter')
+  await files.mode('Preview').click()
+  await expect(files.contents).toContainText('Calls were steady this week.')
+  await files.close('summary.md').click()
+  writeFileSync(join(root, 'notes/summary.md'), '# Acme API\n\nCalls doubled this month.\n')
+  await files.browse.click()
+  await files.treeRow('summary.md').click()
+  await window.keyboard.press('Enter')
+  await expect(files.editor).toContainText('Calls doubled this month.')
+  await files.mode('Preview').click()
+  await expect(files.contents).toContainText('Calls doubled this month.')
+})
+
 test('html preview: a hostile page is contained like a plugin’s view: no bridge, no network, no escape, no navigation', async ({
   launch,
   tempFolder,

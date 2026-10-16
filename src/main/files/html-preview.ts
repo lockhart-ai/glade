@@ -19,9 +19,19 @@ export interface HtmlPreviewViewsOptions {
 export interface HtmlPreviewViews {
   /**
    * Shows `taskId`'s `path` over the viewer's body at `bounds`, its file at `fileName` in `folder`: makes the view
-   * the first time, or when a different file was shown (destroying that one).
+   * the first time, or when a different file was shown (destroying that one). With `reopen`, this is the preview's
+   * first show for a fresh showing of the viewer (the tab was closed, or the file shows again): the view kept may
+   * hold this file's page from before, with the file since changed on disk, so it's reloaded fresh from disk. A
+   * later place (a resize, an overlay's giving way) only moves the view, so its page keeps its state.
    */
-  place(taskId: string, path: string, folder: string, fileName: string, bounds: PluginViewBounds): void
+  place(
+    taskId: string,
+    path: string,
+    folder: string,
+    fileName: string,
+    bounds: PluginViewBounds,
+    reopen?: boolean,
+  ): void
   /** Hides the view for `taskId`'s `path`, keeping its page; a no-op for a file that isn't the one shown. */
   hide(taskId: string, path: string): void
   /** Reloads the file fresh from disk, if it's the one shown; a no-op otherwise. */
@@ -75,8 +85,14 @@ export function createHtmlPreviewViews({
   }
 
   return {
-    place(taskId, path, folder, fileName, bounds) {
+    place(taskId, path, folder, fileName, bounds, reopen = false) {
       if (shown !== null && (shown.taskId !== taskId || shown.path !== path)) destroy('another file is shown')
+      if (shown !== null && reopen) {
+        // The view already holds this file's page, from before it was hidden: reload it fresh from disk, since the
+        // file may have changed on disk while it wasn't showing. A new page means the blocked notice can recur.
+        shown.blockedNotified = false
+        shown.view.reload()
+      }
       shown ??= open(taskId, path, folder, fileName)
       shown?.view.place(bounds)
     },
