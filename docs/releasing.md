@@ -87,9 +87,39 @@ would need the Claude Agent SDK's x64 binary package installed alongside, so it'
 
 ## Signing
 
-Builds are ad-hoc signed (`identity: '-'` in `electron-builder.yml`): a sealed signature with no certificate, not
-notarised. Developer ID signing and notarisation are L-04 (#69). Check a local build with
-`codesign --verify --deep --strict release/mac-arm64/Glade.app`.
+Every release is signed with one self-signed certificate, common name **"Glade Self-Signed"** (#669), a stopgap
+until Developer ID signing and notarisation (#633, formerly tracked as L-04 #69): macOS treats a certificate as a
+new app's identity, not the signature's validity, so as long as every build uses the same certificate, a grant made
+once (Open Anyway, screen recording, …) survives updates. It isn't trusted (no CA signed it), so it doesn't avoid
+the right-click-Open step on first launch, and `security find-identity` never lists it as valid — `codesign` doesn't
+require trust to sign, only `security find-identity` does, so the workflow and `scripts/sign-mac.mjs` both find the
+certificate with `security find-certificate` instead (which lists by name regardless of trust) and sign by its
+SHA-1 hash directly.
+
+- **The certificate is Jared's:** he creates and keeps it, and puts it in the repo's Actions secrets as `CSC_LINK`
+  (the `.p12`, base64-encoded) and `CSC_KEY_PASSWORD` (the `.p12`'s export password). Agents never handle it.
+- **The release workflow** (`.github/workflows/release.yml`) fails before building, on every run including a dry
+  run, if either secret is unset. It builds with `npm run package`, same as a local build, then verifies the result:
+  `codesign --verify --deep --strict` on the app, and that its designated requirement's certificate leaf hash
+  matches the certificate in `CSC_LINK` (read from the certificate itself each run, not hard-coded, since the
+  certificate can be rotated). A build that's only ad-hoc signed, or signed with some other certificate, fails the
+  workflow rather than publishing.
+- **A local build** (`npm run package`, on any contributor's Mac) signs with the certificate only if it finds
+  exactly one "Glade Self-Signed" identity in the default keychain (there if you made the certificate yourself, or
+  were sent it for a signed build to test); otherwise it falls back to the ad-hoc signature electron-builder already
+  makes, so the build still works without the certificate, or while it's mid-rotation. Check a local build with
+  `codesign -dv` and `codesign -d -r- release/mac-arm64/Glade.app` (the designated requirement's `certificate leaf`
+  line, or lack of one, says whether it signed with the certificate or ad-hoc).
+- **Rotating the certificate** (making a new one with the same common name, when the old one's key or password is
+  lost, say) costs users one more round of grants: the next release looks like a new app again, same as before #669.
+
+Mechanically: electron-builder signs the app ad-hoc first (`identity: '-'` in `electron-builder.yml`, unchanged from
+before #669), the same signature it always made; its `afterSign` hook (`scripts/sign-mac.mjs`) then re-signs the
+whole app with the certificate when it finds exactly one, deep, replacing the ad-hoc seal throughout. electron-
+builder's own certificate handling (`mac.identity` to the certificate's name, or auto-discovery from `CSC_LINK`)
+isn't used, because it only matches a *trusted* identity via `security find-identity -v`, which a self-signed
+certificate never is; `scripts/sign-mac.mjs` reads `GLADE_CSC_LINK`/`GLADE_CSC_KEY_PASSWORD` instead of
+`CSC_LINK`/`CSC_KEY_PASSWORD` so electron-builder's own handling never sees the secrets and never tries.
 
 On first launch, right-click Glade in Applications and choose Open (on newer macOS, if there's no Open button, click
 Open Anyway in System Settings → Privacy & Security). If macOS still refuses, clear the quarantine flag:

@@ -44,14 +44,62 @@ jobs:
           fi
           test -f "docs/releases/v$version.md" || { echo "::error::docs/releases/v$version.md is missing"; exit 1; }
 
+      # Every build from this workflow, dry run or not, signs with the "Glade Self-Signed" certificate (#669); it
+      # never publishes (or uploads) an ad-hoc build. docs/releasing.md has the two secrets and why.
+      - name: Check the signing secrets are set
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          if [ -z "$CSC_LINK" ] || [ -z "$CSC_KEY_PASSWORD" ]; then
+            echo "::error::CSC_LINK and/or CSC_KEY_PASSWORD secrets are not set; refusing to build an ad-hoc release"
+            exit 1
+          fi
+
       # npm ci also fetches the Electron binary (the root postinstall).
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      # --publish never: the release is created below with gh, not by electron-builder.
-      - run: npm run package -- --publish never
-      - name: Check the app's ad-hoc signature
-        run: codesign --verify --deep --strict --verbose=2 release/mac-arm64/Glade.app
+      # --publish never: the release is created below with gh, not by electron-builder. GLADE_CSC_LINK/
+      # GLADE_CSC_KEY_PASSWORD (not CSC_LINK/CSC_KEY_PASSWORD: see scripts/sign-mac.mjs) are electron-builder's
+      # `afterSign` hook's own names for the same secrets, so electron-builder's own identity handling never sees
+      # them — it only matches a *trusted* identity, and this self-signed certificate never is.
+      - name: Build and sign the app
+        env:
+          GLADE_CSC_LINK: ${{ secrets.CSC_LINK }}
+          GLADE_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: npm run package -- --publish never
+      - name: Check the app is signed with the Glade Self-Signed certificate
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          codesign --verify --deep --strict --verbose=2 release/mac-arm64/Glade.app
+
+          # Read the certificate's own SHA-1 (not hard-coded: the certificate gets rotated) from CSC_LINK, the same
+          # way scripts/sign-mac.mjs does, rather than trusting it (self-signed certificates never are).
+          keychain="$RUNNER_TEMP/glade-verify.keychain-db"
+          p12="$RUNNER_TEMP/glade-verify.p12"
+          password="$(node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("base64"))')"
+          echo "$CSC_LINK" | base64 --decode > "$p12"
+          security create-keychain -p "$password" "$keychain"
+          security import "$p12" -k "$keychain" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign
+          hashes="$(security find-certificate -c 'Glade Self-Signed' -a -Z "$keychain" | awk '/SHA-1 hash:/ { print tolower($3) }' | sort -u)"
+          security delete-keychain "$keychain"
+          rm -f "$p12"
+
+          hash_count="$(echo "$hashes" | grep -c . || true)"
+          if [ "$hash_count" != 1 ]; then
+            echo "::error::Expected exactly one 'Glade Self-Signed' certificate in CSC_LINK, found $hash_count"
+            exit 1
+          fi
+
+          requirement="$(codesign -d -r- release/mac-arm64/Glade.app)"
+          echo "$requirement"
+          if ! echo "$requirement" | grep -qi "certificate leaf = H\"$hashes\""; then
+            echo "::error::Glade.app is not signed with the Glade Self-Signed certificate (expected leaf hash $hashes)"
+            exit 1
+          fi
       - name: Check the app can start Claude Code
         run: node scripts/check-packaged-claude.mjs release/mac-arm64/Glade.app
 
