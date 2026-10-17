@@ -91,10 +91,12 @@ Every release is signed with one self-signed certificate, common name **"Glade S
 until Developer ID signing and notarisation (#633, formerly tracked as L-04 #69): macOS treats a certificate as a
 new app's identity, not the signature's validity, so as long as every build uses the same certificate, a grant made
 once (Open Anyway, screen recording, …) survives updates. It isn't trusted (no CA signed it), so it doesn't avoid
-the right-click-Open step on first launch, and `security find-identity` never lists it as valid — `codesign` doesn't
-require trust to sign, only `security find-identity` does, so the workflow and `scripts/sign-mac.mjs` both find the
-certificate with `security find-certificate` instead (which lists by name regardless of trust) and sign by its
-SHA-1 hash directly.
+the right-click-Open step on first launch, and `security find-identity` never lists it as valid. So the workflow and
+`scripts/sign-mac.mjs` find the certificate with `security find-certificate` (which lists by name regardless of
+trust) and sign by its SHA-1 hash directly. On a developer's Mac `codesign` signs with it untrusted; on the CI runner
+it won't, so there the hook also puts its throwaway keychain on the search list and trusts the certificate for code
+signing in the runner's system keychain (`sudo -n`; the runner is thrown away after the job). A developer's
+keychains and trust settings are never touched.
 
 - **The certificate is Jared's:** he creates and keeps it, and puts it in the repo's Actions secrets as `CSC_LINK`
   (the `.p12`, base64-encoded) and `CSC_KEY_PASSWORD` (the `.p12`'s export password). Agents never handle it.
