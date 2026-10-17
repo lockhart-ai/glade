@@ -22,7 +22,7 @@ import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 const IDENTITY_NAME = 'Glade Self-Signed'
 
@@ -47,7 +47,8 @@ function findCertificateHashes(keychain) {
 
 // Imports the certificate (and its private key) into a throwaway keychain so `security find-certificate` and
 // `codesign` can use it, without touching any keychain a developer or CI already has. Returns the keychain's path;
-// the caller must delete it.
+// the caller must delete it (`deleteKeychain`), which also removes the folder it's in. The .p12 is removed as soon
+// as it's imported; the keychain file has to stay until the app is signed.
 function importCertificate(cscLink, cscKeyPassword) {
   const dir = mkdtempSync(join(tmpdir(), 'glade-sign-'))
   const keychain = join(dir, 'glade-sign.keychain-db')
@@ -61,8 +62,11 @@ function importCertificate(cscLink, cscKeyPassword) {
     security(['import', p12Path, '-k', keychain, '-P', cscKeyPassword ?? '', '-T', '/usr/bin/codesign'])
     security(['set-key-partition-list', '-S', 'apple-tool:,apple:', '-s', '-k', keychainPassword, keychain])
     return keychain
-  } finally {
+  } catch (error) {
     rmSync(dir, { recursive: true, force: true })
+    throw error
+  } finally {
+    rmSync(p12Path, { force: true })
   }
 }
 
@@ -72,6 +76,7 @@ function deleteKeychain(keychain) {
   } catch (error) {
     console.warn(`sign-mac: could not delete the temporary keychain ${keychain}:`, error.message)
   }
+  rmSync(dirname(keychain), { recursive: true, force: true })
 }
 
 export default async function afterSign(context) {
