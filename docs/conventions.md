@@ -76,9 +76,13 @@ A task is one long-running piece of ownership, not one ticket.
 
 - **Title:** the same form as a commit, since it becomes the squash commit on `main`.
 - **One issue per PR.** An issue may take several PRs; a PR never covers two issues.
-- **Body,** in this shape, with no attribution footer:
+- **Body,** in this shape, with no attribution footer. It opens with one plain sentence that says what the whole PR
+  does to someone who knows nothing about it, since that sentence is all a phone notification shows (Jared, #678): not
+  "Fixes the race above", but "Keeps the HTML preview inside its box when the panels around it resize."
 
   ```
+  One sentence saying what this PR does, for someone who hasn't read the issue.
+
   Because:
   - why this change is needed
 
