@@ -16,8 +16,9 @@ import {
   visibleTaskIds,
 } from './sections'
 
-function task(id: string, updatedAt: number, change: Partial<Task> = {}): Task {
-  return { ...sampleTask(id, 'w1', id), updatedAt, ...change }
+/** A task created at `createdAt`, updated then too unless `change` gives its own `updatedAt`. */
+function task(id: string, createdAt: number, change: Partial<Task> = {}): Task {
+  return { ...sampleTask(id, 'w1', id), createdAt, updatedAt: createdAt, ...change }
 }
 
 function ids(tasks: readonly Task[]): string[] {
@@ -25,7 +26,7 @@ function ids(tasks: readonly Task[]): string[] {
 }
 
 describe('sectionTasks', () => {
-  it('splits tasks into Pinned, Active and Done, most recently updated first', () => {
+  it('splits tasks into Pinned, Active and Done: Pinned and Active newest made first, Done most recently updated first', () => {
     const tasks = [
       task('old-active', 100),
       task('new-active', 300),
@@ -44,16 +45,47 @@ describe('sectionTasks', () => {
     ])
   })
 
+  it("an update's newer `updatedAt` never moves a task within Pinned or Active (#676)", () => {
+    const sections = sectionTasks(
+      [
+        task('made-first', 100, { updatedAt: 999, pinned: true }),
+        task('made-second', 200, { pinned: true }),
+        task('made-third', 300, { updatedAt: 999 }),
+        task('made-fourth', 400),
+      ],
+      'w1',
+    )
+
+    // Each section still runs newest made first, whatever a task's `updatedAt` says.
+    expect(sections.map(({ tasks: sectioned }) => ids(sectioned))).toEqual([
+      ['made-second', 'made-first'],
+      ['made-fourth', 'made-third'],
+      [],
+    ])
+  })
+
   it('leaves out other workspaces’ tasks', () => {
     const sections = sectionTasks([task('mine', 1), { ...task('theirs', 2), workspaceId: 'w2' }], 'w1')
 
     expect(sections.flatMap(({ tasks }) => ids(tasks))).toEqual(['mine'])
   })
 
-  it('orders tasks updated at the same time by id', () => {
+  it('orders tasks made at the same time by id, in Pinned and Active', () => {
     const sections = sectionTasks([task('b', 5), task('a', 5)], 'w1')
 
     expect(ids(sections[1]?.tasks ?? [])).toEqual(['a', 'b'])
+  })
+
+  it('orders done tasks updated at the same time by id', () => {
+    const sections = sectionTasks(
+      [
+        task('d-b', 1, { state: TaskState.Done, updatedAt: 5 }),
+        task('d-a', 2, { state: TaskState.Done, updatedAt: 5 }),
+      ],
+      'w1',
+    )
+
+    expect(ids(sections[2]?.tasks ?? [])).toEqual(['d-a', 'd-b'])
   })
 
   it('keeps every task of the workspace, whether or not it needs you or is unread (#411)', () => {

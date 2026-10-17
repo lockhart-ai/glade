@@ -676,14 +676,16 @@ describe('task actions', () => {
 })
 
 describe('pin, rename and delete', () => {
-  /** Three tasks in w1, newest first: t3 (pinned), then t2 and t1 under Active. t1 is selected. */
+  /** Three tasks in w1, made in this order: t1, then t2, then t3 (pinned) — so t3, then t2 and t1 under Active, is
+   * both sections' order (newest made first) and, since nothing here is ever updated after it's made, the order
+   * recency would give too. t1 is selected. */
   function listed(): FakeMain {
     return {
       workspaces: [sampleWorkspace('w1')],
       tasks: [
-        { ...sampleTask('t1', 'w1', 'Fix flaky login test'), updatedAt: 1_000 },
-        { ...sampleTask('t2', 'w1', 'Move uploads to S3'), updatedAt: 2_000 },
-        { ...sampleTask('t3', 'w1', 'Draft release notes'), updatedAt: 3_000, pinned: true },
+        { ...sampleTask('t1', 'w1', 'Fix flaky login test'), createdAt: 1_000, updatedAt: 1_000 },
+        { ...sampleTask('t2', 'w1', 'Move uploads to S3'), createdAt: 2_000, updatedAt: 2_000 },
+        { ...sampleTask('t3', 'w1', 'Draft release notes'), createdAt: 3_000, updatedAt: 3_000, pinned: true },
       ],
       uiState: [
         { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },

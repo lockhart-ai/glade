@@ -276,16 +276,18 @@ Reads never change anything (not even a task's unread flag) and never ask for pe
 → { tasks: TaskSummary[]; nextCursor: string | null }
 ```
 
-Without `query`: pinned first, then by `updatedAt`, newest first. With it: by the search's ranking (the field of each
-task's best match, then the most recently updated), across workspaces when there's no `workspaceId`. `query` is
-trimmed and mustn't be empty.
+Without `query`: pinned first, then by `updatedAt`, newest first — its own order, not the sidebar's: the Pinned and
+Active sections there run by when a task was made, newest first, and only the Done section still runs by `updatedAt`
+(#676). With `query`: by the search's ranking (the field of each task's best match, then the most recently updated),
+across workspaces when there's no `workspaceId`. `query` is trimmed and mustn't be empty.
 
 A listing's first page fixes its order: the tasks that matched then, in the order they had then. Each `nextCursor`
-continues that order, with each task as it is now, so tasks changing between pages (and moving in the sidebar) are
-never listed twice or skipped. A task deleted meanwhile is left out; one created meanwhile isn't in the listing, which
-a new one (without `cursor`) picks up. A cursor only continues a listing with the same `workspaceId`, `state` and
-`query`, and lasts ten minutes after its last page (it's kept in memory, so a relaunch ends it too); past that it
-fails as `invalid_input`, and the caller lists again.
+continues that order, with each task as it is now, so a task changing between pages is never listed twice or skipped
+(it may still move within the sidebar's Done section, or leave Pinned or Active for it, without affecting this
+listing's order). A task deleted meanwhile is left out; one created meanwhile isn't in the listing, which a new one
+(without `cursor`) picks up. A cursor only continues a listing with the same `workspaceId`, `state` and `query`, and
+lasts ten minutes after its last page (it's kept in memory, so a relaunch ends it too); past that it fails as
+`invalid_input`, and the caller lists again.
 
 ### `get_task`
 
@@ -318,8 +320,8 @@ first. A `fromTurn` past the last turn gives no turns.
   handoff?: string                      // its handoff note, Markdown, at most 32 KB of UTF-8
   artifacts?: ({ path: string; title?: string }    // files of the workspace, by absolute path; title: the file name
                | { url: string; title?: string })[]   // or links (#407); title: #412, API-123 or the address
-  startedAt?: string                    // when it started (createdAt); now by default
-  updatedAt?: string                    // when it was last updated: its place in the sidebar; see below
+  startedAt?: string                    // when it started (createdAt); its place in the sidebar's Pinned and Active; now by default
+  updatedAt?: string                    // when it was last updated: its place in `list_tasks` and in Done; see below
   statusUpdatedAt?: string              // when its status was set; needs status; updatedAt by default
   state?: 'active' | 'done'             // default 'active'; 'done' takes no message
   externalId?: string }                 // your own id for it, e.g. the notes folder
@@ -334,9 +336,10 @@ selected in the window.
 `created` is false only when a task already has the `externalId`: that task is returned as it is, and nothing changes
 (not its dates either).
 
-**Its dates.** A task has three: when it started (`createdAt`, the header's "started Mar 12"), when it was last updated
-(`updatedAt`, which orders the sidebar and gives each row its relative time) and when its status was set
-(`statusUpdatedAt`, the age next to the status in the header). Given explicitly, each is what you give; left out:
+**Its dates.** A task has three: when it started (`createdAt`, the header's "started Mar 12", and the order the
+sidebar's Pinned and Active sections run by, newest first), when it was last updated (`updatedAt`, which gives each
+row its relative time, and orders `list_tasks` and the sidebar's Done section, newest first) and when its status was
+set (`statusUpdatedAt`, the age next to the status in the header). Given explicitly, each is what you give; left out:
 
 | Field | Left out, it's |
 |---|---|
@@ -385,16 +388,19 @@ as `create_task` checks it, and keeps the task's effort only if it supports it: 
 default. Done and active go through `mark_done` and `reopen_task`. A new handoff note reaches the agent from its next
 session (the next message after its current one ends, or a relaunch).
 
-**Its place in the sidebar.** The sidebar's sections (and `list_tasks`) put the most recently updated task first, so a
-patch that stamps the task's `updatedAt` with now moves it to the top of its section, with "now" as its relative time.
-What each field does, alone:
+**Its place in `list_tasks` and in the sidebar.** `list_tasks` (without `query`) and the sidebar's Done section put
+the most recently updated task first, so a patch that stamps the task's `updatedAt` with now moves it to the top of
+`list_tasks`'s own listing, and to the top of Done once the task is there, with "now" as its relative time. The
+sidebar's Pinned and Active sections don't move a task this way: they run by when it was made (`createdAt`), which
+`update_task` never changes, so nothing in a patch moves a Pinned or Active task there (#676). What each field does,
+alone, to the task's place in `list_tasks` and in Done:
 
 | Field | The task's place |
 |---|---|
-| `title` | Moves to the top of its section |
+| `title` | Moves to the top |
 | `objective` | Moves to the top |
 | `status` | Moves to the top (and its status is dated now, if it's a new status) |
-| `pinned` | Moves to the top, and into Pinned (or out of it) |
+| `pinned` | Moves into Pinned (or out of it); doesn't otherwise move it |
 | `unread` | Keeps it, as marking a task read or unread in the window does |
 | `model` | Moves to the top |
 | `effort` | Moves to the top |
@@ -410,8 +416,9 @@ What each field does, alone:
 A patch with several fields moves the task if any of them does, and a field set to the value it already has still
 counts (a `title` patch with the same title moves the task). **Explicit dates win:** with `updatedAt`, the task is dated
 then whatever else the patch changes, and a new `status` given with it is dated then too (unless the patch gives
-`statusUpdatedAt`). Without it, a `status` is set now, and the task moves to the top, as it always did. `update_task`
-never changes when a task was done (`doneAt`), nor when it started.
+`statusUpdatedAt`). Without it, a `status` is set now, and the task moves to the top of `list_tasks`'s listing, as it
+always did. `update_task` never changes when a task was done (`doneAt`), nor when it started (`createdAt`) — so none
+of this moves a task within the sidebar's Pinned or Active sections.
 
 The dates are read as "Dates" says. Neither may be in the future or before the task started; `statusUpdatedAt` needs a
 task with a status (one it has, or the one the patch gives), and can't be after an `updatedAt` given with it. A refused
@@ -540,10 +547,10 @@ and makes one task from it with `create_task`, giving it:
 - its **status** (`status`): the one-line status, e.g. its outcome, which a done task keeps.
 - when it **started** (`startedAt`): its created time, which dates it ("started Mar 12"). A date alone is that day,
   local time ("Dates"); a time to come is refused.
-- when it was **last updated** (`updatedAt`), e.g. the last date in its notes: its place in the sidebar and its
-  relative time there, and the date its status is given. Left out, it's `startedAt`. Give the true date here, rather
-  than setting the status with `update_task` afterwards, which dates the task now unless that patch gives `updatedAt`
-  too.
+- when it was **last updated** (`updatedAt`), e.g. the last date in its notes: its relative time, its place in
+  `list_tasks` and, once it's done, in the Done section, and the date its status is given. Left out, it's
+  `startedAt`. Give the true date here, rather than setting the status with `update_task` afterwards, which dates
+  the task now unless that patch gives `updatedAt` too.
 - **done** (`state: 'done'`): done at `updatedAt` (so `startedAt`, if it gives none), so it sits in the Done section at
   its date. A done task takes no first message; sending it one later reopens it, as for any done task.
 - its **external id** (`externalId`), e.g. the notes folder's path: a second `create_task` with the same id returns the
@@ -554,7 +561,7 @@ A backfilled task never starts its agent by itself: only a `message` given with 
 later, does. `update_task` sets, replaces or clears (`null`) the handoff note and adds, changes or removes artifacts;
 `get_task` returns both. It also sets the status and puts the dates right (`updatedAt`, `statusUpdatedAt`), and
 changes the external id, e.g. when a task's notes folder moves (`externalId`): see `update_task` for which of these
-keep the task's place in the sidebar. The window never changes the note.
+keep the task's place in `list_tasks` and in the Done section. The window never changes the note.
 
 **What the user sees:** a **Backfilled** card at the top of the task's chat ([`25-backfilled.html`](design/html/25-backfilled.html)), with the
 handoff note rendered as Markdown (raw HTML dropped, nothing loaded, links not followed) and the date it was added. It

@@ -12,6 +12,7 @@ import {
   UiStateKey,
   WatcherKind,
   WatcherState,
+  type EpochMs,
   type Task,
   type ToolCallEvent,
   type UiStateEntry,
@@ -44,9 +45,29 @@ setHomeFolder('/Users/me')
 const NOW = Date.UTC(2026, 8, 23, 11, 30)
 const MINUTE = 60_000
 
+/**
+ * When each task below was made, fixed per id so a later call for the same id (as an update reconstructs it with)
+ * never changes it (#676), the way main never would; a task not listed here (one a test adds on the fly) is made
+ * now, the newest. Oldest to newest, as `TASKS` lists them.
+ */
+const CREATED_AT: Partial<Record<string, EpochMs>> = {
+  d1: NOW - 3 * 24 * 60 * MINUTE,
+  p1: NOW - 25 * MINUTE,
+  x1: NOW - 10 * MINUTE,
+  a3: NOW - 9 * MINUTE,
+  a1: NOW - 4 * MINUTE,
+  a2: NOW - 1 * MINUTE,
+}
+
 /** A task that has run: its agent has a session. */
 function task(id: string, title: string, minutesAgo: number, change: Partial<Task> = {}): Task {
-  return { ...sampleTask(id, 'w1', title), sessionId: `session-${id}`, updatedAt: NOW - minutesAgo * MINUTE, ...change }
+  return {
+    ...sampleTask(id, 'w1', title),
+    sessionId: `session-${id}`,
+    createdAt: CREATED_AT[id] ?? NOW,
+    updatedAt: NOW - minutesAgo * MINUTE,
+    ...change,
+  }
 }
 
 const TASKS: Task[] = [
@@ -204,7 +225,7 @@ describe('TaskList', () => {
     })
   })
 
-  it('shows the workspace’s tasks in Pinned, Active and Done, most recently updated first, with counts', async () => {
+  it('shows the workspace’s tasks in Pinned, Active and Done: Pinned and Active newest made first, Done most recently updated first, with counts', async () => {
     await renderList(TASKS, [{ key: UiStateKey.DoneSectionCollapsed, value: 'false' }])
 
     expect(rowTitles('Pinned')).toEqual(['Draft release notes for 2.425m'])
@@ -669,6 +690,31 @@ describe('TaskList', () => {
       fake.emit({ type: EventType.TaskUpdated, task: task('n1', '', 0) })
     })
     expect(rowTitles('Active')).toContain('New tasknow')
+  })
+
+  it('never moves a task within Active or Pinned just because it was updated (#676)', async () => {
+    const { fake } = await renderList()
+
+    // a3, the oldest of the three Active tasks, gets a message right now: its row still reads "now", but it stays
+    // at the bottom, under a1 and a2, which weren't touched.
+    act(() => {
+      fake.emit({
+        type: EventType.TaskUpdated,
+        task: task('a3', 'Fix flaky login test', 0, { status: 'Checking the fix' }),
+      })
+    })
+    expect(rowTitles('Active')).toEqual([
+      'Move image uploads to S3now',
+      'Add rate limiting to public API4m',
+      'Fix flaky login testnow',
+    ])
+
+    // Renaming the pinned task doesn't move it either: it's the only one in Pinned, so nothing to show for it here,
+    // but pinning a2 (made more recently than p1) puts it above p1, by when each was made, not by this update.
+    act(() => {
+      fake.emit({ type: EventType.TaskUpdated, task: task('a2', 'Move image uploads to S3', 0, { pinned: true }) })
+    })
+    expect(rowTitles('Pinned')).toEqual(['Move image uploads to S3now', 'Draft release notes for 2.425m'])
   })
 
   it('moves relative times on as time passes', async () => {

@@ -1,6 +1,6 @@
 import { needsYou } from '../../shared/attention'
 import { TaskState, UiStateKey, type Task, type UiStateEntry } from '../../shared/domain'
-import { compareRecency } from '../../shared/doneList'
+import { compareCreated, compareRecency } from '../../shared/doneList'
 import { isLoaded } from '../store/doneLists'
 import type { GladeData, UiStateValues } from '../store/state'
 
@@ -13,7 +13,7 @@ export enum SectionId {
 
 export const SECTION_ORDER: readonly SectionId[] = [SectionId.Pinned, SectionId.Active, SectionId.Done]
 
-/** One section of the task list and its tasks, most recently updated first. */
+/** One section of the task list and its tasks, in that section's own order (`comparatorFor`). */
 export interface TaskSection {
   readonly id: SectionId
   readonly tasks: readonly Task[]
@@ -73,8 +73,24 @@ function sectionOf(task: Pick<Task, 'pinned' | 'state'>): SectionId {
 }
 
 /**
- * Splits a workspace's tasks into the Pinned, Active and Done sections, each most recently updated first, ties by id. A pinned task appears only under Pinned, whatever its state. The Done section keeps only the tasks
- * `listed` passes: the pages of it loaded so far (see `listSections`).
+ * A section's own order: Pinned and Active by when a task was made, newest first, so a task's own updates (a
+ * rename, a message, a pin) never move it and jump it under the pointer (#676); Done stays most recently updated
+ * first, which its keyset paging (`doneList.ts`) depends on.
+ */
+function comparatorFor(id: SectionId): (a: Task, b: Task) => number {
+  switch (id) {
+    case SectionId.Pinned:
+    case SectionId.Active:
+      return compareCreated
+    case SectionId.Done:
+      return compareRecency
+  }
+}
+
+/**
+ * Splits a workspace's tasks into the Pinned, Active and Done sections, each in that section's own order
+ * (`comparatorFor`). A pinned task appears only under Pinned, whatever its state. The Done section keeps only the
+ * tasks `listed` passes: the pages of it loaded so far (see `listSections`).
  */
 export function sectionTasks(
   tasks: Iterable<Task>,
@@ -87,7 +103,7 @@ export function sectionTasks(
     const section = sectionOf(task)
     if (section !== SectionId.Done || listed(task)) grouped.get(section)?.push(task)
   }
-  return SECTION_ORDER.map((id) => ({ id, tasks: (grouped.get(id) ?? []).sort(compareRecency) }))
+  return SECTION_ORDER.map((id) => ({ id, tasks: (grouped.get(id) ?? []).sort(comparatorFor(id)) }))
 }
 
 /**

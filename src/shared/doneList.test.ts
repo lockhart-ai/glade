@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   addDoneCounts,
+  compareCreated,
   compareRecency,
   doneCountsOf,
   inDoneList,
@@ -53,6 +54,16 @@ describe('compareRecency', () => {
     // By code unit, "Z" (90) comes before "a" (97), where a locale's collation would put it after.
     expect(compareRecency({ updatedAt: 1, id: 'Z' }, { updatedAt: 1, id: 'a' })).toBeLessThan(0)
     expect(compareRecency({ updatedAt: 1, id: 'a' }, { updatedAt: 1, id: 'a' })).toBe(0)
+  })
+})
+
+describe('compareCreated', () => {
+  it('puts the more recently made task first, then the lower id by code unit, never minding `updatedAt`', () => {
+    expect(compareCreated({ createdAt: 2, id: 'b' }, { createdAt: 1, id: 'a' })).toBeLessThan(0)
+    expect(compareCreated({ createdAt: 1, id: 'a' }, { createdAt: 1, id: 'b' })).toBeLessThan(0)
+    expect(compareCreated({ createdAt: 1, id: 'b' }, { createdAt: 1, id: 'a' })).toBeGreaterThan(0)
+    expect(compareCreated({ createdAt: 1, id: 'Z' }, { createdAt: 1, id: 'a' })).toBeLessThan(0)
+    expect(compareCreated({ createdAt: 1, id: 'a' }, { createdAt: 1, id: 'a' })).toBe(0)
   })
 })
 
