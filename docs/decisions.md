@@ -150,6 +150,12 @@
 - **Long lists:** the Done section loads from SQLite a page at a time (keyset pagination on the list's own order, over
   an index), and renders only the rows in view with TanStack Virtual (`@tanstack/react-virtual`); everything outside it
   is loaded whole. No archiving (L-02, #67).
+- **A stable order for Pinned and Active (#676, Jared, Oct 17).** The sidebar used to put the most recently updated
+  task first in every section, so a task jumped to the top, sometimes under the pointer as he clicked, whenever it
+  changed. Decided: Pinned and Active now order by when a task was made (`createdAt`), newest first, ties by id, so
+  nothing a task does moves it within either section; a new task still appears at the top of Active. The Done
+  section is unchanged, most recently updated first, which its keyset paging (above) depends on; so is `list_tasks`
+  in the control API, which still runs by `updatedAt` and so no longer always matches the sidebar (`control-api.md`).
 - **Validation:** zod at every boundary (IPC requests, SDK events, tool inputs, JSON from disk); schemas are checked
   against the named interfaces.
 - **No remote content in the renderer; links open in the browser (#349).** The window only ever shows the app's own

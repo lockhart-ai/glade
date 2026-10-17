@@ -4,7 +4,9 @@
  * state) is loaded whole (`tasks.listActive`), with how many tasks the Done section holds.
  *
  * The Done section is most recently updated first, ties by id: the task list's order. A page starts just after the
- * last task of the page before (keyset pagination), so a task added at the top meanwhile never shifts a page.
+ * last task of the page before (keyset pagination), so a task added at the top meanwhile never shifts a page. The
+ * Pinned and Active sections order differently (`compareCreated`, in `../renderer/task-list/sections.ts`): by when a
+ * task was made, so a task's own updates never move it there (#676).
  */
 import { TaskState, type EpochMs, type Task } from './domain'
 
@@ -37,6 +39,17 @@ export function cursorOf(task: Pick<Task, 'updatedAt' | 'id'>): TaskCursor {
  */
 export function compareRecency(a: TaskCursor, b: TaskCursor): number {
   if (a.updatedAt !== b.updatedAt) return b.updatedAt - a.updatedAt
+  if (a.id === b.id) return 0
+  return a.id < b.id ? -1 : 1
+}
+
+/**
+ * Compares two tasks' places in the Pinned and Active sections: negative when `a` comes first. Newest made first,
+ * ties broken the same way `compareRecency` breaks them — so a task's own updates (a rename, a message, pinning it)
+ * never move it within either section (#676); only the Done section still moves a task when it's updated.
+ */
+export function compareCreated(a: Pick<Task, 'createdAt' | 'id'>, b: Pick<Task, 'createdAt' | 'id'>): number {
+  if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt
   if (a.id === b.id) return 0
   return a.id < b.id ? -1 : 1
 }
