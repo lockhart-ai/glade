@@ -106,12 +106,65 @@ export default async function afterSign(context) {
     }
 
     const [hash] = hashes
+    if (keychain) prepareCIKeychain(keychain)
     console.log(`sign-mac: signing ${appPath} with "${IDENTITY_NAME}" (${hash})`)
     const args = ['--force', '--deep', '--sign', hash]
     if (keychain) args.push('--keychain', keychain)
     args.push(appPath)
     execFileSync('/usr/bin/codesign', args, { stdio: 'inherit' })
   } finally {
-    if (keychain) deleteKeychain(keychain)
+    if (keychain) {
+      restoreSearchList()
+      deleteKeychain(keychain)
+    }
   }
+}
+
+// The user keychain search list as it was before the throwaway keychain joined it, to put back afterwards.
+let searchListBefore = null
+
+/**
+ * On the CI runner, `codesign` only finds an identity in a keychain on the user's search list, and (on the runner's
+ * macOS) only one whose certificate is trusted for code signing: a self-signed certificate never is by default. So
+ * the throwaway keychain joins the search list, and the certificate is trusted for code signing in the runner's
+ * system keychain (`sudo -n`: the runner has passwordless sudo, and the runner is thrown away after the job). Never
+ * done locally: a developer's keychains and trust settings are left alone.
+ */
+function prepareCIKeychain(keychain) {
+  searchListBefore = [...security(['list-keychains', '-d', 'user']).matchAll(/"([^"]+)"/g)].map((m) => m[1])
+  security(['list-keychains', '-d', 'user', '-s', keychain, ...searchListBefore])
+  const dir = mkdtempSync(join(tmpdir(), 'glade-cert-'))
+  const certPath = join(dir, 'cert.pem')
+  try {
+    writeFileSync(certPath, security(['find-certificate', '-c', IDENTITY_NAME, '-p', keychain]))
+    execFileSync(
+      '/usr/bin/sudo',
+      [
+        '-n',
+        '/usr/bin/security',
+        'add-trusted-cert',
+        '-d',
+        '-r',
+        'trustRoot',
+        '-p',
+        'codeSign',
+        '-k',
+        '/Library/Keychains/System.keychain',
+        certPath,
+      ],
+      { stdio: 'inherit' },
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+function restoreSearchList() {
+  if (searchListBefore === null) return
+  try {
+    security(['list-keychains', '-d', 'user', '-s', ...searchListBefore])
+  } catch (error) {
+    console.warn('sign-mac: could not restore the keychain search list:', error.message)
+  }
+  searchListBefore = null
 }
