@@ -122,7 +122,9 @@ interface KindsProps {
 /**
  * A todo's third line, the same box closed and open, so opening it moves nothing above it. Closed: an icon and a count
  * per kind (files, links, changes), a kind with none left out; clicking one opens the todo on that kind — and, after
- * the counts, what its linked pull requests and issues are, in their colours (#683). Open: the same icons as filter
+ * the counts, what its linked pull requests and issues are, in their colours (#683). Each kind's count keeps its own
+ * fixed-width slot, so the counts line up in columns from todo to todo and the states start at the same place
+ * whatever kinds a todo has (#727). Open: the same icons as filter
  * pills, with All in front, and no state: the tiles say it. Each count has what it counts in words as its tooltip,
  * and none is ever blue: nothing under a todo is live. A kind's button is the same element closed and open, so the
  * one you click keeps the focus as it becomes a pill.
@@ -172,7 +174,13 @@ function Kinds({ taskId, list, counts, total, open, filter, onShow }: KindsProps
           </button>
         )
       })}
-      {!open && <LinkStateCluster taskId={taskId} list={list} />}
+      {!open && (
+        // The states' slot, after the counts': the CSS pins it to the row's last column, so it starts at the same
+        // place on every todo whatever kinds those have (#727). Empty when nothing is watched.
+        <span className={styles.states}>
+          <LinkStateCluster taskId={taskId} list={list} />
+        </span>
+      )}
     </div>
   )
 }

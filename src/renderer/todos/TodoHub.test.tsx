@@ -197,6 +197,27 @@ describe('the hub’s todos', () => {
     expect(kind(/#501/, '2 changes')).toHaveAttribute('title', '2 changes')
   })
 
+  it('keeps a slot for every kind, so the counts and the states line up down the list (#727)', async () => {
+    await renderHub(SHIP)
+
+    // The closed row gives each count its own fixed-width slot, placed by its kind, and the states their own after
+    // them: a kind with none leaves its slot empty rather than shifting the rest left, so the states start at the
+    // same place on every todo. The columns themselves are CSS; this is the structure they place.
+    const slots = (text: string | RegExp): string[] =>
+      [
+        ...card(text).querySelectorAll(
+          `.${styles.kinds ?? ''} > [data-kind], .${styles.kinds ?? ''} > .${styles.states ?? ''}`,
+        ),
+      ].map((element) => element.getAttribute('data-kind') ?? 'states')
+    // #501 has links and changes but no files; #503 has a file alone.
+    expect(slots(/#501/)).toEqual(['link', 'commit', 'states'])
+    expect(slots(/#503/)).toEqual(['file', 'states'])
+    // Open, the states give way to the pills, as before.
+    fireEvent.click(head(/#501/))
+    expect(card(/#501/).querySelector(`.${styles.states ?? ''}`)).toBeNull()
+    expect(kinds(/#501/)).toEqual(['2 links', '2 changes'])
+  })
+
   it('shows a todo with nothing under it as its title alone: no row of icons, no chevron, nothing to open', async () => {
     await renderHub(SHIP)
 

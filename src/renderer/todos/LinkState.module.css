@@ -100,9 +100,14 @@
   display: inline-flex;
 }
 
-/* A link's number, faint whatever its state says, so the state colour reads on the icon and the words alone. */
+/*
+ * A link's number, faint whatever its state says, so the state colour reads on the icon and the words alone. The
+ * 5px margin and the entry's own 3px gap put a clear 8px between the number and what it says of the link (#727),
+ * while the icon keeps the 3px against the number it belongs to.
+ */
 .number {
   color: var(--color-faint);
+  margin-right: 5px;
 }
 
 /* An item of an entry that carries a small icon before its words keeps them a little apart. */

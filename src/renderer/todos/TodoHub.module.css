@@ -217,6 +217,40 @@
   gap: var(--space-lg);
   height: 22px;
   margin-top: var(--space-sm);
+
+  /* One closed slot: a 12px icon, the count's 4px gap and up to three digits of the count's 11.5px mono. */
+  --kind-slot: 37px;
+}
+
+/*
+ * Closed, the counts line up in columns down the list (#727): each kind's count sits in its own fixed-width slot, in
+ * the fixed order files, links, changes, and a kind with none leaves its slot empty rather than shifting the rest
+ * left. The GitHub states take the rest of the row, so they start at the same place on every todo. Each count is
+ * placed by its kind, so a missing kind leaves its column to the empty slot; if a count ever grows past its slot,
+ * the column grows with it rather than letting it run into the next one. Open, the pills flow as they did.
+ */
+.kinds:not(.pills) {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(var(--kind-slot), max-content)) minmax(0, 1fr);
+}
+
+.kinds:not(.pills) .count[data-kind='file'] {
+  grid-column: 1;
+}
+
+.kinds:not(.pills) .count[data-kind='link'] {
+  grid-column: 2;
+}
+
+.kinds:not(.pills) .count[data-kind='commit'] {
+  grid-column: 3;
+}
+
+/* The states' slot: whatever the counts leave, clipping at the card's edge as the cluster already does. */
+.kinds:not(.pills) .states {
+  grid-column: 4;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .pills {

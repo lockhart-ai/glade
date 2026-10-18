@@ -205,6 +205,12 @@
           "title": "Document the rate limits",
           "minutesAgo": 30,
           "todo": "3"
+        },
+        {
+          "path": "docs/rate-limits.md",
+          "title": "Rate limits",
+          "minutesAgo": 20,
+          "todo": "3"
         }
       ],
       "githubWatches": [
@@ -302,6 +308,14 @@
           "deletions": 6,
           "minutesAgo": 11,
           "todo": "1"
+        },
+        {
+          "hash": "b2c3d4e0123456789abcdef0123456789abcdef0",
+          "subject": "Search one limit per key",
+          "additions": 64,
+          "deletions": 12,
+          "minutesAgo": 14,
+          "todo": "2"
         }
       ],
       "todoPanels": [
