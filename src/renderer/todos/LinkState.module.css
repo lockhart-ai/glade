@@ -73,14 +73,14 @@
 }
 
 /*
- * A collapsed todo's state, after its link count in its kind row: the watched links' entries, or one count per
- * state. It never wraps: it clips, so with more links than fit the least important drop first.
+ * A collapsed todo's state, after its counts in its kind row (#727): the watched links' entries, or one count per
+ * state, each at its natural width, with the kind row's one 12px gap between them where the middle dots were. It
+ * never wraps: it clips, so with more entries than fit the last ones drop first.
  */
 .cluster {
   display: inline-flex;
   align-items: center;
-  /* Entries and their separators sit apart enough to read as separate items (#723: 2px ran them together), as the design's line gaps have it. */
-  gap: var(--space-md);
+  gap: var(--space-lg);
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -100,9 +100,14 @@
   display: inline-flex;
 }
 
-/* A link's number, faint whatever its state says, so the state colour reads on the icon and the words alone. */
+/*
+ * A link's number, faint whatever its state says, so the state colour reads on the icon and the words alone. The
+ * 8px margin and the entry's own 4px gap make the row's one 12px gap between the number and what it says of the
+ * link (#727), while the icon keeps its 4px against the number it belongs to.
+ */
 .number {
   color: var(--color-faint);
+  margin-right: 8px;
 }
 
 /* An item of an entry that carries a small icon before its words keeps them a little apart. */

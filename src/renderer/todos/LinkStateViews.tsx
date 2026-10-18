@@ -181,16 +181,7 @@ export function LinkStateCluster({ taskId, list }: LinkStateClusterProps): React
   const entries: readonly React.JSX.Element[] = !twoOrFewer(watched)
     ? collapsedGroups(watched).map((group, index) => <CollapsedGroup group={group} key={index} />)
     : watched.map((watch) => <CollapsedLink url={watch.url} watch={watch} key={watch.url} />)
-  return (
-    <span className={styles.cluster}>
-      {entries.map((entry, index) => (
-        <Fragment key={index}>
-          <span className={styles.sep} aria-hidden="true">
-            ·
-          </span>
-          {entry}
-        </Fragment>
-      ))}
-    </span>
-  )
+  // No separators: each entry's own fixed width does the separating (#727), as it does between the counts before
+  // it. An expanded link tile's state line keeps its dots (`LinkStateLine`).
+  return <span className={styles.cluster}>{entries}</span>
 }
