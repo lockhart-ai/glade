@@ -32,15 +32,28 @@ test('menu bar: its Workspace menu, switching workspaces, Mark done, Toggle task
   await chooseMenuItem(glade, 'Workspace', 'New workspace…')
   await expect(workspace).toContainText('acme-web')
 
-  // Switch workspace lists both, oldest first, with ⌘1 and ⌘2 and a check on the one shown; choosing A shows it.
+  // Switch workspace lists both, oldest first, with ⌘1 and ⌘2 and a check on the one shown; each carries its
+  // `workspace.switch:<workspace id>` command id, which names the workspace it switches to; choosing A shows it.
   await expect
     .poll(async () => [
       await menuItem(glade, 'Workspace', 'Switch workspace', 'acme-api'),
       await menuItem(glade, 'Workspace', 'Switch workspace', 'acme-web'),
     ])
     .toEqual([
-      { label: 'acme-api', enabled: true, checked: false, accelerator: 'CmdOrCtrl+1' },
-      { label: 'acme-web', enabled: true, checked: true, accelerator: 'CmdOrCtrl+2' },
+      {
+        label: 'acme-api',
+        enabled: true,
+        checked: false,
+        accelerator: 'CmdOrCtrl+1',
+        id: expect.stringMatching(/^workspace\.switch:/),
+      },
+      {
+        label: 'acme-web',
+        enabled: true,
+        checked: true,
+        accelerator: 'CmdOrCtrl+2',
+        id: expect.stringMatching(/^workspace\.switch:/),
+      },
     ])
   await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-api')
   await expect(workspace).toContainText('acme-api')

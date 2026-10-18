@@ -108,6 +108,7 @@ describe('what the menu bar shows', () => {
           canCopyOutcome: false,
         },
         panels: { sidebar: true, rightPanel: true, bottomBar: true },
+        imageZoom: false,
         keyBindings: {},
       })
     })

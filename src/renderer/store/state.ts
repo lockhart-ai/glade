@@ -423,6 +423,12 @@ export interface GladeData {
    * falls back to 0 (#415). A one-off UI intent, like `inputFocusRequest`.
    */
   readonly openModalCount: number
+  /**
+   * How many image views are showing or focused now that take the zoom keys (⌘+, ⌘−, ⌘0; each registers itself with
+   * `useImageZoom`): above 0, the View menu's zoom items zoom the image instead of the page (#685). A one-off UI
+   * intent, like `inputFocusRequest`.
+   */
+  readonly openImageZoomCount: number
 }
 
 /**
@@ -730,6 +736,10 @@ export interface GladeActions {
   modalOpened: () => void
   /** Registers a modal as closed, dropping `openModalCount` back down (see `useModalPresence`). */
   modalClosed: () => void
+  /** Registers an image view as taking the zoom keys, bumping `openImageZoomCount` (see `useImageZoom`). */
+  imageZoomOpened: () => void
+  /** Registers an image view as no longer taking them, dropping `openImageZoomCount` back down. */
+  imageZoomClosed: () => void
   /** Opens a file in a task's Files tab and shows it (`files.open`). */
   openFile: (taskId: string, path: string) => Promise<void>
   /**
@@ -956,6 +966,7 @@ export const INITIAL_DATA: GladeData = {
   fileVersions: {},
   unsavedPrompt: null,
   openModalCount: 0,
+  openImageZoomCount: 0,
 }
 
 export function selectSelectedWorkspace(state: GladeData): Workspace | undefined {

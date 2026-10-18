@@ -170,14 +170,31 @@
   padding: var(--space-2xl);
 }
 
-.imageButton {
-  display: block;
-  max-width: 100%;
-  max-height: 100%;
-  padding: 0;
-  background: transparent;
-  border: 0;
+/*
+ * What the picture sits in (#685): the panel's own box inside its padding, centring the image while it's at fit and
+ * clipping it once it's zoomed in. The focus and the keys live here too: it's the picture's control, zooming it, and
+ * once zoomed its pointer becomes a hand that pans.
+ */
+.imageZoom {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-nested);
   cursor: zoom-in;
+}
+
+.imageZoom:focus {
+  outline: none;
+}
+
+.imageZoom:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+}
+
+.imageZoom[data-zoomed] {
+  cursor: grab;
 }
 
 .image {

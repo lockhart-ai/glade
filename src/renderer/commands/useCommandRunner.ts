@@ -10,6 +10,7 @@ import {
   type WorkspaceCommand,
 } from '../../shared/commands'
 import { useMenuCommands } from '../context-menus/useMenuCommands'
+import { runImageZoomCommand } from '../images/useImageZoom'
 import { requestClose } from './closeRequest'
 import { Panel, toggledEntry } from '../panels'
 import { SettingsSection } from '../settings/sections'
@@ -70,6 +71,13 @@ export function useCommandRunner(): (command: Command) => void {
           run(() => setUiState(toggledEntry(uiState, TOGGLED_PANELS[id])))
           return
         }
+        // The View menu's zoom items, sent while an image view takes the zoom keys (#685): they zoom that image.
+        // Main sends them then and only then; if it closed in the moment between, they do nothing.
+        case AppCommandId.ZoomIn:
+        case AppCommandId.ZoomOut:
+        case AppCommandId.ZoomFit:
+          runImageZoomCommand(id)
+          return
       }
     },
     [openSettings, openBroadcast, newTask, closeWindow, workspaces, store, run],
