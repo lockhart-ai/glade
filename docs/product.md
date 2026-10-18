@@ -431,6 +431,10 @@ Settings (⌘,) opens on Agent. Changes save as you make them.
   gets neither the tool nor the system prompt's ask for it. Then **Sandbox**: the **Run agents in a sandbox** switch
   and the Glade-wide Folders and Domains (see Permissions and the sandbox).
 - **Notifications:** notifications on or off, and their sound.
+- **Usage notes:** the step each kind of usage note is sent at, changed at once: **Plan usage** (each time the
+  session or the week has used this much more, every 10% by default) and **OpenRouter spend** (each time the key has
+  spent this much more, every $10 by default). A working agent is told when usage crosses a threshold; an idle one is
+  never woken. Changes save automatically.
 - **Appearance:** nothing to set yet; Glade has one theme, dark.
 - **Keyboard:** every shortcut, rebindable (`keymap.md`).
 - **Plugins:** the plugins installed, each turned on or off, its own Reload button, and their folder (`plugin-api.md`).

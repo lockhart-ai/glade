@@ -50,6 +50,13 @@ export interface Settings {
    * to on in P15's last PR (#452).
    */
   readonly sandboxEnabled: boolean
+  /**
+   * How much more of the plan's session and weekly usage, in percent of the window, a working agent is told of
+   * mid-turn (Settings › Usage notes, #688). Null tells none.
+   */
+  readonly usageNoteStepPercent: number | null
+  /** How much more OpenRouter spend, in dollars, a working agent is told of mid-turn (#688). Null tells none. */
+  readonly usageNoteStepDollars: number | null
 }
 
 /** The settings you change at once: the ones left out keep their value. */
@@ -74,4 +81,6 @@ export const DEFAULT_SETTINGS: Settings = {
   showInMenuBar: true,
   // Off until P15's last PR (#452): see `Settings.sandboxEnabled`.
   sandboxEnabled: false,
+  usageNoteStepPercent: 10,
+  usageNoteStepDollars: 10,
 }

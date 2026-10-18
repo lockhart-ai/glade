@@ -50,7 +50,7 @@ import { useGladeStore } from '../store/react'
 import { useNow } from '../task-list/useNow'
 import { accountView, loginRowDescription, offersLogin } from './accountModel'
 import { SandboxHeading, SandboxLists } from './SandboxLists'
-import { SettingSelect } from './SettingSelect'
+import { SettingSelect, type SettingSelectOption } from './SettingSelect'
 import styles from './SettingsDialog.module.css'
 
 export interface SettingRowProps {
@@ -404,6 +404,77 @@ export function NotificationsSection(): React.JSX.Element {
 /** Glade has one theme, so there's nothing to choose. */
 export function AppearanceSection(): React.JSX.Element {
   return <Intro>Glade has one theme, dark. Nothing to change here yet.</Intro>
+}
+
+/** How much more usage a step stands for, as a select offers it: off, or the percent. */
+type UsageStep = 'off' | '5' | '10' | '20' | '25' | '50'
+
+/** How much more OpenRouter spend a step stands for, as a select offers it: off, or the dollars. */
+type SpendStep = 'off' | '5' | '10' | '25' | '50' | '100'
+
+const USAGE_STEPS: readonly SettingSelectOption<UsageStep>[] = [
+  { value: 'off', label: 'Off' },
+  { value: '5', label: 'Every 5%' },
+  { value: '10', label: 'Every 10%' },
+  { value: '20', label: 'Every 20%' },
+  { value: '25', label: 'Every 25%' },
+  { value: '50', label: 'Every 50%' },
+]
+
+const SPEND_STEPS: readonly SettingSelectOption<SpendStep>[] = [
+  { value: 'off', label: 'Off' },
+  { value: '5', label: 'Every $5' },
+  { value: '10', label: 'Every $10' },
+  { value: '25', label: 'Every $25' },
+  { value: '50', label: 'Every $50' },
+  { value: '100', label: 'Every $100' },
+]
+
+/** The step a setting reads as, off being null; one that isn't offered keeps its value as the select shows it. */
+const stepValue = (step: number | null): string => (step === null ? 'off' : String(step))
+
+/**
+ * How much more usage a working agent is told of mid-turn (#688): a note each time the session or the week has
+ * used this much more of its window, and one each time the OpenRouter key has spent this much more. Every
+ * message's usage line and the popover at the meter's foot carry on whatever this says.
+ */
+export function UsageNotesSection(): React.JSX.Element {
+  const [settings, update] = useSettings()
+  return (
+    <>
+      <Intro>
+        A working agent is told when usage crosses a threshold; an idle one is never woken. Changes save automatically.
+      </Intro>
+      <SettingRow
+        name="Plan usage"
+        description="Tell the agent each time the session or the week has used this much more."
+      >
+        <SettingSelect
+          name="Plan usage"
+          menuLabel="Plan usage"
+          options={USAGE_STEPS}
+          value={stepValue(settings.usageNoteStepPercent) as UsageStep}
+          onChoose={(value) => {
+            update({ usageNoteStepPercent: value === 'off' ? null : Number(value) })
+          }}
+        />
+      </SettingRow>
+      <SettingRow
+        name="OpenRouter spend"
+        description="Tell the agent each time the OpenRouter key has spent this much more."
+      >
+        <SettingSelect
+          name="OpenRouter spend"
+          menuLabel="OpenRouter spend"
+          options={SPEND_STEPS}
+          value={stepValue(settings.usageNoteStepDollars) as SpendStep}
+          onChoose={(value) => {
+            update({ usageNoteStepDollars: value === 'off' ? null : Number(value) })
+          }}
+        />
+      </SettingRow>
+    </>
+  )
 }
 
 interface PluginRowProps {
