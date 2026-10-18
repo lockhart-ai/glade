@@ -4,6 +4,7 @@
  * (`./graphql`) is the only thing that calls out.
  */
 import { z } from 'zod'
+import type { EpochMs } from '../../shared/domain'
 import { GithubChecksState, GithubLinkKind, GithubLinkState } from '../../shared/githubWatch'
 
 /** One link to ask the GraphQL query about. */
@@ -30,6 +31,8 @@ const PULL_REQUEST_FIELDS = `
   title
   state
   merged
+  mergedAt
+  closedAt
   isDraft
   mergeQueueEntry { id }
   comments { totalCount }
@@ -57,6 +60,7 @@ const PULL_REQUEST_FIELDS = `
 const ISSUE_FIELDS = `
   title
   state
+  closedAt
   comments { totalCount }
 `
 
@@ -99,6 +103,8 @@ const pullRequestSchema = z.object({
   title: z.string(),
   state: z.enum(['OPEN', 'CLOSED', 'MERGED']),
   merged: z.boolean(),
+  mergedAt: z.string().nullable(),
+  closedAt: z.string().nullable(),
   isDraft: z.boolean(),
   mergeQueueEntry: z.object({ id: z.string() }).nullable(),
   comments: z.object({ totalCount: z.number() }),
@@ -111,6 +117,7 @@ const pullRequestSchema = z.object({
 const issueSchema = z.object({
   title: z.string(),
   state: z.enum(['OPEN', 'CLOSED']),
+  closedAt: z.string().nullable(),
   comments: z.object({ totalCount: z.number() }),
 })
 
@@ -136,6 +143,23 @@ export interface FetchedLinkState {
   readonly commentCount: number
   readonly headOid: string | null
   readonly title: string
+  /**
+   * When GitHub itself recorded the PR's merge and its close, for a link's first fetch to tell a merge or close that
+   * happened after the link was added from one that predates it (#728). Not cached with the rest: only that
+   * comparison needs them, and the next fetch has fresh ones.
+   */
+  readonly mergedAt: EpochMs | null
+  readonly closedAt: EpochMs | null
+}
+
+/**
+ * A GitHub timestamp as milliseconds since the epoch; null when there isn't one (still open) or the text doesn't
+ * parse as a date, which leaves the first fetch silent rather than waking a task on a time it can't vouch for.
+ */
+export function epochMsOf(iso: string | null): EpochMs | null {
+  if (iso === null) return null
+  const ms = new Date(iso).getTime()
+  return Number.isNaN(ms) ? null : ms
 }
 
 /** A rollup's state, as GitHub's enum names it, to ours; null for anything not recognised (new to the schema). */
@@ -171,6 +195,8 @@ function fetchedFromPullRequest(pr: z.infer<typeof pullRequestSchema>): FetchedL
     commentCount: pr.comments.totalCount,
     headOid: pr.commits.nodes[0]?.commit.oid ?? null,
     title: pr.title,
+    mergedAt: epochMsOf(pr.mergedAt),
+    closedAt: epochMsOf(pr.closedAt),
   }
 }
 
@@ -186,6 +212,8 @@ function fetchedFromIssue(issue: z.infer<typeof issueSchema>): FetchedLinkState 
     commentCount: issue.comments.totalCount,
     headOid: null,
     title: issue.title,
+    mergedAt: null,
+    closedAt: epochMsOf(issue.closedAt),
   }
 }
 

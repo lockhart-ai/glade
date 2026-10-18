@@ -26,8 +26,8 @@ const PR_URL = 'https://github.com/acme/api/pull/412'
 const ISSUE_URL = 'https://github.com/acme/api/issues/7'
 
 describe('watchCandidates', () => {
-  it('finds a GitHub PR and issue link, with no previous state and no todo filed', () => {
-    addLinkArtifact(test.db, { taskId: task.id, url: PR_URL, title: '#412' })
+  it('finds a GitHub PR and issue link, with no previous state, no todo filed, and when each was linked', () => {
+    const pr = addLinkArtifact(test.db, { taskId: task.id, url: PR_URL, title: '#412' })
     addLinkArtifact(test.db, { taskId: task.id, url: ISSUE_URL, title: '#7' })
     addArtifact(test.db, { taskId: task.id, path: 'notes.md', title: 'Notes' })
 
@@ -45,6 +45,7 @@ describe('watchCandidates', () => {
         kind: GithubLinkKind.PullRequest,
       },
       previous: undefined,
+      linkedAt: pr.addedAt,
       todoDone: false,
     })
     expect(candidates[1]?.target).toMatchObject({ kind: GithubLinkKind.Issue, number: 7 })

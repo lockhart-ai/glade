@@ -5,7 +5,7 @@
  * without fetching it again.
  */
 import type { Database } from 'better-sqlite3'
-import { ArtifactKind, TaskState, TodoState } from '../../shared/domain'
+import { ArtifactKind, TaskState, TodoState, type EpochMs } from '../../shared/domain'
 import { LinkKind, recogniseLink } from '../../shared/artifactLinks'
 import { GithubLinkKind, type GithubLinkWatch } from '../../shared/githubWatch'
 import { childOfArtifact } from '../../shared/todoHub'
@@ -20,6 +20,8 @@ import type { WatchTarget } from './query'
 export interface WatchCandidate {
   readonly target: WatchTarget
   readonly previous: GithubLinkWatch | undefined
+  /** When the link artifact was added to the task: a first fetch tells a merge or close after it from one before (#728). */
+  readonly linkedAt: EpochMs
   /** True when the link's filing has its todo marked done now: the poller stops it instead of asking GitHub. */
   readonly todoDone: boolean
 }
@@ -63,6 +65,7 @@ export function watchCandidates(db: Database): WatchCandidate[] {
           kind: recognised.kind === LinkKind.PullRequest ? GithubLinkKind.PullRequest : GithubLinkKind.Issue,
         },
         previous,
+        linkedAt: artifact.addedAt,
         todoDone: todoIsDone(db, taskId, artifact.url),
       })
     }

@@ -8,7 +8,7 @@
 import { z } from 'zod'
 import { GithubLinkKind, GithubLinkState } from '../../shared/githubWatch'
 import { backoffFor, rateLimitHeadersOf } from './backoff'
-import type { FetchedLinkState, WatchTarget } from './query'
+import { epochMsOf, type FetchedLinkState, type WatchTarget } from './query'
 import type { FetchImpl } from './graphql'
 
 const restStateSchema = z.enum(['open', 'closed'])
@@ -16,6 +16,7 @@ const restStateSchema = z.enum(['open', 'closed'])
 const issueResponseSchema = z.object({
   title: z.string(),
   state: restStateSchema,
+  closed_at: z.string().nullable(),
   comments: z.number(),
 })
 
@@ -23,6 +24,8 @@ const pullRequestResponseSchema = z.object({
   title: z.string(),
   state: restStateSchema,
   merged: z.boolean(),
+  merged_at: z.string().nullable(),
+  closed_at: z.string().nullable(),
   draft: z.boolean(),
   comments: z.number(),
   head: z.object({ sha: z.string() }),
@@ -41,6 +44,8 @@ function fetchedFromIssue(issue: z.infer<typeof issueResponseSchema>): FetchedLi
     commentCount: issue.comments,
     headOid: null,
     title: issue.title,
+    mergedAt: null,
+    closedAt: epochMsOf(issue.closed_at),
   }
 }
 
@@ -56,6 +61,8 @@ function fetchedFromPullRequest(pr: z.infer<typeof pullRequestResponseSchema>): 
     commentCount: pr.comments,
     headOid: pr.head.sha,
     title: pr.title,
+    mergedAt: epochMsOf(pr.merged_at),
+    closedAt: epochMsOf(pr.closed_at),
   }
 }
 
