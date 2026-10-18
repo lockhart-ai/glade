@@ -63,7 +63,7 @@ it('sends a batch whole to a subscriber with a batch listener, and event by even
   expect(each.mock.calls).toEqual([[first], [second]])
 })
 
-it('broadcasts to every active task as one batch: to an idle one’s chat, to a busy one’s queue', async () => {
+it('broadcasts to the chosen active tasks as one batch: to an idle one’s chat, to a busy one’s queue', async () => {
   const idle = { ...sampleTask('t1', 'w1'), sessionId: 's1' }
   const working = { ...sampleTask('t2', 'w1'), activity: TaskActivity.Working }
   const asking = { ...sampleTask('t3', 'w2'), sessionId: 's3', asking: true }
@@ -77,7 +77,10 @@ it('broadcasts to every active task as one batch: to an idle one’s chat, to a 
   const batchListener = vi.fn()
   fake.bridge.subscribe(listener, batchListener)
 
-  const { recipients } = await fake.bridge.invoke(CommandName.TasksBroadcast, { text: 'Is anyone restarting Docker?' })
+  const { recipients } = await fake.bridge.invoke(CommandName.TasksBroadcast, {
+    text: 'Is anyone restarting Docker?',
+    taskIds: ['t1', 't2', 't3', 't4'],
+  })
 
   expect(recipients).toEqual([
     { taskId: 't1', delivery: BroadcastDelivery.Sent },
@@ -93,6 +96,10 @@ it('broadcasts to every active task as one batch: to an idle one’s chat, to a 
     { type: EventType.QueueChanged, taskId: 't3', queuedMessages: [{ broadcast: true }] },
     { type: EventType.QueueChanged, taskId: 't4', queuedMessages: [{ broadcast: true }] },
   ])
+
+  // One left out of the request gets nothing, even though the fake has it.
+  const only = await fake.bridge.invoke(CommandName.TasksBroadcast, { text: 'Again.', taskIds: ['t1', 't5', 't6'] })
+  expect(only.recipients).toEqual([{ taskId: 't1', delivery: BroadcastDelivery.Sent }])
 })
 
 it('refuses to delete a task it does not have', async () => {

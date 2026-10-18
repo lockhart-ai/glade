@@ -1,7 +1,7 @@
-// Broadcast (#489): one message to every active task that has an agent, in every workspace, from the modal
-// File › Broadcast… opens (⌘⇧B). Scripted agents only: an idle task starts a turn with it, a busy one and one asking a
-// question get it in their queue, a done one and one never given anything get nothing, and one whose session can't
-// start fails as any send does, alone.
+// Broadcast (#489, #675): one message to the active tasks you've ticked, in every workspace, from the modal
+// File › Broadcast… opens (⌘⇧B). Everything is ticked when it opens, and you untick what to leave out. Scripted agents
+// only: an idle task starts a turn with it, a busy one and one asking a question get it in their queue, a done one and
+// one never given anything get nothing, and one whose session can't start fails as any send does, alone.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { CommandName } from '../src/shared/bridge'
@@ -93,7 +93,7 @@ test('a broadcast reaches every active task with an agent, in every workspace, o
   await expect(modal.dialog).toBeVisible()
   await expect(modal.field).toBeFocused()
   await expect(modal.reach).toHaveText(
-    'Goes to 4 active tasks in 2 workspaces. Busy agents get it when their turn ends.',
+    'Goes to 4 of 4 active tasks in 2 workspaces. Busy agents get it when their turn ends.',
   )
   // The four it lists, by workspace, each with where it stands. The done one isn't among them, and neither is the
   // task that has never been sent anything: it has no agent to ask.
@@ -104,6 +104,12 @@ test('a broadcast reaches every active task with an agent, in every workspace, o
   await expect(modal.tasksIn('storefront')).toHaveCount(2)
   await expect(modal.tasksIn('storefront').filter({ hasText: RETRIES_TITLE })).toHaveText(`${RETRIES_TITLE}idle`)
   await expect(modal.tasksIn('storefront').filter({ hasText: 'New task' })).toHaveText('New taskneeds you')
+  // Everything is ticked when it opens: each workspace's box, and each task's.
+  await expect(modal.workspace('acme-api')).toBeChecked()
+  await expect(modal.workspace('storefront')).toBeChecked()
+  for (const title of [NOTES_TITLE, COPY_TITLE, RETRIES_TITLE, 'New task']) {
+    await expect(modal.task(title)).toBeChecked()
+  }
 
   // ⇧↵ adds a line, ↵ sends: one command, and the modal closes.
   await modal.field.fill('Is anyone restarting Docker?')
@@ -222,4 +228,111 @@ test('with no active task, the Broadcast modal says so and can’t send; its key
     patch: { keyBindings: { [AppCommandId.Broadcast]: 'Meta+Alt+M' } },
   })
   await expect.poll(async () => (await menuItem(glade, 'File', 'Broadcast…')).accelerator).toBe('CmdOrCtrl+Alt+M')
+})
+
+test('a broadcast goes only to the tasks still ticked, and with nothing ticked it can’t send', async ({
+  launch,
+  tempFolder,
+}) => {
+  const parent = tempFolder()
+  const rootA = join(parent, 'acme-api')
+  const rootB = join(parent, 'storefront')
+  mkdirSync(rootA)
+  mkdirSync(rootB)
+  const scripts = {
+    [COPY]: 'copy-in-batches',
+    [NOTES]: 'asks-a-question',
+    [RETRIES]: 'simple-reply',
+  } as const
+  const glade = await launch({ agentScriptsByFirstMessage: scripts, chosenFolder: rootA })
+  const { window } = glade
+  const list = taskList(window)
+  const bar = inputBar(window)
+  const conversation = chat(window)
+  const workspace = regions(window).workspace
+
+  // Acme API: one task mid-turn and one waiting on a question card. Storefront: one idle with a reply already read.
+  await firstRun(window).openFolder.click()
+  await expect(workspace).toContainText('acme-api')
+  await list.newTask.click()
+  await bar.field.fill(COPY)
+  await bar.field.press('Enter')
+  await expect(bar.stop).toBeVisible()
+  await list.newTask.click()
+  await bar.field.fill(NOTES)
+  await bar.field.press('Enter')
+  await expect(conversation.questionCard).toBeVisible()
+  await chooseFolder(glade, rootB)
+  await chooseMenuItem(glade, 'Workspace', 'New workspace…')
+  await expect(workspace).toContainText('storefront')
+  await list.newTask.click()
+  await bar.field.fill(RETRIES)
+  await bar.field.press('Enter')
+  await expect(conversation.agentReplies).toHaveCount(1)
+
+  await chooseMenuItem(glade, 'File', 'Broadcast…')
+  const modal = broadcastDialog(window)
+  await expect(modal.dialog).toBeVisible()
+  await expect(modal.reach).toHaveText(
+    'Goes to 3 of 3 active tasks in 2 workspaces. Busy agents get it when their turn ends.',
+  )
+
+  // Unticking a task from its row leaves it out: the line counts two of three, and its workspace's box shows a dash.
+  await modal.task(NOTES_TITLE).click()
+  await expect(modal.reach).toHaveText(
+    'Goes to 2 of 3 active tasks in 2 workspaces. Busy agents get it when their turn ends.',
+  )
+  await expect(modal.workspace('acme-api')).toHaveAttribute('aria-checked', 'mixed')
+
+  // A box half-ticked ticks its workspace's tasks all back.
+  await modal.workspace('acme-api').click()
+  await expect(modal.task(NOTES_TITLE)).toBeChecked()
+  await expect(modal.reach).toHaveText(
+    'Goes to 3 of 3 active tasks in 2 workspaces. Busy agents get it when their turn ends.',
+  )
+
+  // Space toggles the focused row: the idle task is left out again, and its workspace with it.
+  await modal.task(RETRIES_TITLE).press(' ')
+  await expect(modal.task(RETRIES_TITLE)).not.toBeChecked()
+  await expect(modal.reach).toHaveText(
+    'Goes to 2 of 3 active tasks in 1 workspace. Busy agents get it when their turn ends.',
+  )
+
+  // Unticking the last ticked workspace's box leaves nothing ticked: the line says so, and Send won't send.
+  await modal.workspace('acme-api').click()
+  await expect(modal.reach).toHaveText('Nothing ticked. Tick a task to send to it.')
+  await expect(modal.send).toBeDisabled()
+  await modal.field.fill('Is anyone restarting Docker?')
+  await modal.field.press('Enter')
+  await expect(modal.dialog).toBeVisible()
+
+  // Ticking the idle task's workspace back ticks it, and ↵ sends to it alone.
+  await modal.workspace('storefront').click()
+  await expect(modal.task(RETRIES_TITLE)).toBeChecked()
+  await expect(modal.task(COPY_TITLE)).not.toBeChecked()
+  await expect(modal.reach).toHaveText(
+    'Goes to 1 of 3 active tasks in 1 workspace. Busy agents get it when their turn ends.',
+  )
+  await modal.field.press('Enter')
+  await expect(modal.dialog).toHaveCount(0)
+
+  // The idle task got it, tagged: it started a turn with it, as an idle one does.
+  await expect(conversation.userMessages).toHaveCount(2)
+  await expect(conversation.userMessages.nth(1)).toContainText('Is anyone restarting Docker?')
+  await expect(conversation.broadcasts).toHaveCount(1)
+  await expect(conversation.agentReplies).toHaveCount(2)
+  await expect(bar.queued).toHaveCount(0)
+
+  // The tasks left out got nothing: the busy one has no broadcast in its queue, and the one asking a question keeps
+  // it open with nothing queued.
+  await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-api')
+  await expect(workspace).toContainText('acme-api')
+  await list.taskRow(COPY_TITLE).click()
+  await expect(conversation.userMessages).toHaveCount(1)
+  await expect(conversation.broadcasts).toHaveCount(0)
+  await expect(bar.queued).toHaveCount(0)
+  await list.taskRow(NOTES_TITLE).click()
+  await expect(conversation.questionCard).toBeVisible()
+  await expect(conversation.userMessages).toHaveCount(1)
+  await expect(bar.queued).toHaveCount(0)
 })
