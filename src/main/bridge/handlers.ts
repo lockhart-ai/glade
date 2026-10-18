@@ -16,6 +16,7 @@ import { touchedFiles } from '../../shared/touchedFiles'
 import type { AgentRunner } from '../agent/runner'
 import { listArtifacts } from '../db/repositories/artifacts'
 import { listLiveWatchers, listWatchers, publicWatcher } from '../db/repositories/watchers'
+import { listGithubLinkWatches } from '../db/repositories/github-link-watches'
 import { listTaskCommits } from '../db/repositories/task-commits'
 import { commitFiles, openCommitFile, readCommitFile } from '../changes/changes'
 import { createGit, type Git } from '../git/git'
@@ -363,6 +364,9 @@ export function createHandlers(context: HandlerContext): Handlers {
         artifacts: listArtifacts(db, id),
         handoff: getHandoff(db, id) ?? null,
         watchers: listWatchers(db, id).map(publicWatcher),
+        // The linked pull requests' and issues' last known state (the Todos tab's rich link rows, #682, #683), so a
+        // relaunch shows it before the next poll does.
+        githubWatches: listGithubLinkWatches(db, id),
         commits: listTaskCommits(db, id),
         agentTab: agentTabOf(db, id),
       }

@@ -155,6 +155,29 @@
   margin-left: 22px;
 }
 
+/*
+ * A watched link's state line (#683): under the first line, across the tile's width from its left edge, with the
+ * age at the far right. Its items never wrap; too many clip, so the age stays put.
+ */
+.foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-2xs);
+  height: 16px;
+  min-width: 0;
+}
+
+.footState {
+  flex-grow: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 /* A line of what it opens to: a commit's branch. One line, cut short. */
 .line {
   font-family: var(--font-mono);

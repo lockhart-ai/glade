@@ -473,6 +473,7 @@ describe('a turn', () => {
       handoff: null,
       watchers: [],
       commits: [],
+      githubWatches: [],
       agentTab: null,
     })
   })

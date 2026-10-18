@@ -10,6 +10,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsageLevel, UsageLimitKind, type UsageReading } from '../shared/account'
 import { CommandName, EventType } from '../shared/bridge'
+import { GithubChecksState, GithubLinkKind, GithubLinkState, type GithubLinkWatch } from '../shared/githubWatch'
 import { SAMPLE_USAGE } from '../shared/test-openrouter'
 import {
   DividerKind,
@@ -17,6 +18,7 @@ import {
   PermissionRequestState,
   TaskActivity,
   TaskState,
+  TodoState,
   ToolCallState,
   ToolEventKind,
   UiStateKey,
@@ -68,6 +70,7 @@ import {
   type HubStore,
 } from './todos/test-hub'
 import { kindCounts, tileLabel } from './todos/todoHubModel'
+import { collapsedGroups, collapsedStateItem, expandedStateItems } from './todos/linkWatchModel'
 import { linkReferences, namedBy, todoSegments } from './todos/todoLinks'
 import { ChildFilter } from '../shared/todoHub'
 import { TaskPanel } from './right-panel/TaskPanel'
@@ -177,6 +180,19 @@ vi.mock('./todos/todoLinks', async (importOriginal) => {
     linkReferences: vi.fn(original.linkReferences),
     namedBy: vi.fn(original.namedBy),
     todoSegments: vi.fn(original.todoSegments),
+  }
+})
+
+// What the task's watched GitHub links say (#683): an expanded link's tile works its state line out (one
+// `expandedStateItems` call per render of one), and a collapsed card's kind row works what its links say out
+// (one `collapsedStateItem` call per watched link, or one `collapsedGroups` call per row).
+vi.mock('./todos/linkWatchModel', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./todos/linkWatchModel')>()
+  return {
+    ...original,
+    expandedStateItems: vi.fn(original.expandedStateItems),
+    collapsedStateItem: vi.fn(original.collapsedStateItem),
+    collapsedGroups: vi.fn(original.collapsedGroups),
   }
 })
 
@@ -1333,6 +1349,103 @@ describe('the todo hub, with 100 todos and 50 children under one (P16, #497)', (
       expect(read()).toEqual({ lookups: 0, todos: 100, lines: 0 })
       expect(screen.getByRole('link', { name: 'PR #511' })).toBeInTheDocument()
     })
+  })
+})
+
+describe("a task's watched GitHub links, each saying only its own state (#683)", () => {
+  const PR = 'https://github.com/acme/api/pull/700'
+  const ISSUE = 'https://github.com/acme/api/issues/701'
+  const watch = (url: string, fields: Partial<GithubLinkWatch> = {}): GithubLinkWatch => ({
+    taskId: 't1',
+    url,
+    kind: url.includes('/pull/') ? GithubLinkKind.PullRequest : GithubLinkKind.Issue,
+    state: GithubLinkState.Open,
+    merged: false,
+    draft: false,
+    inMergeQueue: false,
+    checksState: null,
+    checksSummary: null,
+    reviewState: null,
+    commentCount: 0,
+    headOid: null,
+    title: 'A link',
+    watching: true,
+    lastFetchedAt: HUB_NOW,
+    ...fields,
+  })
+
+  /** Two todos: the first open with a pull request under it, the second closed with an issue. */
+  async function renderLinks(): Promise<HubStore> {
+    const wrapper = await hubStore({
+      todos: [hubTodo('1', 'Fix the login test', TodoState.Doing), hubTodo('2', 'Filed for later', TodoState.Todo)],
+      artifacts: [hubLink(PR, 'The pull request', 3), hubLink(ISSUE, 'The issue', 4)],
+      filings: [hubFiling(refOf.link(PR), '1'), hubFiling(refOf.link(ISSUE), '2')],
+      todoPanels: [{ taskId: 't1', todoId: '1', open: true, filter: ChildFilter.All }],
+      githubWatches: [watch(PR), watch(ISSUE)],
+    })
+    render(<HubForTask />, { wrapper: wrapper.wrapper })
+    await act(() => wrapper.store.getState().loadTodoHub('t1'))
+    for (const counter of [kindCounts, tileLabel, expandedStateItems, collapsedStateItem, collapsedGroups]) {
+      vi.mocked(counter as () => unknown).mockClear()
+    }
+    return wrapper
+  }
+
+  it('renders the open link tile alone when its watch changes, and the closed link cluster alone when its does', async () => {
+    const { fake } = await renderLinks()
+
+    // The open todo's pull request starts running its checks: its tile alone renders, no card, no other tile.
+    act(() => {
+      fake.emit({
+        type: EventType.GithubWatchChanged,
+        watch: watch(PR, {
+          checksState: GithubChecksState.Pending,
+          checksSummary: '3/14',
+          lastFetchedAt: HUB_NOW + 1_000,
+        }),
+      })
+    })
+    expect(renders(kindCounts)).toBe(0)
+    expect(renders(tileLabel)).toBe(1)
+    expect(renders(expandedStateItems)).toBe(1)
+    expect(renders(collapsedStateItem)).toBe(0)
+    expect(renders(collapsedGroups)).toBe(0)
+
+    // The closed todo's issue is commented on: its card's kind row alone reads what it says, and no tile renders.
+    for (const counter of [kindCounts, tileLabel, expandedStateItems, collapsedStateItem, collapsedGroups]) {
+      vi.mocked(counter as () => unknown).mockClear()
+    }
+    act(() => {
+      fake.emit({
+        type: EventType.GithubWatchChanged,
+        watch: watch(ISSUE, { commentCount: 2, lastFetchedAt: HUB_NOW + 1_000 }),
+      })
+    })
+    expect(renders(kindCounts)).toBe(0)
+    expect(renders(tileLabel)).toBe(0)
+    expect(renders(expandedStateItems)).toBe(0)
+    expect(renders(collapsedStateItem)).toBe(1)
+    expect(renders(collapsedGroups)).toBe(0)
+  })
+
+  it('renders a burst of watch changes to one link as one read of what it says', async () => {
+    const { fake } = await renderLinks()
+    act(() => {
+      fake.emitBatch([
+        {
+          type: EventType.GithubWatchChanged,
+          watch: watch(ISSUE, { state: GithubLinkState.Closed, lastFetchedAt: HUB_NOW + 1_000 }),
+        },
+        {
+          type: EventType.GithubWatchChanged,
+          watch: watch(ISSUE, { state: GithubLinkState.Closed, commentCount: 1, lastFetchedAt: HUB_NOW + 2_000 }),
+        },
+      ])
+    })
+    expect(renders(kindCounts)).toBe(0)
+    expect(renders(tileLabel)).toBe(0)
+    expect(renders(expandedStateItems)).toBe(0)
+    expect(renders(collapsedStateItem)).toBe(1)
   })
 })
 

@@ -668,6 +668,11 @@ export interface TasksHistoryResponse {
   readonly handoff: TaskHandoff | null
   /** What its agents left running or scheduled (the Agents tab's watchers), live or ended, in the order they started. */
   readonly watchers: readonly Watcher[]
+  /**
+   * What the GitHub link watcher last knew of each linked pull request or issue the Todos tab's links show (#682,
+   * #683), so a relaunch shows their state before the next poll; nothing for a link not watched yet.
+   */
+  readonly githubWatches: readonly GithubLinkWatch[]
   /** The commits its agent and subagents made (the Todos tab's commit tiles), newest first. */
   readonly commits: readonly TaskCommit[]
   /**

@@ -25,6 +25,7 @@ import {
   type TodoId,
   type TodoPanel,
 } from '../../shared/todoHub'
+import type { GithubLinkWatch } from '../../shared/githubWatch'
 import { useGladeStore } from '../store/react'
 import { sampleCommit, sampleWatcher, type FakeMain } from '../store/test-bridge'
 import { storeWrapper, type StoreWrapper } from '../store/test-wrapper'
@@ -122,6 +123,7 @@ export interface HubTask {
   readonly commits?: readonly TaskCommit[]
   readonly filings?: readonly Filing[]
   readonly todoPanels?: readonly TodoPanel[]
+  readonly githubWatches?: readonly GithubLinkWatch[]
 }
 
 /** The fake main's data for task `t1`. */
@@ -138,6 +140,7 @@ export function hubMain(task: HubTask): Partial<FakeMain> {
     commits: [...(task.commits ?? [])],
     filings: [...(task.filings ?? [])],
     todoPanels: [...(task.todoPanels ?? [])],
+    githubWatches: [...(task.githubWatches ?? [])],
     todoHubReads: [],
     watchedArtifacts: [],
     copied: [],

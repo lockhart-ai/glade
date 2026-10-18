@@ -31,10 +31,12 @@ export interface TileProps {
   readonly tag?: string | null
   /** What its tag says under the pointer: a file's path, a link's repository (#498). Nothing unless given. */
   readonly tagTitle?: string | undefined
+  /** A class for its icon's colour, e.g. a watched link's state (#683). None unless given. */
+  readonly iconClassName?: string | undefined
   /** What it says of itself before its age: a commit's `+54 −0`. Nothing unless given. */
   readonly state?: ReactNode
-  /** When it last changed: its age, last on the first line. */
-  readonly at: EpochMs
+  /** When it last changed: its age, last on the first line — or on the foot's, when the tile has a foot. */
+  readonly at?: EpochMs
   /** Whether it's outlined, e.g. the file the Files tab shows (#498). */
   readonly selected?: boolean
   /** Whether it's faded back: a file that's gone, its title and its icon as faint as the rest (#498). */
@@ -65,6 +67,11 @@ export interface TileProps {
   readonly onOpen?: (() => void) | undefined
   /** What it opens to in place, under its title across its width. */
   readonly children?: ReactNode
+  /**
+   * A full-width line under the first, not indented to its title: a watched link's state with its age at the far
+   * right (#683). Its age gives way to the tile's actions there, as the first line's does.
+   */
+  readonly foot?: ReactNode
 }
 
 /** Whether a click landed on a control inside the tile (a button, a link), which answers it itself. */
@@ -89,6 +96,7 @@ export function Tile({
   lead = null,
   tag = null,
   tagTitle,
+  iconClassName,
   state,
   at,
   selected = false,
@@ -100,6 +108,7 @@ export function Tile({
   ref,
   onOpen,
   children,
+  foot,
 }: TileProps): React.JSX.Element {
   const onClick = (event: MouseEvent<HTMLDivElement>): void => {
     if (!onControl(event)) onOpen?.()
@@ -134,7 +143,10 @@ export function Tile({
       {...(menuTarget === undefined ? {} : { onContextMenu: menuTarget.onContextMenu })}
     >
       <div className={classNames(styles.head, media !== undefined && styles.withMedia)}>
-        <span className={classNames(styles.icon, media !== undefined && styles.media)} aria-hidden="true">
+        <span
+          className={classNames(styles.icon, iconClassName, media !== undefined && styles.media)}
+          aria-hidden="true"
+        >
           {media ?? <Icon icon={icon} size={IconSize.Medium} />}
         </span>
         <div className={styles.title} title={name}>
@@ -146,19 +158,28 @@ export function Tile({
             </span>
           )}
         </div>
-        <div className={styles.right}>
-          {state !== undefined && (
-            <>
-              {state}
-              {' · '}
-            </>
-          )}
-          <Age at={at} />
-        </div>
-        {actions !== undefined && <span className={styles.actions}>{actions}</span>}
+        {foot === undefined && (state !== undefined || at !== undefined) && (
+          <div className={styles.right}>
+            {state !== undefined && (
+              <>
+                {state}
+                {' · '}
+              </>
+            )}
+            {at !== undefined && <Age at={at} />}
+          </div>
+        )}
+        {foot === undefined && actions !== undefined && <span className={styles.actions}>{actions}</span>}
       </div>
       {children !== undefined && children !== null && children !== false && (
         <div className={styles.body}>{children}</div>
+      )}
+      {foot !== undefined && (
+        <div className={styles.foot}>
+          <span className={styles.footState}>{foot}</span>
+          <span className={styles.right}>{at !== undefined && <Age at={at} />}</span>
+          {actions !== undefined && <span className={styles.actions}>{actions}</span>}
+        </div>
       )}
     </div>
   )

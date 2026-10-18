@@ -20,6 +20,7 @@ import {
   type Workspace,
 } from '../../shared/domain'
 import { settingsGrantScopeKey, type Grant, type SettingsGrantTarget } from '../../shared/sandbox'
+import type { GithubLinkWatch } from '../../shared/githubWatch'
 import { isSubagentTool } from '../../shared/subagents'
 import { refKey } from '../../shared/todoHub'
 import { bumpedFileVersion } from '../files/unsaved'
@@ -246,6 +247,8 @@ export function withHistory(
     handoffs: { ...state.handoffs, [taskId]: newerHandoff(history.handoff, state.handoffs[taskId]) },
     // Like the queue, watchers change in place: the loaded ones are as new as any event before them.
     watchers: withWatchers(state.watchers, taskId, history.watchers),
+    // The watched links too (#683): the loaded ones are as new as any event before them, as a watcher's list is.
+    githubWatches: withGithubWatches(state.githubWatches, taskId, history.githubWatches),
     // The card's draft as main has it: the card reads it once, as it mounts.
     questionDrafts: withQuestionDraft(state.questionDrafts, taskId, history.questionDraft),
     // Commits, too: the loaded list is the task's whole list as it was then.
@@ -363,6 +366,31 @@ export function withWatchers(
   })
   const same = kept.length === had.length && kept.every((watcher, index) => watcher === had[index])
   return same ? watchers : { ...watchers, [taskId]: kept }
+}
+
+/**
+ * Each task's watched GitHub links (#682), with `taskId`'s as the load carried them (#683), one watch per address.
+ * A watch that's as it was keeps the object the store had, so what reads one (its link tile's state line) only hears
+ * of that one's changes; and the load's word goes over a live update that arrived while it was in flight, as a
+ * watcher's list does.
+ */
+export function withGithubWatches(
+  watches: GladeData['githubWatches'],
+  taskId: string,
+  sent: readonly GithubLinkWatch[],
+): GladeData['githubWatches'] {
+  if (sent.length === 0) return watches
+  const had = watches[taskId] ?? {}
+  const next = { ...had }
+  let changed = false
+  for (const watch of sent) {
+    const before = had[watch.url]
+    if (before === undefined || !shallow(before, watch)) {
+      next[watch.url] = watch
+      changed = true
+    }
+  }
+  return changed ? { ...watches, [taskId]: next } : watches
 }
 
 /** Records every task's live watchers, loaded on start: what the task list's marks count until a task's logs load. */

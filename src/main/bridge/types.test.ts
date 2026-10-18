@@ -117,6 +117,8 @@ const TASK_HANDLERS = {
     watchers: [],
     commits: [],
     agentTab: null,
+
+    githubWatches: [],
   }),
   [CommandName.TasksHistoryBefore]: () => ({
     messages: [],
@@ -392,6 +394,7 @@ describe('the command map', () => {
       readonly artifacts: readonly Artifact[]
       readonly handoff: TaskHandoff | null
       readonly watchers: readonly Watcher[]
+      readonly githubWatches: readonly GithubLinkWatch[]
       readonly commits: readonly TaskCommit[]
       readonly agentTab: string | null
     }>()

@@ -38,6 +38,9 @@ import {
   type TurnSummary,
   type PermissionMarkOutcome,
 } from '../shared/domain'
+import { GithubChecksState, GithubLinkKind, GithubLinkState } from '../shared/githubWatch'
+import { LinkKind, recogniseLink } from '../shared/artifactLinks'
+import { putGithubLinkWatch } from './db/repositories/github-link-watches'
 import { taskPermissionRule } from '../shared/permissions'
 import type { ReportedMcpServer } from '../shared/mcpServers'
 import type { CardGrantScope, SandboxAsk } from '../shared/sandbox'
@@ -309,6 +312,8 @@ export interface SeedTask {
   readonly commits?: readonly SeedCommit[] | undefined
   /** How its todos' panels were left in the todo hub; each closed, showing all, unless given. */
   readonly todoPanels?: readonly SeedTodoPanel[] | undefined
+  /** What its linked pull requests and issues stood at (the Todos tab's link rows, #683); none unless given. */
+  readonly githubWatches?: readonly SeedGithubWatch[] | undefined
   /**
    * Another workspace to put it in, made (once, by its root) beside the fixture's own, which stays the one open: for a
    * capture of what's in flight across workspaces (the menu bar popover). The fixture's workspace unless given.
@@ -391,6 +396,26 @@ export interface SeedTodoPanel {
   readonly open: boolean
   /** Which of its children it shows; all of them unless given. */
   readonly filter?: ChildFilter | undefined
+}
+
+/**
+ * What a task's linked pull request or issue stood at when its watch was last fetched (`GithubLinkWatch`, #682): the
+ * link by its `url`, which must be one of the task's link artifacts, and how the watcher's last poll found it. The
+ * link's kind comes from the address, as the watcher's own does.
+ */
+export interface SeedGithubWatch {
+  readonly url: string
+  /** GitHub's own title, which the link's tile takes for the artifact's. */
+  readonly title: string
+  readonly state: GithubLinkState
+  readonly merged?: boolean | undefined
+  readonly draft?: boolean | undefined
+  readonly inMergeQueue?: boolean | undefined
+  readonly checksState?: GithubChecksState | undefined
+  readonly checksSummary?: string | undefined
+  readonly reviewState?: string | undefined
+  readonly commentCount?: number | undefined
+  readonly minutesAgo: number
 }
 
 /**
@@ -847,6 +872,23 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       todoPanels: z
         .array(z.strictObject({ todo: seedTodoId, open: z.boolean(), filter: z.enum(ChildFilter).optional() }))
         .optional(),
+      githubWatches: z
+        .array(
+          z.strictObject({
+            url: z.url(),
+            title: z.string(),
+            state: z.enum(GithubLinkState),
+            merged: z.boolean().optional(),
+            draft: z.boolean().optional(),
+            inMergeQueue: z.boolean().optional(),
+            checksState: z.enum(GithubChecksState).optional(),
+            checksSummary: z.string().optional(),
+            reviewState: z.string().optional(),
+            commentCount: count.optional(),
+            minutesAgo,
+          }),
+        )
+        .optional(),
     }),
   ),
 })
@@ -882,6 +924,38 @@ function seedWatcher(db: Database, taskId: string, watcher: SeedWatcher, at: Epo
     ...(outcome === undefined ? {} : { outcome }),
     ...(endedMinutesAgo === undefined ? {} : { endedAt: now - endedMinutesAgo * MINUTE }),
   })
+}
+
+/**
+ * Records what the watcher last knew of one of the task's linked issues or PRs (#683), fetched `at`. The link's kind
+ * comes from its address, as the watcher's own does; the address must be one of the task's link artifacts, which the
+ * repository's own put enforces.
+ */
+function seedGithubWatch(db: Database, taskId: string, watch: SeedGithubWatch, at: EpochMs): void {
+  const link = recogniseLink(watch.url)
+  if (link.kind !== LinkKind.PullRequest && link.kind !== LinkKind.Issue) {
+    throw new Error(`A seeded watch's url must be a GitHub pull request or issue: ${watch.url}`)
+  }
+  putGithubLinkWatch(
+    db,
+    {
+      taskId,
+      url: watch.url,
+      kind: link.kind === LinkKind.PullRequest ? GithubLinkKind.PullRequest : GithubLinkKind.Issue,
+      state: watch.state,
+      merged: watch.merged ?? false,
+      draft: watch.draft ?? false,
+      inMergeQueue: watch.inMergeQueue ?? false,
+      checksState: watch.checksState ?? null,
+      checksSummary: watch.checksSummary ?? null,
+      reviewState: watch.reviewState ?? null,
+      commentCount: watch.commentCount ?? 0,
+      headOid: null,
+      title: watch.title,
+      watching: true,
+    },
+    at,
+  )
 }
 
 /** Links a sample commit to a task, as if made in the workspace's own working tree. Answers which child it is. */
@@ -1236,6 +1310,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         appendQuestionSet(db, { taskId: task.id, turn, preamble, questions }, ago(minutesAgo))
       }
       for (const watcher of sample.watchers ?? []) seedWatcher(db, task.id, watcher, ago(watcher.minutesAgo), now)
+      for (const watch of sample.githubWatches ?? []) seedGithubWatch(db, task.id, watch, ago(watch.minutesAgo))
       for (const commit of sample.commits ?? []) {
         fileUnder(commit.todo, seedCommit(db, task.id, seed.workspace.rootPath, commit, now))
       }
