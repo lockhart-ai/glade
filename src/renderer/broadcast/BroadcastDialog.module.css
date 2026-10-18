@@ -1,4 +1,4 @@
-/* The Broadcast modal, docs/design/html/45-broadcast.html: the Settings modal's backdrop and card, sized for a message. */
+/* The Broadcast modal, docs/design/html/45-broadcast-select.html: the Settings modal's backdrop and card, sized for a message. */
 .backdrop {
   z-index: 20;
   display: flex;
@@ -85,12 +85,87 @@
   flex-shrink: 0;
 }
 
-.workspace {
+/*
+ * A row you can tick (#675): the whole of it is one checkbox, a box then the workspace's badge or the task's dot. No
+ * border at rest, a strong one on hover, as the queue's rows do.
+ */
+.row {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-button-sm);
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.row:hover {
+  border-color: var(--color-strong);
+}
+
+.row:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+}
+
+/* The workspace's row, as tall as it was, with its count at the end. */
+.group > .row {
   height: 30px;
   padding: 0 8px;
+}
+
+/* A task's row, indented under its workspace's box: its dot sits where the name starts. */
+.task {
+  height: 26px;
+}
+
+.task > .row {
+  height: 100%;
+  padding: 0 8px 0 28px;
+}
+
+/*
+ * The tick box a row starts with: empty until its tasks are ticked, then the blue of a working agent's dot, with the
+ * tick (or, for a workspace only some of whose tasks are ticked, a dash) in the backdrop's colour.
+ */
+.box {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  background: transparent;
+  border: 1px solid var(--color-strong);
+  border-radius: 4px;
+}
+
+.box[data-tick='all'],
+.box[data-tick='some'] {
+  background: var(--color-blue);
+  border-color: var(--color-blue);
+}
+
+.box[data-tick='all'] .mark {
+  width: 3px;
+  height: 7px;
+  margin-top: -2px;
+  border: solid var(--color-bg);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.box[data-tick='some'] .mark {
+  width: 8px;
+  height: 3px;
+  border-radius: 1.5px;
+  background: var(--color-bg);
 }
 
 .workspaceName {
@@ -116,15 +191,6 @@
   margin: 0;
   padding: 0;
   list-style: none;
-}
-
-/* Indented under the workspace's name: its dot sits where the name starts. */
-.task {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 26px;
-  padding: 0 8px 0 36px;
 }
 
 .taskTitle {

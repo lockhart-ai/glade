@@ -490,24 +490,27 @@ export function fakeHandlers(
       emit({ type: EventType.MessageAppended, message })
       return { message }
     },
-    // Every task a broadcast reaches gets it, as one batch: saved to the chat of a task waiting on you with nothing
-    // open, and queued for any other.
-    [CommandName.TasksBroadcast]: ({ text }) => {
+    // Every chosen task a broadcast reaches gets it, as one batch: saved to the chat of a task waiting on you with
+    // nothing open, and queued for any other.
+    [CommandName.TasksBroadcast]: ({ text, taskIds }) => {
+      const chosen = new Set(taskIds)
       const events: GladeEvent[] = []
-      const recipients = main.tasks.filter(receivesBroadcast).map((task): BroadcastOutcome => {
-        const idle = task.activity === TaskActivity.Waiting && !task.asking && !task.awaitingPermission
-        if (idle) {
-          sent += 1
-          const message = { ...sampleMessage(`sent-${String(sent)}`, task.id, text), broadcast: true }
-          main.messages?.push(message)
-          events.push({ type: EventType.MessageAppended, message })
-          return { taskId: task.id, delivery: BroadcastDelivery.Sent }
-        }
-        queued += 1
-        queue.push({ ...sampleQueuedMessage(`queued-${String(queued)}`, task.id, text), broadcast: true })
-        events.push({ type: EventType.QueueChanged, taskId: task.id, queuedMessages: queueOf(task.id) })
-        return { taskId: task.id, delivery: BroadcastDelivery.Queued }
-      })
+      const recipients = main.tasks
+        .filter((task) => chosen.has(task.id) && receivesBroadcast(task))
+        .map((task): BroadcastOutcome => {
+          const idle = task.activity === TaskActivity.Waiting && !task.asking && !task.awaitingPermission
+          if (idle) {
+            sent += 1
+            const message = { ...sampleMessage(`sent-${String(sent)}`, task.id, text), broadcast: true }
+            main.messages?.push(message)
+            events.push({ type: EventType.MessageAppended, message })
+            return { taskId: task.id, delivery: BroadcastDelivery.Sent }
+          }
+          queued += 1
+          queue.push({ ...sampleQueuedMessage(`queued-${String(queued)}`, task.id, text), broadcast: true })
+          events.push({ type: EventType.QueueChanged, taskId: task.id, queuedMessages: queueOf(task.id) })
+          return { taskId: task.id, delivery: BroadcastDelivery.Queued }
+        })
       emitBatch(events)
       return { recipients }
     },

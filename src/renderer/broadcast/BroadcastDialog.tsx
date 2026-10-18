@@ -26,11 +26,17 @@ import {
   broadcastFailureMessage,
   BUSY_NOTE,
   NO_RECIPIENTS,
+  NOTHING_TICKED,
   reachText,
   recipientCount,
+  recipientIds,
   recipientTaskIds,
   recipientWorkspaceIds,
+  setTicked,
+  tickedCounts,
   undeliveredMessage,
+  WorkspaceTick,
+  workspaceTick,
 } from './broadcastModel'
 import styles from './BroadcastDialog.module.css'
 
@@ -46,15 +52,33 @@ function shownTitle(title: string | undefined): string {
   return title === undefined || title === '' ? UNTITLED_TASK_TITLE : title
 }
 
+/** The box a row starts with: a tick when its tasks are all ticked, a dash when only some are, empty when none is. */
+function TickBox({ tick }: { tick: WorkspaceTick }): React.JSX.Element {
+  return (
+    <span aria-hidden className={styles.box} data-tick={tick}>
+      <span className={styles.mark} />
+    </span>
+  )
+}
+
 interface RecipientRowProps {
   readonly taskId: string
+  /** Whether the task is ticked to receive the broadcast. */
+  readonly ticked: boolean
+  /** Ticks the given tasks (or unticks them), as a row's box was asked. */
+  readonly onTick: (taskIds: readonly string[], on: boolean) => void
 }
 
 /**
- * One task the broadcast reaches: its dot, its title and where it stands with you. It reads only its own title and
- * standing, so a change to one task renders its row and no other.
+ * One task the broadcast reaches, as a tick box (#675): its box, its dot, its title and where it stands with you; the
+ * whole row toggles it. It reads only its own title, standing and tick, so a change to one task renders its row and
+ * no other.
  */
-export const RecipientRow = memo(function RecipientRow({ taskId }: RecipientRowProps): React.JSX.Element | null {
+export const RecipientRow = memo(function RecipientRow({
+  taskId,
+  ticked,
+  onTick,
+}: RecipientRowProps): React.JSX.Element | null {
   const title = useGladeStore((state) => state.tasks[taskId]?.title)
   const attention = useGladeStore((state) => {
     const task = state.tasks[taskId]
@@ -63,35 +87,68 @@ export const RecipientRow = memo(function RecipientRow({ taskId }: RecipientRowP
   if (title === undefined || attention === undefined) return null
   return (
     <li className={styles.task} data-attention={attention}>
-      <Dot state={ATTENTION_DOTS[attention]} />
-      <span className={styles.taskTitle}>{shownTitle(title)}</span>
-      <span className={styles.attention}>{attentionLabel(attention)}</span>
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={ticked}
+        aria-label={shownTitle(title)}
+        className={styles.row}
+        onClick={() => {
+          onTick([taskId], !ticked)
+        }}
+      >
+        <TickBox tick={ticked ? WorkspaceTick.All : WorkspaceTick.None} />
+        <Dot state={ATTENTION_DOTS[attention]} />
+        <span className={styles.taskTitle}>{shownTitle(title)}</span>
+        <span className={styles.attention}>{attentionLabel(attention)}</span>
+      </button>
     </li>
   )
 })
 
 interface RecipientGroupProps {
   readonly workspaceId: string
+  /** The tasks the modal has had unticked to it, of every workspace. */
+  readonly unticked: ReadonlySet<string>
+  /** Ticks the given tasks (or unticks them), as a row's box was asked. */
+  readonly onTick: (taskIds: readonly string[], on: boolean) => void
 }
 
-/** A workspace and its tasks the broadcast reaches: its badge, its name and how many, then a row for each. */
-const RecipientGroup = memo(function RecipientGroup({ workspaceId }: RecipientGroupProps): React.JSX.Element {
+/**
+ * A workspace and its tasks the broadcast reaches: its tick box (ticking or unticking all its tasks, a dash when only
+ * some are ticked), its badge, its name and how many, then a row for each.
+ */
+const RecipientGroup = memo(function RecipientGroup({
+  workspaceId,
+  unticked,
+  onTick,
+}: RecipientGroupProps): React.JSX.Element {
   const name = useGladeStore((state) => state.workspaces.find(({ id }) => id === workspaceId)?.name)
   const tone = useGladeStore((state) => badgeTone(state.workspaces, workspaceId))
   const taskIds = useGladeStore(useShallow((state) => recipientTaskIds(state, workspaceId)))
   const headingId = useId()
+  const tick = workspaceTick(unticked, taskIds)
   return (
     <li className={styles.group}>
-      <div className={styles.workspace}>
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={tick === WorkspaceTick.All ? true : tick === WorkspaceTick.None ? false : 'mixed'}
+        aria-label={name}
+        id={headingId}
+        className={styles.row}
+        onClick={() => {
+          onTick(taskIds, tick !== WorkspaceTick.All)
+        }}
+      >
+        <TickBox tick={tick} />
         <WorkspaceBadge name={name} tone={tone} size={BadgeSize.Small} />
-        <span id={headingId} className={styles.workspaceName}>
-          {name}
-        </span>
+        <span className={styles.workspaceName}>{name}</span>
         <span className={styles.count}>{taskIds.length}</span>
-      </div>
+      </button>
       <ul className={styles.tasks} aria-labelledby={headingId}>
         {taskIds.map((taskId) => (
-          <RecipientRow key={taskId} taskId={taskId} />
+          <RecipientRow key={taskId} taskId={taskId} ticked={!unticked.has(taskId)} onTick={onTick} />
         ))}
       </ul>
     </li>
@@ -100,14 +157,18 @@ const RecipientGroup = memo(function RecipientGroup({ workspaceId }: RecipientGr
 
 interface RecipientsProps {
   readonly workspaceIds: readonly string[]
+  /** The tasks the modal has had unticked to it, of every workspace. */
+  readonly unticked: ReadonlySet<string>
+  /** Ticks the given tasks (or unticks them), as a row's box was asked. */
+  readonly onTick: (taskIds: readonly string[], on: boolean) => void
 }
 
-/** Who the broadcast reaches, grouped by workspace. Read-only: there's nothing to pick. */
-const Recipients = memo(function Recipients({ workspaceIds }: RecipientsProps): React.JSX.Element {
+/** Who the broadcast reaches, grouped by workspace, each row a tick box to take it out or put it back (#675). */
+const Recipients = memo(function Recipients({ workspaceIds, unticked, onTick }: RecipientsProps): React.JSX.Element {
   return (
     <ul className={styles.recipients} aria-label="Recipients">
       {workspaceIds.map((workspaceId) => (
-        <RecipientGroup key={workspaceId} workspaceId={workspaceId} />
+        <RecipientGroup key={workspaceId} workspaceId={workspaceId} unticked={unticked} onTick={onTick} />
       ))}
     </ul>
   )
@@ -126,24 +187,37 @@ interface BroadcastFormProps {
 
 /**
  * The modal's content. The message field keeps its own text (it isn't the store's, or this component's state), so
- * typing renders nothing; the recipients each read their own slice of the store.
+ * typing renders nothing; the recipients each read their own slice of the store. The modal holds the tasks it has had
+ * unticked to it — everything else listed is ticked — and starts fresh with none each time it opens (#675), since the
+ * form mounts with the modal.
  */
 function BroadcastForm({ titleId, fieldRef, onClose }: BroadcastFormProps): React.JSX.Element {
-  const tasks = useGladeStore(recipientCount)
+  const total = useGladeStore(recipientCount)
   const workspaceIds = useGladeStore(useShallow(recipientWorkspaceIds))
   const broadcast = useGladeStore((state) => state.broadcast)
   const store = useGladeStoreApi()
   const keymap = useKeymap()
   const toast = useToast()
   const [sending, setSending] = useState(false)
-  const empty = tasks === 0
+  const [unticked, setUnticked] = useState<ReadonlySet<string>>(() => new Set())
+  const empty = total === 0
+  const { tasks: tickedTasks, workspaces: tickedWorkspaces } = useGladeStore(
+    useShallow((state) => tickedCounts(state, unticked)),
+  )
+  const nothingTicked = !empty && tickedTasks === 0
+
+  // One toggle for every row: a task's box ticks or unticks itself, a workspace's all its tasks at once.
+  const onTick = useCallback((taskIds: readonly string[], on: boolean) => {
+    setUnticked((previous) => setTicked(previous, taskIds, on))
+  }, [])
 
   const send = async (): Promise<void> => {
     const text = fieldRef.current?.value.trim() ?? ''
-    if (sending || empty || text === '') return
+    if (sending || empty || nothingTicked || text === '') return
     setSending(true)
     try {
-      const failures = (await broadcast(text)).filter(isFailed)
+      const taskIds = recipientIds(store.getState()).filter((taskId) => !unticked.has(taskId))
+      const failures = (await broadcast(text, taskIds)).filter(isFailed)
       // A task that couldn't take it says so, as a failed send does; the rest have it.
       if (failures.length > 0) {
         const { tasks: known } = store.getState()
@@ -183,12 +257,14 @@ function BroadcastForm({ titleId, fieldRef, onClose }: BroadcastFormProps): Reac
       />
       {empty ? (
         <p className={styles.reach}>{NO_RECIPIENTS}</p>
+      ) : nothingTicked ? (
+        <p className={styles.reach}>{NOTHING_TICKED}</p>
       ) : (
         <p className={styles.reach}>
-          Goes to <span className={styles.reached}>{reachText(tasks, workspaceIds.length)}</span>. {BUSY_NOTE}
+          Goes to <span className={styles.reached}>{reachText(tickedTasks, total, tickedWorkspaces)}</span>. {BUSY_NOTE}
         </p>
       )}
-      {!empty && <Recipients workspaceIds={workspaceIds} />}
+      {!empty && <Recipients workspaceIds={workspaceIds} unticked={unticked} onTick={onTick} />}
       <div className={styles.actions}>
         <span className={styles.hint}>
           <Kbd>Esc</Kbd>to cancel
@@ -197,7 +273,7 @@ function BroadcastForm({ titleId, fieldRef, onClose }: BroadcastFormProps): Reac
           variant={ButtonVariant.Primary}
           icon={faArrowUp}
           className={styles.send}
-          disabled={empty || sending}
+          disabled={empty || nothingTicked || sending}
           onClick={() => {
             void send()
           }}
@@ -210,11 +286,13 @@ function BroadcastForm({ titleId, fieldRef, onClose }: BroadcastFormProps): Reac
 }
 
 /**
- * The Broadcast modal (⌘⇧B; `docs/design/screens/45-broadcast.png`): one message to every active task, in every
- * workspace. It says who the message goes to before it's sent, and lists them by workspace. ↵ or Send sends it and
- * closes the modal; Esc or a click outside closes it without sending, and what was typed goes with it. With no active
- * task anywhere it says so, and can't send. It shows while the store has it open (`broadcastOpen`), taking the focus
- * in its message field and giving it back when it closes.
+ * The Broadcast modal (⌘⇧B; `docs/design/screens/45-broadcast-select.png`): one message to the active tasks you've
+ * ticked, in every workspace (#675). It lists them by workspace as tick boxes — a workspace's box ticks or unticks
+ * all its tasks, and shows a dash when only some are ticked — everything ticked when the modal opens, and says what's
+ * ticked before it's sent. ↵ or Send sends it to the ticked ones and closes the modal; Esc or a click outside closes
+ * it without sending, and what was typed goes with it. With nothing ticked it says so, and can't send; with no active
+ * task anywhere it says that too. It shows while the store has it open (`broadcastOpen`), taking the focus in its
+ * message field and giving it back when it closes.
  */
 export function BroadcastDialog(): React.JSX.Element | null {
   const open = useGladeStore((state) => state.broadcastOpen)
