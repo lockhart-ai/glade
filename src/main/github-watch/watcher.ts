@@ -6,16 +6,22 @@
 import type { Database } from 'better-sqlite3'
 import type { AgentRunner } from '../agent/runner'
 import type { Emit } from '../bridge/events'
+import type { Environment } from '../login-env'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
 import { MIN_BACKOFF_MS } from './backoff'
-import { pollGithubWatches, type PollOptions } from './poller'
-import { createGithubTokenCache, type GithubTokenCache } from './token'
+import { pollGithubWatches, type GithubPollState, type PollOptions } from './poller'
+import { createGithubTokenCache, readGhToken, type GithubTokenCache } from './token'
 
 export interface GithubWatcherOptions {
   readonly db: Database
   readonly emit: Emit
   readonly runner: Pick<AgentRunner, 'send' | 'queue'>
-  /** The machine's `gh` token, cached across polls. One of its own by default. */
+  /**
+   * The agents' login environment (`app.ts`'s `agentEnv`), resolved once at startup: it has `gh` on its PATH, where
+   * the app's own environment may not (#718). Read before the first token read.
+   */
+  readonly env: Promise<Environment>
+  /** The machine's `gh` token, cached across polls. One of its own, read in `env`, by default. */
   readonly tokenCache?: GithubTokenCache
   /** One poll (`./poller`'s `pollGithubWatches` by default), injectable so a test never reaches the network. */
   readonly poll?: (options: PollOptions) => Promise<number>
@@ -40,9 +46,11 @@ function describe(error: unknown): string {
  * rather than stopping the watcher for good.
  */
 export function createGithubWatcher(options: GithubWatcherOptions): GithubWatcher {
-  const tokenCache = options.tokenCache ?? createGithubTokenCache()
+  const tokenCache = options.tokenCache ?? createGithubTokenCache(() => options.env.then((own) => readGhToken(own)))
   const poll = options.poll ?? pollGithubWatches
   const log = options.log ?? SILENT_LOGGER
+  // Kept across the watcher's polls, so a source is logged only when it changes and `gh` is warned about once (#718).
+  const pollState: GithubPollState = { lastSource: null, warnedNoToken: false }
   let timer: ReturnType<typeof setTimeout> | null = null
   let started = false
   let closed = false
@@ -60,7 +68,14 @@ export function createGithubWatcher(options: GithubWatcherOptions): GithubWatche
     if (closed) return
     let waitMs = MIN_BACKOFF_MS
     try {
-      waitMs = await poll({ db: options.db, emit: options.emit, runner: options.runner, tokenCache })
+      waitMs = await poll({
+        db: options.db,
+        emit: options.emit,
+        runner: options.runner,
+        tokenCache,
+        log,
+        state: pollState,
+      })
     } catch (error) {
       log.warn('github watch poll failed', { error: describe(error) })
     }

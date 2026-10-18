@@ -11,8 +11,9 @@ import { updateSettings } from '../db/repositories/settings'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import type { AgentRunner } from '../agent/runner'
 import type { Emit } from '../bridge/events'
+import type { Logger } from '../logging/logger'
 import type { GraphqlBatchResult } from './graphql'
-import { pollGithubWatches } from './poller'
+import { pollGithubWatches, type GithubPollState } from './poller'
 import type { WatchTarget } from './query'
 import type { RestBatchResult } from './rest-fallback'
 import type { GithubTokenCache } from './token'
@@ -62,6 +63,19 @@ function runner(): {
   queue: ReturnType<typeof vi.fn<AgentRunner['queue']>>
 } {
   return { send: vi.fn<AgentRunner['send']>(), queue: vi.fn<AgentRunner['queue']>() }
+}
+
+/** A logger a test can read, with only what the poller uses. */
+function testLog() {
+  const log = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    scoped: () => log,
+    with: () => log,
+  }
+  return log satisfies Logger
 }
 
 describe('pollGithubWatches', () => {
@@ -295,5 +309,72 @@ describe('pollGithubWatches', () => {
     })
 
     expect(theRunner.send).not.toHaveBeenCalled()
+  })
+
+  it('logs the source it polled with only when it changes from the last poll', async () => {
+    addLinkArtifact(test.db, { taskId: task.id, url: PR_URL, title: '#412' })
+    const fetchGraphql = vi
+      .fn()
+      .mockImplementation((_t: string, targets: readonly WatchTarget[]) =>
+        Promise.resolve({ outcome: 'fetched', fetched: fetched(targets) } satisfies GraphqlBatchResult),
+      )
+    const fetchRest = vi
+      .fn()
+      .mockImplementation((targets: readonly WatchTarget[]) =>
+        Promise.resolve({ outcome: 'fetched', fetched: fetched(targets) } satisfies RestBatchResult),
+      )
+    const log = testLog()
+    const state: GithubPollState = { lastSource: null, warnedNoToken: false }
+    const base = {
+      db: test.db,
+      emit: vi.fn<Emit>(),
+      runner: runner(),
+      fetchGraphql,
+      fetchRest,
+      log,
+      state,
+    }
+
+    await pollGithubWatches({ ...base, tokenCache: tokenCache('ghs_token') })
+    await pollGithubWatches({ ...base, tokenCache: tokenCache('ghs_token') })
+    expect(log.info).toHaveBeenCalledExactlyOnceWith('github watch poll source', { source: 'graphql' })
+
+    await pollGithubWatches({ ...base, tokenCache: tokenCache(null) })
+    expect(log.info).toHaveBeenCalledTimes(2)
+    expect(log.info).toHaveBeenLastCalledWith('github watch poll source', { source: 'rest' })
+  })
+
+  it('warns about a missing token once, not on every poll', async () => {
+    addLinkArtifact(test.db, { taskId: task.id, url: PR_URL, title: '#412' })
+    const fetchRest = vi
+      .fn()
+      .mockImplementation((targets: readonly WatchTarget[]) =>
+        Promise.resolve({ outcome: 'fetched', fetched: fetched(targets) } satisfies RestBatchResult),
+      )
+    const log = testLog()
+    const state: GithubPollState = { lastSource: null, warnedNoToken: false }
+    const base = { db: test.db, emit: vi.fn<Emit>(), runner: runner(), fetchRest, log, state }
+
+    await pollGithubWatches({ ...base, tokenCache: tokenCache(null) })
+    await pollGithubWatches({ ...base, tokenCache: tokenCache(null) })
+
+    expect(log.warn).toHaveBeenCalledExactlyOnceWith('github watch found no gh token, polling unauthenticated REST')
+  })
+
+  it('logs a backoff and how long it waits', async () => {
+    addLinkArtifact(test.db, { taskId: task.id, url: PR_URL, title: '#412' })
+    const fetchGraphql = vi.fn().mockResolvedValue({ outcome: 'backoff', waitMs: 90_000 } satisfies GraphqlBatchResult)
+    const log = testLog()
+
+    await pollGithubWatches({
+      db: test.db,
+      emit: vi.fn(),
+      runner: runner(),
+      tokenCache: tokenCache('ghs_token'),
+      fetchGraphql,
+      log,
+    })
+
+    expect(log.info).toHaveBeenCalledWith('github watch rate-limited, backing off', { waitMs: 90_000 })
   })
 })

@@ -61,6 +61,8 @@ export enum LogScope {
   MenuBar = 'menu-bar',
   /** Errors in the window, forwarded by the renderer. */
   Renderer = 'renderer',
+  /** The GitHub link watcher: what it polled with, its backoffs, and a `gh` that gave no token. */
+  Github = 'github',
   /** The screenshot and e2e test modes. */
   TestMode = 'test-mode',
 }
