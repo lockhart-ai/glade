@@ -183,7 +183,7 @@ describe('Menu', () => {
 
     const heading = screen.getByText('Needs you').closest('div')
     expect(heading).toHaveClass(cls('heading'))
-    expect(heading.querySelector('span[aria-hidden]')).not.toBeNull()
+    expect(heading?.querySelector('span[aria-hidden]')).not.toBeNull()
     expect(screen.getByRole('menu', { name: 'Workspaces' })).toHaveTextContent('Needs youAcme API')
   })
 
