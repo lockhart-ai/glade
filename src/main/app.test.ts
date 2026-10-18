@@ -106,6 +106,7 @@ const electron = vi.hoisted(() => {
     readonly webContents = {
       send: vi.fn(),
       getZoomFactor: () => 1,
+      setVisualZoomLevelLimits: vi.fn(),
       // The page is always ready, at whatever size it was asked for, with the slots the scene has.
       executeJavaScript: vi.fn((code: string) =>
         Promise.resolve(code.includes('data-native-view-slot') ? captureScene.slots : true),
