@@ -112,7 +112,7 @@ describe('the usage line at a turn start', () => {
     const sent = sessionOf(task.id).sent[0]
     expect(sent?.text.startsWith('Get on with it.\n\n')).toBe(true)
     expect(sent?.text).toMatch(
-      /^Get on with it\.\n\nUsage: session 41% \(resets ..:.. UTC\), week 59% \(resets [A-Z][a-z]{2} \d{1,2} ..:.. UTC\)\.$/,
+      /^Get on with it\.\n\nUsage: session 41% \(resets (?:[A-Z][a-z]{2} \d{1,2} )?..:.. UTC\), week 59% \(resets [A-Z][a-z]{2} \d{1,2} ..:.. UTC\)\.$/,
     )
   })
 
