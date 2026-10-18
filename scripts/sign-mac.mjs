@@ -12,9 +12,11 @@
 //   imports it into a throwaway keychain, finds the certificate's SHA-1 there, deep-re-signs the app with it, and
 //   deletes the keychain. If the certificate can't be found there (secrets missing, or two during a rotation), it
 //   throws rather than publish an ad-hoc build.
-// - Locally (`npm run package`), with no GLADE_CSC_LINK, it looks for the certificate by name in the default
-//   keychain (already there if you made it). If it finds none, or more than one (e.g. mid-rotation), it leaves
-//   electron-builder's own ad-hoc signature in place rather than failing the build.
+// - Locally (`npm run package`), with no GLADE_CSC_LINK, the app stays ad-hoc signed (electron-builder's own
+//   signature, no keychain access, no password prompts) unless GLADE_SIGN_LOCAL=1 is set. With it set, it looks
+//   for the certificate by name in the default keychain (already there if you made it) and signs exactly as
+//   before: if it finds none, or more than one (e.g. mid-rotation), it leaves electron-builder's own ad-hoc
+//   signature in place rather than failing the build.
 //
 // Never prints, exports or copies the certificate's private key.
 
@@ -86,12 +88,18 @@ export default async function afterSign(context) {
 
   const cscLink = process.env.GLADE_CSC_LINK
   const inCI = Boolean(cscLink)
+  // Signing with the local keychain certificate prompts for the keychain password (once per item `codesign --deep`
+  // signs), so it only happens when asked for.
+  const signLocal = process.env.GLADE_SIGN_LOCAL === '1'
   let keychain = null
   try {
     let hashes
     if (inCI) {
       keychain = importCertificate(cscLink, process.env.GLADE_CSC_KEY_PASSWORD)
       hashes = findCertificateHashes(keychain)
+    } else if (!signLocal) {
+      console.log(`sign-mac: GLADE_SIGN_LOCAL not set; leaving ${appPath} ad-hoc signed`)
+      return
     } else {
       hashes = findCertificateHashes(null)
     }
