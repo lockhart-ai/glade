@@ -1,7 +1,9 @@
 import { act, fireEvent, render as renderUnwrapped, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName } from '../../shared/bridge'
+import { TodoState, UiStateKey } from '../../shared/domain'
 import { COPIED_FEEDBACK_MS } from '../components/CodeCopy/CodeCopy'
+import { activePanelTab, PanelTab } from '../right-panel/panelModel'
 import { refuse } from '../store/test-bridge'
 import { storeWrapper, type StoreWrapper } from '../store/test-wrapper'
 import { InlineMarkdown, Markdown } from './Markdown'
@@ -342,6 +344,38 @@ describe('links', () => {
     expect(bare?.querySelectorAll('mark')).toHaveLength(1)
     expect(bare).toHaveAttribute('href', 'https://example.com/docs')
     expect(bare).toHaveTextContent('https://example.com/docs')
+  })
+
+  it('makes a todo link a link to that todo in the Todos tab, and one the task doesn’t have its text (#684)', async () => {
+    const wrapper = storeWrapper({
+      uiState: [
+        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+        { key: UiStateKey.SelectedTaskId, value: 't1' },
+      ],
+      todos: {
+        t1: {
+          items: [{ id: '2', text: 'Add the per-key limit', state: TodoState.Doing, note: null, completedAt: null }],
+          updatedAt: 1,
+        },
+      },
+    })
+    await act(async () => wrapper.store.getState().hydrate())
+    const root = renderMarkdown(
+      'The limit is under [the todo](todo:2), not [the lost one](todo:9). `[[not a todo]](todo:2)` stays code.',
+      wrapper,
+    )
+
+    const todo = within(root).getByRole('link', { name: 'the todo' })
+    expect(todo).toHaveAttribute('href', 'todo:2')
+    expect(within(root).getAllByRole('link')).toHaveLength(1)
+    expect(root).toHaveTextContent('not the lost one. [[not a todo]](todo:2) stays code.')
+
+    // Clicking it shows the todo: the store opens the right panel at Todos and asks the hub for it.
+    expect(fireEvent.click(todo)).toBe(false)
+    await waitFor(() => {
+      expect(wrapper.store.getState().todoFocus).toEqual({ taskId: 't1', todoId: '2', request: 1 })
+    })
+    expect(activePanelTab(wrapper.store.getState().uiState, 'w1')).toBe(PanelTab.Todos)
   })
 })
 

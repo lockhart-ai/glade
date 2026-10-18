@@ -19,6 +19,9 @@ function SegmentView({ segment }: { readonly segment: Segment }): React.ReactNod
           {segment.text}
         </Link>
       )
+    // A `todo:` link in a todo's own text is just its characters: the hub's text only links out to the web.
+    case SegmentKind.Todo:
+      return segment.text
   }
 }
 

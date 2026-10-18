@@ -50,3 +50,12 @@ export function openableUrl(raw: string): string | null {
   const check = checkLink(raw)
   return check.kind === LinkCheckKind.Openable ? check.url : null
 }
+
+/**
+ * The todo a `todo:` link names: `[any text](todo:N)`, with the todo's id after `todo:` (#684). The chat's Markdown
+ * and the plain text of the header and the tool log make such a link a link to that todo in the Todos tab; any other
+ * address isn't one, so everything else (`#123`, web links) keeps today's behaviour.
+ */
+export function todoLinkId(raw: string): string | null {
+  return /^todo:([1-9][0-9]*)$/.exec(raw)?.[1] ?? null
+}

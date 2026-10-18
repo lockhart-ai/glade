@@ -109,6 +109,15 @@ export const TODO_TOOLS_LINE =
 export const TODO_HUB_ARTIFACTS_LINE = `An artifact goes under a todo too: give ${GladeTool.AddArtifact} the todo's id as todo, for a file and for a link.`
 
 /**
+ * What the prompt says of linking a todo from a reply (#684): the Markdown syntax, which the user clicks to open the
+ * todo in the Todos tab. Added after the first sessions had started, so it's an instruction added since and every
+ * session is sent it once (`INSTRUCTION_UPDATES`, `./session-context`).
+ */
+export const TODO_LINKS_LINE =
+  "When a reply should point the user at one of this task's todos, write it as a Markdown link: `[any text](todo:N)` " +
+  "with the todo's id after `todo:` — the user clicks it and the Todos tab opens on that todo."
+
+/**
  * Everything the prompt says of the todo hub, a paragraph each. They aren't in `INSTRUCTION_UPDATES`: the hub was built
  * behind a switch, so whether a session has them is tracked by itself, as the sandbox's line is. A session that started
  * without them (before the hub, or while it was behind its switch) is sent them once, ahead of its next message
@@ -128,6 +137,7 @@ export const INSTRUCTION_UPDATES: readonly string[] = [
   LINK_ARTIFACTS_LINE,
   OTHER_TASKS_LINE,
   TODO_TOOLS_LINE,
+  TODO_LINKS_LINE,
 ]
 
 /** The heading the handoff note goes under in the prompt. */
@@ -230,6 +240,8 @@ export function systemPromptAppend(
     WATCHERS_LINE,
     '',
     TODO_TOOLS_LINE,
+    '',
+    TODO_LINKS_LINE,
   )
   lines.push(...TODO_HUB_LINES.flatMap((line) => ['', line]))
   if (sandboxed) lines.push('', SANDBOX_LINE)

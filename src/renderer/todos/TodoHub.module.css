@@ -337,3 +337,20 @@
   text-transform: uppercase;
   color: var(--color-faint);
 }
+
+/* The card a request to show a todo asked for (#684), for a moment: the same highlight the tool log gives the turn
+ * the chat asked to see, blended into the card's own background rather than over it.
+ */
+.highlighted {
+  animation: highlight 1.6s ease-out;
+}
+
+@keyframes highlight {
+  from {
+    background: color-mix(in srgb, var(--color-blue) 24%, var(--color-inner-2));
+  }
+
+  to {
+    background: var(--color-inner-2);
+  }
+}

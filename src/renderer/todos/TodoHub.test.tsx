@@ -5,8 +5,10 @@ import { WindowCommandId } from '../../shared/commands'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { CommitFileStatus, TodoState, ToolCallState, WatcherState, type Artifact, type Todo } from '../../shared/domain'
 import { commitFileKey } from '../../shared/files'
-import { ChildFilter, FilingSource, UNFILED_TODO_ID } from '../../shared/todoHub'
+import { ChildFilter, FilingSource, UNFILED_TODO_ID, type TodoPanel } from '../../shared/todoHub'
 import linkStyles from '../links/Link.module.css'
+import { FOCUS_HIGHLIGHT_MS } from '../tool-log'
+import { useGladeStore } from '../store/react'
 import { refuse } from '../store/test-bridge'
 import { storeWrapper } from '../store/test-wrapper'
 import { NOW_REFRESH_MS } from '../task-list/useNow'
@@ -316,6 +318,91 @@ describe('the hub’s todos', () => {
     await renderHub({ todos: [hubTodo('1', 'Delete local copies', TodoState.Waiting, { note: 'Will ask you first' })] })
     expect(card(/Delete local copies/)).toHaveClass(styles.waiting ?? '')
     expect(head(/Delete local copies/)).toHaveTextContent('Waiting on you: Delete local copiesWill ask you first')
+  })
+
+  it('shows a todo link in a todo’s own text as its characters, since the hub’s text only links out to the web', async () => {
+    const withLink: HubTask = {
+      ...SHIP,
+      todos: [
+        hubTodo('1', '[the #501 todo](todo:2) is this one', TodoState.Doing, { note: 'CI failed on PR #511 · fixing' }),
+      ],
+      filings: [hubFiling(refOf.commit(C2), '1')],
+    }
+    await renderHub(withLink)
+
+    expect(head(/#501 todo/)).toHaveTextContent('Doing: [the #501 todo](todo:2) is this one')
+    expect(within(card(/#501 todo/)).queryByRole('link', { name: /the #501 todo/ })).toBeNull()
+  })
+})
+
+describe('a todo a request asks to show (#684)', () => {
+  /** Renders the hub for task `t1` with a request to show todo `todoId`, with what the hub was told once shown. */
+  async function renderHubFor(
+    todoId: string,
+    panels: readonly TodoPanel[] = [],
+  ): Promise<{ onFocusShown: ReturnType<typeof vi.fn> }> {
+    const onFocusShown = vi.fn()
+    const wrapper = storeWrapper(hubMain({ ...SHIP, todoPanels: panels }))
+    await act(() => wrapper.store.getState().hydrate())
+    function Focused(): React.JSX.Element {
+      const list = useGladeStore((state) => state.todos.t1)
+      return <TodoHub taskId="t1" list={list} focus={{ todoId, request: 1 }} onFocusShown={onFocusShown} />
+    }
+    render(<Focused />, { wrapper: wrapper.wrapper })
+    await waitFor(() => {
+      expect(wrapper.store.getState().filings.t1).toBeDefined()
+    })
+    return { onFocusShown }
+  }
+
+  const scrollIntoView = vi.fn()
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = scrollIntoView
+  })
+
+  afterEach(() => {
+    Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+  })
+
+  it('opens the todo, scrolls it into view, puts the focus on its head and highlights the card for a moment', async () => {
+    const { onFocusShown } = await renderHubFor('2')
+
+    // Todo `2` has children and was closed: the request opens it, as a link in a reply promises.
+    const asked = card(/#502/)
+    await waitFor(() => {
+      expect(head(/#502/)).toHaveAttribute('aria-expanded', 'true')
+    })
+    expect(head(/#502/)).toHaveFocus()
+    expect(asked).toHaveClass(styles.highlighted ?? '')
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    expect(onFocusShown).toHaveBeenCalledOnce()
+
+    // The highlight fades, and only then: about as long as the tool log's stays.
+    await waitFor(
+      () => {
+        expect(asked).not.toHaveClass(styles.highlighted ?? '')
+      },
+      { timeout: FOCUS_HIGHLIGHT_MS + 500 },
+    )
+  })
+
+  it('leaves an open todo open, and highlights and focuses it all the same', async () => {
+    const { onFocusShown } = await renderHubFor('1', [
+      { taskId: 't1', todoId: '1', open: true, filter: ChildFilter.All },
+    ])
+
+    expect(head(/#501/)).toHaveAttribute('aria-expanded', 'true')
+    expect(head(/#501/)).toHaveFocus()
+    expect(card(/#501/)).toHaveClass(styles.highlighted ?? '')
+    expect(onFocusShown).toHaveBeenCalledOnce()
+  })
+
+  it('shows a todo with nothing under it without opening it: its head still takes the focus', async () => {
+    const { onFocusShown } = await renderHubFor('3')
+
+    expect(head(/Draft the 2.5 release notes/)).toHaveFocus()
+    expect(card(/Draft the 2.5 release notes/)).toHaveClass(styles.highlighted ?? '')
+    expect(onFocusShown).toHaveBeenCalledOnce()
   })
 })
 
