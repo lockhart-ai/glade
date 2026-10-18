@@ -18,6 +18,7 @@ import {
   TODO_HUB_LINES,
   TODO_HUB_TOOLS_LINE,
   TODO_TOOLS_LINE,
+  USAGE_NOTES_LINE,
   WATCHERS_LINE,
 } from './system-prompt'
 
@@ -74,6 +75,8 @@ describe('systemPromptAppend', () => {
         TODO_HUB_ARTIFACTS_LINE,
         '',
         TODO_HUB_TOOLS_LINE,
+        '',
+        USAGE_NOTES_LINE,
       ].join('\n'),
     )
     expect(systemPromptAppend(task)).toContain(WATCHERS_LINE)
@@ -94,7 +97,13 @@ describe('systemPromptAppend', () => {
     expect(FINAL_REPLY_LINE).toContain('only your last message of each turn')
     expect(FINAL_REPLY_LINE).toContain('before that reply, not after it')
     // Sessions that started before it get it once, as an instruction added since (`./session-context`).
-    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE])
+    expect(INSTRUCTION_UPDATES).toEqual([
+      FINAL_REPLY_LINE,
+      LINK_ARTIFACTS_LINE,
+      OTHER_TASKS_LINE,
+      TODO_TOOLS_LINE,
+      USAGE_NOTES_LINE,
+    ])
     for (const update of INSTRUCTION_UPDATES) expect(systemPromptAppend(task)).toContain(update)
   })
 
@@ -189,7 +198,7 @@ describe("a dispatched child's prompt (#560)", () => {
         OTHER_TASKS_LINE,
       ].join('\n'),
     )
-    for (const line of [FINAL_REPLY_LINE, WATCHERS_LINE, ...TODO_HUB_LINES]) {
+    for (const line of [FINAL_REPLY_LINE, WATCHERS_LINE, USAGE_NOTES_LINE, ...TODO_HUB_LINES]) {
       expect(DELEGATED_CHILD_PROMPT).not.toContain(line)
     }
     expect(DELEGATED_CHILD_PROMPT).not.toContain('set_title')
@@ -211,9 +220,11 @@ describe("the todo hub's lines", () => {
   it('tells a session how what it makes is filed, and of its tools, after the watchers line', () => {
     const prompt = systemPromptAppend(task)
 
-    expect(prompt.endsWith(`\n\n${TODO_HUB_FILING_LINE}\n\n${TODO_HUB_ARTIFACTS_LINE}\n\n${TODO_HUB_TOOLS_LINE}`)).toBe(
-      true,
-    )
+    expect(
+      prompt.endsWith(
+        `\n\n${TODO_HUB_FILING_LINE}\n\n${TODO_HUB_ARTIFACTS_LINE}\n\n${TODO_HUB_TOOLS_LINE}\n\n${USAGE_NOTES_LINE}`,
+      ),
+    ).toBe(true)
     expect(TODO_HUB_LINES).toEqual([TODO_HUB_FILING_LINE, TODO_HUB_ARTIFACTS_LINE, TODO_HUB_TOOLS_LINE])
     for (const line of TODO_HUB_LINES) expect(line).not.toContain('\n')
     expect(TODO_HUB_TOOLS_LINE).toContain("list_children lists them, each with a short id and the todo it's under")
@@ -225,6 +236,7 @@ describe("the todo hub's lines", () => {
       TODO_HUB_FILING_LINE,
       TODO_HUB_ARTIFACTS_LINE,
       TODO_HUB_TOOLS_LINE,
+      USAGE_NOTES_LINE,
       SANDBOX_LINE,
       CONTROL_TOOLS_LINE,
       HANDOFF_HEADING,
@@ -259,7 +271,13 @@ describe("the todo hub's lines", () => {
     // Whether a session has them is tracked by itself (`session-context`): a session's count of the instructions
     // added since it started stays what it was.
     for (const line of TODO_HUB_LINES) expect(INSTRUCTION_UPDATES).not.toContain(line)
-    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE])
+    expect(INSTRUCTION_UPDATES).toEqual([
+      FINAL_REPLY_LINE,
+      LINK_ARTIFACTS_LINE,
+      OTHER_TASKS_LINE,
+      TODO_TOOLS_LINE,
+      USAGE_NOTES_LINE,
+    ])
   })
 
   it('names no tab the panel no longer has', () => {

@@ -117,6 +117,17 @@ export const TODO_HUB_ARTIFACTS_LINE = `An artifact goes under a todo too: give 
 export const TODO_HUB_LINES: readonly string[] = [TODO_HUB_FILING_LINE, TODO_HUB_ARTIFACTS_LINE, TODO_HUB_TOOLS_LINE]
 
 /**
+ * What the prompt says of usage (#688): that every prompt a turn starts with ends with a line on where usage
+ * stands, that a note comes mid-turn when a threshold is crossed, and that the agent needn't watch the meter.
+ */
+export const USAGE_NOTES_LINE =
+  'Glade tells you about usage, so you never need to watch its meter yourself: every message you are sent ends ' +
+  'with a line saying how much of the Claude plan this session and this week have used and when each resets, ' +
+  "with the OpenRouter key's spend when your task runs on OpenRouter, and, while you are working, you are told " +
+  'when usage crosses a threshold (by default every 10% of the session or the week, every $10 of OpenRouter ' +
+  'spend).'
+
+/**
  * The instructions added to the prompt after sessions had started with it, oldest first. Claude Code keeps a session's
  * prompt when it resumes it, so a session that started before one was added is sent it once, ahead of its next message
  * (`./session-context`). Only ever append: a session's place in this list is saved as a count. `SANDBOX_LINE` (for
@@ -128,6 +139,7 @@ export const INSTRUCTION_UPDATES: readonly string[] = [
   LINK_ARTIFACTS_LINE,
   OTHER_TASKS_LINE,
   TODO_TOOLS_LINE,
+  USAGE_NOTES_LINE,
 ]
 
 /** The heading the handoff note goes under in the prompt. */
@@ -232,6 +244,7 @@ export function systemPromptAppend(
     TODO_TOOLS_LINE,
   )
   lines.push(...TODO_HUB_LINES.flatMap((line) => ['', line]))
+  lines.push('', USAGE_NOTES_LINE)
   if (sandboxed) lines.push('', SANDBOX_LINE)
   if (control) lines.push('', CONTROL_TOOLS_LINE)
   if (handoff !== null) lines.push('', handoffSection(handoff))

@@ -83,6 +83,7 @@ import {
   systemPromptAppend,
   TODO_HUB_LINES,
   TODO_TOOLS_LINE,
+  USAGE_NOTES_LINE,
 } from './system-prompt'
 import { updateSettings } from '../db/repositories/settings'
 import { setHandoff } from '../db/repositories/backfills'
@@ -3619,7 +3620,13 @@ describe('instructions added to the prompt since a session started', () => {
     await reply()
     await send('And the logout test?')
 
-    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE])
+    expect(INSTRUCTION_UPDATES).toEqual([
+      FINAL_REPLY_LINE,
+      LINK_ARTIFACTS_LINE,
+      OTHER_TASKS_LINE,
+      TODO_TOOLS_LINE,
+      USAGE_NOTES_LINE,
+    ])
     for (const update of INSTRUCTION_UPDATES) expect(backend.session.options.systemPromptAppend).toContain(update)
     expect(sentTexts()).toEqual(['Why is the login test flaky?', 'And the logout test?'])
     expect(getSessionContext(database.db, task.id)).toEqual({

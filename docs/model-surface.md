@@ -785,6 +785,13 @@ Three more parts are added after that, each after a blank line, when they apply:
 - **A handoff note:** for a task backfilled with one ([`control-api.md`](control-api.md#backfilling-past-tasks)), the
   note under `## Handoff for this task (backfilled from earlier notes)`, after a line saying the task was worked on
   before it was in Glade, to pick up from there, and that the paths the note names are real.
+- **Usage (#688):** one line, in `INSTRUCTION_UPDATES` (`USAGE_NOTES_LINE`): that Glade tells the agent about usage
+  so it never watches the meter itself. Every prompt Glade sends (your message, a queued one, a resume) ends with a
+  line on the Claude plan's session and weekly usage and their resets, with the OpenRouter key's spend when the task
+  runs on OpenRouter; the SDK's own wake prompts (a task notification, a job firing) can't carry it, so an agent
+  woken that way reads usage at its next batch or turn start. And, as each of the agent's own messages' calls has run
+  (`PostToolBatch`), a note when usage has crossed a threshold — never twice for the same threshold, and never to an
+  idle task, which nothing wakes.
 
 **Resumed sessions.** Claude Code keeps a session's system prompt when it resumes it
 ([`sdk-notes.md` §8](sdk-notes.md#8-resume-verified)), so a line added to the prompt reaches only sessions started
