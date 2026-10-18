@@ -58,7 +58,11 @@
           "minutesAgo": 82
         }
       ],
-      "queuedMessages": ["Also update the fixture names to match."]
+      "queuedMessages": [
+        "Also update the fixture names to match.",
+        { "body": "Heads-up: we're cutting the 2.4 release branch this afternoon.", "source": "broadcast" },
+        { "body": "GitHub:\n- PR #2537 Port the chat cases: 2 new comments while CI runs", "source": "github" }
+      ]
     },
     {
       "title": "Fix flaky login test",

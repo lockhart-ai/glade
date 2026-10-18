@@ -128,6 +128,17 @@ export interface SeedMessage {
   readonly source?: MessageSource | undefined
 }
 
+/**
+ * A message waiting in a sample task's queue: just its text, or an object that also names where it came from (a
+ * broadcast, #489; one of Glade's own watchers, #682), so the queue box tags or hides it as it would.
+ */
+export interface SeedQueuedMessage {
+  /** Markdown. */
+  readonly body: string
+  /** Where it came from; none unless given, for a message of your own. */
+  readonly source?: MessageSource | undefined
+}
+
 /** A sample note from the agent in the tool log. */
 export interface SeedNarration {
   readonly kind: ToolEventKind.Narration
@@ -282,8 +293,8 @@ export interface SeedTask {
   readonly messages?: readonly SeedMessage[] | undefined
   /** Its tool log, in order. */
   readonly toolEvents?: readonly SeedToolEvent[] | undefined
-  /** The messages waiting in its queue, in order. */
-  readonly queuedMessages?: readonly string[] | undefined
+  /** The messages waiting in its queue, in order: each just its text, or with where it came from. */
+  readonly queuedMessages?: readonly (string | SeedQueuedMessage)[] | undefined
   /** What stopped its agent, with `activity: "error"`; none unless given. */
   readonly error?: TaskError | undefined
   /** Why its turn is paused, with `activity: "paused"`; none unless given. */
@@ -769,7 +780,9 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
         )
         .optional(),
       toolEvents: z.array(seedToolEventSchema).optional(),
-      queuedMessages: z.array(z.string()).optional(),
+      queuedMessages: z
+        .array(z.union([z.string(), z.strictObject({ body: z.string(), source: z.enum(MessageSource).optional() })]))
+        .optional(),
       error: seedErrorSchema.optional(),
       pause: seedPauseSchema.optional(),
       resumedAfterCrash: z.boolean().optional(),
@@ -1267,7 +1280,10 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       // Glade's own todos table the same way an existing task's history was, so the Todos tab reads them.
       carryOverTodos(db, task.id)
       refreshTodos(db, task.id)
-      for (const body of sample.queuedMessages ?? []) appendQueuedMessage(db, { taskId: task.id, body }, now)
+      for (const queued of sample.queuedMessages ?? []) {
+        const { body, source } = typeof queued === 'string' ? { body: queued, source: undefined } : queued
+        appendQueuedMessage(db, { taskId: task.id, body, source }, now)
+      }
       if (sample.openFiles !== undefined) {
         const { paths, activePath } = sample.openFiles
         setOpenFiles(db, {
