@@ -375,7 +375,7 @@ describe('links', () => {
     await waitFor(() => {
       expect(wrapper.store.getState().todoFocus).toEqual({ taskId: 't1', todoId: '2', request: 1 })
     })
-    expect(activePanelTab(wrapper.store.getState().uiState, 'w1')).toBe(PanelTab.Todos)
+    expect(activePanelTab(wrapper.store.getState().uiState, 't1')).toBe(PanelTab.Todos)
   })
 })
 
