@@ -30,6 +30,7 @@ current binding. The menu bar answers the keys of its items; the window listens 
 | Panels | Toggle task list | ⌘B |
 | | Toggle right panel | ⌘⌥B |
 | | Toggle bottom bar | ⌘J |
+| | Zoom in / out / actual size | ⌘+ / ⌘- / ⌘0 |
 | | Agents · Files · Todos | ⌘⌥1 – ⌘⌥3 |
 | | Close file tab (the window, when no tab has the focus) | ⌘W |
 | | Open file in editor | ⌘⇧E |
@@ -50,8 +51,9 @@ The View menu's zoom answers for them: ⌘+ zooms in, ⌘− out, and ⌘0 back 
 rest of the time those keys page-zoom the window, as macOS's Actual Size, Zoom In and Zoom Out always have. A trackpad
 pinch zooms around the pointer (the app's own page zoom stands aside for it), a click on the image toggles between fit
 to the view and actual size at the clicked spot, and once zoomed in, a drag or a scroll pans. Stepping to another
-image, or another file showing, starts over at its fit. These keys are macOS's own zoom keys, so they aren't
-rebindable here.
+image, or another file showing, starts over at its fit. Zoom in, Zoom out and Actual size are the keymap's own
+commands, so you can rebind them in Settings › Keyboard; while no image view shows, the keys page-zoom the window
+whatever they're bound to, as macOS's zoom keys always have.
 
 ## The Files tab's Browse tab
 

@@ -407,7 +407,9 @@ describe('the menu bar', () => {
         if (Array.isArray(each.submenu)) collect(each.submenu)
       }
     }
-    collect(build().template)
+    // The zoom commands' items are in the View menu while an image view takes the zoom keys (#685); the roles stand
+    // in the rest of the time, with the keys the roles bring themselves.
+    collect(build({ ...STATE, imageZoom: true }).template)
 
     for (const { id } of COMMANDS.filter(({ scope }) => scope === KeyScope.MenuBar)) {
       // Switch workspace's are on each workspace's item, the first ⌘1.

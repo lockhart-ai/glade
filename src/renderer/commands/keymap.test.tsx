@@ -44,12 +44,7 @@ function docRows(): DocRow[] {
 
 /** Every command with a shortcut: the menu bar's that have one, and all the window's own. */
 const SHORTCUT_IDS: readonly ShortcutId[] = [
-  // The View menu's zoom commands (app.zoomIn, app.zoomOut, app.zoomFit) stand in for the page-zoom roles while an
-  // image view takes the zoom keys (#685): macOS's own ⌘+, ⌘− and ⌘0, which the menu bar answers either way, so they
-  // have no keymap entry and no row here (the image views' zoom is documented in docs/keymap.md's prose).
-  ...Object.values(AppCommandId).filter(
-    (id) => ![AppCommandId.ZoomIn, AppCommandId.ZoomOut, AppCommandId.ZoomFit].includes(id),
-  ),
+  ...Object.values(AppCommandId),
   WorkspaceCommandId.Switch,
   WorkspaceCommandId.Close,
   TaskCommandId.TogglePin,

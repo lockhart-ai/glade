@@ -132,13 +132,13 @@ function viewMenu(
   const toggle = (label: string, id: AppCommandId, available: boolean): MenuItemConstructorOptions =>
     commandItem(label, id, available ? appCommand(id) : null, build)
   // While an image view takes the zoom keys (#685), the zoom items zoom that image; the rest of the time they are
-  // the page-zoom roles they always were. The accelerators are the roles' own, so the keys work either way.
+  // the page-zoom roles they always were, whose accelerators the roles bring themselves.
   const zoom = (): MenuItemConstructorOptions[] =>
     imageZoom
       ? [
-          commandItem('Actual Size', AppCommandId.ZoomFit, appCommand(AppCommandId.ZoomFit), build, 'CmdOrCtrl+0'),
-          commandItem('Zoom In', AppCommandId.ZoomIn, appCommand(AppCommandId.ZoomIn), build, 'CmdOrCtrl+Plus'),
-          commandItem('Zoom Out', AppCommandId.ZoomOut, appCommand(AppCommandId.ZoomOut), build, 'CmdOrCtrl+-'),
+          commandItem('Actual Size', AppCommandId.ZoomFit, appCommand(AppCommandId.ZoomFit), build),
+          commandItem('Zoom In', AppCommandId.ZoomIn, appCommand(AppCommandId.ZoomIn), build),
+          commandItem('Zoom Out', AppCommandId.ZoomOut, appCommand(AppCommandId.ZoomOut), build),
         ]
       : [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }]
   return {
