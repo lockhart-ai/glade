@@ -39,6 +39,7 @@ import {
   type ToolInput,
   type Workspace,
 } from '../../shared/domain'
+import { GithubChecksState, GithubLinkKind, GithubLinkState } from '../../shared/githubWatch'
 import { ImageMediaType } from '../../shared/images'
 import type { PluginEvent } from '../../shared/plugin-api'
 import { pluginEventSchema } from '../../shared/plugin-api-schema'
@@ -355,7 +356,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           images: [{ id: secret('image'), mediaType: ImageMediaType.Png }],
           pastedBlocks: [],
           files: [],
-          broadcast: false,
+          source: null,
         },
       },
       {
@@ -371,7 +372,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           images: [],
           pastedBlocks: [],
           files: [],
-          broadcast: false,
+          source: null,
         },
       },
     ],
@@ -388,7 +389,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
             images: [],
             pastedBlocks: [],
             files: [],
-            broadcast: false,
+            source: null,
           },
         ],
       },
@@ -555,6 +556,28 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
             subagentToolUseId: null,
           },
         ],
+      },
+    ],
+    [EventType.GithubWatchChanged]: [
+      {
+        type: EventType.GithubWatchChanged,
+        watch: {
+          taskId: created.id,
+          url: 'https://github.com/acme/api/pull/412',
+          kind: GithubLinkKind.PullRequest,
+          state: GithubLinkState.Open,
+          merged: false,
+          draft: false,
+          inMergeQueue: false,
+          checksState: GithubChecksState.Failure,
+          checksSummary: secret('checks_summary'),
+          reviewState: secret('review_state'),
+          commentCount: 2,
+          headOid: secret('head_oid'),
+          title: secret('watch_title'),
+          watching: true,
+          lastFetchedAt: 4_000,
+        },
       },
     ],
     [EventType.FilingsChanged]: [

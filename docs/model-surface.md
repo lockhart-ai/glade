@@ -743,9 +743,13 @@ When you open or work on a pull request, or the task is about an issue or a tick
 
 Before starting work on an existing pull request, issue or branch, call list_other_tasks and check that no other task already has it among its links or in its Goal or Now; if one does, stop and ask.
 
-When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows in the task's Agents tab.
+When you leave a script running to watch something (CI, a deploy, a remote job), start it with the Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows in the task's Agents tab.
+
+Every issue and pull request you've added as a link artifact is watched for you: Glade polls it and tells you here when its state changes, its CI finishes, it gets a review or a comment, or it gets new commits. Make no watch script of your own for one of these; the Monitor tool is for watching something else (a deploy, a remote job, CI you have not linked as a PR).
 
 Keep this task's todos with create_todo, update_todo and list_todos: there is no TaskCreate, TaskUpdate, TaskList, TaskGet or TodoWrite here any more. A note on a todo (what it is for, or where it stands) shows while it isn't done, not only while you're doing it. Set a todo waiting (instead of in_progress) when it can't move until the user reviews or decides something, and say what in its note.
+
+When a reply should point the user at one of this task's todos, write it as a Markdown link: `[any text](todo:N)` with the todo's id after `todo:` — the user clicks it and the Todos tab opens on that todo.
 
 Glade files every commit you make under one of your todos, where the user finds it, and each subagent you start works on one of them. Name the todo in the call: start the description of an Agent call, and of a Bash call that commits, with the todo's id in square brackets, like "[todo 2] Review the date helpers". Create the todo first (create_todo) if none fits. If a call names none, Glade asks you right after it to file what it made, with mcp__glade__file_children: do that at once, before your next step. What a subagent commits goes under its todo by itself: leave those.
 
@@ -771,6 +775,11 @@ up on the same pull request or issue without ever finding out, each thinking it 
 The line about watch scripts is for the watchers the Agents tab pins (#250, [`sdk-notes.md`](sdk-notes.md) §13): Glade follows what the agent starts
 with the SDK's own tools (`Monitor`, background `Bash`, `ScheduleWakeup`, `CronCreate`), whatever script it runs, but
 a script backgrounded inside a foreground `Bash` call (`nohup ./watch.sh &`) is invisible to the SDK, so to Glade too.
+
+The line after it is for the GitHub link watcher (#682): every linked issue and PR is polled by Glade itself, in the
+main process, not by the agent's own session, so the agent is told not to duplicate that with a watch script of its
+own. The watcher's own wake message, when something changes, carries the change and needs no further explanation in
+the prompt.
 
 The last three paragraphs are the todo hub's (`TODO_HUB_LINES`, P16-04 and P16-05, #495 and #496): how its commits
 are filed and each subagent gets a todo (`TODO_HUB_FILING_LINE`: what #492 probed,

@@ -11,6 +11,8 @@ export enum SettingsSection {
   Control = 'control',
   /** How much more usage a working agent is told of mid-turn, and when not at all (#688). */
   UsageNotes = 'usage_notes',
+  /** How often, and for what, the GitHub link watcher wakes a task over its linked issues and PRs (#682). */
+  Github = 'github',
   /** The workspace you're in: listed under its own heading, by the workspace's name. */
   Workspace = 'workspace',
 }
@@ -29,6 +31,7 @@ export const APP_SECTIONS: readonly AppSection[] = [
   SettingsSection.Keyboard,
   SettingsSection.Plugins,
   SettingsSection.Control,
+  SettingsSection.Github,
 ]
 
 /** Each app-wide section's name, as the nav and its heading show it. */
@@ -42,6 +45,7 @@ export const SECTION_TITLES: Readonly<Record<AppSection, string>> = {
   [SettingsSection.Keyboard]: 'Keyboard',
   [SettingsSection.Plugins]: 'Plugins',
   [SettingsSection.Control]: 'Control',
+  [SettingsSection.Github]: 'GitHub watching',
 }
 
 /** Where ⌘, opens Settings: the Agent section, the one with the settings you change most. */

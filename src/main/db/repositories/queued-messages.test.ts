@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { MessageRole, type Task } from '../../../shared/domain'
+import { MessageRole, MessageSource, type Task } from '../../../shared/domain'
 import { ImageMediaType } from '../../../shared/images'
 import { GIF, JPEG, PNG } from '../../../shared/test-images'
 import { getImage, ImageOwnerKind, imagesOf } from './images'
@@ -41,7 +41,7 @@ describe('appendQueuedMessage', () => {
       images: [],
       pastedBlocks: [],
       files: [],
-      broadcast: false,
+      source: null,
     })
     const second = queue('When the copy finishes, tell me how many files failed.')
     expect(listQueuedMessages(test.db, task.id)).toEqual([first, second])
@@ -151,7 +151,7 @@ describe('takeQueuedMessages', () => {
       images: [],
       pastedBlocks: [],
       files: [],
-      broadcast: false,
+      source: null,
       seq: expect.any(Number) as unknown,
     })
     expect(delivered).toEqual([expected('One'), expected('Two')])
@@ -176,17 +176,17 @@ describe('takeQueuedMessages', () => {
   })
 })
 
-describe('queued broadcasts', () => {
-  it('keeps a broadcast a broadcast as it’s listed, found and edited', () => {
+describe('queued sources', () => {
+  it('keeps a message’s source as it’s listed, found and edited', () => {
     const own = queue('Keep the original filenames.')
     const broadcast = appendQueuedMessage(test.db, {
       taskId: task.id,
       body: 'Is anyone restarting Docker?',
-      broadcast: true,
+      source: MessageSource.Broadcast,
     })
 
-    expect(own.broadcast).toBe(false)
-    expect(broadcast.broadcast).toBe(true)
+    expect(own.source).toBeNull()
+    expect(broadcast.source).toBe(MessageSource.Broadcast)
     expect(listQueuedMessages(test.db, task.id)).toEqual([own, broadcast])
     expect(getQueuedMessage(test.db, broadcast.id)).toEqual(broadcast)
     expect(updateQueuedMessage(test.db, broadcast.id, 'Who is restarting Docker?')).toEqual({
@@ -195,24 +195,28 @@ describe('queued broadcasts', () => {
     })
   })
 
-  it('delivers a broadcast to the chat log still marked as one, in its place among the rest', () => {
+  it('delivers a message to the chat log still marked with its source, in its place among the rest', () => {
     queue('One')
-    appendQueuedMessage(test.db, { taskId: task.id, body: 'Is anyone restarting Docker?', broadcast: true })
+    appendQueuedMessage(test.db, {
+      taskId: task.id,
+      body: 'PR #1 closed',
+      source: MessageSource.Github,
+    })
     queue('Three')
 
     const delivered = takeQueuedMessages(test.db, task.id, 2)
 
-    expect(delivered.map(({ body, broadcast }) => [body, broadcast])).toEqual([
-      ['One', false],
-      ['Is anyone restarting Docker?', true],
-      ['Three', false],
+    expect(delivered.map(({ body, source }) => [body, source])).toEqual([
+      ['One', null],
+      ['PR #1 closed', MessageSource.Github],
+      ['Three', null],
     ])
     expect(listMessages(test.db, task.id)).toEqual(delivered)
   })
 
-  it('refuses a broadcast flag that is neither on nor off', () => {
+  it('refuses a source that is none of the known ones', () => {
     const { id } = queue('One')
-    expect(() => test.db.prepare('UPDATE queued_messages SET broadcast = 2 WHERE id = ?').run(id)).toThrow(/CHECK/)
+    expect(() => test.db.prepare("UPDATE queued_messages SET source = 'jira' WHERE id = ?").run(id)).toThrow(/CHECK/)
   })
 })
 

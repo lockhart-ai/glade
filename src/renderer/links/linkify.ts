@@ -65,12 +65,17 @@ const PLAIN_TEXT_LINKS: MdastExtension = { ...gfmAutolinkLiteralFromMarkdown(), 
 export enum SegmentKind {
   Text = 'text',
   Link = 'link',
+  Todo = 'todo',
 }
 
-/** A stretch of text, or a link in it that Glade opens: `href` is what opens, `text` what the text says. */
+/**
+ * A stretch of text, or a link in it that Glade opens: `href` is what opens, `text` what the text says. A `todo:` link
+ * (`[any text](todo:N)`, #684) is its own kind: it shows a todo in the Todos tab, not the browser.
+ */
 export type Segment =
   | { readonly kind: SegmentKind.Text; readonly text: string }
   | { readonly kind: SegmentKind.Link; readonly text: string; readonly href: string }
+  | { readonly kind: SegmentKind.Todo; readonly text: string; readonly todoId: string }
 
 /** Where a link is in the text, and the address that opens. */
 interface FoundLink {
@@ -94,20 +99,67 @@ function foundLinks(tree: Root): FoundLink[] {
     .flatMap(({ start, end, href }) => (start === undefined || end === undefined ? [] : [{ start, end, href }]))
 }
 
+/** Where a `todo:` link is in the text, and the todo it names. */
+interface FoundTodo {
+  readonly start: number
+  readonly end: number
+  readonly todoId: string
+}
+
+/** What marks a `todo:` link out in plain text: `[any text](todo:N)`, with the todo's id (#684). */
+const TODO_LINK = /\[[^\]\n]+\]\(todo:([1-9][0-9]*)\)/g
+
+/** Where the text keeps an inline code span, whose contents stay plain: a `todo:` link in one is just characters. */
+function codeSpans(tree: Root): FoundLink[] {
+  return tree.children
+    .flatMap((block) => (block.type === 'paragraph' ? block.children : []))
+    .flatMap((node) => {
+      const { position } = node
+      return node.type === 'inlineCode' && position !== undefined
+        ? [{ start: position.start.offset ?? 0, end: position.end.offset ?? 0, href: '' }]
+        : []
+    })
+}
+
+/**
+ * The `todo:` links in the text, in order, where they are in it: none inside an inline code span. The plain-text
+ * parser keeps the link's brackets as characters, so they're found in the text itself.
+ */
+function foundTodos(text: string, spans: readonly FoundLink[]): FoundTodo[] {
+  const found: FoundTodo[] = []
+  for (const match of text.matchAll(TODO_LINK)) {
+    const start = match.index
+    const end = start + match[0].length
+    if (spans.some((span) => span.start < end && start < span.end)) continue
+    found.push({ start, end, todoId: match[1] ?? '' })
+  }
+  return found
+}
+
 /**
  * Plain text split into its links and the text around them, in order: the segments' text, joined, is `text`. Only a
- * link Glade opens (`openableUrl`) is a link. Nothing else in the text is Markdown.
+ * link Glade opens (`openableUrl`) is a link, and a `todo:` link (`[any text](todo:N)`, #684) is a link to a todo.
+ * Nothing else in the text is Markdown.
  */
 export function linkSegments(text: string): Segment[] {
   const tree = fromMarkdown(text, {
     extensions: [gfmAutolinkLiteral(), PLAIN_TEXT],
     mdastExtensions: [PLAIN_TEXT_LINKS],
   })
+  const todos = foundTodos(text, codeSpans(tree))
+  const found = [
+    ...foundLinks(tree).map(({ start, end, href }) => ({ start, end, href, todoId: null })),
+    ...todos.map(({ start, end, todoId }) => ({ start, end, href: null, todoId })),
+  ].sort((one, other) => one.start - other.start)
   const segments: Segment[] = []
   let at = 0
-  for (const { start, end, href } of foundLinks(tree)) {
+  for (const { start, end, href, todoId } of found) {
+    // The two finds never overlap, but a URL the parser links inside a todo link's text would: the todo link, which
+    // starts first, wins.
+    if (start < at) continue
     if (start > at) segments.push({ kind: SegmentKind.Text, text: text.slice(at, start) })
-    segments.push({ kind: SegmentKind.Link, text: text.slice(start, end), href })
+    if (todoId === null) segments.push({ kind: SegmentKind.Link, text: text.slice(start, end), href })
+    else segments.push({ kind: SegmentKind.Todo, text: text.slice(start, end), todoId })
     at = end
   }
   if (at < text.length || segments.length === 0) segments.push({ kind: SegmentKind.Text, text: text.slice(at) })
@@ -121,6 +173,12 @@ export type LinkedSegment =
       readonly kind: SegmentKind.Link
       readonly text: string
       readonly href: string
+      readonly parts: readonly TextPart[]
+    }
+  | {
+      readonly kind: SegmentKind.Todo
+      readonly text: string
+      readonly todoId: string
       readonly parts: readonly TextPart[]
     }
 
@@ -152,6 +210,7 @@ export function linkedSegments(text: string, pattern: RegExp | null): LinkedSegm
       case SegmentKind.Text:
         return { kind: SegmentKind.Text, parts }
       case SegmentKind.Link:
+      case SegmentKind.Todo:
         return { ...segment, parts }
     }
   })

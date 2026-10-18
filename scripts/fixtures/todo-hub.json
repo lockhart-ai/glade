@@ -36,7 +36,7 @@
         },
         {
           "role": "agent",
-          "body": "CI failed on PR #511: `test_retry_after_burst` expects the header on every 429 in a burst, and the second one comes back without it.\n\nI've started a second subagent on it under the same todo. PR #513 is still waiting on CI, and the docs PR is merged.",
+          "body": "CI failed on PR #511: `test_retry_after_burst` expects the header on every 429 in a burst, and the second one comes back without it.\n\nI've started a second subagent on it under the same todo. PR #513 is still waiting on CI, and the docs PR is merged.\n\nThe burst fix is filed under [the #501 todo](todo:2); [the deleted todo](todo:9) is gone.",
           "turn": 1,
           "minutesAgo": 1
         }

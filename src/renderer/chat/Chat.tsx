@@ -50,7 +50,7 @@ import { Markdown } from './Markdown'
 import { ImageThumbnails } from '../images/ImageThumbnails'
 import { MessageFiles } from '../attached-files/MessageFiles'
 import { LinkedText } from '../links'
-import { BroadcastTag } from './BroadcastTag'
+import { SourceTag } from './SourceTag'
 import { PastedBlockRow } from './PastedBlockRow'
 import { useSearchHighlight } from '../search/Highlight'
 import { useRevealMatch } from '../search/useRevealMatch'
@@ -98,8 +98,8 @@ const UserMessage = memo(function UserMessage({ message, highlight }: UserEntry 
         </div>
       )}
       <span className={styles.userMeta}>
-        {/* A message you sent to every active task at once says so (#489). */}
-        {message.broadcast && <BroadcastTag />}
+        {/* A message that isn't your own words says where it came from (#489, #682). */}
+        {message.source !== null && <SourceTag source={message.source} />}
         <span className={styles.meta}>you · {clockTime(message.createdAt)}</span>
       </span>
     </article>
@@ -413,8 +413,11 @@ export function Chat(): React.JSX.Element {
     onScroll()
     loadOlderOnScroll()
   }, [onScroll, loadOlderOnScroll])
-  // A backfilled task shows its handoff note in place of what to write.
-  const isNew = task !== undefined && entries.length === 0 && narration === null && handoff === null
+  // A backfilled task shows its handoff note in place of what to write. The prompt shows only once the task's
+  // history has loaded (#674): while it loads, as on a cold task switch (#637), the chat is blank rather than
+  // flashing the empty state at a task that has messages.
+  const historyLoaded = useGladeStore((state) => task === undefined || state.historyTails[task.id] !== undefined)
+  const isNew = task !== undefined && historyLoaded && entries.length === 0 && narration === null && handoff === null
   const highlight = useSearchHighlight()
   useRevealMatch(ref, taskId)
 

@@ -25,6 +25,7 @@ import {
 } from './SettingsSections'
 import { KeyboardSection } from './KeyboardSection'
 import { ControlSection } from './ControlSection'
+import { GithubSection } from './GithubSection'
 import styles from './SettingsDialog.module.css'
 
 interface NavItemProps {
@@ -167,6 +168,8 @@ function SectionBody({ section }: SectionBodyProps): React.JSX.Element {
       return <ControlSection />
     case SettingsSection.UsageNotes:
       return <UsageNotesSection />
+    case SettingsSection.Github:
+      return <GithubSection />
     case SettingsSection.Workspace:
       return <WorkspaceSection />
   }

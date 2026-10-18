@@ -13,6 +13,11 @@ function link(value: string, href: string = value): Segment {
   return { kind: SegmentKind.Link, text: value, href }
 }
 
+/** A `todo:` link segment, its text and the todo it names (#684). */
+function todoLink(value: string, todoId: string): Segment {
+  return { kind: SegmentKind.Todo, text: value, todoId }
+}
+
 describe('linkSegments', () => {
   it('finds the bare URLs, www. addresses and email addresses in plain text', () => {
     expect(
@@ -136,6 +141,42 @@ describe('linkSegments', () => {
     expect(linkSegments('')).toEqual([text('')])
   })
 
+  it('finds a todo link by its brackets, which plain text keeps as characters (#684)', () => {
+    expect(linkSegments('The mockups are under [the #683 todo](todo:148), the rest under no todo.')).toEqual([
+      text('The mockups are under '),
+      todoLink('[the #683 todo](todo:148)', '148'),
+      text(', the rest under no todo.'),
+    ])
+  })
+
+  it('needs the todo link whole: an empty text, another scheme or a todo with no id is just text', () => {
+    expect(linkSegments('[](todo:1) [a](todos:1) [b](todo:) [c](todo:0) [d](Todo:1) [e](todo:1x) [f](todo:1')).toEqual([
+      text('[](todo:1) [a](todos:1) [b](todo:) [c](todo:0) [d](Todo:1) [e](todo:1x) [f](todo:1'),
+    ])
+  })
+
+  it('keeps a todo link inside an inline code span plain, as its code is', () => {
+    expect(linkSegments('It reads `[the todo](todo:2)`, plainly.')).toEqual([
+      text('It reads `[the todo](todo:2)`, plainly.'),
+    ])
+  })
+
+  it('finds a todo link on a line of its own, and two on one line', () => {
+    expect(linkSegments('[one](todo:1)\n[two](todo:2)')).toEqual([
+      todoLink('[one](todo:1)', '1'),
+      text('\n'),
+      todoLink('[two](todo:2)', '2'),
+    ])
+  })
+
+  it('leaves a URL the parser links inside a todo link’s text to the todo link, whole', () => {
+    expect(linkSegments('It is [at https://example.com/pr](todo:2) under.')).toEqual([
+      text('It is '),
+      todoLink('[at https://example.com/pr](todo:2)', '2'),
+      text(' under.'),
+    ])
+  })
+
   it.each([
     'Docs at https://example.com/docs, status on www.example.com; mail support@example.com today',
     'See https://example.com/docs. Or (https://example.com/a_(b)) or https://example.com/q?x=1!',
@@ -196,6 +237,22 @@ describe('linkedSegments', () => {
       },
     ])
     expect(linkedSegments('', null)).toEqual([{ kind: SegmentKind.Text, parts: [] }])
+  })
+
+  it('marks a match inside a todo link, as in any link (#684)', () => {
+    expect(linkedSegments('under [the todo](todo:2)', highlightPattern('todo'))).toEqual([
+      { kind: SegmentKind.Text, parts: [{ text: 'under ', match: false }] },
+      {
+        kind: SegmentKind.Todo,
+        text: '[the todo](todo:2)',
+        todoId: '2',
+        parts: [
+          { text: '[the ', match: false },
+          { text: 'todo](todo', match: true },
+          { text: ':2)', match: false },
+        ],
+      },
+    ])
   })
 })
 

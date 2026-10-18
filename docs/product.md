@@ -446,6 +446,9 @@ Settings (⌘,) opens on Agent. Changes save as you make them.
   each there too: its label and a select of its options, starting at the plugin's default. The choice is saved per
   plugin (SQLite), survives restarts and plugin updates, and reaches the running plugin at once, without reloading it.
 - **Control:** whether other agents and scripts may drive Glade, and how to connect them (`control-api.md`).
+- **GitHub watching:** how often the GitHub link watcher polls every task's linked issues and PRs (default a
+  minute), and which of their changes (state, CI finishing, reviews and comments, new commits) wake the task; all
+  four on by default.
 - **Workspace** (under its own heading, by the workspace's name): its name and root folder, then its **Sandbox**:
   the folders its agents may use (the workspace root first, read-write and fixed) and the domains they may reach.
 

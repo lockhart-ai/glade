@@ -203,7 +203,7 @@ function message(turn: number, role: MessageRole): Message {
     images: [],
     pastedBlocks: [],
     files: [],
-    broadcast: false,
+    source: null,
   }
 }
 

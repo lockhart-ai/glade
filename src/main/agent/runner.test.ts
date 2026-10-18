@@ -75,6 +75,7 @@ import {
 } from './runner'
 import {
   FINAL_REPLY_LINE,
+  GITHUB_LINK_WATCH_LINE,
   HANDOFF_HEADING,
   handoffSection,
   INSTRUCTION_UPDATES,
@@ -84,6 +85,7 @@ import {
   TODO_HUB_LINES,
   TODO_TOOLS_LINE,
   USAGE_NOTES_LINE,
+  TODO_LINKS_LINE,
 } from './system-prompt'
 import { updateSettings } from '../db/repositories/settings'
 import { setHandoff } from '../db/repositories/backfills'
@@ -241,6 +243,8 @@ function drainEvents(): (readonly unknown[])[] {
         return [event.type, event.watchers.map(({ kind, state }) => [kind, state])]
       case EventType.CommitsChanged:
         return [event.type, event.commits.map(({ subject }) => subject)]
+      case EventType.GithubWatchChanged:
+        return [event.type, event.watch.url]
       case EventType.QuestionOpened:
       case EventType.QuestionAnswered:
       case EventType.QuestionWithdrawn:
@@ -3626,6 +3630,8 @@ describe('instructions added to the prompt since a session started', () => {
       OTHER_TASKS_LINE,
       TODO_TOOLS_LINE,
       USAGE_NOTES_LINE,
+      TODO_LINKS_LINE,
+      GITHUB_LINK_WATCH_LINE,
     ])
     for (const update of INSTRUCTION_UPDATES) expect(backend.session.options.systemPromptAppend).toContain(update)
     expect(sentTexts()).toEqual(['Why is the login test flaky?', 'And the logout test?'])
@@ -3894,6 +3900,8 @@ describe('several tasks at once', () => {
       case EventType.CommitsChanged:
       case EventType.FilingsChanged:
         return event.taskId
+      case EventType.GithubWatchChanged:
+        return event.watch.taskId
       case EventType.OpenFilesChanged:
         return event.openFiles.taskId
       case EventType.QuestionOpened:
@@ -3969,6 +3977,7 @@ describe('several tasks at once', () => {
       case EventType.HandoffChanged:
       case EventType.WatchersChanged:
       case EventType.CommitsChanged:
+      case EventType.GithubWatchChanged:
       case EventType.FilingsChanged:
       case EventType.TerminalTabsChanged:
       case EventType.TerminalOutput:

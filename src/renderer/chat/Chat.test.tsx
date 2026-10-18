@@ -6,6 +6,7 @@ import {
   CompactionTrigger,
   DividerKind,
   MessageRole,
+  MessageSource,
   PauseReason,
   QuestionSetState,
   RefusalScope,
@@ -35,6 +36,7 @@ import { settleFloating } from '../components/settleFloating'
 import { VIEWER_LABEL } from '../images/ImageViewer'
 import { IMAGE_LABEL } from '../images/StoredImage'
 import { GladeStoreProvider } from '../store/react'
+import { HydrationStatus } from '../store/state'
 import { createGladeStore, type GladeStore } from '../store/store'
 import {
   fakeBridge,
@@ -44,7 +46,7 @@ import {
   sampleWorkspace,
   type FakeBridge,
 } from '../store/test-bridge'
-import { BROADCAST_TAG } from './BroadcastTag'
+import { SOURCE_TAG_LABELS } from './SourceTag'
 import { clockTime } from './chatModel'
 import { Chat } from './Chat'
 import { setHomeFolder } from '../../shared/homeFolder'
@@ -66,7 +68,7 @@ const ASK: Message = {
   images: [],
   pastedBlocks: [],
   files: [],
-  broadcast: false,
+  source: null,
 }
 const REPLY: Message = {
   id: 'm2',
@@ -79,7 +81,7 @@ const REPLY: Message = {
   images: [],
   pastedBlocks: [],
   files: [],
-  broadcast: false,
+  source: null,
 }
 
 const PREAMBLE = 'Looking at how the API views are set up.'
@@ -212,6 +214,37 @@ describe('Chat', () => {
     )
   })
 
+  it('shows a blank conversation, not the prompt, while the task’s history loads (#674)', async () => {
+    const fake = fakeBridge({ workspaces: [sampleWorkspace('w1')], tasks: [sampleTask('t1', 'w1')], uiState: [] })
+    const store = createGladeStore(fake.bridge)
+    render(
+      <GladeStoreProvider store={store}>
+        <ToastProvider>
+          <Chat />
+        </ToastProvider>
+      </GladeStoreProvider>,
+    )
+    // The task selected, its history still on its way: what launch shows between the shell's first frame and the
+    // history landing. No prompt, for a task that may have messages.
+    act(() => {
+      store.setState({
+        hydration: { status: HydrationStatus.Ready },
+        workspaces: [sampleWorkspace('w1')],
+        tasks: { t1: sampleTask('t1', 'w1') },
+        selectedWorkspaceId: 'w1',
+        selectedTaskId: 't1',
+      })
+    })
+    expect(conversation()).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'What should the agent do?' })).toBeNull()
+
+    // Once the load answers and the task genuinely has nothing, the prompt shows as before.
+    await act(async () => {
+      await store.getState().loadHistory('t1')
+    })
+    expect(screen.getByRole('heading', { name: 'What should the agent do?' })).toBeInTheDocument()
+  })
+
   it("shows a backfilled task's handoff note at the top, in place of what to write", async () => {
     const handoff = { taskId: 't1', body: '## Where it got to\n\nThe v2 handlers are live.', addedAt: ASKED_AT }
     await renderChat({ task: { state: TaskState.Done }, handoff })
@@ -267,24 +300,41 @@ describe('Chat', () => {
   })
 
   it('tags a message you broadcast, to the left of "you" and its time, and no other', async () => {
+    const tag = SOURCE_TAG_LABELS[MessageSource.Broadcast]
     const broadcast: Message = {
       ...ASK,
       id: 'm3',
       body: 'Is anyone restarting Docker?',
       turn: 2,
       createdAt: REPLIED_AT + 60_000,
-      broadcast: true,
+      source: MessageSource.Broadcast,
     }
     await renderChat({ messages: [ASK, REPLY, broadcast] })
 
     const [own, sent] = screen.getAllByRole('article', { name: 'You' })
     expect(own).toHaveTextContent(`${ASK.body}you · ${clockTime(ASKED_AT)}`)
-    expect(own).not.toHaveTextContent(BROADCAST_TAG)
-    expect(sent).toHaveTextContent(
-      `Is anyone restarting Docker?${BROADCAST_TAG}you · ${clockTime(broadcast.createdAt)}`,
-    )
+    expect(own).not.toHaveTextContent(tag)
+    expect(sent).toHaveTextContent(`Is anyone restarting Docker?${tag}you · ${clockTime(broadcast.createdAt)}`)
     // The agent's replies are never tagged.
-    expect(within(screen.getByRole('article', { name: 'Agent' })).queryByText(BROADCAST_TAG)).not.toBeInTheDocument()
+    expect(within(screen.getByRole('article', { name: 'Agent' })).queryByText(tag)).not.toBeInTheDocument()
+  })
+
+  it('tags a note left by one of Glade’s own watchers (the GitHub link watcher, #682) as its own source', async () => {
+    const tag = SOURCE_TAG_LABELS[MessageSource.Github]
+    const note: Message = {
+      ...ASK,
+      id: 'm4',
+      body: 'PR #2537 Port the chat cases: CI failed (13/14); 2 new comments',
+      turn: 2,
+      createdAt: REPLIED_AT + 60_000,
+      source: MessageSource.Github,
+    }
+    await renderChat({ messages: [ASK, REPLY, note] })
+
+    const [, sent] = screen.getAllByRole('article', { name: 'You' })
+    expect(sent).toHaveTextContent(`${note.body}${tag}you · ${clockTime(note.createdAt)}`)
+    // Broadcast's own tag never shows for a note from a different source.
+    expect(sent).not.toHaveTextContent(SOURCE_TAG_LABELS[MessageSource.Broadcast])
   })
 
   it('shows your message on the right and the agent’s reply as Markdown, each with its time', async () => {

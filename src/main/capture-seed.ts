@@ -14,6 +14,7 @@ import {
   DividerKind,
   Effort,
   MessageRole,
+  MessageSource,
   PauseReason,
   PermissionDestination,
   PermissionMode,
@@ -119,8 +120,8 @@ export interface SeedMessage {
   readonly minutesAgo: number
   /** An agent reply's turn summary; none unless given. */
   readonly summary?: TurnSummary | undefined
-  /** Whether you sent it with Broadcast (#489), so the chat tags it; not unless given. */
-  readonly broadcast?: boolean | undefined
+  /** Where it came from (Broadcast, #489; one of Glade's own watchers, #682), so the chat tags it; none unless given. */
+  readonly source?: MessageSource | undefined
 }
 
 /** A sample note from the agent in the tool log. */
@@ -737,7 +738,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
             turn,
             minutesAgo,
             summary: seedSummarySchema.optional(),
-            broadcast: z.boolean().optional(),
+            source: z.enum(MessageSource).optional(),
           }),
         )
         .optional(),
@@ -1171,8 +1172,8 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       }
       if (sample.selected === true) setUiState(db, { key: UiStateKey.SelectedTaskId, value: task.id })
       const ago = (minutes: number): EpochMs => now - minutes * MINUTE
-      for (const { role, body, turn, summary, broadcast, minutesAgo } of sample.messages ?? []) {
-        appendMessage(db, { taskId: task.id, role, body, turn, summary, broadcast }, ago(minutesAgo))
+      for (const { role, body, turn, summary, source, minutesAgo } of sample.messages ?? []) {
+        appendMessage(db, { taskId: task.id, role, body, turn, summary, source }, ago(minutesAgo))
       }
       // The sample children filed under a todo in the hub, in the order the fixture has them.
       const filings: NewFiling[] = []

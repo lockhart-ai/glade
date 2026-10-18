@@ -354,6 +354,13 @@ vi.mock('./plugins/machine-samplers', async (importOriginal) => {
 })
 const { createMachineSamplers } = await import('./plugins/machine-samplers')
 
+// Applying a seed fixture, watched: a test makes one that reads fine fail to go in.
+vi.mock('./capture-seed', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./capture-seed')>()
+  return { ...original, applySeed: vi.fn(original.applySeed) }
+})
+const { applySeed } = await import('./capture-seed')
+
 // The log file, watched, and kept off the terminal: a test reads the file instead.
 vi.mock('./logging/file-sink', async (importOriginal) => {
   const original = await importOriginal<typeof import('./logging/file-sink')>()
@@ -989,7 +996,7 @@ describe('startApp', () => {
     expect(kill).toHaveBeenCalledWith('SIGTERM')
   })
 
-  it('resumes the turns it last quit in before opening the window', async () => {
+  it('resumes the turns it last quit in, with the window already opening (#674)', async () => {
     const { db } = openAppDatabase(electron.app.userData)
     const task = sampleTask(db, sampleWorkspace(db).id)
     appendMessage(db, { taskId: task.id, role: MessageRole.User, body: 'Run the suite.', turn: 1 })
@@ -2167,7 +2174,7 @@ describe('startApp in e2e mode', () => {
     expect(createSdkBackend).not.toHaveBeenCalled()
   })
 
-  it('fills the database from the seed fixture before opening the window, without resuming what it seeds', async () => {
+  it('fills the database from the seed fixture without resuming what it seeds (#674)', async () => {
     const seed = join(electron.app.userData, 'seed.json')
     const working = { title: 'Working', activity: 'working', minutesAgo: 0 }
     writeFileSync(seed, JSON.stringify({ workspace: { name: 'Acme API', rootPath: '/code/api' }, tasks: [working] }))
@@ -2229,6 +2236,24 @@ describe('startApp in e2e mode', () => {
       }),
     ])
     expect(electron.windows).toHaveLength(0)
+    expect(electron.app.exit).toHaveBeenCalledWith(1)
+  })
+
+  it('exits with an error, having closed the database, when a seed that reads fine fails to go in', async () => {
+    const seed = join(electron.app.userData, 'seed.json')
+    writeFileSync(seed, JSON.stringify({ workspace: { name: 'Acme API', rootPath: '/code/api' }, tasks: [] }))
+    vi.mocked(applySeed).mockImplementationOnce(() => {
+      throw new Error('no room')
+    })
+    askForE2e({ seed })
+    const close = vi.spyOn(Database.prototype, 'close')
+
+    await startAndWaitUntilReady()
+
+    expect(logged("the e2e seed couldn't be applied", testModeLogs())).toEqual([
+      expect.objectContaining({ error: expect.objectContaining({ message: 'no room' }) as unknown }),
+    ])
+    expect(close).toHaveBeenCalled()
     expect(electron.app.exit).toHaveBeenCalledWith(1)
   })
 

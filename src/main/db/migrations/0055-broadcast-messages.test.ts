@@ -1,11 +1,15 @@
 import { expect, it } from 'vitest'
-import { MessageRole } from '../../../shared/domain'
+import { MessageRole, MessageSource } from '../../../shared/domain'
 import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { appendMessage, listMessages } from '../repositories/messages'
 import { appendQueuedMessage, listQueuedMessages } from '../repositories/queued-messages'
 import { MIGRATIONS } from '.'
 import { broadcastMessagesMigration } from './0055-broadcast-messages'
+
+// The `broadcast` column this migration adds is itself replaced by `source` in migration 79 (#682), so what's checked
+// here, through the repositories' current view, is in those words: a message's source is `MessageSource.Broadcast`
+// once this migration can mark one, and none (not yet trackable) before it.
 
 it('is migration 55, after every earlier one', () => {
   expect(broadcastMessagesMigration.version).toBe(55)
@@ -34,14 +38,20 @@ it('leaves every message sent or queued before it as one to its own task, and ma
 
   migrate(db, MIGRATIONS)
 
-  expect(listMessages(db, 't')).toMatchObject([{ id: 'm', body: 'Fix the flaky login test.', broadcast: false }])
-  expect(listQueuedMessages(db, 't')).toMatchObject([{ id: 'q', body: 'Keep the filenames.', broadcast: false }])
+  expect(listMessages(db, 't')).toMatchObject([{ id: 'm', body: 'Fix the flaky login test.', source: null }])
+  expect(listQueuedMessages(db, 't')).toMatchObject([{ id: 'q', body: 'Keep the filenames.', source: null }])
 
   const text = 'Is anyone restarting Docker?'
-  const sent = appendMessage(db, { taskId: 't', role: MessageRole.User, body: text, turn: 2, broadcast: true })
-  const queued = appendQueuedMessage(db, { taskId: 't', body: text, broadcast: true })
+  const sent = appendMessage(db, {
+    taskId: 't',
+    role: MessageRole.User,
+    body: text,
+    turn: 2,
+    source: MessageSource.Broadcast,
+  })
+  const queued = appendQueuedMessage(db, { taskId: 't', body: text, source: MessageSource.Broadcast })
   expect(listMessages(db, 't').at(-1)).toEqual(sent)
   expect(listQueuedMessages(db, 't').at(-1)).toEqual(queued)
-  expect([sent.broadcast, queued.broadcast]).toEqual([true, true])
+  expect([sent.source, queued.source]).toEqual([MessageSource.Broadcast, MessageSource.Broadcast])
   db.close()
 })

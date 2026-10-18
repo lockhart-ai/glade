@@ -13,6 +13,7 @@ import {
 } from './session-context'
 import {
   FINAL_REPLY_LINE,
+  GITHUB_LINK_WATCH_LINE,
   handoffSection,
   INSTRUCTION_UPDATES,
   LINK_ARTIFACTS_LINE,
@@ -22,6 +23,7 @@ import {
   TODO_HUB_FILING_LINE,
   TODO_HUB_LINES,
   TODO_HUB_TOOLS_LINE,
+  TODO_LINKS_LINE,
   TODO_TOOLS_LINE,
   USAGE_NOTES_LINE,
 } from './system-prompt'
@@ -65,7 +67,15 @@ describe('what a session is missing', () => {
   it('is the instructions added since, for a session that started before them', () => {
     const updates = {
       kind: MissingContextKind.Updates,
-      updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE, USAGE_NOTES_LINE],
+      updates: [
+        FINAL_REPLY_LINE,
+        LINK_ARTIFACTS_LINE,
+        OTHER_TASKS_LINE,
+        TODO_TOOLS_LINE,
+        USAGE_NOTES_LINE,
+        TODO_LINKS_LINE,
+        GITHUB_LINK_WATCH_LINE,
+      ],
     }
 
     expect(missingContext(check({ recorded: has(0) }))).toEqual([updates])
@@ -80,7 +90,15 @@ describe('what a session is missing', () => {
     expect(missingContext(check({ handoff: HANDOFF }))).toEqual([
       {
         kind: MissingContextKind.Updates,
-        updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE, USAGE_NOTES_LINE],
+        updates: [
+          FINAL_REPLY_LINE,
+          LINK_ARTIFACTS_LINE,
+          OTHER_TASKS_LINE,
+          TODO_TOOLS_LINE,
+          USAGE_NOTES_LINE,
+          TODO_LINKS_LINE,
+          GITHUB_LINK_WATCH_LINE,
+        ],
       },
       TODO_HUB,
       { kind: MissingContextKind.Handoff, handoff: HANDOFF },
@@ -88,14 +106,29 @@ describe('what a session is missing', () => {
     expect(missingContext(check({ recorded: has(0, 5_000), handoff: HANDOFF }))).toEqual([
       {
         kind: MissingContextKind.Updates,
-        updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE, USAGE_NOTES_LINE],
+        updates: [
+          FINAL_REPLY_LINE,
+          LINK_ARTIFACTS_LINE,
+          OTHER_TASKS_LINE,
+          TODO_TOOLS_LINE,
+          USAGE_NOTES_LINE,
+          TODO_LINKS_LINE,
+          GITHUB_LINK_WATCH_LINE,
+        ],
       },
     ])
     // A session that had the first gets only the ones added since (#407, #578).
     expect(missingContext(check({ recorded: has(1) }))).toEqual([
       {
         kind: MissingContextKind.Updates,
-        updates: [LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE, USAGE_NOTES_LINE],
+        updates: [
+          LINK_ARTIFACTS_LINE,
+          OTHER_TASKS_LINE,
+          TODO_TOOLS_LINE,
+          USAGE_NOTES_LINE,
+          TODO_LINKS_LINE,
+          GITHUB_LINK_WATCH_LINE,
+        ],
       },
     ])
   })
@@ -136,7 +169,15 @@ describe('what a session is missing of the sandbox', () => {
     expect(missingContext(check({ sandboxed: true }))).toEqual([
       {
         kind: MissingContextKind.Updates,
-        updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE, USAGE_NOTES_LINE],
+        updates: [
+          FINAL_REPLY_LINE,
+          LINK_ARTIFACTS_LINE,
+          OTHER_TASKS_LINE,
+          TODO_TOOLS_LINE,
+          USAGE_NOTES_LINE,
+          TODO_LINKS_LINE,
+          GITHUB_LINK_WATCH_LINE,
+        ],
       },
       sandbox,
       TODO_HUB,
@@ -147,7 +188,14 @@ describe('what a session is missing of the sandbox', () => {
     expect(missingContext(check({ recorded: has(1), handoff: HANDOFF, sandboxed: true }))).toEqual([
       {
         kind: MissingContextKind.Updates,
-        updates: [LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE, USAGE_NOTES_LINE],
+        updates: [
+          LINK_ARTIFACTS_LINE,
+          OTHER_TASKS_LINE,
+          TODO_TOOLS_LINE,
+          USAGE_NOTES_LINE,
+          TODO_LINKS_LINE,
+          GITHUB_LINK_WATCH_LINE,
+        ],
       },
       sandbox,
       { kind: MissingContextKind.Handoff, handoff: HANDOFF },
@@ -214,7 +262,15 @@ describe('what a session is missing of the todo hub', () => {
     expect(missingContext(check({}))).toEqual([
       {
         kind: MissingContextKind.Updates,
-        updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE, USAGE_NOTES_LINE],
+        updates: [
+          FINAL_REPLY_LINE,
+          LINK_ARTIFACTS_LINE,
+          OTHER_TASKS_LINE,
+          TODO_TOOLS_LINE,
+          USAGE_NOTES_LINE,
+          TODO_LINKS_LINE,
+          GITHUB_LINK_WATCH_LINE,
+        ],
       },
       todoHub,
     ])
@@ -224,7 +280,14 @@ describe('what a session is missing of the todo hub', () => {
     expect(missingContext(check({ recorded: has(1, null, false, false), handoff: HANDOFF, sandboxed: true }))).toEqual([
       {
         kind: MissingContextKind.Updates,
-        updates: [LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE, USAGE_NOTES_LINE],
+        updates: [
+          LINK_ARTIFACTS_LINE,
+          OTHER_TASKS_LINE,
+          TODO_TOOLS_LINE,
+          USAGE_NOTES_LINE,
+          TODO_LINKS_LINE,
+          GITHUB_LINK_WATCH_LINE,
+        ],
       },
       { kind: MissingContextKind.Sandbox },
       todoHub,

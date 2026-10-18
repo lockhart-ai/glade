@@ -154,6 +154,7 @@ function changesWhatsInFlight(event: GladeEvent): boolean {
     case EventType.HandoffChanged:
     case EventType.WatchersChanged:
     case EventType.CommitsChanged:
+    case EventType.GithubWatchChanged:
     case EventType.FilingsChanged:
     case EventType.TerminalTabsChanged:
     case EventType.TerminalOutput:
