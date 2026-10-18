@@ -16,15 +16,15 @@ import {
   badgeTone,
   describeStatus,
   needsYouCount,
+  needsYouTasks,
   switcherTitle,
-  waitingTasks,
   workspaceStatus,
   WorkspaceStatusKind,
 } from './switcherModel'
 import { SwitcherAttentionPill } from './SwitcherAttentionPill'
 import { useWorkspaceActions } from './useWorkspaceActions'
 import { WorkspaceBadge } from './WorkspaceBadge'
-import { MoreTasksRow, WaitingTaskRow } from './WaitingTaskRow'
+import { NeedsYouTaskRow } from './NeedsYouTaskRow'
 import styles from './WorkspaceSwitcher.module.css'
 
 interface WorkspaceRowProps {
@@ -56,9 +56,11 @@ function WorkspaceRow({ workspace, workspaces, tasks, shown }: WorkspaceRowProps
 }
 
 /**
- * The sidebar header, which opens the workspace switcher (`docs/design/html/14-workspace-switcher.html`): every
- * workspace, oldest first, with its status, then New workspace…, Open folder as workspace…, Workspace settings… and
- * Reveal root in Finder. Choosing a workspace switches to it, restoring its selection. Must be used under a
+ * The sidebar header, which opens the workspace switcher (`docs/design/html/14-workspace-switcher.html`): a
+ * Needs-you section at the top — one row per task that needs you across every workspace (#681), left out when none
+ * does — then every workspace, oldest first, with its status, then New workspace…, Open folder as workspace…,
+ * Workspace settings… and Reveal root in Finder. Choosing a workspace switches to it, restoring its selection;
+ * opening a task from the Needs-you section switches and selects it in one step. Must be used under a
  * `ToastProvider`: failures show as toasts.
  */
 export interface WorkspaceSwitcherProps {
@@ -87,14 +89,10 @@ export function WorkspaceSwitcher({ collapseButton }: WorkspaceSwitcherProps): R
     })
   }
 
-  // Each workspace's own row, then — only while the menu is open, so a closed switcher costs no more than it does
-  // today (CLAUDE.md, Performance) — its waiting tasks nested under it, newest first, capped at
-  // `WAITING_TASKS_SHOWN` with a "+N more" row past that. Every row is its own flat `MenuEntry`, so the menu's
-  // existing Up/Down/Enter navigation reaches task rows for free.
-  const taskList = open ? Object.values(tasks) : []
-  const workspaceEntries: MenuEntry[] = workspaces.flatMap((each): MenuEntry[] => {
+  // Each workspace's own row, with its count — no task rows nest under it any more (#681).
+  const workspaceEntries: MenuEntry[] = workspaces.map((each): MenuEntry => {
     const shown = each.id === workspace?.id
-    const workspaceEntry: MenuEntry = {
+    return {
       kind: MenuEntryKind.Item,
       label: each.name,
       checked: shown,
@@ -104,40 +102,46 @@ export function WorkspaceSwitcher({ collapseButton }: WorkspaceSwitcherProps): R
         switchTo(each.id)
       },
     }
-    if (!open) return [workspaceEntry]
-    const { shown: waiting, moreCount } = waitingTasks(taskList, each.id)
-    const taskEntries: MenuEntry[] = waiting.map((task) => {
-      // The row itself reads its own title from the store (`WaitingTaskRow`); this just names the entry for the
-      // button's accessible name and typeahead, from the `tasks` map already in hand.
-      const title = tasks[task.taskId]?.title
-      return {
-        kind: MenuEntryKind.Item,
-        label: title === undefined || title === '' ? UNTITLED_TASK_TITLE : title,
-        className: styles.waitingRow,
-        content: <WaitingTaskRow taskId={task.taskId} />,
-        onSelect: () => {
-          openTask(task.taskId)
-        },
-      }
-    })
-    const moreEntry: MenuEntry[] =
-      moreCount === 0
-        ? []
-        : [
-            {
-              kind: MenuEntryKind.Item,
-              label: `+${String(moreCount)} more in ${each.name}`,
-              className: styles.waitingRow,
-              content: <MoreTasksRow count={moreCount} workspaceName={each.name} />,
-              onSelect: () => {
-                switchTo(each.id)
-              },
-            },
-          ]
-    return [workspaceEntry, ...taskEntries, ...moreEntry]
   })
 
+  // Only while the menu is open, so a closed switcher costs no more than it does today (CLAUDE.md, Performance): a
+  // Needs-you section above Workspaces, one row per task that needs you across every workspace (#681). Every row is
+  // its own flat `MenuEntry`, so the menu's existing Up/Down/Enter navigation reaches the task rows for free.
+  const needing = open ? needsYouTasks(Object.values(tasks), workspaces) : []
+  const needsYouEntries: MenuEntry[] =
+    needing.length === 0
+      ? []
+      : [
+          {
+            kind: MenuEntryKind.Heading,
+            label: 'Needs you',
+            content: (
+              <span className={styles.needsYouHeading}>
+                <span className={styles.needsYouDot} aria-hidden="true" />
+                Needs you
+              </span>
+            ),
+          },
+          ...needing.map((task): MenuEntry => {
+            // The row itself reads its own task from the store (`NeedsYouTaskRow`); this just names the entry for the
+            // button's accessible name and typeahead, from the `tasks` map already in hand — inline, so the row's
+            // own `needsYouTaskTitle` call stays the one per render (CLAUDE.md, Performance).
+            const title = tasks[task.taskId]?.title
+            return {
+              kind: MenuEntryKind.Item,
+              label: title === undefined || title === '' ? UNTITLED_TASK_TITLE : title,
+              className: styles.needsYouRow,
+              content: <NeedsYouTaskRow taskId={task.taskId} workspaceName={task.workspaceName} tone={task.tone} />,
+              onSelect: () => {
+                openTask(task.taskId)
+              },
+            }
+          }),
+          { kind: MenuEntryKind.Separator },
+        ]
+
   const entries: MenuEntry[] = [
+    ...needsYouEntries,
     { kind: MenuEntryKind.Heading, label: 'Workspaces' },
     ...workspaceEntries,
     { kind: MenuEntryKind.Separator },

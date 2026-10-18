@@ -372,8 +372,8 @@ export function workspaceSwitcher(page: Page) {
     /** A workspace's row, by its name. */
     row: (name: string) => menu.getByRole('menuitemradio', { name, exact: true }),
     action: (name: WorkspaceActionName) => menu.getByRole('menuitem', { name: new RegExp(`^${name}`) }),
-    /** A waiting task nested under its workspace, by its title (#610): a click opens it. */
-    waitingTask: (title: string) => menu.getByRole('menuitem', { name: title, exact: true }),
+    /** A task that needs you, in the Needs-you section at the top, by its title (#681): a click opens it. */
+    needsYouTask: (title: string) => menu.getByRole('menuitem', { name: title, exact: true }),
     /** The closed switcher's own count pill (#472, #480): how many tasks need you across every workspace. */
     pill: trigger.getByTestId('switcher-pill'),
   }

@@ -68,6 +68,11 @@ export interface MenuSeparator {
 export interface MenuHeading {
   kind: MenuEntryKind.Heading
   label: string
+  /**
+   * What the heading shows in place of its label, for one with more to it than a word (the switcher's purple
+   * "Needs you", with its dot). `label` still names it, for assistive technology.
+   */
+  content?: ReactNode
 }
 
 export type MenuEntry = MenuItem | MenuSeparator | MenuHeading
@@ -258,7 +263,7 @@ export function Menu({
                 case MenuEntryKind.Heading:
                   return (
                     <div key={entryIndex} role="presentation" className={styles.heading}>
-                      {entry.label}
+                      {entry.content ?? entry.label}
                     </div>
                   )
                 case MenuEntryKind.Item: {
