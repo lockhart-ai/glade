@@ -15,9 +15,9 @@ import { LONG_TASK_TITLES, SPIKE_SIZE, writeSwitchLatencySeed } from './switch-l
 
 /**
  * The slowest a launch may take to paint the shell, or to be fully loaded, at the median over three runs. Measured
- * 1710 ms at the median on this Mac after #674's reorder (and 1562 ms before it — the launch total is main's boot,
- * which the reorder doesn't change); about three times that leaves room for CI's runners while still catching a
- * real regression.
+ * 1554 ms at the median on this Mac with the window opening before main's boot tail (and 1562 ms on main — the
+ * launch total is main's boot, which the reorder doesn't change); about three times that leaves room for CI's
+ * runners while still catching a real regression.
  */
 const LAUNCH_MEDIAN_LIMIT_MS = 5000
 

@@ -6,8 +6,7 @@ import { READY_ATTRIBUTE } from '../shared/ready'
 import { EMPTY_MENU_BAR_SNAPSHOT } from '../shared/menuBar'
 import { appPage, MENU_BAR_HASH, mountApp, pageFor } from './mount'
 import { NOTHING_IN_FLIGHT } from './menu-bar/menuBarModel'
-import { UiStateKey } from '../shared/domain'
-import { fakeBridge, sampleTask, sampleWorkspace } from './store/test-bridge'
+import { fakeBridge, sampleWorkspace } from './store/test-bridge'
 
 afterEach(() => {
   document.body.innerHTML = ''
@@ -40,29 +39,6 @@ it('marks the app ready once its store has loaded', async () => {
     expect(document.documentElement).toHaveAttribute(READY_ATTRIBUTE)
   })
   expect(screen.getByRole('main', { name: 'Welcome' })).toBeInTheDocument()
-  document.documentElement.removeAttribute(READY_ATTRIBUTE)
-})
-
-it("loads the restored task's history after the first frame, the way a task switch does (#674)", async () => {
-  const root = document.createElement('div')
-  document.body.append(root)
-  const { bridge } = fakeBridge({
-    workspaces: [sampleWorkspace('w1')],
-    tasks: [sampleTask('t1', 'w1')],
-    uiState: [
-      { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
-      { key: UiStateKey.SelectedTaskId, value: 't1' },
-    ],
-  })
-
-  mountApp(root, appPage(bridge))
-
-  // Ready only once the history has loaded behind a painted frame: the shell shows the task with its conversation.
-  await waitFor(() => {
-    expect(document.documentElement).toHaveAttribute(READY_ATTRIBUTE)
-  })
-  expect(screen.getByRole('region', { name: 'Task header' })).toBeInTheDocument()
-  expect(screen.getByRole('log', { name: 'Conversation' })).toBeInTheDocument()
   document.documentElement.removeAttribute(READY_ATTRIBUTE)
 })
 

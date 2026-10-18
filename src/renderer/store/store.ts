@@ -45,22 +45,6 @@ export type GladeStore = StoreApi<GladeState>
 /** The value that stores "nothing selected" for a selection key. */
 const NONE = ''
 
-/**
- * Waits for the browser to paint what the store has set. `createGladeStore` takes one for `hydrate` to hold the
- * selected task's history behind (#674); a test's is immediate, or records the order loads go out in.
- */
-export type AfterFrame = () => Promise<void>
-
-/** Options for the store: what `hydrate` waits on between painting the shell and the next load. */
-export interface GladeStoreOptions {
-  /**
-   * Waits for a painted frame. `mount.tsx` passes one that resolves two `requestAnimationFrame`s on (one frame
-   * rendered, the next painted past it, the margin the paint timers use); left out, as a test's is, it waits for
-   * nothing — the store's behaviour doesn't depend on the wait, only the window's first paint does.
-   */
-  readonly afterFrame?: AfterFrame
-}
-
 /** A task main asked the window to open (`task.openRequested`), and the subagent to show in it, if any. */
 interface OpenRequest {
   readonly taskId: string
@@ -68,10 +52,7 @@ interface OpenRequest {
 }
 
 /** Creates the renderer's store, talking to main through `bridge`. Call `hydrate()` to load it. */
-export function createGladeStore(
-  bridge: GladeBridge,
-  { afterFrame = () => Promise.resolve() }: GladeStoreOptions = {},
-): GladeStore {
+export function createGladeStore(bridge: GladeBridge): GladeStore {
   return createStore<GladeState>()((set, get) => {
     let subscribed = false
     // While a snapshot loads, events wait here and are applied on top of it, so none is lost or overwritten.
@@ -639,16 +620,11 @@ export function createGladeStore(
         if (hydration.status !== HydrationStatus.Ready) return
         const opening = openWhenLoaded
         openWhenLoaded = null
-        // The shell paints first (#674): the store is Ready — workspace, task list, layout state — so the window
-        // draws it now, and the restored selection's logs load after the first frame, the way a cold task switch
-        // already does (#637): the chat and tool log show their loading state, then fill in.
         if (opening !== null) {
-          await afterFrame()
           await openRequested(opening)
           return
         }
         if (selectedTaskId === null) return
-        await afterFrame()
         try {
           await get().loadHistory(selectedTaskId)
         } catch (error) {

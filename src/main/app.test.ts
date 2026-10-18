@@ -988,7 +988,7 @@ describe('startApp', () => {
     expect(kill).toHaveBeenCalledWith('SIGTERM')
   })
 
-  it('resumes the turns it last quit in before opening the window', async () => {
+  it('resumes the turns it last quit in, with the window already opening (#674)', async () => {
     const { db } = openAppDatabase(electron.app.userData)
     const task = sampleTask(db, sampleWorkspace(db).id)
     appendMessage(db, { taskId: task.id, role: MessageRole.User, body: 'Run the suite.', turn: 1 })
@@ -2166,7 +2166,7 @@ describe('startApp in e2e mode', () => {
     expect(createSdkBackend).not.toHaveBeenCalled()
   })
 
-  it('fills the database from the seed fixture before opening the window, without resuming what it seeds', async () => {
+  it('fills the database from the seed fixture without resuming what it seeds (#674)', async () => {
     const seed = join(electron.app.userData, 'seed.json')
     const working = { title: 'Working', activity: 'working', minutesAgo: 0 }
     writeFileSync(seed, JSON.stringify({ workspace: { name: 'Acme API', rootPath: '/code/api' }, tasks: [working] }))

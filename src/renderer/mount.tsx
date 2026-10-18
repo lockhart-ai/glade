@@ -8,24 +8,9 @@ import { ReadySignal } from './ready'
 import { GladeStoreProvider } from './store/react'
 import { createGladeStore } from './store/store'
 
-/**
- * Waits for a painted frame: one `requestAnimationFrame` on is a frame that has rendered, the second is the next,
- * painted past it — the margin the paint timers use. The store holds the selected task's history behind this in
- * `hydrate`, so the window paints the shell before the history round trip goes out (#674).
- */
-function afterPaint(): Promise<void> {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        resolve()
-      })
-    })
-  })
-}
-
 /** The app with its store, which starts loading from main over `bridge` straight away. Ready once it has loaded. */
 export function appPage(bridge: GladeBridge): React.JSX.Element {
-  const store = createGladeStore(bridge, { afterFrame: afterPaint })
+  const store = createGladeStore(bridge)
   const hydrated = store.getState().hydrate()
   return (
     <GladeStoreProvider store={store}>
