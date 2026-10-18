@@ -363,7 +363,7 @@ import { listUsageReadings } from '../db/repositories/account'
 import { getUsageNoteAnnouncements, saveUsageNoteAnnouncements } from '../db/repositories/usage-note-announcements'
 import { usageLine, usageNote, usageNoteCurrent } from '../../shared/usage-notes'
 import { isSubagentTool, subagentName, SUBAGENT_TOOL_NAMES } from '../../shared/subagents'
-import { managedBackend } from './managed-backend'
+import { AGENTS_TOOL_SIGNATURES, managedBackend } from './managed-backend'
 import { AGENTS_SERVER, DISPATCH_AGENT_TOOL } from '../../shared/managed-agents'
 import { sandboxFailureReason } from '../../shared/sandboxFailure'
 import { apiRowArgument, apiRowResult } from '../../shared/taskError'
@@ -506,10 +506,11 @@ import { effortWithModel, listModels } from '../models/models'
 import { FileAccess, SANDBOX_NETWORK_TOOL } from './sandbox-requests'
 import { NO_GRANTS, sandboxOverlay, sandboxStartSettings, usableGrants, type SandboxGrants } from './sandbox'
 import { CONTROL_SERVER } from '../control/names'
+import { CONTROL_TOOL_SIGNATURES } from '../control/tools'
 import { limitOfWindow, type AccountSink } from '../account/account'
 import { autoCompactFrom, carriedOver, contextEstimateFrom, sameAutoCompact } from './compaction'
 import { classifyAgentError } from './error-classification'
-import { ACCESS_TOOL_NAME, gladeOwnServers, type AccessCall } from './glade-tools'
+import { ACCESS_TOOL_NAME, gladeOwnServers, GLADE_TOOL_SIGNATURES, type AccessCall } from './glade-tools'
 import {
   AgentEventKind,
   createSdkMessageParser,
@@ -533,15 +534,18 @@ import { describeSdkMessage } from './sdk-message-log'
 import { systemPromptAppend } from './system-prompt'
 import { getHandoff } from '../db/repositories/backfills'
 import { getSessionContext, setSessionContext } from '../db/repositories/session-context'
+import { getToolFingerprints, setToolFingerprints } from '../db/repositories/session-tool-fingerprints'
 import { getStoppedWorkNote, setStoppedWorkNote } from '../db/repositories/stopped-work-notes'
 import {
   contextAfter,
   contextBlock,
   missingContext,
+  missingToolChanges,
   startedContext,
   withContext,
   type ContextCheck,
 } from './session-context'
+import { toolFingerprints, type ToolSignature } from './tool-fingerprint'
 import { summarizeTurn } from './turn-summary'
 import { createChildFiler } from '../todo-hub/filing'
 
@@ -1434,6 +1438,21 @@ function newTurn(number: number): Turn {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Every tool this session's own servers (`inProcess`, `LiveSession.inProcess`) can offer it right now, for
+ * `missingToolChanges` (#709): the `glade` server's always, `glade-agents`' and `glade-control`'s only while this
+ * session has that server. Covers every `GladeTool` whatever this session's upkeep settings or sandbox leave out of
+ * its actual server (`createGladeMcpServer`): a tool it doesn't have can't be stale for it either way, so including
+ * it costs nothing.
+ */
+function currentToolSignatures(inProcess: readonly string[]): readonly ToolSignature[] {
+  return [
+    ...GLADE_TOOL_SIGNATURES,
+    ...(inProcess.includes(AGENTS_SERVER) ? AGENTS_TOOL_SIGNATURES : []),
+    ...(inProcess.includes(CONTROL_SERVER) ? CONTROL_TOOL_SIGNATURES : []),
+  ]
 }
 
 export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
@@ -3823,8 +3842,16 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         // A session that started before the sandbox was on, and resumed in it, is told of it once (#452).
         sandboxed: live.sandbox !== null,
       }
-      const missing = messages.length === 0 ? [] : missingContext(check)
+      // A tool of Glade's own that changed since the session last saw it goes the same way, once (#709): checked and
+      // recorded alongside the rest, in its own table (`session_tool_fingerprints`) since which tools exist, and how
+      // many, isn't fixed shape like `SessionContext`'s own fields.
+      const toolSignatures = currentToolSignatures(live.inProcess)
+      const missing =
+        messages.length === 0
+          ? []
+          : [...missingContext(check), ...missingToolChanges(toolSignatures, getToolFingerprints(db, taskId))]
       if (missing.length > 0) setSessionContext(db, taskId, contextAfter(check, missing))
+      if (messages.length > 0) setToolFingerprints(db, taskId, toolFingerprints(toolSignatures))
       const block = contextBlock(missing)
       return { queued, messages, dividers: [...markedDone, ...reopened, divider], block }
     })()

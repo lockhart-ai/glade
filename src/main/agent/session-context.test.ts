@@ -6,12 +6,14 @@ import {
   contextAfter,
   contextBlock,
   missingContext,
+  missingToolChanges,
   MissingContextKind,
   startedContext,
   withContext,
   type ContextCheck,
   type MissingContext,
 } from './session-context'
+import { toolFingerprint, type ToolSignature } from './tool-fingerprint'
 import {
   FINAL_REPLY_LINE,
   GITHUB_LINK_WATCH_LINE,
@@ -411,5 +413,81 @@ describe('sending what a session is missing', () => {
     expect(contextBlock([])).toBeNull()
     expect(withContext(contextBlock([handoff]), 'Carry on.')).toBe(`${String(contextBlock([handoff]))}\n\nCarry on.`)
     expect(withContext(null, 'Carry on.')).toBe('Carry on.')
+  })
+})
+
+describe('what a session is missing of a changed tool (#709)', () => {
+  const UPDATE_TODO: ToolSignature = {
+    name: 'update_todo',
+    description: 'pending, in_progress or completed',
+    inputSchema: { type: 'object' },
+  }
+  const CREATE_TODO: ToolSignature = { name: 'create_todo', description: 'Add a todo.', inputSchema: {} }
+
+  it('is nothing for a tool recorded with its current fingerprint, and for one never recorded at all', () => {
+    const recorded = new Map([[UPDATE_TODO.name, toolFingerprint(UPDATE_TODO)]])
+
+    expect(missingToolChanges([UPDATE_TODO], recorded)).toEqual([])
+    // Never recorded: new to this session, not changed. It's recorded the first time, not reported.
+    expect(missingToolChanges([UPDATE_TODO], new Map())).toEqual([])
+  })
+
+  it("is the tool, named with its current description, when its recorded fingerprint doesn't match", () => {
+    const changedDescription: ToolSignature = {
+      ...UPDATE_TODO,
+      description: 'pending, in_progress, completed or waiting',
+    }
+    const recorded = new Map([[UPDATE_TODO.name, toolFingerprint(UPDATE_TODO)]])
+
+    expect(missingToolChanges([changedDescription], recorded)).toEqual([
+      {
+        kind: MissingContextKind.ToolChanges,
+        changes: [{ name: 'update_todo', description: changedDescription.description }],
+      },
+    ])
+  })
+
+  it('names only the ones that changed, in order, among several offered', () => {
+    const changedDescription: ToolSignature = {
+      ...UPDATE_TODO,
+      description: 'pending, in_progress, completed or waiting',
+    }
+    const recorded = new Map([
+      [UPDATE_TODO.name, toolFingerprint(UPDATE_TODO)],
+      [CREATE_TODO.name, toolFingerprint(CREATE_TODO)],
+    ])
+
+    expect(missingToolChanges([changedDescription, CREATE_TODO], recorded)).toEqual([
+      {
+        kind: MissingContextKind.ToolChanges,
+        changes: [{ name: 'update_todo', description: changedDescription.description }],
+      },
+    ])
+  })
+
+  it('is said in a block of its own, one line per changed tool, naming its current description', () => {
+    const toolChanges = {
+      kind: MissingContextKind.ToolChanges,
+      changes: [
+        { name: 'update_todo', description: 'pending, in_progress, completed or waiting' },
+        { name: 'create_todo', description: 'Add a todo.' },
+      ],
+    } as const
+
+    expect(contextBlock([toolChanges])).toBe(
+      [
+        '[Glade: a tool changed since this session last saw it]',
+        '`update_todo` now: pending, in_progress, completed or waiting',
+        '`create_todo` now: Add a todo.',
+        '[end]',
+      ].join('\n'),
+    )
+  })
+
+  it("isn't about SessionContext: contextAfter passes it through unchanged", () => {
+    const toolChanges = { kind: MissingContextKind.ToolChanges, changes: [] } as const
+    const stale = check({ recorded: has(1) })
+
+    expect(contextAfter(stale, [toolChanges])).toEqual(has(1))
   })
 })

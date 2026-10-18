@@ -9,6 +9,7 @@
 import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import { Effort, PermissionMode, TaskState } from '../../shared/domain'
+import type { ToolSignature } from '../agent/tool-fingerprint'
 import { isoInstant } from './dates'
 import { ControlError, ControlErrorCode } from './errors'
 import { CONTROL_TOOL_ACCESS, ControlAccess, ControlToolName } from './names'
@@ -531,3 +532,11 @@ export const CLAUDE_CODE_TOOLS: readonly ControlTool[] = [
  * Every `glade-control` tool, in the order `tools/list` gives them. More are added by listing their definitions here.
  */
 export const CONTROL_TOOLS: readonly ControlTool[] = [...TASK_TOOLS, ...CLAUDE_CODE_TOOLS]
+
+/**
+ * Every `glade-control` tool, fingerprinted (`../agent/tool-fingerprint`, #709): each one's `inputSchema` is
+ * already JSON Schema (`defineControlTool`), so nothing more is computed here.
+ */
+export const CONTROL_TOOL_SIGNATURES: readonly ToolSignature[] = CONTROL_TOOLS.map(
+  ({ name, description, inputSchema }) => ({ name, description, inputSchema }),
+)
