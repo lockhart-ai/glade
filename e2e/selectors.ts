@@ -853,7 +853,7 @@ export function unsavedDialog(page: Page) {
 }
 
 /**
- * The Broadcast modal (File › Broadcast…, `docs/design/html/45-broadcast-select.html`): its message field, the line
+ * The Broadcast modal (File › Broadcast…, `docs/design/html/45-broadcast.html`): its message field, the line
  * saying what's ticked, the recipients by workspace as tick boxes, and Send.
  */
 export function broadcastDialog(page: Page) {

@@ -286,7 +286,7 @@ function BroadcastForm({ titleId, fieldRef, onClose }: BroadcastFormProps): Reac
 }
 
 /**
- * The Broadcast modal (⌘⇧B; `docs/design/screens/45-broadcast-select.png`): one message to the active tasks you've
+ * The Broadcast modal (⌘⇧B; `docs/design/screens/45-broadcast.png`): one message to the active tasks you've
  * ticked, in every workspace (#675). It lists them by workspace as tick boxes — a workspace's box ticks or unticks
  * all its tasks, and shows a dash when only some are ticked — everything ticked when the modal opens, and says what's
  * ticked before it's sent. ↵ or Send sends it to the ticked ones and closes the modal; Esc or a click outside closes

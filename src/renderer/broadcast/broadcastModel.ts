@@ -1,5 +1,5 @@
 /**
- * Who a broadcast reaches (#489, `docs/design/html/45-broadcast-select.html`): every active task that has an agent
+ * Who a broadcast reaches (#489, `docs/design/html/45-broadcast.html`): every active task that has an agent
  * (`receivesBroadcast`, the rule main sends by), in every workspace, as the Broadcast modal lists them as tick boxes
  * before it's sent (#675). Everything is ticked when the modal opens; the modal holds the ones it has had unticked to
  * it, and a broadcast goes to the ticked ones only. Main decides who really gets it, as it sends (`tasks.broadcast`);
