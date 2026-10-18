@@ -156,6 +156,37 @@ describe('Menu', () => {
     expect(screen.getByRole('menuitem', { name: 'api/views.py' })).toHaveFocus()
   })
 
+  it('shows a heading’s content in place of its label, which it still names', async () => {
+    const choose = vi.fn()
+    render(
+      <Menu
+        label="Workspaces"
+        entries={[
+          {
+            kind: MenuEntryKind.Heading,
+            label: 'Needs you',
+            content: (
+              <span>
+                <span aria-hidden="true" />
+                Needs you
+              </span>
+            ),
+          },
+          { kind: MenuEntryKind.Item, label: 'Acme API', onSelect: choose },
+        ]}
+        anchor={{ kind: MenuAnchorKind.Point, x: 0, y: 0 }}
+        open
+        onClose={() => undefined}
+      />,
+    )
+    await settleFloating()
+
+    const heading = screen.getByText('Needs you').closest('div')
+    expect(heading).toHaveClass(cls('heading'))
+    expect(heading?.querySelector('span[aria-hidden]')).not.toBeNull()
+    expect(screen.getByRole('menu', { name: 'Workspaces' })).toHaveTextContent('Needs youAcme API')
+  })
+
   it('takes focus when it opens', async () => {
     await openFromButton()
 

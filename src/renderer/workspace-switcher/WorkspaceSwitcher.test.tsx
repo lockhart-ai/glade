@@ -112,7 +112,8 @@ describe('WorkspaceSwitcher', () => {
       'purple',
       'teal',
     ])
-    // Scoped to the action class: Glade's own waiting task (#610) is also a `menuitem`, covered in its own tests.
+    // Scoped to the action class: the Needs-you section's task rows (#681) are also `menuitem`s, covered in their
+    // own tests.
     const actionClass = moduleClass(styles, 'action')
     expect(
       within(menu)
@@ -221,20 +222,23 @@ describe('WorkspaceSwitcher', () => {
   })
 })
 
-// `waitingTasks`'s own ordering, capping and tie-breaking is `switcherModel.test.ts`; these cover the real
-// switcher's wiring (#610).
-describe('waiting tasks nested under each workspace (#610)', () => {
-  function waitingTask(id: string, workspaceId: string, title: string, updatedAt: number): Task {
+// `needsYouTasks`'s own ordering and its agreement with the menu bar popover is `switcherModel.test.ts`; these cover
+// the real switcher's wiring (#681).
+describe('the Needs-you section at the top of the menu (#681)', () => {
+  /** Minutes ago, for times the rows' own clock shows as these tests expect them. */
+  const minutesAgo = (minutes: number): number => Date.now() - minutes * 60_000
+
+  function waitingTask(id: string, workspaceId: string, title: string, minutes: number): Task {
     return {
       ...sampleTask(id, workspaceId, title),
       activity: TaskActivity.Waiting,
       sessionId: 's',
       unread: true,
-      updatedAt,
+      updatedAt: minutesAgo(minutes),
     }
   }
 
-  async function renderWithWaiting(overrides: Partial<FakeHandlers> = {}): Promise<Rendered> {
+  async function renderWithNeeding(overrides: Partial<FakeHandlers> = {}): Promise<Rendered> {
     const revealedWorkspaces: string[] = []
     const fake = fakeBridge(
       {
@@ -244,15 +248,24 @@ describe('waiting tasks nested under each workspace (#610)', () => {
           sampleWorkspace('w3', 'Acme Docs'),
         ],
         tasks: [
-          // Six in w1: more than `WAITING_TASKS_SHOWN`, newest (t1) to oldest (t6).
-          waitingTask('t1', 'w1', 'Add per-key rate limiting', 6_000),
-          waitingTask('t2', 'w1', 'Fix flaky login test', 5_000),
-          waitingTask('t3', 'w1', 'Bump the SDK to 0.4', 4_000),
-          waitingTask('t4', 'w1', 'Clean up the fixtures', 3_000),
-          waitingTask('t5', 'w1', 'Tighten the CORS policy', 2_000),
-          waitingTask('t6', 'w1', 'Rotate the staging key', 1_000),
-          waitingTask('t7', 'w2', 'Redesign the checkout flow', 500),
-          working('t8', 'w3'),
+          // Six in w1, newest (t1) to oldest (t6): all of them show, none behind a "+N more" row.
+          waitingTask('t1', 'w1', 'Add per-key rate limiting', 4),
+          waitingTask('t2', 'w1', 'Fix flaky login test', 22),
+          waitingTask('t3', 'w1', 'Bump the SDK to 0.4', 38),
+          waitingTask('t4', 'w1', 'Clean up the fixtures', 60),
+          waitingTask('t5', 'w1', 'Tighten the CORS policy', 90),
+          waitingTask('t6', 'w1', 'Rotate the staging key', 130),
+          waitingTask('t7', 'w2', 'Redesign the checkout flow', 50),
+          // An asking task in w3: its why line is the status the agent set.
+          {
+            ...sampleTask('t8', 'w3', 'Answer the rate-limit question'),
+            activity: TaskActivity.Working,
+            sessionId: 's',
+            asking: true,
+            status: 'Waiting on you: two questions',
+            updatedAt: minutesAgo(70),
+          },
+          working('t9', 'w3'),
         ],
         uiState: [
           { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
@@ -275,29 +288,97 @@ describe('waiting tasks nested under each workspace (#610)', () => {
     return { ...fake, store, revealedWorkspaces }
   }
 
-  it('nests a workspace’s own waiting tasks under it, newest first, with a dot, the title and the time', async () => {
-    await renderWithWaiting()
+  it('lists every task that needs you across every workspace, newest first, above Workspaces', async () => {
+    await renderWithNeeding()
+    const menu = await openSwitcher()
+
+    expect(within(menu).getByText('Needs you')).toBeInTheDocument()
+    const rows = within(menu)
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent)
+    // The tasks, newest change first, across all three workspaces — every one of them, none behind a "+N more" row —
+    // then the action rows at the foot. Each task row leads with its workspace badge's initial ("Acme …" → A).
+    expect(rows).toEqual([
+      'AAdd per-key rate limitingReplied 4m ago4m',
+      'AFix flaky login testReplied 22m ago22m',
+      'ABump the SDK to 0.4Replied 38m ago38m',
+      'ARedesign the checkout flowReplied 50m ago50m',
+      'AClean up the fixturesReplied 1h ago1h',
+      'AAnswer the rate-limit questionWaiting on you: two questions1h',
+      'ATighten the CORS policyReplied 1h 30m ago1h',
+      'ARotate the staging keyReplied 2h 10m ago2h',
+      'New workspace…⌘⇧N',
+      'Open folder as workspace…⌘O',
+      'Workspace settings…⌘,',
+      'Reveal root in Finder',
+    ])
+  })
+
+  it('each row shows the workspace’s badge, the title, the purple why line and the time', async () => {
+    await renderWithNeeding()
     const menu = await openSwitcher()
 
     const t1 = within(menu).getByRole('menuitem', { name: 'Add per-key rate limiting' })
-    const t2 = within(menu).getByRole('menuitem', { name: 'Fix flaky login test' })
-    expect(t1.querySelector('[data-state="waiting"]')).not.toBeNull()
-    expect(t1).toHaveTextContent('Add per-key rate limiting')
-    expect(t1.compareDocumentPosition(t2) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(t1.querySelector('[data-tone="blue"]')).not.toBeNull()
+    expect(within(t1).getByText('Add per-key rate limiting')).toBeInTheDocument()
+    expect(within(t1).getByText('Replied 4m ago')).toBeInTheDocument()
+    expect(t1.querySelector('time')).not.toBeNull()
+    // The asking task's why line is the status its agent set, as the task list shows it.
+    const asking = within(menu).getByRole('menuitem', { name: 'Answer the rate-limit question' })
+    expect(within(asking).getByText('Waiting on you: two questions')).toBeInTheDocument()
   })
 
-  it('caps a workspace at four waiting tasks, with a dimmed "+N more" row past that, no dot', async () => {
-    await renderWithWaiting()
+  it('the workspace rows below keep only their counts: no task rows nest under them', async () => {
+    await renderWithNeeding()
     const menu = await openSwitcher()
 
-    expect(within(menu).queryByRole('menuitem', { name: 'Tighten the CORS policy' })).toBeNull()
-    expect(within(menu).queryByRole('menuitem', { name: 'Rotate the staging key' })).toBeNull()
-    const more = within(menu).getByRole('menuitem', { name: '+2 more in Acme API' })
-    expect(more.querySelector('[data-state]')).toBeNull()
+    const rows = within(menu).getAllByRole('menuitemradio')
+    expect(rows.map((row) => row.textContent)).toEqual([
+      'AAcme API/code/w16 needs you',
+      'AAcme Web/code/w21 needs you',
+      'AAcme Docs/code/w31 needs you',
+    ])
+    expect(within(menu).queryByRole('menuitem', { name: /\+1 more/ })).toBeNull()
   })
 
-  it('a waiting task switches workspace and selects it in one step, then closes', async () => {
-    const { store, invoke } = await renderWithWaiting()
+  it('is left out entirely when nothing needs you', async () => {
+    const { emit } = await renderWithNeeding()
+    // Read every reply and answer the one question: nothing needs you anywhere now.
+    for (const [id, workspaceId, title, minutes] of [
+      ['t1', 'w1', 'Add per-key rate limiting', 4],
+      ['t2', 'w1', 'Fix flaky login test', 22],
+      ['t3', 'w1', 'Bump the SDK to 0.4', 38],
+      ['t4', 'w1', 'Clean up the fixtures', 60],
+      ['t5', 'w1', 'Tighten the CORS policy', 90],
+      ['t6', 'w1', 'Rotate the staging key', 130],
+      ['t7', 'w2', 'Redesign the checkout flow', 50],
+    ] as const) {
+      act(() => {
+        emit({ type: EventType.TaskUpdated, task: { ...waitingTask(id, workspaceId, title, minutes), unread: false } })
+      })
+    }
+    act(() => {
+      emit({
+        type: EventType.TaskUpdated,
+        task: {
+          ...sampleTask('t8', 'w3', 'Answer the rate-limit question'),
+          activity: TaskActivity.Working,
+          sessionId: 's',
+        },
+      })
+    })
+    const menu = await openSwitcher()
+
+    expect(within(menu).queryByText('Needs you')).toBeNull()
+    expect(
+      within(menu)
+        .getAllByRole('menuitemradio')
+        .map((row) => row.textContent),
+    ).toEqual(['AAcme API/code/w16 active', 'AAcme Web/code/w21 active', 'AAcme Docs/code/w32 active'])
+  })
+
+  it('a needs-you task switches workspace and selects it in one step, then closes', async () => {
+    const { store, invoke } = await renderWithNeeding()
     const menu = await openSwitcher()
 
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Redesign the checkout flow' }))
@@ -309,37 +390,14 @@ describe('waiting tasks nested under each workspace (#610)', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
-  it('the "+N more" row switches to that workspace and shows its task list, without opening a task', async () => {
-    const { store } = await renderWithWaiting()
-    const menu = await openSwitcher()
-
-    fireEvent.click(within(menu).getByRole('menuitem', { name: '+2 more in Acme API' }))
-
-    await vi.waitFor(() => {
-      expect(store.getState().selectedWorkspaceId).toBe('w1')
-    })
-    // Still t1, the workspace's own restored selection: the row didn't open a particular task.
-    expect(store.getState().selectedTaskId).toBe('t1')
-  })
-
-  it('a workspace with nothing waiting looks as it does today: its own row, no nested list', async () => {
-    await renderWithWaiting()
-    const menu = await openSwitcher()
-
-    const docs = within(menu).getByRole('menuitemradio', { name: 'Acme Docs' })
-    expect(docs).toHaveTextContent('1 active')
-    expect(within(menu).queryByRole('menuitem', { name: /Acme Docs/ })).toBeNull()
-  })
-
   it('reaches a task row by arrow keys, and Enter opens it, same as any other row', async () => {
-    const { store } = await renderWithWaiting()
+    const { store } = await renderWithNeeding()
     await openSwitcher()
     const key = (name: string): void => {
       fireEvent.keyDown(document.activeElement ?? document.body, { key: name })
     }
 
-    // The heading has no row of its own: the first ArrowDown reaches Acme API, the second its first task, t1.
-    key('ArrowDown')
+    // The heading has no row of its own: the first ArrowDown reaches the newest task, t1.
     key('ArrowDown')
     expect(screen.getByRole('menuitem', { name: 'Add per-key rate limiting' })).toHaveFocus()
     key('Enter')
@@ -349,8 +407,8 @@ describe('waiting tasks nested under each workspace (#610)', () => {
     })
   })
 
-  it('shows a toast when opening a waiting task fails', async () => {
-    await renderWithWaiting({
+  it('shows a toast when opening a needs-you task fails', async () => {
+    await renderWithNeeding({
       [CommandName.UiStateSet]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No task t7')),
     })
     const menu = await openSwitcher()
@@ -360,8 +418,8 @@ describe('waiting tasks nested under each workspace (#610)', () => {
     expect(await screen.findByText('No task t7')).toBeInTheDocument()
   })
 
-  it('drops a waiting task’s row if it’s deleted while the menu is still open', async () => {
-    const { emit } = await renderWithWaiting()
+  it('drops a task’s row if it’s deleted while the menu is still open', async () => {
+    const { emit } = await renderWithNeeding()
     const menu = await openSwitcher()
     expect(within(menu).getByRole('menuitem', { name: 'Redesign the checkout flow' })).toBeInTheDocument()
 
@@ -372,6 +430,21 @@ describe('waiting tasks nested under each workspace (#610)', () => {
     expect(within(menu).queryByRole('menuitem', { name: 'Redesign the checkout flow' })).toBeNull()
     // Acme Web itself, and its still-live rows, are unaffected.
     expect(within(menu).getByRole('menuitemradio', { name: 'Acme Web' })).toBeInTheDocument()
+  })
+
+  it('the section keeps itself current while the menu is open: read, a task leaves it', async () => {
+    const { emit } = await renderWithNeeding()
+    const menu = await openSwitcher()
+    expect(within(menu).getByRole('menuitem', { name: 'Redesign the checkout flow' })).toBeInTheDocument()
+
+    act(() => {
+      emit({
+        type: EventType.TaskUpdated,
+        task: { ...waitingTask('t7', 'w2', 'Redesign the checkout flow', 50), unread: false },
+      })
+    })
+
+    expect(within(menu).queryByRole('menuitem', { name: 'Redesign the checkout flow' })).toBeNull()
   })
 })
 

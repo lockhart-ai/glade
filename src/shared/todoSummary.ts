@@ -11,6 +11,8 @@ export interface TodoProgress {
   readonly total: number
   /** Items being worked on now. */
   readonly doing: number
+  /** Items waiting on you now (#680). */
+  readonly waiting: number
 }
 
 /**
@@ -21,6 +23,7 @@ export function todoProgress(list: TodoList | null | undefined): TodoProgress {
   return {
     done: items.filter(({ state }) => state === TodoState.Done).length,
     doing: items.filter(({ state }) => state === TodoState.Doing).length,
+    waiting: items.filter(({ state }) => state === TodoState.Waiting).length,
     total: items.length,
   }
 }
@@ -33,7 +36,8 @@ export function summarizeTodos(list: TodoList | null): TodoSummary | null {
   if (list === null || list.items.length === 0) return null
   const { done, total } = todoProgress(list)
   const doing = list.items.filter(({ state }) => state === TodoState.Doing).map(({ text }) => text)
-  return { done, total, doing }
+  const waiting = list.items.filter(({ state }) => state === TodoState.Waiting).map(({ text }) => text)
+  return { done, total, doing, waiting }
 }
 
 /** Whether every item on the list is done: the row shows a check. */
@@ -41,10 +45,16 @@ export function allTodosDone({ done, total }: TodoSummary): boolean {
   return done === total
 }
 
-/** What the row's progress says to a screen reader and in its tooltip: `3 of 7 todos done · Now: Copy the files`. */
+/**
+ * What the row's progress says to a screen reader and in its tooltip: `3 of 7 todos done · Now: Copy the files`,
+ * with what's waiting on you named too, e.g. `3 of 7 todos done · Waiting on you: Ask about the bucket · Now: Copy
+ * the files` (#680).
+ */
 export function todoSummaryLabel(summary: TodoSummary): string {
   const progress = `${String(summary.done)} of ${String(summary.total)} todos done`
-  return summary.doing.length === 0 ? progress : `${progress} · Now: ${summary.doing.join('; ')}`
+  const waiting = summary.waiting.length === 0 ? [] : [`Waiting on you: ${summary.waiting.join('; ')}`]
+  const doing = summary.doing.length === 0 ? [] : [`Now: ${summary.doing.join('; ')}`]
+  return [progress, ...waiting, ...doing].join(' · ')
 }
 
 /** Whether two summaries say the same, so a task whose summary didn't change isn't told to the windows again. */
@@ -54,6 +64,8 @@ export function sameTodoSummary(a: TodoSummary | null, b: TodoSummary | null): b
     a.done === b.done &&
     a.total === b.total &&
     a.doing.length === b.doing.length &&
-    a.doing.every((text, index) => text === b.doing[index])
+    a.doing.every((text, index) => text === b.doing[index]) &&
+    a.waiting.length === b.waiting.length &&
+    a.waiting.every((text, index) => text === b.waiting[index])
   )
 }

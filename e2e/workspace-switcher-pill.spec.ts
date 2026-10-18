@@ -108,7 +108,7 @@ test('the pill totals every task that needs you, the shown workspace’s own inc
   await expect(switcher.trigger).toHaveAttribute('title', 'Switch workspace')
 })
 
-test('a waiting task nested under another workspace opens it, switching and selecting in one click (#610)', async ({
+test('a task that needs you in another workspace opens it from the Needs-you section, switching and selecting in one click (#681)', async ({
   launch,
   tempFolder,
 }) => {
@@ -153,7 +153,10 @@ test('a waiting task nested under another workspace opens it, switching and sele
   await expect(switcher.pill).toHaveText('1')
 
   await switcher.trigger.click()
-  await switcher.waitingTask(SUITE_TITLE).click()
+  // The Needs-you section at the top of the menu (#681): B1's row, with its title, the unread reply's why line and
+  // the time. A click opens the task in its workspace.
+  await expect(switcher.needsYouTask(SUITE_TITLE)).toContainText(/Replied (just now|.* ago)/)
+  await switcher.needsYouTask(SUITE_TITLE).click()
 
   // One click: switched to B and selected B1, the task that needed you, not just the workspace's own restored one.
   await expect(workspace).toContainText('acme-web')

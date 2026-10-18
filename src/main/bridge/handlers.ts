@@ -292,9 +292,9 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.TasksSend]: ({ id, text, images, pastedBlocks, files }) => ({
       message: runner.send(id, text, images, pastedBlocks, files),
     }),
-    // Every task's messages, queue and activity reach the windows as one batch, however many tasks there are.
-    [CommandName.TasksBroadcast]: ({ text }) => ({
-      recipients: batch(() => broadcastMessage({ db, runner, log: chatLog }, text)),
+    // Every chosen task's messages, queue and activity reach the windows as one batch, however many tasks there are.
+    [CommandName.TasksBroadcast]: ({ text, taskIds }) => ({
+      recipients: batch(() => broadcastMessage({ db, runner, log: chatLog }, text, taskIds)),
     }),
     [CommandName.TasksStop]: async ({ id }) => ({ task: await runner.stop(id) }),
     [CommandName.TasksRetry]: async ({ id, model }) => {

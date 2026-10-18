@@ -185,19 +185,18 @@ const workspaceId = workspaces.find((workspace) => workspace.name === 'Acme API'
 const root = '/Users/sample/code/api'
 // Dates alone mean that day, local time ("Dates").
 const folders = [
-  { folder: 'notes/rate-limits', title: 'Rate limit /search', status: 'Shipped behind a flag.', started: '2026-03-12', updated: '2026-03-19', handoff: '### Next\n\nAdd the Retry-After header.' },
-  { folder: 'notes/billing-webhooks', title: 'Migrate billing webhooks to v2', status: 'Invoices on v2; subscriptions next.', started: '2026-04-02', updated: '2026-04-21', handoff: '### Next\n\nMap subscription.*.' },
+  { folder: 'notes/rate-limits', title: 'Rate limit /search', status: 'Shipped behind a flag.', started: '2026-03-12', updated: '2026-03-19' },
+  { folder: 'notes/billing-webhooks', title: 'Migrate billing webhooks to v2', status: 'Invoices on v2; subscriptions next.', started: '2026-04-02', updated: '2026-04-21' },
 ]
 // A few at a time; a folder already backfilled returns its task with created: false.
 for (let at = 0; at < folders.length; at += 10) {
   const results = await Promise.all(
-    folders.slice(at, at + 10).map(({ folder, title, status, started, updated, handoff }) =>
+    folders.slice(at, at + 10).map(({ folder, title, status, started, updated }) =>
       call('create_task', {
         workspaceId,
         externalId: folder,
         title,
         status,
-        handoff,
         artifacts: [{ path: `${root}/${folder}/notes.md`, title: 'Notes' }],
         startedAt: started,
         updatedAt: updated,
@@ -317,7 +316,6 @@ first. A `fromTurn` past the last turn gives no turns.
   status?: string                       // its one-line status, e.g. a past task's outcome
   model?: string; effort?: Effort; permissionMode?: PermissionMode    // Settings' defaults when left out
   // Backfilling a past task (see "Backfilling past tasks"); dates as "Dates" says:
-  handoff?: string                      // its handoff note, Markdown, at most 32 KB of UTF-8
   artifacts?: ({ path: string; title?: string }    // files of the workspace, by absolute path; title: the file name
                | { url: string; title?: string })[]   // or links (#407); title: #412, API-123 or the address
   startedAt?: string                    // when it started (createdAt); its place in the sidebar's Pinned and Active; now by default
@@ -371,7 +369,6 @@ places it.
 { id: string
   patch: { title?: string; objective?: string; status?: string; pinned?: boolean; unread?: boolean
            model?: string; effort?: Effort; permissionMode?: PermissionMode
-           handoff?: string | null                          // a new handoff note; null clears it
            artifacts?: ({ path: string; title?: string } | { url: string; title?: string })[]   // more artifacts
            externalId?: string                              // a new externalId for it
            updatedAt?: string                               // when it was last updated, given rather than now
@@ -385,8 +382,7 @@ places it.
 Texts are trimmed and mustn't be empty, and a patch must change at least one field. `status` is the one-line status
 summary. A new `permissionMode` applies from the agent's next tool call, as the picker's does. A new `model` is checked
 as `create_task` checks it, and keeps the task's effort only if it supports it: otherwise the task takes the model's
-default. Done and active go through `mark_done` and `reopen_task`. A new handoff note reaches the agent from its next
-session (the next message after its current one ends, or a relaunch).
+default. Done and active go through `mark_done` and `reopen_task`.
 
 **Its place in `list_tasks` and in the sidebar.** `list_tasks` (without `query`) and the sidebar's Done section put
 the most recently updated task first, so a patch that stamps the task's `updatedAt` with now moves it to the top of
@@ -405,7 +401,6 @@ alone, to the task's place in `list_tasks` and in Done:
 | `model` | Moves to the top |
 | `effort` | Moves to the top |
 | `permissionMode` | Moves to the top |
-| `handoff` | Keeps it, so a backfilled task keeps its date |
 | `artifacts` | Keeps it |
 | `updateArtifacts` | Keeps it |
 | `removeArtifacts` | Keeps it |
@@ -538,8 +533,6 @@ Past work kept outside Glade (a folder of notes per task, from another editor or
 any of them can be opened later and picked up where it was left. The agent doing the backfill reads each notes folder
 and makes one task from it with `create_task`, giving it:
 
-- a **handoff note** (`handoff`): Markdown saying what the task was, where it got to, the decisions made, what's next,
-  and where its notes, artifacts and history are (paths). At most 32 KB of UTF-8; a longer one is refused.
 - its **artifacts** (`artifacts`): files of the workspace to show in its Todos tab, by absolute path. Each must be a
   file inside the task's workspace (a relative path, a missing file, a folder or a file outside the workspace is
   refused as `invalid_input`, naming it, e.g. `artifacts.1.path: There's no file at …`), and the whole call with it:
@@ -558,10 +551,15 @@ and makes one task from it with `create_task`, giving it:
   without making duplicates.
 
 A backfilled task never starts its agent by itself: only a `message` given with an active one, or one sent to it
-later, does. `update_task` sets, replaces or clears (`null`) the handoff note and adds, changes or removes artifacts;
-`get_task` returns both. It also sets the status and puts the dates right (`updatedAt`, `statusUpdatedAt`), and
-changes the external id, e.g. when a task's notes folder moves (`externalId`): see `update_task` for which of these
-keep the task's place in `list_tasks` and in the Done section. The window never changes the note.
+later, does. `update_task` adds, changes or removes artifacts; `get_task` returns them. It also sets the status and
+puts the dates right (`updatedAt`, `statusUpdatedAt`), and changes the external id, e.g. when a task's notes folder
+moves (`externalId`): see `update_task` for which of these keep the task's place in `list_tasks` and in the Done
+section.
+
+**Handoff notes:** `create_task` and `update_task` took a task's handoff note once, but no longer (Jared, Oct 16):
+a call that passes `handoff` now is refused as an unknown field. Notes already stored stay: a task that has one still
+shows the Backfilled card and its sessions still get the note in their system prompt, as below, and `get_task` still
+returns it.
 
 **What the user sees:** a **Backfilled** card at the top of the task's chat ([`25-backfilled.html`](design/html/25-backfilled.html)), with the
 handoff note rendered as Markdown (raw HTML dropped, nothing loaded, links not followed) and the date it was added. It
@@ -571,8 +569,7 @@ starts open, and its line closes and opens it.
 "Handoff for this task (backfilled from earlier notes)", with a line saying the paths it names are real and it can read
 them. It's in the prompt, not the chat, so a compaction never loses it, and the session keeps it when it's resumed.
 But Claude Code keeps the prompt a session started with when it resumes one ([`sdk-notes.md` §8](sdk-notes.md#8-resume-verified)), so a session that
-started without the note, or with an older one (the note was set or changed with `update_task` after the task had a
-session), is sent it once, as a block ahead of the next message Glade sends it:
+started without the note is sent it once, as a block ahead of the next message Glade sends it:
 
 ```
 [Glade: handoff for this task]
@@ -584,8 +581,7 @@ Let's pick this up.
 ```
 
 The chat shows only your message. What each task's session has been given is kept in SQLite, so the block goes exactly
-once per version of the note, across relaunches. A cleared note sends nothing. A task without a note gets none of
-this.
+once, across relaunches. A task without a note gets none of this.
 
 ### Example: one notes folder
 
@@ -598,7 +594,6 @@ workspace (root `~/code/api`). The backfilling agent reads them, then calls:
     "workspaceId": "0b6f7c2e-5a41-4d3e-9c8a-1f2e3d4c5b6a",
     "title": "Migrate billing webhooks to v2",
     "objective": "Move the billing webhook handlers from the v1 events API to v2, then retire the v1 endpoint.",
-    "handoff": "### Where it got to\n\nThe `invoice.*` and `customer.*` handlers are on v2 and live. `subscription.*` still goes through v1.\n\n### Decisions\n\n- Keep the v1 endpoint until subscriptions move over.\n\n### Next\n\nWrite the `subscription.*` mapping, then turn v1 off.\n\n### Where things are\n\nNotes in `/Users/sample/code/api/notes/billing-webhooks/`; the old session log in `log.md` there.",
     "artifacts": [
       { "path": "/Users/sample/code/api/notes/billing-webhooks/notes.md", "title": "Migration notes" },
       { "path": "/Users/sample/code/api/notes/billing-webhooks/decisions.md", "title": "Decisions" }
@@ -611,12 +606,12 @@ workspace (root `~/code/api`). The backfilling agent reads them, then calls:
 ```
 
 → `{ "task": { "id": "…", "state": "done", "createdAt": 1773302400000, "updatedAt": 1776789000000,
-"statusUpdatedAt": 1776789000000, "doneAt": 1776789000000, "handoff": { "body": "…", "addedAt": … }, "artifacts": [ … ],
+"statusUpdatedAt": 1776789000000, "doneAt": 1776789000000, "handoff": null, "artifacts": [ … ],
 "externalId": "notes/billing-webhooks", … }, "created": true }`
 
 It repeats that for each folder (`list_workspaces` first, for the workspace's id). Run again, each call answers
-`"created": false` with the task already there. Later, the user opens the task, reads the card, and sends "Let's pick
-this up.": the task reopens, and its agent starts with the handoff note in its prompt.
+`"created": false` with the task already there. Later, the user opens the task and sends "Let's pick this up.": the
+task reopens, and its agent picks up from the notes its artifacts point at.
 
 ## Importing Claude Code sessions
 

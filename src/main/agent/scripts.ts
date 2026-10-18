@@ -2215,6 +2215,33 @@ const writesTodos: AgentScript = {
 }
 
 /**
+ * A turn that sets a todo waiting on you (#680): two steps, the first finished, the second marked `waiting` with a
+ * note saying what it needs — `update_todo`'s own status for a todo that can't move until you review or decide
+ * something, which the Todos tab shows in purple, first in the list.
+ */
+const waitsOnYou: AgentScript = {
+  name: 'waits-on-you',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Add rate limiting to the public API',
+        'Limit how many requests a client can make per minute.',
+        'Returning Retry-After on 429s.',
+      ),
+      gladeTool('create-1', 'create_todo', { subject: 'Return Retry-After on 429s' }),
+      gladeTool('create-2', 'create_todo', { subject: 'Pick a limit for /search' }),
+      ...updateTodo(1, 'completed'),
+      ...updateTodo(2, 'waiting', 'Pick a limit: 60 or 120 requests a minute?'),
+      gladeTool('status-waiting', 'set_status', { status: 'Waiting on you: pick a limit for /search.' }),
+      say('Retry-After on 429s is done. I need you to pick a limit for /search before I add it.'),
+      result(),
+    ],
+  ],
+}
+
+/**
  * A turn that writes up a doc and shows it to you with `show_file`, at the line to check. The doc must be in the
  * workspace (a spec makes it) for the Glade tool to open it.
  */
@@ -3818,7 +3845,6 @@ export interface BackfilledTaskSample {
   readonly externalId: string
   readonly title: string
   readonly objective: string
-  readonly handoff: string
   readonly startedAt: string
   /** Its notes, relative to the workspace root: the script registers them as its artifacts, by absolute path. */
   readonly artifacts: readonly { readonly path: string; readonly title: string }[]
@@ -3830,20 +3856,16 @@ export const BACKFILLS_TASKS = {
   prompt: 'Backfill my past billing tasks from their notes.',
   /** The workspace the tasks go in, which a spec seeds with this id. */
   workspaceId: '5c2d8e1a-7b4f-4c3a-9d6e-2f1a0b9c8d7e',
+  /**
+   * The task a spec seeds with a stored handoff note (its `handoff` field, the way `capture-seed.ts` seeds one): the
+   * message below asks the agent to set a handoff note on it, which `update_task` refuses.
+   */
+  seededTask: { id: 'retire-v1-billing-api', title: 'Retire the v1 billing API' },
   tasks: [
     {
       externalId: 'notes/billing-webhooks',
       title: 'Migrate billing webhooks to v2',
       objective: 'Move the billing webhook handlers from the v1 events API to v2, then retire the v1 endpoint.',
-      handoff: [
-        '### Where it got to',
-        '',
-        'The `invoice.*` and `customer.*` handlers are on v2 and live. `subscription.*` still goes through v1.',
-        '',
-        '### Next',
-        '',
-        'Write the `subscription.*` mapping, then turn v1 off. Notes are in `notes/billing-webhooks/`.',
-      ].join('\n'),
       startedAt: '2026-03-12T09:00:00Z',
       artifacts: [
         { path: 'notes/billing-webhooks/notes.md', title: 'Migration notes' },
@@ -3854,7 +3876,6 @@ export const BACKFILLS_TASKS = {
       externalId: 'notes/invoice-pdfs',
       title: 'Render invoice PDFs on the server',
       objective: 'Render invoice PDFs on the server instead of in the browser.',
-      handoff: '### Where it got to\n\nThe renderer works. Fonts still need embedding; see `notes/invoice-pdfs/`.',
       startedAt: '2026-04-02',
       artifacts: [{ path: 'notes/invoice-pdfs/notes.md', title: 'PDF notes' }],
     },
@@ -3862,13 +3883,17 @@ export const BACKFILLS_TASKS = {
   reply: 'I backfilled your two billing tasks from their notes.',
   /** What it says when it's asked again and finds them already there. */
   again: 'Both billing tasks were already backfilled, so nothing changed.',
+  /** The message that asks it to set a handoff note on the seeded task (`seededTask`), which `update_task` refuses. */
+  tryHandoff: 'Try to set a handoff note on Retire the v1 billing API.',
+  /** What it says when Glade refuses the handoff note. */
+  refused: 'Glade refused that: update_task no longer takes a handoff note.',
 } as const
 
 /** A turn that backfills the `BACKFILLS_TASKS` tasks through the control tools, each done, then says `reply`. */
 const backfillTurn = (reply: string, run: number): ScriptStep[] => [
   ...turnStart(),
   delay(BEAT_MS),
-  say("I'll backfill each notes folder as a done task, with its handoff note and notes."),
+  say("I'll backfill each notes folder as a done task, with its notes as artifacts and its start date."),
   ...BACKFILLS_TASKS.tasks.flatMap(({ artifacts, ...task }, index) => [
     controlTool(`backfill-${String(run)}-${String(index)}`, 'create_task', (cwd) => ({
       workspaceId: BACKFILLS_TASKS.workspaceId,
@@ -3882,14 +3907,30 @@ const backfillTurn = (reply: string, run: number): ScriptStep[] => [
 ]
 
 /**
- * Backfills past tasks through the control tools (`glade-control`): a done task per notes folder, each with its handoff
- * note, its notes as artifacts, when it started and its folder as its `externalId`. Asked again, it runs the same calls,
- * which find the tasks already there and create nothing. The session needs the control tools, and a workspace with the
- * `BACKFILLS_TASKS` id whose root holds the notes: seed both.
+ * A turn that tries to set a handoff note on the seeded task (`BACKFILLS_TASKS.seededTask`) through `update_task`,
+ * which refuses one now: the call's result is the refusal, and the task keeps the note it already had.
+ */
+const tryHandoffTurn: ScriptStep[] = [
+  ...turnStart(),
+  delay(BEAT_MS),
+  controlTool('try-handoff', 'update_task', {
+    id: BACKFILLS_TASKS.seededTask.id,
+    patch: { handoff: '### Where it got to\n\nNothing new; the task is done.' },
+  }),
+  say(BACKFILLS_TASKS.refused),
+  result(),
+]
+
+/**
+ * Backfills past tasks through the control tools (`glade-control`): a done task per notes folder, each with its notes
+ * as artifacts, when it started and its folder as its `externalId` — and no handoff note, which the control API no
+ * longer takes. Asked again, it runs the same calls, which find the tasks already there and create nothing. Asked for
+ * a handoff note on the seeded task, `update_task` refuses it. The session needs the control tools, and a workspace
+ * with the `BACKFILLS_TASKS` id whose root holds the notes: seed both.
  */
 const backfillsTasks: AgentScript = {
   name: 'backfills-tasks',
-  turns: [backfillTurn(BACKFILLS_TASKS.reply, 1), backfillTurn(BACKFILLS_TASKS.again, 2)],
+  turns: [backfillTurn(BACKFILLS_TASKS.reply, 1), backfillTurn(BACKFILLS_TASKS.again, 2), tryHandoffTurn],
 }
 
 /**
@@ -4499,6 +4540,7 @@ export const AGENT_SCRIPT_NAMES = [
   'offline',
   'keeps-todos',
   'writes-todos',
+  'waits-on-you',
   'finishes-in-background',
   'background-subagents',
   'stop-spares-background',
@@ -4606,6 +4648,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   offline,
   'keeps-todos': keepsTodos,
   'writes-todos': writesTodos,
+  'waits-on-you': waitsOnYou,
   'finishes-in-background': finishesInBackground,
   'background-subagents': backgroundSubagents,
   'stop-spares-background': stopSparesBackground,

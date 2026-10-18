@@ -352,6 +352,29 @@ describe('TaskPanel', () => {
       expect(tabPanel()).toBeEmptyDOMElement()
     })
 
+    it('shows a purple count of what is waiting on you beside the done count, hidden at none (#680)', async () => {
+      const waiting = (): TodoList => ({
+        items: [
+          { id: '1', text: 'Pick a mockup', state: TodoState.Waiting, note: 'A or B?', completedAt: null },
+          { id: '2', text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null },
+        ],
+        updatedAt: Date.now(),
+      })
+      const { emit } = await renderPanel({
+        todos: { t1: list(0, 4) },
+        uiState: [{ key: UiStateKey.RightPanelTab, value: 'todos' }],
+      })
+      expect(tab(/^Todos/)).toHaveTextContent('Todos 0/4')
+      expect(screen.queryByRole('img', { name: /waiting on you/ })).toBeNull()
+
+      act(() => {
+        emit({ type: EventType.TodosChanged, taskId: 't1', todos: waiting() })
+      })
+
+      const badge = within(tab(/^Todos/)).getByRole('img', { name: '1 todo waiting on you' })
+      expect(badge).toHaveTextContent('1')
+    })
+
     describe('as the todo hub (P16)', () => {
       // t1's own remembered tab, so coming back to it from another task still shows the hub.
       // Both tasks' own remembered tab, so picking the other shows its Todos too (#689).

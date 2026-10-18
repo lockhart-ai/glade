@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { moduleClass } from '../moduleClass'
 import { TabPanel, Tabs, type TabItem } from './Tabs'
@@ -46,6 +46,23 @@ describe('Tabs', () => {
     expect(tabs.map((tab) => tab.tabIndex)).toEqual([-1, 0, -1])
     expect(tabs[0]?.querySelector(`.${cls('count')}`)).toHaveTextContent('7')
     for (const tab of tabs) expect(tab).toHaveClass(cls('tab'))
+  })
+
+  it('shows a badge after the count, e.g. the Todos tab’s purple waiting count (#680)', () => {
+    const tabs: TabItem<Panel>[] = [
+      ...TABS.filter((tab) => tab.value !== Panel.Todos),
+      { value: Panel.Todos, label: 'Todos', count: '3/4', badge: <span data-testid="waiting-badge">2</span> },
+    ]
+    render(<Tabs<Panel> id="side" label="Task panels" tabs={tabs} value={Panel.Todos} onChange={vi.fn()} />)
+
+    const tab = screen.getByRole('tab', { selected: true })
+    expect(within(tab).getByTestId('waiting-badge')).toHaveTextContent('2')
+  })
+
+  it('shows no badge when a tab gives none', () => {
+    renderTabs(Panel.Todos)
+
+    expect(screen.queryByTestId('waiting-badge')).toBeNull()
   })
 
   it('links the selected tab and its panel', () => {
