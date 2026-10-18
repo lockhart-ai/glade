@@ -117,10 +117,13 @@ test('image viewer: open a chat thumbnail full size, step through the message’
   await expect(viewer.viewer).toHaveCount(0)
   await expect(bar.field).toBeFocused()
 
-  // ↵ on a focused thumbnail opens it; a click on the backdrop, beside the image, closes it.
+  // ↵ on a focused thumbnail opens it; a click on the image zooms it (#685) rather than closing it, and one on it
+  // again takes it back to fit; a click on the backdrop, beside the image, closes it.
   await thumbnails.nth(1).focus()
   await window.keyboard.press('Enter')
   await expect(viewer.pager).toHaveText('2 of 3')
+  await viewer.image.click()
+  await expect(viewer.viewer).toBeVisible()
   await viewer.image.click()
   await expect(viewer.viewer).toBeVisible()
   await viewer.viewer.click({ position: { x: 20, y: size.height / 2 } })

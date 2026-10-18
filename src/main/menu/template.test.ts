@@ -36,6 +36,7 @@ const STATE: MenuState = {
   shownWorkspaceId: 'w1',
   task: TASK,
   panels: { sidebar: true, rightPanel: true, bottomBar: true },
+  imageZoom: false,
   keyBindings: {},
 }
 
@@ -283,6 +284,23 @@ describe('the menu bar', () => {
     expect(outline(view).slice(-3)).toEqual(['—', '(reload)', '(toggleDevTools)'])
   })
 
+  it('zooms an image with the View menu’s zoom items while an image view takes the zoom keys, at the same keys', () => {
+    const { template, run } = build({ ...STATE, imageZoom: true })
+    const view = menu(template, 'View')
+
+    expect(outline(view).slice(4, 7)).toEqual(['Actual Size', 'Zoom In', 'Zoom Out'])
+    const [fit, inItem, out] = [item(view, 'Actual Size'), item(view, 'Zoom In'), item(view, 'Zoom Out')]
+    expect(fit.accelerator).toBe('CmdOrCtrl+0')
+    expect(inItem.accelerator).toBe('CmdOrCtrl+Plus')
+    expect(out.accelerator).toBe('CmdOrCtrl+-')
+    click(fit)
+    click(inItem)
+    click(out)
+    expect(run).toHaveBeenNthCalledWith(1, appCommand(AppCommandId.ZoomFit))
+    expect(run).toHaveBeenNthCalledWith(2, appCommand(AppCommandId.ZoomIn))
+    expect(run).toHaveBeenNthCalledWith(3, appCommand(AppCommandId.ZoomOut))
+  })
+
   describe('the Task menu', () => {
     it('mirrors the task’s context menu, for the selected task, with the keymap’s keys', () => {
       const { template, run } = build()
@@ -389,7 +407,9 @@ describe('the menu bar', () => {
         if (Array.isArray(each.submenu)) collect(each.submenu)
       }
     }
-    collect(build().template)
+    // The zoom commands' items are in the View menu while an image view takes the zoom keys (#685); the roles stand
+    // in the rest of the time, with the keys the roles bring themselves.
+    collect(build({ ...STATE, imageZoom: true }).template)
 
     for (const { id } of COMMANDS.filter(({ scope }) => scope === KeyScope.MenuBar)) {
       // Switch workspace's are on each workspace's item, the first ⌘1.

@@ -14,6 +14,8 @@ export interface MenuBarItem {
   readonly enabled: boolean
   readonly checked: boolean
   readonly accelerator: string | null
+  /** The item's own id, when it has one (the app's commands do); null for a role. */
+  readonly id: string | null
 }
 
 /** The item at `path` (a menu's label, then each submenu's), or null when there's none. */
@@ -29,7 +31,7 @@ export async function findMenuItem({ app }: Glade, path: readonly string[]): Pro
       }
       if (found === undefined) return null
       const { label, enabled, checked } = found
-      return { label, enabled, checked, accelerator: found.accelerator ?? null }
+      return { label, enabled, checked, accelerator: found.accelerator ?? null, id: found.id !== '' ? found.id : null }
     },
     path,
   )

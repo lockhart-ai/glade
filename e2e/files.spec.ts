@@ -1,9 +1,10 @@
 import { chmodSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { PNG } from '../src/shared/test-images'
 import { expect, openedAsText, openedInEditor, test } from './fixtures'
+import { expectImageLoaded } from './images'
 import { chooseMenuItem } from './menu'
-import { chat, filesTab, firstRun, imageViewer, inputBar, taskList, taskPanel } from './selectors'
+import { chat, filesTab, firstRun, inputBar, taskList, taskPanel } from './selectors'
+import { boxOf, imageFixture } from './image-zoom'
 
 /** Makes a workspace folder holding `files` (path → content), in a throwaway folder. */
 function workspace(tempFolder: () => string, files: Readonly<Record<string, string>>): string {
@@ -152,13 +153,13 @@ test('files: show_file opens the collapsed panel at the file and line; Markdown 
   await expect(files.editorLine(8)).toContainText('/search')
 })
 
-test('files: an image shown with show_file renders as a picture, and opens the same viewer as an artifact (#372)', async ({
+test('files: an image shown with show_file renders as a picture, and zooms in place (#685)', async ({
   launch,
   tempFolder,
 }) => {
   const root = join(tempFolder(), 'acme-api')
   mkdirSync(join(root, 'assets'), { recursive: true })
-  writeFileSync(join(root, 'assets', 'logo.png'), Buffer.from(PNG.data, 'base64'))
+  writeFileSync(join(root, 'assets', 'logo.png'), imageFixture('nav-tree.png'))
   const glade = await launch({ agentScript: 'shows-an-image', chosenFolder: root })
   const { window } = glade
   await firstRun(window).openFolder.click()
@@ -171,20 +172,17 @@ test('files: an image shown with show_file renders as a picture, and opens the s
   const files = filesTab(window)
   await expect(taskPanel(window).tab(/^Files/)).toHaveAttribute('aria-selected', 'true')
   await expect(files.tab('logo.png')).toHaveAttribute('aria-pressed', 'true')
-  await expect(files.image('logo.png')).toHaveAttribute('src', `data:image/png;base64,${PNG.data}`)
+  const picture = files.image('logo.png')
+  await expectImageLoaded(picture)
   await expect(files.openInEditor).toBeVisible()
 
-  // Clicking it opens the same image viewer as an artifact's, but alone: no title, actions or pager.
-  const trigger = files.viewImage('logo.png')
-  await trigger.click()
-  const viewer = imageViewer(window)
-  await expect(viewer.viewer).toBeVisible()
-  await expect(viewer.shown('logo.png')).toHaveAttribute('src', `data:image/png;base64,${PNG.data}`)
-  await expect(viewer.pager).toHaveCount(0)
-  await expect(viewer.title).toHaveCount(0)
-  await expect(viewer.openInFiles).toHaveCount(0)
-
-  await window.keyboard.press('Escape')
-  await expect(viewer.viewer).toHaveCount(0)
-  await expect(trigger).toBeFocused()
+  // It's fit to the panel, never scaled past its own size. A click zooms it to actual size at the spot, and again
+  // back to fit (#685) — the full-size viewer no longer opens from Files; the chat's images and a todo's artifacts
+  // still open it.
+  const fit = await boxOf(picture)
+  expect(fit.width).toBeLessThan(800) // the panel is narrower than the image's own 800
+  await files.zoom('logo.png').click()
+  await expect.poll(async () => (await boxOf(picture)).width).toBeCloseTo(800, 0)
+  await files.zoom('logo.png').click()
+  await expect.poll(async () => (await boxOf(picture)).width).toBeCloseTo(fit.width, 0)
 })
