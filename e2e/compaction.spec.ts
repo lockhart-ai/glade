@@ -40,6 +40,9 @@ test('the context meter opens a popover, and Compact now or ⌘⇧K compacts the
   await expect(working).toHaveText('Working · Compacting the context')
   await expect(compacted).toHaveText('Compacted · 950k → 190k')
   await expect(bar.contextMeter).toHaveText('19% · 190k / 1M')
+  await taskPanel(window)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(window).compactions).toHaveText(/Compact950k → 190k tokens.*Resuming from a summary/)
   // The Compact row opens to what the agent carried over: the summary, without the model's analysis.
   const panel = taskPanel(window)
@@ -89,6 +92,9 @@ test('a long turn crosses the auto-compact threshold, compacts on its own and ca
   const divider = 'Compacted automatically at 97% · 970k → 41k'
   const row = /Compact970k → 41k tokens.*Automatic · resuming from a summary/
   await expect(compacted).toHaveText(divider)
+  await taskPanel(first.window)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(first.window).compactions).toHaveText(row)
   await expect(bar.contextMeter).toHaveText('4% · 41k / 1M')
 

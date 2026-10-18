@@ -54,6 +54,9 @@ test('an MCP server asks once, other agents once each, the task’s own subagent
   await expect(docs).toContainText(REACHES_OUTSIDE.search)
   await expect(docs.getByLabel('Input')).toContainText(REACHES_OUTSIDE.query)
   await expect(answers(docs)).toHaveText(['Allow for this task', 'Allow for this workspace', 'Deny'])
+  await taskPanel(window)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(window).permissionLines).toHaveText([`Waiting on you: use the ${CONNECTOR} MCP server`])
   await docs.getByRole('button', { name: 'Allow for this workspace' }).click()
 
@@ -166,6 +169,9 @@ test('an MCP server asks once, other agents once each, the task’s own subagent
   await kept.close.click()
   await startTask(next)
   await openCard(next, `The agent wants to use the${TRACKER}MCP server`)
+  await taskPanel(next)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(next).permissionLines).toHaveText([
     `Allowed by Glade-wide grant: use the ${CONNECTOR} MCP server`,
     `Allowed by Glade-wide grant: use the ${CONNECTOR} MCP server`,
