@@ -137,7 +137,9 @@ export function usageNote(
     const stepOf = (fraction: number): number => Math.floor((fraction * 100) / stepPercent)
     // A window that has reset reads lower than what it was told, and its thresholds start over without a note.
     if (current.session >= told.session && stepOf(current.session) > stepOf(told.session)) {
-      parts.push(`the session is now at ${String(Math.floor(current.session * 100))}%${resets(current.sessionResetsAt)}`)
+      parts.push(
+        `the session is now at ${String(Math.floor(current.session * 100))}%${resets(current.sessionResetsAt)}`,
+      )
     }
   }
   if (stepPercent !== null && current.week !== null && told.week !== null) {
