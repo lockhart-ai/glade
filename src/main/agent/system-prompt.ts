@@ -111,13 +111,16 @@ export const TODO_HUB_FILING_LINE =
  * every session keeps its todos with now, in place of Claude Code's own `TaskCreate`, `TaskUpdate`, `TaskList`,
  * `TaskGet` and `TodoWrite`, none of which any session is offered any more. The last sentence is #680's: `waiting`
  * is for a todo that can't move until the user reviews or decides something, which is also when the Todos tab shows
- * it as needing them.
+ * it as needing them. Its last clause is #725's: a session from before 0.35 still sees 0.34's `update_todo` without
+ * `waiting` and believed the schema over the prose; the reworded line reaches every older session once (#708).
  */
 export const TODO_TOOLS_LINE =
   `Keep this task's todos with ${GladeTool.CreateTodo}, ${GladeTool.UpdateTodo} and ${GladeTool.ListTodos}: there ` +
   'is no TaskCreate, TaskUpdate, TaskList, TaskGet or TodoWrite here any more. A note on a todo (what it is for, ' +
-  "or where it stands) shows while it isn't done, not only while you're doing it. Set a todo waiting (instead of " +
-  "in_progress) when it can't move until the user reviews or decides something, and say what in its note."
+  "or where it stands) shows while it isn't done, not only while you're doing it. Set a todo waiting " +
+  `(${GladeTool.UpdateTodo} with status "waiting", instead of in_progress) when it can't move until the user ` +
+  'reviews or decides something, and say what in its note. It takes "waiting" even if the tool list you see ' +
+  "doesn't show it: a session that began before Glade added it keeps its first view of the tool."
 
 /** What the prompt says of an artifact's todo: `add_artifact` needs one. */
 export const TODO_HUB_ARTIFACTS_LINE = `An artifact goes under a todo too: give ${GladeTool.AddArtifact} the todo's id as todo, for a file and for a link.`
