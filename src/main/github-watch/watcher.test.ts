@@ -2,7 +2,16 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AgentRunner } from '../agent/runner'
 import { MIN_BACKOFF_MS } from './backoff'
 import type { PollOptions } from './poller'
+import { readGhToken } from './token'
 import { createGithubWatcher, type GithubWatcherOptions } from './watcher'
+
+// `gh` itself, faked: a watcher that builds its own token cache must never run the machine's `gh`.
+vi.mock('./token', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./token')>()),
+  readGhToken: vi.fn<(env: unknown) => Promise<string | null>>().mockResolvedValue('ghs_sample'),
+}))
+
+const LOGIN_ENV = { PATH: '/opt/homebrew/bin:/usr/bin:/bin' }
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -10,6 +19,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.mocked(readGhToken).mockClear()
 })
 
 function options(poll: (options: PollOptions) => Promise<number>): GithubWatcherOptions {
@@ -17,6 +27,7 @@ function options(poll: (options: PollOptions) => Promise<number>): GithubWatcher
     db: {} as never,
     emit: vi.fn(),
     runner: { send: vi.fn<AgentRunner['send']>(), queue: vi.fn<AgentRunner['queue']>() },
+    env: Promise.resolve(LOGIN_ENV),
     poll,
   }
 }
@@ -99,4 +110,38 @@ it('retries after a poll that throws, rather than stopping for good', async () =
 
   await vi.advanceTimersByTimeAsync(MIN_BACKOFF_MS)
   expect(poll).toHaveBeenCalledTimes(2)
+})
+
+it('builds its own token cache that reads the token in the login environment', async () => {
+  const polls: PollOptions[] = []
+  const poll = vi.fn((pollOptions: PollOptions) => {
+    polls.push(pollOptions)
+    return Promise.resolve(60_000)
+  })
+  const watcher = createGithubWatcher(options(poll))
+
+  watcher.start()
+  await vi.advanceTimersByTimeAsync(0)
+
+  expect(poll).toHaveBeenCalledOnce()
+  expect(await polls[0]?.tokenCache.get()).toBe('ghs_sample')
+  expect(readGhToken).toHaveBeenCalledWith(LOGIN_ENV)
+})
+
+it('hands every poll the same log and poll state, so a source is logged once and gh warned about once', async () => {
+  const polls: PollOptions[] = []
+  const poll = vi.fn((pollOptions: PollOptions) => {
+    polls.push(pollOptions)
+    return Promise.resolve(60_000)
+  })
+  const log = { warn: vi.fn(), with: () => log } as never
+  const watcher = createGithubWatcher({ ...options(poll), log })
+
+  watcher.start()
+  await vi.advanceTimersByTimeAsync(0)
+  await vi.advanceTimersByTimeAsync(60_000)
+
+  expect(poll).toHaveBeenCalledTimes(2)
+  expect(polls[0]?.log).toBe(log)
+  expect(polls[1]?.state).toBe(polls[0]?.state)
 })

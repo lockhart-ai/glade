@@ -57,6 +57,7 @@ One JSON object per line:
 | `control`       | Each call to the `glade-control` tools ([`control-api.md`](control-api.md)): the tool, the caller (the calling task's id, or `http`, over MCP or `/v1`), the task it acts on, how long it took, and `ok` or the error code. The text of a message it sends at debug, cut short. The HTTP endpoint starting (host, port, and the chosen port when it fell back), stopping and failing to start; the token regenerated; each request refused before a tool saw it (why: bad host, origin or token, no token, no such path or tool, wrong method, too large, not JSON, rate limited; the status, method and path); and a request failing inside Glade. Never a token. |
 | `menu-bar`      | Glade's icon in the menu bar added and removed (Settings › General › Show Glade in the menu bar), and its glyph's images missing. |
 | `renderer`      | Errors in the window: uncaught errors, unhandled rejections, and errors React caught (with its component stack). |
+| `github`        | The GitHub link watcher (#682): which way it polls (`graphql` with the `gh` token, or unauthenticated `rest`) each time that changes, a missing `gh` token once (`gh` not found on the login shell's `PATH`, or logged out, #718), and each rate-limit backoff with its wait. Never the token. |
 | `test-mode`     | The screenshot and e2e runs.                                                                              |
 
 ## Text and secrets

@@ -954,9 +954,19 @@ export function startApp({
 
     const { runner } = bridge
     void openrouter.refreshUsage()
-    // Polls every task's linked issues and PRs (#682), with the machine's `gh` token when there is one. Never runs
-    // in a test mode: a capture or an e2e spec must never read a real token or reach the network.
-    const githubWatcher = testMode === null ? createGithubWatcher({ db: database.db, emit: bridge.emit, runner }) : null
+    // Polls every task's linked issues and PRs (#682), with the machine's `gh` token when there is one — read in the
+    // agents' login environment, whose PATH has `gh` where the app's own may not (#718). Never runs in a test mode:
+    // a capture or an e2e spec must never read a real token or reach the network.
+    const githubWatcher =
+      testMode === null
+        ? createGithubWatcher({
+            db: database.db,
+            emit: bridge.emit,
+            runner,
+            env,
+            log: log.scoped(LogScope.Github),
+          })
+        : null
     githubWatcher?.start()
 
     // A spec files children under todos through main's own service, until the agent's tools do (P16).

@@ -19,24 +19,26 @@ function answerGh(error: Error | null, stdout: string): void {
   }) as unknown as typeof execFile)
 }
 
-it('reads the token with `gh auth token`, trimmed, with a timeout and no shell', async () => {
+it('reads the token with `gh auth token` in the environment it is given, trimmed, with a timeout and no shell', async () => {
   answerGh(null, 'ghs_sample\n')
 
-  expect(await readGhToken()).toBe('ghs_sample')
+  // The login environment's PATH, which has `gh` where the app's own may not (#718).
+  const env = { PATH: '/opt/homebrew/bin:/usr/bin:/bin' }
+  expect(await readGhToken(env)).toBe('ghs_sample')
   expect(execFile).toHaveBeenCalledWith(
     'gh',
     ['auth', 'token'],
-    { timeout: GH_TOKEN_TIMEOUT_MS, encoding: 'utf8' },
+    { env, timeout: GH_TOKEN_TIMEOUT_MS, encoding: 'utf8' },
     expect.any(Function),
   )
 })
 
 it('answers null when `gh` fails or prints nothing', async () => {
   answerGh(new Error('not logged in'), '')
-  expect(await readGhToken()).toBeNull()
+  expect(await readGhToken({})).toBeNull()
 
   answerGh(null, '  \n')
-  expect(await readGhToken()).toBeNull()
+  expect(await readGhToken({})).toBeNull()
 })
 
 it('reads the token once, and answers every call with it until invalidated', async () => {

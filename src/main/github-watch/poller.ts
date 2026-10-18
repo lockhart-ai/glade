@@ -18,12 +18,28 @@ import type { FetchedLinkState, WatchTarget } from './query'
 import { watchCandidates, type WatchCandidate } from './targets'
 import type { GithubTokenCache } from './token'
 import { linkChangeOf, wakeTasks, type LinkChange } from './wake'
+import type { Logger } from '../logging/logger'
+
+/** Which client a poll asked GitHub with. */
+export type GithubPollSource = 'graphql' | 'rest'
+
+/** What a watcher remembers between polls, so it logs a source only when it changes and warns about `gh` once. */
+export interface GithubPollState {
+  /** The source the last poll used, or null before the first one that asked GitHub anything. */
+  lastSource: GithubPollSource | null
+  /** Whether the missing-token warning has gone out; once, not on every poll (#718). */
+  warnedNoToken: boolean
+}
 
 export interface PollOptions {
   readonly db: Database
   readonly emit: Emit
   readonly runner: Pick<AgentRunner, 'send' | 'queue'>
   readonly tokenCache: GithubTokenCache
+  /** Where the poll's source, backoffs and missing token are logged; silent when left out. */
+  readonly log?: Logger
+  /** What to remember between polls, so a change is logged once; a fresh one when left out. */
+  readonly state?: GithubPollState
   /** The GraphQL request: injectable so a test never reaches the network. */
   readonly fetchGraphql?: typeof fetchWatchBatch
   /** The REST fallback's requests: injectable, same reason. */
@@ -55,15 +71,25 @@ async function fetchBatch(
   tokenCache: GithubTokenCache,
   fetchGraphql: typeof fetchWatchBatch,
   fetchRest: typeof fetchWatchBatchRest,
-): Promise<GraphqlBatchResult | RestBatchResult> {
+  log: Logger | undefined,
+  state: GithubPollState,
+): Promise<{ batch: GraphqlBatchResult | RestBatchResult; source: GithubPollSource }> {
   const token = await tokenCache.get()
-  if (token === null) return fetchRest(targets)
+  if (token === null) {
+    if (!state.warnedNoToken) {
+      log?.warn('github watch found no gh token, polling unauthenticated REST')
+      state.warnedNoToken = true
+    }
+    return { batch: await fetchRest(targets), source: 'rest' }
+  }
   const first = await fetchGraphql(token, targets)
-  if (first.outcome !== 'unauthorized') return first
+  if (first.outcome !== 'unauthorized') return { batch: first, source: 'graphql' }
   // The token may have been revoked or expired since it was cached: read it again, once, before falling back.
   tokenCache.invalidate()
   const retried = await tokenCache.get()
-  return retried === null ? fetchRest(targets) : fetchGraphql(retried, targets)
+  return retried === null
+    ? { batch: await fetchRest(targets), source: 'rest' }
+    : { batch: await fetchGraphql(retried, targets), source: 'graphql' }
 }
 
 /**
@@ -76,6 +102,7 @@ export async function pollGithubWatches(options: PollOptions): Promise<number> {
   const { db, emit, runner, tokenCache } = options
   const fetchGraphql = options.fetchGraphql ?? fetchWatchBatch
   const fetchRest = options.fetchRest ?? fetchWatchBatchRest
+  const state = options.state ?? { lastSource: null, warnedNoToken: false }
   const settings = getSettings(db)
   const intervalMs = Math.max(settings.githubWatchPollSeconds, 1) * 1000
 
@@ -84,13 +111,22 @@ export async function pollGithubWatches(options: PollOptions): Promise<number> {
   const toPoll = candidates.filter((candidate) => !candidate.todoDone)
   if (toPoll.length === 0) return intervalMs
 
-  const batch = await fetchBatch(
+  const { batch, source } = await fetchBatch(
     toPoll.map((candidate) => candidate.target),
     tokenCache,
     fetchGraphql,
     fetchRest,
+    options.log,
+    state,
   )
-  if (batch.outcome === 'backoff') return batch.waitMs
+  if (state.lastSource !== source) {
+    options.log?.info('github watch poll source', { source })
+    state.lastSource = source
+  }
+  if (batch.outcome === 'backoff') {
+    options.log?.info('github watch rate-limited, backing off', { waitMs: batch.waitMs })
+    return batch.waitMs
+  }
   if (batch.outcome === 'unauthorized') return intervalMs
 
   const wake = wakeSettingsOf(settings)
