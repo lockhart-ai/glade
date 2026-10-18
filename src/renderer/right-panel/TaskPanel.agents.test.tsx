@@ -119,10 +119,14 @@ const shownAgent = (): string | undefined =>
 const log = (): HTMLElement => screen.getByRole('log', { name: 'Tool log' })
 
 let scrollIntoView: ReturnType<typeof vi.fn>
+/** The todo list scrolling itself to a todo it shows (#734); jsdom has no `scrollTo` on elements. */
+let scrollTo: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   scrollIntoView = vi.fn()
   Element.prototype.scrollIntoView = scrollIntoView as unknown as Element['scrollIntoView']
+  scrollTo = vi.fn()
+  Element.prototype.scrollTo = scrollTo as unknown as Element['scrollTo']
 })
 
 describe('the right panel', () => {
@@ -305,19 +309,21 @@ describe('the right panel', () => {
       const head = document.activeElement
       expect(head).toHaveAttribute('data-todo-head')
       expect(head).toHaveTextContent('#503 Document the rate limits')
-      expect(scrollIntoView.mock.contexts.at(-1)).toBe(head?.closest('[data-todo="2"]'))
+      // Its list scrolled to it (#734: the list alone, never the window around it).
+      expect(scrollTo).toHaveBeenCalledOnce()
+      expect(scrollIntoView).not.toHaveBeenCalled()
     })
 
     it('is shown once, not again when you come back to the Todos tab', async () => {
       const { store } = await renderPanel({ agentTabs: { t1: 'docs-503' }, uiState: ON_AGENTS })
       fireEvent.click(screen.getByRole('button', { name: '#503 Document the rate limits' }))
       await act(() => Promise.resolve())
-      scrollIntoView.mockClear()
+      scrollTo.mockClear()
 
       fireEvent.click(panelTab(/^Files/))
       fireEvent.click(panelTab(/^Todos/))
       await act(() => Promise.resolve())
-      expect(scrollIntoView).not.toHaveBeenCalled()
+      expect(scrollTo).not.toHaveBeenCalled()
 
       // Asked for again, it is.
       act(() => {
@@ -334,7 +340,7 @@ describe('the right panel', () => {
         store.getState().showTodo('t1', '7')
       })
       expect(panelTab(/^Todos/)).toHaveAttribute('aria-selected', 'true')
-      expect(scrollIntoView).not.toHaveBeenCalled()
+      expect(scrollTo).not.toHaveBeenCalled()
 
       act(() => {
         fake.emit({
@@ -344,7 +350,7 @@ describe('the right panel', () => {
         })
       })
       expect(document.activeElement).toHaveTextContent('Draft the release notes')
-      expect(scrollIntoView).toHaveBeenCalledOnce()
+      expect(scrollTo).toHaveBeenCalledOnce()
     })
   })
 })
