@@ -407,10 +407,6 @@ export function ToolLog({
   // when its tab opens. The scroll keeps its place while the page goes in above.
   const store = useGladeStoreApi()
   const loadOlderOnScroll = useLoadOlderOnScroll(ref, taskId, agentId === null)
-  // Whether the task's history has loaded (#674): while it loads, as on a cold task switch (#637), the log is blank
-  // rather than flashing "No tool calls yet." at a log that has calls. A subagent's tab loads its own log whole,
-  // which is here by then.
-  const historyLoaded = useGladeStore((state) => agentId !== null || state.historyTails[taskId] !== undefined)
   const firstRow = rows[0]
   const firstId =
     firstRow === undefined
@@ -478,13 +474,7 @@ export function ToolLog({
     void show()
   }, [focus, onFocusShown, ref, store, taskId])
 
-  if (rows.length === 0) {
-    // The empty log keeps its scroller while history loads (#674), so what fills in doesn't move the pane.
-    if (!historyLoaded) {
-      return <div ref={ref} onScroll={onLogScroll} role="log" aria-label="Tool log" className={styles.scroller} />
-    }
-    return <p className={styles.empty}>No tool calls yet.</p>
-  }
+  if (rows.length === 0) return <p className={styles.empty}>No tool calls yet.</p>
 
   const seen = new Set<number>()
   return (
