@@ -16,6 +16,7 @@ import { BroadcastDelivery, receivesBroadcast, type BroadcastOutcome } from '../
 import {
   DividerKind,
   MessageRole,
+  MessageSource,
   PauseReason,
   PermissionDecisionKind,
   PermissionMode,
@@ -159,17 +160,20 @@ async function broadcast(text = TEXT, taskIds?: readonly string[]): Promise<read
 
 /** A task's chat, as its text and whether each message was a broadcast. */
 function chat(id: string): unknown[] {
-  return listMessages(database.db, id).map(({ role, body, turn, broadcast: flag }) => ({
+  return listMessages(database.db, id).map(({ role, body, turn, source }) => ({
     role,
     body,
     turn,
-    broadcast: flag,
+    broadcast: source === MessageSource.Broadcast,
   }))
 }
 
 /** A task's queue, as its text and whether each message is a broadcast. */
 function queued(id: string): unknown[] {
-  return listQueuedMessages(database.db, id).map(({ body, broadcast: flag }) => ({ body, broadcast: flag }))
+  return listQueuedMessages(database.db, id).map(({ body, source }) => ({
+    body,
+    broadcast: source === MessageSource.Broadcast,
+  }))
 }
 
 /** The turn dividers in a task's tool log: one per turn started. */
@@ -602,7 +606,7 @@ describe('who gets it', () => {
     }
     for (const { id } of [busy, held, questioned, permitted]) {
       expect(queued(id)).toEqual([{ body: TEXT, broadcast: true }])
-      expect(listMessages(database.db, id).some((message) => message.broadcast)).toBe(false)
+      expect(listMessages(database.db, id).some((message) => message.source === MessageSource.Broadcast)).toBe(false)
     }
     expect(chat(done.id)).toEqual([])
     expect(queued(done.id)).toEqual([])
@@ -711,7 +715,7 @@ describe('what the window hears', () => {
     const [batch = []] = batches
     expect(batch).toContainEqual({
       type: EventType.MessageAppended,
-      message: expect.objectContaining({ taskId: idle.id, body: TEXT, broadcast: true }) as unknown,
+      message: expect.objectContaining({ taskId: idle.id, body: TEXT, source: MessageSource.Broadcast }) as unknown,
     })
     expect(batch).toContainEqual({
       type: EventType.TaskUpdated,
@@ -720,7 +724,7 @@ describe('what the window hears', () => {
     expect(batch).toContainEqual({
       type: EventType.QueueChanged,
       taskId: busy.id,
-      queuedMessages: [expect.objectContaining({ body: TEXT, broadcast: true })],
+      queuedMessages: [expect.objectContaining({ body: TEXT, source: MessageSource.Broadcast })],
     })
   })
 
@@ -761,9 +765,9 @@ describe('what the window hears', () => {
     launch()
 
     const sentHistory = await glade.invoke(CommandName.TasksHistory, { id: idle.id })
-    expect(sentHistory.messages).toMatchObject([{ body: TEXT, broadcast: true }])
+    expect(sentHistory.messages).toMatchObject([{ body: TEXT, source: MessageSource.Broadcast }])
     const queuedHistory = await glade.invoke(CommandName.TasksHistory, { id: held.id })
-    expect(queuedHistory.queuedMessages).toMatchObject([{ body: TEXT, broadcast: true }])
+    expect(queuedHistory.queuedMessages).toMatchObject([{ body: TEXT, source: MessageSource.Broadcast }])
   })
 })
 

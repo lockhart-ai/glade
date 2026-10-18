@@ -13,6 +13,7 @@ import {
 } from './session-context'
 import {
   FINAL_REPLY_LINE,
+  GITHUB_LINK_WATCH_LINE,
   handoffSection,
   INSTRUCTION_UPDATES,
   LINK_ARTIFACTS_LINE,
@@ -73,6 +74,7 @@ describe('what a session is missing', () => {
         TODO_TOOLS_LINE,
         USAGE_NOTES_LINE,
         TODO_LINKS_LINE,
+        GITHUB_LINK_WATCH_LINE,
       ],
     }
 
@@ -95,6 +97,7 @@ describe('what a session is missing', () => {
           TODO_TOOLS_LINE,
           USAGE_NOTES_LINE,
           TODO_LINKS_LINE,
+          GITHUB_LINK_WATCH_LINE,
         ],
       },
       TODO_HUB,
@@ -110,6 +113,7 @@ describe('what a session is missing', () => {
           TODO_TOOLS_LINE,
           USAGE_NOTES_LINE,
           TODO_LINKS_LINE,
+          GITHUB_LINK_WATCH_LINE,
         ],
       },
     ])
@@ -117,7 +121,14 @@ describe('what a session is missing', () => {
     expect(missingContext(check({ recorded: has(1) }))).toEqual([
       {
         kind: MissingContextKind.Updates,
-        updates: [LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE, USAGE_NOTES_LINE, TODO_LINKS_LINE],
+        updates: [
+          LINK_ARTIFACTS_LINE,
+          OTHER_TASKS_LINE,
+          TODO_TOOLS_LINE,
+          USAGE_NOTES_LINE,
+          TODO_LINKS_LINE,
+          GITHUB_LINK_WATCH_LINE,
+        ],
       },
     ])
   })
@@ -165,6 +176,7 @@ describe('what a session is missing of the sandbox', () => {
           TODO_TOOLS_LINE,
           USAGE_NOTES_LINE,
           TODO_LINKS_LINE,
+          GITHUB_LINK_WATCH_LINE,
         ],
       },
       sandbox,
@@ -176,7 +188,14 @@ describe('what a session is missing of the sandbox', () => {
     expect(missingContext(check({ recorded: has(1), handoff: HANDOFF, sandboxed: true }))).toEqual([
       {
         kind: MissingContextKind.Updates,
-        updates: [LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE, USAGE_NOTES_LINE, TODO_LINKS_LINE],
+        updates: [
+          LINK_ARTIFACTS_LINE,
+          OTHER_TASKS_LINE,
+          TODO_TOOLS_LINE,
+          USAGE_NOTES_LINE,
+          TODO_LINKS_LINE,
+          GITHUB_LINK_WATCH_LINE,
+        ],
       },
       sandbox,
       { kind: MissingContextKind.Handoff, handoff: HANDOFF },
@@ -250,6 +269,7 @@ describe('what a session is missing of the todo hub', () => {
           TODO_TOOLS_LINE,
           USAGE_NOTES_LINE,
           TODO_LINKS_LINE,
+          GITHUB_LINK_WATCH_LINE,
         ],
       },
       todoHub,
@@ -260,7 +280,14 @@ describe('what a session is missing of the todo hub', () => {
     expect(missingContext(check({ recorded: has(1, null, false, false), handoff: HANDOFF, sandboxed: true }))).toEqual([
       {
         kind: MissingContextKind.Updates,
-        updates: [LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE, USAGE_NOTES_LINE, TODO_LINKS_LINE],
+        updates: [
+          LINK_ARTIFACTS_LINE,
+          OTHER_TASKS_LINE,
+          TODO_TOOLS_LINE,
+          USAGE_NOTES_LINE,
+          TODO_LINKS_LINE,
+          GITHUB_LINK_WATCH_LINE,
+        ],
       },
       { kind: MissingContextKind.Sandbox },
       todoHub,

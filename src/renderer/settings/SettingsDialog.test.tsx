@@ -92,6 +92,7 @@ describe('SettingsDialog', () => {
       'Keyboard',
       'Plugins',
       'Control',
+      'GitHub watching',
       'Acme API',
     ])
     expect(nav).toHaveTextContent('Workspace')

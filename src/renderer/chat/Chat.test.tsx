@@ -6,6 +6,7 @@ import {
   CompactionTrigger,
   DividerKind,
   MessageRole,
+  MessageSource,
   PauseReason,
   QuestionSetState,
   RefusalScope,
@@ -45,7 +46,7 @@ import {
   sampleWorkspace,
   type FakeBridge,
 } from '../store/test-bridge'
-import { BROADCAST_TAG } from './BroadcastTag'
+import { SOURCE_TAG_LABELS } from './SourceTag'
 import { clockTime } from './chatModel'
 import { Chat } from './Chat'
 import { setHomeFolder } from '../../shared/homeFolder'
@@ -67,7 +68,7 @@ const ASK: Message = {
   images: [],
   pastedBlocks: [],
   files: [],
-  broadcast: false,
+  source: null,
 }
 const REPLY: Message = {
   id: 'm2',
@@ -80,7 +81,7 @@ const REPLY: Message = {
   images: [],
   pastedBlocks: [],
   files: [],
-  broadcast: false,
+  source: null,
 }
 
 const PREAMBLE = 'Looking at how the API views are set up.'
@@ -299,24 +300,41 @@ describe('Chat', () => {
   })
 
   it('tags a message you broadcast, to the left of "you" and its time, and no other', async () => {
+    const tag = SOURCE_TAG_LABELS[MessageSource.Broadcast]
     const broadcast: Message = {
       ...ASK,
       id: 'm3',
       body: 'Is anyone restarting Docker?',
       turn: 2,
       createdAt: REPLIED_AT + 60_000,
-      broadcast: true,
+      source: MessageSource.Broadcast,
     }
     await renderChat({ messages: [ASK, REPLY, broadcast] })
 
     const [own, sent] = screen.getAllByRole('article', { name: 'You' })
     expect(own).toHaveTextContent(`${ASK.body}you · ${clockTime(ASKED_AT)}`)
-    expect(own).not.toHaveTextContent(BROADCAST_TAG)
-    expect(sent).toHaveTextContent(
-      `Is anyone restarting Docker?${BROADCAST_TAG}you · ${clockTime(broadcast.createdAt)}`,
-    )
+    expect(own).not.toHaveTextContent(tag)
+    expect(sent).toHaveTextContent(`Is anyone restarting Docker?${tag}you · ${clockTime(broadcast.createdAt)}`)
     // The agent's replies are never tagged.
-    expect(within(screen.getByRole('article', { name: 'Agent' })).queryByText(BROADCAST_TAG)).not.toBeInTheDocument()
+    expect(within(screen.getByRole('article', { name: 'Agent' })).queryByText(tag)).not.toBeInTheDocument()
+  })
+
+  it('tags a note left by one of Glade’s own watchers (the GitHub link watcher, #682) as its own source', async () => {
+    const tag = SOURCE_TAG_LABELS[MessageSource.Github]
+    const note: Message = {
+      ...ASK,
+      id: 'm4',
+      body: 'PR #2537 Port the chat cases: CI failed (13/14); 2 new comments',
+      turn: 2,
+      createdAt: REPLIED_AT + 60_000,
+      source: MessageSource.Github,
+    }
+    await renderChat({ messages: [ASK, REPLY, note] })
+
+    const [, sent] = screen.getAllByRole('article', { name: 'You' })
+    expect(sent).toHaveTextContent(`${note.body}${tag}you · ${clockTime(note.createdAt)}`)
+    // Broadcast's own tag never shows for a note from a different source.
+    expect(sent).not.toHaveTextContent(SOURCE_TAG_LABELS[MessageSource.Broadcast])
   })
 
   it('shows your message on the right and the agent’s reply as Markdown, each with its time', async () => {

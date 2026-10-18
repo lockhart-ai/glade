@@ -50,7 +50,7 @@ import { Markdown } from './Markdown'
 import { ImageThumbnails } from '../images/ImageThumbnails'
 import { MessageFiles } from '../attached-files/MessageFiles'
 import { LinkedText } from '../links'
-import { BroadcastTag } from './BroadcastTag'
+import { SourceTag } from './SourceTag'
 import { PastedBlockRow } from './PastedBlockRow'
 import { useSearchHighlight } from '../search/Highlight'
 import { useRevealMatch } from '../search/useRevealMatch'
@@ -98,8 +98,8 @@ const UserMessage = memo(function UserMessage({ message, highlight }: UserEntry 
         </div>
       )}
       <span className={styles.userMeta}>
-        {/* A message you sent to every active task at once says so (#489). */}
-        {message.broadcast && <BroadcastTag />}
+        {/* A message that isn't your own words says where it came from (#489, #682). */}
+        {message.source !== null && <SourceTag source={message.source} />}
         <span className={styles.meta}>you · {clockTime(message.createdAt)}</span>
       </span>
     </article>

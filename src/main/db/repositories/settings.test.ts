@@ -41,6 +41,18 @@ describe('settings', () => {
     expect(updateSettings(test.db, { statusSummary: false })).toEqual({ ...DEFAULT_SETTINGS, statusSummary: false })
   })
 
+  it('store the GitHub link watcher’s poll interval and toggles (#682), and fall back on one too short to poll', () => {
+    expect(updateSettings(test.db, { githubWatchPollSeconds: 120, githubWatchOnNewCommits: false })).toEqual({
+      ...DEFAULT_SETTINGS,
+      githubWatchPollSeconds: 120,
+      githubWatchOnNewCommits: false,
+    })
+
+    test.db.prepare("UPDATE settings SET value = '5' WHERE key = 'githubWatchPollSeconds'").run()
+
+    expect(getSettings(test.db).githubWatchPollSeconds).toBe(DEFAULT_SETTINGS.githubWatchPollSeconds)
+  })
+
   it('skips an empty patch and keys set to undefined', () => {
     expect(updateSettings(test.db, { taskTitles: undefined })).toEqual(DEFAULT_SETTINGS)
     expect(test.db.prepare('SELECT COUNT(*) FROM settings').pluck().get()).toBe(0)

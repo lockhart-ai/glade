@@ -3,7 +3,12 @@ import { z } from 'zod'
 import { MAX_CONTROL_PORT, MIN_CONTROL_PORT } from '../../../shared/control'
 import { Effort, PermissionMode } from '../../../shared/domain'
 import { hasShortcut, parseChord, type KeyBindingOverrides } from '../../../shared/keymap'
-import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../../shared/settings'
+import {
+  DEFAULT_SETTINGS,
+  MIN_GITHUB_WATCH_POLL_SECONDS,
+  type Settings,
+  type SettingsPatch,
+} from '../../../shared/settings'
 import { Row } from './rows'
 
 /**
@@ -33,6 +38,11 @@ export const SETTING_SCHEMAS: { readonly [K in keyof Settings]: z.ZodType<Settin
   // A step: 1–50 percent of a window, 1–1000 dollars of OpenRouter spend; null sends no note.
   usageNoteStepPercent: z.int().min(1).max(50).nullable(),
   usageNoteStepDollars: z.int().min(1).max(1000).nullable(),
+  githubWatchPollSeconds: z.int().min(MIN_GITHUB_WATCH_POLL_SECONDS),
+  githubWatchOnStateChange: z.boolean(),
+  githubWatchOnChecksFinished: z.boolean(),
+  githubWatchOnReviewsComments: z.boolean(),
+  githubWatchOnNewCommits: z.boolean(),
 }
 
 /** A stored value as its setting, or undefined when it isn't valid JSON of the right shape. */
@@ -76,6 +86,11 @@ export function getSettings(db: Database): Settings {
     sandboxEnabled: read('sandboxEnabled'),
     usageNoteStepPercent: read('usageNoteStepPercent'),
     usageNoteStepDollars: read('usageNoteStepDollars'),
+    githubWatchPollSeconds: read('githubWatchPollSeconds'),
+    githubWatchOnStateChange: read('githubWatchOnStateChange'),
+    githubWatchOnChecksFinished: read('githubWatchOnChecksFinished'),
+    githubWatchOnReviewsComments: read('githubWatchOnReviewsComments'),
+    githubWatchOnNewCommits: read('githubWatchOnNewCommits'),
   }
 }
 

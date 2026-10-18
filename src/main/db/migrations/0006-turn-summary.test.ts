@@ -49,7 +49,7 @@ it('leaves existing messages without a summary, and refuses negative counts', ()
       images: [],
       pastedBlocks: [],
       files: [],
-      broadcast: false,
+      source: null,
       seq: expect.any(Number) as unknown,
     },
   ])

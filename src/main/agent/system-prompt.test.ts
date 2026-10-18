@@ -6,6 +6,7 @@ import {
   DELEGATED_CHILD_PROMPT,
   delegatedChildPrompt,
   FINAL_REPLY_LINE,
+  GITHUB_LINK_WATCH_LINE,
   HANDOFF_HEADING,
   handoffSection,
   INSTRUCTION_UPDATES,
@@ -65,9 +66,14 @@ describe('systemPromptAppend', () => {
         'Before starting work on an existing pull request, issue or branch, call list_other_tasks and check that no ' +
           'other task already has it among its links or in its Goal or Now; if one does, stop and ask.',
         '',
-        'When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the ' +
+        'When you leave a script running to watch something (CI, a deploy, a remote job), start it with the ' +
           "Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows " +
           "in the task's Agents tab.",
+        '',
+        "Every issue and pull request you've added as a link artifact is watched for you: Glade polls it and tells " +
+          'you here when its state changes, its CI finishes, it gets a review or a comment, or it gets new commits. ' +
+          'Make no watch script of your own for one of these; the Monitor tool is for watching something else (a ' +
+          'deploy, a remote job, CI you have not linked as a PR).',
         '',
         TODO_TOOLS_LINE,
         '',
@@ -107,6 +113,7 @@ describe('systemPromptAppend', () => {
       TODO_TOOLS_LINE,
       USAGE_NOTES_LINE,
       TODO_LINKS_LINE,
+      GITHUB_LINK_WATCH_LINE,
     ])
     for (const update of INSTRUCTION_UPDATES) expect(systemPromptAppend(task)).toContain(update)
   })
@@ -282,6 +289,7 @@ describe("the todo hub's lines", () => {
       TODO_TOOLS_LINE,
       USAGE_NOTES_LINE,
       TODO_LINKS_LINE,
+      GITHUB_LINK_WATCH_LINE,
     ])
   })
 

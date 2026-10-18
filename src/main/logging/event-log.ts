@@ -338,8 +338,10 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
       case EventType.LoginChanged:
         // The login logs its start and end itself, and never what it prints (the sign-in page's one-time link).
         return
+      case EventType.GithubWatchChanged:
       case EventType.MenuBarChanged:
-        // Sent to the menu bar popover alone, never through here: what's in it is logged as the tasks change.
+        // A watched link's state isn't logged: it's in the database, and its title may name a private project. The
+        // menu bar's is sent to its popover alone, never through here: what's in it is logged as the tasks change.
         return
       case EventType.SandboxGrantsChanged:
         // How many, never which: a granted folder's path may name a project.

@@ -51,7 +51,7 @@
           "body": "Is anyone restarting Docker? If it's you, stop and tell me why.",
           "turn": 2,
           "minutesAgo": 1,
-          "broadcast": true
+          "source": "broadcast"
         },
         {
           "role": "agent",

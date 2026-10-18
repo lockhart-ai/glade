@@ -15,6 +15,7 @@ import {
 import { EMPTY_MENU_BAR_SNAPSHOT, type MenuBarSnapshot } from '../../shared/menuBar'
 import type { Grant, SettingsGrantTarget } from '../../shared/sandbox'
 import type { Command } from '../../shared/commands'
+import type { GithubLinkWatch } from '../../shared/githubWatch'
 import {
   Effort,
   FileContentKind,
@@ -596,6 +597,9 @@ describe('events', () => {
           break
         case EventType.OpenFilesChanged:
           expectTypeOf(event.openFiles).toEqualTypeOf<OpenFiles>()
+          break
+        case EventType.GithubWatchChanged:
+          expectTypeOf(event.watch).toEqualTypeOf<GithubLinkWatch>()
           break
         case EventType.FileChanged:
           expectTypeOf(event.version).toEqualTypeOf<number>()
