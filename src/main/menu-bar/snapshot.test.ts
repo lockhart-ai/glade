@@ -83,7 +83,7 @@ it('reads the working tasks with their todos and when their current turn started
     { activity: TaskActivity.Working, status: 'Running the tests' },
     9_000,
   )
-  setTaskTodos(test.db, task, { done: 3, total: 7, doing: ['Run the tests'] })
+  setTaskTodos(test.db, task, { done: 3, total: 7, doing: ['Run the tests'], waiting: [] })
   appendMessage(test.db, { taskId: task, role: MessageRole.User, body: 'Fix it', turn: 1 }, 4_000)
   appendMessage(test.db, { taskId: task, role: MessageRole.Agent, body: 'Fixed.', turn: 1 }, 5_000)
   appendMessage(test.db, { taskId: task, role: MessageRole.User, body: 'And the other one', turn: 2 }, 7_000)
@@ -98,7 +98,7 @@ it('reads the working tasks with their todos and when their current turn started
       workspaceId: workspace.id,
       workspaceName: 'Acme API',
       status: 'Running the tests',
-      todos: { done: 3, total: 7, doing: ['Run the tests'] },
+      todos: { done: 3, total: 7, doing: ['Run the tests'], waiting: [] },
       pause: null,
       startedAt: 7_000,
     },

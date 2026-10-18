@@ -27,13 +27,17 @@ import {
 import { taskChildren, type FilingContext } from '../todo-hub/todo-hub'
 import { refreshTodos, todoListFor } from './todos'
 
-/** `update_todo`'s `status`, in the built-ins' own words; `deleted` removes the todo instead of changing its state. */
-export type TodoToolStatus = 'pending' | 'in_progress' | 'completed' | 'deleted'
+/**
+ * `update_todo`'s `status`, in the built-ins' own words, plus Glade's own `waiting` (#680); `deleted` removes the
+ * todo instead of changing its state.
+ */
+export type TodoToolStatus = 'pending' | 'in_progress' | 'completed' | 'waiting' | 'deleted'
 
-const STATUS_TO_STATE: Readonly<Record<'pending' | 'in_progress' | 'completed', TodoState>> = {
+const STATUS_TO_STATE: Readonly<Record<'pending' | 'in_progress' | 'completed' | 'waiting', TodoState>> = {
   pending: TodoState.Todo,
   in_progress: TodoState.Doing,
   completed: TodoState.Done,
+  waiting: TodoState.Waiting,
 }
 
 const STATE_TO_STATUS: Readonly<Record<TodoState, string>> = {

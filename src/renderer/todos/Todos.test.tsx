@@ -13,8 +13,19 @@ describe('a todo’s icon (#308)', () => {
     expect(svg?.querySelector('path')?.getAttribute('class')).toMatch(/check/)
   })
 
-  it.each([TodoState.Todo, TodoState.Waiting])('draws %s as a hollow ring, unfilled and unticked', (state) => {
-    const svg = icon(state).querySelector('svg')
+  it('draws waiting as a filled circle with a question mark cut out of it (#680), not the done check', () => {
+    const svg = icon(TodoState.Waiting).querySelector('svg')
+
+    expect(svg?.querySelector('circle')).toHaveAttribute('fill', 'currentColor')
+    expect(svg?.querySelector('path')).toBeNull()
+    const mark = svg?.querySelector('text')
+    expect(mark).not.toBeNull()
+    expect(mark?.textContent).toBe('?')
+    expect(mark?.getAttribute('class')).toMatch(/questionMark/)
+  })
+
+  it('draws todo as a hollow ring, unfilled and unticked', () => {
+    const svg = icon(TodoState.Todo).querySelector('svg')
 
     expect(svg).toHaveAttribute('stroke', 'currentColor')
     expect(svg?.querySelector('circle')).not.toHaveAttribute('fill')

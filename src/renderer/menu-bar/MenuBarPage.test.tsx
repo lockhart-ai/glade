@@ -39,7 +39,7 @@ const WORKING: WorkingItem = {
   workspaceId: 'w1',
   workspaceName: 'Acme API',
   status: 'Running the timezone tests',
-  todos: { done: 3, total: 7, doing: ['Run the tests'] },
+  todos: { done: 3, total: 7, doing: ['Run the tests'], waiting: [] },
   pause: null,
   startedAt: NOW - 40_000,
 }

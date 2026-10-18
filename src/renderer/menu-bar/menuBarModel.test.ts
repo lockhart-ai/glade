@@ -124,7 +124,7 @@ describe('menuBarSections', () => {
   })
 
   it('shows a working task’s status, todo progress and how long its turn has run', () => {
-    const todos = { done: 3, total: 7, doing: ['Run the tests'] }
+    const todos = { done: 3, total: 7, doing: ['Run the tests'], waiting: [] }
     const [section] = menuBarSections(snapshot({ working: [working('a', { todos })] }), NOW)
     expect(section).toEqual({
       kind: MenuBarSectionKind.Working,
@@ -133,7 +133,11 @@ describe('menuBarSections', () => {
   })
 
   it('shows progress from none done to all done, and no bar without a list', () => {
-    const progress = [{ done: 0, total: 4, doing: [] }, { done: 4, total: 4, doing: [] }, null].map((todos) => {
+    const progress = [
+      { done: 0, total: 4, doing: [], waiting: [] },
+      { done: 4, total: 4, doing: [], waiting: [] },
+      null,
+    ].map((todos) => {
       const [section] = menuBarSections(snapshot({ working: [working('a', { todos })] }), NOW)
       return section?.kind === MenuBarSectionKind.Working ? section.rows[0]?.progress : undefined
     })

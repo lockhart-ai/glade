@@ -20,8 +20,9 @@ export const STATE_LABELS: Readonly<Record<TodoState, string>> = {
 }
 
 /**
- * An item's icon (#308): a filled teal check once it's done, and a hollow ring before it's started (or while it waits
- * on you), so done and not done tell apart at a glance; while it's being worked on, a ring with a dot in it.
+ * An item's icon (#308, #680): a filled teal check once it's done, a filled purple circle with a "?" while it waits
+ * on you, and a hollow ring before it's started, so none of the three reads as another at a glance; while it's being
+ * worked on, a ring with a dot in it.
  */
 export function StateIcon({ state }: { readonly state: TodoState }): React.JSX.Element {
   switch (state) {
@@ -44,8 +45,16 @@ export function StateIcon({ state }: { readonly state: TodoState }): React.JSX.E
           />
         </svg>
       )
-    case TodoState.Todo:
     case TodoState.Waiting:
+      return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="10" fill="currentColor" />
+          <text x="12" y="16.5" textAnchor="middle" className={styles.questionMark}>
+            ?
+          </text>
+        </svg>
+      )
+    case TodoState.Todo:
       return (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="12" cy="12" r="8" />

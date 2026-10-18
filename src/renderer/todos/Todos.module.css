@@ -12,6 +12,14 @@
   stroke: var(--color-panel);
 }
 
+/* The "?", cut out of the filled purple circle in the panel's colour, the same way the tick is (#680). */
+.questionMark {
+  fill: var(--color-panel);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .doingRing {
   width: 12px;
   height: 12px;
