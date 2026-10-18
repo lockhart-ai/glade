@@ -15,10 +15,10 @@ import {
 } from './panelModel'
 
 describe('the panel’s tabs', () => {
-  it('are Agents · Files · Todos, in tab bar order, starting on Agents', () => {
-    expect(PANEL_TABS).toEqual(['agents', 'files', 'todos'])
+  it('are Todos · Agents · Files, in tab bar order, starting on Todos', () => {
+    expect(PANEL_TABS).toEqual(['todos', 'agents', 'files'])
     expect(Object.values(PanelTab)).toEqual([...PANEL_TABS])
-    expect(FIRST_PANEL_TAB).toBe(PanelTab.Agents)
+    expect(FIRST_PANEL_TAB).toBe(PanelTab.Todos)
   })
 })
 
@@ -62,10 +62,10 @@ describe('activePanelTab', () => {
   })
 
   it("falls back to the panel's first tab for a task with none remembered", () => {
-    expect(activePanelTab({}, 't1')).toBe(PanelTab.Agents)
+    expect(activePanelTab({}, 't1')).toBe(PanelTab.Todos)
     expect(
       activePanelTab({ [UiStateKey.RightPanelTabs]: serializePanelTabSelection({ t2: PanelTab.Todos }) }, 't1'),
-    ).toBe(PanelTab.Agents)
+    ).toBe(PanelTab.Todos)
   })
 
   it('keeps a tab the three have', () => {
@@ -129,7 +129,7 @@ describe('withoutPanelTabEntry', () => {
 })
 
 describe('tabForDigit', () => {
-  it('maps 1–3 to Agents · Files · Todos, and nothing else', () => {
+  it('maps 1–3 to Todos · Agents · Files, and nothing else', () => {
     expect([1, 2, 3].map((digit) => tabForDigit(digit))).toEqual([...PANEL_TABS])
     expect([0, 4, 5, 6, 7, 8].map((digit) => tabForDigit(digit))).toEqual(Array(6).fill(undefined))
   })

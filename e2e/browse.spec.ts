@@ -55,7 +55,7 @@ test('browse: the workspace’s tree and search in the Files tab, opening files,
 
   // Files opens on the Browse tab: the root's entries, folders first, without what git ignores or Glade's own folder.
   const files = filesTab(window)
-  await window.keyboard.press('Meta+Alt+Digit2')
+  await window.keyboard.press('Meta+Alt+Digit3')
   await expect(files.browse).toHaveAttribute('aria-pressed', 'true')
   await expect.poll(() => rowNames(files)).toEqual(['api', 'docs', '.gitignore', 'CLAUDE.md', 'notes.txt', 'README.md'])
 
@@ -162,7 +162,7 @@ test('browse: each row’s icon and size, a long name cut in the middle, the hov
   await inputBar(window).field.press('Enter')
   await expect(chat(window).agentReplies.last()).toBeVisible()
   const files = filesTab(window)
-  await window.keyboard.press('Meta+Alt+Digit2')
+  await window.keyboard.press('Meta+Alt+Digit3')
   await expect(files.browse).toHaveAttribute('aria-pressed', 'true')
   await files.treeRow('api').click()
   await files.treeRow('tests').click()

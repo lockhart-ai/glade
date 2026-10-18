@@ -1731,15 +1731,15 @@ describe('right panel tab per task (#689)', () => {
   it("keeps each task's own tab, switching back and forth", async () => {
     const { store } = await hydrated()
 
-    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 't1', PanelTab.Todos))
+    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 't1', PanelTab.Agents))
     await store.getState().selectTask('t2')
-    // t2 has never chosen one: it opens on the first tab, not t1's Todos.
-    expect(activePanelTab(store.getState().uiState, 't2')).toBe(PanelTab.Agents)
+    // t2 has never chosen one: it opens on the first tab, Todos, not t1's Agents.
+    expect(activePanelTab(store.getState().uiState, 't2')).toBe(PanelTab.Todos)
 
     await store.getState().setUiState(panelTabEntry(store.getState().uiState, 't2', PanelTab.Files))
     await store.getState().selectTask('t1')
 
-    expect(activePanelTab(store.getState().uiState, 't1')).toBe(PanelTab.Todos)
+    expect(activePanelTab(store.getState().uiState, 't1')).toBe(PanelTab.Agents)
     await store.getState().selectTask('t2')
     expect(activePanelTab(store.getState().uiState, 't2')).toBe(PanelTab.Files)
   })
@@ -1747,8 +1747,8 @@ describe('right panel tab per task (#689)', () => {
   it("opens a task with none remembered on the panel's first tab", async () => {
     const { store } = await hydrated()
 
-    expect(activePanelTab(store.getState().uiState, 't1')).toBe(PanelTab.Agents)
-    expect(activePanelTab(store.getState().uiState, 't2')).toBe(PanelTab.Agents)
+    expect(activePanelTab(store.getState().uiState, 't1')).toBe(PanelTab.Todos)
+    expect(activePanelTab(store.getState().uiState, 't2')).toBe(PanelTab.Todos)
   })
 
   it('drops a deleted task’s entry, keeping every other task’s', async () => {

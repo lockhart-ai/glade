@@ -58,6 +58,9 @@ test('a lost login stops the task with a Log in card, and logging in carries the
   await expectLoggedOut(window)
   await chat(window).errorButton('Show details').click()
   await expect(chat(window).errorDetails).toHaveText(LOGIN_EXPIRED_ERROR)
+  await taskPanel(window)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(window).call(/^Failed\s*API/)).toContainText('authentication failed')
 
   // Log in runs the login and waits on the browser; Cancel stops it.

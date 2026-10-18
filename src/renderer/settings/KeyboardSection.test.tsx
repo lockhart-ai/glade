@@ -85,7 +85,7 @@ describe('KeyboardSection', () => {
     expect(keycap('Switch workspace: ⌘1 – ⌘9')).toBeInTheDocument()
     expect(keycap('Next task: ⌥↓')).toBeInTheDocument()
     expect(keycap('Previous task: ⌥↑')).toBeInTheDocument()
-    expect(keycap('Agents · Files · Todos: ⌘⌥1–3')).toBeInTheDocument()
+    expect(keycap('Todos · Agents · Files: ⌘⌥1–3')).toBeInTheDocument()
     // No row for the tabs the panel no longer has (#501).
     expect(screen.queryByText(/Tool calls|Artifacts|Subagents|Watchers|Changes/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Reset/ })).not.toBeInTheDocument()
@@ -227,7 +227,7 @@ describe('KeyboardSection', () => {
     startRecording('Switch workspace: ⌘1 – ⌘9')
     press({ key: '3', code: 'Digit3', ctrlKey: true })
     await act(() => Promise.resolve())
-    startRecording('Agents · Files · Todos: ⌘⌥1–3')
+    startRecording('Todos · Agents · Files: ⌘⌥1–3')
     press({ key: '™', code: 'Digit2', ctrlKey: true, altKey: true })
     await act(() => Promise.resolve())
 
@@ -236,9 +236,9 @@ describe('KeyboardSection', () => {
       [WindowCommandId.ShowPanelTab]: 'Ctrl+Alt+1',
     })
     expect(keycap('Switch workspace: ⌃1 – ⌃9')).toBeInTheDocument()
-    expect(keycap('Agents · Files · Todos: ⌃⌥1–3')).toBeInTheDocument()
+    expect(keycap('Todos · Agents · Files: ⌃⌥1–3')).toBeInTheDocument()
     // One Reset on the row the range shows on.
-    expect(screen.getAllByRole('button', { name: /^Reset Agents/ })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: /^Reset Todos/ })).toHaveLength(1)
     expect(
       keycap(`Reset Switch workspace to ${formatBinding(WorkspaceCommandId.Switch, DEFAULT_KEYMAP)}`),
     ).toBeInTheDocument()

@@ -12,13 +12,11 @@ export interface PanelTabDefinition {
 }
 
 /**
- * The right panel's tabs (P16, #491), in tab bar order: Agents · Files · Todos. Agents counts the task's agents, Main
- * included (50-agents.png: "Agents 4" over Main and three subagents); Files, the files open in the tab (08-open-file.png:
- * "Files 3" over three open files); Todos, how many of the task's todos are done.
+ * The right panel's tabs (P16, #491), in tab bar order: Todos · Agents · Files. Todos counts how many of the task's
+ * todos are done; Agents, the task's agents, Main included (50-agents.png: "Agents 4" over Main and three
+ * subagents); Files, the files open in the tab (08-open-file.png: "Files 3" over three open files).
  */
 export const PANEL_TAB_DEFINITIONS: readonly PanelTabDefinition[] = [
-  { tab: PanelTab.Agents, label: 'Agents', count: (state, taskId) => agentCount(state.toolEvents[taskId]) },
-  { tab: PanelTab.Files, label: 'Files', count: (state, taskId) => state.openFiles[taskId]?.paths.length ?? 0 },
   {
     tab: PanelTab.Todos,
     label: 'Todos',
@@ -27,4 +25,6 @@ export const PANEL_TAB_DEFINITIONS: readonly PanelTabDefinition[] = [
       return { done, total }
     },
   },
+  { tab: PanelTab.Agents, label: 'Agents', count: (state, taskId) => agentCount(state.toolEvents[taskId]) },
+  { tab: PanelTab.Files, label: 'Files', count: (state, taskId) => state.openFiles[taskId]?.paths.length ?? 0 },
 ]

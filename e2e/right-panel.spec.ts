@@ -20,10 +20,10 @@ test('right panel: ⌘⌥2 picks a tab; dragging the handle resizes it, kept on 
   const panel = taskPanel(window)
 
   // Three tabs, with counts only where there's something to count.
-  await expect(panel.tabs).toHaveText(['Agents 2', 'Files', 'Todos'])
+  await expect(panel.tabs).toHaveText(['Todos', 'Agents 2', 'Files'])
 
-  // ⌘⌥2 picks Files, wherever the focus is.
-  await window.keyboard.press('Meta+Alt+Digit2')
+  // ⌘⌥3 picks Files, wherever the focus is.
+  await window.keyboard.press('Meta+Alt+Digit3')
   await expect(panel.tab('Files')).toHaveAttribute('aria-selected', 'true')
   await expect(filesTab(window).browse).toHaveAttribute('aria-pressed', 'true')
 
@@ -86,13 +86,13 @@ test('right panel: each task keeps its own tab, switching back and forth and acr
 
   // The task the seed shows starts on Todos, what it remembers; pick Agents there.
   await expect(panel.tab('Todos')).toHaveAttribute('aria-selected', 'true')
-  await window.keyboard.press('Meta+Alt+Digit1')
+  await window.keyboard.press('Meta+Alt+Digit2')
   await expect(panel.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
 
   // Another task shows its own, not the one just picked. Pick Files there.
   await list.taskRow(limits).click()
   await expect(panel.tab('Todos')).toHaveAttribute('aria-selected', 'true')
-  await window.keyboard.press('Meta+Alt+Digit2')
+  await window.keyboard.press('Meta+Alt+Digit3')
   await expect(panel.tab('Files')).toHaveAttribute('aria-selected', 'true')
 
   // Switching back and forth, each still shows its own.

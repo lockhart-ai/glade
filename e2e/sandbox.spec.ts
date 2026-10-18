@@ -47,6 +47,9 @@ test('a sandbox that can’t start stops the task on the error, and running outs
 
   // No card ever asked: both requests to run outside the sandbox were refused at once.
   await expect(permissionCards).toHaveCount(0)
+  await taskPanel(window)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(window).call(/^Failed\s*Bash/)).toHaveCount(3)
   const calls = await toolCalls(window)
   expect(calls.map(({ input }) => [input.command, input.dangerouslyDisableSandbox ?? false])).toEqual([

@@ -113,6 +113,7 @@ test('an agent backfills past tasks; a stored handoff note shows its card, and a
   await bar.field.fill(BACKFILLS_TASKS.tryHandoff)
   await bar.field.press('Enter')
   await expect(conversation.agentReplies.last()).toContainText(BACKFILLS_TASKS.refused)
+  await panel.tab(/^Agents/).click()
   await expect(panel.call(/update_task/)).toHaveAccessibleName(/patch\.handoff: unknown field/)
 
   // Done, the seeded task most recently updated, then the April task above the March one.

@@ -85,6 +85,9 @@ test("in the ask mode, the agent's control reads go ahead and each change waits 
   const create = conversation.permissionCards.first()
   await expect(create).toContainText('create_task')
   await expect(conversation.permissionCards).toHaveCount(1)
+  await taskPanel(window)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(window).permissionLines).toHaveText(['Waiting on you'])
   await expect(list.row('Active', DRIVES_GLADE.created.title)).toHaveCount(0)
   expect((await tasks(window)).map(({ title }) => title).sort()).toEqual([

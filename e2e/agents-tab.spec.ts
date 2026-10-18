@@ -47,7 +47,7 @@ test('the Agents tab: a tab for every agent with its tool calls, a subagent’s 
 
   // Three tabs, and Agents counts the task's agents, Main among them (#617: the four finished ones are in the
   // caret's dropdown, not tabs of their own).
-  await expect(panel.tabs).toHaveText(['Agents 6', 'Files', 'Todos 3/4'])
+  await expect(panel.tabs).toHaveText(['Todos 3/4', 'Agents 6', 'Files'])
   await expect(panel.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
 
   // Main is pinned first; then the one subagent still running; then the caret, with the four finished ones.
@@ -125,9 +125,11 @@ test('the Agents tab: a tab for every agent with its tool calls, a subagent’s 
 
   // ⌘⌥1–3 pick the three tabs; ⌘⌥5, which picked Subagents, picks nothing.
   await window.keyboard.press('Meta+Alt+Digit1')
+  await expect(panel.tab(/^Todos/)).toHaveAttribute('aria-selected', 'true')
+  await window.keyboard.press('Meta+Alt+Digit2')
   await expect(panel.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
   await expect(agents.tab('notes-25')).toHaveAttribute('aria-selected', 'true')
-  await window.keyboard.press('Meta+Alt+Digit2')
+  await window.keyboard.press('Meta+Alt+Digit3')
   await expect(panel.tab('Files')).toHaveAttribute('aria-selected', 'true')
   await window.keyboard.press('Meta+Alt+Digit5')
   await expect(panel.tab('Files')).toHaveAttribute('aria-selected', 'true')
@@ -148,7 +150,7 @@ test('the Agents tab: a tab for every agent with its tool calls, a subagent’s 
   await expect(agents.line).toHaveText(/^Worked on #502 Per-key limits for \/searchDone · 32m$/)
   await taskList(window).row('Active', ELSEWHERE).click()
   await expect(taskHeader(window).title).toHaveText(ELSEWHERE)
-  await expect(panel.tabs).toHaveText(['Agents 1', 'Files', 'Todos'])
+  await expect(panel.tabs).toHaveText(['Todos', 'Agents 1', 'Files'])
   await expect.poll(() => names(agents.tabs)).toEqual(['Main'])
   await taskList(window).row('Active', SHIP).click()
   await expect(taskHeader(window).title).toHaveText(SHIP)
@@ -184,9 +186,10 @@ test('the Agents tab: a subagent’s tab moving to the finished ones as it ends'
   const panel = taskPanel(window)
   const agents = agentsTab(window)
 
-  // The panel is the three tabs, on Agents, with a tab for each agent it has.
-  await expect(panel.tabs).toHaveText(['Agents 4', 'Files', 'Todos'])
-  await expect(panel.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
+  // The panel is the three tabs, on Todos, with a tab for each agent it has.
+  await expect(panel.tabs).toHaveText(['Todos', 'Agents 4', 'Files'])
+  await expect(panel.tab(/^Todos/)).toHaveAttribute('aria-selected', 'true')
+  await panel.tab(/^Agents/).click()
   await expect(agents.tab('Main')).toHaveAttribute('aria-selected', 'true')
   await expect(agents.tabs).toHaveCount(4)
 

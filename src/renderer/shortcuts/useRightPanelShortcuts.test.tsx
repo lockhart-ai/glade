@@ -42,23 +42,23 @@ function press(code: string, key: string, target: Element | Window = window): bo
 }
 
 describe('useRightPanelShortcuts', () => {
-  it('picks Agents, Files and Todos with ⌘⌥1–3, even while typing in a text field', async () => {
+  it('picks Todos, Agents and Files with ⌘⌥1–3, even while typing in a text field', async () => {
     const { panel } = await renderShortcuts()
-    expect(panel().tab).toBe('agents')
+    expect(panel().tab).toBe('todos')
 
     expect(press('Digit2', '™', screen.getByRole('textbox', { name: 'Message' }))).toBe(false)
-    expect(panel().tab).toBe('files')
-    press('Digit3', '£')
-    expect(panel().tab).toBe('todos')
-    press('Digit1', '¡')
     expect(panel().tab).toBe('agents')
+    press('Digit3', '£')
+    expect(panel().tab).toBe('files')
+    press('Digit1', '¡')
+    expect(panel().tab).toBe('todos')
     expect(panel().collapsed).toBeUndefined()
   })
 
   it('opens a collapsed panel at the tab ⌘⌥ and a digit picks', async () => {
     const { panel } = await renderShortcuts([{ key: UiStateKey.RightPanelCollapsed, value: 'true' }])
 
-    press('Digit3', '£')
+    press('Digit1', '¡')
 
     expect(panel()).toEqual({ tab: 'todos', collapsed: 'false' })
   })
@@ -118,6 +118,6 @@ describe('useRightPanelShortcuts', () => {
     press('Digit2', '™')
 
     expect(invoke).not.toHaveBeenCalled()
-    expect(panel().tab).toBe('agents')
+    expect(panel().tab).toBe('todos')
   })
 })

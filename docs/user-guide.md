@@ -346,8 +346,8 @@ Settings › General › **Show Glade in the menu bar** turns the icon off, and 
 
 ## The right panel
 
-Three tabs, each with a count: **Agents · Files · Todos** (⌘⌥1 – ⌘⌥3). ⌘⌥B hides the panel; drag its edge to resize it.
-The tab you leave a task on is that task's own: switching back to it shows it again, across a relaunch.
+Three tabs, each with a count: **Todos · Agents · Files** (⌘⌥1 – ⌘⌥3). ⌘⌥B hides the panel; drag its edge to resize it.
+The tab you leave a task on is that task's own: switching back to it shows it again, across a relaunch, and a task with no remembered tab opens on Todos.
 
 - **Agents:** a strip of tabs, one for each active agent in the task, with a caret for the finished ones. **Main**,
   the task's own agent, is pinned first, its dot alone (← and → move between tabs); after it come the subagents that
@@ -906,7 +906,7 @@ The ones to learn first:
 | ⌘⌥↓ | Next task that needs you |
 | ⌘L | Focus the input bar |
 | ⌘B · ⌘⌥B · ⌘J | Toggle the task list · right panel · bottom bar |
-| ⌘⌥1 – ⌘⌥3 | Agents · Files · Todos |
+| ⌘⌥1 – ⌘⌥3 | Todos · Agents · Files |
 | ⌘T · ⌃\` | New terminal tab · focus the terminal |
 | ⌘1 – ⌘9 | Switch workspace |
 | ⌘, | Settings |

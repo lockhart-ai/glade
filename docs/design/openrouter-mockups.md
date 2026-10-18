@@ -85,7 +85,7 @@ The existing input bar shows the selected model and the model/provider pair’s 
 OpenRouter model for each dispatch, independently of its own source; the Agents panel shows the child's selected model.
 Each process uses its own route's context window, so enabling a smaller child model doesn't shrink the parent.
 Effort is hidden when the route advertises no effort capability. The picker uses the implemented source headings
-and shows the provider as part of each saved model label. The panel uses Agents · Files · Todos.
+and shows the provider as part of each saved model label. The panel uses Todos · Agents · Files.
 
 ![New OpenRouter task](screens/59-task-openrouter.png)
 

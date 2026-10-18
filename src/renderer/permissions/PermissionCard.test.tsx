@@ -126,6 +126,8 @@ async function renderChat(
       uiState: [
         { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
         { key: UiStateKey.SelectedTaskId, value: 't1' },
+        // The tool log these tests read is on the Agents tab, so the task's remembered panel tab is Agents.
+        { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'agents' }) },
       ],
       messages: [sampleMessage('m1', 't1', 'Run the tests.')],
       toolEvents,

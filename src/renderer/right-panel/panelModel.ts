@@ -4,21 +4,21 @@ import { UiStateKey, type UiStateEntry } from '../../shared/domain'
 import type { UiStateValues } from '../store/state'
 
 /**
- * The right panel's tabs (P16, #491), in the order the tab bar shows them (and ⌘⌥1–3 picks them): Agents is what's
- * happening (every agent's tool calls and watchers), Files is the workspace's files, and Todos is what the work
- * produced (each todo with its files, links and changes).
+ * The right panel's tabs (P16, #491), in the order the tab bar shows them (and ⌘⌥1–3 picks them): Todos is what the
+ * work produced (each todo with its files, links and changes), Agents is what's happening (every agent's tool calls
+ * and watchers), and Files is the workspace's files.
  */
 export enum PanelTab {
+  Todos = 'todos',
   Agents = 'agents',
   Files = 'files',
-  Todos = 'todos',
 }
 
 /** Every tab the panel shows, in tab bar order. */
-export const PANEL_TABS: readonly PanelTab[] = [PanelTab.Agents, PanelTab.Files, PanelTab.Todos]
+export const PANEL_TABS: readonly PanelTab[] = [PanelTab.Todos, PanelTab.Agents, PanelTab.Files]
 
-/** The tab a panel with nothing stored starts on. (#686 moves this to Todos with the tabs' new order.) */
-export const FIRST_PANEL_TAB = PanelTab.Agents
+/** The tab a panel with nothing stored starts on (#686 moves this to Todos with the tabs' new order). */
+export const FIRST_PANEL_TAB = PanelTab.Todos
 
 function isPanelTab(value: string): value is PanelTab {
   return (PANEL_TABS as readonly string[]).includes(value)
@@ -55,9 +55,9 @@ export function parsePanelTabSelection(value: string | undefined): PanelTabSelec
 }
 
 /**
- * The tab a task's right panel shows: the one last picked there, or else the panel's first tab when none is
- * remembered yet. A stored tab the panel no longer has (one from before the panel had three, #501, or from a newer
- * version) counts as none stored.
+ * The tab a task's right panel shows: the one last picked there, or else the panel's first tab (Todos, #686) when
+ * none is remembered yet. A stored tab the panel no longer has (one from before the panel had three, #501, or from a
+ * newer version) counts as none stored.
  */
 export function activePanelTab(uiState: UiStateValues, taskId: string): PanelTab {
   return parsePanelTabSelection(uiState[UiStateKey.RightPanelTabs])[taskId] ?? FIRST_PANEL_TAB
@@ -83,7 +83,7 @@ export function withoutPanelTabEntry(uiState: UiStateValues, taskId: string): Ui
   return { key: UiStateKey.RightPanelTabs, value: serializePanelTabSelection(Object.fromEntries(kept)) }
 }
 
-/** The tab ⌘⌥ and a digit picks: 1 is Agents and 3 is Todos. Undefined for any other digit. */
+/** The tab ⌘⌥ and a digit picks: 1 is Todos and 3 is Files. Undefined for any other digit. */
 export function tabForDigit(digit: number): PanelTab | undefined {
   return PANEL_TABS[digit - 1]
 }
