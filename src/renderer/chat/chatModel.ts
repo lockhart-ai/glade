@@ -9,12 +9,15 @@
  * before asking, if any. The tool calls that wait on your OK show as permission cards where they asked
  * (`docs/design/html/23-permission-card.html`), only while they wait: an answered or withdrawn card leaves the chat,
  * which holds only your messages and the agent's, and its decision shows on its call's row in the Tool calls list (#459).
+ * A note from one of Glade's own watchers (the GitHub link watcher, #682) starts or queues a turn like any message,
+ * but isn't shown as your words here at all (#715): it's a row in Main's tool log instead (`hiddenFromChat`).
  */
 import { formatTokens } from '../context-meter/format'
 import {
   CompactionTrigger,
   DividerKind,
   MessageRole,
+  MessageSource,
   PermissionRequestState,
   TaskActivity,
   TaskState,
@@ -177,6 +180,15 @@ export function toolCallsByTurn(toolEvents: readonly ToolEvent[]): ReadonlyMap<n
     }
   }
   return counts
+}
+
+/**
+ * Whether a message doesn't show in the chat: a note from one of Glade's own watchers (the GitHub link watcher,
+ * #682), which starts or queues the agent's turn as any message does but isn't shown as your words (#715); it shows
+ * as a row in Main's tool log instead (`../tool-log/toolLogModel`). A broadcast still shows here as it always has.
+ */
+function hiddenFromChat(message: Message): boolean {
+  return message.source === MessageSource.Github
 }
 
 /** The chat's entry for a message. */
@@ -372,8 +384,10 @@ export function chatEntries(
     addCards(message)
   }
   for (const message of messages) {
+    // Still places the turn's dividers and cards by it (`addDividers`), even for a message hidden from the chat: the
+    // turn it opened still has a place, by the reply or the next message in it.
     addDividers(message)
-    entries.push(messageEntry(message, counts))
+    if (!hiddenFromChat(message)) entries.push(messageEntry(message, counts))
   }
   addDividers()
   return entries

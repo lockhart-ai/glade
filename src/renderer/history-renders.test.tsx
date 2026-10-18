@@ -14,6 +14,7 @@ import { SAMPLE_USAGE } from '../shared/test-openrouter'
 import {
   DividerKind,
   MessageRole,
+  MessageSource,
   PermissionRequestState,
   TaskActivity,
   TaskState,
@@ -283,6 +284,24 @@ describe('the chat, with a long history', () => {
     expect(renders(clockTime)).toBe(0)
   })
 
+  it('renders nothing for a GitHub notice (#682, #715): it shows in Main’s tool log, not the chat', async () => {
+    const { fake } = await renderChat()
+    const you = screen.getAllByRole('article', { name: 'You' }).length
+    act(() => {
+      fake.emit({
+        type: EventType.MessageAppended,
+        message: {
+          ...message(TURNS + 1, MessageRole.User),
+          id: 'g1',
+          body: 'GitHub:\n- PR #1 A: CI failed',
+          source: MessageSource.Github,
+        },
+      })
+    })
+    expect(renders(clockTime)).toBe(0)
+    expect(screen.getAllByRole('article', { name: 'You' })).toHaveLength(you)
+  })
+
   it('renders only the reply whose turn gained a tool call when the tool log grows', async () => {
     const { fake } = await renderChat()
     // A note changes no entry.
@@ -406,6 +425,27 @@ describe('the tool log, with a long history', () => {
     vi.mocked(clockTime).mockClear()
     rerender(<ToolLog taskId="t1" events={TOOL_EVENTS} rootPath="/Users/sample/code/api" />)
     expect(renders(clockTime)).toBe(TURNS)
+  })
+
+  it('renders only the new row when a GitHub notice arrives, and only it again when another one does (#682, #715)', () => {
+    const { rerender } = render(<ToolLog taskId="t1" events={TOOL_EVENTS} />, { wrapper: storeWrapper().wrapper })
+    vi.mocked(clockTime).mockClear()
+
+    const notice = {
+      ...message(TURNS, MessageRole.User),
+      id: 'g1',
+      body: 'GitHub:\n- PR #1 A: CI failed',
+      source: MessageSource.Github,
+    }
+    rerender(<ToolLog taskId="t1" events={TOOL_EVENTS} notices={[notice]} />)
+    expect(renders(clockTime)).toBe(1)
+    expect(screen.getByRole('group', { name: 'GitHub' })).toBeInTheDocument()
+
+    // An unrelated tool call arriving renders only its own row, not the notice's again.
+    vi.mocked(clockTime).mockClear()
+    const running = call('late-call2', TURNS, { state: ToolCallState.Running, output: null, finishedAt: null })
+    rerender(<ToolLog taskId="t1" events={[...TOOL_EVENTS, running]} notices={[notice]} />)
+    expect(renders(clockTime)).toBe(1)
   })
 
   it('asks for an older page of events when the log scrolls to its top, without rendering the rows shown again (#637)', () => {

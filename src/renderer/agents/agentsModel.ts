@@ -7,10 +7,12 @@
  * null.
  */
 import {
+  MessageSource,
   TaskActivity,
   ToolCallState,
   ToolEventKind,
   type EpochMs,
+  type Message,
   type Task,
   type Todo,
   type ToolCallEvent,
@@ -52,6 +54,7 @@ export interface TaskAgents {
 
 const NO_AGENTS: TaskAgents = { ids: [], calls: new Map<string, ToolCallEvent>() }
 const NO_EVENTS: readonly ToolEvent[] = []
+const NO_MESSAGES: readonly Message[] = []
 
 /** Whether a subagent is running, by its `Agent` call: what its tab's dot and its place in the strip go by. */
 export function isRunning(call: Pick<ToolCallEvent, 'state'>): boolean {
@@ -254,6 +257,28 @@ export function agentEventsSelector(
     if (events === read) return last
     read = events
     const next = (events ?? NO_EVENTS).filter((event) => isAgentEvent(event, agentId))
+    if (!sameItems(next, last)) last = next
+    return last
+  }
+}
+
+/**
+ * Reads Main's GitHub notices from the store (#682): the task's messages left by the link watcher, in the order they
+ * arrived, for the row each gets in Main's tool log at the time it arrived (#715). Empty, always, for a subagent: a
+ * notice is only ever for the task's own agent. One per list shown; it remembers the last log it read.
+ */
+export function githubNoticeSelector(
+  taskId: string,
+  agentId: AgentId,
+): (state: Pick<GladeData, 'messages'>) => readonly Message[] {
+  let read: readonly Message[] | undefined
+  let last = NO_MESSAGES
+  return (state) => {
+    if (agentId !== null) return NO_MESSAGES
+    const messages = state.messages[taskId]
+    if (messages === read) return last
+    read = messages
+    const next = (messages ?? NO_MESSAGES).filter((message) => message.source === MessageSource.Github)
     if (!sameItems(next, last)) last = next
     return last
   }

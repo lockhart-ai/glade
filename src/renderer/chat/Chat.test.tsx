@@ -319,22 +319,22 @@ describe('Chat', () => {
     expect(within(screen.getByRole('article', { name: 'Agent' })).queryByText(tag)).not.toBeInTheDocument()
   })
 
-  it('tags a note left by one of Glade’s own watchers (the GitHub link watcher, #682) as its own source', async () => {
-    const tag = SOURCE_TAG_LABELS[MessageSource.Github]
+  it('never shows a note left by one of Glade’s own watchers (the GitHub link watcher, #682) in the chat (#715)', async () => {
     const note: Message = {
       ...ASK,
       id: 'm4',
-      body: 'PR #2537 Port the chat cases: CI failed (13/14); 2 new comments',
+      body: 'GitHub:\n- PR #2537 Port the chat cases: CI failed (13/14); 2 new comments',
       turn: 2,
       createdAt: REPLIED_AT + 60_000,
       source: MessageSource.Github,
     }
     await renderChat({ messages: [ASK, REPLY, note] })
 
-    const [, sent] = screen.getAllByRole('article', { name: 'You' })
-    expect(sent).toHaveTextContent(`${note.body}${tag}you · ${clockTime(note.createdAt)}`)
-    // Broadcast's own tag never shows for a note from a different source.
-    expect(sent).not.toHaveTextContent(SOURCE_TAG_LABELS[MessageSource.Broadcast])
+    // Only the two messages before it: no third "You" bubble for the note, tagged or not.
+    const you = screen.getAllByRole('article', { name: 'You' })
+    expect(you).toHaveLength(1)
+    expect(conversation()).not.toHaveTextContent(note.body)
+    expect(conversation()).not.toHaveTextContent(SOURCE_TAG_LABELS[MessageSource.Github])
   })
 
   it('shows your message on the right and the agent’s reply as Markdown, each with its time', async () => {

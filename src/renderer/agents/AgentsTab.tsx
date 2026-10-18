@@ -5,7 +5,7 @@ import { ToolLog, type TurnFocus } from '../tool-log'
 import { AgentLine } from './AgentLine'
 import { AGENT_PANEL_ID, AgentStrip, agentTabId } from './AgentStrip'
 import { PinnedWatchers } from './PinnedWatchers'
-import { agentEventsSelector, selectShownAgent, type AgentId } from './agentsModel'
+import { agentEventsSelector, githubNoticeSelector, selectShownAgent, type AgentId } from './agentsModel'
 import { logWatchersSelector } from './agentWatchersModel'
 import styles from './AgentsTab.module.css'
 
@@ -23,7 +23,8 @@ interface AgentLogProps {
  * One agent's tool calls: the tool log's own list (`ToolLog`), over that agent's events alone. It reads them from the
  * store as a list that only changes when one of them does (`agentEventsSelector`), so what another agent of the task
  * does doesn't render it. Its watchers that have ended are rows among them (#537), read the same way
- * (`logWatchersSelector`): what a live watcher reports doesn't render it either.
+ * (`logWatchersSelector`): what a live watcher reports doesn't render it either. On Main's own tab, a GitHub notice
+ * (#682) is a row too, at the time it arrived (#715, `githubNoticeSelector`); empty, always, for a subagent's.
  */
 function AgentLog({
   taskId,
@@ -38,6 +39,8 @@ function AgentLog({
   const events = useGladeStore(select)
   const selectWatchers = useMemo(() => logWatchersSelector(taskId, agentId), [taskId, agentId])
   const watchers = useGladeStore(selectWatchers)
+  const selectNotices = useMemo(() => githubNoticeSelector(taskId, agentId), [taskId, agentId])
+  const notices = useGladeStore(selectNotices)
   const loadAgentHistory = useGladeStore((state) => state.loadAgentHistory)
   // The first load sends only the tail of the task's tool log (#637), so a subagent's tab loads its own log whole
   // when it opens. One the tail already holds most of is merged, its rows keeping their identity.
@@ -50,6 +53,7 @@ function AgentLog({
       taskId={taskId}
       events={events}
       watchers={watchers}
+      notices={notices}
       agentId={agentId}
       rootPath={rootPath}
       permissions={permissions}

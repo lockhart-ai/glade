@@ -16,6 +16,7 @@ import {
   type CompactionEvent,
   type DividerEvent,
   type EpochMs,
+  type Message,
   type NarrationEvent,
   type ToolCallEvent,
   type ToolEvent,
@@ -398,6 +399,8 @@ export function rowEvent(row: ToolLogRow): ToolEvent {
 export enum AgentLogRowKind {
   /** A watcher that has ended (P16, #537). */
   Watcher = 'watcher',
+  /** A GitHub notice (#682, #715). */
+  GithubNotice = 'github_notice',
 }
 
 /** A watcher that has ended, as a row of its agent's list at the time it ended. */
@@ -406,8 +409,72 @@ export interface EndedWatcherRow {
   readonly watcher: Watcher
 }
 
-/** One row of an agent's list in the Agents tab: a row of the tool log, or a watcher that has ended. */
-export type AgentLogRow = ToolLogRow | EndedWatcherRow
+/**
+ * A GitHub notice (the link watcher, #682), as a row of Main's list at the time it arrived: it's delivered to the
+ * agent as a message like any other, but doesn't show in the chat (#715, `../chat/chatModel`'s `hiddenFromChat`) —
+ * this is where it shows instead. Never on a subagent's tab: a notice is always for the task's own agent.
+ *
+ * Carries the message alone, not its parsed lines: the message is the stable thing (the same object for as long as
+ * it hasn't changed, which is always, once it's in the log), so a row made of it tells `GithubNotice`'s `memo`
+ * whether to render again (#413); parsing its body (`githubNoticeLines`) is cheap and left to the row's own render.
+ */
+export interface GithubNoticeRow {
+  readonly kind: AgentLogRowKind.GithubNotice
+  readonly message: Message
+}
+
+/** One row of an agent's list in the Agents tab: a row of the tool log, a watcher that has ended, or a GitHub notice. */
+export type AgentLogRow = ToolLogRow | EndedWatcherRow | GithubNoticeRow
+
+/**
+ * A GitHub notice's lines, parsed from its message's body: `formatWakeMessage` (`../../main/github-watch/wake`) writes
+ * it as `GitHub:` then one `- ` line per link that changed, which is the only shape this body ever has.
+ */
+export function githubNoticeLines(body: string): readonly string[] {
+  return body
+    .split('\n')
+    .slice(1)
+    .map((line) => line.replace(/^-\s*/, ''))
+}
+
+/** When an agent's list row happened, for merging a watcher's and a notice's rows in among the tool log's by time. */
+function agentLogRowTime(row: AgentLogRow): EpochMs {
+  switch (row.kind) {
+    case AgentLogRowKind.Watcher:
+      return row.watcher.endedAt ?? row.watcher.startedAt
+    case AgentLogRowKind.GithubNotice:
+      return row.message.createdAt
+    case ToolEventKind.ToolCall:
+    case ToolEventKind.Narration:
+    case ToolEventKind.Divider:
+    case ToolEventKind.Compaction:
+      return rowEvent(row).createdAt
+  }
+}
+
+/**
+ * Inserts `extra` into `rows`, each before the first row later than it (`agentLogRowTime`): both lists are already in
+ * their own order, so this is a merge, not a sort. Used for a watcher that has ended and for a GitHub notice, each its
+ * own pass, since either may be empty most of the time.
+ */
+function mergeByTime(rows: readonly AgentLogRow[], extra: readonly AgentLogRow[]): readonly AgentLogRow[] {
+  if (extra.length === 0) return rows
+  const merged: AgentLogRow[] = []
+  let next = 0
+  const addBy = (at: EpochMs): void => {
+    for (let row = extra[next]; row !== undefined; row = extra[next]) {
+      if (agentLogRowTime(row) > at) return
+      merged.push(row)
+      next += 1
+    }
+  }
+  for (const row of rows) {
+    addBy(agentLogRowTime(row))
+    merged.push(row)
+  }
+  addBy(Number.POSITIVE_INFINITY)
+  return merged
+}
 
 /** What an agent's list shows of the agent's watchers (`../agents/agentWatchersModel`). */
 export interface LogWatchers {
@@ -421,6 +488,7 @@ export interface LogWatchers {
 }
 
 const NO_LOG_WATCHERS: LogWatchers = { ended: [], startedBy: new Set<string>() }
+const NO_GITHUB_NOTICES: readonly Message[] = []
 
 /**
  * The tool log's rows for one agent of the task (`isAgentEvent`), in order: the Agents tab's list for that agent (P16,
@@ -431,13 +499,17 @@ const NO_LOG_WATCHERS: LogWatchers = { ended: [], startedBy: new Set<string>() }
  * before then and before whatever came next, so what the agent did on being woken follows it. A watcher that ended
  * at the very time of an event comes before it: a wake ends its watcher, then starts the turn. The call that started
  * a watcher is left out.
+ *
+ * With `notices` (the messages a GitHub notice ever is, #682, #715; always Main's alone, never a subagent's), each is
+ * a row at the time it arrived, merged in the same way as a watcher's.
  */
 export function agentLogRows(
   events: readonly ToolEvent[],
   agentId: string | null,
   permissions?: PermissionLines,
   watchers: LogWatchers = NO_LOG_WATCHERS,
-): AgentLogRow[] {
+  notices: readonly Message[] = NO_GITHUB_NOTICES,
+): readonly AgentLogRow[] {
   const { ended, startedBy } = watchers
   const rows = toolLogRows(
     events.filter(
@@ -446,21 +518,12 @@ export function agentLogRows(
     ),
     permissions,
   )
-  if (ended.length === 0) return rows
-  const merged: AgentLogRow[] = []
-  let next = 0
-  /** Adds the watchers that ended by `at`, which haven't a row yet. */
-  const endedBy = (at: EpochMs): void => {
-    for (let watcher = ended[next]; watcher !== undefined; watcher = ended[next]) {
-      if ((watcher.endedAt ?? watcher.startedAt) > at) return
-      merged.push({ kind: AgentLogRowKind.Watcher, watcher })
-      next += 1
-    }
-  }
-  for (const row of rows) {
-    endedBy(rowEvent(row).createdAt)
-    merged.push(row)
-  }
-  endedBy(Infinity)
-  return merged
+  const withWatchers = mergeByTime(
+    rows,
+    ended.map((watcher): EndedWatcherRow => ({ kind: AgentLogRowKind.Watcher, watcher })),
+  )
+  return mergeByTime(
+    withWatchers,
+    notices.map((message): GithubNoticeRow => ({ kind: AgentLogRowKind.GithubNotice, message })),
+  )
 }
