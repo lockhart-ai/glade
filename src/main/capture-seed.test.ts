@@ -31,6 +31,7 @@ import {
   PermissionMarkKind,
 } from '../shared/domain'
 import { SandboxAskKind } from '../shared/sandbox'
+import { GithubChecksState, GithubLinkKind, GithubLinkState } from '../shared/githubWatch'
 import { listPermissionMarks } from './db/repositories/permission-marks'
 import { applySeed, readSeed, seedArtifactAt, type CaptureSeed } from './capture-seed'
 import { listArtifacts, listFileArtifacts } from './db/repositories/artifacts'
@@ -50,6 +51,7 @@ import { listTasks } from './db/repositories/tasks'
 import { getSdkModels } from './db/repositories/sdk-models'
 import { getUiState } from './db/repositories/ui-state'
 import { listWatchers } from './db/repositories/watchers'
+import { listGithubLinkWatches } from './db/repositories/github-link-watches'
 import { listTaskCommits } from './db/repositories/task-commits'
 import { readTodoHub, taskChildren } from './todo-hub/todo-hub'
 import {
@@ -539,6 +541,107 @@ describe('applySeed', () => {
 
     const uploads = listTasks(db, listWorkspaces(db)[0]?.id ?? '').find(({ title }) => title === 'Move uploads')
     expect(uploads).toMatchObject({ totalInputTokens: 1_234_567, totalOutputTokens: 45_300 })
+  })
+
+  it("seeds what the GitHub watcher last knew of the task's linked issues and PRs, fetched the minutes given (#683)", () => {
+    const { db } = database
+    const task = { title: 'Ship the rate-limit fixes', minutesAgo: 4 }
+    const url = 'https://github.com/acme/api/pull/511'
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          {
+            ...task,
+            artifacts: [
+              { url, title: 'Return Retry-After on 429s', minutesAgo: 7 },
+              { url: 'https://github.com/acme/api/issues/502', title: 'Per-key limits for /search', minutesAgo: 9 },
+            ],
+            githubWatches: [
+              {
+                url,
+                title: 'Return Retry-After on 429s',
+                state: GithubLinkState.Open,
+                inMergeQueue: true,
+                checksState: GithubChecksState.Success,
+                checksSummary: '14/14',
+                reviewState: 'APPROVED',
+                commentCount: 3,
+                minutesAgo: 2,
+              },
+              {
+                url: 'https://github.com/acme/api/issues/502',
+                title: 'Per-key limits for /search',
+                state: GithubLinkState.Closed,
+                commentCount: 4,
+                minutesAgo: 5,
+              },
+            ],
+          },
+        ],
+      },
+      NOW,
+    )
+
+    const id = listTasks(db, listWorkspaces(db)[0]?.id ?? '').find(({ title }) => title === task.title)?.id ?? ''
+    // In no particular order, as the repository reads them back; by address, then, for the comparison.
+    const byUrl = (a: { url: string }, b: { url: string }): number => a.url.localeCompare(b.url)
+    expect([...listGithubLinkWatches(db, id)].sort(byUrl)).toEqual([
+      {
+        taskId: id,
+        url: 'https://github.com/acme/api/issues/502',
+        kind: GithubLinkKind.Issue,
+        state: GithubLinkState.Closed,
+        merged: false,
+        draft: false,
+        inMergeQueue: false,
+        checksState: null,
+        checksSummary: null,
+        reviewState: null,
+        commentCount: 4,
+        headOid: null,
+        title: 'Per-key limits for /search',
+        watching: true,
+        lastFetchedAt: NOW - 5 * MINUTE,
+      },
+      {
+        taskId: id,
+        url,
+        kind: GithubLinkKind.PullRequest,
+        state: GithubLinkState.Open,
+        merged: false,
+        draft: false,
+        inMergeQueue: true,
+        checksState: GithubChecksState.Success,
+        checksSummary: '14/14',
+        reviewState: 'APPROVED',
+        commentCount: 3,
+        headOid: null,
+        title: 'Return Retry-After on 429s',
+        watching: true,
+        lastFetchedAt: NOW - 2 * MINUTE,
+      },
+    ])
+  })
+
+  it('refuses a seeded watch whose url is not a GitHub pull request or issue', () => {
+    const { db } = database
+    const seed = {
+      ...SEED,
+      tasks: [
+        {
+          title: 'Ship it',
+          minutesAgo: 1,
+          githubWatches: [
+            { url: 'https://example.com/a', title: 'A page', state: GithubLinkState.Open, minutesAgo: 1 },
+          ],
+        },
+      ],
+    }
+    expect(() => {
+      applySeed(db, seed, NOW)
+    }).toThrow(/must be a GitHub pull request or issue/)
   })
 
   it('puts a task in the other workspace it names, made once by its root, leaving the fixture’s own open', () => {
