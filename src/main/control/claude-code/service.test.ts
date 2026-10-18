@@ -222,7 +222,7 @@ describe('import', () => {
 
     const { task } = await sessions.import(importInput())
 
-    expect(task.todos).toEqual({ done: 1, total: 2, doing: [] })
+    expect(task.todos).toEqual({ done: 1, total: 2, doing: [], waiting: [] })
     expect(getTask(database.db, task.id)?.todos).toEqual(task.todos)
     expect(events).toEqual([{ type: EventType.TaskUpdated, task }])
   })

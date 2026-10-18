@@ -610,6 +610,8 @@ export interface TodoSummary {
   readonly total: number
   /** The text of each item being worked on now, in the list's order. */
   readonly doing: readonly string[]
+  /** The text of each item waiting on you now, in the list's order (#680). */
+  readonly waiting: readonly string[]
 }
 
 /** The keys of the app's persisted UI state. Each value is a string. */

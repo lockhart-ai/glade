@@ -204,6 +204,8 @@ export function taskPanel(page: Page) {
     todos: panel.getByRole('list', { name: 'Todos' }).getByRole('listitem'),
     /** A done todo's finish time (`4m ago`), with the exact time as its tooltip. */
     todoFinished: (item: Locator) => item.locator('time'),
+    /** The Todos tab's own small purple count of what's waiting on you, beside its "Todos N/M" label (#680). */
+    todoWaitingBadge: panel.getByRole('tablist', { name: 'Task panels' }).getByRole('img', { name: /waiting on you/ }),
   }
 }
 
