@@ -43,6 +43,7 @@ import type {
 import type { BroadcastOutcome } from './broadcast'
 import type { Command, MenuState } from './commands'
 import type { AttachedFile } from './attachedFiles'
+import type { GithubLinkWatch } from './githubWatch'
 import type { ImageData } from './images'
 import type { ModelChoice } from './models'
 import type {
@@ -1703,6 +1704,7 @@ export enum EventType {
   HandoffChanged = 'handoff.changed',
   WatchersChanged = 'watchers.changed',
   CommitsChanged = 'commits.changed',
+  GithubWatchChanged = 'githubWatch.changed',
   FilingsChanged = 'filings.changed',
   TerminalTabsChanged = 'terminal.tabsChanged',
   TerminalOutput = 'terminal.output',
@@ -1953,6 +1955,16 @@ export interface CommitsChangedEvent {
 }
 
 /**
+ * The GitHub link watcher's last known state of one of a task's linked issues or PRs changed (#682): a poll found a
+ * difference from what it had, or it's stopped watching (its todo is done, or it closed or merged). Carries that one
+ * link alone, not the task's others. Nothing draws this yet; #683 will.
+ */
+export interface GithubWatchChangedEvent {
+  readonly type: EventType.GithubWatchChanged
+  readonly watch: GithubLinkWatch
+}
+
+/**
  * Children of a task were filed under todos, moved between them, or lost their filing (the todo hub, `./todoHub`).
  * Carries the change alone, never the task's whole list: the filings made, each as it now is (one for a child that
  * already had a filing replaces it), and the children whose filing was taken away.
@@ -2118,6 +2130,7 @@ export type GladeEvent =
   | HandoffChangedEvent
   | WatchersChangedEvent
   | CommitsChangedEvent
+  | GithubWatchChangedEvent
   | FilingsChangedEvent
   | TerminalTabsChangedEvent
   | TerminalOutputEvent

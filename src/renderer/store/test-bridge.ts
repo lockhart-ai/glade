@@ -32,6 +32,7 @@ import {
   FileContentKind,
   FileThumbnailKind,
   MessageRole,
+  MessageSource,
   PauseReason,
   PermissionDecisionKind,
   PermissionDestination,
@@ -498,13 +499,16 @@ export function fakeHandlers(
         const idle = task.activity === TaskActivity.Waiting && !task.asking && !task.awaitingPermission
         if (idle) {
           sent += 1
-          const message = { ...sampleMessage(`sent-${String(sent)}`, task.id, text), broadcast: true }
+          const message = { ...sampleMessage(`sent-${String(sent)}`, task.id, text), source: MessageSource.Broadcast }
           main.messages?.push(message)
           events.push({ type: EventType.MessageAppended, message })
           return { taskId: task.id, delivery: BroadcastDelivery.Sent }
         }
         queued += 1
-        queue.push({ ...sampleQueuedMessage(`queued-${String(queued)}`, task.id, text), broadcast: true })
+        queue.push({
+          ...sampleQueuedMessage(`queued-${String(queued)}`, task.id, text),
+          source: MessageSource.Broadcast,
+        })
         events.push({ type: EventType.QueueChanged, taskId: task.id, queuedMessages: queueOf(task.id) })
         return { taskId: task.id, delivery: BroadcastDelivery.Queued }
       })
@@ -1364,12 +1368,12 @@ export function sampleMessage(id: string, taskId: string, body = 'Add rate limit
     images: [],
     pastedBlocks: [],
     files: [],
-    broadcast: false,
+    source: null,
   }
 }
 
 export function sampleQueuedMessage(id: string, taskId: string, body = 'Keep the original filenames.'): QueuedMessage {
-  return { id, taskId, body, createdAt: 4_000, images: [], pastedBlocks: [], files: [], broadcast: false }
+  return { id, taskId, body, createdAt: 4_000, images: [], pastedBlocks: [], files: [], source: null }
 }
 
 /** An open question set: a choice and a text question. */

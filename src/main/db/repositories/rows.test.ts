@@ -71,6 +71,15 @@ describe('Row', () => {
     )
   })
 
+  it('reads enum values that may be null', () => {
+    const states = Object.values(TaskState)
+    expect(row({ state: 'done' }).nullableOneOf('state', states)).toBe(TaskState.Done)
+    expect(row({ state: null }).nullableOneOf('state', states)).toBeNull()
+    expect(() => row({ state: 'paused' }).nullableOneOf('state', states)).toThrow(
+      'things.state: expected one of active, done, got "paused"',
+    )
+  })
+
   it('reads JSON values and objects', () => {
     expect(row({ input: '{"command":"npm test"}' }).jsonObject('input')).toEqual({ command: 'npm test' })
     expect(() => row({ input: '{' }).jsonObject('input')).toThrow('things.input: expected JSON, got "{"')

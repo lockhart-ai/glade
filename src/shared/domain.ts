@@ -350,10 +350,11 @@ export interface Message {
   /** The files attached to your message, copied into the workspace, in order (#396); none for the agent's replies. */
   readonly files: readonly AttachedFile[]
   /**
-   * Whether you sent it to every active task at once, with Broadcast (#489), rather than to this task alone: the chat
-   * tags it. False for the agent's replies.
+   * Where it came from, when it didn't come from you typing in this task: sent to every active task at once with
+   * Broadcast (#489), or a note from one of Glade's own watchers (`MessageSource.Github`, #682). The chat tags it, so
+   * it doesn't read as your own words. Null for a message you sent to this task alone, and for the agent's replies.
    */
-  readonly broadcast: boolean
+  readonly source: MessageSource | null
 }
 
 /**
@@ -373,8 +374,18 @@ export interface QueuedMessage {
   readonly pastedBlocks: readonly PastedBlock[]
   /** The files attached to it, which go with it. */
   readonly files: readonly AttachedFile[]
-  /** Whether it's a broadcast (#489), which it still is once delivered (`Message.broadcast`). */
-  readonly broadcast: boolean
+  /** Where it came from, which it's still from once delivered (`Message.source`). */
+  readonly source: MessageSource | null
+}
+
+/**
+ * Why a message in the chat log (or still in the queue) isn't your own words, for the tag beside "you" (#489, #682):
+ * sent to every active task at once with Broadcast, or a note one of Glade's own watchers left for the agent. A
+ * message with neither, like one for the agent's replies, has no source (null).
+ */
+export enum MessageSource {
+  Broadcast = 'broadcast',
+  Github = 'github',
 }
 
 /**

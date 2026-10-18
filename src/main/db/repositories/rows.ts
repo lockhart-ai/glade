@@ -87,6 +87,11 @@ export class Row {
     return values.find((candidate) => candidate === value) ?? this.fail(column, `one of ${values.join(', ')}`, value)
   }
 
+  /** One of a string enum's values, or null: a column that's one of `oneOf`'s only while it isn't empty. */
+  nullableOneOf<T extends string>(column: string, values: readonly T[]): T | null {
+    return this.value(column) === null ? null : this.oneOf(column, values)
+  }
+
   /** Any JSON value stored as text, unparsed beyond JSON: the caller checks its shape. */
   json(column: string): unknown {
     const text = this.text(column)

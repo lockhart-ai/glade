@@ -14,6 +14,7 @@ import type {
   WorkspaceUserPatch,
 } from '../../shared/bridge'
 import type { TouchedFiles } from '../../shared/touchedFiles'
+import type { GithubLinkWatch } from '../../shared/githubWatch'
 import { EMPTY_OPENROUTER_USAGE, type OpenRouterUsageStatus, type OpenRouterActions } from '../../shared/openrouter'
 import type { BroadcastOutcome } from '../../shared/broadcast'
 import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
@@ -248,6 +249,11 @@ export interface GladeData {
   readonly watchers: Readonly<Record<string, readonly Watcher[]>>
   /** Each task's commits (the Todos tab's commit tiles), newest first, by task id: loaded with its logs, then kept current by events. */
   readonly commits: Readonly<Record<string, readonly TaskCommit[]>>
+  /**
+   * The GitHub link watcher's last state of each of a task's watched links, by task id and then url (#682): empty
+   * until the watcher's first poll, then kept current by events. Nothing reads this yet: #683 draws it.
+   */
+  readonly githubWatches: Readonly<Record<string, Readonly<Record<string, GithubLinkWatch>>>>
   /**
    * Each task's handoff note (the Backfilled card), by task id, null when it has none: loaded with its logs, then kept
    * current by events.
@@ -916,6 +922,7 @@ export const INITIAL_DATA: GladeData = {
   artifactsVersion: {},
   watchers: {},
   commits: {},
+  githubWatches: {},
   handoffs: {},
   todos: {},
   filings: {},

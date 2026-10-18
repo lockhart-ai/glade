@@ -370,7 +370,7 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       // Not a plugin's business: what's said in the chat and queued for it, the Files, Todos, Todos
       // tab, the handoff note, the terminal, the window's own state, settings, the models the pickers offer,
       // plugins and the control endpoint (whose token no plugin may see). A removed workspace's tasks are deleted one by one.
-      // Nor which rule decided a call: its mark names a folder or a command.
+      // Nor which rule decided a call: its mark names a folder or a command. Nor the GitHub link watcher's cache (#682).
       case EventType.PermissionMarked:
       case EventType.WorkspaceRemoved:
       case EventType.MessageAppended:
@@ -379,6 +379,7 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       case EventType.ArtifactsChanged:
       case EventType.HandoffChanged:
       case EventType.CommitsChanged:
+      case EventType.GithubWatchChanged:
       case EventType.FilingsChanged:
       case EventType.FileShown:
       case EventType.FolderChanged:

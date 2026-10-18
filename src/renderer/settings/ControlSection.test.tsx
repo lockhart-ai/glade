@@ -58,7 +58,7 @@ describe('Settings › Control', () => {
     const labels = within(nav)
       .getAllByRole('button')
       .map((button) => button.textContent)
-    expect(labels.slice(-2)).toEqual(['Plugins', 'Control'])
+    expect(labels.slice(-3)).toEqual(['Plugins', 'Control', 'GitHub watching'])
     expect(screen.getByRole('heading', { name: 'Control' })).toBeInTheDocument()
     expect(toggle()).not.toBeChecked()
     expect(screen.getByText('glade-control')).toBeInTheDocument()

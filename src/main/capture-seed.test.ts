@@ -9,6 +9,7 @@ import {
   CompactionTrigger,
   DividerKind,
   MessageRole,
+  MessageSource,
   PauseReason,
   PermissionDestination,
   PermissionMode,
@@ -145,7 +146,9 @@ describe('readSeed', () => {
     expect(new Set(active.map((task) => task.workspace?.name ?? seed.workspace.name))).toEqual(
       new Set(['Acme API', 'Storefront', 'Docs site']),
     )
-    expect(seed.tasks.flatMap((task) => task.messages ?? []).filter((message) => message.broadcast)).toHaveLength(1)
+    expect(
+      seed.tasks.flatMap((task) => task.messages ?? []).filter((message) => message.source === MessageSource.Broadcast),
+    ).toHaveLength(1)
 
     const none = readSeed(join(FIXTURES, 'broadcast-none.json'))
     expect(none.tasks.every((task) => task.state === TaskState.Done)).toBe(true)
@@ -1383,7 +1386,13 @@ describe('applySeed', () => {
                 minutesAgo: 2,
                 summary: { durationMs: 60_000, filesChanged: 1, linesAdded: 2, linesRemoved: 0 },
               },
-              { role: MessageRole.User, body: 'Is anyone restarting Docker?', turn: 2, minutesAgo: 1, broadcast: true },
+              {
+                role: MessageRole.User,
+                body: 'Is anyone restarting Docker?',
+                turn: 2,
+                minutesAgo: 1,
+                source: MessageSource.Broadcast,
+              },
             ],
             toolEvents: [
               { kind: ToolEventKind.Narration, text: 'Looking around.', turn: 1, minutesAgo: 29 },
@@ -1413,7 +1422,7 @@ describe('applySeed', () => {
         turn: 1,
         createdAt: NOW - 30 * MINUTE,
         summary: null,
-        broadcast: false,
+        source: null,
       },
       {
         role: MessageRole.Agent,
@@ -1423,7 +1432,7 @@ describe('applySeed', () => {
         summary: { durationMs: 60_000, filesChanged: 1, linesAdded: 2, linesRemoved: 0 },
       },
       // One sent with Broadcast, which the chat tags (#489).
-      { role: MessageRole.User, body: 'Is anyone restarting Docker?', turn: 2, broadcast: true },
+      { role: MessageRole.User, body: 'Is anyone restarting Docker?', turn: 2, source: MessageSource.Broadcast },
     ])
     expect(listToolEvents(db, taskId)).toMatchObject([
       { kind: ToolEventKind.Narration, text: 'Looking around.', createdAt: NOW - 29 * MINUTE, parentToolUseId: null },

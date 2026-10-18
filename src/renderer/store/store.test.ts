@@ -15,6 +15,7 @@ import {
   FileContentKind,
   FileThumbnailKind,
   MessageRole,
+  MessageSource,
   PauseReason,
   QuestionReplyKind,
   QuestionSetState,
@@ -1807,9 +1808,11 @@ describe('broadcast (#489)', () => {
       { taskId: 't3', delivery: 'queued' },
     ])
     const state = store.getState()
-    expect(state.messages.t1).toMatchObject([{ body: 'Is anyone restarting Docker?', broadcast: true }])
-    expect(state.messages.t2).toMatchObject([{ body: 'Is anyone restarting Docker?', broadcast: true }])
-    expect(state.queuedMessages.t3).toMatchObject([{ body: 'Is anyone restarting Docker?', broadcast: true }])
+    expect(state.messages.t1).toMatchObject([{ body: 'Is anyone restarting Docker?', source: MessageSource.Broadcast }])
+    expect(state.messages.t2).toMatchObject([{ body: 'Is anyone restarting Docker?', source: MessageSource.Broadcast }])
+    expect(state.queuedMessages.t3).toMatchObject([
+      { body: 'Is anyone restarting Docker?', source: MessageSource.Broadcast },
+    ])
     expect(state.messages.t4).toBeUndefined()
     expect(state.messages.t5).toBeUndefined()
   })
@@ -1830,7 +1833,10 @@ describe('a batch of events from main (#489)', () => {
     const { store, emitBatch } = await hydrated()
     const changes = vi.fn()
     store.subscribe(changes)
-    const message = (taskId: string) => ({ ...sampleMessage(`m-${taskId}`, taskId, 'Hi'), broadcast: true })
+    const message = (taskId: string) => ({
+      ...sampleMessage(`m-${taskId}`, taskId, 'Hi'),
+      source: MessageSource.Broadcast,
+    })
 
     emitBatch([
       { type: EventType.MessageAppended, message: message('t1') },

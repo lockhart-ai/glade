@@ -24,6 +24,8 @@ import { putTodos, seedTodoCounterAtLeast } from './glade-todos'
 import { ChildFilter, ChildKind, FilingSource } from '../../../shared/todoHub'
 import { addArtifact, addLinkArtifact } from './artifacts'
 import { setExternalId, setHandoff } from './backfills'
+import { putGithubLinkWatch } from './github-link-watches'
+import { GithubChecksState, GithubLinkKind, GithubLinkState } from '../../../shared/githubWatch'
 import { setSessionContext } from './session-context'
 import { setStoppedWorkNote } from './stopped-work-notes'
 import { setInputDraft } from './input-drafts'
@@ -126,6 +128,22 @@ async function fillTask(db: Database, task: Task): Promise<void> {
   setOpenFiles(db, { taskId, paths: ['api/views.py'], activePath: 'api/views.py' })
   addArtifact(db, { taskId, path: 'docs/rate-limits.md', title: 'Rate limits' })
   addLinkArtifact(db, { taskId, url: 'https://github.com/acme/api/pull/412', title: '#412' })
+  putGithubLinkWatch(db, {
+    taskId,
+    url: 'https://github.com/acme/api/pull/412',
+    kind: GithubLinkKind.PullRequest,
+    state: GithubLinkState.Open,
+    merged: false,
+    draft: false,
+    inMergeQueue: false,
+    checksState: GithubChecksState.Pending,
+    checksSummary: null,
+    reviewState: null,
+    commentCount: 0,
+    headOid: 'abc123',
+    title: 'Fix the UTC date test',
+    watching: true,
+  })
   setBrowseFolderExpanded(db, { taskId, path: 'api', expanded: true })
   assignChildIds(db, taskId, [{ kind: ChildKind.File, key: 'docs/plan.md' }])
   putFilings(db, taskId, [{ kind: ChildKind.File, key: 'docs/plan.md', todoId: '1', source: FilingSource.Named }])
@@ -225,6 +243,8 @@ const FILLED_TABLES = [
   'child_filings',
   // Its children's short ids, which the agent names them by (P16).
   'child_ids',
+  // The GitHub link watcher's last known state of each of its linked issues and PRs (#682).
+  'github_link_watches',
   // The images pasted into its messages, sent and queued, and into its input draft.
   'images',
   // Its unsent input draft.

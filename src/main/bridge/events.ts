@@ -11,6 +11,7 @@ import {
   type TodoList,
   type ToolEvent,
 } from '../../shared/domain'
+import type { GithubLinkWatch } from '../../shared/githubWatch'
 
 /** Sends an event to every window. */
 export type Emit = (event: GladeEvent) => void
@@ -90,4 +91,9 @@ export function emitQueueChanged(emit: Emit, taskId: string, queuedMessages: rea
 /** Tells every window a task's todo list changed, with the whole list as it now is. */
 export function emitTodosChanged(emit: Emit, taskId: string, todos: TodoList | null): void {
   emit({ type: EventType.TodosChanged, taskId, todos })
+}
+
+/** Tells every window the GitHub link watcher's state of one of a task's linked issues or PRs changed (#682). */
+export function emitGithubWatchChanged(emit: Emit, watch: GithubLinkWatch): void {
+  emit({ type: EventType.GithubWatchChanged, watch })
 }

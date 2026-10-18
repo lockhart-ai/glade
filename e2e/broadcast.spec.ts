@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { CommandName } from '../src/shared/bridge'
 import { AppCommandId } from '../src/shared/commands'
-import { TaskState } from '../src/shared/domain'
+import { MessageSource, TaskState } from '../src/shared/domain'
 import { chooseFolder, expect, test } from './fixtures'
 import { chooseMenuItem, menuItem } from './menu'
 import { broadcastDialog, chat, firstRun, inputBar, regions, taskHeader, taskList } from './selectors'
@@ -163,7 +163,9 @@ test('a broadcast reaches every active task with an agent, in every workspace, o
   const received = await Promise.all(
     tasks.map(async (task) => {
       const { messages, queuedMessages } = await invoke(window, CommandName.TasksHistory, { id: task.id })
-      const count = [...messages, ...queuedMessages].filter((message) => message.broadcast).length
+      const count = [...messages, ...queuedMessages].filter(
+        (message) => message.source === MessageSource.Broadcast,
+      ).length
       return { state: task.state, untouched: messages.length + queuedMessages.length === 0, count }
     }),
   )

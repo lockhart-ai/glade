@@ -4,6 +4,7 @@ import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shar
 import {
   Effort,
   MessageRole,
+  MessageSource,
   PermissionMode,
   TaskActivity,
   TaskState,
@@ -40,7 +41,7 @@ import {
   sendFailureMessage,
   withInsertion,
 } from './InputBar'
-import { BROADCAST_TAG } from '../chat/BroadcastTag'
+import { SOURCE_TAG_LABELS } from '../chat/SourceTag'
 import { PAUSED_HINT } from './QueueList'
 import { PAUSED_PLACEHOLDER } from '../pause/pauseModel'
 
@@ -131,7 +132,7 @@ async function renderBar({
       messages: [],
       queuedMessages: queued.map((body, index) => ({
         ...sampleQueuedMessage(`q${String(index + 1)}`, 't1', body),
-        broadcast: broadcast.includes(index),
+        source: broadcast.includes(index) ? MessageSource.Broadcast : null,
       })),
       ...(models === undefined ? {} : { models }),
     },
@@ -347,7 +348,7 @@ describe('InputBar', () => {
                     images: [],
                     pastedBlocks: [],
                     files: [],
-                    broadcast: false,
+                    source: null,
                   },
                 })
               }
@@ -1070,7 +1071,10 @@ describe('the queue', () => {
   it('tags a queued broadcast as one, after its number, and no other message', async () => {
     await renderBar({ queued: ['Keep the filenames.', 'Is anyone restarting Docker?'], broadcast: [1] })
 
-    expect(queueRows()).toEqual(['1Keep the filenames.', `2${BROADCAST_TAG}Is anyone restarting Docker?`])
+    expect(queueRows()).toEqual([
+      '1Keep the filenames.',
+      `2${SOURCE_TAG_LABELS[MessageSource.Broadcast]}Is anyone restarting Docker?`,
+    ])
   })
 
   it('makes the URLs in a queued message links, with the whole message on hover', async () => {

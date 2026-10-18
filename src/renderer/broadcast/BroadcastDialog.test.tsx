@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType, type TasksBroadcastResponse } from '../../shared/bridge'
 import { BroadcastDelivery, type BroadcastFailed } from '../../shared/broadcast'
 import { WindowCommandId } from '../../shared/commands'
-import { TaskActivity, TaskState, type Task, type Workspace } from '../../shared/domain'
+import { MessageSource, TaskActivity, TaskState, type Task, type Workspace } from '../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { TaskIndicator } from '../../shared/taskIndicator'
 import { ToastProvider } from '../components'
@@ -209,10 +209,13 @@ describe('BroadcastDialog', () => {
     expect(answered?.recipients.map(({ taskId }) => taskId).sort()).toEqual(['t1', 't2', 't3', 't4', 't5'])
     expect(answered?.recipients).toHaveLength(rows.length)
     // The idle ones got it in their chat, as a broadcast; the busy ones in their queue.
-    expect(store.getState().messages).toMatchObject({ t3: [{ body: TEXT, broadcast: true }], t5: [{ body: TEXT }] })
+    expect(store.getState().messages).toMatchObject({
+      t3: [{ body: TEXT, source: MessageSource.Broadcast }],
+      t5: [{ body: TEXT }],
+    })
     expect(store.getState().queuedMessages).toMatchObject({
-      t2: [{ body: TEXT, broadcast: true }],
-      t4: [{ body: TEXT, broadcast: true }],
+      t2: [{ body: TEXT, source: MessageSource.Broadcast }],
+      t4: [{ body: TEXT, source: MessageSource.Broadcast }],
     })
   })
 

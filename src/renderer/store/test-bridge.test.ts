@@ -3,6 +3,7 @@ import { BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import { BroadcastDelivery } from '../../shared/broadcast'
 import {
   ArtifactKind,
+  MessageSource,
   PermissionDecisionKind,
   PermissionMarkKind,
   TaskActivity,
@@ -88,10 +89,10 @@ it('broadcasts to every active task as one batch: to an idle one’s chat, to a 
   expect(listener).not.toHaveBeenCalled()
   expect(batchListener).toHaveBeenCalledOnce()
   expect(batchListener.mock.calls[0]?.[0]).toMatchObject([
-    { type: EventType.MessageAppended, message: { taskId: 't1', broadcast: true } },
-    { type: EventType.QueueChanged, taskId: 't2', queuedMessages: [{ broadcast: true }] },
-    { type: EventType.QueueChanged, taskId: 't3', queuedMessages: [{ broadcast: true }] },
-    { type: EventType.QueueChanged, taskId: 't4', queuedMessages: [{ broadcast: true }] },
+    { type: EventType.MessageAppended, message: { taskId: 't1', source: MessageSource.Broadcast } },
+    { type: EventType.QueueChanged, taskId: 't2', queuedMessages: [{ source: MessageSource.Broadcast }] },
+    { type: EventType.QueueChanged, taskId: 't3', queuedMessages: [{ source: MessageSource.Broadcast }] },
+    { type: EventType.QueueChanged, taskId: 't4', queuedMessages: [{ source: MessageSource.Broadcast }] },
   ])
 })
 

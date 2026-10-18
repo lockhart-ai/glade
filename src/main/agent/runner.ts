@@ -302,6 +302,7 @@ import {
   CompactionTrigger,
   DividerKind,
   MessageRole,
+  MessageSource,
   PauseReason,
   PermissionDecisionKind,
   PermissionMarkKind,
@@ -636,14 +637,15 @@ export interface AgentRunnerOptions {
 
 /**
  * A message you sent: its text, the images pasted into it, the text pasted into it, kept apart, the files attached
- * to it, already copied into the workspace, and whether it's a broadcast.
+ * to it, already copied into the workspace, and where it came from (a broadcast, one of Glade's own watchers), null
+ * for a message of your own.
  */
 interface UserMessage {
   readonly text: string
   readonly images: readonly ImageData[]
   readonly pastedBlocks: readonly PastedBlock[]
   readonly files: readonly AttachedFile[]
-  readonly broadcast: boolean
+  readonly source: MessageSource | null
 }
 
 /** How `AgentRunner.applySandboxGrants` waits on the sessions it applies to. */
@@ -658,8 +660,8 @@ export interface AgentRunner {
   /**
    * Saves the user's message and starts a turn with it. A done task is reopened first (see the module comment). Throws
    * a `CommandFailure`: `not_found` for no such task, `busy` while a turn is running or the task is paused. With
-   * `broadcast`, the message is saved as a broadcast (#489), and is `busy` too for a task waiting on answers to its
-   * questions, rather than answering them.
+   * `source`, the message is saved as a broadcast or a watcher's note (#489, #682), and is `busy` too for a task
+   * waiting on answers to its questions, rather than answering them.
    */
   send(
     taskId: string,
@@ -667,7 +669,7 @@ export interface AgentRunner {
     images?: readonly ImageData[],
     pastedBlocks?: readonly PastedBlock[],
     files?: readonly AttachedFile[],
-    broadcast?: boolean,
+    source?: MessageSource | null,
   ): Message
   /**
    * Answers the task's open question set with the card's answers (see the module comment), once they're checked against
@@ -711,7 +713,8 @@ export interface AgentRunner {
    * Adds the user's message to the task's queue, for the agent to get after its current step (see the module comment).
    * When no turn is running, the queue is delivered at once, starting one, unless the task is paused, or waits on
    * requests or questions the app quit on: then it waits for the task to resume, or for you to decide or answer. With
-   * `broadcast`, the message is queued as a broadcast (#489). Throws a `CommandFailure` `not_found` for no such task.
+   * `source`, the message is queued as a broadcast or a watcher's note (#489, #682). Throws a `CommandFailure`
+   * `not_found` for no such task.
    */
   queue(
     taskId: string,
@@ -719,7 +722,7 @@ export interface AgentRunner {
     images?: readonly ImageData[],
     pastedBlocks?: readonly PastedBlock[],
     files?: readonly AttachedFile[],
-    broadcast?: boolean,
+    source?: MessageSource | null,
   ): QueuedMessage
   /**
    * Stops the task's running turn, and resolves with the task once the turn has ended: working again, on its next turn,
@@ -3764,7 +3767,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
                 images: sent.images,
                 pastedBlocks: sent.pastedBlocks,
                 files: sent.files,
-                broadcast: sent.broadcast,
+                source: sent.source,
               }),
             ]),
       ]
@@ -4093,15 +4096,15 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         if (deferredPauses.delete(taskId)) onPauseDue(taskId)
       }
     },
-    send(taskId, text, images = [], pastedBlocks = [], files = [], broadcast = false) {
+    send(taskId, text, images = [], pastedBlocks = [], files = [], source = null) {
       if (switching.has(taskId)) throw new CommandFailure(BridgeErrorCode.Busy, 'The task is switching models')
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
       // The agent waits on answers to its questions: the message answers them, rather than starting a turn.
       const open = getOpenQuestionSet(db, taskId)
       if (open !== undefined) {
-        // A broadcast went to every task, so it's no answer to this one's questions: it waits for them in the queue.
-        if (broadcast) {
+        // A broadcast or a watcher's note went to the task on its own, not as your words: it waits in the queue.
+        if (source !== null) {
           throw new CommandFailure(
             BridgeErrorCode.Busy,
             'The agent is waiting on your answers; queue the message instead',
@@ -4122,7 +4125,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The task is paused; queue the message instead')
       }
       // The message sent is the last of the turn's: any queued ones go before it.
-      const sent = { text, images, pastedBlocks, files, broadcast }
+      const sent = { text, images, pastedBlocks, files, source }
       const message = startTurn(task, sessions.get(taskId) ?? start(task), sent).at(-1)
       if (message === undefined) throw new Error(`The turn for task ${taskId} started without its message`)
       return message
@@ -4293,14 +4296,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       }
     },
 
-    queue(taskId, text, images = [], pastedBlocks = [], files = [], broadcast = false) {
+    queue(taskId, text, images = [], pastedBlocks = [], files = [], source = null) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
-      const queued = addQueuedMessage(context, { taskId, body: text, images, pastedBlocks, files, broadcast })
+      const queued = addQueuedMessage(context, { taskId, body: text, images, pastedBlocks, files, source })
       // A paused task delivers its queue once it resumes, and one waiting on requests the app quit on once you decide.
       if (switching.has(taskId) || isPaused(task) || waitsOnRestartRequests(taskId)) return queued
-      // So does one waiting on a question the app quit on (only a broadcast is queued then, #489): its answer carries
-      // on the turn that asked, and the queue follows.
+      // So does one waiting on a question the app quit on (only a tagged message is queued then, #489, #682): its
+      // answer carries on the turn that asked, and the queue follows.
       if (getOpenQuestionSet(db, taskId) !== undefined) return queued
       const live = sessions.get(taskId)
       // The turn ended just before the message arrived: nothing will deliver the queue, so it starts a turn now.

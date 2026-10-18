@@ -50,7 +50,23 @@ export interface Settings {
    * to on in P15's last PR (#452).
    */
   readonly sandboxEnabled: boolean
+  /**
+   * How often the GitHub link watcher polls every task's linked issues and PRs, in seconds (Settings › GitHub
+   * watching, #682). 60 by default; never less than `MIN_GITHUB_WATCH_POLL_SECONDS`.
+   */
+  readonly githubWatchPollSeconds: number
+  /** Whether a link's state changing (opened/closed/merged/entered or left the merge queue) wakes its task. */
+  readonly githubWatchOnStateChange: boolean
+  /** Whether its CI finishing (green or red) wakes its task. */
+  readonly githubWatchOnChecksFinished: boolean
+  /** Whether a new review or comment wakes its task. */
+  readonly githubWatchOnReviewsComments: boolean
+  /** Whether new commits pushed to it wake its task. */
+  readonly githubWatchOnNewCommits: boolean
 }
+
+/** The shortest the GitHub link watcher's poll interval may be, in seconds: often enough isn't the same as hammering. */
+export const MIN_GITHUB_WATCH_POLL_SECONDS = 15
 
 /** The settings you change at once: the ones left out keep their value. */
 export type SettingsPatch = Partial<Settings>
@@ -74,4 +90,9 @@ export const DEFAULT_SETTINGS: Settings = {
   showInMenuBar: true,
   // Off until P15's last PR (#452): see `Settings.sandboxEnabled`.
   sandboxEnabled: false,
+  githubWatchPollSeconds: 60,
+  githubWatchOnStateChange: true,
+  githubWatchOnChecksFinished: true,
+  githubWatchOnReviewsComments: true,
+  githubWatchOnNewCommits: true,
 }

@@ -40,6 +40,7 @@
     "src/shared/account.ts",
     "src/shared/control.ts",
     "src/shared/domain.ts",
+    "src/shared/githubWatch.ts",
     "src/shared/images.ts",
     "src/shared/test-images.ts",
     "src/shared/models.ts",

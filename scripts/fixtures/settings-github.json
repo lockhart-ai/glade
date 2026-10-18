@@ -1,0 +1,41 @@
+{
+  "settings": {
+    "githubWatchPollSeconds": 90,
+    "githubWatchOnNewCommits": false
+  },
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "tasks": [
+    {
+      "title": "Draft release notes for 2.4",
+      "status": "Waiting on you: two questions",
+      "pinned": true,
+      "minutesAgo": 25
+    },
+    {
+      "title": "Port the chat cases to the new runner",
+      "status": "Opened PR #2537; watching it for CI and review",
+      "activity": "working",
+      "minutesAgo": 0,
+      "startedMinutesAgo": 95,
+      "selected": true,
+      "contextUsedTokens": 61000,
+      "contextWindowTokens": 200000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Move the chat test cases over to the new scripted runner, keeping their coverage.",
+          "turn": 1,
+          "minutesAgo": 95
+        }
+      ]
+    },
+    {
+      "title": "Fix flaky login test",
+      "status": "Found the race; fix passes 200 local runs",
+      "minutesAgo": 7
+    }
+  ]
+}

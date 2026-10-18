@@ -1,0 +1,81 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "tasks": [
+    {
+      "title": "Draft release notes for 2.4",
+      "status": "Waiting on you: two questions",
+      "pinned": true,
+      "minutesAgo": 25
+    },
+    {
+      "title": "Port the chat cases to the new runner",
+      "objective": "Move the chat test cases over to the new scripted runner, keeping their coverage.",
+      "status": "Opened PR #2537; watching it for CI and review",
+      "activity": "working",
+      "minutesAgo": 0,
+      "startedMinutesAgo": 95,
+      "selected": true,
+      "contextUsedTokens": 61000,
+      "contextWindowTokens": 200000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Move the chat test cases over to the new scripted runner, keeping their coverage.",
+          "turn": 1,
+          "minutesAgo": 95
+        },
+        {
+          "role": "agent",
+          "body": "Done. Opened PR #2537 and I'll watch it from here for CI and review.",
+          "turn": 1,
+          "minutesAgo": 80,
+          "summary": { "durationMs": 900000, "filesChanged": 6, "linesAdded": 210, "linesRemoved": 84 }
+        },
+        {
+          "role": "user",
+          "body": "PR #2537 Port the chat cases: CI failed (13/14); 2 new comments",
+          "turn": 2,
+          "minutesAgo": 1,
+          "source": "github"
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "narration",
+          "text": "Moving each case over one file at a time, running the suite after each.",
+          "turn": 1,
+          "minutesAgo": 94
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": { "command": "npm test -- chat", "description": "Run the chat test cases" },
+          "output": "..............................                                           [100%]\n30 passed in 4.1s",
+          "turn": 1,
+          "minutesAgo": 82
+        }
+      ],
+      "queuedMessages": ["Also update the fixture names to match."]
+    },
+    {
+      "title": "Fix flaky login test",
+      "status": "Found the race; fix passes 200 local runs",
+      "activity": "working",
+      "minutesAgo": 9
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "status": "Waiting on you: pick a limit for /search",
+      "minutesAgo": 4
+    },
+    {
+      "title": "Upgrade Django to 5.2",
+      "status": "Upgraded; two deprecations fixed",
+      "state": "done",
+      "minutesAgo": 2880
+    }
+  ]
+}

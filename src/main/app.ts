@@ -102,6 +102,7 @@ import { spawnNodePty } from './terminal/node-pty'
 import type { SpawnPty } from './terminal/pty'
 import { loginShell, testShell } from './terminal/shell'
 import { backfillWorkspaceSelections } from './workspaces/workspaces'
+import { createGithubWatcher } from './github-watch/watcher'
 
 /** The `bg` design token, so the window never flashes white before the renderer paints. */
 const WINDOW_BACKGROUND = '#0A0B0F'
@@ -934,6 +935,10 @@ export function startApp({
 
     const { runner } = bridge
     void openrouter.refreshUsage()
+    // Polls every task's linked issues and PRs (#682), with the machine's `gh` token when there is one. Never runs
+    // in a test mode: a capture or an e2e spec must never read a real token or reach the network.
+    const githubWatcher = testMode === null ? createGithubWatcher({ db: database.db, emit: bridge.emit, runner }) : null
+    githubWatcher?.start()
 
     // A spec files children under todos through main's own service, until the agent's tools do (P16).
     if (testMode?.kind === TestModeKind.E2e) {
@@ -990,6 +995,7 @@ export function startApp({
     app.on('will-quit', () => {
       log.info('app quitting')
       openrouter.close()
+      githubWatcher?.close()
       stopLoggingCrashes()
       runner.close()
       bridge.account.close()

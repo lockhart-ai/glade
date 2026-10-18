@@ -577,6 +577,15 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, watchers: withWatchers(state.watchers, event.taskId, event.watchers) }
     case EventType.CommitsChanged:
       return { ...state, commits: { ...state.commits, [event.taskId]: event.commits } }
+    // The GitHub link watcher's (#682): nothing draws this yet (#683 will), but it's kept current so that can read it.
+    case EventType.GithubWatchChanged:
+      return {
+        ...state,
+        githubWatches: {
+          ...state.githubWatches,
+          [event.watch.taskId]: { ...state.githubWatches[event.watch.taskId], [event.watch.url]: event.watch },
+        },
+      }
     // The todo hub's (P16).
     case EventType.FilingsChanged:
       return withFilingsChange(state, event)

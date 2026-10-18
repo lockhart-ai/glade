@@ -312,7 +312,7 @@ describe('docs/product.md', () => {
   it('lists every Settings section, in the nav’s order', () => {
     const listed = section(doc('docs/product.md'), '## Settings')
       .split('\n')
-      .flatMap((line) => /^- \*\*(\w+)(:\*\*|\*\*)/.exec(line)?.[1] ?? [])
+      .flatMap((line) => /^- \*\*([^*]+?):?\*\*/.exec(line)?.[1] ?? [])
     expect(listed).toEqual([...APP_SECTIONS.map((id) => SECTION_TITLES[id]), 'Workspace'])
   })
 })
