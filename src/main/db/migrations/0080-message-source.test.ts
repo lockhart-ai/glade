@@ -7,10 +7,9 @@ import { appendQueuedMessage, listQueuedMessages } from '../repositories/queued-
 import { MIGRATIONS } from '.'
 import { messageSourceMigration } from './0080-message-source'
 
-it('is migration 80, the last one', () => {
+it('is migration 80, after every earlier one', () => {
   expect(messageSourceMigration.version).toBe(80)
   expect(MIGRATIONS.indexOf(messageSourceMigration)).toBe(MIGRATIONS.filter((m) => m.version < 80).length)
-  expect(MIGRATIONS.at(-1)).toBe(messageSourceMigration)
 })
 
 it('carries broadcast = 1 forward as source = broadcast, and broadcast = 0 as no source', () => {

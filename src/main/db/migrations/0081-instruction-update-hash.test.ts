@@ -22,10 +22,9 @@ function seed(db: ReturnType<typeof openDatabase>, taskId: string, instructionUp
   ).run(taskId, instructionUpdates)
 }
 
-it('is migration 81, the last one', () => {
+it('is migration 81, after every earlier one', () => {
   expect(instructionUpdateHashMigration.version).toBe(81)
   expect(MIGRATIONS.indexOf(instructionUpdateHashMigration)).toBe(MIGRATIONS.filter((m) => m.version < 81).length)
-  expect(MIGRATIONS.at(-1)).toBe(instructionUpdateHashMigration)
 })
 
 it("backfills a row that never reached TODO_TOOLS_LINE with today's wording: nothing was stale to begin with", () => {
