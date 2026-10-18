@@ -49,7 +49,7 @@ import {
 import { openAppDatabase, type AppDatabase } from './db/database'
 import { firstUserMessageOfSession } from './db/repositories/messages'
 import { getUiState } from './db/repositories/ui-state'
-import { applySeed, readSeed } from './capture-seed'
+import { applySeed, readSeed, type CaptureSeed } from './capture-seed'
 import { chooseFolder } from './dialogs'
 import {
   createE2eAgentEnvs,
@@ -387,16 +387,32 @@ async function runCapture(spec: CaptureSpec, context: CaptureContext): Promise<v
 }
 
 /**
- * Fills an e2e run's database from its seed fixture, if it has one, as a capture does. Returns false, having closed
- * the database and exited with an error, when the fixture can't be applied.
+ * Reads an e2e run's seed fixture, to be applied once the sessions have resumed (`applyE2eSeed`). Answers `ok` with
+ * the seed, or undefined when the spec has none; `not ok`, having exited with an error, when the fixture can't be
+ * read — before any window opens.
  */
-function seedE2e(spec: E2eSpec, database: AppDatabase, log: Logger): boolean {
-  if (spec.seed === undefined) return true
+function readE2eSeed(testMode: TestMode, log: Logger): { ok: true; seed: CaptureSeed | undefined } | { ok: false } {
+  if (testMode?.kind !== TestModeKind.E2e || testMode.spec.seed === undefined) return { ok: true, seed: undefined }
   try {
-    applySeed(database.db, readSeed(spec.seed), Date.now())
+    return { ok: true, seed: readSeed(testMode.spec.seed) }
+  } catch (error) {
+    log.scoped(LogScope.TestMode).error("the e2e seed couldn't be applied", { seed: testMode.spec.seed, error })
+    app.exit(1)
+    return { ok: false }
+  }
+}
+
+/**
+ * Applies the seed read earlier (`readE2eSeed`), as the state the window opens on rather than a run the app quit in.
+ * Answers false, having closed the database and exited with an error, when it can't be applied.
+ */
+function applyE2eSeed(seed: CaptureSeed | undefined, database: AppDatabase, log: Logger): boolean {
+  if (seed === undefined) return true
+  try {
+    applySeed(database.db, seed, Date.now())
     return true
   } catch (error) {
-    log.scoped(LogScope.TestMode).error("the e2e seed couldn't be applied", { seed: spec.seed, error })
+    log.scoped(LogScope.TestMode).error("the e2e seed couldn't be applied", { error })
     database.db.close()
     app.exit(1)
     return false
@@ -967,13 +983,31 @@ export function startApp({
       void runCapture(testMode.spec, { database, bridge, agent: testAgent, log })
       return
     }
+    // The window paints first (#674): what the renderer's first snapshot needs — the database open and migrated, the
+    // workspaces and tasks readable, the bridge registered — is ready, so the window is created now and loads while
+    // main carries the rest of the boot. That rest runs on in this same turn, so no command the window sends can be
+    // answered before it's done: everything it reads, the sessions' resume included, is in the database by then, and
+    // the events the resume sends before the page has subscribed are effects the snapshot already carries. The e2e
+    // seed is read here too, before any window, so a bad one never opens one; it goes in after the resume.
+    const reading = readE2eSeed(testMode, log)
+    if (!reading.ok) {
+      runner.close()
+      return
+    }
+    const e2eSeed = reading.seed
+    createWindow(testMode, database.db, log)
+
+    app.on('activate', () => {
+      if (mainWindows().length === 0) createWindow(testMode, database.db, log)
+    })
+
     // Carry on the turns the app last quit or crashed in; the window loads what they save from the database, and the
     // relaunch notice when it crashed. An e2e seed is the state the window opens on, not a run the app quit in, so it
     // goes in afterwards.
     const crashed = markRunning(database.db)
     if (crashed) log.warn('the app crashed or was killed last time')
     noteRelaunch(database.db, crashed, runner.resumeInterrupted())
-    if (testMode?.kind === TestModeKind.E2e && !seedE2e(testMode.spec, database, log)) {
+    if (!applyE2eSeed(e2eSeed, database, log)) {
       runner.close()
       return
     }
@@ -1011,12 +1045,6 @@ export function startApp({
       // Quitting can get here again once the database is closed; the mark went with the first time.
       if (database.db.open) markQuit(database.db)
       database.db.close()
-    })
-
-    createWindow(testMode, database.db, log)
-
-    app.on('activate', () => {
-      if (mainWindows().length === 0) createWindow(testMode, database.db, log)
     })
   })
 
