@@ -74,21 +74,16 @@
 
 /*
  * A collapsed todo's state, after its counts in its kind row (#727): the watched links' entries, or one count per
- * state, each in its own equal fixed-width slot, so entry lines up with entry down the list, whatever counts the
- * todo has before them. The slot does the separating where the middle dots were: an entry is wide enough for
- * `#2632 Merged` and the row's one 12px gap after it, and a longer entry (`Merge queue`) grows past its slot and
- * pushes the rest. It never wraps: it clips, so with more entries than fit the last ones drop first.
+ * state, each at its natural width, with the kind row's one 12px gap between them where the middle dots were. It
+ * never wraps: it clips, so with more entries than fit the last ones drop first.
  */
 .cluster {
   display: inline-flex;
   align-items: center;
+  gap: var(--space-lg);
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
-
-  /* One slot: the entry's 12px icon, the 4px to its number, five digits (`#2632`), the row's 12px to the state,
-     the state's own 12px icon, its 3px to up to six characters (`Merged`), and the row's 12px after. */
-  --state-slot: calc(55px + 11ch);
 }
 
 /* One entry: a state-coloured icon, the link's number in faint grey, then the one thing about it. */
@@ -96,7 +91,6 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
-  min-width: var(--state-slot);
   font-family: var(--font-mono);
   font-size: var(--font-size-label);
 }

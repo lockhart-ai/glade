@@ -30,6 +30,7 @@ import {
   type HubTask,
 } from './test-hub'
 import { TodoHub } from './TodoHub'
+import linkStateStyles from './LinkState.module.css'
 import styles from './TodoHub.module.css'
 import { NO_HUB_TODOS, UNFILED_HEADING } from './todoHubModel'
 import { NO_TODOS } from './Todos'
@@ -195,27 +196,6 @@ describe('the hub’s todos', () => {
     expect(kind(/#501/, '2 links')).toHaveTextContent(/^2$/)
     // Each says what it counts in words on hover.
     expect(kind(/#501/, '2 changes')).toHaveAttribute('title', '2 changes')
-  })
-
-  it('keeps a slot for every kind, so the counts and the states line up down the list (#727)', async () => {
-    await renderHub(SHIP)
-
-    // The closed row packs the counts from the left into a counts area of fixed width — one equal slot each, a kind
-    // with none taking no slot — and the states their own area after it, so the first, second and third element of
-    // every row start at the same place from todo to todo. The columns themselves are CSS; this is what they place.
-    const slots = (text: string | RegExp): string[] =>
-      [
-        ...card(text).querySelectorAll(
-          `.${styles.kinds ?? ''} > [data-kind], .${styles.kinds ?? ''} > .${styles.states ?? ''}`,
-        ),
-      ].map((element) => element.getAttribute('data-kind') ?? 'states')
-    // #501 has links and changes but no files; #503 has a file alone.
-    expect(slots(/#501/)).toEqual(['link', 'commit', 'states'])
-    expect(slots(/#503/)).toEqual(['file', 'states'])
-    // Open, the states give way to the pills, as before.
-    fireEvent.click(head(/#501/))
-    expect(card(/#501/).querySelector(`.${styles.states ?? ''}`)).toBeNull()
-    expect(kinds(/#501/)).toEqual(['2 links', '2 changes'])
   })
 
   it('shows a todo with nothing under it as its title alone: no row of icons, no chevron, nothing to open', async () => {
@@ -1850,6 +1830,29 @@ describe("a collapsed todo's linked pull requests and issues (#683)", () => {
 
     expect(row(/#501/).textContent).toBe('22')
     expect(row(/#502/).textContent).toBe('11')
+  })
+
+  it('packs the counts and the states into one row, each element at its natural width with one gap (#727)', async () => {
+    await renderHub(SHIP, {}, { githubWatches: [watch(ISSUE_501), watch(PR_511)] })
+
+    // The closed row lays the counts and the states out together, each element at its natural width — a kind with
+    // none taking no slot — and the row's one gap between them, with no separators.
+    const kindsRow = (text: string | RegExp): HTMLElement => {
+      const kinds = card(text).querySelector<HTMLElement>(`.${styles.kinds ?? ''}`)
+      if (kinds === null) throw new Error(`No kind row in ${String(text)}`)
+      return kinds
+    }
+    const elementKinds = (text: string | RegExp): string[] =>
+      [...kindsRow(text).querySelectorAll('[data-kind]')].map((element) => element.getAttribute('data-kind') ?? '')
+    // #501 has links and changes but no files; #503 has a file alone and nothing watched.
+    expect(elementKinds(/#501/)).toEqual(['link', 'commit'])
+    expect(kindsRow(/#501/).querySelector(`.${linkStateStyles.cluster ?? ''}`)).not.toBeNull()
+    expect(elementKinds(/#503/)).toEqual(['file'])
+    expect(kindsRow(/#503/).querySelector(`.${linkStateStyles.cluster ?? ''}`)).toBeNull()
+    // Open, the states give way to the pills, as before.
+    fireEvent.click(head(/#501/))
+    expect(card(/#501/).querySelector(`.${linkStateStyles.cluster ?? ''}`)).toBeNull()
+    expect(kinds(/#501/)).toEqual(['2 links', '2 changes'])
   })
 
   it('says nothing while the todo is open', async () => {
