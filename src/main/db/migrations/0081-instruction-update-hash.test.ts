@@ -66,10 +66,9 @@ it('backfills a row already past TODO_TOOLS_LINE with the wording it actually sa
 
   // Each gets the old wording standing in for TODO_TOOLS_LINE, but only up to as many lines as it was counted as
   // having: "caught up" already counted every line, "partway" only up to (and including) TODO_TOOLS_LINE's own.
-  const substitute = (line: string, index: number): string => (index === TOOLS_LINE_INDEX ? TODO_TOOLS_LINE_BEFORE_680 : line)
-  expect(getSessionContext(db, 'caught-up')?.instructionUpdateHash).toBe(
-    hashLines(INSTRUCTION_UPDATES.map(substitute)),
-  )
+  const substitute = (line: string, index: number): string =>
+    index === TOOLS_LINE_INDEX ? TODO_TOOLS_LINE_BEFORE_680 : line
+  expect(getSessionContext(db, 'caught-up')?.instructionUpdateHash).toBe(hashLines(INSTRUCTION_UPDATES.map(substitute)))
   expect(getSessionContext(db, 'partway')?.instructionUpdateHash).toBe(
     hashLines(INSTRUCTION_UPDATES.slice(0, TOOLS_LINE_INDEX + 1).map(substitute)),
   )
@@ -78,9 +77,7 @@ it('backfills a row already past TODO_TOOLS_LINE with the wording it actually sa
   // one line that changed (#708): simpler than tracking which line, and harmless for the ones that hadn't changed.
   for (const taskId of ['caught-up', 'partway']) {
     const recorded = getSessionContext(db, taskId)
-    expect(
-      missingContext({ recorded, startedElsewhere: false, handoff: null, prompt: '', sandboxed: false }),
-    ).toEqual([
+    expect(missingContext({ recorded, startedElsewhere: false, handoff: null, prompt: '', sandboxed: false })).toEqual([
       { kind: MissingContextKind.Updates, updates: INSTRUCTION_UPDATES },
       { kind: MissingContextKind.TodoHub },
     ])

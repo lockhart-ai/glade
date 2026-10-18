@@ -10,7 +10,7 @@ import { Row } from '../repositories/rows'
  */
 export const TODO_TOOLS_LINE_BEFORE_680 =
   "Keep this task's todos with create_todo, update_todo and list_todos: there is no TaskCreate, TaskUpdate, " +
-  "TaskList, TaskGet or TodoWrite here any more. A note on a todo (what it is for, or where it stands) shows " +
+  'TaskList, TaskGet or TodoWrite here any more. A note on a todo (what it is for, or where it stands) shows ' +
   "while it isn't done, not only while you're doing it."
 
 /**
