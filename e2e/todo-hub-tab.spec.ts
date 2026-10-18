@@ -77,7 +77,7 @@ test('the todo hub: counts closed, filters and tiles open, each todo as you left
     'To do: Draft the 2.5 release notes',
     /^Done: #503 Document the rate limits/,
   ])
-  await expect(taskPanel(window).tabs).toHaveText([/^Agents/, 'Files', /^Todos/])
+  await expect(taskPanel(window).tabs).toHaveText([/^Todos/, /^Agents/, 'Files'])
 
   // Closed: a count per kind it produced (files, links, changes), a kind with none left out.
   expect(await kindsOf(window, '#502')).toEqual(['3 links', '2 changes'])
