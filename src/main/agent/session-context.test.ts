@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskHandoff } from '../../shared/domain'
 import type { SessionContext } from '../db/repositories/session-context'
+import { hashLines } from './instruction-hash'
 import {
   contextAfter,
   contextBlock,
@@ -37,11 +38,18 @@ function check(overrides: Partial<ContextCheck>): ContextCheck {
 }
 
 /**
- * What's recorded for a session that has Glade's prompt, `updates` of the instructions added since, and a note. It has
- * been told of the todo hub, as every session Glade starts has, unless said.
+ * What's recorded for a session that has Glade's prompt, `updates` of the instructions added since (with the
+ * fingerprint those lines' text has today, unless `instructionUpdateHash` says otherwise — a stale one, #708), and a
+ * note. It has been told of the todo hub, as every session Glade starts has, unless said.
  */
-function has(updates: number, handoffAt: number | null = null, sandbox = false, todoHub = true): SessionContext {
-  return { instructions: true, instructionUpdates: updates, handoffAt, sandbox, todoHub }
+function has(
+  updates: number,
+  handoffAt: number | null = null,
+  sandbox = false,
+  todoHub = true,
+  instructionUpdateHash = hashLines(INSTRUCTION_UPDATES.slice(0, updates)),
+): SessionContext {
+  return { instructions: true, instructionUpdates: updates, instructionUpdateHash, handoffAt, sandbox, todoHub }
 }
 
 /** The todo hub's lines, which a session from before anything was recorded for it is missing. */
@@ -145,10 +153,50 @@ describe('what a session is missing', () => {
     expect(
       missingContext(
         check({
-          recorded: { instructions: false, instructionUpdates: 0, handoffAt: null, sandbox: false, todoHub: false },
+          recorded: {
+            instructions: false,
+            instructionUpdates: 0,
+            instructionUpdateHash: hashLines([]),
+            handoffAt: null,
+            sandbox: false,
+            todoHub: false,
+          },
         }),
       ),
     ).toMatchObject([{ kind: MissingContextKind.Instructions }])
+  })
+})
+
+describe("what a session is missing when a line's wording changed, not just its count (#708)", () => {
+  it('is nothing when the recorded fingerprint matches the text its count says it has', () => {
+    expect(missingContext(check({ recorded: has(CURRENT) }))).toEqual([])
+    expect(missingContext(check({ recorded: has(2) }))).toEqual([
+      { kind: MissingContextKind.Updates, updates: INSTRUCTION_UPDATES.slice(2) },
+    ])
+  })
+
+  it('is the whole list again when a line within the count has since been reworded', () => {
+    // A session that had already counted all of them, under an earlier wording of one (#680's TODO_TOOLS_LINE):
+    // counting alone says it has everything, but the fingerprint of what it actually saw no longer matches.
+    const stale = has(CURRENT, null, false, true, hashLines(['an earlier wording of the whole list']))
+
+    expect(missingContext(check({ recorded: stale }))).toEqual([
+      { kind: MissingContextKind.Updates, updates: INSTRUCTION_UPDATES },
+    ])
+    // Sent once, the recorded fingerprint catches up, so it isn't sent again.
+    const told = contextAfter(check({ recorded: stale }), missingContext(check({ recorded: stale })))
+    expect(told).toEqual(has(CURRENT))
+    expect(missingContext(check({ recorded: told }))).toEqual([])
+  })
+
+  it('resends the changed-and-seen prefix together with any genuinely new suffix, in one block', () => {
+    // Behind by count (hasn't had the last line yet) and its earlier wording was reworded too: both come back as
+    // one ordered block — the whole list — not two separate ones.
+    const stale = has(CURRENT - 1, null, false, true, hashLines(['stale']))
+
+    expect(missingContext(check({ recorded: stale }))).toEqual([
+      { kind: MissingContextKind.Updates, updates: INSTRUCTION_UPDATES },
+    ])
   })
 })
 
@@ -226,6 +274,7 @@ describe('what a session is missing of the sandbox', () => {
     const told: SessionContext = {
       instructions: false,
       instructionUpdates: 0,
+      instructionUpdateHash: hashLines([]),
       handoffAt: null,
       sandbox: true,
       todoHub: false,

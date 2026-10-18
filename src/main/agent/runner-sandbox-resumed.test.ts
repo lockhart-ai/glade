@@ -20,6 +20,7 @@ import { setUiState } from '../db/repositories/ui-state'
 import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
 import { FakeAgentBackend, settle } from './fake-backend'
+import { hashLines } from './instruction-hash'
 import { RESUME_PROMPT, type AgentRunner } from './runner'
 import { handoffSection, INSTRUCTION_UPDATES, SANDBOX_LINE, systemPromptAppend } from './system-prompt'
 import * as sdk from './test-sdk-messages'
@@ -245,6 +246,7 @@ describe('a session that started before the sandbox was on', () => {
     setSessionContext(database.db, task.id, {
       instructions: true,
       instructionUpdates: 0,
+      instructionUpdateHash: hashLines([]),
       handoffAt: null,
       sandbox: false,
       todoHub: true,
@@ -266,6 +268,7 @@ describe('a session that started before the sandbox was on', () => {
     expect(getSessionContext(database.db, task.id)).toEqual({
       instructions: true,
       instructionUpdates: INSTRUCTION_UPDATES.length,
+      instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
       handoffAt: 5_000,
       sandbox: true,
       todoHub: true,

@@ -75,6 +75,7 @@ import {
 } from '../shared/sandbox'
 import { sandboxFailureReason } from '../shared/sandboxFailure'
 import { DEFAULT_SETTINGS } from '../shared/settings'
+import { hashLines } from './agent/instruction-hash'
 import { DRIVES_GLADE } from './agent/scripts'
 import { getSettings } from './db/repositories/settings'
 import { ensureControlToken, readControlToken } from './control/token'
@@ -1366,6 +1367,7 @@ describe('applySeed', () => {
     expect(getSessionContext(db, task?.id ?? '')).toEqual({
       instructions: true,
       instructionUpdates: INSTRUCTION_UPDATES.length,
+      instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
       handoffAt: null,
       sandbox: true,
       // Nor the todo hub's lines, when a capture runs with the hub on.

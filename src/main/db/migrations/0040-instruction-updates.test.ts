@@ -1,4 +1,6 @@
 import { expect, it } from 'vitest'
+import { hashLines } from '../../agent/instruction-hash'
+import { INSTRUCTION_UPDATES } from '../../agent/system-prompt'
 import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { getSessionContext, setSessionContext } from '../repositories/session-context'
@@ -31,6 +33,7 @@ it('leaves every session recorded before it with none of the instructions added 
   expect(getSessionContext(db, 'glade')).toEqual({
     instructions: true,
     instructionUpdates: 0,
+    instructionUpdateHash: hashLines([]),
     handoffAt: 2,
     sandbox: false,
     todoHub: false,
@@ -38,6 +41,7 @@ it('leaves every session recorded before it with none of the instructions added 
   expect(getSessionContext(db, 'imported')).toEqual({
     instructions: false,
     instructionUpdates: 0,
+    instructionUpdateHash: hashLines([]),
     handoffAt: null,
     sandbox: false,
     todoHub: false,
@@ -45,6 +49,7 @@ it('leaves every session recorded before it with none of the instructions added 
   setSessionContext(db, 'glade', {
     instructions: true,
     instructionUpdates: 1,
+    instructionUpdateHash: hashLines(INSTRUCTION_UPDATES.slice(0, 1)),
     handoffAt: 2,
     sandbox: false,
     todoHub: false,
@@ -52,6 +57,7 @@ it('leaves every session recorded before it with none of the instructions added 
   expect(getSessionContext(db, 'glade')).toEqual({
     instructions: true,
     instructionUpdates: 1,
+    instructionUpdateHash: hashLines(INSTRUCTION_UPDATES.slice(0, 1)),
     handoffAt: 2,
     sandbox: false,
     todoHub: false,

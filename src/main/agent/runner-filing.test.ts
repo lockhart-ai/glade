@@ -30,6 +30,7 @@ import type { BatchCall } from './backend'
 import { readsTodo } from './child-calls'
 import { FakeAgentBackend, settle as settleBackend, type FakeAgentSession } from './fake-backend'
 import { createGladeMcpServer, GLADE_SERVER } from './glade-tools'
+import { hashLines } from './instruction-hash'
 import { COMPACT_COMMAND, createAgentRunner, type AgentRunner } from './runner'
 import { INSTRUCTION_UPDATES, TODO_HUB_LINES } from './system-prompt'
 import * as sdk from './test-sdk-messages'
@@ -901,6 +902,7 @@ describe('a task whose session started before the hub was on for every task (#50
   const BEFORE: SessionContext = {
     instructions: true,
     instructionUpdates: INSTRUCTION_UPDATES.length,
+    instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
     handoffAt: null,
     sandbox: false,
     todoHub: false,

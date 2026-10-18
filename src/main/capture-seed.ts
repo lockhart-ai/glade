@@ -79,6 +79,7 @@ import { setTodoPanel } from './db/repositories/todo-panels'
 import { createWorkspace, getWorkspaceByRoot } from './db/repositories/workspaces'
 import { recordNotification } from './db/repositories/notifications'
 import { setSessionContext } from './db/repositories/session-context'
+import { hashLines } from './agent/instruction-hash'
 import { INSTRUCTION_UPDATES } from './agent/system-prompt'
 import { DEFAULT_SETTINGS, type SettingsPatch } from '../shared/settings'
 import { SETTING_SCHEMAS, updateSettings } from './db/repositories/settings'
@@ -1165,6 +1166,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         setSessionContext(db, task.id, {
           instructions: true,
           instructionUpdates: INSTRUCTION_UPDATES.length,
+          instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
           handoffAt: null,
           sandbox: true,
           todoHub: true,

@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { UiStateKey, WatcherKind, WatcherState } from '../../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../../shared/settings'
 import { ChildFilter, ChildKind, subagentTodo, UNFILED_TODO_ID } from '../../../shared/todoHub'
+import { hashLines } from '../../agent/instruction-hash'
 import { missingContext, MissingContextKind } from '../../agent/session-context'
 import {
   GITHUB_LINK_WATCH_LINE,
+  INSTRUCTION_UPDATES,
   OTHER_TASKS_LINE,
   TODO_LINKS_LINE,
   TODO_TOOLS_LINE,
@@ -200,6 +202,7 @@ describe('a database from before the phase (pre-0059), migrated', () => {
     expect(recorded).toEqual({
       instructions: true,
       instructionUpdates: 2,
+      instructionUpdateHash: hashLines(INSTRUCTION_UPDATES.slice(0, 2)),
       handoffAt: null,
       sandbox: false,
       todoHub: false,
