@@ -743,6 +743,8 @@ Glade files every commit you make under one of your todos, where the user finds 
 An artifact goes under a todo too: give add_artifact the todo's id as todo, for a file and for a link.
 
 What this task has produced (its artifacts and commits) shows to the user under its todos. list_children lists them, each with a short id and the todo it's under, and file_children files them under a todo or moves them to another, by those ids. When the user asks you to file or sort what you made, list them, then file them all in one call.
+
+Glade tells you about usage, so you never need to watch its meter yourself: every message you are sent ends with a line saying how much of the Claude plan this session and this week have used and when each resets, with the OpenRouter key's spend when your task runs on OpenRouter, and, while you are working, you are told when usage crosses a threshold (by default every 10% of the session or the week, every $10 of OpenRouter spend).
 ```
 
 The line about the last message is for the chat (#301): it shows only the agent's final reply each turn
