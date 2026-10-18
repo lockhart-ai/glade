@@ -730,7 +730,9 @@ describe('the Broadcast modal, with 60 active tasks in 8 workspaces', () => {
     await settleFloating()
     // Every recipient's row rendered once to open it, and the line that counts them once.
     expect(renders(attentionLabel)).toBe(60)
-    expect(screen.getByText(/Goes to/)).toHaveTextContent('Goes to 60 active tasks in 8 workspaces.')
+    expect(screen.getByText(/Goes to/)).toHaveTextContent(
+      'Goes to 60 of 60 active tasks in 8 workspaces. Busy agents get it when their turn ends.',
+    )
     vi.mocked(attentionLabel).mockClear()
     vi.mocked(reachText).mockClear()
     return wrapper
@@ -809,7 +811,9 @@ describe('the Broadcast modal, with 60 active tasks in 8 workspaces', () => {
       fake.emit({ type: EventType.TaskUpdated, task: { ...last, state: TaskState.Done, doneAt: 20_000 } as Task })
     })
 
-    expect(screen.getByText(/Goes to/)).toHaveTextContent('Goes to 59 active tasks in 8 workspaces.')
+    expect(screen.getByText(/Goes to/)).toHaveTextContent(
+      'Goes to 59 of 59 active tasks in 8 workspaces. Busy agents get it when their turn ends.',
+    )
     expect(renders(reachText)).toBe(1)
     expect(renders(attentionLabel)).toBe(0)
   })

@@ -243,7 +243,10 @@ const tasksSendRequest = withContent(
   ({ id }) => id,
 ) satisfies z.ZodType<TasksSendRequest>
 
-const tasksBroadcastRequest = z.strictObject({ text: messageText }) satisfies z.ZodType<TasksBroadcastRequest>
+const tasksBroadcastRequest = z.strictObject({
+  text: messageText,
+  taskIds: z.array(z.string()).readonly(),
+}) satisfies z.ZodType<TasksBroadcastRequest>
 
 const tasksRetryRequest = z.strictObject({
   id: z.string(),

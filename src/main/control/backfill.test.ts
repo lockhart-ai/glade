@@ -1,17 +1,18 @@
 // Backfilling past tasks through the control API (`docs/control-api.md`, "Backfilling past tasks"), through a real MCP
 // client over the in-memory transport, against the app's bridge on a real database, the fake agent backend and a real
-// workspace folder of notes: what `create_task`, `update_task` and `get_task` do with a handoff note, artifacts, a start
-// date, a done state and an external id, the rows they leave, the events the windows get, and what the agent is given.
+// workspace folder of notes: what `create_task`, `update_task` and `get_task` do with artifacts, a start date, a done
+// state and an external id, that they refuse a `handoff` note (#668), that a note already stored still reaches the
+// windows and the session's system prompt, the rows they leave, the events the windows get, and what the agent is given.
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { CommandName, EventType } from '../../shared/bridge'
-import { MAX_HANDOFF_BYTES, TaskActivity, TaskState, type Task, type Workspace } from '../../shared/domain'
+import { TaskActivity, TaskState, type Task, type Workspace } from '../../shared/domain'
 import { settle } from '../agent/fake-backend'
-import { HANDOFF_HEADING, handoffSection } from '../agent/system-prompt'
+import { handoffSection } from '../agent/system-prompt'
 import { listFileArtifacts } from '../db/repositories/artifacts'
-import { getExternalId, getHandoff } from '../db/repositories/backfills'
+import { getExternalId, getHandoff, setHandoff } from '../db/repositories/backfills'
 import { getTask, listTasks } from '../db/repositories/tasks'
 import { createWorkspace } from '../db/repositories/workspaces'
 import { checkArtifacts } from './backfill'
@@ -93,7 +94,6 @@ function billingBackfill(overrides: Readonly<Record<string, unknown>> = {}): Rea
     workspaceId: workspace.id,
     title: 'Migrate billing webhooks to v2',
     objective: 'Move the billing webhook handlers to v2, then retire v1.',
-    handoff: HANDOFF,
     artifacts: [
       { path: note('notes/billing/notes.md'), title: 'Migration notes' },
       { path: note('notes/billing/decisions.md') },
@@ -110,7 +110,7 @@ function eventTypes(from: number): string[] {
 }
 
 describe('create_task, backfilling a past task', () => {
-  it('makes it done at its date, with its handoff note, artifacts and external id, and starts no agent', async () => {
+  it('makes it done at its date, with its artifacts and external id, and starts no agent', async () => {
     const before = app.events.length
 
     const reply = await client.call(ControlToolName.CreateTask, billingBackfill())
@@ -127,12 +127,7 @@ describe('create_task, backfilling a past task', () => {
       doneAt: MARCH_12_MS,
       sessionId: null,
     })
-    expect(getHandoff(app.database.db, id)).toEqual({
-      taskId: id,
-      body: HANDOFF,
-      addedAt: expect.any(Number) as unknown,
-    })
-    expect(getHandoff(app.database.db, id)?.addedAt).toBeGreaterThan(MARCH_12_MS)
+    expect(getHandoff(app.database.db, id)).toBeUndefined()
     expect(listFileArtifacts(app.database.db, id).map(({ path, title }) => [path, title])).toEqual([
       ['notes/billing/notes.md', 'Migration notes'],
       ['notes/billing/decisions.md', 'decisions.md'],
@@ -141,20 +136,17 @@ describe('create_task, backfilling a past task', () => {
     // It never starts its agent by itself.
     await settle()
     expect(app.backend.sessions).toHaveLength(0)
-    expect(eventTypes(before)).toEqual([EventType.TaskUpdated, EventType.HandoffChanged, EventType.ArtifactsChanged])
-    expect(app.events.at(-2)).toEqual({
-      type: EventType.HandoffChanged,
-      taskId: id,
-      handoff: getHandoff(app.database.db, id),
-    })
+    expect(eventTypes(before)).toEqual([EventType.TaskUpdated, EventType.ArtifactsChanged])
   })
 
-  it('answers with the handoff note, the artifacts by absolute path and the external id, as get_task does', async () => {
+  it('answers with a stored handoff note, the artifacts by absolute path and the external id, as get_task does', async () => {
     const created = taskOf(await client.call(ControlToolName.CreateTask, billingBackfill()))
+    expect(taskOf(await client.call(ControlToolName.GetTask, { id: created.id }))).toEqual(created)
+    const addedAt = Date.now()
+    setHandoff(app.database.db, created.id, HANDOFF, addedAt)
 
     const read = taskOf(await client.call(ControlToolName.GetTask, { id: created.id }))
 
-    expect(read).toEqual(created)
     expect(read).toMatchObject({
       state: TaskState.Done,
       doneAt: MARCH_12_MS,
@@ -216,7 +208,6 @@ describe('create_task, backfilling a past task', () => {
     const before = Date.now()
     const reply = await client.call(ControlToolName.CreateTask, {
       workspaceId: workspace.id,
-      handoff: HANDOFF,
       message: "Let's pick this up.",
     })
 
@@ -225,7 +216,6 @@ describe('create_task, backfilling a past task', () => {
     expect(current(id).state).toBe(TaskState.Active)
     expect(app.backend.sessions).toHaveLength(1)
     expect(app.backend.session.sent.map(({ text }) => text)).toEqual(["Let's pick this up."])
-    expect(app.backend.session.options.systemPromptAppend).toContain(HANDOFF)
   })
 
   it('behaves as before with neither a message nor a handoff', async () => {
@@ -241,16 +231,17 @@ describe('create_task, backfilling a past task', () => {
 describe('running a backfill again', () => {
   it('answers with the task it made, created: false, and changes nothing, whatever the call now says', async () => {
     const first = taskOf(await client.call(ControlToolName.CreateTask, billingBackfill()))
+    setHandoff(app.database.db, first.id, HANDOFF)
     const before = app.events.length
 
     const again = await client.call(
       ControlToolName.CreateTask,
-      billingBackfill({ title: 'Something else', handoff: 'A different note', startedAt: '2026-01-01' }),
+      billingBackfill({ title: 'Something else', startedAt: '2026-01-01' }),
     )
 
     expect(again.isError).toBe(false)
     expect(again.json.created).toBe(false)
-    expect(taskOf(again)).toEqual(first)
+    expect(taskOf(again)).toEqual(taskOf(await client.call(ControlToolName.GetTask, { id: first.id })))
     expect(listTasks(app.database.db, workspace.id)).toHaveLength(1)
     expect(getHandoff(app.database.db, first.id)?.body).toBe(HANDOFF)
     expect(app.events.length).toBe(before)
@@ -304,15 +295,18 @@ describe('what a backfill refuses', () => {
     return errorMessage(reply)
   }
 
-  it('takes a handoff note of exactly 32 KB of UTF-8, and refuses one a byte over', async () => {
-    const full = '€'.repeat(MAX_HANDOFF_BYTES / 4) + 'a'.repeat(MAX_HANDOFF_BYTES / 4)
+  it('refuses a handoff note as an unknown field, on create and on update', async () => {
+    expect(await refused(billingBackfill({ handoff: '## Next\n\nShip it.' }))).toBe('handoff: unknown field')
 
-    expect(await refused(billingBackfill({ handoff: `${full}b` }))).toBe('handoff: is over 32768 bytes of UTF-8')
-    expect(await refused(billingBackfill({ handoff: '   ' }))).toBe('handoff: is empty')
-
-    const reply = await client.call(ControlToolName.CreateTask, billingBackfill({ handoff: full }))
-    expect(reply.isError).toBe(false)
-    expect(getHandoff(app.database.db, taskOf(reply).id)?.body).toBe(full)
+    const made = taskOf(await client.call(ControlToolName.CreateTask, billingBackfill()))
+    const replaced = await client.call(ControlToolName.UpdateTask, {
+      id: made.id,
+      patch: { handoff: '## Next\n\nShip it.' },
+    })
+    expect(errorCode(replaced)).toBe(ControlErrorCode.InvalidInput)
+    expect(errorMessage(replaced)).toBe('patch.handoff: unknown field; patch: changes nothing')
+    const cleared = await client.call(ControlToolName.UpdateTask, { id: made.id, patch: { handoff: null } })
+    expect(errorMessage(cleared)).toBe('patch.handoff: unknown field; patch: changes nothing')
   })
 
   it("refuses an artifact that isn't there, naming it and saying why", async () => {
@@ -358,8 +352,9 @@ describe('what a backfill refuses', () => {
 })
 
 describe('picking a backfilled task up', () => {
-  it('reopens a done one with the message sent to it, in a session whose prompt has the handoff note', async () => {
+  it('reopens a done one with the message sent to it, in a session whose prompt has its stored handoff note', async () => {
     const { id } = taskOf(await client.call(ControlToolName.CreateTask, billingBackfill()))
+    setHandoff(app.database.db, id, HANDOFF)
 
     const reply = await client.call(ControlToolName.SendMessage, { id, text: "Let's pick this up." })
 
@@ -373,34 +368,9 @@ describe('picking a backfilled task up', () => {
 })
 
 describe('update_task on a backfilled task', () => {
-  it('replaces and clears the handoff note, leaving the task in its place, and the next session has none', async () => {
-    const { id } = taskOf(await client.call(ControlToolName.CreateTask, billingBackfill()))
-    const before = current(id)
-    const events = app.events.length
-
-    const replaced = await client.call(ControlToolName.UpdateTask, { id, patch: { handoff: '## Next\n\nShip it.' } })
-    expect(taskOf(replaced).handoff).toEqual({ body: '## Next\n\nShip it.', addedAt: expect.any(Number) as unknown })
-
-    const cleared = await client.call(ControlToolName.UpdateTask, { id, patch: { handoff: null } })
-    expect(taskOf(cleared).handoff).toBeNull()
-    expect(getHandoff(app.database.db, id)).toBeUndefined()
-    expect(app.events.slice(events)).toEqual([
-      {
-        type: EventType.HandoffChanged,
-        taskId: id,
-        handoff: { taskId: id, body: '## Next\n\nShip it.', addedAt: expect.any(Number) as unknown },
-      },
-      { type: EventType.HandoffChanged, taskId: id, handoff: null },
-    ])
-    // Neither is a change to the task: it keeps its place and date in the Done section.
-    expect(current(id)).toEqual(before)
-
-    await client.call(ControlToolName.SendMessage, { id, text: 'Carry on.' })
-    expect(app.backend.session.options.systemPromptAppend).not.toContain(HANDOFF_HEADING)
-  })
-
   it('adds artifacts with its other changes, and refuses a missing one without changing anything', async () => {
     const { id } = taskOf(await client.call(ControlToolName.CreateTask, billingBackfill({ artifacts: [] })))
+    setHandoff(app.database.db, id, HANDOFF)
     const plan = note('notes/billing/plan.md')
 
     const reply = await client.call(ControlToolName.UpdateTask, {
@@ -422,7 +392,7 @@ describe('update_task on a backfilled task', () => {
     const events = app.events.length
     const missing = await client.call(ControlToolName.UpdateTask, {
       id,
-      patch: { title: 'Renamed', handoff: 'New', artifacts: [{ path: join(root, 'gone.md') }] },
+      patch: { title: 'Renamed', artifacts: [{ path: join(root, 'gone.md') }] },
     })
     expect(errorCode(missing)).toBe(ControlErrorCode.InvalidInput)
     expect(errorMessage(missing)).toBe(`patch.artifacts.0.path: There's no file at ${join(root, 'gone.md')}.`)
@@ -431,22 +401,17 @@ describe('update_task on a backfilled task', () => {
     expect(app.events.length).toBe(events)
   })
 
-  it('refuses an empty list of artifacts, a note over 32 KB, and a relative path', async () => {
+  it('refuses an empty list of artifacts and a relative path', async () => {
     const { id } = taskOf(await client.call(ControlToolName.CreateTask, billingBackfill()))
 
     const empty = await client.call(ControlToolName.UpdateTask, { id, patch: { artifacts: [] } })
     expect(errorMessage(empty)).toBe('patch.artifacts: is empty')
-    const huge = await client.call(ControlToolName.UpdateTask, {
-      id,
-      patch: { handoff: 'a'.repeat(MAX_HANDOFF_BYTES + 1) },
-    })
-    expect(errorMessage(huge)).toBe('patch.handoff: is over 32768 bytes of UTF-8')
     const relative = await client.call(ControlToolName.UpdateTask, { id, patch: { artifacts: [{ path: 'a.md' }] } })
     expect(errorMessage(relative)).toBe('patch.artifacts.0.path: must be an absolute path')
   })
 
   it("answers not_found for a task that isn't there", async () => {
-    const reply = await client.call(ControlToolName.UpdateTask, { id: 'gone', patch: { handoff: null } })
+    const reply = await client.call(ControlToolName.UpdateTask, { id: 'gone', patch: { unread: true } })
 
     expect(errorCode(reply)).toBe(ControlErrorCode.NotFound)
   })
@@ -465,7 +430,6 @@ describe('a backfill of 200 tasks', () => {
       backfiller.call(ControlToolName.CreateTask, {
         workspaceId: workspace.id,
         title: `Past task ${String(index)}`,
-        handoff: `## Where task ${String(index)} got to\n\nSee notes/${String(index)}/.`,
         startedAt: new Date(start + index * day).toISOString(),
         state: 'done',
         externalId: `notes/${String(index)}`,

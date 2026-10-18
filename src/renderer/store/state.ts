@@ -458,16 +458,16 @@ export interface GladeActions {
   openSettings: (section?: SettingsSection) => void
   /** Closes the Settings modal. */
   closeSettings: () => void
-  /** Opens the Broadcast modal (⌘⇧B), which sends one message to every active task. */
+  /** Opens the Broadcast modal (⌘⇧B), which sends one message to the tasks you've ticked. */
   openBroadcast: () => void
   /** Closes the Broadcast modal. */
   closeBroadcast: () => void
   /**
-   * Sends a message to every active task, in every workspace (`tasks.broadcast`): main decides who gets it. Resolves
-   * with how it went for each task once main has saved it; the messages, queues and turns arrive as one batch of
-   * events.
+   * Sends a message to the ticked tasks, in every workspace (`tasks.broadcast`, #675): main decides who of them gets
+   * it. Resolves with how it went for each task once main has saved it; the messages, queues and turns arrive as one
+   * batch of events.
    */
-  broadcast: (text: string) => Promise<readonly BroadcastOutcome[]>
+  broadcast: (text: string, taskIds: readonly string[]) => Promise<readonly BroadcastOutcome[]>
   /** Reads the plugins folder again (`plugins.list`), finding plugins added, removed or changed since. */
   loadPlugins: () => Promise<void>
   /** Turns a plugin on or off (`plugins.setEnabled`); the change saves at once. */

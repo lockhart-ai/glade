@@ -484,20 +484,25 @@ export interface TasksSendResponse {
 }
 
 /**
- * Sends one message to every active task, in every workspace (Broadcast, #489): main decides who gets it as it runs,
- * so a task marked done a moment before gets nothing. Each task takes it as it would a message of its own, saved as a
- * broadcast (`Message.broadcast`): one whose agent is idle starts a turn with it, after anything it had queued; one
- * whose agent is busy (mid-turn, paused, or waiting on your answers or your OK) gets it at the end of its queue. Unlike
- * `tasks.send`, it never answers an agent's questions. A task that can't take it doesn't stop the others. Everything
- * it changes reaches the windows as one `EventBatch`.
+ * Sends one message to the chosen active tasks (Broadcast, #489 and #675): main decides who of them gets it as it
+ * runs, so a task marked done a moment before gets nothing. Each task takes it as it would a message of its own,
+ * saved as a broadcast (`Message.broadcast`): one whose agent is idle starts a turn with it, after anything it had
+ * queued; one whose agent is busy (mid-turn, paused, or waiting on your answers or your OK) gets it at the end of its
+ * queue. Unlike `tasks.send`, it never answers an agent's questions. A task that can't take it doesn't stop the
+ * others. Everything it changes reaches the windows as one `EventBatch`.
  */
 export interface TasksBroadcastRequest {
   /** Markdown. Not blank. */
   readonly text: string
+  /**
+   * The tasks the message goes to: the Broadcast modal's ticked ones, in the order it lists them (#675). A task not
+   * among them gets nothing, and one that isn't an active task with an agent gets nothing all the same.
+   */
+  readonly taskIds: readonly string[]
 }
 
 export interface TasksBroadcastResponse {
-  /** How the message reached each active task, in the order they were sent it. */
+  /** How the message reached each task it was sent to, in the order they were sent it. */
   readonly recipients: readonly BroadcastOutcome[]
 }
 

@@ -202,7 +202,9 @@ describe('the menu bar’s commands', () => {
 
     const dialog = within(screen.getByRole('dialog', { name: 'Broadcast' }))
     expect(dialog.getByRole('textbox', { name: 'Broadcast message' })).toHaveFocus()
-    expect(dialog.getByText(/Goes to/)).toHaveTextContent('Goes to 2 active tasks in 2 workspaces.')
+    expect(dialog.getByText(/Goes to/)).toHaveTextContent(
+      'Goes to 2 of 2 active tasks in 2 workspaces. Busy agents get it when their turn ends.',
+    )
     // Chosen again while it's open, it stays as it is.
     choose(rendered, appCommand(AppCommandId.Broadcast))
     expect(screen.getAllByRole('dialog', { name: 'Broadcast' })).toHaveLength(1)
@@ -216,7 +218,7 @@ describe('the menu bar’s commands', () => {
     await settleFloating()
 
     expect(within(screen.getByRole('dialog', { name: 'Broadcast' })).getByText(/Goes to/)).toHaveTextContent(
-      'Goes to 2 active tasks in 2 workspaces.',
+      'Goes to 2 of 2 active tasks in 2 workspaces. Busy agents get it when their turn ends.',
     )
   })
 
