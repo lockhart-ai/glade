@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { ArtifactKind, UiStateKey, type Artifact } from '../../shared/domain'
+import { ArtifactKind, TodoState, UiStateKey, type Artifact } from '../../shared/domain'
 import { highlightPattern } from '../../shared/search'
 import { storeWrapper } from '../store/test-wrapper'
 import { Link } from './Link'
@@ -148,6 +148,44 @@ describe('LinkedText', () => {
       renderText('See https://example.com/docs')
 
       expect(menuOf(screen.getByRole('link', { name: 'https://example.com/docs' }))).toEqual(['Open link', 'Copy link'])
+    })
+  })
+
+  describe('todo links (#684)', () => {
+    /** A task `t1`, open, keeping todo `2`, hydrated. */
+    async function openTaskWithTodo() {
+      const wrapper = storeWrapper({
+        uiState: [
+          { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+          { key: UiStateKey.SelectedTaskId, value: 't1' },
+        ],
+        todos: {
+          t1: {
+            items: [{ id: '2', text: 'Add the per-key limit', state: TodoState.Doing, note: null, completedAt: null }],
+            updatedAt: 1,
+          },
+        },
+      })
+      await act(() => wrapper.store.getState().hydrate())
+      return wrapper
+    }
+
+    it('makes a todo link a link that shows the todo, and one the task doesn’t have its text', async () => {
+      const wrapper = await openTaskWithTodo()
+      render(<LinkedText text="The limit is under [the todo](todo:2), not [the lost one](todo:9)." />, {
+        wrapper: wrapper.wrapper,
+      })
+
+      const todo = screen.getByRole('link', { name: '[the todo](todo:2)' })
+      expect(todo).toHaveAttribute('href', 'todo:2')
+      expect(screen.getAllByRole('link')).toHaveLength(1)
+      // A todo the task doesn't have is just its characters, as any Markdown-looking text in a plain-text surface is.
+      expect(document.body).toHaveTextContent('The limit is under [the todo](todo:2), not [the lost one](todo:9).')
+
+      fireEvent.click(todo)
+      await waitFor(() => {
+        expect(wrapper.store.getState().todoFocus).toEqual({ taskId: 't1', todoId: '2', request: 1 })
+      })
     })
   })
 })

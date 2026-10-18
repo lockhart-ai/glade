@@ -9,6 +9,8 @@ export enum SettingsSection {
   Plugins = 'plugins',
   /** Whether other agents may drive Glade, and how to connect them (`docs/control-api.md`). */
   Control = 'control',
+  /** How much more usage a working agent is told of mid-turn, and when not at all (#688). */
+  UsageNotes = 'usage_notes',
   /** How often, and for what, the GitHub link watcher wakes a task over its linked issues and PRs (#682). */
   Github = 'github',
   /** The workspace you're in: listed under its own heading, by the workspace's name. */
@@ -24,6 +26,7 @@ export const APP_SECTIONS: readonly AppSection[] = [
   SettingsSection.Models,
   SettingsSection.Agent,
   SettingsSection.Notifications,
+  SettingsSection.UsageNotes,
   SettingsSection.Appearance,
   SettingsSection.Keyboard,
   SettingsSection.Plugins,
@@ -37,6 +40,7 @@ export const SECTION_TITLES: Readonly<Record<AppSection, string>> = {
   [SettingsSection.Models]: 'Models',
   [SettingsSection.Agent]: 'Agent',
   [SettingsSection.Notifications]: 'Notifications',
+  [SettingsSection.UsageNotes]: 'Usage notes',
   [SettingsSection.Appearance]: 'Appearance',
   [SettingsSection.Keyboard]: 'Keyboard',
   [SettingsSection.Plugins]: 'Plugins',

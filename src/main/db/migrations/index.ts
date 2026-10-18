@@ -12,6 +12,7 @@ import { carryOverTodosMigration } from './0074-carry-over-todos'
 import { dropRetiredTodosMigration } from './0075-drop-retired-todos'
 import { questionCardDraftsMigration } from './0076-question-card-drafts'
 import { stoppedWorkNoteMigration } from './0077-stopped-work-note'
+import { usageNoteAnnouncementsMigration } from './0078-usage-note-announcements'
 import { githubLinkWatchesMigration } from './0079-github-link-watches'
 import { messageSourceMigration } from './0080-message-source'
 import { schemaVersionMigration } from './0001-schema-version'
@@ -156,6 +157,7 @@ export const MIGRATIONS: readonly Migration[] = [
   dropRetiredTodosMigration,
   questionCardDraftsMigration,
   stoppedWorkNoteMigration,
+  usageNoteAnnouncementsMigration,
   githubLinkWatchesMigration,
   messageSourceMigration,
 ]

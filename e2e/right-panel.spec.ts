@@ -1,9 +1,11 @@
-import { mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { resolve } from 'node:path'
 import type { Locator } from '@playwright/test'
-import { chooseFolder, expect, seedPath, test } from './fixtures'
+import { expect, seedPath, test } from './fixtures'
 import { chooseMenuItem } from './menu'
-import { filesTab, firstRun, regions, taskHeader, taskList, taskPanel } from './selectors'
+import { filesTab, regions, taskHeader, taskList, taskPanel } from './selectors'
+
+/** The todo hub's sample tasks (scripts/fixtures/todo-hub.json): eight of them in one workspace, titled. */
+const HUB_SEED = resolve(__dirname, '../scripts/fixtures/todo-hub.json')
 
 /** A laid-out element's width, in CSS pixels. */
 async function widthOf(locator: Locator): Promise<number> {
@@ -72,51 +74,38 @@ test('right panel: ⌘⌥2 picks a tab; dragging the handle resizes it, kept on 
   await expect(taskPanel(third.window).tab('Files')).toHaveAttribute('aria-selected', 'true')
 })
 
-test('right panel: each workspace keeps its own tab, switching back and forth and across a relaunch (#432)', async ({
+test('right panel: each task keeps its own tab, switching back and forth and across a relaunch (#689)', async ({
   launch,
-  tempFolder,
 }) => {
-  const parent = tempFolder()
-  const rootA = join(parent, 'acme-api')
-  const rootB = join(parent, 'acme-web')
-  mkdirSync(rootA)
-  mkdirSync(rootB)
-  const glade = await launch({ chosenFolder: rootA })
+  const glade = await launch({ seed: HUB_SEED })
   const { window } = glade
   const list = taskList(window)
   const panel = taskPanel(window)
-  const workspace = regions(window).workspace
-  await firstRun(window).openFolder.click()
-  await expect(workspace).toContainText('acme-api')
+  const ship = 'Ship the rate-limit fixes for 2.5'
+  const limits = 'Add rate limiting to public API'
 
-  // A's task starts at Agents, the default; pick Todos there.
-  await list.newTask.click()
-  await expect(panel.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
-  await window.keyboard.press('Meta+Alt+Digit3')
+  // The task the seed shows starts on Todos, what it remembers; pick Agents there.
   await expect(panel.tab('Todos')).toHaveAttribute('aria-selected', 'true')
-
-  // A new workspace B, with its own task, starts at Agents too: A's choice doesn't leak into it. Pick Files there.
-  await chooseFolder(glade, rootB)
-  await chooseMenuItem(glade, 'Workspace', 'New workspace…')
-  await expect(workspace).toContainText('acme-web')
-  await list.newTask.click()
+  await window.keyboard.press('Meta+Alt+Digit1')
   await expect(panel.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
+
+  // Another task shows its own, not the one just picked. Pick Files there.
+  await list.taskRow(limits).click()
+  await expect(panel.tab('Todos')).toHaveAttribute('aria-selected', 'true')
   await window.keyboard.press('Meta+Alt+Digit2')
   await expect(panel.tab('Files')).toHaveAttribute('aria-selected', 'true')
 
-  // Switching back to A still shows Todos, and back to B still shows Files: each kept its own.
-  await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-api')
-  await expect(workspace).toContainText('acme-api')
-  await expect(panel.tab('Todos')).toHaveAttribute('aria-selected', 'true')
-  await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-web')
-  await expect(workspace).toContainText('acme-web')
+  // Switching back and forth, each still shows its own.
+  await list.taskRow(ship).click()
+  await expect(panel.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
+  await list.taskRow(limits).click()
   await expect(panel.tab('Files')).toHaveAttribute('aria-selected', 'true')
 
-  // A relaunch (showing B, last shown) keeps both.
+  // A relaunch (showing the second task, last shown) keeps both.
   await glade.close()
   const relaunched = await launch()
   const again = taskPanel(relaunched.window)
   await expect(again.tab('Files')).toHaveAttribute('aria-selected', 'true')
-  await chooseMenuItem(relaunched, 'Workspace', 'Switch workspace', 'acme-api')
-  await expect(again.tab('Todos')).toHaveAttribute('aria-selected', 'true')
+  await taskList(relaunched.window).taskRow(ship).click()
+  await expect(again.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
 })

@@ -1,7 +1,7 @@
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import { faFile } from '@fortawesome/free-regular-svg-icons'
 import { faChevronDown, faChevronRight, faCodeCommit, faLink } from '@fortawesome/free-solid-svg-icons'
-import { memo, useEffect, useMemo, useRef, type KeyboardEvent, type MouseEvent } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import {
   TodoState,
   type Artifact,
@@ -28,6 +28,7 @@ import { ContextMenu, todoMenu, useContextMenu, useMenuCommands, type ContextMen
 import { useGladeStore } from '../store/react'
 import type { TodoPanels } from '../store/state'
 import { formatAgo, formatFullDate } from '../task-header/headerModel'
+import { FOCUS_HIGHLIGHT_MS } from '../tool-log'
 import { useNow } from '../task-list/useNow'
 import { ArtifactTiles } from './tiles/ArtifactTiles'
 import { ChildTile } from './tiles/ChildTile'
@@ -289,6 +290,8 @@ interface TodoCardProps {
    * change.
    */
   readonly menuTargetProps: (key: string) => ContextMenuTargetProps
+  /** Whether the card is the one a request to show a todo asked for, highlighted for a moment (#684). */
+  readonly highlighted: boolean
 }
 
 /** Whether a card shows the same: the hub makes its todos, children and lists anew with every change to the task. */
@@ -297,6 +300,7 @@ function sameCard(a: TodoCardProps, b: TodoCardProps): boolean {
     a.taskId === b.taskId &&
     a.menuKey === b.menuKey &&
     a.menuTargetProps === b.menuTargetProps &&
+    a.highlighted === b.highlighted &&
     sameTodo(a.todo, b.todo) &&
     samePanel(a.panel, b.panel) &&
     sameReferences(a.links, b.links) &&
@@ -318,6 +322,7 @@ const TodoCard = memo(function TodoCard({
   links,
   menuKey,
   menuTargetProps,
+  highlighted,
 }: TodoCardProps): React.JSX.Element {
   const { counts, open, filter, toggle, show, onKey } = usePanelControls(taskId, todo.id, childList, panel)
   const menuTarget = useMemo(() => menuTargetProps(menuKey), [menuTargetProps, menuKey])
@@ -331,7 +336,7 @@ const TodoCard = memo(function TodoCard({
   }
   return (
     <li
-      className={classNames(styles.card, STATE_CLASSES[todo.state])}
+      className={classNames(styles.card, highlighted && styles.highlighted, STATE_CLASSES[todo.state])}
       data-open={open ? '' : undefined}
       {...{ [TODO_ATTRIBUTE]: todo.id ?? undefined }}
     >
@@ -478,7 +483,7 @@ export interface TodoHubProps {
   readonly taskId: string
   /** The task's todo list; null or undefined while the agent has kept none. */
   readonly list: TodoList | null | undefined
-  /** A todo to show: it scrolls into view and its head takes the focus (the todo a subagent's tab names, #536). */
+  /** A todo to show: it opens, scrolls into view, its head takes the focus, and it's highlighted for a moment. */
   readonly focus?: TodoShown | null | undefined
   /** Called once the hub has shown `focus`, so its owner can clear it. */
   readonly onFocusShown?: (() => void) | undefined
@@ -505,8 +510,9 @@ export interface TodoShown {
  * the task lands here; a card renders again only when its own todo, children or panel changed, or a link its text
  * names (`sameCard`), and a tile only when its own child did (`ChildTile`).
  *
- * Asked to show a todo (the line under a subagent's tab in the Agents tab, #536), it scrolls that todo's card into
- * view and puts the focus on its head, once it's in the list.
+ * Asked to show a todo (a `[text](todo:N)` link in a reply, #684, or the line under a subagent's tab in the Agents
+ * tab, #536), it opens that todo's card, scrolls it into view, puts the focus on its head and highlights the card
+ * for a moment, once the todo is in the list.
  */
 export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown }: TodoHubProps): React.JSX.Element {
   const artifacts = useGladeStore((state) => state.artifacts[taskId]) ?? NO_ARTIFACTS
@@ -515,6 +521,7 @@ export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown
   const filings = useGladeStore((state) => state.filings[taskId])
   const panels = useGladeStore((state) => state.todoPanels[taskId]) ?? NO_PANELS
   const loadTodoHub = useGladeStore((state) => state.loadTodoHub)
+  const setTodoPanel = useGladeStore((state) => state.setTodoPanel)
   const watchArtifacts = useGladeStore((state) => state.watchArtifacts)
   const unwatchArtifacts = useGladeStore((state) => state.unwatchArtifacts)
   const insertIntoInput = useGladeStore((state) => state.insertIntoInput)
@@ -539,20 +546,6 @@ export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown
   // The todos in the tab's order, grouped and ordered by state.
   const ordered = useMemo(() => orderTodos(todos), [todos])
 
-  // Shows the todo asked for: its card scrolls into view and its head takes the focus, as ↑ and ↓ move it. Until the
-  // todo is in the list (the task's logs still loading), the request waits.
-  const hub = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (focus === null || focus === undefined) return
-    const card = [...(hub.current?.querySelectorAll<HTMLElement>(`[${TODO_ATTRIBUTE}]`) ?? [])].find(
-      (element) => element.getAttribute(TODO_ATTRIBUTE) === focus.todoId,
-    )
-    if (card === undefined) return
-    card.scrollIntoView({ block: 'nearest' })
-    card.querySelector<HTMLElement>(`[${HEAD_ATTRIBUTE}]`)?.focus()
-    onFocusShown?.()
-  }, [focus, onFocusShown, ordered])
-
   // Until the filings are read, nothing is grouped: every child would show under no todo for a moment.
   const grouped = useMemo(
     () =>
@@ -567,6 +560,46 @@ export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown
     [grouped],
   )
   const unfiled = grouped?.unfiled.children ?? NO_CHILDREN
+
+  // The card highlighted as the one a request to show a todo asked for, and the timer that takes the highlight off.
+  const [highlighted, setHighlighted] = useState<TodoId | null>(null)
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (highlightTimer.current !== null) clearTimeout(highlightTimer.current)
+    },
+    [],
+  )
+
+  // Shows the todo asked for: it opens its card (when it has children), its card scrolls into view, its head takes
+  // the focus, as ↑ and ↓ move it, and the card is highlighted for a moment (#684). Until the todo is in the list
+  // (the task's logs still loading), or its children are (the filings still being read, whether it opens at all),
+  // the request waits; one request is acted on once, whatever re-renders it.
+  const hub = useRef<HTMLDivElement>(null)
+  const handledFocus = useRef<number | null>(null)
+  useEffect(() => {
+    if (focus === null || focus === undefined || handledFocus.current === focus.request || filings === undefined) {
+      return
+    }
+    const card = [...(hub.current?.querySelectorAll<HTMLElement>(`[${TODO_ATTRIBUTE}]`) ?? [])].find(
+      (element) => element.getAttribute(TODO_ATTRIBUTE) === focus.todoId,
+    )
+    if (card === undefined) return
+    handledFocus.current = focus.request
+    const asLeft = panelView(panels[focus.todoId])
+    const parent = (childLists.get(`id:${focus.todoId}`) ?? NO_CHILDREN).length > 0
+    if (parent && !asLeft.open) {
+      setTodoPanel({ taskId, todoId: focus.todoId, open: true, filter: asLeft.filter }).catch(() => undefined)
+    }
+    card.scrollIntoView({ block: 'nearest' })
+    card.querySelector<HTMLElement>(`[${HEAD_ATTRIBUTE}]`)?.focus()
+    setHighlighted(focus.todoId)
+    if (highlightTimer.current !== null) clearTimeout(highlightTimer.current)
+    highlightTimer.current = setTimeout(() => {
+      setHighlighted(null)
+    }, FOCUS_HIGHLIGHT_MS)
+    onFocusShown?.()
+  }, [focus, onFocusShown, ordered, childLists, panels, filings, taskId, setTodoPanel])
 
   // What a todo's text may name (#500), worked out when the task's links change and not when anything else of its
   // artifacts does; then, per todo, the ones its own text names, read again only when the todos or the links change.
@@ -619,6 +652,7 @@ export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown
             links={links.get(key) ?? NO_REFERENCES}
             menuKey={key}
             menuTargetProps={targetProps}
+            highlighted={todo.id !== null && todo.id === highlighted}
           />
         ))}
         {unfiled.length > 0 && (

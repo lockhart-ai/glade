@@ -1,12 +1,12 @@
 import { faArrowUpRightFromSquare } from '@fortawesome/free-solid-svg-icons'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FileContentKind, type FileContent, type ImageFileContent } from '../../shared/domain'
 import { isBridgeError } from '../../shared/bridge'
 import { Markdown } from '../chat/Markdown'
 import { clockTime } from '../chat/chatModel'
 import { Button, ButtonSize, ButtonVariant, Segmented, type SegmentedOption } from '../components'
-import { ImageViewer } from '../images/ImageViewer'
-import { workspaceImageSource } from '../images/imageSources'
+import { naturalSizeOf, useImageZoom } from '../images/useImageZoom'
+import type { Size } from '../images/zoomModel'
 import { useGladeStore, useGladeStoreApi } from '../store/react'
 import { WindowCommandId } from '../../shared/commands'
 import { useBinding } from '../commands/hooks'
@@ -19,7 +19,7 @@ import { BLOCK_LINES, SourceView, type HighlightedBlocks } from './SourceView'
 import type { OpenEditSession } from './unsaved'
 import styles from './FileViewer.module.css'
 
-/** The file's name, the last part of its path: what an image opened from the Files tab is called in the viewer. */
+/** The file's name, the last part of its path: what an image open in the Files tab is called in its zoom and alt text. */
 function fileName(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1)
 }
@@ -102,29 +102,52 @@ function editorFor(text: string, language: Language | null, path: string): OpenE
 
 interface ImageFileViewProps {
   readonly content: ImageFileContent
-  /** The file's name, for its alt text and the viewer's button label. */
+  /** The file's name, for its alt text and the zoom's label. */
   readonly name: string
-  /** Called with the button clicked (or activated by ↵ or Space), for the focus to return to once the viewer closes. */
-  readonly onOpen: (trigger: HTMLElement) => void
 }
 
 /**
- * An image file, fit to the panel but never scaled past its own size, on a checkerboard behind transparency. Clicking
- * it (or ↵ or Space, focused) opens the image viewer over the window, for this one image.
+ * An image file, fit to the panel but never scaled past its own size, on a checkerboard behind transparency. It zooms
+ * in place (#685), by `useImageZoom`: the trackpad's pinch zooms around the pointer, ⌘+ and ⌘− zoom, ⌘0 returns to
+ * fit, a click (or ↵ or Space, focused) toggles fit and actual size at the clicked spot, and zoomed in, a drag or a
+ * scroll pans. Another image file showing starts at its own fit.
  */
-function ImageFileView({ content, name, onOpen }: ImageFileViewProps): React.JSX.Element {
+function ImageFileView({ content, name }: ImageFileViewProps): React.JSX.Element {
+  const [natural, setNatural] = useState<Size | null>(null)
+  const onNatural = useCallback((size: Size | null): void => {
+    setNatural((previous) =>
+      previous === size ||
+      (previous !== null && size !== null && previous.width === size.width && previous.height === size.height)
+        ? previous
+        : size,
+    )
+  }, [])
+  const { viewRef, frameRef, frameStyle, zoomed } = useImageZoom({ natural, imageKey: content.dataUrl })
   return (
     <div className={styles.imageBody}>
-      <button
-        type="button"
-        className={styles.imageButton}
-        aria-label={`View ${name} full size`}
-        onClick={(event) => {
-          onOpen(event.currentTarget)
-        }}
+      <div
+        ref={viewRef}
+        className={styles.imageZoom}
+        tabIndex={0}
+        role="button"
+        aria-label={`Zoom ${name}`}
+        title={`Zoom ${name}`}
+        data-zoomed={zoomed ? '' : undefined}
       >
-        <img src={content.dataUrl} alt={name} className={styles.image} />
-      </button>
+        <img
+          ref={frameRef}
+          src={content.dataUrl}
+          alt={name}
+          className={styles.image}
+          style={frameStyle}
+          onLoad={(event) => {
+            onNatural(naturalSizeOf(event.currentTarget))
+          }}
+          onError={() => {
+            onNatural(null)
+          }}
+        />
+      </div>
     </div>
   )
 }
@@ -162,8 +185,6 @@ export function FileViewer({
   // A file with a preview opens on it; one the agent is showing at a line starts on the source, so the line can show.
   const [mode, setMode] = useState(focusLine === null ? MarkdownMode.Preview : MarkdownMode.Source)
   const [colored, setColored] = useState<Colored>({ lines: [], blocks: [] })
-  const [viewingImage, setViewingImage] = useState(false)
-  const imageButtonFocus = useRef<HTMLElement | null>(null)
   const touchedVersion = touched?.file.eventId
   // How many times the watch on the open file has seen it change on disk (`files.fileChanged`): each one reads it
   // again, as the agent's touch does. A file as a commit left it is never watched, so never changes this way.
@@ -296,16 +317,7 @@ export function FileViewer({
           </Notice>
         )
       case FileContentKind.Image:
-        return (
-          <ImageFileView
-            content={content}
-            name={fileName(shownPath)}
-            onOpen={(trigger) => {
-              imageButtonFocus.current = trigger
-              setViewingImage(true)
-            }}
-          />
-        )
+        return <ImageFileView content={content} name={fileName(shownPath)} />
       case FileContentKind.Text:
         return (
           <>
@@ -393,16 +405,6 @@ export function FileViewer({
       >
         {body()}
       </div>
-      {viewingImage && lastRead?.kind === FileContentKind.Image && (
-        <ImageViewer
-          images={[workspaceImageSource(taskId, path, fileName(shownPath))]}
-          index={0}
-          onClose={() => {
-            setViewingImage(false)
-          }}
-          returnFocus={imageButtonFocus}
-        />
-      )}
     </div>
   )
 }

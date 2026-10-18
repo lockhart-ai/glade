@@ -28,6 +28,7 @@ import { putGithubLinkWatch } from './github-link-watches'
 import { GithubChecksState, GithubLinkKind, GithubLinkState } from '../../../shared/githubWatch'
 import { setSessionContext } from './session-context'
 import { setStoppedWorkNote } from './stopped-work-notes'
+import { saveUsageNoteAnnouncements } from './usage-note-announcements'
 import { setInputDraft } from './input-drafts'
 import { appendMessage } from './messages'
 import { recordNotification } from './notifications'
@@ -194,6 +195,7 @@ async function fillTask(db: Database, task: Task): Promise<void> {
     todoHub: false,
   })
   setStoppedWorkNote(db, taskId, 'Glade stopped the background work when the task switched models.')
+  saveUsageNoteAnnouncements(db, taskId, { session: 0.41, week: 0.08, spend: null }, 1)
   setInputDraft(db, { taskId, text: 'And the admin views', images: [PNG], files: [attachedFile(taskId, 'admin.pdf')] })
   recordNotification(db, { taskId, title: 'Add rate limiting', body: 'Which limit should /search use?' })
   addWatcher(db, {
@@ -288,6 +290,8 @@ const FILLED_TABLES = [
   // Its own todos (#609): see 'todo_counters' above.
   'todos',
   'tool_events',
+  // The usage its agent was last told of mid-turn (#688), so a threshold note isn't sent twice.
+  'usage_note_announcements',
   // What its agent left running or scheduled (the Watchers tab).
   'watchers',
   'workspace_selections',

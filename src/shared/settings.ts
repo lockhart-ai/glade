@@ -51,6 +51,13 @@ export interface Settings {
    */
   readonly sandboxEnabled: boolean
   /**
+   * How much more of the plan's session and weekly usage, in percent of the window, a working agent is told of
+   * mid-turn (Settings › Usage notes, #688). Null tells none.
+   */
+  readonly usageNoteStepPercent: number | null
+  /** How much more OpenRouter spend, in dollars, a working agent is told of mid-turn (#688). Null tells none. */
+  readonly usageNoteStepDollars: number | null
+  /**
    * How often the GitHub link watcher polls every task's linked issues and PRs, in seconds (Settings › GitHub
    * watching, #682). 60 by default; never less than `MIN_GITHUB_WATCH_POLL_SECONDS`.
    */
@@ -90,6 +97,8 @@ export const DEFAULT_SETTINGS: Settings = {
   showInMenuBar: true,
   // Off until P15's last PR (#452): see `Settings.sandboxEnabled`.
   sandboxEnabled: false,
+  usageNoteStepPercent: 10,
+  usageNoteStepDollars: 10,
   githubWatchPollSeconds: 60,
   githubWatchOnStateChange: true,
   githubWatchOnChecksFinished: true,

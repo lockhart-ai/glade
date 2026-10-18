@@ -749,11 +749,15 @@ Every issue and pull request you've added as a link artifact is watched for you:
 
 Keep this task's todos with create_todo, update_todo and list_todos: there is no TaskCreate, TaskUpdate, TaskList, TaskGet or TodoWrite here any more. A note on a todo (what it is for, or where it stands) shows while it isn't done, not only while you're doing it. Set a todo waiting (instead of in_progress) when it can't move until the user reviews or decides something, and say what in its note.
 
+When a reply should point the user at one of this task's todos, write it as a Markdown link: `[any text](todo:N)` with the todo's id after `todo:` — the user clicks it and the Todos tab opens on that todo.
+
 Glade files every commit you make under one of your todos, where the user finds it, and each subagent you start works on one of them. Name the todo in the call: start the description of an Agent call, and of a Bash call that commits, with the todo's id in square brackets, like "[todo 2] Review the date helpers". Create the todo first (create_todo) if none fits. If a call names none, Glade asks you right after it to file what it made, with mcp__glade__file_children: do that at once, before your next step. What a subagent commits goes under its todo by itself: leave those.
 
 An artifact goes under a todo too: give add_artifact the todo's id as todo, for a file and for a link.
 
 What this task has produced (its artifacts and commits) shows to the user under its todos. list_children lists them, each with a short id and the todo it's under, and file_children files them under a todo or moves them to another, by those ids. When the user asks you to file or sort what you made, list them, then file them all in one call.
+
+Glade tells you about usage, so you never need to watch its meter yourself: every message you are sent ends with a line saying how much of the Claude plan this session and this week have used and when each resets, with the OpenRouter key's spend when your task runs on OpenRouter, and, while you are working, you are told when usage crosses a threshold (by default every 10% of the session or the week, every $10 of OpenRouter spend).
 ```
 
 The line about the last message is for the chat (#301): it shows only the agent's final reply each turn
@@ -801,6 +805,13 @@ Three more parts are added after that, each after a blank line, when they apply:
 - **A handoff note:** for a task backfilled with one ([`control-api.md`](control-api.md#backfilling-past-tasks)), the
   note under `## Handoff for this task (backfilled from earlier notes)`, after a line saying the task was worked on
   before it was in Glade, to pick up from there, and that the paths the note names are real.
+- **Usage (#688):** one line, in `INSTRUCTION_UPDATES` (`USAGE_NOTES_LINE`): that Glade tells the agent about usage
+  so it never watches the meter itself. Every prompt Glade sends (your message, a queued one, a resume) ends with a
+  line on the Claude plan's session and weekly usage and their resets, with the OpenRouter key's spend when the task
+  runs on OpenRouter; the SDK's own wake prompts (a task notification, a job firing) can't carry it, so an agent
+  woken that way reads usage at its next batch or turn start. And, as each of the agent's own messages' calls has run
+  (`PostToolBatch`), a note when usage has crossed a threshold — never twice for the same threshold, and never to an
+  idle task, which nothing wakes.
 
 **Resumed sessions.** Claude Code keeps a session's system prompt when it resumes it
 ([`sdk-notes.md` §8](sdk-notes.md#8-resume-verified)), so a line added to the prompt reaches only sessions started

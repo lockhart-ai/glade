@@ -43,7 +43,7 @@ import { MAX_PLUGIN_SETTING_OPTIONS, MAX_PLUGIN_SETTINGS, PluginCapability, Plug
 import { connectCommand, controlUrl, DEFAULT_CONTROL_PORT } from '../shared/control'
 import { APP_SECTIONS, SECTION_TITLES } from '../renderer/settings/sections'
 import { GladeTool } from './agent/glade-tools'
-import { HANDOFF_HEADING, systemPromptAppend, TODO_HUB_TOOLS_LINE } from './agent/system-prompt'
+import { HANDOFF_HEADING, systemPromptAppend, USAGE_NOTES_LINE } from './agent/system-prompt'
 import { openTestDatabase, sampleTask, sampleWorkspace } from './db/repositories/test-database'
 import { ControlErrorCode } from './control/errors'
 import { ControlEnv } from './control/endpoint'
@@ -284,8 +284,8 @@ describe('docs/model-surface.md', () => {
       const quoted = /```\n(You are running inside Glade[\s\S]*?)\n```/.exec(section(surface, '## System prompt'))
       expect(quoted?.[1]).toBe(systemPromptAppend(task))
       expect(surface).toContain(`## ${HANDOFF_HEADING}`)
-      // The todo hub's lines are part of every task's prompt (#501).
-      expect(quoted?.[1]?.endsWith(`\n\n${TODO_HUB_TOOLS_LINE}`)).toBe(true)
+      // The todo hub's lines are part of every task's prompt (#501), and the usage line ends it (#688).
+      expect(quoted?.[1]?.endsWith(`\n\n${USAGE_NOTES_LINE}`)).toBe(true)
     } finally {
       database.close()
     }
@@ -312,7 +312,8 @@ describe('docs/product.md', () => {
   it('lists every Settings section, in the nav’s order', () => {
     const listed = section(doc('docs/product.md'), '## Settings')
       .split('\n')
-      .flatMap((line) => /^- \*\*([^*]+?):?\*\*/.exec(line)?.[1] ?? [])
+      // Titles may span words ("Usage notes", #688), so match up to the bold's close, not one word.
+      .flatMap((line) => /^- \*\*(.+?)(:\*\*|\*\*)/.exec(line)?.[1] ?? [])
     expect(listed).toEqual([...APP_SECTIONS.map((id) => SECTION_TITLES[id]), 'Workspace'])
   })
 })

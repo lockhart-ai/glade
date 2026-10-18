@@ -84,6 +84,8 @@ import {
   systemPromptAppend,
   TODO_HUB_LINES,
   TODO_TOOLS_LINE,
+  USAGE_NOTES_LINE,
+  TODO_LINKS_LINE,
 } from './system-prompt'
 import { updateSettings } from '../db/repositories/settings'
 import { setHandoff } from '../db/repositories/backfills'
@@ -3627,6 +3629,8 @@ describe('instructions added to the prompt since a session started', () => {
       LINK_ARTIFACTS_LINE,
       OTHER_TASKS_LINE,
       TODO_TOOLS_LINE,
+      USAGE_NOTES_LINE,
+      TODO_LINKS_LINE,
       GITHUB_LINK_WATCH_LINE,
     ])
     for (const update of INSTRUCTION_UPDATES) expect(backend.session.options.systemPromptAppend).toContain(update)

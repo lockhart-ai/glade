@@ -1293,7 +1293,7 @@ describe('applySeed', () => {
 
     expect(getUiState(db, UiStateKey.SelectedTaskId)).toBeUndefined()
     expect(getUiState(db, UiStateKey.RelaunchNotice)).toBeUndefined()
-    expect(getUiState(db, UiStateKey.RightPanelTab)).toBeUndefined()
+    expect(getUiState(db, UiStateKey.RightPanelTabs)).toBeUndefined()
     expect(getUiState(db, UiStateKey.PluginWidth)).toBeUndefined()
   })
 
@@ -1305,12 +1305,19 @@ describe('applySeed', () => {
     expect(getUiState(db, UiStateKey.PluginWidth)).toBe('960')
   })
 
-  it('opens the right panel on the tab it names', () => {
+  it('opens the right panel on the tab it names, as each task’s own (#689)', () => {
     const { db } = database
 
-    applySeed(db, { ...SEED, panelTab: 'subagents', tasks: [] })
+    applySeed(db, {
+      ...SEED,
+      panelTab: 'agents',
+      tasks: [
+        { id: 't1', title: 'One', minutesAgo: 0 },
+        { id: 't2', title: 'Two', minutesAgo: 0 },
+      ],
+    })
 
-    expect(getUiState(db, UiStateKey.RightPanelTab)).toBe('subagents')
+    expect(getUiState(db, UiStateKey.RightPanelTabs)).toBe(JSON.stringify({ t1: 'agents', t2: 'agents' }))
   })
 
   it('collapses the panels it names, and leaves the rest as they are', () => {

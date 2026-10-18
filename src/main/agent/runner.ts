@@ -358,7 +358,10 @@ import { agentText } from '../../shared/pastedContent'
 import { withAttachedFiles, type AttachedFile } from '../../shared/attachedFiles'
 import { attachedImagesOf } from '../attachments/attachments'
 import { checkAnswers, tidyAnythingElse } from '../../shared/questions'
-import { openRouterConnected } from '../db/repositories/openrouter'
+import { openRouterConnected, openRouterUsage } from '../db/repositories/openrouter'
+import { listUsageReadings } from '../db/repositories/account'
+import { getUsageNoteAnnouncements, saveUsageNoteAnnouncements } from '../db/repositories/usage-note-announcements'
+import { usageLine, usageNote, usageNoteCurrent } from '../../shared/usage-notes'
 import { isSubagentTool, subagentName, SUBAGENT_TOOL_NAMES } from '../../shared/subagents'
 import { managedBackend } from './managed-backend'
 import { AGENTS_SERVER, DISPATCH_AGENT_TOOL } from '../../shared/managed-agents'
@@ -1725,8 +1728,21 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   /**
+   * What usage says now, as the line at the end of a prompt reads it (#688): the plan's readings, and the
+   * OpenRouter key's spend when the task runs on OpenRouter. Null when nothing says how much is used, so a
+   * database with no readings yet changes no prompt.
+   */
+  const usagePromptLine = (live: LiveSession): string | null => {
+    const onOpenRouter = agentSource(live.settings.model) === AgentSource.OpenRouter
+    const spend = onOpenRouter ? (openRouterUsage(db).reading?.total ?? null) : null
+    const now = Date.now()
+    return usageLine(usageNoteCurrent(listUsageReadings(db), spend, now), onOpenRouter, now)
+  }
+
+  /**
    * Sends the session one of Glade's own prompts, remembering it, so the prompt hook knows it for Glade's and never
-   * takes it for a wake (`promptVerdict`).
+   * takes it for a wake (`promptVerdict`). The prompt ends with what usage says now (`usagePromptLine`), so the
+   * agent learns it at every turn's start; a command's prompt (`/compact`) takes nothing after it.
    */
   const give = (live: LiveSession, text: string, uuid: string, images: readonly ImageData[] = []): void => {
     if (live.stoppedWorkNote !== null) {
@@ -1734,9 +1750,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       live.stoppedWorkNote = null
       setStoppedWorkNote(db, live.owner.id, null)
     }
-    live.handed.push(text)
+    const line = text.startsWith('/') ? null : usagePromptLine(live)
+    const sent = line === null ? text : `${text}\n\n${line}`
+    live.handed.push(sent)
     live.handed.splice(0, Math.max(0, live.handed.length - MAX_HANDED))
-    live.session.send(text, uuid, images)
+    live.session.send(sent, uuid, images)
   }
 
   /**
@@ -3257,15 +3275,33 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   /**
+   * What usage a working task is told now, mid-turn (#688): the thresholds crossed since its last note, from the
+   * readings and the key's spend as they stand, kept with the task so a relaunch doesn't repeat one. Null when
+   * nothing has been crossed, or the settings' steps say none. It's checked as each message's calls have run
+   * (`PostToolBatch`), so only an agent working right now is ever told, and an idle one is never woken.
+   */
+  const usageNoteDue = (taskId: string): string | null => {
+    const settings = getSettings(db)
+    const spend = openRouterUsage(db).reading?.total ?? null
+    const now = Date.now()
+    const current = usageNoteCurrent(listUsageReadings(db), spend, now)
+    const { note, announced } = usageNote(current, getUsageNoteAnnouncements(db, taskId), settings, now)
+    saveUsageNoteAnnouncements(db, taskId, announced, now)
+    return note
+  }
+
+  /**
    * The calls of one of the agent's own messages have run, in a session with the todo hub: the subagents and commits
-   * they made that are under no todo are what the agent is told to file, with their results. A `Bash` call's commits
-   * are waited for first. A watcher's call is passed over: nothing is said of it.
+   * they made that are under no todo are what the agent is told to file, with their results, and a usage threshold
+   * it hasn't been told of goes with them (`usageNoteDue`). A `Bash` call's commits are waited for first. A
+   * watcher's call is passed over: nothing is said of it.
    */
   const batchFinished = async (taskId: string, live: LiveSession, batch: ToolBatch): Promise<string | null> => {
     const calls = batch.calls.filter(({ toolName, input }) => readsTodo({ toolName, input, subagent: false }))
     // A function, so the check isn't narrowed away: the session can close during either wait.
     const isClosed = (): boolean => live.closed
-    if (isClosed() || calls.length === 0) return null
+    const usage = isClosed() ? null : usageNoteDue(taskId)
+    if (isClosed() || calls.length === 0) return usage
     await caughtUp()
     const cwd = rootOf(taskId)
     await Promise.all(
@@ -3275,13 +3311,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           : [],
       ),
     )
-    if (isClosed()) return null
+    if (isClosed()) return usage
     const asked = filer.batchFinished(
       taskId,
       calls.map(({ toolUseId }) => toolUseId),
     )
     if (asked !== null) taskLog(taskId).info('asked the agent to file what it made', { calls: calls.length })
-    return asked
+    if (asked === null) return usage
+    return usage === null ? asked : `${usage}\n\n${asked}`
   }
 
   /**

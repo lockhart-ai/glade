@@ -87,6 +87,7 @@ describe('SettingsDialog', () => {
       'Models',
       'Agent',
       'Notifications',
+      'Usage notes',
       'Appearance',
       'Keyboard',
       'Plugins',

@@ -4,7 +4,13 @@ import { UiStateKey, WatcherKind, WatcherState } from '../../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../../shared/settings'
 import { ChildFilter, ChildKind, subagentTodo, UNFILED_TODO_ID } from '../../../shared/todoHub'
 import { missingContext, MissingContextKind } from '../../agent/session-context'
-import { GITHUB_LINK_WATCH_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE } from '../../agent/system-prompt'
+import {
+  GITHUB_LINK_WATCH_LINE,
+  OTHER_TASKS_LINE,
+  TODO_LINKS_LINE,
+  TODO_TOOLS_LINE,
+  USAGE_NOTES_LINE,
+} from '../../agent/system-prompt'
 import { agentTabOf, readTodoHub, taskChildren } from '../../todo-hub/todo-hub'
 import { listForAgent } from '../../todo-hub/agent-children'
 import { openDatabase } from '../database'
@@ -114,7 +120,7 @@ function taskFromBeforeThePhase(): Database {
   // What the tabs that are going had stored.
   db.prepare("INSERT INTO artifact_groups VALUES ('t', 'older', 1)").run()
   db.prepare("INSERT INTO artifact_filters VALUES ('t', 'links')").run()
-  setUiState(db, { key: UiStateKey.RightPanelTab, value: 'artifacts' })
+  db.prepare("INSERT INTO ui_state (key, value) VALUES ('right_panel_tab', 'artifacts')").run()
   setUiState(db, { key: UiStateKey.RightPanelTabs, value: '{"w":"changes","w2":"files","w3":"subagents"}' })
   return db
 }
@@ -198,10 +204,13 @@ describe('a database from before the phase (pre-0059), migrated', () => {
       sandbox: false,
       todoHub: false,
     })
-    // Its session is also owed the two instructions added since this migration (#578, #609): nothing recorded has
-    // either.
+    // Its session is also owed the five instructions added since this migration (#578, #609, #688, #684, #682):
+    // nothing recorded has any of them.
     expect(missingContext({ recorded, startedElsewhere: false, handoff: null, prompt: '', sandboxed: false })).toEqual([
-      { kind: MissingContextKind.Updates, updates: [OTHER_TASKS_LINE, TODO_TOOLS_LINE, GITHUB_LINK_WATCH_LINE] },
+      {
+        kind: MissingContextKind.Updates,
+        updates: [OTHER_TASKS_LINE, TODO_TOOLS_LINE, USAGE_NOTES_LINE, TODO_LINKS_LINE, GITHUB_LINK_WATCH_LINE],
+      },
       { kind: MissingContextKind.TodoHub },
     ])
     db.close()
@@ -215,7 +224,7 @@ describe('a database from before the phase (pre-0059), migrated', () => {
 
     expect(tables(db)).toEqual(['artifacts'])
     // The tab every workspace once shared is forgotten; of each workspace's own, only one the panel still has is kept.
-    expect(getUiState(db, UiStateKey.RightPanelTab)).toBeUndefined()
+    expect(db.prepare("SELECT value FROM ui_state WHERE key = 'right_panel_tab'").pluck().get()).toBeUndefined()
     expect(getUiState(db, UiStateKey.RightPanelTabs)).toBe('{"w2":"files"}')
     expect(db.pragma('foreign_key_check')).toEqual([])
     db.close()
@@ -238,14 +247,14 @@ describe('a database from while the phase was built behind its switch, migrated'
 
   it('keeps a tab the panel still has, and what a todo’s panel and an agent’s tab remembered', () => {
     const db = databaseBefore(64)
-    setUiState(db, { key: UiStateKey.RightPanelTab, value: 'todos' })
+    db.prepare("INSERT INTO ui_state (key, value) VALUES ('right_panel_tab', 'todos')").run()
     setUiState(db, { key: UiStateKey.RightPanelTabs, value: '{"w":"agents","w2":"tool-calls","w3":"todos"}' })
     db.prepare("INSERT INTO todo_panels (task_id, todo_id, open, filter) VALUES ('t', '1', 1, 'commit')").run()
     db.prepare("INSERT INTO agent_tabs (task_id, agent_id) VALUES ('t', 'toolu_fix')").run()
 
     migrate(db, MIGRATIONS)
 
-    expect(getUiState(db, UiStateKey.RightPanelTab)).toBe('todos')
+    expect(db.prepare("SELECT value FROM ui_state WHERE key = 'right_panel_tab'").pluck().get()).toBe('todos')
     expect(JSON.parse(getUiState(db, UiStateKey.RightPanelTabs) ?? '')).toEqual({ w: 'agents', w3: 'todos' })
     expect(readTodoHub(db, 't').panels).toEqual([{ taskId: 't', todoId: '1', open: true, filter: ChildFilter.Commits }])
     expect(agentTabOf(db, 't')).toBe('toolu_fix')

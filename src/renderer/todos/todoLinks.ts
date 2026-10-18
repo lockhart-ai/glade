@@ -174,6 +174,8 @@ export function todoSegments(text: string, references: LinkReferences): Segment[
   for (const segment of segments) {
     const end = at + segment.text.length
     switch (segment.kind) {
+      // A todo link goes through whole, as a link does: what its text names is left to the link (#684).
+      case SegmentKind.Todo:
       case SegmentKind.Link:
         split.push(segment)
         break

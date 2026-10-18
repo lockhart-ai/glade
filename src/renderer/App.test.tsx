@@ -248,6 +248,18 @@ it('keeps the task card’s title row from dragging the window while the sidebar
   }
 })
 
+it("passes the View menu's zoom commands to the image view that takes the zoom keys, and ignores them with none (#685)", async () => {
+  const { emit } = await renderApp([sampleWorkspace('w1')])
+  // No image view is showing: main shouldn't send these then, and if it does, nothing happens and nothing throws.
+  expect(() => {
+    act(() => {
+      emit({ type: EventType.MenuCommand, command: appCommand(AppCommandId.ZoomIn) })
+      emit({ type: EventType.MenuCommand, command: appCommand(AppCommandId.ZoomOut) })
+      emit({ type: EventType.MenuCommand, command: appCommand(AppCommandId.ZoomFit) })
+    })
+  }).not.toThrow()
+})
+
 it('collapses the bottom bar to its tab row, and toggles the panels from the menu bar', async () => {
   const { store, emit } = await renderApp([sampleWorkspace('w1')])
   const choose = (id: AppCommandId): void => {

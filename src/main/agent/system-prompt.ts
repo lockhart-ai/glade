@@ -123,12 +123,32 @@ export const TODO_TOOLS_LINE =
 export const TODO_HUB_ARTIFACTS_LINE = `An artifact goes under a todo too: give ${GladeTool.AddArtifact} the todo's id as todo, for a file and for a link.`
 
 /**
+ * What the prompt says of linking a todo from a reply (#684): the Markdown syntax, which the user clicks to open the
+ * todo in the Todos tab. Added after the first sessions had started, so it's an instruction added since and every
+ * session is sent it once (`INSTRUCTION_UPDATES`, `./session-context`).
+ */
+export const TODO_LINKS_LINE =
+  "When a reply should point the user at one of this task's todos, write it as a Markdown link: `[any text](todo:N)` " +
+  "with the todo's id after `todo:` — the user clicks it and the Todos tab opens on that todo."
+
+/**
  * Everything the prompt says of the todo hub, a paragraph each. They aren't in `INSTRUCTION_UPDATES`: the hub was built
  * behind a switch, so whether a session has them is tracked by itself, as the sandbox's line is. A session that started
  * without them (before the hub, or while it was behind its switch) is sent them once, ahead of its next message
  * (`./session-context`).
  */
 export const TODO_HUB_LINES: readonly string[] = [TODO_HUB_FILING_LINE, TODO_HUB_ARTIFACTS_LINE, TODO_HUB_TOOLS_LINE]
+
+/**
+ * What the prompt says of usage (#688): that every prompt a turn starts with ends with a line on where usage
+ * stands, that a note comes mid-turn when a threshold is crossed, and that the agent needn't watch the meter.
+ */
+export const USAGE_NOTES_LINE =
+  'Glade tells you about usage, so you never need to watch its meter yourself: every message you are sent ends ' +
+  'with a line saying how much of the Claude plan this session and this week have used and when each resets, ' +
+  "with the OpenRouter key's spend when your task runs on OpenRouter, and, while you are working, you are told " +
+  'when usage crosses a threshold (by default every 10% of the session or the week, every $10 of OpenRouter ' +
+  'spend).'
 
 /**
  * The instructions added to the prompt after sessions had started with it, oldest first. Claude Code keeps a session's
@@ -142,6 +162,8 @@ export const INSTRUCTION_UPDATES: readonly string[] = [
   LINK_ARTIFACTS_LINE,
   OTHER_TASKS_LINE,
   TODO_TOOLS_LINE,
+  USAGE_NOTES_LINE,
+  TODO_LINKS_LINE,
   GITHUB_LINK_WATCH_LINE,
 ]
 
@@ -247,8 +269,11 @@ export function systemPromptAppend(
     GITHUB_LINK_WATCH_LINE,
     '',
     TODO_TOOLS_LINE,
+    '',
+    TODO_LINKS_LINE,
   )
   lines.push(...TODO_HUB_LINES.flatMap((line) => ['', line]))
+  lines.push('', USAGE_NOTES_LINE)
   if (sandboxed) lines.push('', SANDBOX_LINE)
   if (control) lines.push('', CONTROL_TOOLS_LINE)
   if (handoff !== null) lines.push('', handoffSection(handoff))

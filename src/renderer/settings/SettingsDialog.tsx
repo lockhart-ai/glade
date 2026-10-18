@@ -20,6 +20,7 @@ import {
   GeneralSection,
   NotificationsSection,
   PluginsSection,
+  UsageNotesSection,
   WorkspaceSection,
 } from './SettingsSections'
 import { KeyboardSection } from './KeyboardSection'
@@ -165,6 +166,8 @@ function SectionBody({ section }: SectionBodyProps): React.JSX.Element {
       return <PluginsSection />
     case SettingsSection.Control:
       return <ControlSection />
+    case SettingsSection.UsageNotes:
+      return <UsageNotesSection />
     case SettingsSection.Github:
       return <GithubSection />
     case SettingsSection.Workspace:
