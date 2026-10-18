@@ -6,7 +6,7 @@ import { UiStateKey, type OpenFiles, type Task, type UiStateEntry, type Workspac
 import { DONE_PAGE_SIZE, inDoneList, isInDoneSection } from '../../shared/doneList'
 import { DEFAULT_SETTINGS_SECTION } from '../settings/sections'
 import { collapsedEntry, isCollapsed, Panel } from '../panels/panels'
-import { activePanelTab, PanelTab, panelTabEntry } from '../right-panel/panelModel'
+import { activePanelTab, PanelTab, panelTabEntry, withoutPanelTabEntry } from '../right-panel/panelModel'
 import { listedTaskIds, selectionAfterDeleting } from '../task-list/sections'
 import {
   activeTerminalTab,
@@ -169,6 +169,9 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
           fileEdits: withoutTask(fileEdits, event.taskId),
           fileVersions: withoutTask(fileVersions, event.taskId),
         }))
+        // Its remembered right panel tab goes with it too (#689).
+        const tabEntry = withoutPanelTabEntry(get().uiState, event.taskId)
+        if (tabEntry !== null) void setUiState(tabEntry)
         reportUnsaved()
       }
       if (event.type === EventType.UiStateChanged && supersededByOwnWrite(event.entry)) return
@@ -211,14 +214,13 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     }
 
     // Shows a panel tab of the selected task: the right panel opens at it, even when it was collapsed or on another
-    // tab, in that task's own workspace. For another task, nothing changes: the panel shows the task you're viewing.
+    // tab, and that becomes the task's remembered tab (#689). For another task, nothing changes: the panel shows the
+    // task you're viewing.
     const showPanelTab = (taskId: string, tab: PanelTab): void => {
       const { selectedTaskId, tasks, uiState } = get()
-      if (taskId !== selectedTaskId) return
-      const workspaceId = tasks[taskId]?.workspaceId
-      if (workspaceId === undefined) return
-      if (activePanelTab(uiState, workspaceId) !== tab) {
-        void setUiState(panelTabEntry(uiState, workspaceId, tab))
+      if (taskId !== selectedTaskId || tasks[taskId] === undefined) return
+      if (activePanelTab(uiState, taskId) !== tab) {
+        void setUiState(panelTabEntry(uiState, taskId, tab))
       }
       if (isCollapsed(uiState, Panel.RightPanel)) void setUiState(collapsedEntry(Panel.RightPanel, false))
     }

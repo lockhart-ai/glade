@@ -55,8 +55,8 @@ task search; in the editor, its own ⌘F finds in the file, and anywhere else �
 
 ## The Agents tab, and the panel's three tabs
 
-The right panel has three tabs, **Agents · Files · Todos** (P16, #536; `decisions.md`), and ⌘⌥1 – ⌘⌥3 pick them.
-⌘⌥4 – ⌘⌥7, which picked tabs the panel no longer has, are no command's.
+The right panel has three tabs, **Agents · Files · Todos** (P16, #536; `decisions.md`), and ⌘⌥1 – ⌘⌥3 pick them for
+the task showing, as that task's own (#689). ⌘⌥4 – ⌘⌥7, which picked tabs the panel no longer has, are no command's.
 
 The Agents tab's strip (`design/screens/54-agents-strip-main.png`, #617) is one Tab stop, on the tab of the agent
 showing: Main, every active subagent (running, or waiting on something it started, #579), and, while it's selected,

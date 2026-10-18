@@ -487,7 +487,7 @@ describe('the line under the strip, on a subagent’s tab', () => {
     fireEvent.click(todoLink())
 
     expect(store.getState().todoFocus).toEqual({ taskId: 't1', todoId: '1', request: 1 })
-    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Todos)
+    expect(activePanelTab(store.getState().uiState, 't1')).toBe(PanelTab.Todos)
     // Asked again, it's a new request.
     fireEvent.click(todoLink())
     expect(store.getState().todoFocus?.request).toBe(2)
