@@ -18,10 +18,10 @@ test('right panel: ⌘⌥2 picks a tab; dragging the handle resizes it, kept on 
   const panel = taskPanel(window)
 
   // Three tabs, with counts only where there's something to count.
-  await expect(panel.tabs).toHaveText(['Agents 2', 'Files', 'Todos'])
+  await expect(panel.tabs).toHaveText(['Todos', 'Agents 2', 'Files'])
 
-  // ⌘⌥2 picks Files, wherever the focus is.
-  await window.keyboard.press('Meta+Alt+Digit2')
+  // ⌘⌥3 picks Files, wherever the focus is.
+  await window.keyboard.press('Meta+Alt+Digit3')
   await expect(panel.tab('Files')).toHaveAttribute('aria-selected', 'true')
   await expect(filesTab(window).browse).toHaveAttribute('aria-pressed', 'true')
 
@@ -89,19 +89,19 @@ test('right panel: each workspace keeps its own tab, switching back and forth an
   await firstRun(window).openFolder.click()
   await expect(workspace).toContainText('acme-api')
 
-  // A's task starts at Agents, the default; pick Todos there.
+  // A's task starts at Todos, the default (#686); pick it again, which stores it.
   await list.newTask.click()
-  await expect(panel.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
-  await window.keyboard.press('Meta+Alt+Digit3')
+  await expect(panel.tab(/^Todos/)).toHaveAttribute('aria-selected', 'true')
+  await window.keyboard.press('Meta+Alt+Digit1')
   await expect(panel.tab('Todos')).toHaveAttribute('aria-selected', 'true')
 
-  // A new workspace B, with its own task, starts at Agents too: A's choice doesn't leak into it. Pick Files there.
+  // A new workspace B, with its own task, starts at Todos too: A's choice doesn't leak into it. Pick Files there.
   await chooseFolder(glade, rootB)
   await chooseMenuItem(glade, 'Workspace', 'New workspace…')
   await expect(workspace).toContainText('acme-web')
   await list.newTask.click()
-  await expect(panel.tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
-  await window.keyboard.press('Meta+Alt+Digit2')
+  await expect(panel.tab(/^Todos/)).toHaveAttribute('aria-selected', 'true')
+  await window.keyboard.press('Meta+Alt+Digit3')
   await expect(panel.tab('Files')).toHaveAttribute('aria-selected', 'true')
 
   // Switching back to A still shows Todos, and back to B still shows Files: each kept its own.

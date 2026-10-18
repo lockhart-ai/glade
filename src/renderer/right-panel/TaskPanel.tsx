@@ -22,13 +22,13 @@ const NO_PERMISSION_REQUESTS: readonly PermissionRequest[] = []
 const NO_PERMISSION_MARKS: readonly PermissionMark[] = []
 
 /**
- * The right panel of the task card: the tab bar (Agents, Files, Todos, each with its count) and the selected tab
+ * The right panel of the task card: the tab bar (Todos, Agents, Files, each with its count) and the selected tab
  * (P16, #491). Agents is what's happening: a tab for every agent in the task, each with its tool calls and its
  * watchers, and on each call's row what was decided about its permission request (#459). Todos is what the work
  * produced: each todo with its files, links and changes.
  *
  * The selected tab is kept in UI state per workspace (#432): switching workspace shows that workspace's tab, and a
- * relaunch keeps every workspace's. One left on a tab the panel no longer has opens on Agents. The width and whether
+ * relaunch keeps every workspace's. One left on a tab the panel no longer has opens on Todos. The width and whether
  * the panel is collapsed are kept in UI state for the whole window; collapsed, the panel shows nothing. It slides
  * open and shut.
  *

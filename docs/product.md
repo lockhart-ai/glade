@@ -140,10 +140,10 @@ There are no follow-up tasks. One task can refer to another through its folder o
   their corner, shown on hover and on focus, which copies the whole block the same way. It's everywhere Glade renders
   Markdown code (replies, question cards and their preamble, backfilled notes, the tool log's notes and permission
   cards), but not the Files viewer's preview or the terminal.
-- **Right panel** (inside the task card) — three tabs, **Agents · Files · Todos** (P16, #491): is something
-  **happening** (Agents), or something the work **produced** (Todos)? Resizable, collapsible. The selected tab is
-  remembered per workspace (#432): switching workspace shows that workspace's own tab, across a relaunch; a workspace
-  that's never chosen one starts from Agents.
+- **Right panel** (inside the task card) — three tabs, **Todos · Agents · Files** (#686, was Agents · Files ·
+  Todos): is something **happening** (Agents), or something the work **produced** (Todos)? Resizable, collapsible.
+  The selected tab is remembered per workspace (#432): switching workspace shows that workspace's own tab, across a
+  relaunch; a workspace that's never chosen one starts from Todos.
 
   **Agents** is activity: a strip of tabs under the panel's own, one for every agent in the task, and under it that
   agent's tool calls, the notes between them and their output. **Main**, the task's own agent, is pinned first, its

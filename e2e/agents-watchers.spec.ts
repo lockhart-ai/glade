@@ -43,7 +43,8 @@ test('watchers in the Agents tab: pinned while live with Stop, a row once ended,
   await expect(chat(window).agentReplies.last()).toContainText(WATCHES.lintPassed)
   const panel = taskPanel(window)
   const agents = agentsTab(window)
-  await expect(panel.tabs).toHaveText(['Agents 1', 'Files', 'Todos'])
+  await expect(panel.tabs).toHaveText(['Todos', 'Agents 1', 'Files'])
+  await panel.tab(/^Agents/).click()
   await expect(agents.tab('Main')).toHaveAttribute('aria-selected', 'true')
 
   // What's live is pinned under Main's tool calls, in the order it started, outside the list that scrolls.
@@ -150,6 +151,9 @@ test('a subagent’s watcher is on its own tab, with the eye, and its tab’s me
   await inputBar(window).field.fill(WORK.prompt)
   await inputBar(window).field.press('Enter')
   await expect(chat(window).agentReplies.first()).toContainText(WORK.started)
+  await taskPanel(window)
+    .tab(/^Agents/)
+    .click()
   const agents = agentsTab(window)
 
   // Main watches the deploy log; the subagent's lint and e2e suite are its own, counted on its own tab.
@@ -226,6 +230,9 @@ test('a running subagent’s Agent call says what it’s doing now, until it has
   await inputBar(window).field.fill('Find why the checkout endpoint got slower since 2.3.')
   await inputBar(window).field.press('Enter')
   await expect(chat(window).agentReplies.first()).toContainText(BACKGROUND_SUBAGENTS.started)
+  await taskPanel(window)
+    .tab(/^Agents/)
+    .click()
   const agents = agentsTab(window)
 
   await expect(agents.agentCall(QUERIES)).toContainText(/Running · \d+s/)

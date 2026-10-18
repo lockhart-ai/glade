@@ -1730,15 +1730,15 @@ describe('right panel tab per workspace', () => {
   it("keeps each workspace's own tab, switching back and forth", async () => {
     const { store } = await hydrated()
 
-    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 'w1', PanelTab.Todos))
+    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 'w1', PanelTab.Agents))
     await store.getState().openWorkspace('w2')
-    // w2 has never chosen one: it starts from Agents, not w1's Todos.
-    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Agents)
+    // w2 has never chosen one: it starts from Todos, not w1's Agents.
+    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Todos)
 
     await store.getState().setUiState(panelTabEntry(store.getState().uiState, 'w2', PanelTab.Files))
     await store.getState().openWorkspace('w1')
 
-    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Todos)
+    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Agents)
     await store.getState().openWorkspace('w2')
     expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Files)
   })

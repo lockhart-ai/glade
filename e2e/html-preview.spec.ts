@@ -73,7 +73,7 @@ async function openTask(window: Glade['window']): Promise<void> {
 async function openReportPreview(glade: Glade): Promise<void> {
   const { window } = glade
   await openTask(window)
-  await window.keyboard.press('Meta+Alt+Digit2')
+  await window.keyboard.press('Meta+Alt+Digit3')
   const files = filesTab(window)
   await files.treeRow('reports').click()
   await files.treeRow('report.html').click()
@@ -122,7 +122,7 @@ test('html preview: a static report renders as it would in a browser, opening on
   const glade = await launch({ chosenFolder: root })
   const { window } = glade
   await openTask(window)
-  await window.keyboard.press('Meta+Alt+Digit2')
+  await window.keyboard.press('Meta+Alt+Digit3')
   const files = filesTab(window)
   await files.treeRow('reports').click()
   await files.treeRow('report.html').click()
@@ -170,7 +170,7 @@ test('html preview: a file closed and rewritten on disk shows its new contents w
   const glade = await launch({ chosenFolder: root })
   const { window } = glade
   await openTask(window)
-  await window.keyboard.press('Meta+Alt+Digit2')
+  await window.keyboard.press('Meta+Alt+Digit3')
   const files = filesTab(window)
 
   // The report, in preview.
@@ -226,7 +226,7 @@ test('html preview: a hostile page is contained like a plugin’s view: no bridg
     const glade = await launch({ chosenFolder: root })
     const { window } = glade
     await openTask(window)
-    await window.keyboard.press('Meta+Alt+Digit2')
+    await window.keyboard.press('Meta+Alt+Digit3')
     const files = filesTab(window)
     await files.treeRow('reports').click()
     await files.treeRow('hostile.html').click()

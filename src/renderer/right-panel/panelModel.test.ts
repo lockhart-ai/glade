@@ -18,23 +18,23 @@ import {
 const REMOVED_TABS = ['tool-calls', 'subagents', 'watchers', 'artifacts', 'changes']
 
 describe('the panel’s tabs', () => {
-  it('are Agents · Files · Todos, in tab bar order, starting on Agents', () => {
-    expect(PANEL_TABS).toEqual(['agents', 'files', 'todos'])
+  it('are Todos · Agents · Files, in tab bar order, starting on Todos', () => {
+    expect(PANEL_TABS).toEqual(['todos', 'agents', 'files'])
     expect(Object.values(PanelTab)).toEqual([...PANEL_TABS])
-    expect(FIRST_PANEL_TAB).toBe(PanelTab.Agents)
+    expect(FIRST_PANEL_TAB).toBe(PanelTab.Todos)
   })
 })
 
 describe('parsePanelTab', () => {
-  it('reads a stored tab, and falls back to Agents', () => {
+  it('reads a stored tab, and falls back to Todos', () => {
     expect(parsePanelTab('todos')).toBe(PanelTab.Todos)
     expect(parsePanelTab('agents')).toBe(PanelTab.Agents)
-    expect(parsePanelTab(undefined)).toBe(PanelTab.Agents)
-    expect(parsePanelTab('terminal')).toBe(PanelTab.Agents)
+    expect(parsePanelTab(undefined)).toBe(PanelTab.Todos)
+    expect(parsePanelTab('terminal')).toBe(PanelTab.Todos)
   })
 
-  it.each(REMOVED_TABS)('reads %s, a tab the panel no longer has, as Agents', (removed) => {
-    expect(parsePanelTab(removed)).toBe(PanelTab.Agents)
+  it.each(REMOVED_TABS)('reads %s, a tab the panel no longer has, as Todos', (removed) => {
+    expect(parsePanelTab(removed)).toBe(PanelTab.Todos)
   })
 })
 
@@ -85,8 +85,8 @@ describe('activePanelTab', () => {
     expect(activePanelTab(uiState, 'w2')).toBe(PanelTab.Files)
   })
 
-  it('falls back to Agents with neither stored', () => {
-    expect(activePanelTab({}, 'w1')).toBe(PanelTab.Agents)
+  it('falls back to Todos with neither stored', () => {
+    expect(activePanelTab({}, 'w1')).toBe(PanelTab.Todos)
   })
 
   it('keeps a tab the three have', () => {
@@ -95,11 +95,11 @@ describe('activePanelTab', () => {
     }
   })
 
-  it.each(REMOVED_TABS)('shows Agents for a workspace left on %s, however it was stored', (removed) => {
+  it.each(REMOVED_TABS)('shows Todos for a workspace left on %s, however it was stored', (removed) => {
     // Its own choice, from when each workspace had one.
-    expect(activePanelTab({ [UiStateKey.RightPanelTabs]: JSON.stringify({ w1: removed }) }, 'w1')).toBe(PanelTab.Agents)
+    expect(activePanelTab({ [UiStateKey.RightPanelTabs]: JSON.stringify({ w1: removed }) }, 'w1')).toBe(PanelTab.Todos)
     // The one tab every workspace shared before that.
-    expect(activePanelTab({ [UiStateKey.RightPanelTab]: removed }, 'w1')).toBe(PanelTab.Agents)
+    expect(activePanelTab({ [UiStateKey.RightPanelTab]: removed }, 'w1')).toBe(PanelTab.Todos)
     // Both, and a removed choice doesn't hide a tab the panel still has behind it.
     expect(
       activePanelTab(
@@ -136,7 +136,7 @@ describe('panelTabEntry', () => {
 })
 
 describe('tabForDigit', () => {
-  it('maps 1–3 to Agents · Files · Todos, and nothing else', () => {
+  it('maps 1–3 to Todos · Agents · Files, and nothing else', () => {
     expect([1, 2, 3].map((digit) => tabForDigit(digit))).toEqual([...PANEL_TABS])
     expect([0, 4, 5, 6, 7, 8].map((digit) => tabForDigit(digit))).toEqual(Array(6).fill(undefined))
   })

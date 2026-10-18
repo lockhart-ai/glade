@@ -4,21 +4,21 @@ import { UiStateKey, type UiStateEntry } from '../../shared/domain'
 import type { UiStateValues } from '../store/state'
 
 /**
- * The right panel's tabs (P16, #491), in the order the tab bar shows them (and ⌘⌥1–3 picks them): Agents is what's
- * happening (every agent's tool calls and watchers), Files is the workspace's files, and Todos is what the work
- * produced (each todo with its files, links and changes).
+ * The right panel's tabs (P16, #491), in the order the tab bar shows them (and ⌘⌥1–3 picks them): Todos is what the
+ * work produced (each todo with its files, links and changes), Agents is what's happening (every agent's tool calls
+ * and watchers), and Files is the workspace's files.
  */
 export enum PanelTab {
+  Todos = 'todos',
   Agents = 'agents',
   Files = 'files',
-  Todos = 'todos',
 }
 
 /** Every tab the panel shows, in tab bar order. */
-export const PANEL_TABS: readonly PanelTab[] = [PanelTab.Agents, PanelTab.Files, PanelTab.Todos]
+export const PANEL_TABS: readonly PanelTab[] = [PanelTab.Todos, PanelTab.Agents, PanelTab.Files]
 
 /** The tab a panel with nothing stored starts on. */
-export const FIRST_PANEL_TAB = PanelTab.Agents
+export const FIRST_PANEL_TAB = PanelTab.Todos
 
 function isPanelTab(value: string): value is PanelTab {
   return (PANEL_TABS as readonly string[]).includes(value)
@@ -65,7 +65,7 @@ export function parsePanelTabSelection(value: string | undefined): PanelTabSelec
 
 /**
  * The tab a workspace's right panel shows: the one last picked there, or else the tab stored before each workspace
- * had its own (`UiStateKey.RightPanelTab`, every workspace's starting value), or else Agents. A stored tab the panel
+ * had its own (`UiStateKey.RightPanelTab`, every workspace's starting value), or else Todos. A stored tab the panel
  * no longer has counts as none stored, at either step.
  */
 export function activePanelTab(uiState: UiStateValues, workspaceId: string): PanelTab {
@@ -82,7 +82,7 @@ export function panelTabEntry(uiState: UiStateValues, workspaceId: string, tab: 
   return { key: UiStateKey.RightPanelTabs, value: serializePanelTabSelection(selection) }
 }
 
-/** The tab ⌘⌥ and a digit picks: 1 is Agents and 3 is Todos. Undefined for any other digit. */
+/** The tab ⌘⌥ and a digit picks: 1 is Todos and 3 is Files. Undefined for any other digit. */
 export function tabForDigit(digit: number): PanelTab | undefined {
   return PANEL_TABS[digit - 1]
 }

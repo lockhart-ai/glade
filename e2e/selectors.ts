@@ -180,7 +180,7 @@ export function taskPanel(page: Page) {
     collapse: panel.getByRole('button', { name: 'Collapse side panel' }),
     /** One of the panel's own tabs, by its name: not an agent's tab in the Agents tab's strip (`agentsTab`). */
     tab: (name: string | RegExp) => panel.getByRole('tablist', { name: 'Task panels' }).getByRole('tab', { name }),
-    /** The panel's own tabs, in tab bar order: Agents · Files · Todos. */
+    /** The panel's own tabs, in tab bar order: Todos · Agents · Files. */
     tabs: panel.getByRole('tablist', { name: 'Task panels' }).getByRole('tab'),
     /** The selected tab's content. (The Agents tab has a panel of its own inside it, for the agent showing.) */
     tabPanel: panel.getByRole('tabpanel').first(),

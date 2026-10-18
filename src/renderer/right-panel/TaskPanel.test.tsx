@@ -179,29 +179,29 @@ afterEach(() => {
 })
 
 describe('TaskPanel', () => {
-  it('shows the tab bar, three tabs, with Agents selected and counted', async () => {
+  it('shows the tab bar, three tabs, with Todos selected and counted', async () => {
     await renderPanel()
 
     expect(
       within(screen.getByRole('tablist', { name: 'Task panels' }))
         .getAllByRole('tab')
         .map((element) => element.textContent),
-    ).toEqual(['Agents 1', 'Files', 'Todos'])
-    expect(tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
+    ).toEqual(['Todos', 'Agents 1', 'Files'])
+    expect(tab(/^Todos/)).toHaveAttribute('aria-selected', 'true')
   })
 
   it('keeps the tab you pick in UI state', async () => {
     const { invoke, store } = await renderPanel()
 
-    fireEvent.click(tab('Todos'))
-    expect(tab('Todos')).toHaveAttribute('aria-selected', 'true')
-    expect(parsePanelTabSelection(store.getState().uiState[UiStateKey.RightPanelTabs])).toEqual({ w1: 'todos' })
-    const entry = { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: 'todos' }) }
+    fireEvent.click(tab('Files'))
+    expect(tab('Files')).toHaveAttribute('aria-selected', 'true')
+    expect(parsePanelTabSelection(store.getState().uiState[UiStateKey.RightPanelTabs])).toEqual({ w1: 'files' })
+    const entry = { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: 'files' }) }
     expect(invoke).toHaveBeenCalledWith(CommandName.UiStateSet, entry)
 
     // Picking the tab that's already selected writes nothing.
     invoke.mockClear()
-    fireEvent.click(tab('Todos'))
+    fireEvent.click(tab('Files'))
     expect(invoke).not.toHaveBeenCalled()
   })
 
@@ -293,7 +293,7 @@ describe('TaskPanel', () => {
   })
 
   it('says when there are no tool calls yet, and counts the task’s own agent alone', async () => {
-    await renderPanel({ toolEvents: [] })
+    await renderPanel({ toolEvents: [], uiState: [{ key: UiStateKey.RightPanelTab, value: 'agents' }] })
     expect(tabPanel()).toHaveTextContent('No tool calls yet.')
     expect(tab(/^Agents/)).toHaveTextContent(/^Agents 1$/)
   })
@@ -432,8 +432,12 @@ describe('TaskPanel', () => {
   })
 
   describe('the tool log', () => {
+    // The log is the Agents tab's, and the panel's own default tab is Todos (#686), so open it there first.
+    const open = async (setup: Setup = {}): Promise<FakeBridge & { store: GladeStore }> =>
+      renderPanel({ uiState: [{ key: UiStateKey.RightPanelTab, value: 'agents' }], ...setup })
+
     it('shows each call’s state, name, argument, time and short result', async () => {
-      await renderPanel()
+      await open()
 
       expect(row(/Read/)).toHaveTextContent(/^Readapi\/views\.py10:443 lines$/)
       expect(within(row(/Read/)).getByRole('img', { name: 'Done' })).toHaveAttribute('data-state', 'done')
@@ -441,13 +445,13 @@ describe('TaskPanel', () => {
     })
 
     it('sits the agent’s notes between the rows, with their time', async () => {
-      await renderPanel()
+      await open()
 
       expect(log()).toHaveTextContent(/^Looking at how the API views are set up\. 10:43Read/)
     })
 
     it('expands a row to its full output, and collapses it again', async () => {
-      await renderPanel()
+      await open()
 
       fireEvent.click(row(/Read/))
       expect(row(/Read/)).toHaveAttribute('aria-expanded', 'true')
@@ -459,7 +463,7 @@ describe('TaskPanel', () => {
 
     it('makes the URLs in a call’s output links, keeping its text as it is', async () => {
       const output = 'Built in 2.1s\n  Preview at http://localhost:4173\n  Docs: https://example.com/docs.'
-      await renderPanel({ toolEvents: [call('c1', { name: 'Bash', input: { command: 'npm run preview' }, output })] })
+      await open({ toolEvents: [call('c1', { name: 'Bash', input: { command: 'npm run preview' }, output })] })
 
       fireEvent.click(row(/Bash/))
       const shown = screen.getByLabelText('Bash output')
@@ -472,7 +476,7 @@ describe('TaskPanel', () => {
     })
 
     it('says a running call has no output yet, and shows a failed call’s error', async () => {
-      await renderPanel({
+      await open({
         toolEvents: [
           call('c1', { state: ToolCallState.Running, output: null }),
           call('c2', { name: 'Bash', input: { command: 'make' }, state: ToolCallState.Error, output: 'Exit 2' }),
@@ -490,7 +494,7 @@ describe('TaskPanel', () => {
     })
 
     it('shows a call a pause cut off in purple, and one a quit cut off like a finished call', async () => {
-      await renderPanel({
+      await open({
         toolEvents: [
           call('c1', {
             name: 'Bash',
@@ -522,7 +526,7 @@ describe('TaskPanel', () => {
     })
 
     it('shows inline code, emphasis and links in the agent’s notes, and nothing that loads', async () => {
-      await renderPanel({
+      await open({
         toolEvents: [
           narration(
             'n1',
@@ -541,7 +545,7 @@ describe('TaskPanel', () => {
     })
 
     it('marks where each turn after the first starts, and what else happened', async () => {
-      await renderPanel({
+      await open({
         toolEvents: [...TURN_ONE, divider('d2', 2), call('c3', { turn: 2 }), divider('d3', 2, DividerKind.MarkedDone)],
       })
 
@@ -567,7 +571,7 @@ describe('TaskPanel', () => {
         windowTokens: 200_000,
         summary: null,
       } as const
-      const { emit } = await renderPanel({ toolEvents: [...TURN_ONE, running] })
+      const { emit } = await open({ toolEvents: [...TURN_ONE, running] })
 
       const compact = within(log()).getByRole('group', { name: 'Compact' })
       expect(compact).toHaveTextContent(/^Compact\s*10:44Compacting…$/)
@@ -603,7 +607,7 @@ describe('TaskPanel', () => {
         windowTokens: 200_000,
         summary,
       } as const
-      await renderPanel({ toolEvents: [...TURN_ONE, compaction] })
+      await open({ toolEvents: [...TURN_ONE, compaction] })
 
       const row = within(log()).getByRole('group', { name: 'Compact' })
       const button = within(row).getByRole('button')
@@ -622,7 +626,7 @@ describe('TaskPanel', () => {
     })
 
     it('leaves a subagent’s calls out of Main’s log: its Agent call is one row, and they’re on its own tab', async () => {
-      await renderPanel({
+      await open({
         toolEvents: [
           call('agent', { name: 'Agent', input: { description: 'Find the settings' }, output: 'In api/settings.py.' }),
           call('grep', { name: 'Grep', input: { pattern: 'THROTTLE' }, parentToolUseId: 'use-agent' }),
@@ -646,7 +650,7 @@ describe('TaskPanel', () => {
     })
 
     it('keeps nested and interleaved subagents’ calls, and a failing one, out of Main’s log, live', async () => {
-      const { emit } = await renderPanel({ toolEvents: [] })
+      const { emit } = await open({ toolEvents: [] })
       const events: ToolEvent[] = [
         call('outer', { name: 'Agent', input: { description: 'API changes' }, state: ToolCallState.Running }),
         call('other', { name: 'Agent', input: { description: 'Dashboard changes' }, state: ToolCallState.Running }),
@@ -695,7 +699,7 @@ describe('TaskPanel', () => {
     })
 
     it('streams new entries and results live', async () => {
-      const { emit } = await renderPanel({ toolEvents: [] })
+      const { emit } = await open({ toolEvents: [] })
 
       const running = call('c9', { name: 'Bash', input: { command: 'pytest -q' }, state: ToolCallState.Running })
       act(() => {
@@ -715,7 +719,7 @@ describe('TaskPanel', () => {
     })
 
     it('keeps to the bottom as it grows', async () => {
-      const { emit } = await renderPanel()
+      const { emit } = await open()
       const scroller = log()
       Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 900 })
 
@@ -750,7 +754,10 @@ describe('TaskPanel', () => {
     })
 
     it('scrolls to turn 1’s first row, which has no divider, and restarts the highlight when asked again', async () => {
-      const { store } = await renderPanel({ toolEvents: TWO_TURNS })
+      const { store } = await renderPanel({
+        toolEvents: TWO_TURNS,
+        uiState: [{ key: UiStateKey.RightPanelTab, value: 'agents' }],
+      })
       vi.useFakeTimers()
       const firstNote = screen.getByText(/^Looking at how/)
 

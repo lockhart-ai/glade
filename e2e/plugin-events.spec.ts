@@ -189,7 +189,7 @@ test('a plugin is told how many watchers a task has running as they start, end a
     .poll(() => last(first, PluginEventType.TaskUpdated))
     .toMatchObject({ task: { activity: 'waiting', watchers: 2 } })
   // The same watchers the Agents tab's eye counts as still going, on Main: the two scheduled among the two running.
-  await window.keyboard.press('Meta+Alt+Digit1')
+  await window.keyboard.press('Meta+Alt+Digit2')
   await expect(taskPanel(window).tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
   const agents = agentsTab(window)
   await expect(agents.eye('Main')).toHaveText('4')

@@ -167,13 +167,13 @@ describe('what opens the panel at an agent', () => {
     expect(store.getState().agentTabs).toEqual({})
   })
 
-  it('writes no tab for a workspace already on Agents, by name or because its tab is one the panel no longer has', async () => {
+  it('writes no tab for a workspace already on Agents', async () => {
     const { store, invoke } = await hydrated(
       main({
         uiState: [
           { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
           { key: UiStateKey.SelectedTaskId, value: 't1' },
-          { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: 'subagents' }) },
+          { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: 'agents' }) },
         ],
       }),
     )

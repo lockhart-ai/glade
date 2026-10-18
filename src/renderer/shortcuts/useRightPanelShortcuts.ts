@@ -18,7 +18,7 @@ export function panelTabEntries(digit: number, uiState: UiStateValues, workspace
   return entries
 }
 
-/** Agents · Files · Todos (⌘⌥1–3) pick the right panel's tab, wherever the focus is, in the workspace shown. */
+/** Todos · Agents · Files (⌘⌥1–3) pick the right panel's tab, wherever the focus is, in the workspace shown. */
 export function useRightPanelShortcuts(): void {
   const store = useGladeStoreApi()
   useCommand(WindowCommandId.ShowPanelTab, ({ digit }) => {
