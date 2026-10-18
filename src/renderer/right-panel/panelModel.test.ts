@@ -8,14 +8,11 @@ import {
   PANEL_TABS,
   PanelTab,
   panelTabEntry,
-  parsePanelTab,
   parsePanelTabSelection,
   serializePanelTabSelection,
   tabForDigit,
+  withoutPanelTabEntry,
 } from './panelModel'
-
-/** The tabs the panel had before it had three (#501), as a database from before the update may still store them. */
-const REMOVED_TABS = ['tool-calls', 'subagents', 'watchers', 'artifacts', 'changes']
 
 describe('the panel’s tabs', () => {
   it('are Agents · Files · Todos, in tab bar order, starting on Agents', () => {
@@ -25,38 +22,25 @@ describe('the panel’s tabs', () => {
   })
 })
 
-describe('parsePanelTab', () => {
-  it('reads a stored tab, and falls back to Agents', () => {
-    expect(parsePanelTab('todos')).toBe(PanelTab.Todos)
-    expect(parsePanelTab('agents')).toBe(PanelTab.Agents)
-    expect(parsePanelTab(undefined)).toBe(PanelTab.Agents)
-    expect(parsePanelTab('terminal')).toBe(PanelTab.Agents)
-  })
-
-  it.each(REMOVED_TABS)('reads %s, a tab the panel no longer has, as Agents', (removed) => {
-    expect(parsePanelTab(removed)).toBe(PanelTab.Agents)
-  })
-})
-
 describe('parsePanelTabSelection', () => {
   it('reads a stored selection, dropping entries that are not a known tab', () => {
-    expect(parsePanelTabSelection(serializePanelTabSelection({ w1: PanelTab.Todos, w2: PanelTab.Files }))).toEqual({
-      w1: 'todos',
-      w2: 'files',
+    expect(parsePanelTabSelection(serializePanelTabSelection({ t1: PanelTab.Todos, t2: PanelTab.Files }))).toEqual({
+      t1: 'todos',
+      t2: 'files',
     })
-    expect(parsePanelTabSelection('{"w1":"todos","w2":"terminal","w3":7}')).toEqual({ w1: 'todos' })
+    expect(parsePanelTabSelection('{"t1":"todos","t2":"terminal","t3":7}')).toEqual({ t1: 'todos' })
   })
 
-  it('drops a workspace left on a tab the panel no longer has, keeping the others', () => {
+  it('drops a task left on a tab the panel no longer has, keeping the others', () => {
     const stored = JSON.stringify({
-      w1: 'tool-calls',
-      w2: 'subagents',
-      w3: 'watchers',
-      w4: 'artifacts',
-      w5: 'changes',
-      w6: 'files',
+      t1: 'tool-calls',
+      t2: 'subagents',
+      t3: 'watchers',
+      t4: 'artifacts',
+      t5: 'changes',
+      t6: 'files',
     })
-    expect(parsePanelTabSelection(stored)).toEqual({ w6: 'files' })
+    expect(parsePanelTabSelection(stored)).toEqual({ t6: 'files' })
   })
 
   it('reads empty when unset, not JSON, or JSON that is not a plain object', () => {
@@ -69,69 +53,78 @@ describe('parsePanelTabSelection', () => {
 })
 
 describe('activePanelTab', () => {
-  it("reads a workspace's own choice over the tab stored before each workspace had its own", () => {
+  it("reads a task's own choice", () => {
     const uiState: UiStateValues = {
-      [UiStateKey.RightPanelTab]: 'files',
-      [UiStateKey.RightPanelTabs]: serializePanelTabSelection({ w1: PanelTab.Todos }),
+      [UiStateKey.RightPanelTabs]: serializePanelTabSelection({ t1: PanelTab.Todos, t2: PanelTab.Files }),
     }
-    expect(activePanelTab(uiState, 'w1')).toBe(PanelTab.Todos)
+    expect(activePanelTab(uiState, 't1')).toBe(PanelTab.Todos)
+    expect(activePanelTab(uiState, 't2')).toBe(PanelTab.Files)
   })
 
-  it('falls back to the tab stored before each workspace had its own, for a workspace with no choice', () => {
-    const uiState: UiStateValues = {
-      [UiStateKey.RightPanelTab]: 'files',
-      [UiStateKey.RightPanelTabs]: serializePanelTabSelection({ w1: PanelTab.Todos }),
-    }
-    expect(activePanelTab(uiState, 'w2')).toBe(PanelTab.Files)
-  })
-
-  it('falls back to Agents with neither stored', () => {
-    expect(activePanelTab({}, 'w1')).toBe(PanelTab.Agents)
+  it("falls back to the panel's first tab for a task with none remembered", () => {
+    expect(activePanelTab({}, 't1')).toBe(PanelTab.Agents)
+    expect(
+      activePanelTab({ [UiStateKey.RightPanelTabs]: serializePanelTabSelection({ t2: PanelTab.Todos }) }, 't1'),
+    ).toBe(PanelTab.Agents)
   })
 
   it('keeps a tab the three have', () => {
     for (const tab of PANEL_TABS) {
-      expect(activePanelTab({ [UiStateKey.RightPanelTabs]: serializePanelTabSelection({ w1: tab }) }, 'w1')).toBe(tab)
+      expect(activePanelTab({ [UiStateKey.RightPanelTabs]: serializePanelTabSelection({ t1: tab }) }, 't1')).toBe(tab)
     }
   })
 
-  it.each(REMOVED_TABS)('shows Agents for a workspace left on %s, however it was stored', (removed) => {
-    // Its own choice, from when each workspace had one.
-    expect(activePanelTab({ [UiStateKey.RightPanelTabs]: JSON.stringify({ w1: removed }) }, 'w1')).toBe(PanelTab.Agents)
-    // The one tab every workspace shared before that.
-    expect(activePanelTab({ [UiStateKey.RightPanelTab]: removed }, 'w1')).toBe(PanelTab.Agents)
-    // Both, and a removed choice doesn't hide a tab the panel still has behind it.
-    expect(
-      activePanelTab(
-        { [UiStateKey.RightPanelTab]: 'todos', [UiStateKey.RightPanelTabs]: JSON.stringify({ w1: removed }) },
-        'w1',
-      ),
-    ).toBe(PanelTab.Todos)
-  })
+  it.each(['tool-calls', 'subagents', 'watchers', 'artifacts', 'changes', 'no-such-tab'])(
+    "shows the panel's first tab for a task left on %s, a tab it no longer has",
+    (removed) => {
+      expect(activePanelTab({ [UiStateKey.RightPanelTabs]: JSON.stringify({ t1: removed }) }, 't1')).toBe(
+        FIRST_PANEL_TAB,
+      )
+    },
+  )
 })
 
 describe('panelTabEntry', () => {
-  it("sets a workspace's tab, keeping every other workspace's", () => {
-    const uiState: UiStateValues = { [UiStateKey.RightPanelTabs]: serializePanelTabSelection({ w1: PanelTab.Todos }) }
+  it("sets a task's tab, keeping every other task's", () => {
+    const uiState: UiStateValues = { [UiStateKey.RightPanelTabs]: serializePanelTabSelection({ t1: PanelTab.Todos }) }
 
-    const entry = panelTabEntry(uiState, 'w2', PanelTab.Files)
+    const entry = panelTabEntry(uiState, 't2', PanelTab.Files)
 
     expect(entry.key).toBe(UiStateKey.RightPanelTabs)
-    expect(parsePanelTabSelection(entry.value)).toEqual({ w1: 'todos', w2: 'files' })
+    expect(parsePanelTabSelection(entry.value)).toEqual({ t1: 'todos', t2: 'files' })
   })
 
-  it("replaces a workspace's own earlier choice", () => {
-    const uiState: UiStateValues = { [UiStateKey.RightPanelTabs]: serializePanelTabSelection({ w1: PanelTab.Todos }) }
+  it("replaces a task's own earlier choice", () => {
+    const uiState: UiStateValues = { [UiStateKey.RightPanelTabs]: serializePanelTabSelection({ t1: PanelTab.Todos }) }
 
-    const entry = panelTabEntry(uiState, 'w1', PanelTab.Files)
+    const entry = panelTabEntry(uiState, 't1', PanelTab.Files)
 
-    expect(parsePanelTabSelection(entry.value)).toEqual({ w1: 'files' })
+    expect(parsePanelTabSelection(entry.value)).toEqual({ t1: 'files' })
   })
 
-  it('writes no tab the panel no longer has: a workspace left on one is dropped from what’s stored', () => {
-    const uiState: UiStateValues = { [UiStateKey.RightPanelTabs]: '{"w1":"artifacts","w2":"files"}' }
+  it('writes no tab the panel no longer has: a task left on one is dropped from what’s stored', () => {
+    const uiState: UiStateValues = { [UiStateKey.RightPanelTabs]: '{"t1":"artifacts","t2":"files"}' }
 
-    expect(panelTabEntry(uiState, 'w3', PanelTab.Todos).value).toBe('{"w2":"files","w3":"todos"}')
+    expect(panelTabEntry(uiState, 't3', PanelTab.Todos).value).toBe('{"t2":"files","t3":"todos"}')
+  })
+})
+
+describe('withoutPanelTabEntry', () => {
+  it("drops a task's entry, keeping every other task's", () => {
+    const uiState: UiStateValues = {
+      [UiStateKey.RightPanelTabs]: serializePanelTabSelection({ t1: PanelTab.Files, t2: PanelTab.Todos }),
+    }
+
+    const entry = withoutPanelTabEntry(uiState, 't1')
+
+    expect(entry).toEqual({ key: UiStateKey.RightPanelTabs, value: '{"t2":"todos"}' })
+  })
+
+  it('is null for a task with no entry: nothing to write', () => {
+    expect(withoutPanelTabEntry({}, 't1')).toBeNull()
+    expect(withoutPanelTabEntry({ [UiStateKey.RightPanelTabs]: '{"t2":"files"}' }, 't1')).toBeNull()
+    // A task whose entry names a removed tab isn't stored to drop either.
+    expect(withoutPanelTabEntry({ [UiStateKey.RightPanelTabs]: '{"t1":"artifacts"}' }, 't1')).toBeNull()
   })
 })
 

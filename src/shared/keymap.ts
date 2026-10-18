@@ -308,6 +308,9 @@ export const COMMANDS: readonly CommandDefinition[] = [
   command(AppCommandId.Close, Panels, 'Close file tab', MenuBar, 'Meta+W', {
     fixed: FixedReason.Window,
   }),
+  command(AppCommandId.ZoomIn, Panels, 'Zoom in', MenuBar, 'Meta++'),
+  command(AppCommandId.ZoomOut, Panels, 'Zoom out', MenuBar, 'Meta+-'),
+  command(AppCommandId.ZoomFit, Panels, 'Actual size', MenuBar, 'Meta+0'),
   command(WindowCommandId.OpenInEditor, Panels, 'Open file in editor', Window, 'Meta+Shift+E'),
   command(WindowCommandId.SaveFile, Panels, 'Save file', Window, 'Meta+S'),
   command(WindowCommandId.FocusTerminal, Terminal, 'Focus terminal', Window, 'Ctrl+`'),
@@ -375,8 +378,9 @@ export function isRebindable(id: ShortcutId): boolean {
 
 /**
  * Chords that are taken before a shortcut could have them: macOS's own (⌘Tab, ⌘Space), the app and Window menus' (⌘Q,
- * ⌘H, ⌘M), the Edit menu's, which every text field relies on, and the View menu's zoom and full screen. No command can
- * be bound to one. (⌘W is Close, a fixed command of the keymap's own.)
+ * ⌘H, ⌘M), the Edit menu's, which every text field relies on, and the View menu's full screen. No command can be bound
+ * to one. (⌘W is Close, a fixed command of the keymap's own; the View menu's zoom keys are Zoom in, Zoom out and Actual
+ * size, commands of the keymap's own.)
  */
 export const RESERVED_CHORDS: readonly { readonly chord: KeyChord; readonly owner: string }[] = [
   { chord: chord('Meta+Q'), owner: 'Quit Glade' },
@@ -392,10 +396,6 @@ export const RESERVED_CHORDS: readonly { readonly chord: KeyChord; readonly owne
   { chord: chord('Meta+C'), owner: 'Copy' },
   { chord: chord('Meta+V'), owner: 'Paste' },
   { chord: chord('Meta+A'), owner: 'Select all' },
-  { chord: chord('Meta+0'), owner: 'Actual size' },
-  { chord: chord('Meta++'), owner: 'Zoom in' },
-  { chord: chord('Meta+='), owner: 'Zoom in' },
-  { chord: chord('Meta+-'), owner: 'Zoom out' },
   { chord: chord('Ctrl+Meta+F'), owner: 'Enter full screen' },
 ]
 
@@ -646,6 +646,7 @@ export const KEYMAP_LAYOUT: readonly KeymapGroup[] = [
       row('Toggle task list', AppCommandId.ToggleSidebar),
       row('Toggle right panel', AppCommandId.ToggleRightPanel),
       row('Toggle bottom bar', AppCommandId.ToggleBottomBar),
+      row('Zoom in / out / actual size', AppCommandId.ZoomIn, AppCommandId.ZoomOut, AppCommandId.ZoomFit),
       {
         action: 'Agents · Files · Todos',
         keys: [{ command: WindowCommandId.ShowPanelTab, digits: { from: 1, to: 3 } }],

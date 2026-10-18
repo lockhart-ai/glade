@@ -114,7 +114,7 @@ function taskFromBeforeThePhase(): Database {
   // What the tabs that are going had stored.
   db.prepare("INSERT INTO artifact_groups VALUES ('t', 'older', 1)").run()
   db.prepare("INSERT INTO artifact_filters VALUES ('t', 'links')").run()
-  setUiState(db, { key: UiStateKey.RightPanelTab, value: 'artifacts' })
+  db.prepare("INSERT INTO ui_state (key, value) VALUES ('right_panel_tab', 'artifacts')").run()
   setUiState(db, { key: UiStateKey.RightPanelTabs, value: '{"w":"changes","w2":"files","w3":"subagents"}' })
   return db
 }
@@ -218,7 +218,7 @@ describe('a database from before the phase (pre-0059), migrated', () => {
 
     expect(tables(db)).toEqual(['artifacts'])
     // The tab every workspace once shared is forgotten; of each workspace's own, only one the panel still has is kept.
-    expect(getUiState(db, UiStateKey.RightPanelTab)).toBeUndefined()
+    expect(db.prepare("SELECT value FROM ui_state WHERE key = 'right_panel_tab'").pluck().get()).toBeUndefined()
     expect(getUiState(db, UiStateKey.RightPanelTabs)).toBe('{"w2":"files"}')
     expect(db.pragma('foreign_key_check')).toEqual([])
     db.close()
@@ -241,14 +241,14 @@ describe('a database from while the phase was built behind its switch, migrated'
 
   it('keeps a tab the panel still has, and what a todo’s panel and an agent’s tab remembered', () => {
     const db = databaseBefore(64)
-    setUiState(db, { key: UiStateKey.RightPanelTab, value: 'todos' })
+    db.prepare("INSERT INTO ui_state (key, value) VALUES ('right_panel_tab', 'todos')").run()
     setUiState(db, { key: UiStateKey.RightPanelTabs, value: '{"w":"agents","w2":"tool-calls","w3":"todos"}' })
     db.prepare("INSERT INTO todo_panels (task_id, todo_id, open, filter) VALUES ('t', '1', 1, 'commit')").run()
     db.prepare("INSERT INTO agent_tabs (task_id, agent_id) VALUES ('t', 'toolu_fix')").run()
 
     migrate(db, MIGRATIONS)
 
-    expect(getUiState(db, UiStateKey.RightPanelTab)).toBe('todos')
+    expect(db.prepare("SELECT value FROM ui_state WHERE key = 'right_panel_tab'").pluck().get()).toBe('todos')
     expect(JSON.parse(getUiState(db, UiStateKey.RightPanelTabs) ?? '')).toEqual({ w: 'agents', w3: 'todos' })
     expect(readTodoHub(db, 't').panels).toEqual([{ taskId: 't', todoId: '1', open: true, filter: ChildFilter.Commits }])
     expect(agentTabOf(db, 't')).toBe('toolu_fix')

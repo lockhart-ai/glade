@@ -108,6 +108,7 @@ describe('what the menu bar shows', () => {
           canCopyOutcome: false,
         },
         panels: { sidebar: true, rightPanel: true, bottomBar: true },
+        imageZoom: false,
         keyBindings: {},
       })
     })
@@ -451,7 +452,7 @@ describe('the menu bar’s commands', () => {
 
     it('closes the file showing, not the window, while the focus is in the right panel’s Files tab', async () => {
       const rendered = await renderApp({
-        uiState: [...SHOWING_W1, { key: UiStateKey.RightPanelTab, value: 'files' }],
+        uiState: [...SHOWING_W1, { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'files' }) }],
         openFiles: [{ taskId: 't1', paths: ['api/views.py'], activePath: 'api/views.py' }],
       })
       screen.getByRole('button', { name: 'Close views.py' }).focus()
@@ -506,7 +507,7 @@ const MENU_KEYS: readonly Accelerator[] = COMMANDS.filter(({ scope }) => scope =
 describe('the menu bar’s keys', () => {
   it('are left to the menu bar: the window never takes one, so each runs its command once', async () => {
     const rendered = await renderApp({
-      uiState: [...SHOWING_W1, { key: UiStateKey.RightPanelTab, value: 'files' }],
+      uiState: [...SHOWING_W1, { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'files' }) }],
       openFiles: [{ taskId: 't1', paths: ['api/views.py'], activePath: 'api/views.py' }],
     })
     const before = { ...rendered.store.getState(), menuStates: undefined }

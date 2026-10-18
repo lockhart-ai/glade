@@ -87,7 +87,7 @@ describe('a tool call’s context menu', () => {
     await choose(/^Done\s*Read/, 'Open file')
 
     expect(store.getState().openFiles.t1?.activePath).toBe('src/date.ts')
-    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Files)
+    expect(activePanelTab(store.getState().uiState, 't1')).toBe(PanelTab.Files)
   })
 
   it('puts a Bash call’s command at the terminal’s prompt, in a new tab when there is none, without running it', async () => {
