@@ -14,42 +14,52 @@ const list = (...states: TodoState[]): TodoList => ({
 })
 
 describe('todoProgress', () => {
-  it('counts the done, doing and all items; waiting and todo items count only towards the total', () => {
+  it('counts the done, doing, waiting and all items', () => {
     const { Done, Doing, Todo, Waiting } = TodoState
-    expect(todoProgress(list(Done, Done, Done, Doing, Todo, Todo, Waiting))).toEqual({ done: 3, doing: 1, total: 7 })
+    expect(todoProgress(list(Done, Done, Done, Doing, Todo, Todo, Waiting))).toEqual({
+      done: 3,
+      doing: 1,
+      waiting: 1,
+      total: 7,
+    })
   })
 
   it('is none of none without a list', () => {
-    expect(todoProgress(null)).toEqual({ done: 0, doing: 0, total: 0 })
-    expect(todoProgress(undefined)).toEqual({ done: 0, doing: 0, total: 0 })
+    expect(todoProgress(null)).toEqual({ done: 0, doing: 0, waiting: 0, total: 0 })
+    expect(todoProgress(undefined)).toEqual({ done: 0, doing: 0, waiting: 0, total: 0 })
   })
 })
 
 describe('progressHeading', () => {
   it('says how many of the items are done', () => {
-    expect(progressHeading({ done: 3, doing: 1, total: 7 })).toBe('3 of 7 done')
+    expect(progressHeading({ done: 3, doing: 1, waiting: 0, total: 7 })).toBe('3 of 7 done')
   })
 })
 
 describe('progressBar', () => {
-  it("fills the done items' share, then the full share of each item being worked on", () => {
-    expect(progressBar({ done: 1, doing: 1, total: 4 })).toEqual({ done: 25, doing: 25 })
-    expect(progressBar({ done: 4, doing: 0, total: 4 })).toEqual({ done: 100, doing: 0 })
+  it("fills the done items' share, then what's waiting on you, then the full share of each item being worked on", () => {
+    expect(progressBar({ done: 1, doing: 1, waiting: 0, total: 4 })).toEqual({ done: 25, waiting: 0, doing: 25 })
+    expect(progressBar({ done: 4, doing: 0, waiting: 0, total: 4 })).toEqual({ done: 100, waiting: 0, doing: 0 })
+    expect(progressBar({ done: 1, doing: 1, waiting: 1, total: 4 })).toEqual({ done: 25, waiting: 25, doing: 25 })
   })
 
-  it('leaves no grey when every item is done or in progress', () => {
-    expect(progressBar({ done: 3, doing: 3, total: 6 })).toEqual({ done: 50, doing: 50 })
+  it('leaves no grey when every item is done, waiting or in progress', () => {
+    expect(progressBar({ done: 2, doing: 2, waiting: 2, total: 6 })).toEqual({
+      done: (2 / 6) * 100,
+      waiting: (2 / 6) * 100,
+      doing: (2 / 6) * 100,
+    })
   })
 
   it('is empty for an empty list', () => {
-    expect(progressBar({ done: 0, doing: 0, total: 0 })).toEqual({ done: 0, doing: 0 })
+    expect(progressBar({ done: 0, doing: 0, waiting: 0, total: 0 })).toEqual({ done: 0, waiting: 0, doing: 0 })
   })
 })
 
 describe('todoGroup', () => {
-  it('puts doing and waiting items in the active group, done ones in completed, and todo ones in not started', () => {
-    expect(todoGroup(TodoState.Doing)).toBe(TodoGroup.Active)
-    expect(todoGroup(TodoState.Waiting)).toBe(TodoGroup.Active)
+  it('puts waiting items first, doing items next, done ones in completed, and todo ones in not started', () => {
+    expect(todoGroup(TodoState.Waiting)).toBe(TodoGroup.Waiting)
+    expect(todoGroup(TodoState.Doing)).toBe(TodoGroup.Doing)
     expect(todoGroup(TodoState.Done)).toBe(TodoGroup.Completed)
     expect(todoGroup(TodoState.Todo)).toBe(TodoGroup.NotStarted)
   })
@@ -66,7 +76,7 @@ describe('orderTodos', () => {
   })
   const texts = (items: readonly Todo[]) => orderTodos(items).map(({ todo: { text } }) => text)
 
-  it('shows the active items, then the ones not started, then the completed ones newest first', () => {
+  it('shows what is waiting on you, then what is being worked on, then what is not started, then what is done, newest first', () => {
     const items = [
       todo('a', TodoState.Todo),
       todo('b', TodoState.Done, 10),
@@ -76,9 +86,19 @@ describe('orderTodos', () => {
       todo('f', TodoState.Waiting),
       todo('g', TodoState.Done, 20),
     ]
-    expect(texts(items)).toEqual(['c', 'f', 'a', 'e', 'd', 'g', 'b'])
+    expect(texts(items)).toEqual(['f', 'c', 'a', 'e', 'd', 'g', 'b'])
     // Each keeps its place in the agent's list.
-    expect(orderTodos(items).map(({ position }) => position)).toEqual([2, 5, 0, 4, 3, 6, 1])
+    expect(orderTodos(items).map(({ position }) => position)).toEqual([5, 2, 0, 4, 3, 6, 1])
+  })
+
+  it('keeps waiting items as a block ahead of doing ones, each in the agent’s own order, not interleaved by position (#680)', () => {
+    const items = [
+      todo('doing-1', TodoState.Doing),
+      todo('waiting-1', TodoState.Waiting),
+      todo('doing-2', TodoState.Doing),
+      todo('waiting-2', TodoState.Waiting),
+    ]
+    expect(texts(items)).toEqual(['waiting-1', 'waiting-2', 'doing-1', 'doing-2'])
   })
 
   it("shows what's still to do before what's done, wherever each sits in the agent's list (#322)", () => {
@@ -118,7 +138,8 @@ describe('orderTodos', () => {
   it('keeps a list of one group, or none, as it is', () => {
     expect(texts([])).toEqual([])
     expect(texts([todo('a', TodoState.Todo), todo('b', TodoState.Todo)])).toEqual(['a', 'b'])
-    expect(texts([todo('a', TodoState.Doing), todo('b', TodoState.Waiting)])).toEqual(['a', 'b'])
+    expect(texts([todo('a', TodoState.Doing), todo('b', TodoState.Doing)])).toEqual(['a', 'b'])
+    expect(texts([todo('a', TodoState.Waiting), todo('b', TodoState.Waiting)])).toEqual(['a', 'b'])
   })
 
   it('keys each row on its todo’s id, so a row is the same row wherever the list puts it', () => {
@@ -171,7 +192,7 @@ describe('orderTodos', () => {
     const ordered = orderTodos(items)
     expect(new Set(ordered.map(({ position }) => position)).size).toBe(items.length)
     const ranks = ordered.map(({ todo: { state } }) =>
-      [TodoGroup.Active, TodoGroup.NotStarted, TodoGroup.Completed].indexOf(todoGroup(state)),
+      [TodoGroup.Waiting, TodoGroup.Doing, TodoGroup.NotStarted, TodoGroup.Completed].indexOf(todoGroup(state)),
     )
     expect(ranks).toEqual([...ranks].sort((a, b) => a - b))
     for (let index = 1; index < ordered.length; index += 1) {

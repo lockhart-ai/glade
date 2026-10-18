@@ -669,6 +669,26 @@ describe('create_todo, update_todo and list_todos (#609)', () => {
     expect(listTodos(database.db, task.id)).toEqual([])
   })
 
+  it('sets a todo waiting on you (#680), through the real MCP call', async () => {
+    await caller.call('mcp__glade__create_todo', { subject: 'Review the date helpers' })
+    await expect(
+      caller.call('mcp__glade__update_todo', { id: '1', status: 'waiting', note: 'Pick a mockup (A or B)' }),
+    ).resolves.toEqual({ output: 'Todo #1 updated.', isError: false })
+    expect(listTodos(database.db, task.id)).toEqual([
+      {
+        id: '1',
+        text: 'Review the date helpers',
+        note: 'Pick a mockup (A or B)',
+        state: TodoState.Waiting,
+        completedAt: null,
+      },
+    ])
+    await expect(caller.call('mcp__glade__list_todos', {})).resolves.toEqual({
+      output: '#1 [waiting] Review the date helpers — Pick a mockup (A or B)',
+      isError: false,
+    })
+  })
+
   it('answers a tool error for create_todo when the task is gone', async () => {
     const orphan = createMcpToolCaller({ [GLADE_SERVER]: createGladeMcpServer(context, 'gone') })
 

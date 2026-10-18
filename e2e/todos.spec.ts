@@ -77,11 +77,12 @@ async function look(item: Locator): Promise<ItemLook> {
   })
 }
 
-/** tokens.css's teal, muted, text and faint, as computed styles give them. */
+/** tokens.css's teal, muted, text, faint and purple, as computed styles give them. */
 const TEAL = 'rgb(127, 209, 199)'
 const MUTED = 'rgb(174, 179, 195)'
 const TEXT = 'rgb(230, 232, 240)'
 const FAINT = 'rgb(153, 157, 176)'
+const PURPLE = 'rgb(200, 178, 255)'
 
 /** An exact time, as a finish time's tooltip gives it: `Sep 26, 2026, 12:18 AM`. */
 const FULL_DATE = /^[A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2}\s[AP]M$/
@@ -218,4 +219,48 @@ test('todos: two update_todo calls with nothing between them still show, most re
   await expect(progress).toHaveText('3/3')
   await expect(progress).toHaveAttribute('data-done', 'true')
   await expect(progress).toHaveAttribute('title', '3 of 3 todos done')
+})
+
+test('todos: a todo set waiting on you shows first, in purple, with its note, and the tab’s own purple count (#680)', async ({
+  launch,
+  tempFolder,
+}) => {
+  const { window } = await launch({ agentScript: 'waits-on-you', chosenFolder: workspaceRoot(tempFolder) })
+  const panel = taskPanel(window)
+  const list = taskList(window)
+  await startTask(window)
+  await send(window, 'Add rate limiting to the public API.')
+
+  await expect(chat(window).agentReplies).toHaveCount(1)
+  // "1/2", then the tab's own purple badge for what's waiting (asserted below), appended to its text.
+  await expect(panel.tab(/^Todos/)).toHaveText('Todos 1/21')
+  // Waiting on you comes first, ahead of the done item, in one plain list with no group header. Its icon's "?"
+  // (cut out of the filled purple circle, #680) is its own text node, ahead of the screen-reader state label.
+  await expect(panel.todos).toHaveText([
+    '?Waiting on you: Pick a limit for /searchPick a limit: 60 or 120 requests a minute?',
+    /^Done: Return Retry-After on 429sFinished /,
+  ])
+  // Its icon is a filled circle, in purple rather than the done item's teal or an active item's muted ring, and its
+  // note is purple too, not the usual blue (#680).
+  await expect.poll(() => look(panel.todos.first())).toEqual({ filled: true, icon: PURPLE, text: TEXT, struck: false })
+  const note = panel.todos.first().locator('div').last()
+  await expect(note).toHaveText('Pick a limit: 60 or 120 requests a minute?')
+  await expect.poll(() => note.evaluate((element) => getComputedStyle(element).color)).toBe(PURPLE)
+
+  // The Todos tab's own small purple count, beside its "1/2", names what's waiting (#680).
+  await expect(panel.todoWaitingBadge).toHaveText('1')
+  await expect(panel.todoWaitingBadge).toHaveAttribute('title', '1 todo waiting on you')
+
+  // The progress bar gives it a purple segment too, between done and in progress.
+  const [done, waiting, doing] = await panel.todoProgress.evaluate((bar) =>
+    [...bar.children].map((child) => (child as HTMLElement).style.width),
+  )
+  expect(done).toBe('50%')
+  expect(waiting).toBe('50%')
+  expect(doing).toBe('0%')
+
+  // The sidebar row's tooltip names it too, the same as it names an item in progress.
+  const rowProgress = list.todoProgress(list.rows('Active').first())
+  await expect(rowProgress).toHaveText('1/2')
+  await expect(rowProgress).toHaveAttribute('title', '1 of 2 todos done · Waiting on you: Pick a limit for /search')
 })

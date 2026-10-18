@@ -1,0 +1,18 @@
+/* The Todos tab's own small purple count of what's waiting on you, after its "3/4" (#680). The same shape and
+   colours as the closed switcher's "needs you" pill (SwitcherAttentionPill.module.css). */
+.badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  margin-left: var(--space-xs);
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--color-purple-bg);
+  color: var(--color-purple);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}

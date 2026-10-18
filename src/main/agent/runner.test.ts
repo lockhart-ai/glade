@@ -580,14 +580,14 @@ describe('the todo list', () => {
     await session.callTool('toolu_05', 'mcp__glade__update_todo', { id: '1', status: 'completed' })
 
     expect(progressUpdates().filter((todos) => todos !== null)).toEqual([
-      { done: 0, total: 1, doing: [] },
-      { done: 0, total: 2, doing: [] },
-      { done: 0, total: 2, doing: ['Find the uploads'] },
-      { done: 1, total: 2, doing: [] },
+      { done: 0, total: 1, doing: [], waiting: [] },
+      { done: 0, total: 2, doing: [], waiting: [] },
+      { done: 0, total: 2, doing: ['Find the uploads'], waiting: [] },
+      { done: 1, total: 2, doing: [], waiting: [] },
     ])
-    expect(current().todos).toEqual({ done: 1, total: 2, doing: [] })
+    expect(current().todos).toEqual({ done: 1, total: 2, doing: [], waiting: [] })
     const { todos: tab } = await glade.invoke(CommandName.TasksHistory, { id: task.id })
-    expect(todoProgress(tab)).toEqual({ done: 1, total: 2, doing: 0 })
+    expect(todoProgress(tab)).toEqual({ done: 1, total: 2, doing: 0, waiting: 0 })
 
     // Deleting every todo leaves the row with none.
     await session.callTool('toolu_06', 'mcp__glade__update_todo', { id: '1', status: 'deleted' })

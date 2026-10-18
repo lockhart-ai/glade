@@ -160,8 +160,9 @@ describe('the hub’s todos', () => {
     const bar = screen.getByRole('progressbar', { name: 'Todos done' })
     expect(bar).toHaveAttribute('aria-valuenow', '1')
     expect(bar).toHaveAttribute('aria-valuemax', '4')
-    const [done, doing] = Array.from(bar.children) as HTMLElement[]
+    const [done, waiting, doing] = Array.from(bar.children) as HTMLElement[]
     expect(done?.style.width).toBe('25%')
+    expect(waiting?.style.width).toBe('0%')
     expect(doing?.style.width).toBe('50%')
     expect(screen.queryByText(/writes this list/)).toBeNull()
   })
@@ -314,9 +315,11 @@ describe('the hub’s todos', () => {
     expect(screen.getByText('updated 4m ago')).toBeInTheDocument()
   })
 
-  it('shows a todo waiting on you in purple, as everywhere', async () => {
+  it('shows a todo waiting on you in purple, its note included, as everywhere (#680)', async () => {
     await renderHub({ todos: [hubTodo('1', 'Delete local copies', TodoState.Waiting, { note: 'Will ask you first' })] })
+    // The card and its note both carry the state class the purple colour hangs off (`.waiting .note`, TodoHub.module.css).
     expect(card(/Delete local copies/)).toHaveClass(styles.waiting ?? '')
+    expect(card(/Delete local copies/).querySelector(`.${todosStyles.questionMark ?? ''}`)).not.toBeNull()
     expect(head(/Delete local copies/)).toHaveTextContent('Waiting on you: Delete local copiesWill ask you first')
   })
 

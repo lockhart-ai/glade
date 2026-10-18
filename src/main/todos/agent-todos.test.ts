@@ -50,7 +50,7 @@ describe('createTodoForAgent', () => {
       EventType.TodosChanged,
       EventType.TaskUpdated,
     ])
-    expect(getTask(db, task.id)?.todos).toEqual({ done: 0, total: 2, doing: [] })
+    expect(getTask(db, task.id)?.todos).toEqual({ done: 0, total: 2, doing: [], waiting: [] })
   })
 })
 
@@ -78,6 +78,22 @@ describe('updateTodoForAgent', () => {
         text: 'Review the date helpers carefully',
         note: 'Reading the diff',
         state: TodoState.Doing,
+        completedAt: null,
+      },
+    ])
+  })
+
+  it('sets a todo waiting on you, with its note saying what (#680)', () => {
+    createTodoForAgent(context, task.id, { subject: 'Review the date helpers' })
+    expect(updateTodoForAgent(context, task.id, { id: '1', status: 'waiting', note: 'Pick a mockup (A or B)' })).toBe(
+      'Todo #1 updated.',
+    )
+    expect(listTodos(db, task.id)).toEqual([
+      {
+        id: '1',
+        text: 'Review the date helpers',
+        note: 'Pick a mockup (A or B)',
+        state: TodoState.Waiting,
         completedAt: null,
       },
     ])

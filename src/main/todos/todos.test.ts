@@ -74,7 +74,12 @@ describe('refreshTodos', () => {
     expect(list).toEqual(todoListFor(db, taskId))
     expect(todos).toEqual(summarizeTodos(list))
     const tab = todoProgress(list)
-    expect({ done: todos?.done ?? 0, total: todos?.total ?? 0, doing: todos?.doing.length ?? 0 }).toEqual(tab)
+    expect({
+      done: todos?.done ?? 0,
+      total: todos?.total ?? 0,
+      doing: todos?.doing.length ?? 0,
+      waiting: todos?.waiting.length ?? 0,
+    }).toEqual(tab)
     return todos
   }
 
@@ -87,16 +92,16 @@ describe('refreshTodos', () => {
     createTodo(db, task.id, { text: 'Find the uploads', note: null })
     createTodo(db, task.id, { text: 'Copy the files', note: null })
     createTodo(db, task.id, { text: 'Delete local copies', note: null })
-    expect(refreshed(db, task.id)).toEqual({ done: 0, total: 3, doing: [] })
+    expect(refreshed(db, task.id)).toEqual({ done: 0, total: 3, doing: [], waiting: [] })
     updateTodo(db, task.id, '1', { state: TodoState.Doing })
-    expect(refreshed(db, task.id)).toEqual({ done: 0, total: 3, doing: ['Find the uploads'] })
+    expect(refreshed(db, task.id)).toEqual({ done: 0, total: 3, doing: ['Find the uploads'], waiting: [] })
     updateTodo(db, task.id, '1', { state: TodoState.Done })
     updateTodo(db, task.id, '2', { state: TodoState.Doing, text: 'Copy the 3,900 files' })
-    expect(refreshed(db, task.id)).toEqual({ done: 1, total: 3, doing: ['Copy the 3,900 files'] })
+    expect(refreshed(db, task.id)).toEqual({ done: 1, total: 3, doing: ['Copy the 3,900 files'], waiting: [] })
     deleteTodo(db, task.id, '3')
-    expect(refreshed(db, task.id)).toEqual({ done: 1, total: 2, doing: ['Copy the 3,900 files'] })
+    expect(refreshed(db, task.id)).toEqual({ done: 1, total: 2, doing: ['Copy the 3,900 files'], waiting: [] })
     updateTodo(db, task.id, '2', { state: TodoState.Done })
-    expect(refreshed(db, task.id)).toEqual({ done: 2, total: 2, doing: [] })
+    expect(refreshed(db, task.id)).toEqual({ done: 2, total: 2, doing: [], waiting: [] })
   })
 
   it('forgets the summary once every todo is deleted', () => {
@@ -106,7 +111,7 @@ describe('refreshTodos', () => {
     createTodo(db, task.id, { text: 'Reproduce the failure', note: null })
     createTodo(db, task.id, { text: 'Find the race', note: null })
     updateTodo(db, task.id, '1', { state: TodoState.Done })
-    expect(refreshed(db, task.id)).toEqual({ done: 1, total: 2, doing: [] })
+    expect(refreshed(db, task.id)).toEqual({ done: 1, total: 2, doing: [], waiting: [] })
     deleteTodo(db, task.id, '1')
     deleteTodo(db, task.id, '2')
     expect(refreshed(db, task.id)).toBeNull()
@@ -119,7 +124,7 @@ describe('refreshTodos', () => {
     createTodo(db, task.id, { text: 'Find the uploads', note: null })
 
     const first = refreshTodos(db, task.id)
-    expect(first.changed).toEqual({ ...task, todos: { done: 0, total: 1, doing: [] } })
+    expect(first.changed).toEqual({ ...task, todos: { done: 0, total: 1, doing: [], waiting: [] } })
     expect(first.changed).toEqual(getTask(db, task.id))
     expect(getTask(db, task.id)?.updatedAt).toBe(3_000)
 
@@ -127,7 +132,7 @@ describe('refreshTodos', () => {
     updateTodo(db, task.id, '1', { note: 'Finding the uploads' })
     expect(refreshTodos(db, task.id).changed).toBeNull()
     updateTodo(db, task.id, '1', { state: TodoState.Done })
-    expect(refreshTodos(db, task.id).changed?.todos).toEqual({ done: 1, total: 1, doing: [] })
+    expect(refreshTodos(db, task.id).changed?.todos).toEqual({ done: 1, total: 1, doing: [], waiting: [] })
   })
 
   it("answers the list but no task for a task that's gone", () => {
@@ -157,7 +162,7 @@ describe('refreshTodos', () => {
     seedTodoCounterAtLeast(db, task.id, 401)
 
     const started = performance.now()
-    expect(refreshed(db, task.id)).toEqual({ done: 250, total: 400, doing: ['Migrate table 251'] })
+    expect(refreshed(db, task.id)).toEqual({ done: 250, total: 400, doing: ['Migrate table 251'], waiting: [] })
     // One refresh per todo call: it must stay quick however long the list grows.
     expect(performance.now() - started).toBeLessThan(500)
   })
@@ -216,13 +221,13 @@ describe('refreshStaleTodos', () => {
     expect(getTask(first, kept.id)?.todos).toBeNull()
 
     expect(refreshStaleTodos(first)).toBe(1)
-    expect(getTask(first, kept.id)?.todos).toEqual({ done: 1, total: 2, doing: ['Fix the wait'] })
+    expect(getTask(first, kept.id)?.todos).toEqual({ done: 1, total: 2, doing: ['Fix the wait'], waiting: [] })
     expect(refreshStaleTodos(first)).toBe(0)
     first.close()
 
     const relaunched = openAppDatabase(dir).db
     expect(refreshStaleTodos(relaunched)).toBe(0)
-    expect(getTask(relaunched, kept.id)?.todos).toEqual({ done: 1, total: 2, doing: ['Fix the wait'] })
+    expect(getTask(relaunched, kept.id)?.todos).toEqual({ done: 1, total: 2, doing: ['Fix the wait'], waiting: [] })
     expect(getTask(relaunched, none.id)?.todos).toBeNull()
     relaunched.close()
   })

@@ -1722,6 +1722,21 @@ describe('AGENT_SCRIPTS', () => {
     expect(calls().filter(({ name }) => name === 'mcp__glade__update_todo')).toHaveLength(5)
   })
 
+  it('waits-on-you: sets a todo waiting on you, with its note saying what, through update_todo (#680)', async () => {
+    await send(start('waits-on-you'), 'Add rate limiting to the public API.')
+
+    expect(reply()).toMatch(/pick a limit for \/search before I add it\.$/)
+    const items = todoListFor(database.db, task.id)?.items ?? []
+    expect(items.map(({ text, state, note }) => ({ text, state, note }))).toEqual([
+      { text: 'Return Retry-After on 429s', state: TodoState.Done, note: null },
+      {
+        text: 'Pick a limit for /search',
+        state: TodoState.Waiting,
+        note: 'Pick a limit: 60 or 120 requests a minute?',
+      },
+    ])
+  })
+
   it('finishes-in-background: reports back in a turn of its own when the build finishes, with no message from you', async () => {
     // Regression (#162): the turn the agent started on its own was dropped, text, tool calls, reply and all.
     // The chat's messages and the task's activity changes, in the order they were broadcast.

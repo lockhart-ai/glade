@@ -8,7 +8,7 @@ import { hasIndicators } from './RowIndicators'
 import { TaskRow, type TaskRowProps } from './TaskRow'
 
 const NOW = Date.UTC(2026, 8, 23, 11, 30)
-const TODOS: TodoSummary = { done: 2, total: 11, doing: ['Write the migration'] }
+const TODOS: TodoSummary = { done: 2, total: 11, doing: ['Write the migration'], waiting: [] }
 const LONG_TITLE = 'Catch up on the release branch and every open pull request that touches the public API surface'
 const LONG_STATUS =
   'Reviewed the chat clipping change, captured media for it, and moved on to the three follow-ups it left behind'
@@ -113,7 +113,9 @@ describe("a task row's indicators line", () => {
   })
 
   it('shows a finished list’s check on a done task, with its live watchers', () => {
-    const row = renderRow(task({ state: TaskState.Done, todos: { done: 6, total: 6, doing: [] } }), { watching: 2 })
+    const row = renderRow(task({ state: TaskState.Done, todos: { done: 6, total: 6, doing: [], waiting: [] } }), {
+      watching: 2,
+    })
     expect(namesOn(row)).toEqual(['6 of 6 todos done', '2 watchers running'])
   })
 

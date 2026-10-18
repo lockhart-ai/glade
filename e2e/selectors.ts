@@ -204,6 +204,8 @@ export function taskPanel(page: Page) {
     todos: panel.getByRole('list', { name: 'Todos' }).getByRole('listitem'),
     /** A done todo's finish time (`4m ago`), with the exact time as its tooltip. */
     todoFinished: (item: Locator) => item.locator('time'),
+    /** The Todos tab's own small purple count of what's waiting on you, beside its "Todos N/M" label (#680). */
+    todoWaitingBadge: panel.getByRole('tablist', { name: 'Task panels' }).getByRole('img', { name: /waiting on you/ }),
   }
 }
 
@@ -853,8 +855,8 @@ export function unsavedDialog(page: Page) {
 }
 
 /**
- * The Broadcast modal (File › Broadcast…, `docs/design/html/45-broadcast.html`): its message field, the line saying
- * who the message goes to, the recipients by workspace, and Send.
+ * The Broadcast modal (File › Broadcast…, `docs/design/html/45-broadcast.html`): its message field, the line
+ * saying what's ticked, the recipients by workspace as tick boxes, and Send.
  */
 export function broadcastDialog(page: Page) {
   const dialog = page.getByRole('dialog', { name: 'Broadcast' })
@@ -863,9 +865,13 @@ export function broadcastDialog(page: Page) {
     dialog,
     field: dialog.getByRole('textbox', { name: 'Broadcast message' }),
     send: dialog.getByRole('button', { name: 'Send', exact: true }),
-    /** "Goes to 4 active tasks in 2 workspaces. …", or "No active tasks to send to." */
+    /** "Goes to 4 of 4 active tasks in 2 workspaces. …", "Nothing ticked…", or "No active tasks to send to." */
     reach: dialog.getByRole('paragraph'),
     recipients,
+    /** A workspace's row checkbox, ticking or unticking all its tasks (a dash while only some are ticked). */
+    workspace: (workspace: string) => recipients.getByRole('checkbox', { name: workspace, exact: true }),
+    /** A task's row checkbox, by its title, ticking or unticking it. */
+    task: (title: string) => recipients.getByRole('checkbox', { name: title }),
     /** A workspace's tasks the message goes to, top to bottom: each one's title and where it stands with you. */
     tasksIn: (workspace: string) => recipients.getByRole('list', { name: workspace }).getByRole('listitem'),
     /** Every task the message goes to, in every workspace. */

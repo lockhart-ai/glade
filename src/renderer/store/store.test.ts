@@ -1783,7 +1783,7 @@ describe('broadcast (#489)', () => {
     expect(store.getState().broadcastOpen).toBe(false)
   })
 
-  it('sends the message through main, which decides who gets it, and answers how it went for each task', async () => {
+  it('sends the message through main, to the tasks it was sent for, and answers how it went for each task', async () => {
     const idle = [
       { ...sampleTask('t1', 'w1'), sessionId: 's1' },
       { ...sampleTask('t2', 'w2'), sessionId: 's2' },
@@ -1798,9 +1798,12 @@ describe('broadcast (#489)', () => {
       messages: [],
     })
 
-    const recipients = await store.getState().broadcast('Is anyone restarting Docker?')
+    const recipients = await store.getState().broadcast('Is anyone restarting Docker?', ['t1', 't2', 't3'])
 
-    expect(invoke).toHaveBeenCalledWith(CommandName.TasksBroadcast, { text: 'Is anyone restarting Docker?' })
+    expect(invoke).toHaveBeenCalledWith(CommandName.TasksBroadcast, {
+      text: 'Is anyone restarting Docker?',
+      taskIds: ['t1', 't2', 't3'],
+    })
     expect(recipients).toEqual([
       { taskId: 't1', delivery: 'sent' },
       { taskId: 't2', delivery: 'sent' },
@@ -1821,7 +1824,7 @@ describe('broadcast (#489)', () => {
     const store = createGladeStore(fake.bridge)
     await store.getState().hydrate()
 
-    await expect(store.getState().broadcast('Hi')).rejects.toMatchObject({ code: BridgeErrorCode.Internal })
+    await expect(store.getState().broadcast('Hi', ['t1'])).rejects.toMatchObject({ code: BridgeErrorCode.Internal })
   })
 })
 
