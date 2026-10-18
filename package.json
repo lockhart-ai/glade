@@ -1,6 +1,6 @@
 {
   "name": "glade",
-  "version": "0.35.1",
+  "version": "0.35.2",
   "private": true,
   "description": "A calm macOS app for running Claude agent sessions as tasks.",
   "license": "MIT",
