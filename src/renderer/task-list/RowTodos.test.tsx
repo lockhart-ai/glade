@@ -27,7 +27,7 @@ describe("a task row's todo progress", () => {
   })
 
   it('shows a ring filling with the done items and 3/7 on the line under the status, naming the item in progress', () => {
-    renderRow(task({ done: 3, total: 7, doing: ['Copy the 3,900 existing files'] }))
+    renderRow(task({ done: 3, total: 7, doing: ['Copy the 3,900 existing files'], waiting: [] }))
     const shown = progress()
     expect(shown).toHaveTextContent('3/7')
     expect(shown).toHaveAccessibleName('3 of 7 todos done · Now: Copy the 3,900 existing files')
@@ -42,7 +42,7 @@ describe("a task row's todo progress", () => {
   })
 
   it('shows a check once every item is done', () => {
-    renderRow(task({ done: 7, total: 7, doing: [] }, { state: TaskState.Done }))
+    renderRow(task({ done: 7, total: 7, doing: [], waiting: [] }, { state: TaskState.Done }))
     const shown = progress()
     expect(shown).toHaveTextContent('7/7')
     expect(shown).toHaveAttribute('data-done', 'true')
@@ -51,7 +51,7 @@ describe("a task row's todo progress", () => {
   })
 
   it('keeps showing while the title is renamed, and on a search result, under the snippet that replaces the status', () => {
-    const summary = { done: 1, total: 2, doing: [] }
+    const summary = { done: 1, total: 2, doing: [], waiting: [] }
     const { unmount } = render(
       <TaskRow
         task={task(summary)}
@@ -72,14 +72,14 @@ describe("a task row's todo progress", () => {
   })
 
   it('fits a list of hundreds of items', () => {
-    renderRow(task({ done: 321, total: 500, doing: ['Migrate table 322'] }))
+    renderRow(task({ done: 321, total: 500, doing: ['Migrate table 322'], waiting: [] }))
     expect(progress()).toHaveTextContent('321/500')
   })
 })
 
 describe('ringDash', () => {
   it('fills the ring by the share done, from none to all', () => {
-    expect(ringDash({ done: 0, total: 7, doing: [] })).toBe('0.00 28.27')
-    expect(ringDash({ done: 7, total: 7, doing: [] })).toBe('28.27 28.27')
+    expect(ringDash({ done: 0, total: 7, doing: [], waiting: [] })).toBe('0.00 28.27')
+    expect(ringDash({ done: 7, total: 7, doing: [], waiting: [] })).toBe('28.27 28.27')
   })
 })

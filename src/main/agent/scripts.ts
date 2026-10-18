@@ -2215,6 +2215,33 @@ const writesTodos: AgentScript = {
 }
 
 /**
+ * A turn that sets a todo waiting on you (#680): two steps, the first finished, the second marked `waiting` with a
+ * note saying what it needs — `update_todo`'s own status for a todo that can't move until you review or decide
+ * something, which the Todos tab shows in purple, first in the list.
+ */
+const waitsOnYou: AgentScript = {
+  name: 'waits-on-you',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Add rate limiting to the public API',
+        'Limit how many requests a client can make per minute.',
+        'Returning Retry-After on 429s.',
+      ),
+      gladeTool('create-1', 'create_todo', { subject: 'Return Retry-After on 429s' }),
+      gladeTool('create-2', 'create_todo', { subject: 'Pick a limit for /search' }),
+      ...updateTodo(1, 'completed'),
+      ...updateTodo(2, 'waiting', 'Pick a limit: 60 or 120 requests a minute?'),
+      gladeTool('status-waiting', 'set_status', { status: 'Waiting on you: pick a limit for /search.' }),
+      say('Retry-After on 429s is done. I need you to pick a limit for /search before I add it.'),
+      result(),
+    ],
+  ],
+}
+
+/**
  * A turn that writes up a doc and shows it to you with `show_file`, at the line to check. The doc must be in the
  * workspace (a spec makes it) for the Glade tool to open it.
  */
@@ -4499,6 +4526,7 @@ export const AGENT_SCRIPT_NAMES = [
   'offline',
   'keeps-todos',
   'writes-todos',
+  'waits-on-you',
   'finishes-in-background',
   'background-subagents',
   'stop-spares-background',
@@ -4606,6 +4634,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   offline,
   'keeps-todos': keepsTodos,
   'writes-todos': writesTodos,
+  'waits-on-you': waitsOnYou,
   'finishes-in-background': finishesInBackground,
   'background-subagents': backgroundSubagents,
   'stop-spares-background': stopSparesBackground,

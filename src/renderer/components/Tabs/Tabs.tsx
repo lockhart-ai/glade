@@ -9,6 +9,12 @@ export interface TabItem<T extends string> {
   label: string
   /** A count after the label, e.g. `7` for Tool calls or `3/4` for Todos. */
   count?: string | number
+  /**
+   * A decoration after the count: the Todos tab's small purple count of what's waiting on you (#680). Given as a
+   * node, not a plain value, so its owner can memoise it on its own narrow state and re-render only itself when that
+   * changes, not the tab bar around it.
+   */
+  badge?: React.ReactNode
 }
 
 export interface TabsProps<T extends string> {
@@ -150,6 +156,7 @@ export function Tabs<T extends string>({
                 {tab.label} <span className={styles.count}>{tab.count}</span>
               </>
             )}
+            {tab.badge}
           </button>
         )
       })}

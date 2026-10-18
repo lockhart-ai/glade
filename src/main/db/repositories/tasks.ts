@@ -160,6 +160,8 @@ const todoSummarySchema = z.strictObject({
   done: count,
   total: z.int().positive(),
   doing: z.array(z.string()).readonly(),
+  // Left out of a summary stored before #680 gave todos a waiting state: reads as none waiting.
+  waiting: z.array(z.string()).readonly().default([]),
 }) satisfies z.ZodType<TodoSummary>
 
 /** A nullable JSON column holding a value `schema` parses. */
