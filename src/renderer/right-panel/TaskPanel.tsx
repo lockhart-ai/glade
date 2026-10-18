@@ -16,6 +16,7 @@ import { activePanelTab, FIRST_PANEL_TAB, formatCount, PanelTab, panelTabEntry }
 import { PANEL_TAB_DEFINITIONS } from './panelTabs'
 import styles from './TaskPanel.module.css'
 import { TodoWaitingBadge } from './TodoWaitingBadge'
+import { WatchersBadge } from './WatchersBadge'
 
 const TABS_ID = 'task-panel'
 
@@ -169,14 +170,20 @@ export function TaskPanel(): React.JSX.Element | null {
     }
   }
 
-  // The Todos tab's own purple count of what's waiting on you sits beside its "3/4", as a node the tab bar renders
-  // as given: `TodoWaitingBadge` reads its own narrow slice of the store and is memoised, so a change to it
-  // re-renders only the badge, not this panel or the tab bar around it (#680).
+  // Each tab's own decoration sits after its count, as a node the tab bar renders as given: `TodoWaitingBadge` (the
+  // Todos tab's purple count of what's waiting on you, #680) and `WatchersBadge` (the Agents tab's eye and count of
+  // the task's live watchers, #687) each read their own narrow slice of the store and are memoised, so a change to
+  // one re-renders only that badge, not this panel or the tab bar around it.
   const tabs: readonly TabItem<PanelTab>[] = PANEL_TAB_DEFINITIONS.map(({ tab: value, label }, index) => ({
     value,
     label,
     count: counts[index],
-    badge: value === PanelTab.Todos && task !== undefined ? <TodoWaitingBadge taskId={task.id} /> : undefined,
+    badge:
+      task === undefined ? undefined : value === PanelTab.Todos ? (
+        <TodoWaitingBadge taskId={task.id} />
+      ) : value === PanelTab.Agents ? (
+        <WatchersBadge taskId={task.id} />
+      ) : undefined,
   }))
 
   return (

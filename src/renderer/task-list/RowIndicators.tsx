@@ -30,8 +30,11 @@ interface CountProps {
   label: string
 }
 
-/** An icon and a count, named in full in its tooltip and to a screen reader. */
-function Count({ icon, count, label }: CountProps): React.JSX.Element {
+/**
+ * An icon and a count, named in full in its tooltip and to a screen reader. Shared with the right panel's tabs: the
+ * Agents tab shows the task's live watchers with it, the same eye and count this row shows (#687).
+ */
+export function Count({ icon, count, label }: CountProps): React.JSX.Element {
   return (
     <span className={styles.indicator} role="img" aria-label={label} title={label}>
       <Icon icon={icon} size={IconSize.Small} />

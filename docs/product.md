@@ -147,7 +147,9 @@ There are no follow-up tasks. One task can refer to another through its folder o
   had, across a relaunch, and a deleted task's entry goes with it; a task that's never chosen one starts from Todos.
 
   **Agents** is activity: a strip of tabs under the panel's own, one for every agent in the task, and under it that
-  agent's tool calls, the notes between them and their output. **Main**, the task's own agent, is pinned first, its
+  agent's tool calls, the notes between them and their output. The tab's own label counts the agents, Main included,
+  and, while the task has live watchers, the same eye and count its sidebar row shows after that (#687). **Main**, the
+  task's own agent, is pinned first, its
   dot alone, no pin icon (#617); then every active subagent — running, or waiting on something it started — sharing
   the rest of the strip's width evenly, down to a 56px floor past which its name shrinks to whatever still fits; then,
   only once something has finished, a caret carrying that count, opening "Finished, newest first". Picking a finished

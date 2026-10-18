@@ -43,7 +43,8 @@ test('watchers in the Agents tab: pinned while live with Stop, a row once ended,
   await expect(chat(window).agentReplies.last()).toContainText(WATCHES.lintPassed)
   const panel = taskPanel(window)
   const agents = agentsTab(window)
-  await expect(panel.tabs).toHaveText(['Todos', 'Agents 1', 'Files'])
+  // One agent, then the eye and the four watchers still live (#687): the tab's text runs the two counts together.
+  await expect(panel.tabs).toHaveText(['Todos', 'Agents 14', 'Files'])
   await panel.tab(/^Agents/).click()
   await expect(agents.tab('Main')).toHaveAttribute('aria-selected', 'true')
 
