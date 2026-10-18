@@ -199,6 +199,21 @@
   text-overflow: ellipsis;
 }
 
+/* A GitHub notice (#682, #715, docs/design/html/50-agents.html): the SourceTag mark where a call's dot goes, then
+   one line per link that changed, each full and wrapped rather than clipped to one line like a call's result. */
+.notice {
+  display: flex;
+  flex-direction: column;
+}
+
+.noticeLine {
+  padding-left: 18px;
+  margin-top: 3px;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+
 /* A call's permission line (../permissions/PermissionLine.module.css), under the call and above its result. */
 .permission {
   padding-left: 18px;

@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   CompactionTrigger,
   DividerKind,
+  MessageSource,
   RefusalScope,
   ToolCallState,
   ToolEventKind,
   type CompactionEvent,
   type DividerEvent,
+  type Message,
   type NarrationEvent,
   type RefusalFallbackEvent,
   type ToolCallEvent,
@@ -14,7 +16,7 @@ import {
   type Watcher,
   WatcherState,
 } from '../../shared/domain'
-import { sampleWatcher } from '../store/test-bridge'
+import { sampleMessage, sampleWatcher } from '../store/test-bridge'
 import { TaskIndicator } from '../../shared/taskIndicator'
 import { PermissionLineScope, PermissionLineState, type PermissionLine } from '../permissions/permissionLineModel'
 import {
@@ -28,6 +30,7 @@ import {
   compactionResult,
   dividerLabel,
   dividerTime,
+  githubNoticeLines,
   isParentEvent,
   lineCount,
   parentLogRows,
@@ -568,10 +571,14 @@ describe('an agent’s list with its watchers (#537)', () => {
     return { ended: list, startedBy: new Set([...list.map(({ toolUseId }) => toolUseId), ...live]) }
   }
 
-  /** Each row as a word: a call's `tool_use` id, a note's or a divider's id, or a watcher's id after an eye. */
+  /**
+   * Each row as a word: a call's `tool_use` id, a note's or a divider's id, a watcher's id after an eye, or a GitHub
+   * notice's message id after "notice".
+   */
   function names(rows: readonly AgentLogRow[]): string[] {
     return rows.map((row) => {
       if (row.kind === AgentLogRowKind.Watcher) return `watcher ${row.watcher.id}`
+      if (row.kind === AgentLogRowKind.GithubNotice) return `notice ${row.message.id}`
       return row.kind === ToolEventKind.ToolCall ? row.call.toolUseId : rowEvent(row).id
     })
   }
@@ -708,5 +715,88 @@ describe('an agent’s list with its watchers (#537)', () => {
       'c-agent',
       'k1',
     ])
+  })
+})
+
+describe('a GitHub notice’s lines (#682, #715)', () => {
+  it('drops the header and each line’s leading dash', () => {
+    const body = [
+      'GitHub:',
+      '- PR #2537 Port the chat cases: CI failed (13/14); 2 new comments',
+      '- Issue #7 Flaky login test: reopened',
+    ].join('\n')
+    expect(githubNoticeLines(body)).toEqual([
+      'PR #2537 Port the chat cases: CI failed (13/14); 2 new comments',
+      'Issue #7 Flaky login test: reopened',
+    ])
+  })
+
+  it('is empty for a header with nothing after it', () => {
+    expect(githubNoticeLines('GitHub:')).toEqual([])
+  })
+})
+
+describe('an agent’s list with GitHub notices (#682, #715)', () => {
+  const MINUTE = 60_000
+  const minute = (minutes: number): number => AT + minutes * MINUTE
+
+  function notice(id: string, createdAt: number): Message {
+    return { ...sampleMessage(id, 't1', 'GitHub:\n- PR #1 A: CI failed'), createdAt, source: MessageSource.Github }
+  }
+
+  /** Each row as a word: a call's `tool_use` id, a note's or a divider's id, a watcher's id after "watcher", or a
+   * notice's message id after "notice". */
+  function names(rows: readonly AgentLogRow[]): string[] {
+    return rows.map((row) => {
+      if (row.kind === AgentLogRowKind.Watcher) return `watcher ${row.watcher.id}`
+      if (row.kind === AgentLogRowKind.GithubNotice) return `notice ${row.message.id}`
+      return row.kind === ToolEventKind.ToolCall ? row.call.toolUseId : rowEvent(row).id
+    })
+  }
+
+  const events: ToolEvent[] = [
+    narration('n1', 1, minute(0)),
+    call({ id: 'c-read', toolUseId: 'read', createdAt: minute(2) }),
+    divider('d2', 2, DividerKind.Turn, minute(8)),
+    narration('n2', 2, minute(8)),
+  ]
+
+  it('is the tool log’s rows with none', () => {
+    expect(agentLogRows(events, null)).toEqual(toolLogRows(events.filter(isParentEvent)))
+    expect(names(agentLogRows(events, null, undefined, undefined, []))).toEqual(['n1', 'read', 'd2', 'n2'])
+  })
+
+  it('puts a notice at the time it arrived, among the tool log’s own rows', () => {
+    const rows = agentLogRows(events, null, undefined, undefined, [notice('g1', minute(3))])
+    expect(names(rows)).toEqual(['n1', 'read', 'notice g1', 'd2', 'n2'])
+    expect(rows[2]).toEqual({ kind: AgentLogRowKind.GithubNotice, message: notice('g1', minute(3)) })
+  })
+
+  it('puts one that arrived after everything last, and one that arrived before everything first', () => {
+    const rows = agentLogRows(events, null, undefined, undefined, [
+      notice('early', minute(-5)),
+      notice('late', minute(30)),
+    ])
+    expect(names(rows)).toEqual(['notice early', 'n1', 'read', 'd2', 'n2', 'notice late'])
+  })
+
+  it('keeps several that arrived between the same two events in the order they arrived', () => {
+    const list = [1, 2, 3].map((n) => notice(`g${String(n)}`, minute(2) + n * 1000))
+    expect(names(agentLogRows(events, null, undefined, undefined, list))).toEqual([
+      'n1',
+      'read',
+      'notice g1',
+      'notice g2',
+      'notice g3',
+      'd2',
+      'n2',
+    ])
+  })
+
+  it('merges in watchers and notices together, each by its own time', () => {
+    const ci = sampleWatcher('ci', 't1', { state: WatcherState.Finished, startedAt: AT, endedAt: minute(1) })
+    const watchers: LogWatchers = { ended: [ci], startedBy: new Set<string>() }
+    const rows = agentLogRows(events, null, undefined, watchers, [notice('g1', minute(3))])
+    expect(names(rows)).toEqual(['n1', 'watcher ci', 'read', 'notice g1', 'd2', 'n2'])
   })
 })

@@ -3,6 +3,7 @@ import {
   CompactionTrigger,
   DividerKind,
   MessageRole,
+  MessageSource,
   PermissionRequestState,
   QuestionKind,
   QuestionSetState,
@@ -254,6 +255,48 @@ describe('chatEntries', () => {
         entries.flatMap((entry) => (entry.kind === ChatEntryKind.Restarted ? [restartLabel(entry)] : []))
       expect(labels(working)).toEqual(['Glade restarted · 14:26', 'Glade restarted · 14:26 · resuming'])
       expect(labels(chatEntries(task, running, events))).toEqual(['Glade restarted · 14:26', 'Glade restarted · 14:26'])
+    })
+  })
+
+  describe('hiding a GitHub notice (#682, #715)', () => {
+    const note = (id: string, turn: number, createdAt = 1_000): Message => ({
+      ...message(id, MessageRole.User, turn),
+      createdAt,
+      source: MessageSource.Github,
+    })
+    const broadcastMessage = (id: string, turn: number): Message => ({
+      ...message(id, MessageRole.User, turn),
+      source: MessageSource.Broadcast,
+    })
+
+    it('leaves a note from the link watcher out of the chat, but keeps a broadcast as today', () => {
+      const turn = [
+        message('ask', MessageRole.User, 1),
+        note('g1', 2),
+        broadcastMessage('b1', 2),
+        message('reply-2', MessageRole.Agent, 2),
+      ]
+      expect(kinds(chatEntries(task, turn, []))).toEqual(['ask', 'b1', 'reply-2'])
+    })
+
+    it("still places its turn's divider by it, even though the message that opened the turn is itself hidden", () => {
+      const resumedAt = new Date(2026, 8, 23, 14, 26).getTime()
+      const resumed: DividerEvent = {
+        id: 'r2',
+        taskId: 't1',
+        turn: 2,
+        createdAt: resumedAt,
+        kind: ToolEventKind.Divider,
+        dividerKind: DividerKind.Resumed,
+      }
+      // Turn 2 is opened only by a hidden GitHub notice: the divider still lands before its reply.
+      const turn = [
+        message('ask', MessageRole.User, 1),
+        message('reply-1', MessageRole.Agent, 1),
+        note('g1', 2, resumedAt - 1),
+        message('reply-2', MessageRole.Agent, 2),
+      ]
+      expect(kinds(chatEntries(task, turn, [resumed]))).toEqual(['ask', 'reply-1', 'r2', 'reply-2'])
     })
   })
 })

@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   DividerKind,
+  MessageSource,
   TaskActivity,
   TaskState,
   TodoState,
   ToolCallState,
   ToolEventKind,
   WatcherState,
+  type Message,
   type NarrationEvent,
   type Todo,
   type ToolCallEvent,
@@ -14,7 +16,7 @@ import {
   type Watcher,
 } from '../../shared/domain'
 import { ChildKind, FilingSource, type Filing } from '../../shared/todoHub'
-import { sampleTask, sampleWatcher } from '../store/test-bridge'
+import { sampleMessage, sampleTask, sampleWatcher } from '../store/test-bridge'
 import { AgentActivity } from '../subagents/subagentsModel'
 import { agentLogRows, isAgentEvent } from '../tool-log/toolLogModel'
 import {
@@ -32,6 +34,7 @@ import {
   agentTodoSelector,
   agentTokensLine,
   formatDuration,
+  githubNoticeSelector,
   isRunning,
   mainAgentStateLine,
   mainAgentText,
@@ -300,6 +303,51 @@ describe('an agent’s events', () => {
         expect(select({ toolEvents: { t1: log } })).toBe(first)
       }
     })
+  })
+})
+
+describe('Main’s GitHub notices (#682, #715)', () => {
+  function notice(id: string, body = 'GitHub:\n- PR #1 A: CI failed'): Message {
+    return { ...sampleMessage(id, 't1', body), source: MessageSource.Github }
+  }
+
+  const broadcast: Message = { ...sampleMessage('b1', 't1'), source: MessageSource.Broadcast }
+  const yours: Message = sampleMessage('m1', 't1')
+
+  it('is the task’s messages left by the link watcher, in order, for Main alone', () => {
+    const messages = [yours, notice('g1'), broadcast, notice('g2')]
+    const select = githubNoticeSelector('t1', null)
+    expect(select({ messages: { t1: messages } })).toEqual([notice('g1'), notice('g2')])
+  })
+
+  it('is always empty for a subagent: a notice is only ever Main’s', () => {
+    const select = githubNoticeSelector('t1', 'outer')
+    expect(select({ messages: { t1: [notice('g1')] } })).toEqual([])
+  })
+
+  it('is the same list until one of them changes, whatever an unrelated message does', () => {
+    const select = githubNoticeSelector('t1', null)
+    const messages = [yours, notice('g1')]
+    const first = select({ messages: { t1: messages } })
+    expect(first).toEqual([notice('g1')])
+
+    // The same log: not even read again.
+    expect(select({ messages: { t1: messages } })).toBe(first)
+    // Another message that isn't a notice arrives: a new log, the same list.
+    const grown = [...messages, broadcast]
+    expect(select({ messages: { t1: grown } })).toBe(first)
+    // Another task's messages change nothing.
+    expect(select({ messages: { t1: grown, t2: [notice('other')] } })).toBe(first)
+
+    // Its own notice arrives.
+    const more = select({ messages: { t1: [...grown, notice('g2')] } })
+    expect(more).not.toBe(first)
+    expect(more).toEqual([notice('g1'), notice('g2')])
+  })
+
+  it('is none for a task with no messages', () => {
+    const select = githubNoticeSelector('t9', null)
+    expect(select({ messages: {} })).toEqual([])
   })
 })
 

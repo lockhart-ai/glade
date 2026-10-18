@@ -1,9 +1,11 @@
 import { faEye } from '@fortawesome/free-regular-svg-icons'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  MessageSource,
   ToolCallState,
   ToolEventKind,
   WatcherState,
+  type Message,
   type ToolCallEvent,
   type ToolEvent,
   type Watcher,
@@ -14,6 +16,7 @@ import { endedLabel, endedOutputLine, endedSummary, endedTime } from '../agents/
 import { useElapsedNow } from '../agents/useElapsedNow'
 import { clockTime } from '../chat/chatModel'
 import { InlineMarkdown } from '../chat/Markdown'
+import { SourceTag } from '../chat/SourceTag'
 import { useKeepScrollOnPrepend, useLoadOlderOnScroll } from '../history/useOlderHistory'
 import { useGladeStore, useGladeStoreApi } from '../store/react'
 import { visibleLog } from '../store/visibleLog'
@@ -34,6 +37,7 @@ import {
   COMPACTION_NAME,
   compactionArgument,
   compactionResult,
+  githubNoticeLines,
   resultSummary,
   rowEvent,
   rowIndicator,
@@ -44,6 +48,7 @@ import {
   type CallRow,
   type CompactionRow,
   type DividerRow,
+  type GithubNoticeRow,
   type LogWatchers,
   type NarrationRow,
 } from './toolLogModel'
@@ -340,6 +345,31 @@ const Divider = memo(function Divider({ label, turnStart }: DividerRow & TurnSta
   )
 })
 
+/**
+ * A GitHub notice (the link watcher, #682), in Main's list at the time it arrived (#715): the GitHub mark where a
+ * call's dot goes and its time, then one line per link that changed, parsed from the message (`githubNoticeLines`).
+ * It's delivered to the agent as a message like any other; it just doesn't show in the chat as if it were your own
+ * words.
+ */
+const GithubNotice = memo(function GithubNotice({ message }: Pick<GithubNoticeRow, 'message'>): React.JSX.Element {
+  const lines = useMemo(() => githubNoticeLines(message.body), [message.body])
+  return (
+    <div className={styles.callGroup}>
+      <div role="group" aria-label="GitHub" className={classNames(styles.call, styles.notice)}>
+        <span className={styles.callLine}>
+          <SourceTag source={MessageSource.Github} />
+          <span className={styles.time}>{clockTime(message.createdAt)}</span>
+        </span>
+        {lines.map((line, index) => (
+          <span key={index} className={styles.noticeLine}>
+            <LinkedText text={line} />
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+})
+
 export interface ToolLogProps {
   readonly taskId: string
   readonly events: readonly ToolEvent[]
@@ -366,6 +396,11 @@ export interface ToolLogProps {
    * the call that started one isn't a row. None by default.
    */
   readonly watchers?: LogWatchers | undefined
+  /**
+   * Main's GitHub notices (#682, #715): the task's messages left by the link watcher, each a row at the time it
+   * arrived. None by default, and always none on a subagent's tab — a notice is only ever for the task's own agent.
+   */
+  readonly notices?: readonly Message[] | undefined
 }
 
 /**
@@ -377,7 +412,8 @@ export interface ToolLogProps {
  *
  * In the Agents tab it's the list under an agent's tab, the same rows for a subagent's own calls and notes (`agentId`),
  * with the whole panel to itself, and with a row for each of the agent's watchers that has ended, at the time it ended
- * (`watchers`).
+ * (`watchers`). Main's tab also has a row for each GitHub notice (#682), at the time it arrived (`notices`, #715):
+ * it's delivered to the agent as a message like any other, but shows here, not in the chat.
  */
 export function ToolLog({
   taskId,
@@ -389,6 +425,7 @@ export function ToolLog({
   agentId = null,
   onOpenAgent,
   watchers,
+  notices,
 }: ToolLogProps): React.JSX.Element {
   // The task's own log shows the contiguous tail and the older pages loaded onto it (#637): carried entries sent
   // whole however old, and a subagent's whole log once it loads, can sit far older in the window's log, and join the
@@ -398,8 +435,8 @@ export function ToolLog({
   )
   const shown = useMemo(() => visibleLog(events, eventsBefore), [events, eventsBefore])
   const rows = useMemo(
-    () => agentLogRows(shown, agentId, permissions, watchers),
-    [shown, agentId, permissions, watchers],
+    () => agentLogRows(shown, agentId, permissions, watchers, notices),
+    [shown, agentId, permissions, watchers, notices],
   )
   // A permission line coming or going changes a row's height, as a new row changes the log's.
   const { ref, onScroll } = useStickToBottom(rows, taskId)
@@ -413,7 +450,9 @@ export function ToolLog({
       ? null
       : firstRow.kind === AgentLogRowKind.Watcher
         ? firstRow.watcher.id
-        : rowEvent(firstRow).id
+        : firstRow.kind === AgentLogRowKind.GithubNotice
+          ? firstRow.message.id
+          : rowEvent(firstRow).id
   useKeepScrollOnPrepend(ref, firstId, taskId, agentId === null, rows)
   const onLogScroll = useCallback(() => {
     onScroll()
@@ -482,8 +521,11 @@ export function ToolLog({
       <div ref={ref} onScroll={onLogScroll} role="log" aria-label="Tool log" className={styles.scroller}>
         <div className={styles.log}>
           {rows.map((row) => {
-            // A watcher is no part of a turn: the row after it may still be its turn's first.
+            // A watcher or a GitHub notice is no part of a turn: the row after it may still be its turn's first.
             if (row.kind === AgentLogRowKind.Watcher) return <EndedWatcher key={row.watcher.id} watcher={row.watcher} />
+            if (row.kind === AgentLogRowKind.GithubNotice) {
+              return <GithubNotice key={row.message.id} message={row.message} />
+            }
             const event = rowEvent(row)
             const turnStart = seen.has(event.turn) ? undefined : event.turn
             seen.add(event.turn)

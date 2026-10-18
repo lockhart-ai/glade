@@ -36,7 +36,7 @@
         },
         {
           "role": "user",
-          "body": "PR #2537 Port the chat cases: CI failed (13/14); 2 new comments",
+          "body": "GitHub:\n- PR #2537 Port the chat cases: CI failed (13/14); 2 new comments",
           "turn": 2,
           "minutesAgo": 1,
           "source": "github"
