@@ -15,7 +15,20 @@
  */
 import type { EpochMs, TaskHandoff } from '../../shared/domain'
 import type { SessionContext } from '../db/repositories/session-context'
+import { hashLines } from './instruction-hash'
 import { handoffSection, INSTRUCTION_UPDATES, SANDBOX_LINE, TODO_HUB_LINES } from './system-prompt'
+
+/**
+ * The fingerprint of the first `count` lines of `INSTRUCTION_UPDATES`, as they read now. What a session is recorded
+ * as having matches this once it's been sent everything through `count` — until a later release edits one of those
+ * lines' text in place instead of appending a new one (#708: #680 did exactly that to `TODO_TOOLS_LINE`), at which
+ * point the session's recorded fingerprint (of the wording it actually saw) stops matching this, and it's missing
+ * the whole prefix again, not just the line that changed. That's simpler than tracking which one, and safe: telling
+ * a session a line it already has correctly is harmless, just said once more.
+ */
+function instructionPrefixHash(count: number): string {
+  return hashLines(INSTRUCTION_UPDATES.slice(0, count))
+}
 
 /** What a session is missing, to send it ahead of the next message. */
 export enum MissingContextKind {
@@ -52,6 +65,7 @@ export function startedContext(handoff: TaskHandoff | null, sandboxed: boolean):
   return {
     instructions: true,
     instructionUpdates: INSTRUCTION_UPDATES.length,
+    instructionUpdateHash: instructionPrefixHash(INSTRUCTION_UPDATES.length),
     handoffAt: handoff?.addedAt ?? null,
     sandbox: sandboxed,
     todoHub: true,
@@ -81,6 +95,7 @@ function given({ recorded, startedElsewhere }: ContextCheck): SessionContext {
     recorded ?? {
       instructions: !startedElsewhere,
       instructionUpdates: 0,
+      instructionUpdateHash: instructionPrefixHash(0),
       handoffAt: null,
       sandbox: false,
       todoHub: false,
@@ -93,13 +108,19 @@ function given({ recorded, startedElsewhere }: ContextCheck): SessionContext {
  * the instructions added since, then the sandbox it now runs in and wasn't told of, then the todo hub it wasn't told
  * of, then a new handoff note, any of them. A session that isn't sandboxed is never told of the sandbox, whatever it
  * was told before.
+ *
+ * "Added since" is two things, not one (#708): lines past `instructionUpdates` (new, by position), and, when the
+ * fingerprint of what it already has doesn't match the current text of that prefix, the whole prefix too — a line
+ * in it was edited in place rather than appended, so counting alone can't tell. Either way it's sent as one ordered
+ * block (a changed prefix plus any genuinely new suffix is just `INSTRUCTION_UPDATES` itself, start to finish).
  */
 export function missingContext(check: ContextCheck): readonly MissingContext[] {
   const { handoff, prompt, sandboxed } = check
   const has = given(check)
   if (!has.instructions) return [{ kind: MissingContextKind.Instructions, prompt, handoffAt: handoff?.addedAt ?? null }]
   const missing: MissingContext[] = []
-  const updates = INSTRUCTION_UPDATES.slice(has.instructionUpdates)
+  const prefixChanged = instructionPrefixHash(has.instructionUpdates) !== has.instructionUpdateHash
+  const updates = prefixChanged ? INSTRUCTION_UPDATES : INSTRUCTION_UPDATES.slice(has.instructionUpdates)
   if (updates.length > 0) missing.push({ kind: MissingContextKind.Updates, updates })
   if (sandboxed && !has.sandbox) missing.push({ kind: MissingContextKind.Sandbox })
   if (!has.todoHub) missing.push({ kind: MissingContextKind.TodoHub })
@@ -117,12 +138,17 @@ export function contextAfter(check: ContextCheck, missing: readonly MissingConte
         return {
           instructions: true,
           instructionUpdates: INSTRUCTION_UPDATES.length,
+          instructionUpdateHash: instructionPrefixHash(INSTRUCTION_UPDATES.length),
           handoffAt: item.handoffAt,
           sandbox: has.sandbox || check.sandboxed,
           todoHub: true,
         }
       case MissingContextKind.Updates:
-        return { ...has, instructionUpdates: INSTRUCTION_UPDATES.length }
+        return {
+          ...has,
+          instructionUpdates: INSTRUCTION_UPDATES.length,
+          instructionUpdateHash: instructionPrefixHash(INSTRUCTION_UPDATES.length),
+        }
       case MissingContextKind.Sandbox:
         return { ...has, sandbox: true }
       case MissingContextKind.TodoHub:

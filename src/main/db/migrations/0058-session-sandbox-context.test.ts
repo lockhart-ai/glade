@@ -1,4 +1,6 @@
 import { expect, it } from 'vitest'
+import { hashLines } from '../../agent/instruction-hash'
+import { INSTRUCTION_UPDATES } from '../../agent/system-prompt'
 import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { getSessionContext, setSessionContext } from '../repositories/session-context'
@@ -37,6 +39,7 @@ it('leaves every session recorded before it as not told of the sandbox, and keep
   expect(getSessionContext(db, 'glade')).toEqual({
     instructions: true,
     instructionUpdates: 2,
+    instructionUpdateHash: hashLines(INSTRUCTION_UPDATES.slice(0, 2)),
     handoffAt: 3,
     sandbox: false,
     todoHub: false,
@@ -44,6 +47,7 @@ it('leaves every session recorded before it as not told of the sandbox, and keep
   expect(getSessionContext(db, 'imported')).toEqual({
     instructions: false,
     instructionUpdates: 0,
+    instructionUpdateHash: hashLines([]),
     handoffAt: null,
     sandbox: false,
     todoHub: false,
@@ -52,6 +56,7 @@ it('leaves every session recorded before it as not told of the sandbox, and keep
   setSessionContext(db, 'glade', {
     instructions: true,
     instructionUpdates: 2,
+    instructionUpdateHash: hashLines(INSTRUCTION_UPDATES.slice(0, 2)),
     handoffAt: 3,
     sandbox: true,
     todoHub: false,
@@ -62,6 +67,7 @@ it('leaves every session recorded before it as not told of the sandbox, and keep
   setSessionContext(db, 'glade', {
     instructions: true,
     instructionUpdates: 2,
+    instructionUpdateHash: hashLines(INSTRUCTION_UPDATES.slice(0, 2)),
     handoffAt: 3,
     sandbox: false,
     todoHub: false,

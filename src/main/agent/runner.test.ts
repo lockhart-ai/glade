@@ -57,6 +57,7 @@ import { setUiState } from '../db/repositories/ui-state'
 import { addWatcher } from '../db/repositories/watchers'
 import { FakeAgentBackend, settle, type FakeAgentSession } from './fake-backend'
 import { GLADE_SERVER } from './glade-tools'
+import { hashLines } from './instruction-hash'
 import { McpServerAudience } from './backend'
 import { needsYou } from '../../shared/attention'
 import { todoProgress } from '../../shared/todoSummary'
@@ -3449,6 +3450,7 @@ describe("a task's handoff note", () => {
     expect(getSessionContext(database.db, task.id)).toEqual({
       instructions: true,
       instructionUpdates: INSTRUCTION_UPDATES.length,
+      instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
       handoffAt: 1_000,
       sandbox: false,
       todoHub: true,
@@ -3520,6 +3522,7 @@ describe("a task's handoff note", () => {
     expect(getSessionContext(database.db, task.id)).toEqual({
       instructions: true,
       instructionUpdates: INSTRUCTION_UPDATES.length,
+      instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
       handoffAt: 2_000,
       sandbox: false,
       todoHub: true,
@@ -3613,6 +3616,7 @@ describe('instructions added to the prompt since a session started', () => {
       setSessionContext(database.db, task.id, {
         instructions: true,
         instructionUpdates: 0,
+        instructionUpdateHash: hashLines([]),
         handoffAt: null,
         sandbox: false,
         todoHub: true,
@@ -3638,6 +3642,7 @@ describe('instructions added to the prompt since a session started', () => {
     expect(getSessionContext(database.db, task.id)).toEqual({
       instructions: true,
       instructionUpdates: INSTRUCTION_UPDATES.length,
+      instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
       handoffAt: null,
       sandbox: false,
       todoHub: true,
@@ -3671,6 +3676,7 @@ describe('instructions added to the prompt since a session started', () => {
       expect(getSessionContext(database.db, task.id)).toEqual({
         instructions: true,
         instructionUpdates: INSTRUCTION_UPDATES.length,
+        instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
         handoffAt: null,
         sandbox: false,
         todoHub: true,
@@ -3724,6 +3730,7 @@ describe('instructions added to the prompt since a session started', () => {
     expect(getSessionContext(database.db, task.id)).toEqual({
       instructions: true,
       instructionUpdates: INSTRUCTION_UPDATES.length,
+      instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
       handoffAt: 5_000,
       sandbox: false,
       todoHub: true,

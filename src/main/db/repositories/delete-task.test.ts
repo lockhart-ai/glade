@@ -26,6 +26,8 @@ import { addArtifact, addLinkArtifact } from './artifacts'
 import { setExternalId, setHandoff } from './backfills'
 import { putGithubLinkWatch } from './github-link-watches'
 import { GithubChecksState, GithubLinkKind, GithubLinkState } from '../../../shared/githubWatch'
+import { hashLines } from '../../agent/instruction-hash'
+import { INSTRUCTION_UPDATES } from '../../agent/system-prompt'
 import { setSessionContext } from './session-context'
 import { setStoppedWorkNote } from './stopped-work-notes'
 import { saveUsageNoteAnnouncements } from './usage-note-announcements'
@@ -190,6 +192,7 @@ async function fillTask(db: Database, task: Task): Promise<void> {
   setSessionContext(db, taskId, {
     instructions: true,
     instructionUpdates: 1,
+    instructionUpdateHash: hashLines(INSTRUCTION_UPDATES.slice(0, 1)),
     handoffAt: 1,
     sandbox: true,
     todoHub: false,
