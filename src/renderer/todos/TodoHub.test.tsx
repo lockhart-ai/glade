@@ -367,7 +367,7 @@ describe('a todo a request asks to show (#684)', () => {
     Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
   })
 
-  it('opens the todo, scrolls it into view, puts the focus on its head and highlights the card for a moment', async () => {
+  it('opens the todo, scrolls it to the top of the list, puts the focus on its head and highlights the card for a moment', async () => {
     const { onFocusShown } = await renderHubFor('2')
 
     // Todo `2` has children and was closed: the request opens it, as a link in a reply promises.
@@ -377,7 +377,8 @@ describe('a todo a request asks to show (#684)', () => {
     })
     expect(head(/#502/)).toHaveFocus()
     expect(asked).toHaveClass(styles.highlighted ?? '')
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    // To the top of the list, not just into view, so a closed card's children open below it in view (#713).
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
     expect(onFocusShown).toHaveBeenCalledOnce()
 
     // The highlight fades, and only then: about as long as the tool log's stays.
