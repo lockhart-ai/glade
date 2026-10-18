@@ -1,5 +1,8 @@
 import { needsYou } from '../../shared/attention'
+import { NeedsYouReason, needsYouReason } from '../../shared/menuBar'
 import { TaskState, UNTITLED_TASK_TITLE, type EpochMs, type Task, type Workspace } from '../../shared/domain'
+import { formatAgo } from '../task-header/headerModel'
+import { rowStatus } from '../task-list/rowStatus'
 
 /** What a workspace's row in the switcher says about its tasks. */
 export enum WorkspaceStatusKind {
@@ -58,42 +61,56 @@ export function describeStatus(status: WorkspaceStatus): string {
   }
 }
 
-/** At most this many of a workspace's waiting tasks nest under it; past that, a "+N more" row stands in (#610). */
-export const WAITING_TASKS_SHOWN = 4
-
 /**
- * Just enough to order and cap a workspace's waiting tasks: its row reads its own title from the store directly
- * (`WaitingTaskRow`), so one task changing elsewhere doesn't re-render it (CLAUDE.md, Performance).
+ * A task that needs you, as its row in the switcher's Needs-you section shows it (#681): which workspace it's in, for
+ * the row's badge, and when it last changed, for its time.
  */
-export interface WaitingTaskRef {
+export interface NeedsYouTask {
   readonly taskId: string
-  /** When it last changed, the same age the menu bar popover's Needs you rows sort by. */
+  readonly workspaceId: string
+  readonly workspaceName: string
+  /** The workspace badge's colour, from its place among the workspaces. */
+  readonly tone: BadgeTone
+  /** When the task last changed: the age the row's time and "Replied … ago" line show. */
   readonly updatedAt: EpochMs
 }
 
-/** A workspace's waiting tasks nested under it: the newest `WAITING_TASKS_SHOWN`, and how many more there are. */
-export interface WaitingTasks {
-  readonly shown: readonly WaitingTaskRef[]
-  readonly moreCount: number
+/**
+ * Every task that needs you, across every workspace (`docs/design/html/14-workspace-switcher-tasks.html`, #681), the
+ * one that changed last first — the same rule for what needs you and the same order as the menu bar popover's
+ * Needs-you rows (`menuBarSnapshot`): tasks that need you (`needsYou`), in a workspace the app still has, newest
+ * change first, ties by id so the rows don't swap places as they refresh.
+ */
+export function needsYouTasks(tasks: Iterable<Task>, workspaces: readonly Workspace[]): NeedsYouTask[] {
+  const names = new Map(workspaces.map((workspace) => [workspace.id, workspace.name]))
+  const needing: NeedsYouTask[] = []
+  for (const task of tasks) {
+    const workspaceName = names.get(task.workspaceId)
+    if (workspaceName === undefined || !needsYou(task)) continue
+    needing.push({
+      taskId: task.id,
+      workspaceId: task.workspaceId,
+      workspaceName,
+      tone: badgeTone(workspaces, task.workspaceId),
+      updatedAt: task.updatedAt,
+    })
+  }
+  needing.sort((a, b) => b.updatedAt - a.updatedAt || (a.taskId < b.taskId ? -1 : 1))
+  return needing
 }
 
 /**
- * A workspace's tasks that need you (`docs/design/html/14-workspace-switcher-tasks.html`, #610), newest change first
- * (`updatedAt`, ties by id so rows don't swap places as they refresh — the same order `menuBarSnapshot` sorts its own
- * Needs you rows by), capped at `WAITING_TASKS_SHOWN` with the rest counted, not listed.
+ * A needs-you task's why line, in purple on its row: "Replied 4m ago" for an unread reply (when its agent last
+ * replied, the same age the row's time shows), else the task's own status line, exactly as the task list shows it —
+ * "Waiting on you: pick a limit for /search" on a permission card, the error's line, or the status the agent set.
  */
-export function waitingTasks(tasks: Iterable<Task>, workspaceId: string): WaitingTasks {
-  const waiting: WaitingTaskRef[] = []
-  for (const task of tasks) {
-    if (task.workspaceId !== workspaceId || !needsYou(task)) continue
-    waiting.push({ taskId: task.id, updatedAt: task.updatedAt })
-  }
-  waiting.sort((a, b) => b.updatedAt - a.updatedAt || (a.taskId < b.taskId ? -1 : 1))
-  return { shown: waiting.slice(0, WAITING_TASKS_SHOWN), moreCount: Math.max(0, waiting.length - WAITING_TASKS_SHOWN) }
+export function needsYouWhy(task: Task, now: EpochMs): string {
+  if (needsYouReason(task) === NeedsYouReason.Reply) return `Replied ${formatAgo(task.updatedAt, now)}`
+  return rowStatus({ task, now }).text
 }
 
-/** A waiting task's title as its row shows it: what a task is called until its agent names it, for one without. */
-export function waitingTaskTitle(title: string): string {
+/** A needs-you task's title as its row shows it: what a task is called until its agent names it, for one without. */
+export function needsYouTaskTitle(title: string): string {
   return title === '' ? UNTITLED_TASK_TITLE : title
 }
 
