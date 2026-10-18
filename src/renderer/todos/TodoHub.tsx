@@ -455,6 +455,7 @@ const Summary = memo(function Summary({ list }: { readonly list: TodoList }): Re
         aria-valuenow={progress.done}
       >
         <div className={styles.barDone} style={{ width: `${String(bar.done)}%` }} />
+        <div className={styles.barWaiting} style={{ width: `${String(bar.waiting)}%` }} />
         <div className={styles.barDoing} style={{ width: `${String(bar.doing)}%` }} />
       </div>
     </div>

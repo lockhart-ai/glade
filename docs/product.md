@@ -41,8 +41,9 @@ There are no follow-up tasks. One task can refer to another through its folder o
   Pinned, Active, Done. Pinned is left out entirely while nothing is pinned, so it doesn't take a row for an empty
   header; Active and Done keep showing, even at zero. Each row shows a state dot, title and relative time, then a
   one-line status. Under them, only while there's something to show, a compact third line of what's going on in the
-  task, in this order: its todo progress (a ring and `3/7`, a check once all are done, the item in progress as its
-  tooltip), its subagents and its live watchers, each an icon and a count with a tooltip. A subagent counts while its
+  task, in this order: its todo progress (a ring and `3/7`, a check once all are done, the item in progress named in
+  its tooltip, and what's waiting on you named there too, ahead of it, #680), its subagents and its live watchers,
+  each an icon and a count with a tooltip. A subagent counts while its
   own turn runs, or while it's done but a watcher, wakeup or background command it started is still alive (#579); the
   tooltip says how many of each ("3 subagents: 2 running, 1 waiting on a watcher"). Unread rows are bold
   with a blue dot. At its foot, under a divider, the **usage meter** (see Usage). Resizable, collapsible.
@@ -167,8 +168,8 @@ There are no follow-up tasks. One task can refer to another through its folder o
   ![Agents](design/screens/50-agents.png)
   ![Agents strip, crowded](design/screens/54-agents-strip-crowded.png)
 
-  **Todos** is produced work: every todo is a card, whether it's active, not started or done, and whether or not it
-  has produced anything, the cards 4px apart. A todo closed is three lines: its title, its status line, and one row
+  **Todos** is produced work: every todo is a card, whether it's waiting on you, active, not started or done, and
+  whether or not it has produced anything, the cards 4px apart. A todo closed is three lines: its title, its status line, and one row
   of icons, each with a count — files, links, changes — a kind with none left out, and a todo that's produced nothing
   is just its title. Opened, the same three lines, with the icons as filter pills instead, **All** in front; under
   them, one flat list of what the todo produced, a tile each, most recently updated first. Clicking an icon shows only
@@ -178,11 +179,17 @@ There are no follow-up tasks. One task can refer to another through its folder o
   commit's tile opens in place, to its branch and its files — still view only for git, which Glade watches and never
   drives. A PR, an issue or a ticket a todo's title or status line names is a link, when the task has it as a link
   artifact (added by the agent, `add_artifact`'s `url`, or by you, Add to artifacts on any web link; see Links,
-  above). Todos keep their order: active, then not started, then done, newest first. A task from before the hub shows
+  above). Todos keep their order, in one plain list with no group header: waiting on you, then active, then not
+  started, then done, newest first (#680). A waiting todo's icon is a filled purple circle with a "?", not the
+  hollow ring a not-started one has, and its note (what it needs) is purple too, not the usual blue; the Todos tab's
+  own small purple count, beside its "3/7", says how many are waiting, and its progress bar gives them a purple
+  segment between what's done and what's in progress. The agent sets a todo waiting, with `update_todo`, when it
+  can't move until you review or decide something — the same todo-waiting-on-you purple used everywhere else in the
+  app. A task from before the hub shows
   what it produced in a placeholder group, **Not under a todo**, which opens and filters like a todo and is hidden
   while empty; only its agent moves a thing from one todo to another, with no menu for it, which is also how an
-  earlier task gets sorted (ask it to "file your things under your todos"). Blue is live, grey is everything else, and
-  pink is only for something that itself failed and for a commit's removed lines.
+  earlier task gets sorted (ask it to "file your things under your todos"). Blue is live, grey is everything else,
+  purple is waiting on you, and pink is only for something that itself failed and for a commit's removed lines.
   ![Todos](design/screens/46-todo-hub.png)
 
   **Files** is a plain-text editor:

@@ -102,13 +102,25 @@ function listed(): Record<string, string[]> {
     .getAllByRole('list')
     .map((tasks) => {
       const name = tasks.getAttribute('aria-labelledby') ?? ''
-      const heading = document.getElementById(name)?.parentElement?.textContent ?? ''
+      const heading = document.getElementById(name)?.textContent ?? ''
       const rows = within(tasks)
         .getAllByRole('listitem')
         .map((row) => row.textContent)
       return [heading, rows] as const
     })
   return Object.fromEntries(groups)
+}
+
+/** A row's checkbox, by what it's called: a workspace by its name, a task by its title. */
+function checkbox(name: string): HTMLButtonElement {
+  return within(screen.getByRole('list', { name: 'Recipients' })).getByRole('checkbox', { name })
+}
+
+/** Every task's checkbox, top to bottom, by its checked state: `[label, 'true' | 'false' | 'mixed']`. */
+function checked(): [string, string][] {
+  return [...screen.getByRole('list', { name: 'Recipients' }).querySelectorAll('button[role="checkbox"]')].map(
+    (box) => [box.getAttribute('aria-label') ?? '', box.getAttribute('aria-checked') ?? ''],
+  )
 }
 
 const settle = (): Promise<void> => act(() => Promise.resolve())
@@ -120,7 +132,7 @@ describe('BroadcastDialog', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('opens with the focus in its message field, saying who the message goes to', async () => {
+  it('opens with the focus in its message field, saying what is ticked, with every task ticked', async () => {
     await renderOpen()
 
     expect(screen.getByRole('dialog', { name: 'Broadcast' })).toBeInTheDocument()
@@ -129,12 +141,22 @@ describe('BroadcastDialog', () => {
     expect(field()).toHaveValue('')
     expect(
       screen.getByText((_, element) => element?.tagName === 'P' && element.textContent.startsWith('Goes to')),
-    ).toHaveTextContent('Goes to 5 active tasks in 2 workspaces. Busy agents get it when their turn ends.')
+    ).toHaveTextContent('Goes to 5 of 5 active tasks in 2 workspaces. Busy agents get it when their turn ends.')
     expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled()
+    expect(checked()).toEqual([
+      ['Acme API', 'true'],
+      ['Draft release notes for 2.4', 'true'],
+      ['Move image uploads to S3', 'true'],
+      ['Fix cart total rounding', 'true'],
+      ['Storefront', 'true'],
+      ['Rebuild the checkout page', 'true'],
+      ['New task', 'true'],
+    ])
     // No close button: Esc or a click outside closes it.
     expect(
       within(screen.getByRole('dialog'))
         .getAllByRole('button')
+        .filter((button) => button.getAttribute('role') !== 'checkbox')
         .map((button) => button.textContent),
     ).toEqual(['Send'])
   })
@@ -155,8 +177,109 @@ describe('BroadcastDialog', () => {
     const dialog = within(screen.getByRole('dialog'))
     expect(dialog.queryByText('Upgrade the payment SDK')).not.toBeInTheDocument()
     expect(dialog.queryByText('Docs site')).not.toBeInTheDocument()
-    // Read-only: nothing to pick.
-    expect(dialog.queryByRole('checkbox')).not.toBeInTheDocument()
+  })
+
+  it('unticks a task from its row, saying what is left, and ticks it back', async () => {
+    await renderOpen()
+
+    fireEvent.click(checkbox('Fix cart total rounding'))
+
+    expect(
+      screen.getByText((_, element) => element?.tagName === 'P' && element.textContent.startsWith('Goes to')),
+    ).toHaveTextContent('Goes to 4 of 5 active tasks in 2 workspaces.')
+    expect(checkbox('Fix cart total rounding')).toHaveAttribute('aria-checked', 'false')
+
+    // Ticking it back puts it in, and the workspace is whole again either way.
+    fireEvent.click(checkbox('Fix cart total rounding'))
+    expect(checkbox('Fix cart total rounding')).toHaveAttribute('aria-checked', 'true')
+    expect(checkbox('Acme API')).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it("unticks a workspace's all tasks from its box, shows a dash while only some are ticked, and ticks them all back", async () => {
+    await renderOpen()
+
+    fireEvent.click(checkbox('Fix cart total rounding'))
+    expect(checkbox('Acme API')).toHaveAttribute('aria-checked', 'mixed')
+
+    // A box half-ticked ticks all its workspace's tasks, as a half-ticked box does anywhere.
+    fireEvent.click(checkbox('Acme API'))
+    expect(checkbox('Acme API')).toHaveAttribute('aria-checked', 'true')
+    expect(checkbox('Fix cart total rounding')).toHaveAttribute('aria-checked', 'true')
+
+    // A box fully ticked unticks all its workspace's tasks.
+    fireEvent.click(checkbox('Acme API'))
+    expect(checkbox('Acme API')).toHaveAttribute('aria-checked', 'false')
+    expect(checked()).toEqual([
+      ['Acme API', 'false'],
+      ['Draft release notes for 2.4', 'false'],
+      ['Move image uploads to S3', 'false'],
+      ['Fix cart total rounding', 'false'],
+      ['Storefront', 'true'],
+      ['Rebuild the checkout page', 'true'],
+      ['New task', 'true'],
+    ])
+    expect(
+      screen.getByText((_, element) => element?.tagName === 'P' && element.textContent.startsWith('Goes to')),
+    ).toHaveTextContent('Goes to 2 of 5 active tasks in 1 workspace.')
+
+    fireEvent.click(checkbox('Rebuild the checkout page'))
+    expect(checkbox('Storefront')).toHaveAttribute('aria-checked', 'mixed')
+
+    fireEvent.click(checkbox('Storefront'))
+    expect(checked()).toEqual([
+      ['Acme API', 'false'],
+      ['Draft release notes for 2.4', 'false'],
+      ['Move image uploads to S3', 'false'],
+      ['Fix cart total rounding', 'false'],
+      ['Storefront', 'true'],
+      ['Rebuild the checkout page', 'true'],
+      ['New task', 'true'],
+    ])
+  })
+
+  it('says nothing is ticked and can’t send with every task unticked, and starts fresh when opened again', async () => {
+    const { invoke, store } = await renderOpen()
+
+    fireEvent.click(checkbox('Acme API'))
+    fireEvent.click(checkbox('Storefront'))
+    expect(screen.getByText('Nothing ticked. Tick a task to send to it.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+    expect(screen.queryByText(/Goes to/)).not.toBeInTheDocument()
+
+    type(TEXT)
+    press('Enter')
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    await settle()
+    expect(broadcasts(invoke)).toEqual([])
+
+    // The next broadcast starts with everything ticked again.
+    fireEvent.keyDown(field(), { key: 'Escape' })
+    await open(store)
+    expect(checked()).toEqual([
+      ['Acme API', 'true'],
+      ['Draft release notes for 2.4', 'true'],
+      ['Move image uploads to S3', 'true'],
+      ['Fix cart total rounding', 'true'],
+      ['Storefront', 'true'],
+      ['Rebuild the checkout page', 'true'],
+      ['New task', 'true'],
+    ])
+    expect(
+      screen.getByText((_, element) => element?.tagName === 'P' && element.textContent.startsWith('Goes to')),
+    ).toHaveTextContent('Goes to 5 of 5 active tasks in 2 workspaces.')
+  })
+
+  it('sends the message to the tasks still ticked, and only to them', async () => {
+    const { invoke } = await renderOpen()
+    type(TEXT)
+
+    fireEvent.click(checkbox('Fix cart total rounding'))
+    fireEvent.click(checkbox('New task'))
+    press('Enter')
+    await settle()
+
+    expect(broadcasts(invoke)).toEqual([{ text: TEXT, taskIds: ['t1', 't2', 't4'] }])
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('gives each task its dot by the one attention rule: purple needs you, blue working, grey idle', async () => {
@@ -182,7 +305,7 @@ describe('BroadcastDialog', () => {
     expect(press('Enter')).toBe(false)
     await settle()
 
-    expect(broadcasts(invoke)).toEqual([{ text: TEXT }])
+    expect(broadcasts(invoke)).toEqual([{ text: TEXT, taskIds: ['t1', 't2', 't3', 't4', 't5'] }])
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(store.getState().broadcastOpen).toBe(false)
   })
@@ -192,8 +315,8 @@ describe('BroadcastDialog', () => {
     const { store } = await renderDialog()
     const original = store.getState().broadcast
     store.setState({
-      broadcast: async (text) => {
-        const recipients = await original(text)
+      broadcast: async (text, taskIds) => {
+        const recipients = await original(text, taskIds)
         answered = { recipients }
         return recipients
       },
@@ -252,7 +375,7 @@ describe('BroadcastDialog', () => {
 
     expect(press('Enter', { metaKey: true })).toBe(false)
     await settle()
-    expect(broadcasts(invoke)).toEqual([{ text: TEXT }])
+    expect(broadcasts(invoke)).toEqual([{ text: TEXT, taskIds: ['t1', 't2', 't3', 't4', 't5'] }])
   })
 
   it('sends the message trimmed, and nothing for a blank one', async () => {
@@ -268,7 +391,7 @@ describe('BroadcastDialog', () => {
     type(`  ${TEXT}\n`)
     fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     await settle()
-    expect(broadcasts(invoke)).toEqual([{ text: TEXT }])
+    expect(broadcasts(invoke)).toEqual([{ text: TEXT, taskIds: ['t1', 't2', 't3', 't4', 't5'] }])
   })
 
   it('closes on Esc without sending, and starts empty when opened again', async () => {
@@ -365,7 +488,7 @@ describe('BroadcastDialog', () => {
       type(TEXT)
       press('Enter')
       await settle()
-      expect(broadcasts(invoke)).toEqual([{ text: TEXT }])
+      expect(broadcasts(invoke)).toEqual([{ text: TEXT, taskIds: ['t9'] }])
     })
   })
 
@@ -392,7 +515,7 @@ describe('BroadcastDialog', () => {
       SStorefront2: ['Rebuild the checkout pageneeds you', 'New taskidle'],
       'DDocs site1': ['Rewrite the quickstartidle'],
     })
-    expect(screen.getByText(/Goes to/)).toHaveTextContent('Goes to 5 active tasks in 3 workspaces.')
+    expect(screen.getByText(/Goes to/)).toHaveTextContent('Goes to 5 of 5 active tasks in 3 workspaces.')
     expect(field()).toHaveValue(TEXT)
   })
 

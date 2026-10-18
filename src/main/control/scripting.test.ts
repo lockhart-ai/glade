@@ -251,7 +251,6 @@ describe('backfilling over the plain JSON API', () => {
     const backfill = {
       workspaceId: workspace.id,
       title: 'Rate limit /search',
-      handoff: '### Next\n\nAdd the Retry-After header.',
       artifacts: [{ path: join(root, 'notes', 'notes.md'), title: 'Notes' }],
       startedAt: '2026-03-12',
       state: 'done',
@@ -277,6 +276,7 @@ describe('backfilling over the plain JSON API', () => {
     expect(missing.json.error).toMatchObject({ code: ControlErrorCode.InvalidInput, message: /^artifacts\.0\.path: / })
     const huge = await call(ControlToolName.UpdateTask, {
       id: taskOf(made).id,
+      // A handoff note is no longer a field of the patch, so the call is refused as unknown input.
       patch: { handoff: 'a'.repeat(32 * 1024 + 1) },
     })
     expect(huge.status).toBe(400)

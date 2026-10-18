@@ -633,7 +633,7 @@ describe('updateTask', () => {
 })
 
 describe('setTaskTodos', () => {
-  const summary = { done: 3, total: 7, doing: ['Copy the files'] }
+  const summary = { done: 3, total: 7, doing: ['Copy the files'], waiting: [] }
 
   it("keeps a task's todo summary without moving it in the list, and clears it", () => {
     const task = sampleTask(test.db, workspace.id, 2_000)
@@ -670,5 +670,13 @@ describe('setTaskTodos', () => {
     const task = sampleTask(test.db, workspace.id)
     test.db.prepare('UPDATE tasks SET todos = ? WHERE id = ?').run('{"done":1,"total":0,"doing":[]}', task.id)
     expect(() => getTask(test.db, task.id)).toThrow(/tasks\.todos/)
+  })
+
+  it('reads a summary stored before todos had a waiting state (#680) as none waiting', () => {
+    const task = sampleTask(test.db, workspace.id)
+    test.db
+      .prepare('UPDATE tasks SET todos = ? WHERE id = ?')
+      .run('{"done":1,"total":3,"doing":["Copy the files"]}', task.id)
+    expect(getTask(test.db, task.id)?.todos).toEqual({ done: 1, total: 3, doing: ['Copy the files'], waiting: [] })
   })
 })

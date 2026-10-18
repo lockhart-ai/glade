@@ -1,7 +1,7 @@
-// Broadcast (#489): one message to every active task that has an agent (`receivesBroadcast`), in every workspace. Main
-// decides who gets it, as it runs, and each task takes it the way it takes a message from its own input bar, through
-// the agent runner (`../agent/runner`): an idle agent starts a turn with it, a busy one gets it at the end of its
-// queue (`./deliver`). One task failing stops no other.
+// Broadcast (#489): one message to the chosen active tasks that have an agent (`receivesBroadcast`, #675), in every
+// workspace. Main decides who of them gets it, as it runs, and each task takes it the way it takes a message from its
+// own input bar, through the agent runner (`../agent/runner`): an idle agent starts a turn with it, a busy one gets it
+// at the end of its queue (`./deliver`). One task failing stops no other.
 import type { Database } from 'better-sqlite3'
 import {
   BroadcastDelivery,
@@ -37,26 +37,30 @@ function deliver(runner: BroadcastContext['runner'], taskId: string, text: strin
     : BroadcastDelivery.Queued
 }
 
-/** The tasks a broadcast reaches now, in every workspace: the pinned ones first, then the most recently updated. */
-function recipients(db: Database): string[] {
+/** The chosen tasks a broadcast reaches now: active ones with an agent (`receivesBroadcast`), of `taskIds`. */
+function recipients(db: Database, taskIds: readonly string[]): string[] {
+  const chosen = new Set(taskIds)
   return listTaskIds(db, null, TaskState.Active).filter((taskId) => {
+    if (!chosen.has(taskId)) return false
     const task = getTask(db, taskId)
     return task !== undefined && receivesBroadcast(task)
   })
 }
 
 /**
- * Sends `text` to every task a broadcast reaches now (`receivesBroadcast`): the active ones, in every workspace, but
- * for a task that has never been given anything. Done tasks get nothing. Answers with how it went for each task, pinned
- * ones first, then the most recently updated; a task that couldn't take it is logged and reported, and the rest still
- * get it.
+ * Sends `text` to the chosen tasks a broadcast reaches now (`receivesBroadcast`): active ones, in every workspace,
+ * but for a task that has never been given anything, and only those of `taskIds` (#675) — the Broadcast modal's
+ * ticked ones. A task not among them gets nothing, and a done one gets nothing all the same. Answers with how it went
+ * for each task it was sent to, pinned ones first, then the most recently updated; a task that couldn't take it is
+ * logged and reported, and the rest still get it.
  */
 export function broadcastMessage(
   { db, runner, log = SILENT_LOGGER }: BroadcastContext,
   text: string,
+  taskIds: readonly string[],
 ): BroadcastOutcome[] {
   const message = text.trim()
-  const outcomes = recipients(db).map((taskId): BroadcastOutcome => {
+  const outcomes = recipients(db, taskIds).map((taskId): BroadcastOutcome => {
     try {
       return { taskId, delivery: deliver(runner, taskId, message) }
     } catch (error) {

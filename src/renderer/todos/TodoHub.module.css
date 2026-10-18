@@ -54,6 +54,11 @@
   background: var(--color-teal);
 }
 
+/* What's waiting on you, between done and doing (#680). */
+.barWaiting {
+  background: var(--color-purple);
+}
+
 .barDoing {
   background: var(--color-blue);
 }

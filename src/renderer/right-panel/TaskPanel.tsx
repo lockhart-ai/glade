@@ -15,6 +15,7 @@ import type { TurnFocus } from '../tool-log'
 import { activePanelTab, FIRST_PANEL_TAB, formatCount, PanelTab, panelTabEntry } from './panelModel'
 import { PANEL_TAB_DEFINITIONS } from './panelTabs'
 import styles from './TaskPanel.module.css'
+import { TodoWaitingBadge } from './TodoWaitingBadge'
 
 const TABS_ID = 'task-panel'
 
@@ -167,10 +168,14 @@ export function TaskPanel(): React.JSX.Element | null {
     }
   }
 
+  // The Todos tab's own purple count of what's waiting on you sits beside its "3/4", as a node the tab bar renders
+  // as given: `TodoWaitingBadge` reads its own narrow slice of the store and is memoised, so a change to it
+  // re-renders only the badge, not this panel or the tab bar around it (#680).
   const tabs: readonly TabItem<PanelTab>[] = PANEL_TAB_DEFINITIONS.map(({ tab: value, label }, index) => ({
     value,
     label,
     count: counts[index],
+    badge: value === PanelTab.Todos && task !== undefined ? <TodoWaitingBadge taskId={task.id} /> : undefined,
   }))
 
   return (

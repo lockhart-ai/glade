@@ -12,37 +12,50 @@ export function progressHeading({ done, total }: TodoProgress): string {
 /** How much of the progress bar each part fills, in percent. */
 export interface ProgressBar {
   readonly done: number
-  /** After the done part, in blue. */
+  /** After the done part, in purple (#680). */
+  readonly waiting: number
+  /** After the waiting part, in blue. */
   readonly doing: number
 }
 
 /**
- * The progress bar: the done items' share of the list, then the full share of each item being worked on, so grey means
- * only "not started" (#584).
+ * The progress bar: the done items' share of the list, then what's waiting on you, then the full share of each item
+ * being worked on, so grey means only "not started" (#584, #680).
  */
-export function progressBar({ done, doing, total }: TodoProgress): ProgressBar {
-  if (total === 0) return { done: 0, doing: 0 }
-  return { done: (done / total) * 100, doing: (doing / total) * 100 }
+export function progressBar({ done, waiting, doing, total }: TodoProgress): ProgressBar {
+  if (total === 0) return { done: 0, waiting: 0, doing: 0 }
+  return { done: (done / total) * 100, waiting: (waiting / total) * 100, doing: (doing / total) * 100 }
 }
 
-/** The groups the Todos tab shows the items in, in this order: what's still to do before what's done (#282, #322). */
+/**
+ * The groups the Todos tab shows the items in, in this order: what's waiting on you, before what's still to do,
+ * before what's done (#282, #322, #680).
+ */
 export enum TodoGroup {
-  /** Being worked on, or waiting on you: in the agent's order. */
-  Active = 'active',
+  /** Waiting on you: in the agent's order. */
+  Waiting = 'waiting',
+  /** Being worked on now: in the agent's order. */
+  Doing = 'doing',
   /** Not started yet: in the agent's order. */
   NotStarted = 'not-started',
   /** Done: the most recently finished first. */
   Completed = 'completed',
 }
 
-const GROUP_ORDER: readonly TodoGroup[] = [TodoGroup.Active, TodoGroup.NotStarted, TodoGroup.Completed]
+const GROUP_ORDER: readonly TodoGroup[] = [
+  TodoGroup.Waiting,
+  TodoGroup.Doing,
+  TodoGroup.NotStarted,
+  TodoGroup.Completed,
+]
 
 /** Which group an item's state puts it in. */
 export function todoGroup(state: TodoState): TodoGroup {
   switch (state) {
-    case TodoState.Doing:
     case TodoState.Waiting:
-      return TodoGroup.Active
+      return TodoGroup.Waiting
+    case TodoState.Doing:
+      return TodoGroup.Doing
     case TodoState.Done:
       return TodoGroup.Completed
     case TodoState.Todo:
@@ -64,10 +77,11 @@ export interface OrderedTodo {
 }
 
 /**
- * The items in the tab's order: active, then not started, then completed. Active and not-started items keep the agent's
- * order. Completed ones show the most recently finished first; of those finished at the same moment (several in one
- * call), the one further down the agent's list comes first, as the agent works down its list. A done item with no time
- * (main always gives one, but the type allows none) counts as the oldest.
+ * The items in the tab's order: waiting on you, then being worked on, then not started, then completed (#680). Each
+ * of the first three groups keeps the agent's order within itself. Completed ones show the most recently finished
+ * first; of those finished at the same moment (several in one call), the one further down the agent's list comes
+ * first, as the agent works down its list. A done item with no time (main always gives one, but the type allows
+ * none) counts as the oldest.
  */
 export function orderTodos(items: readonly Todo[]): readonly OrderedTodo[] {
   const rank = (todo: Todo) => GROUP_ORDER.indexOf(todoGroup(todo.state))

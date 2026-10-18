@@ -205,7 +205,7 @@ describe('menuBarSnapshot', () => {
   })
 
   it('lists the working tasks with their status, todos and turn start, the one working longest first, unknown starts last', () => {
-    const todos = { done: 3, total: 7, doing: ['Run the tests'] }
+    const todos = { done: 3, total: 7, doing: ['Run the tests'], waiting: [] }
     const starts: Record<string, number | null> = { a: 5_000, b: 1_000, c: null }
     const snapshot = snapshotOf(
       [

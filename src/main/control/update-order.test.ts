@@ -67,7 +67,6 @@ const FIELDS: Readonly<Record<string, { readonly value: () => unknown; readonly 
   model: { value: () => 'claude-sonnet-5', place: Place.Moves },
   effort: { value: () => Effort.Max, place: Place.Moves },
   permissionMode: { value: () => PermissionMode.AskBeforeEdits, place: Place.Moves },
-  handoff: { value: () => '## Next\n\nShip it.', place: Place.Keeps },
   artifacts: { value: () => [{ path: join(root, 'notes', 'plan.md') }], place: Place.Keeps },
   externalId: { value: () => 'tasks/done/oldest', place: Place.Keeps },
   updateArtifacts: {
@@ -202,7 +201,7 @@ describe("update_task and a task's place in the sidebar", () => {
 
     await client.call(ControlToolName.UpdateTask, {
       id: oldest,
-      patch: { unread: true, handoff: 'Note.', externalId: 'tasks/x', title: 'oldest' },
+      patch: { unread: true, externalId: 'tasks/x', title: 'oldest' },
     })
 
     expect(await listed()).toEqual(['oldest', 'recent', 'older'])
@@ -215,7 +214,6 @@ describe("update_task and a task's place in the sidebar", () => {
       id: oldest,
       patch: {
         unread: true,
-        handoff: 'Note.',
         artifacts: [{ path: join(root, 'notes', 'plan.md') }],
         externalId: 'tasks/x',
         statusUpdatedAt: '2026-03-05T12:00:00Z',

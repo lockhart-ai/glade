@@ -1,6 +1,6 @@
-// Broadcast (#489): one message to every active task, in every workspace. Scripted agent sessions behind the real
-// bridge, saving to a database in a temporary folder, so the command, the runner, the queue and what reaches the
-// window are all the app's own.
+// Broadcast (#489, #675): one message to the chosen active tasks that have an agent, in every workspace. Scripted
+// agent sessions behind the real bridge, saving to a database in a temporary folder, so the command, the runner, the
+// queue and what reaches the window are all the app's own.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createBridge } from '../../preload/bridge'
 import {
@@ -12,7 +12,7 @@ import {
   type GladeEvent,
   type WindowEvent,
 } from '../../shared/bridge'
-import { BroadcastDelivery, type BroadcastOutcome } from '../../shared/broadcast'
+import { BroadcastDelivery, receivesBroadcast, type BroadcastOutcome } from '../../shared/broadcast'
 import {
   DividerKind,
   MessageRole,
@@ -40,7 +40,7 @@ import { listMessages } from '../db/repositories/messages'
 import { listPermissionRequests } from '../db/repositories/permission-requests'
 import { getOpenQuestionSet } from '../db/repositories/question-sets'
 import { appendQueuedMessage, listQueuedMessages } from '../db/repositories/queued-messages'
-import { getTask, updateTask } from '../db/repositories/tasks'
+import { getTask, listTaskIds, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { createWorkspace } from '../db/repositories/workspaces'
@@ -144,8 +144,18 @@ function current(id: string): Task {
   return found
 }
 
-async function broadcast(text = TEXT): Promise<readonly BroadcastOutcome[]> {
-  return (await glade.invoke(CommandName.TasksBroadcast, { text })).recipients
+/**
+ * Broadcasts `text`, to `taskIds` or, without them, to every task a broadcast reaches now — as the modal does when
+ * everything is ticked.
+ */
+async function broadcast(text = TEXT, taskIds?: readonly string[]): Promise<readonly BroadcastOutcome[]> {
+  const chosen =
+    taskIds ??
+    listTaskIds(database.db, null, TaskState.Active).filter((taskId) => {
+      const found = getTask(database.db, taskId)
+      return found !== undefined && receivesBroadcast(found)
+    })
+  return (await glade.invoke(CommandName.TasksBroadcast, { text, taskIds: chosen })).recipients
 }
 
 /** A task's chat, as its text and whether each message was a broadcast. */
@@ -316,6 +326,21 @@ describe('an idle task', () => {
     await broadcast(`\n  ${TEXT}  \n`)
 
     expect(chat(idle.id)).toEqual([{ role: MessageRole.User, body: TEXT, turn: 1, broadcast: true }])
+  })
+
+  it('sends it only to the tasks it was sent for, and only to active ones with an agent (#675)', async () => {
+    const chosen = task()
+    const leftOut = task()
+    const done = task()
+    await glade.invoke(CommandName.TasksMarkDone, { id: done.id })
+
+    const recipients = await broadcast(TEXT, [chosen.id, done.id, 'no-such-task'])
+
+    expect(recipients).toEqual([{ taskId: chosen.id, delivery: BroadcastDelivery.Sent }])
+    expect(chat(chosen.id)).toEqual([{ role: MessageRole.User, body: TEXT, turn: 1, broadcast: true }])
+    expect(chat(leftOut.id)).toEqual([])
+    expect(chat(done.id)).toEqual([])
+    expect(backend.sessions).toHaveLength(1)
   })
 })
 
@@ -665,7 +690,7 @@ describe('a task that can’t take it', () => {
       },
     }
 
-    const recipients = broadcastMessage({ db: database.db, runner: stub }, TEXT)
+    const recipients = broadcastMessage({ db: database.db, runner: stub }, TEXT, [first.id, second.id])
 
     expect(recipients).toEqual([
       { taskId: second.id, delivery: BroadcastDelivery.Failed, message: `No task ${second.id}` },
