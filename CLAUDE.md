@@ -66,6 +66,11 @@ other agents), `docs/design/tokens.md` (colours, type, spacing), `docs/keymap.md
 - **Enums and discriminated unions.** Use string enums for fixed sets of values (task state, message role, tool event
   kind, …) and discriminated unions for values that come in variants (events, questions, results). Switch over them
   exhaustively so a new variant fails the typecheck.
+- **Fail loudly; no silent fallbacks.** A fallback or degraded mode (no token, a binary not found, a default
+  environment, a cache miss) warns in the log once, saying what it fell back to and why, and shows in the app where the
+  user would care. Nothing that runs in the real app gets a silent logger. Ask of every fallback: how would we know
+  this path is being taken? (#720: the GitHub watcher, unable to find `gh`, quietly polled unauthenticated and
+  rate-limited itself into hour-long delays, with nothing in the log, #718.)
 - **Tests:** unit and integration tests, with **100% line coverage** enforced in CI. Any exclusion from coverage is
   explicit and has a comment saying why. Tests never talk to the real Claude API: unit, integration and e2e tests all
   mock the agent layer (a global Vitest guard enforces it, and the e2e and capture modes always use the scripted test
