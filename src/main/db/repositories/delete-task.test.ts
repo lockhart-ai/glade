@@ -29,6 +29,7 @@ import { GithubChecksState, GithubLinkKind, GithubLinkState } from '../../../sha
 import { hashLines } from '../../agent/instruction-hash'
 import { INSTRUCTION_UPDATES } from '../../agent/system-prompt'
 import { setSessionContext } from './session-context'
+import { setToolFingerprints } from './session-tool-fingerprints'
 import { setStoppedWorkNote } from './stopped-work-notes'
 import { saveUsageNoteAnnouncements } from './usage-note-announcements'
 import { setInputDraft } from './input-drafts'
@@ -197,6 +198,7 @@ async function fillTask(db: Database, task: Task): Promise<void> {
     sandbox: true,
     todoHub: false,
   })
+  setToolFingerprints(db, taskId, new Map([['update_todo', 'a fingerprint']]))
   setStoppedWorkNote(db, taskId, 'Glade stopped the background work when the task switched models.')
   saveUsageNoteAnnouncements(db, taskId, { session: 0.41, week: 0.08, spend: null }, 1)
   setInputDraft(db, { taskId, text: 'And the admin views', images: [PNG], files: [attachedFile(taskId, 'admin.pdf')] })
@@ -277,6 +279,8 @@ const FILLED_TABLES = [
   'search_documents',
   // What its agent session has been given of Glade's instructions and its handoff note.
   'session_context',
+  // The fingerprint of each of Glade's own tools its agent session has last been told about (#709).
+  'session_tool_fingerprints',
   // The note a limit-switch left it, waiting for its next prompt (#564).
   'stopped_work_notes',
   // Its handoff note and the caller's own id for it, from a backfill through the control API.

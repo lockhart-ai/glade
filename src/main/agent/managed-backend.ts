@@ -39,6 +39,7 @@ import { TOOL_USE_ID_META } from './mcp-tool-caller'
 import { isSubagentTool } from '../../shared/subagents'
 import { isSandboxed } from './sdk-backend'
 import { delegatedChildPrompt } from './system-prompt'
+import { jsonSchemaOfShape, type ToolSignature } from './tool-fingerprint'
 
 interface ManagedBackendOptions {
   readonly db: Database
@@ -92,6 +93,33 @@ const messageChildInput = z.object({
   id: z.string().min(1).describe('A child dispatch returned with run_in_background, still running in this task.'),
   text: z.string().min(1).describe('The text to send it, folded into its turn before its next tool call.'),
 }) satisfies z.ZodType<MessageChildInput>
+
+const LIST_MODELS_DESCRIPTION =
+  'List currently available Claude-account and curated OpenRouter models. Settings controls providers.'
+const DISPATCH_DESCRIPTION =
+  'Delegate work to a child on the other source (Claude account or OpenRouter). Use the built-in Agent tool for ' +
+  'same-source children. Call list_models first. Use resume with a child id to continue its saved conversation ' +
+  'while its source differs from the parent.'
+const MESSAGE_CHILD_DESCRIPTION =
+  'Send text to a child dispatch started with run_in_background, while it still runs: folded into its current ' +
+  'turn before its next tool call, not read at once. Only works while it is running in the background (a ' +
+  "foreground child's id is unknown until it finishes); one way, with nothing returned but the queued " +
+  'confirmation. A refusal means the child cannot be messaged now: use dispatch with resume instead.'
+
+/**
+ * Every tool the `glade-agents` server offers, name and description and input schema taken from the same constants
+ * its `tool()` calls use below — not a separate list to keep in sync (#709).
+ */
+export const AGENTS_TOOL_SIGNATURES: readonly ToolSignature[] = [
+  { name: 'list_models', description: LIST_MODELS_DESCRIPTION, inputSchema: jsonSchemaOfShape({}) },
+  { name: 'dispatch', description: DISPATCH_DESCRIPTION, inputSchema: jsonSchemaOfShape(dispatchInput.shape) },
+  {
+    name: 'message_child',
+    description: MESSAGE_CHILD_DESCRIPTION,
+    inputSchema: jsonSchemaOfShape(messageChildInput.shape),
+  },
+]
+
 const extraSchema = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).optional(),
   signal: z.instanceof(AbortSignal).optional(),
@@ -498,49 +526,32 @@ export function managedBackend({ db, backend, account }: ManagedBackendOptions):
       name: AGENTS_SERVER,
       alwaysLoad: true,
       tools: [
-        tool(
-          'list_models',
-          'List currently available Claude-account and curated OpenRouter models. Settings controls providers.',
-          {},
-          () =>
-            Promise.resolve({
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify(
-                    listModels(db).map((model) => {
-                      const route = getOpenRouterChoice(db, model.id)
-                      return {
-                        ...model,
-                        ...(route === undefined
-                          ? {}
-                          : {
-                              inputPrice: route.model.inputPrice,
-                              outputPrice: route.model.outputPrice,
-                              priceUnit: 'USD per token',
-                            }),
-                      }
-                    }),
-                  ),
-                },
-              ],
-            }),
+        tool('list_models', LIST_MODELS_DESCRIPTION, {}, () =>
+          Promise.resolve({
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  listModels(db).map((model) => {
+                    const route = getOpenRouterChoice(db, model.id)
+                    return {
+                      ...model,
+                      ...(route === undefined
+                        ? {}
+                        : {
+                            inputPrice: route.model.inputPrice,
+                            outputPrice: route.model.outputPrice,
+                            priceUnit: 'USD per token',
+                          }),
+                    }
+                  }),
+                ),
+              },
+            ],
+          }),
         ),
-        tool(
-          'dispatch',
-          'Delegate work to a child on the other source (Claude account or OpenRouter). Use the built-in Agent tool for same-source children. Call list_models first. Use resume with a child id to continue its saved conversation while its source differs from the parent.',
-          dispatchInput.shape,
-          dispatch,
-        ),
-        tool(
-          'message_child',
-          'Send text to a child dispatch started with run_in_background, while it still runs: folded into its current ' +
-            'turn before its next tool call, not read at once. Only works while it is running in the background (a ' +
-            "foreground child's id is unknown until it finishes); one way, with nothing returned but the queued " +
-            'confirmation. A refusal means the child cannot be messaged now: use dispatch with resume instead.',
-          messageChildInput.shape,
-          messageChild,
-        ),
+        tool('dispatch', DISPATCH_DESCRIPTION, dispatchInput.shape, dispatch),
+        tool('message_child', MESSAGE_CHILD_DESCRIPTION, messageChildInput.shape, messageChild),
       ],
     })
     const recover = (): void => {

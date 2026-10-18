@@ -40,6 +40,7 @@ import {
 } from '../artifacts/artifacts'
 import { getTask } from '../db/repositories/tasks'
 import { TOOL_USE_ID_META } from './mcp-tool-caller'
+import { jsonSchemaOfShape, type ToolSignature } from './tool-fingerprint'
 import { otherTasksAnswer, otherTasksText } from './other-tasks'
 import { FileAccess } from './sandbox-requests'
 import { showTaskFile, workspaceRoot } from '../files/files'
@@ -640,7 +641,7 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
   }
 }
 
-const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
+export const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
   [GladeTool.SetTitle]: "Name the task. Call it once, after the user's first message. The user can rename it later.",
   [GladeTool.SetObjective]:
     "Record the task's objective, distilled from the user's first message. Set it once; call it again only if the " +
@@ -717,6 +718,38 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
     "List this task's todos, one line each, in the order they were made: its id, status in brackets and subject, " +
     'with its note after a dash when it has one.',
 }
+
+/** Every Glade tool's input shape, by name, so `GLADE_TOOL_SIGNATURES` can cover one it's never offered too. */
+const INPUT_SCHEMAS: Readonly<Record<GladeTool, z.ZodRawShape>> = {
+  [GladeTool.SetTitle]: setTitleInput.shape,
+  [GladeTool.SetObjective]: setObjectiveInput.shape,
+  [GladeTool.SetStatus]: setStatusInput.shape,
+  [GladeTool.Ask]: askInput.shape,
+  [GladeTool.ShowFile]: showFileInput.shape,
+  [GladeTool.AddArtifact]: addArtifactInput.shape,
+  [GladeTool.UpdateArtifact]: updateArtifactInput.shape,
+  [GladeTool.RemoveArtifact]: removeArtifactInput.shape,
+  [GladeTool.RequestAccess]: requestAccessInput.shape,
+  [GladeTool.ListChildren]: listChildrenInput.shape,
+  [GladeTool.FileChildren]: fileChildrenInput.shape,
+  [GladeTool.ListOtherTasks]: listOtherTasksInput.shape,
+  [GladeTool.CreateTodo]: createTodoInput.shape,
+  [GladeTool.UpdateTodo]: updateTodoInput.shape,
+  [GladeTool.ListTodos]: listTodosInput.shape,
+}
+
+/**
+ * Every tool the `glade` server can offer, name and description and input schema all taken from what actually
+ * builds it above (`DESCRIPTIONS`, `INPUT_SCHEMAS`) — not a separate list to keep in sync (#709). Covers every
+ * `GladeTool`, whether or not this session's settings offer it today (`createGladeMcpServer` leaves `set_title` and
+ * `set_status` out when their upkeep is off, and `request_access` out unsandboxed): a tool a session doesn't have
+ * can't be stale for it either way, so including it costs nothing.
+ */
+export const GLADE_TOOL_SIGNATURES: readonly ToolSignature[] = Object.values(GladeTool).map((name) => ({
+  name,
+  description: DESCRIPTIONS[name],
+  inputSchema: jsonSchemaOfShape(INPUT_SCHEMAS[name]),
+}))
 
 /** The signal an MCP tool call is cancelled by, from the handler's `extra` (MCP's `RequestHandlerExtra`). */
 function signalOf(extra: unknown): AbortSignal | undefined {

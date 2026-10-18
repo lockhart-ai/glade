@@ -12,11 +12,18 @@
  *
  * What each task's session has been given is kept in SQLite (`../db/repositories/session-context`), so a relaunch
  * neither loses a block still to send nor sends one twice.
+ *
+ * The same "once, ahead of the next message" delivery (`MissingContext`, `contextBlock`, `withContext`) also carries
+ * a note of a different kind (#709): one of Glade's own tools (`./tool-fingerprint`) that's changed since the
+ * session last saw it, named with its current description. What that session has seen of each tool lives in its
+ * own table (`../db/repositories/session-tool-fingerprints`), not in `SessionContext`, so it's checked and recorded
+ * by the caller (`./runner`) alongside `missingContext`/`contextAfter`, through `missingToolChanges` below.
  */
 import type { EpochMs, TaskHandoff } from '../../shared/domain'
 import type { SessionContext } from '../db/repositories/session-context'
 import { hashLines } from './instruction-hash'
 import { handoffSection, INSTRUCTION_UPDATES, SANDBOX_LINE, TODO_HUB_LINES } from './system-prompt'
+import { toolFingerprints, type ToolSignature } from './tool-fingerprint'
 
 /**
  * The fingerprint of the first `count` lines of `INSTRUCTION_UPDATES`, as they read now. What a session is recorded
@@ -48,6 +55,21 @@ export enum MissingContextKind {
   TodoHub = 'todo_hub',
   /** The task's handoff note: set or changed since the session started or was last sent it. */
   Handoff = 'handoff',
+  /**
+   * One of Glade's own tools has changed since the session last saw it (#709): a resumed session can keep Claude
+   * Code's own stale view of a tool's schema (see the PR for the spike on why), even though the call it names
+   * reaches the live, current server. Unlike the others, this isn't about `SessionContext` (`../db/repositories
+   * /session-context`): what each tool's last-seen fingerprint was is kept per tool, not per session as a whole
+   * (`../db/repositories/session-tool-fingerprints`), so `missingToolChanges` below is checked and recorded
+   * alongside the rest, not through `missingContext`/`contextAfter` themselves.
+   */
+  ToolChanges = 'tool_changes',
+}
+
+/** One of Glade's own tools, changed since a session last saw it: its name and its current description. */
+export interface ToolChange {
+  readonly name: string
+  readonly description: string
 }
 
 export type MissingContext =
@@ -56,6 +78,7 @@ export type MissingContext =
   | { readonly kind: MissingContextKind.Sandbox }
   | { readonly kind: MissingContextKind.TodoHub }
   | { readonly kind: MissingContextKind.Handoff; readonly handoff: TaskHandoff }
+  | { readonly kind: MissingContextKind.ToolChanges; readonly changes: readonly ToolChange[] }
 
 /**
  * What a session Glade starts has: everything its prompt says, which is all there is to say. That includes the
@@ -128,6 +151,27 @@ export function missingContext(check: ContextCheck): readonly MissingContext[] {
   return missing
 }
 
+/**
+ * Which of `current` (every tool this session is offered now, across Glade's own MCP servers) have a fingerprint
+ * that doesn't match what's recorded for them (`recorded`, from `session_tool_fingerprints`): one it already knew
+ * under a different name, description or input schema (#709). A tool with nothing recorded for it is new to this
+ * session, not changed — it's recorded the first time it's seen, silently, not reported here.
+ */
+export function missingToolChanges(
+  current: readonly ToolSignature[],
+  recorded: ReadonlyMap<string, string>,
+): readonly MissingContext[] {
+  const fingerprints = toolFingerprints(current)
+  const changed = current.filter(({ name }) => {
+    const before = recorded.get(name)
+    return before !== undefined && before !== fingerprints.get(name)
+  })
+  if (changed.length === 0) return []
+  return [
+    { kind: MissingContextKind.ToolChanges, changes: changed.map(({ name, description }) => ({ name, description })) },
+  ]
+}
+
 /** What the session has once it's been sent what it was missing. */
 export function contextAfter(check: ContextCheck, missing: readonly MissingContext[]): SessionContext {
   return missing.reduce<SessionContext>((has, item) => {
@@ -155,6 +199,9 @@ export function contextAfter(check: ContextCheck, missing: readonly MissingConte
         return { ...has, todoHub: true }
       case MissingContextKind.Handoff:
         return { ...has, handoffAt: item.handoff.addedAt }
+      case MissingContextKind.ToolChanges:
+        // Recorded in its own table (`session_tool_fingerprints`), by the caller: nothing here to change.
+        return has
     }
   }, given(check))
 }
@@ -172,6 +219,12 @@ function blockFor(missing: MissingContext): string {
       return `[Glade: this session now files what it makes under its todos]\n${TODO_HUB_LINES.join('\n\n')}\n[end]`
     case MissingContextKind.Handoff:
       return `[Glade: handoff for this task]\n${handoffSection(missing.handoff)}\n[end]`
+    case MissingContextKind.ToolChanges:
+      return [
+        '[Glade: a tool changed since this session last saw it]',
+        ...missing.changes.map(({ name, description }) => `\`${name}\` now: ${description}`),
+        '[end]',
+      ].join('\n')
   }
 }
 
