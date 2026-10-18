@@ -25,7 +25,7 @@ import {
   setArtifactFile,
   type ArtifactFileState,
 } from '../db/repositories/artifacts'
-import { findTaskByExternalId, getHandoff, setExternalId, setHandoff } from '../db/repositories/backfills'
+import { findTaskByExternalId, setExternalId } from '../db/repositories/backfills'
 import { lastTurn, listMessages } from '../db/repositories/messages'
 import { searchTaskIds } from '../db/repositories/search'
 import { countTasksByWorkspace, getTasks, listTaskIds, updateTask } from '../db/repositories/tasks'
@@ -136,8 +136,6 @@ export interface NewTaskRequest {
   readonly model?: string
   readonly effort?: Effort
   readonly permissionMode?: PermissionMode
-  /** Its handoff note, Markdown, for a past task backfilled (`docs/control-api.md`, "Backfilling past tasks"). */
-  readonly handoff?: string
   /** Files of its workspace to register as its artifacts, by absolute path. */
   readonly artifacts?: readonly ArtifactRegistration[]
   /** When it started, as an ISO 8601 date (`./dates`): its created time. Now by default. */
@@ -162,12 +160,11 @@ export interface CreatedTask {
 }
 
 /**
- * The changes `update_task` makes: the task's fields, its handoff note (null clears it), its artifacts (those to take
- * off, then those to change, then those to register), the caller's own id for it, and its dates, as ISO 8601 dates
- * (`./dates`), given rather than stamped.
+ * The changes `update_task` makes: the task's fields, its artifacts (those to take off, then those to change, then
+ * those to register), the caller's own id for it, and its dates, as ISO 8601 dates (`./dates`), given rather than
+ * stamped.
  */
 export interface TaskUpdate extends TaskChange {
-  readonly handoff?: string | null
   readonly artifacts?: readonly ArtifactRegistration[]
   readonly updateArtifacts?: readonly ArtifactUpdateRequest[]
   /** Artifacts to take off, by absolute path; their files stay. */
@@ -286,9 +283,8 @@ export function createControlService(context: ControlServiceContext): ControlSer
     }
   }
 
-  /** Tells every window a task's handoff note, or its artifacts, changed. */
-  const announceBackfill = (taskId: string, handoff: boolean, artifacts: boolean): void => {
-    if (handoff) emit({ type: EventType.HandoffChanged, taskId, handoff: getHandoff(db, taskId) ?? null })
+  /** Tells every window a task's artifacts changed. */
+  const announceBackfill = (taskId: string, artifacts: boolean): void => {
     if (artifacts) emit({ type: EventType.ArtifactsChanged, taskId, artifacts: listArtifacts(db, taskId) })
   }
 
@@ -349,7 +345,6 @@ export function createControlService(context: ControlServiceContext): ControlSer
       const {
         workspaceId,
         message,
-        handoff,
         artifacts = [],
         state = TaskState.Active,
         externalId,
@@ -378,7 +373,6 @@ export function createControlService(context: ControlServiceContext): ControlSer
         if (raced !== undefined) return { id: raced, created: false }
         const { id } = insertNewTask(db, workspaceId, fields, dates.started)
         if (externalId !== undefined) setExternalId(db, id, externalId)
-        if (handoff !== undefined) setHandoff(db, id, handoff, at)
         registerArtifacts(id, checked, at)
         // Created at its start; last updated (and done, when it's created done) at its updatedAt.
         if (state === TaskState.Done || dates.updated !== dates.started) {
@@ -390,23 +384,14 @@ export function createControlService(context: ControlServiceContext): ControlSer
       const { id, created } = write()
       if (!created) return { task: detailOf(id), created }
       emitTaskUpdated(emit, requireTask(db, id))
-      announceBackfill(id, handoff !== undefined, checked.length > 0)
+      announceBackfill(id, checked.length > 0)
       if (message !== undefined) runner.send(id, message)
       return { task: detailOf(id), created }
     },
 
     async updateTask(
       id,
-      {
-        handoff,
-        artifacts = [],
-        updateArtifacts = [],
-        removeArtifacts = [],
-        externalId,
-        updatedAt,
-        statusUpdatedAt,
-        ...change
-      },
+      { artifacts = [], updateArtifacts = [], removeArtifacts = [], externalId, updatedAt, statusUpdatedAt, ...change },
     ) {
       requireOfferedModel(db, change.model, 'patch.model')
       const root = summaryOf(requireTask(db, id).workspaceId).rootPath
@@ -443,7 +428,6 @@ export function createControlService(context: ControlServiceContext): ControlSer
         : current
       const at = now()
       db.transaction(() => {
-        if (handoff !== undefined) setHandoff(db, id, handoff, at)
         if (externalId !== undefined) setExternalId(db, id, externalId)
         for (const ref of plan.removals) removeArtifact(db, id, ref)
         for (const [index, change] of plan.changes.entries()) changeOne(id, change, files[index] ?? null, at)
@@ -454,7 +438,7 @@ export function createControlService(context: ControlServiceContext): ControlSer
       unfileChildren(context, id, plan.removals.map(childOfArtifact))
       for (const { ref, newRef } of plan.changes)
         refileChild(context, id, childOfArtifact(ref), childOfArtifact(newRef))
-      announceBackfill(id, handoff !== undefined, checked.length + plan.changes.length + plan.removals.length > 0)
+      announceBackfill(id, checked.length + plan.changes.length + plan.removals.length > 0)
       return detail(task)
     },
 
