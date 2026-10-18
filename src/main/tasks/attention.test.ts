@@ -225,7 +225,7 @@ describe('unread', () => {
     await replyInFirst()
     events.splice(0)
 
-    await glade.invoke(CommandName.UiStateSet, { key: UiStateKey.RightPanelTab, value: first.id })
+    await glade.invoke(CommandName.UiStateSet, { key: UiStateKey.RightPanelWidth, value: '420' })
     await glade.invoke(CommandName.UiStateSet, { key: UiStateKey.SelectedTaskId, value: 'missing' })
 
     expect(unreadUpdates()).toEqual([])

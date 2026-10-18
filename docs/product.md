@@ -142,8 +142,8 @@ There are no follow-up tasks. One task can refer to another through its folder o
   cards), but not the Files viewer's preview or the terminal.
 - **Right panel** (inside the task card) — three tabs, **Agents · Files · Todos** (P16, #491): is something
   **happening** (Agents), or something the work **produced** (Todos)? Resizable, collapsible. The selected tab is
-  remembered per workspace (#432): switching workspace shows that workspace's own tab, across a relaunch; a workspace
-  that's never chosen one starts from Agents.
+  remembered per task (#689, was per workspace #432): switching back to a task shows the tab it had, across a
+  relaunch, and a deleted task's entry goes with it; a task that's never chosen one starts from Agents.
 
   **Agents** is activity: a strip of tabs under the panel's own, one for every agent in the task, and under it that
   agent's tool calls, the notes between them and their output. **Main**, the task's own agent, is pinned first, its

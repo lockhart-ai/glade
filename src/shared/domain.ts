@@ -630,13 +630,10 @@ export enum UiStateKey {
    */
   RelaunchNotice = 'relaunch_notice',
   /**
-   * The right panel's tab, before each workspace had its own (#432): a `PanelTab` (`src/renderer/right-panel`). Read
-   * as the starting value for a workspace with no entry of its own in `RightPanelTabs`; no longer written.
-   */
-  RightPanelTab = 'right_panel_tab',
-  /**
-   * The right panel's selected tab in each workspace (#432): JSON, from a workspace's id to a `PanelTab`
-   * (`src/renderer/right-panel`). A workspace with no entry starts from `RightPanelTab`, or Tool calls with neither.
+   * The right panel's selected tab in each task (#689; was per workspace, #432): JSON, from a task's id to a
+   * `PanelTab` (`src/renderer/right-panel`). A task with no entry opens on Todos. What older versions stored under
+   * this key (workspace ids) and under the removed `right_panel_tab` is left in place, unread: no task has a
+   * workspace's id.
    */
   RightPanelTabs = 'right_panel_tabs',
   /** The right panel's width in CSS pixels, as you last dragged it. Unset means the design's default. */

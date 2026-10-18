@@ -103,7 +103,7 @@ describe('docs/keymap.md', () => {
         uiState: [
           { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
           { key: UiStateKey.SelectedTaskId, value: 't1' },
-          { key: UiStateKey.RightPanelTab, value: PanelTab.Files },
+          { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: PanelTab.Files }) },
         ],
         openFiles: [{ taskId: 't1', paths: ['src/app.ts'], activePath: 'src/app.ts' }],
       }).bridge,
