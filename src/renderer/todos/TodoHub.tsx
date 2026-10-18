@@ -571,7 +571,8 @@ export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown
     [],
   )
 
-  // Shows the todo asked for: it opens its card (when it has children), its card scrolls into view, its head takes
+  // Shows the todo asked for: it opens its card (when it has children), its card scrolls to the top of the list (#713:
+  // "nearest" left a closed card at the bottom edge, its children opening out of view), its head takes
   // the focus, as ↑ and ↓ move it, and the card is highlighted for a moment (#684). Until the todo is in the list
   // (the task's logs still loading), or its children are (the filings still being read, whether it opens at all),
   // the request waits; one request is acted on once, whatever re-renders it.
@@ -591,8 +592,8 @@ export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown
     if (parent && !asLeft.open) {
       setTodoPanel({ taskId, todoId: focus.todoId, open: true, filter: asLeft.filter }).catch(() => undefined)
     }
-    card.scrollIntoView({ block: 'nearest' })
-    card.querySelector<HTMLElement>(`[${HEAD_ATTRIBUTE}]`)?.focus()
+    card.scrollIntoView({ block: 'start' })
+    card.querySelector<HTMLElement>(`[${HEAD_ATTRIBUTE}]`)?.focus({ preventScroll: true })
     setHighlighted(focus.todoId)
     if (highlightTimer.current !== null) clearTimeout(highlightTimer.current)
     highlightTimer.current = setTimeout(() => {
