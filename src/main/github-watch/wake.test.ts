@@ -89,3 +89,20 @@ it('queues it for a busy task, and does not let one task’s failure stop anothe
 
   expect(queue).toHaveBeenCalledWith('t1', formatWakeMessage([PR_CHANGE]), [], [], [], MessageSource.Github)
 })
+
+it('batches two links that changed for one task into one message', () => {
+  const send = vi.fn()
+  const runner = { send, queue: vi.fn() } as unknown as Pick<AgentRunner, 'send' | 'queue'>
+
+  wakeTasks(runner, [PR_CHANGE, ISSUE_CHANGE])
+
+  expect(send).toHaveBeenCalledOnce()
+  expect(send).toHaveBeenCalledWith(
+    't1',
+    formatWakeMessage([PR_CHANGE, ISSUE_CHANGE]),
+    [],
+    [],
+    [],
+    MessageSource.Github,
+  )
+})

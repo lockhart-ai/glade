@@ -1,5 +1,43 @@
+import { execFile } from 'node:child_process'
 import { expect, it, vi } from 'vitest'
-import { createGithubTokenCache } from './token'
+import { createGithubTokenCache, GH_TOKEN_TIMEOUT_MS, readGhToken } from './token'
+
+// `gh` itself, faked: a test never runs the machine's own `gh`.
+vi.mock('node:child_process', () => ({ execFile: vi.fn() }))
+
+type ExecFileCallback = (error: Error | null, stdout: string) => void
+
+/** Has the faked `gh auth token` answer with `error` or `stdout`. */
+function answerGh(error: Error | null, stdout: string): void {
+  vi.mocked(execFile).mockImplementationOnce(((
+    _file: string,
+    _args: string[],
+    _options: object,
+    callback: ExecFileCallback,
+  ) => {
+    callback(error, stdout)
+  }) as unknown as typeof execFile)
+}
+
+it('reads the token with `gh auth token`, trimmed, with a timeout and no shell', async () => {
+  answerGh(null, 'ghs_sample\n')
+
+  expect(await readGhToken()).toBe('ghs_sample')
+  expect(execFile).toHaveBeenCalledWith(
+    'gh',
+    ['auth', 'token'],
+    { timeout: GH_TOKEN_TIMEOUT_MS, encoding: 'utf8' },
+    expect.any(Function),
+  )
+})
+
+it('answers null when `gh` fails or prints nothing', async () => {
+  answerGh(new Error('not logged in'), '')
+  expect(await readGhToken()).toBeNull()
+
+  answerGh(null, '  \n')
+  expect(await readGhToken()).toBeNull()
+})
 
 it('reads the token once, and answers every call with it until invalidated', async () => {
   const read = vi.fn().mockResolvedValue('ghs_sample')
