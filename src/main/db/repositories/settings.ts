@@ -30,6 +30,9 @@ export const SETTING_SCHEMAS: { readonly [K in keyof Settings]: z.ZodType<Settin
   controlPort: z.int().min(MIN_CONTROL_PORT).max(MAX_CONTROL_PORT),
   showInMenuBar: z.boolean(),
   sandboxEnabled: z.boolean(),
+  // A step: 1–50 percent of a window, 1–1000 dollars of OpenRouter spend; null sends no note.
+  usageNoteStepPercent: z.int().min(1).max(50).nullable(),
+  usageNoteStepDollars: z.int().min(1).max(1000).nullable(),
 }
 
 /** A stored value as its setting, or undefined when it isn't valid JSON of the right shape. */
@@ -71,6 +74,8 @@ export function getSettings(db: Database): Settings {
     controlPort: read('controlPort'),
     showInMenuBar: read('showInMenuBar'),
     sandboxEnabled: read('sandboxEnabled'),
+    usageNoteStepPercent: read('usageNoteStepPercent'),
+    usageNoteStepDollars: read('usageNoteStepDollars'),
   }
 }
 

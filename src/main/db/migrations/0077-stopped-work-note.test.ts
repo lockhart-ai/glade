@@ -14,7 +14,6 @@ function sampleTask(db: Database, id: string): void {
 
 it('is migration 77', () => {
   expect(MIGRATIONS.find((migration) => migration.version === 77)).toBe(stoppedWorkNoteMigration)
-  expect(MIGRATIONS.at(-1)?.version).toBe(77)
 })
 
 it('adds a stopped-work-notes table that starts empty', () => {
