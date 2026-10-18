@@ -31,18 +31,16 @@ function response(status: number, body: unknown, headers: Readonly<Record<string
 }
 
 it('reads a pull request’s public fields, with no checks, review or merge-queue data', async () => {
-  const fetchImpl = vi
-    .fn()
-    .mockResolvedValue(
-      response(200, {
-        title: 'Port the chat cases',
-        state: 'open',
-        merged: false,
-        draft: false,
-        comments: 2,
-        head: { sha: 'abc123' },
-      }),
-    ) as unknown as FetchImpl
+  const fetchImpl = vi.fn().mockResolvedValue(
+    response(200, {
+      title: 'Port the chat cases',
+      state: 'open',
+      merged: false,
+      draft: false,
+      comments: 2,
+      head: { sha: 'abc123' },
+    }),
+  ) as unknown as FetchImpl
 
   const result = await fetchWatchBatchRest([PR], fetchImpl)
 
