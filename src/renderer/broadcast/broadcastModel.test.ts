@@ -5,11 +5,17 @@ import { sampleTask, sampleWorkspace } from '../store/test-bridge'
 import {
   attentionLabel,
   broadcastFailureMessage,
+  NOTHING_TICKED,
   reachText,
   recipientCount,
+  recipientIds,
   recipientTaskIds,
   recipientWorkspaceIds,
+  setTicked,
+  tickedCounts,
   undeliveredMessage,
+  WorkspaceTick,
+  workspaceTick,
 } from './broadcastModel'
 
 const WORKSPACES = [
@@ -82,13 +88,80 @@ describe('who a broadcast reaches', () => {
     expect(recipientTaskIds(untouched, 'w1')).toEqual([])
     expect(recipientCount(untouched)).toBe(0)
   })
+
+  it("lists every recipient in one flat list, each workspace's tasks in its order", () => {
+    expect(recipientIds(state)).toEqual(['a-pinned', 'a-new', 'a-old', 'a-starting', 's-only'])
+  })
+})
+
+describe('what the tick boxes tick (#675)', () => {
+  const state = {
+    workspaces: WORKSPACES,
+    tasks: tasks(
+      ran(sampleTask('a1', 'w1')),
+      ran(sampleTask('a2', 'w1')),
+      ran(sampleTask('s1', 'w2')),
+      ran(sampleTask('s2', 'w2')),
+      ran(sampleTask('s3', 'w2')),
+    ),
+  }
+  const all = ['a1', 'a2', 's1', 's2', 's3']
+
+  it('opens with everything ticked, and counts the recipients', () => {
+    const unticked = new Set<string>()
+    expect(tickedCounts(state, unticked)).toEqual({ tasks: 5, workspaces: 2 })
+    expect(workspaceTick(unticked, ['a1', 'a2'])).toBe(WorkspaceTick.All)
+    expect(workspaceTick(unticked, ['s1', 's2', 's3'])).toBe(WorkspaceTick.All)
+  })
+
+  it('shows a workspace as half-ticked when only some of its tasks are, and counts only the ticked', () => {
+    const unticked = new Set(['s2'])
+    expect(workspaceTick(unticked, ['s1', 's2', 's3'])).toBe(WorkspaceTick.Some)
+    expect(workspaceTick(unticked, ['a1', 'a2'])).toBe(WorkspaceTick.All)
+    expect(tickedCounts(state, unticked)).toEqual({ tasks: 4, workspaces: 2 })
+  })
+
+  it('shows a workspace as unticked when all of its tasks are, and leaves it out of the count', () => {
+    const unticked = new Set(['s1', 's2', 's3'])
+    expect(workspaceTick(unticked, ['s1', 's2', 's3'])).toBe(WorkspaceTick.None)
+    expect(tickedCounts(state, unticked)).toEqual({ tasks: 2, workspaces: 1 })
+  })
+
+  it('counts nothing, and no workspace, with every task unticked', () => {
+    expect(tickedCounts(state, new Set(all))).toEqual({ tasks: 0, workspaces: 0 })
+  })
+
+  it('a task row is all or none, never some', () => {
+    expect(workspaceTick(new Set(['a1']), ['a1'])).toBe(WorkspaceTick.None)
+    expect(workspaceTick(new Set(['s2']), ['s2'])).toBe(WorkspaceTick.None)
+  })
+
+  it('ticks one task, leaving the others as they were', () => {
+    const unticked = setTicked(new Set(['s2', 'a1']), ['s2'], true)
+    expect(unticked).toEqual(new Set(['a1']))
+    // The set it was asked with is left alone, so an untick that never lands can't leave the modal stuck.
+    expect(setTicked(new Set(['a1']), ['a1'], true)).toEqual(new Set())
+  })
+
+  it("unticks one task, and unticks and re-ticks a workspace's all at once", () => {
+    const one = setTicked(new Set<string>(), ['s2'], false)
+    expect(one).toEqual(new Set(['s2']))
+
+    const workspace = setTicked(one, ['s1', 's2', 's3'], false)
+    expect(workspace).toEqual(new Set(['s1', 's2', 's3']))
+    expect(setTicked(workspace, ['s1', 's2', 's3'], true)).toEqual(new Set())
+  })
 })
 
 describe('what the modal says', () => {
-  it('says how many tasks in how many workspaces, one or several', () => {
-    expect(reachText(9, 3)).toBe('9 active tasks in 3 workspaces')
-    expect(reachText(1, 1)).toBe('1 active task in 1 workspace')
-    expect(reachText(2, 1)).toBe('2 active tasks in 1 workspace')
+  it('says how many of the tasks are ticked, of how many, in how many workspaces, one or several', () => {
+    expect(reachText(6, 9, 2)).toBe('6 of 9 active tasks in 2 workspaces')
+    expect(reachText(1, 1, 1)).toBe('1 of 1 active task in 1 workspace')
+    expect(reachText(0, 2, 1)).toBe('0 of 2 active tasks in 1 workspace')
+  })
+
+  it('says what to do with nothing ticked', () => {
+    expect(NOTHING_TICKED).toBe('Nothing ticked. Tick a task to send to it.')
   })
 
   it('says where each task stands with you', () => {

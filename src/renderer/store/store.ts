@@ -426,8 +426,8 @@ export function createGladeStore(
         set({ broadcastOpen: false })
       },
 
-      async broadcast(text) {
-        const { recipients } = await bridge.invoke(CommandName.TasksBroadcast, { text })
+      async broadcast(text, taskIds) {
+        const { recipients } = await bridge.invoke(CommandName.TasksBroadcast, { text, taskIds })
         return recipients
       },
 
