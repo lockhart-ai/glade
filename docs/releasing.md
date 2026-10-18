@@ -106,10 +106,12 @@ keychains and trust settings are never touched.
   matches the certificate in `CSC_LINK` (read from the certificate itself each run, not hard-coded, since the
   certificate can be rotated). A build that's only ad-hoc signed, or signed with some other certificate, fails the
   workflow rather than publishing.
-- **A local build** (`npm run package`, on any contributor's Mac) signs with the certificate only if it finds
-  exactly one "Glade Self-Signed" identity in the default keychain (there if you made the certificate yourself, or
-  were sent it for a signed build to test); otherwise it falls back to the ad-hoc signature electron-builder already
-  makes, so the build still works without the certificate, or while it's mid-rotation. Check a local build with
+- **A local build** (`npm run package`, on any contributor's Mac) stays ad-hoc signed unless `GLADE_SIGN_LOCAL=1`
+  is set — touching the keychain prompts for the keychain password once per item `codesign --deep` signs, about
+  ten times a build (#673). With `GLADE_SIGN_LOCAL=1` it signs with the certificate only if it finds exactly one
+  "Glade Self-Signed" identity in the default keychain (there if you made the certificate yourself, or were sent it
+  for a signed build to test); otherwise it falls back to the ad-hoc signature electron-builder already makes, so
+  the build still works without the certificate, or while it's mid-rotation. Check a local build with
   `codesign -dv` and `codesign -d -r- release/mac-arm64/Glade.app` (the designated requirement's `certificate leaf`
   line, or lack of one, says whether it signed with the certificate or ad-hoc).
 - **Rotating the certificate** (making a new one with the same common name, when the old one's key or password is
