@@ -131,18 +131,27 @@ export async function pollGithubWatches(options: PollOptions): Promise<number> {
 
   const wake = wakeSettingsOf(settings)
   const changes: LinkChange[] = []
-  for (const { target, previous } of toPoll) {
+  for (const { target, previous, linkedAt } of toPoll) {
     const next: FetchedLinkState | undefined = batch.fetched.get(target)
     if (next === undefined) continue
     const watch = putGithubLinkWatch(db, {
       taskId: target.taskId,
       url: target.url,
       kind: target.kind,
-      ...next,
+      state: next.state,
+      merged: next.merged,
+      draft: next.draft,
+      inMergeQueue: next.inMergeQueue,
+      checksState: next.checksState,
+      checksSummary: next.checksSummary,
+      reviewState: next.reviewState,
+      commentCount: next.commentCount,
+      headOid: next.headOid,
+      title: next.title,
       watching: stillWatching(next),
     })
     emitGithubWatchChanged(emit, watch)
-    const lines = diffLinkState(previous, next, wake)
+    const lines = diffLinkState(previous, next, wake, linkedAt)
     if (lines.length > 0) changes.push(linkChangeOf(watch, target.number, lines))
   }
   wakeTasks(runner, changes)

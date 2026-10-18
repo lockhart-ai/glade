@@ -37,6 +37,8 @@ it('posts one query with the token, and parses what it answers', async () => {
           title: 'Port the chat cases',
           state: 'OPEN',
           merged: false,
+          mergedAt: null,
+          closedAt: null,
           isDraft: false,
           mergeQueueEntry: null,
           comments: { totalCount: 0 },
@@ -58,6 +60,9 @@ it('posts one query with the token, and parses what it answers', async () => {
   expect((init.headers as Record<string, string>).Authorization).toBe('bearer ghs_token')
   const requestBody = JSON.parse(init.body as string) as { query: string }
   expect(requestBody.query).toContain('pullRequest(number: 412)')
+  // The merge and close times a first fetch compares against the link's creation (#728).
+  expect(requestBody.query).toContain('mergedAt')
+  expect(requestBody.query).toContain('closedAt')
 })
 
 it('reports unauthorized on a 401, without touching the body', async () => {

@@ -30,12 +30,14 @@ function response(status: number, body: unknown, headers: Readonly<Record<string
   }
 }
 
-it('reads a pull request’s public fields, with no checks, review or merge-queue data', async () => {
+it('reads a pull request’s public fields, with no checks, review or merge-queue data, and its merge and close times', async () => {
   const fetchImpl = vi.fn().mockResolvedValue(
     response(200, {
       title: 'Port the chat cases',
       state: 'open',
       merged: false,
+      merged_at: null,
+      closed_at: null,
       draft: false,
       comments: 2,
       head: { sha: 'abc123' },
@@ -60,6 +62,8 @@ it('reads a pull request’s public fields, with no checks, review or merge-queu
           commentCount: 2,
           headOid: 'abc123',
           title: 'Port the chat cases',
+          mergedAt: null,
+          closedAt: null,
         },
       ],
     ]),
@@ -70,16 +74,25 @@ it('reads a pull request’s public fields, with no checks, review or merge-queu
   )
 })
 
-it('reads an issue’s public fields', async () => {
-  const fetchImpl = vi
-    .fn()
-    .mockResolvedValue(
-      response(200, { title: 'Flaky login test', state: 'closed', comments: 1 }),
-    ) as unknown as FetchImpl
+it('reads an issue’s public fields, and its close time when closed', async () => {
+  const fetchImpl = vi.fn().mockResolvedValue(
+    response(200, {
+      title: 'Flaky login test',
+      state: 'closed',
+      closed_at: '2026-10-18T17:38:00Z',
+      comments: 1,
+    }),
+  ) as unknown as FetchImpl
 
   const result = await fetchWatchBatchRest([ISSUE], fetchImpl)
 
-  expect(result.fetched.get(ISSUE)).toMatchObject({ state: GithubLinkState.Closed, commentCount: 1, headOid: null })
+  expect(result.fetched.get(ISSUE)).toMatchObject({
+    state: GithubLinkState.Closed,
+    commentCount: 1,
+    headOid: null,
+    mergedAt: null,
+    closedAt: new Date('2026-10-18T17:38:00Z').getTime(),
+  })
   expect(fetchImpl).toHaveBeenCalledWith('https://api.github.com/repos/acme/api/issues/7', expect.anything())
 })
 
@@ -94,7 +107,7 @@ it('leaves out a link that is gone or private (404), asking nothing further for 
 it('stops at the first rate limit, keeping what it already fetched', async () => {
   const fetchImpl = vi
     .fn()
-    .mockResolvedValueOnce(response(200, { title: 'Flaky login test', state: 'open', comments: 0 }))
+    .mockResolvedValueOnce(response(200, { title: 'Flaky login test', state: 'open', closed_at: null, comments: 0 }))
     .mockResolvedValueOnce(response(403, {}, { 'retry-after': '120' })) as unknown as FetchImpl
 
   const result = await fetchWatchBatchRest([ISSUE, PR], fetchImpl)

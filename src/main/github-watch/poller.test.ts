@@ -51,6 +51,8 @@ function fetched(targets: readonly WatchTarget[], overrides: Record<string, unkn
         commentCount: 0,
         headOid: 'abc123',
         title: 'Port the chat cases',
+        mergedAt: null,
+        closedAt: null,
         ...overrides,
       },
     ]),
@@ -162,6 +164,72 @@ describe('pollGithubWatches', () => {
       [],
       'github',
     )
+  })
+
+  it('wakes the task on a link’s first fetch when it finds a merge after the link was added (#728)', async () => {
+    const linked = addLinkArtifact(test.db, { taskId: task.id, url: PR_URL, title: '#412' })
+    const fetchGraphql = vi.fn().mockImplementation((_t: string, targets: readonly WatchTarget[]) =>
+      Promise.resolve({
+        outcome: 'fetched',
+        fetched: fetched(targets, {
+          state: GithubLinkState.Closed,
+          merged: true,
+          mergedAt: linked.addedAt + 60_000,
+          closedAt: linked.addedAt + 60_000,
+        }),
+      } satisfies GraphqlBatchResult),
+    )
+    const theRunner = runner()
+    theRunner.send.mockReturnValue({ id: 'm' } as unknown as ReturnType<AgentRunner['send']>)
+
+    await pollGithubWatches({
+      db: test.db,
+      emit: vi.fn(),
+      runner: theRunner,
+      tokenCache: tokenCache('ghs_token'),
+      fetchGraphql,
+    })
+
+    expect(theRunner.send).toHaveBeenCalledWith(
+      task.id,
+      ['GitHub:', '- PR #412 Port the chat cases: merged'].join('\n'),
+      [],
+      [],
+      [],
+      'github',
+    )
+  })
+
+  it('stays silent on a first fetch of a link that merged before it was added (#728)', async () => {
+    const linked = addLinkArtifact(test.db, { taskId: task.id, url: PR_URL, title: '#412' })
+    const fetchGraphql = vi.fn().mockImplementation((_t: string, targets: readonly WatchTarget[]) =>
+      Promise.resolve({
+        outcome: 'fetched',
+        fetched: fetched(targets, {
+          state: GithubLinkState.Closed,
+          merged: true,
+          mergedAt: linked.addedAt - 60_000,
+          closedAt: linked.addedAt - 60_000,
+        }),
+      } satisfies GraphqlBatchResult),
+    )
+    const theRunner = runner()
+
+    await pollGithubWatches({
+      db: test.db,
+      emit: vi.fn(),
+      runner: theRunner,
+      tokenCache: tokenCache('ghs_token'),
+      fetchGraphql,
+    })
+
+    expect(theRunner.send).not.toHaveBeenCalled()
+    expect(theRunner.queue).not.toHaveBeenCalled()
+    expect(getGithubLinkWatch(test.db, task.id, PR_URL)).toMatchObject({
+      state: GithubLinkState.Closed,
+      merged: true,
+      watching: false,
+    })
   })
 
   it('stops a link whose todo is done, without asking GitHub about it, and stops asking about it from then on', async () => {

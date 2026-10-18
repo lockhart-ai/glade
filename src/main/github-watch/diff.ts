@@ -3,6 +3,7 @@
  * change worth waking the task for, each gated by its own setting, and whether the link is still worth polling.
  * Pure: no database, no network, so every case is a plain fixture.
  */
+import type { EpochMs } from '../../shared/domain'
 import { GithubChecksState, GithubLinkState, type GithubLinkWatch } from '../../shared/githubWatch'
 import type { FetchedLinkState } from './query'
 
@@ -45,15 +46,23 @@ function checksLine(next: FetchedLinkState): string {
 
 /**
  * The changes worth telling the agent about, each a short clause (`wake.ts` joins them with "; " for one link's
- * line), gated by `settings`. Nothing to say for a link polled for the first time: there's nothing yet to compare it
- * against, so the first poll only ever establishes the baseline, silently.
+ * line), gated by `settings`. For a link polled for the first time there's nothing yet to compare the poll against,
+ * so only one thing is ever said (#728): a merge or close GitHub itself recorded after the link was added to the
+ * task (`linkedAt`, the artifact's creation time) — one that predates the link stays silent, same as everything
+ * else about the first poll, which only ever establishes the baseline.
  */
 export function diffLinkState(
   previous: GithubLinkWatch | undefined,
   next: FetchedLinkState,
   settings: WatchWakeSettings,
+  linkedAt: EpochMs,
 ): readonly string[] {
-  if (previous === undefined) return []
+  if (previous === undefined) {
+    if (!settings.onStateChange || next.state !== GithubLinkState.Closed) return []
+    const happenedAt = next.merged ? next.mergedAt : next.closedAt
+    if (happenedAt === null || happenedAt <= linkedAt) return []
+    return [next.merged ? 'merged' : 'closed']
+  }
   const lines: string[] = []
   if (settings.onStateChange) {
     const changed = stateChange(previous, next)

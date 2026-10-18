@@ -24,6 +24,8 @@ function pullRequestResponse(overrides: Record<string, unknown> = {}) {
     title: 'Port the chat cases',
     state: 'OPEN',
     merged: false,
+    mergedAt: null,
+    closedAt: null,
     isDraft: false,
     mergeQueueEntry: null,
     comments: { totalCount: 2 },
@@ -54,6 +56,7 @@ function pullRequestResponse(overrides: Record<string, unknown> = {}) {
 const issueResponse = (overrides: Record<string, unknown> = {}) => ({
   title: 'Flaky login test',
   state: 'OPEN',
+  closedAt: null,
   comments: { totalCount: 1 },
   ...overrides,
 })
@@ -94,16 +97,20 @@ it('parses a pull request’s fields, the checks summary counting successes over
     commentCount: 2,
     headOid: 'abc123',
     title: 'Port the chat cases',
+    mergedAt: null,
+    closedAt: null,
   })
 })
 
-it('reads a closed, merged, draft PR in the merge queue', () => {
+it('reads a closed, merged, draft PR in the merge queue, with the times GitHub recorded for it', () => {
   const body = {
     data: {
       l0: {
         pullRequest: pullRequestResponse({
           state: 'CLOSED',
           merged: true,
+          mergedAt: '2026-10-18T17:38:00Z',
+          closedAt: '2026-10-18T17:38:01Z',
           isDraft: true,
           mergeQueueEntry: { id: 'q1' },
         }),
@@ -118,6 +125,8 @@ it('reads a closed, merged, draft PR in the merge queue', () => {
     merged: true,
     draft: true,
     inMergeQueue: true,
+    mergedAt: new Date('2026-10-18T17:38:00Z').getTime(),
+    closedAt: new Date('2026-10-18T17:38:01Z').getTime(),
   })
 })
 
@@ -137,7 +146,31 @@ it('parses an issue’s fields, with none of a PR’s', () => {
     commentCount: 1,
     headOid: null,
     title: 'Flaky login test',
+    mergedAt: null,
+    closedAt: null,
   })
+})
+
+it('reads a closed issue’s close time, and none of a merge time', () => {
+  const body = { data: { l0: { issue: issueResponse({ state: 'CLOSED', closedAt: '2026-10-18T17:38:00Z' }) } } }
+
+  expect(parseWatchResponse(body, [ISSUE]).get(ISSUE)).toMatchObject({
+    state: GithubLinkState.Closed,
+    mergedAt: null,
+    closedAt: new Date('2026-10-18T17:38:00Z').getTime(),
+  })
+})
+
+it('treats a timestamp that does not parse as a date as unknown, leaving a first fetch silent', () => {
+  const body = {
+    data: {
+      l0: {
+        pullRequest: pullRequestResponse({ state: 'CLOSED', merged: true, mergedAt: 'not a date', closedAt: null }),
+      },
+    },
+  }
+
+  expect(parseWatchResponse(body, [PR]).get(PR)).toMatchObject({ mergedAt: null, closedAt: null })
 })
 
 it('has no checks state or summary for a PR with no checks reporting yet', () => {
