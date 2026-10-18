@@ -8,7 +8,7 @@
  */
 import { isAbsolute } from 'node:path'
 import { z } from 'zod'
-import { Effort, MAX_HANDOFF_BYTES, PermissionMode, TaskState } from '../../shared/domain'
+import { Effort, PermissionMode, TaskState } from '../../shared/domain'
 import { isoInstant } from './dates'
 import { ControlError, ControlErrorCode } from './errors'
 import { CONTROL_TOOL_ACCESS, ControlAccess, ControlToolName } from './names'
@@ -151,21 +151,6 @@ const permissionMode = z
 
 const byId = z.strictObject({ id: id('task') })
 
-/** A handoff note: Markdown, not blank, and at most `MAX_HANDOFF_BYTES` of UTF-8. */
-const handoff = z
-  .string()
-  .trim()
-  .min(1, 'is empty')
-  .refine(
-    (note) => Buffer.byteLength(note, 'utf8') <= MAX_HANDOFF_BYTES,
-    `is over ${String(MAX_HANDOFF_BYTES)} bytes of UTF-8`,
-  )
-  .describe(
-    "The task's handoff note, Markdown (at most 32 KB): what the task was, where it got to, decisions made, what's " +
-      "next, and the paths of its notes, artifacts and history. The task's agent always has it in its system prompt, " +
-      'and the chat shows it at the top.',
-  )
-
 /** Whether a URL is meant for the web: http or https. The service checks it in full, and normalises it. */
 function isWebAddress(url: string): boolean {
   return /^https?:\/\//i.test(url.trim())
@@ -288,7 +273,6 @@ const createTaskInput = z.strictObject({
   model: model.optional(),
   effort: effort.optional(),
   permissionMode: permissionMode.optional(),
-  handoff: handoff.optional(),
   artifacts: artifacts.optional(),
   startedAt: isoInstant(`When the task started: its created date. Now by default. ${DATES}`).optional(),
   updatedAt: isoInstant(
@@ -320,7 +304,6 @@ const updateTaskInput = z.strictObject({
       model: model.optional(),
       effort: effort.optional(),
       permissionMode: permissionMode.optional(),
-      handoff: handoff.nullable().optional().describe('A new handoff note, Markdown (at most 32 KB); null clears it.'),
       artifacts: artifacts.min(1, 'is empty').optional(),
       updateArtifacts: updateArtifacts.optional(),
       removeArtifacts: removeArtifacts.optional(),
@@ -441,8 +424,8 @@ export const TASK_TOOLS: readonly ControlTool[] = [
     description:
       'Create a task in a workspace, as New task does. With a message, sends it, which starts the agent; without ' +
       'one, the task waits. Title, objective and status, if given, are set now; model, effort and permission mode ' +
-      "default to Settings'. To backfill a past task, give it a handoff note, its artifacts, its status, when it started and " +
-      'was last updated, and state: done; it never starts its agent by itself. With an externalId another task ' +
+      "default to Settings'. To backfill a past task, give it its artifacts, its status, when it started and was " +
+      'last updated, and state: done; it never starts its agent by itself. With an externalId another task ' +
       'already has, returns that task with created: false.',
     input: createTaskInput,
     text: (input) => input.message ?? null,
@@ -452,9 +435,9 @@ export const TASK_TOOLS: readonly ControlTool[] = [
     name: ControlToolName.UpdateTask,
     description:
       'Change a task: its title, objective, one-line status, pin, unread flag, model, effort or permission mode, its ' +
-      'handoff note (null clears it), its externalId, or its artifacts: add them, rename or repoint them ' +
+      'externalId, or its artifacts: add them, rename or repoint them ' +
       "(updateArtifacts) and take them off (removeArtifacts). A new permission mode applies from the agent's next " +
-      'tool call. Any change but unread, handoff, the artifacts, externalId and statusUpdatedAt moves the task to the ' +
+      'tool call. Any change but unread, the artifacts, externalId and statusUpdatedAt moves the task to the ' +
       'top of its sidebar section (updatedAt is now), unless the patch gives updatedAt, which wins. Use mark_done and ' +
       'reopen_task for its state.',
     input: updateTaskInput,
