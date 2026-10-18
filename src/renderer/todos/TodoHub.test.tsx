@@ -5,11 +5,12 @@ import { WindowCommandId } from '../../shared/commands'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { CommitFileStatus, TodoState, ToolCallState, WatcherState, type Artifact, type Todo } from '../../shared/domain'
 import { commitFileKey } from '../../shared/files'
+import { GithubChecksState, GithubLinkKind, GithubLinkState, type GithubLinkWatch } from '../../shared/githubWatch'
 import { ChildFilter, FilingSource, UNFILED_TODO_ID, type TodoPanel } from '../../shared/todoHub'
 import linkStyles from '../links/Link.module.css'
 import { FOCUS_HIGHLIGHT_MS } from '../tool-log'
 import { useGladeStore } from '../store/react'
-import { refuse } from '../store/test-bridge'
+import { refuse, type FakeMain } from '../store/test-bridge'
 import { storeWrapper } from '../store/test-wrapper'
 import { NOW_REFRESH_MS } from '../task-list/useNow'
 import {
@@ -92,8 +93,12 @@ const SHIP: HubTask = {
   ],
 }
 
-async function renderHub(task: HubTask, overrides: Parameters<typeof storeWrapper>[1] = {}): Promise<HubStore> {
-  const main = hubMain(task)
+async function renderHub(
+  task: HubTask,
+  overrides: Parameters<typeof storeWrapper>[1] = {},
+  extra: Partial<FakeMain> = {},
+): Promise<HubStore> {
+  const main = { ...hubMain(task), ...extra }
   const wrapper = storeWrapper(main, overrides)
   await act(() => wrapper.store.getState().hydrate())
   render(<HubForTask />, { wrapper: wrapper.wrapper })
@@ -1738,5 +1743,103 @@ describe('the hub under load', () => {
       'aria-pressed',
       'false',
     )
+  })
+})
+
+describe("a collapsed todo's linked pull requests and issues (#683)", () => {
+  const watch = (url: string, fields: Partial<GithubLinkWatch> = {}): GithubLinkWatch => ({
+    taskId: 't1',
+    url,
+    kind: url.includes('/pull/') ? GithubLinkKind.PullRequest : GithubLinkKind.Issue,
+    state: GithubLinkState.Open,
+    merged: false,
+    draft: false,
+    inMergeQueue: false,
+    checksState: null,
+    checksSummary: null,
+    reviewState: null,
+    commentCount: 0,
+    headOid: null,
+    title: 'A link',
+    watching: true,
+    lastFetchedAt: HUB_NOW,
+    ...fields,
+  })
+
+  /** A card's kind row, found by its link count. */
+  function row(text: string | RegExp): HTMLElement {
+    const parent = within(card(text)).getAllByRole('button', { name: /links?/ })[0]?.parentElement
+    if (parent === undefined || parent === null) throw new Error(`No link count in ${String(text)}`)
+    return parent
+  }
+
+  it("says each watched link's number and what matters most about it, after its count", async () => {
+    await renderHub(
+      SHIP,
+      {},
+      {
+        githubWatches: [
+          watch(ISSUE_501, { commentCount: 4 }),
+          watch(PR_511, { inMergeQueue: true }),
+          watch(PR_513, { checksState: GithubChecksState.Failure, checksSummary: '5/8' }),
+        ],
+      },
+    )
+
+    expect(row(/#501/).textContent).toBe('22·#511Merge queue·#5014')
+    expect(row(/#502/).textContent).toBe('11·#5135/8')
+  })
+
+  it('collapses more than two watched links into one count per state', async () => {
+    const PR_515 = 'https://github.com/acme/api/pull/515'
+    const ISSUE_519 = 'https://github.com/acme/api/issues/519'
+    await renderHub(
+      {
+        todos: [hubTodo('1', 'Harden the import pipeline', TodoState.Doing)],
+        artifacts: [
+          hubLink(PR_511, 'A', 9),
+          hubLink(PR_513, 'B', 8),
+          hubLink(PR_515, 'C', 7),
+          hubLink(ISSUE_519, 'D', 6),
+        ],
+        filings: [
+          hubFiling(refOf.link(PR_511), '1'),
+          hubFiling(refOf.link(PR_513), '1'),
+          hubFiling(refOf.link(PR_515), '1'),
+          hubFiling(refOf.link(ISSUE_519), '1'),
+        ],
+      },
+      {},
+      {
+        githubWatches: [
+          watch(PR_511, { checksState: GithubChecksState.Failure, checksSummary: '5/8' }),
+          watch(PR_513, { checksState: GithubChecksState.Pending, checksSummary: '3/14' }),
+          watch(PR_515, { inMergeQueue: true }),
+          watch(ISSUE_519),
+        ],
+      },
+    )
+
+    expect(row('Harden the import pipeline').textContent).toBe('4·1 failing·1 running·1 queued·1 open')
+  })
+
+  it('says nothing of a link the watcher has not fetched yet, nor of a todo with none watched', async () => {
+    await renderHub(SHIP, {}, { githubWatches: [watch('https://github.com/acme/api/pull/599')] })
+
+    expect(row(/#501/).textContent).toBe('22')
+    expect(row(/#502/).textContent).toBe('11')
+  })
+
+  it('says nothing while the todo is open', async () => {
+    await renderHub(
+      SHIP,
+      {},
+      {
+        githubWatches: [watch(ISSUE_501), watch(PR_511)],
+        todoPanels: [{ taskId: 't1', todoId: '1', open: true, filter: ChildFilter.All }],
+      },
+    )
+
+    expect(row(/#501/).textContent).not.toContain('·')
   })
 })

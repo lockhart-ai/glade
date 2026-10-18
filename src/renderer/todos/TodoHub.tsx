@@ -33,6 +33,7 @@ import { useNow } from '../task-list/useNow'
 import { ArtifactTiles } from './tiles/ArtifactTiles'
 import { ChildTile } from './tiles/ChildTile'
 import { subagentsIn } from './tiles/childIndex'
+import { LinkStateCluster } from './LinkStateViews'
 import { askAboutTodo, NoTodos, STATE_LABELS, StateIcon } from './Todos'
 import {
   filterChildren,
@@ -105,6 +106,9 @@ function Ago({ at, prefix, prefixHidden = false, className }: AgoProps): React.J
 }
 
 interface KindsProps {
+  readonly taskId: string
+  /** The children the row counts and, closed, says the state of: the GitHub links among them carry their watches. */
+  readonly list: readonly Child[]
   readonly counts: readonly KindCount[]
   /** How many children there are of every kind: All's count. */
   readonly total: number
@@ -117,12 +121,13 @@ interface KindsProps {
 
 /**
  * A todo's third line, the same box closed and open, so opening it moves nothing above it. Closed: an icon and a count
- * per kind (files, links, changes), a kind with none left out; clicking one opens the todo on that kind. Open: the same
- * icons as filter pills, with All in front. Each has what it counts in words as its tooltip, and none is ever blue:
- * nothing under a todo is live. A kind's button is the same element closed and open, so the one you click keeps the
- * focus as it becomes a pill.
+ * per kind (files, links, changes), a kind with none left out; clicking one opens the todo on that kind — and, after
+ * the counts, what its linked pull requests and issues are, in their colours (#683). Open: the same icons as filter
+ * pills, with All in front, and no state: the tiles say it. Each count has what it counts in words as its tooltip,
+ * and none is ever blue: nothing under a todo is live. A kind's button is the same element closed and open, so the
+ * one you click keeps the focus as it becomes a pill.
  */
-function Kinds({ counts, total, open, filter, onShow }: KindsProps): React.JSX.Element {
+function Kinds({ taskId, list, counts, total, open, filter, onShow }: KindsProps): React.JSX.Element {
   return (
     <div
       className={classNames(styles.kinds, open && styles.pills)}
@@ -167,6 +172,7 @@ function Kinds({ counts, total, open, filter, onShow }: KindsProps): React.JSX.E
           </button>
         )
       })}
+      {!open && <LinkStateCluster taskId={taskId} list={list} />}
     </div>
   )
 }
@@ -375,7 +381,15 @@ const TodoCard = memo(function TodoCard({
       </div>
       {parent && (
         <div className={styles.under}>
-          <Kinds counts={counts} total={childList.length} open={open} filter={filter} onShow={show} />
+          <Kinds
+            taskId={taskId}
+            list={childList}
+            counts={counts}
+            total={childList.length}
+            open={open}
+            filter={filter}
+            onShow={show}
+          />
           {open && <Tiles taskId={taskId} under={todo.text} shown={filterChildren(childList, filter)} />}
         </div>
       )}
@@ -434,7 +448,15 @@ const UnfiledCard = memo(function UnfiledCard({
         </div>
       )}
       <div className={classNames(styles.under, alone && styles.flush)}>
-        <Kinds counts={counts} total={childList.length} open={open} filter={filter} onShow={show} />
+        <Kinds
+          taskId={taskId}
+          list={childList}
+          counts={counts}
+          total={childList.length}
+          open={open}
+          filter={filter}
+          onShow={show}
+        />
         {open && <Tiles taskId={taskId} under={UNFILED_HEADING} shown={filterChildren(childList, filter)} />}
       </div>
     </li>

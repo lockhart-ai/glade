@@ -192,6 +192,16 @@ There are no follow-up tasks. One task can refer to another through its folder o
   purple is waiting on you, and pink is only for something that itself failed and for a commit's removed lines.
   ![Todos](design/screens/46-todo-hub.png)
 
+  A linked pull request or issue the GitHub watcher knows (#682) says how it stands (#683). On an expanded link's
+  tile, under the title: what it is (Open, Draft, Merge queue, Merged, Closed), then its checks, its review and its
+  comment count, each in its own colour — teal for open and for a passed check or an approved review, blue for
+  checks running or a PR in the merge queue, muted grey for merged, closed or draft, pink only for a failed check or
+  a changes-requested review — with the tile's age on that line's far right. The tile takes the watcher's own title
+  for the link's, and a closed issue's icon is the filled check. On a collapsed todo, the row of icons carries the
+  same after the counts: for two watched links or fewer, each one's number and the single most telling thing about
+  it; for more, one count per state (`1 failing · 2 open`). A link the watcher hasn't fetched yet shows as it always
+  did, and nothing under a todo is a link or a button.
+
   **Files** is a plain-text editor:
   a workspace file edits in place and saves with ⌘S, its tab showing a dot while it has unsaved edits, and closing it,
   switching task or quitting asks to Save, Discard or Cancel. When the agent changes a file you're editing, it reloads

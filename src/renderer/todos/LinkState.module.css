@@ -1,0 +1,112 @@
+/*
+ * What the Todos tab draws of a task's watched GitHub links (#683), from docs/design/html/65-github-link-rows.html:
+ * an expanded link tile's state line, and the state a collapsed todo's kind row carries. Colours are tokens.md's
+ * own: teal for open and for a passed check or an approved review, the text-safe blue for checks running or a PR in
+ * the merge queue, muted grey for merged, closed or draft, pink only for a failed check or a changes-requested
+ * review, faint for comments, a review still waiting and anything else pending. Nothing under a todo is live, so
+ * none of this is a link or a button.
+ */
+
+/* An item of the state line: mono, small, one colour, never wrapping. */
+.item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+  white-space: nowrap;
+}
+
+/* The state word leads the line: medium weight, so it reads as what the rest qualifies. */
+.headline {
+  font-weight: 500;
+}
+
+/* A state's dot: a small disc in the item's own colour. */
+.dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 4px;
+  background: currentColor;
+}
+
+/* The faint middle dot between two items of the line. */
+.sep {
+  color: var(--color-inner-border);
+}
+
+/* The tones. */
+.open {
+  color: var(--color-teal);
+}
+
+.active {
+  color: var(--color-blue-text);
+}
+
+.muted {
+  color: var(--color-muted);
+}
+
+.alert {
+  color: var(--color-pink);
+}
+
+/* Faint is the item colour itself; the class exists so the model's tone always maps to one. */
+.faint {
+  color: var(--color-faint);
+}
+
+/* The icon classes a link tile's own icon wears, by its state. */
+.iconOpen {
+  color: var(--color-teal);
+}
+
+.iconActive {
+  color: var(--color-blue);
+}
+
+.iconMuted {
+  color: var(--color-slate);
+}
+
+/*
+ * A collapsed todo's state, after its link count in its kind row: the watched links' entries, or one count per
+ * state. It never wraps: it clips, so with more links than fit the least important drop first.
+ */
+.cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* One entry: a state-coloured icon, the link's number in faint grey, then the one thing about it. */
+.git {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+}
+
+.gitIcon {
+  flex-shrink: 0;
+  display: inline-flex;
+}
+
+/* A link's number, faint whatever its state says, so the state colour reads on the icon and the words alone. */
+.number {
+  color: var(--color-faint);
+}
+
+/* An item of an entry that carries a small icon before its words keeps them a little apart. */
+.toned {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}

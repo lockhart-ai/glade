@@ -289,6 +289,8 @@ describe('opening a result', () => {
         watchers: [],
         commits: [],
         agentTab: null,
+
+        githubWatches: [],
       }),
       [CommandName.TasksHistoryBefore]: () => ({
         messages: [older],
@@ -340,6 +342,8 @@ describe('opening a result', () => {
         watchers: [],
         commits: [],
         agentTab: null,
+
+        githubWatches: [],
       }),
       [CommandName.TasksHistoryBefore]: () => {
         pages += 1
@@ -392,6 +396,8 @@ describe('opening a result', () => {
         watchers: [],
         commits: [],
         agentTab: null,
+
+        githubWatches: [],
       }),
       [CommandName.TasksHistoryBefore]: before,
     })

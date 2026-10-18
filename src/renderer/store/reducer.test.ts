@@ -23,7 +23,7 @@ import {
   type Watcher,
 } from '../../shared/domain'
 import { noOpenFiles } from '../../shared/files'
-import { GithubLinkKind, GithubLinkState, type GithubLinkWatch } from '../../shared/githubWatch'
+import { GithubChecksState, GithubLinkKind, GithubLinkState, type GithubLinkWatch } from '../../shared/githubWatch'
 import { NO_TOUCHED_FILES } from '../../shared/touchedFiles'
 import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
 import { ChildFilter, ChildKind, FilingSource, UNFILED_TODO_ID, type Filing } from '../../shared/todoHub'
@@ -314,6 +314,8 @@ describe("a task's logs", () => {
       eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
+
+      githubWatches: [],
     })
 
     expect(applyEvent(loaded, { type: EventType.ToolEventUpdated, toolEvent: done }).toolEvents).toEqual({
@@ -343,6 +345,8 @@ describe("a task's logs", () => {
       eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
+
+      githubWatches: [],
     })
 
     expect(
@@ -382,6 +386,8 @@ describe("a task's logs", () => {
       eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
+
+      githubWatches: [],
     })
 
     expect(next.messages.t1).toEqual([early, late])
@@ -407,6 +413,8 @@ describe("a task's logs", () => {
         eventsBefore: null,
         touchedFiles: NO_TOUCHED_FILES,
         agentTab: null,
+
+        githubWatches: [],
       }).messages,
     ).toEqual({ t2: [] })
   })
@@ -460,6 +468,8 @@ describe("a task's logs", () => {
           commits: [],
           questionDraft: null,
           agentTab: null,
+
+          githubWatches: [],
         },
       )
 
@@ -497,6 +507,8 @@ describe("a task's logs", () => {
         commits: [],
         questionDraft: null,
         agentTab: null,
+
+        githubWatches: [],
       })
       const whileLoading = applyEvent(loaded, { type: EventType.MessageAppended, message: live })
 
@@ -524,6 +536,8 @@ describe("a task's logs", () => {
         commits: [],
         questionDraft: null,
         agentTab: null,
+
+        githubWatches: [],
       })
 
       const next = withOlderHistory(loaded, 't1', { ...page, messages: [early], hasOlderMessages: false })
@@ -576,6 +590,8 @@ describe("a task's logs", () => {
           commits: [],
           questionDraft: null,
           agentTab: null,
+
+          githubWatches: [],
         },
       )
 
@@ -613,6 +629,8 @@ describe("a task's logs", () => {
         commits: [],
         questionDraft: null,
         agentTab: null,
+
+        githubWatches: [],
       })
       const fresh = { ...subagentCall, output: 'ok', state: ToolCallState.Done }
       const older = { ...subagentCall, id: 'e0', toolUseId: 'toolu_00', seq: 1 }
@@ -656,6 +674,8 @@ describe("a task's queue", () => {
       eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
+
+      githubWatches: [],
     })
     expect(loaded.queuedMessages).toEqual({ t1: [second] })
   })
@@ -705,6 +725,8 @@ describe("a task's questions", () => {
       eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
+
+      githubWatches: [],
     }
     expect(withHistory(state, 't1', { ...empty, questionSets: [answered] }).questionSets).toEqual({ t1: [answered] })
   })
@@ -757,6 +779,8 @@ describe("a task's permission requests", () => {
       eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
+
+      githubWatches: [],
     }
     // A request opened while the history loaded stays, after the loaded ones.
     const loaded = withHistory(asked, 't1', { ...empty, permissionRequests: [denied], permissionMarks: [] })
@@ -806,6 +830,8 @@ describe("a task's permission marks", () => {
       eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
+
+      githubWatches: [],
     }
     // The load read `a` before it was named, and a call the window hadn't heard of; `b` came after the load was read.
     const loaded = withHistory(marked, 't1', { ...history, permissionMarks: [mark('earlier'), mark('a')] })
@@ -842,6 +868,8 @@ describe("a task's open files", () => {
       eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
+
+      githubWatches: [],
     }
     expect(withHistory(changed, 't1', { ...empty, openFiles: noOpenFiles('t1') }).openFiles).toEqual({
       t1: noOpenFiles('t1'),
@@ -933,6 +961,8 @@ describe("a task's artifacts", () => {
     eventsBefore: null,
     touchedFiles: NO_TOUCHED_FILES,
     agentTab: null,
+
+    githubWatches: [],
   })
 
   it('takes the whole list from each change, and from a history load that started at or after the last one', () => {
@@ -1009,6 +1039,8 @@ describe("a task's watchers", () => {
     eventsBefore: null,
     touchedFiles: NO_TOUCHED_FILES,
     agentTab: null,
+
+    githubWatches: [],
   })
 
   it('takes every task’s live ones on start, by task, over none', () => {
@@ -1080,6 +1112,102 @@ describe("a task's watchers, as main sends the whole list with each change (#537
   })
 })
 
+describe("a task's watched GitHub links (#683)", () => {
+  const watch = (url: string, fields: Partial<GithubLinkWatch> = {}): GithubLinkWatch => ({
+    taskId: 't1',
+    url,
+    kind: GithubLinkKind.PullRequest,
+    state: GithubLinkState.Open,
+    merged: false,
+    draft: false,
+    inMergeQueue: false,
+    checksState: null,
+    checksSummary: null,
+    reviewState: null,
+    commentCount: 0,
+    headOid: null,
+    title: 'A pull request',
+    watching: true,
+    lastFetchedAt: 1_000,
+    ...fields,
+  })
+  const one = watch('https://github.com/acme/api/pull/1')
+  const two = watch('https://github.com/acme/api/issues/2', { kind: GithubLinkKind.Issue })
+  const history = (watches: readonly GithubLinkWatch[]) => ({
+    messages: [],
+    toolEvents: [],
+    queuedMessages: [],
+    questionSets: [],
+    permissionRequests: [],
+    permissionMarks: [],
+    openFiles: noOpenFiles('t1'),
+    todos: null,
+    artifacts: [],
+    handoff: null,
+    watchers: [],
+    githubWatches: watches,
+    commits: [],
+    questionDraft: null,
+    hasOlderMessages: false,
+    hasOlderEvents: false,
+    messagesBefore: null,
+    eventsBefore: null,
+    touchedFiles: NO_TOUCHED_FILES,
+    agentTab: null,
+  })
+
+  it("takes a load's watches by address, and none is no change", () => {
+    const loaded = withHistory(state, 't1', history([one, two]))
+    expect(loaded.githubWatches.t1).toEqual({
+      'https://github.com/acme/api/pull/1': one,
+      'https://github.com/acme/api/issues/2': two,
+    })
+    expect(withHistory(state, 't1', history([])).githubWatches).toBe(state.githubWatches)
+  })
+
+  it('keeps the object of each watch that is as it was, and takes the one that changed', () => {
+    const loaded = withHistory(state, 't1', history([one, two]))
+    const fetched = { ...one, checksState: GithubChecksState.Pending, checksSummary: '3/14', lastFetchedAt: 2_000 }
+    const again = withHistory(loaded, 't1', history([{ ...fetched }, two]))
+    expect(again.githubWatches.t1).toEqual({
+      'https://github.com/acme/api/pull/1': fetched,
+      'https://github.com/acme/api/issues/2': two,
+    })
+    expect(again.githubWatches.t1?.['https://github.com/acme/api/pull/1']).not.toBe(
+      loaded.githubWatches.t1?.['https://github.com/acme/api/pull/1'],
+    )
+    expect(again.githubWatches.t1?.['https://github.com/acme/api/issues/2']).toBe(
+      loaded.githubWatches.t1?.['https://github.com/acme/api/issues/2'],
+    )
+  })
+
+  it("takes the load's word over a live update that arrived while it was in flight", () => {
+    const loaded = withHistory(state, 't1', history([one]))
+    const brought = applyEvent(loaded, {
+      type: EventType.GithubWatchChanged,
+      watch: { ...one, commentCount: 2, lastFetchedAt: 3_000 },
+    })
+    expect(withHistory(brought, 't1', history([one])).githubWatches.t1?.['https://github.com/acme/api/pull/1']).toEqual(
+      one,
+    )
+  })
+
+  it('keeps the whole store when the load says what the store already knows', () => {
+    const loaded = withHistory(state, 't1', history([one]))
+    expect(withHistory(loaded, 't1', history([{ ...one }])).githubWatches).toBe(loaded.githubWatches)
+    expect(withHistory(loaded, 't1', history([{ ...one }])).githubWatches.t1).toBe(loaded.githubWatches.t1)
+  })
+
+  it('leaves another task on its own', () => {
+    const loaded = withHistory(state, 't1', history([one]))
+    const other = withHistory(loaded, 't2', history([watch('https://github.com/acme/api/pull/9', { taskId: 't2' })]))
+    expect(other.githubWatches.t1).toBe(loaded.githubWatches.t1)
+    expect(other.githubWatches.t2).toEqual({
+      'https://github.com/acme/api/pull/9': watch('https://github.com/acme/api/pull/9', { taskId: 't2' }),
+    })
+  })
+})
+
 describe("every task's running subagents", () => {
   const agent = (id: string, taskId: string): ToolCallEvent => ({
     ...call,
@@ -1128,6 +1256,8 @@ describe("every task's running subagents", () => {
       eventsBefore: null,
       touchedFiles: NO_TOUCHED_FILES,
       agentTab: null,
+
+      githubWatches: [],
     })
     expect(loaded.toolEvents.t1).toEqual([divider, finished])
   })
@@ -1174,6 +1304,8 @@ describe("a task's commits", () => {
     eventsBefore: null,
     touchedFiles: NO_TOUCHED_FILES,
     agentTab: null,
+
+    githubWatches: [],
   })
 
   it('takes a task’s whole list with its history, and from each change, each task’s its own', () => {
@@ -1213,6 +1345,8 @@ describe("a task's handoff note", () => {
     eventsBefore: null,
     touchedFiles: NO_TOUCHED_FILES,
     agentTab: null,
+
+    githubWatches: [],
   })
 
   it('takes the note from each change, and a cleared one as none', () => {
@@ -1259,6 +1393,8 @@ describe("a task's todo list", () => {
     eventsBefore: null,
     touchedFiles: NO_TOUCHED_FILES,
     agentTab: null,
+
+    githubWatches: [],
   })
 
   it('takes the list from each change, whole', () => {

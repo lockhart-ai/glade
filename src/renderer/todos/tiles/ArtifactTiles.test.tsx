@@ -15,6 +15,7 @@ import {
   type FileThumbnail,
 } from '../../../shared/domain'
 import { ChildFilter, ChildKind, type TodoPanel } from '../../../shared/todoHub'
+import { GithubChecksState, GithubLinkKind, GithubLinkState, type GithubLinkWatch } from '../../../shared/githubWatch'
 import thumbStyles from '../../artifacts/ArtifactThumb.module.css'
 import { settleFloating } from '../../components/settleFloating'
 import { VIEWER_LABEL } from '../../images/ImageViewer'
@@ -857,6 +858,95 @@ describe('a link’s tile', () => {
     fireEvent.click(tile('Link: Token buckets, explained'))
 
     expect(await screen.findByText('No browser to open it in')).toBeInTheDocument()
+  })
+})
+
+describe('a watched link’s tile (#683)', () => {
+  const watch = (fields: Partial<GithubLinkWatch> = {}): GithubLinkWatch => ({
+    taskId: 't1',
+    url: PR_509,
+    kind: GithubLinkKind.PullRequest,
+    state: GithubLinkState.Open,
+    merged: false,
+    draft: false,
+    inMergeQueue: false,
+    checksState: null,
+    checksSummary: null,
+    reviewState: null,
+    commentCount: 0,
+    headOid: null,
+    title: 'Document the rate limits',
+    watching: true,
+    lastFetchedAt: HUB_NOW,
+    ...fields,
+  })
+
+  it('says what it is, its checks, its review and its comments under its title, and its age on that line', async () => {
+    await renderHub(TASK, {
+      githubWatches: [
+        watch({
+          checksState: GithubChecksState.Pending,
+          checksSummary: '8/14',
+          reviewState: 'PENDING',
+          commentCount: 3,
+        }),
+      ],
+    })
+    const row = tile('Link: Document the rate limits')
+
+    // The state line, under the title: the state, then the checks, the review and the comments, middle-dotted.
+    expect(within(row).getByText('Open')).toBeInTheDocument()
+    expect(within(row).getByText('8/14 checks')).toBeInTheDocument()
+    expect(within(row).getByText('Waiting')).toBeInTheDocument()
+    expect(within(row).getByText('3')).toBeInTheDocument()
+    // The age moved onto the state line's far right, and is there once.
+    expect(within(row).getAllByText('7m')).toHaveLength(1)
+  })
+
+  it('shows the title the watcher saw on GitHub, which may differ from the artifact', async () => {
+    await renderHub(TASK, { githubWatches: [watch({ title: 'Rate limits: document them' })] })
+
+    expect(screen.getByRole('group', { name: 'Link: Rate limits: document them' })).toBeInTheDocument()
+  })
+
+  it('keeps a link with no watch yet as it was, whatever else the task has watched', async () => {
+    await renderHub(TASK, { githubWatches: [watch({ url: ISSUE_502, title: '/search needs its own limit' })] })
+    const row = tile('Link: Document the rate limits')
+
+    expect(row).toHaveTextContent(/^Document the rate limits#5097m$/)
+    expect(within(row).queryByText('Open')).toBeNull()
+  })
+
+  it('takes a watch the watcher reports while the tab shows the task, and lets it go again', async () => {
+    const { fake } = await renderHub(TASK)
+    expect(within(tile('Link: Document the rate limits')).queryByText('Merged')).toBeNull()
+
+    act(() => {
+      fake.emit({ type: EventType.GithubWatchChanged, watch: watch({ state: GithubLinkState.Closed, merged: true }) })
+    })
+    const row = tile('Link: Document the rate limits')
+    expect(within(row).getByText('Merged')).toBeInTheDocument()
+    // A merged pull request keeps its pull request's icon; a closed issue shows the closed one.
+    expect(row.querySelector('svg')).toHaveAttribute('data-icon', 'code-pull-request')
+
+    act(() => {
+      fake.emit({
+        type: EventType.GithubWatchChanged,
+        watch: watch({
+          url: ISSUE_502,
+          kind: GithubLinkKind.Issue,
+          state: GithubLinkState.Closed,
+          title: '/search needs its own limit',
+        }),
+      })
+    })
+    expect(tile('Link: /search needs its own limit').querySelector('svg')).toHaveAttribute('data-icon', 'circle-check')
+  })
+
+  it('says nothing of a non-GitHub page', async () => {
+    await renderHub(TASK, { githubWatches: [watch()] })
+
+    expect(within(tile('Link: Token buckets, explained')).queryByText('Open')).toBeNull()
   })
 })
 

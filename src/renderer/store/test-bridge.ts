@@ -76,6 +76,7 @@ import { NO_TOUCHED_FILES } from '../../shared/touchedFiles'
 import { isSubagentTool } from '../../shared/subagents'
 import { taskPermissionRule } from '../../shared/permissions'
 import type { ImageData, ImageRef } from '../../shared/images'
+import type { GithubLinkWatch } from '../../shared/githubWatch'
 import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import { controlUrl, type ControlStatus } from '../../shared/control'
@@ -157,6 +158,8 @@ export interface FakeMain {
   readonly stoppedSubagents?: string[]
   /** Every task's watchers; `watchers.stop` stops one (as a job is stopped: at once) and records its id in `stoppedWatchers`. */
   readonly watchers?: Watcher[]
+  /** Every task's watched GitHub links (#683): what the watcher last knew, by task and address. */
+  readonly githubWatches?: GithubLinkWatch[]
   /** The watchers `watchers.stop` was asked to stop, by id, in order. */
   readonly stoppedWatchers?: string[]
   /** Every task's commits, newest first; none when left out. */
@@ -559,6 +562,7 @@ export function fakeHandlers(
       artifacts: artifacts.filter((artifact) => artifact.taskId === id),
       handoff: main.handoffs?.[id] ?? null,
       watchers: (main.watchers ?? []).filter((watcher) => watcher.taskId === id),
+      githubWatches: (main.githubWatches ?? []).filter((watch) => watch.taskId === id),
       commits: (main.commits ?? []).filter((commit) => commit.taskId === id),
       agentTab: main.agentTabs?.[id] ?? null,
     }),

@@ -874,6 +874,8 @@ describe("a task's logs", () => {
           watchers: [],
           commits: [],
           agentTab: null,
+
+          githubWatches: [],
         }),
         [CommandName.TasksHistoryBefore]: ({ messagesBefore }) => {
           pages += 1
@@ -940,6 +942,8 @@ describe("a task's logs", () => {
           watchers: [],
           commits: [],
           agentTab: null,
+
+          githubWatches: [],
         }),
         [CommandName.TasksHistoryBefore]: () => refuse(failure),
       },
@@ -1036,6 +1040,8 @@ describe("a task's logs", () => {
           watchers: [],
           commits: [],
           agentTab: null,
+
+          githubWatches: [],
         }
       },
       [CommandName.TasksHistoryBefore]: ({ eventsBefore, limit }) => {
@@ -1650,6 +1656,8 @@ describe("a task's artifacts", () => {
       commits: [],
       questionDraft: null,
       agentTab: null,
+
+      githubWatches: [],
     })
     await load
 

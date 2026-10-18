@@ -93,6 +93,8 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
       watchers: [],
       commits: [],
       agentTab: null,
+
+      githubWatches: [],
     }),
     [CommandName.TasksHistoryBefore]: () => ({
       messages: [],
