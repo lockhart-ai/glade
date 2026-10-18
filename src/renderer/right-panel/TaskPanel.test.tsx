@@ -362,7 +362,7 @@ describe('TaskPanel', () => {
       })
       const { emit } = await renderPanel({
         todos: { t1: list(0, 4) },
-        uiState: [{ key: UiStateKey.RightPanelTab, value: 'todos' }],
+        uiState: [{ key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'todos' }) }],
       })
       expect(tab(/^Todos/)).toHaveTextContent('Todos 0/4')
       expect(screen.queryByRole('img', { name: /waiting on you/ })).toBeNull()
