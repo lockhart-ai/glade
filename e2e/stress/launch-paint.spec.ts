@@ -10,8 +10,12 @@
 // about 30 ms and the selected task's history about 50 ms, all inside the first render. The budget is set from
 // those numbers with headroom for CI's runners, and catches a launch falling back to waiting on work that doesn't
 // belong before the first paint.
-import { expect, test } from './fixtures'
-import { LONG_TASK_TITLES, SPIKE_SIZE, writeSwitchLatencySeed } from './switch-latency-seed'
+//
+// A measurement, not a CI check: seeding ~800 tasks blocks main past Playwright's 30 s wait for the window on CI's
+// runners, so it lives with the stress specs. Run it with `GLADE_E2E_STRESS=1 npx playwright test e2e/stress/launch-paint.spec.ts`;
+// it prints the two medians.
+import { expect, test } from '../fixtures'
+import { LONG_TASK_TITLES, SPIKE_SIZE, writeSwitchLatencySeed } from '../switch-latency-seed'
 
 /**
  * The slowest a launch may take to paint the shell, or to be fully loaded, at the median over three runs. Measured
