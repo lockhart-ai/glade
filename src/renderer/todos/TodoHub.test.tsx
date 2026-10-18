@@ -200,9 +200,9 @@ describe('the hub’s todos', () => {
   it('keeps a slot for every kind, so the counts and the states line up down the list (#727)', async () => {
     await renderHub(SHIP)
 
-    // The closed row gives each count its own fixed-width slot, placed by its kind, and the states their own after
-    // them: a kind with none leaves its slot empty rather than shifting the rest left, so the states start at the
-    // same place on every todo. The columns themselves are CSS; this is the structure they place.
+    // The closed row packs the counts from the left into a counts area of fixed width — one equal slot each, a kind
+    // with none taking no slot — and the states their own area after it, so the first, second and third element of
+    // every row start at the same place from todo to todo. The columns themselves are CSS; this is what they place.
     const slots = (text: string | RegExp): string[] =>
       [
         ...card(text).querySelectorAll(
@@ -1808,8 +1808,8 @@ describe("a collapsed todo's linked pull requests and issues (#683)", () => {
       },
     )
 
-    expect(row(/#501/).textContent).toBe('22·#511Merge queue·#5014')
-    expect(row(/#502/).textContent).toBe('11·#5135/8')
+    expect(row(/#501/).textContent).toBe('22#511Merge queue#5014')
+    expect(row(/#502/).textContent).toBe('11#5135/8')
   })
 
   it('collapses more than two watched links into one count per state', async () => {
@@ -1842,7 +1842,7 @@ describe("a collapsed todo's linked pull requests and issues (#683)", () => {
       },
     )
 
-    expect(row('Harden the import pipeline').textContent).toBe('4·1 failing·1 running·1 queued·1 open')
+    expect(row('Harden the import pipeline').textContent).toBe('41 failing1 running1 queued1 open')
   })
 
   it('says nothing of a link the watcher has not fetched yet, nor of a todo with none watched', async () => {

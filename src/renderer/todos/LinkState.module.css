@@ -73,17 +73,22 @@
 }
 
 /*
- * A collapsed todo's state, after its link count in its kind row: the watched links' entries, or one count per
- * state. It never wraps: it clips, so with more links than fit the least important drop first.
+ * A collapsed todo's state, after its counts in its kind row (#727): the watched links' entries, or one count per
+ * state, each in its own equal fixed-width slot, so entry lines up with entry down the list, whatever counts the
+ * todo has before them. The slot does the separating where the middle dots were: an entry is wide enough for
+ * `#2632 Merged` and the row's one 12px gap after it, and a longer entry (`Merge queue`) grows past its slot and
+ * pushes the rest. It never wraps: it clips, so with more entries than fit the last ones drop first.
  */
 .cluster {
   display: inline-flex;
   align-items: center;
-  /* Entries and their separators sit apart enough to read as separate items (#723: 2px ran them together), as the design's line gaps have it. */
-  gap: var(--space-md);
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+
+  /* One slot: the entry's 12px icon, the 4px to its number, five digits (`#2632`), the row's 12px to the state,
+     the state's own 12px icon, its 3px to up to six characters (`Merged`), and the row's 12px after. */
+  --state-slot: calc(55px + 11ch);
 }
 
 /* One entry: a state-coloured icon, the link's number in faint grey, then the one thing about it. */
@@ -91,6 +96,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
+  min-width: var(--state-slot);
   font-family: var(--font-mono);
   font-size: var(--font-size-label);
 }
@@ -102,12 +108,12 @@
 
 /*
  * A link's number, faint whatever its state says, so the state colour reads on the icon and the words alone. The
- * 5px margin and the entry's own 3px gap put a clear 8px between the number and what it says of the link (#727),
- * while the icon keeps the 3px against the number it belongs to.
+ * 8px margin and the entry's own 4px gap make the row's one 12px gap between the number and what it says of the
+ * link (#727), while the icon keeps its 4px against the number it belongs to.
  */
 .number {
   color: var(--color-faint);
-  margin-right: 5px;
+  margin-right: 8px;
 }
 
 /* An item of an entry that carries a small icon before its words keeps them a little apart. */

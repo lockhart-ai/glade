@@ -153,24 +153,6 @@
           "todo": "1"
         },
         {
-          "url": "https://github.com/acme/api/pull/514",
-          "title": "Rate the burst test's retry budget",
-          "minutesAgo": 12,
-          "todo": "1"
-        },
-        {
-          "url": "https://github.com/acme/api/issues/501",
-          "title": "429s don’t say when to retry",
-          "minutesAgo": 22,
-          "todo": "1"
-        },
-        {
-          "url": "https://github.com/acme/api/pull/509",
-          "title": "Cache tokens between requests",
-          "minutesAgo": 1500,
-          "todo": "1"
-        },
-        {
           "url": "https://github.com/acme/api/pull/513",
           "title": "Per-key limits for /search",
           "minutesAgo": 2,
@@ -189,28 +171,16 @@
           "todo": "3"
         },
         {
-          "url": "https://github.com/acme/api/issues/505",
-          "title": "Retry-After on the batch endpoint",
-          "minutesAgo": 26,
-          "todo": "3"
-        },
-        {
           "url": "https://github.com/acme/api/pull/518",
           "title": "Skip the burst test on a flake",
           "minutesAgo": 31,
           "todo": "3"
         },
         {
-          "url": "https://github.com/acme/api/issues/503",
-          "title": "Document the rate limits",
-          "minutesAgo": 30,
-          "todo": "3"
-        },
-        {
-          "path": "docs/rate-limits.md",
-          "title": "Rate limits",
-          "minutesAgo": 20,
-          "todo": "3"
+          "path": "src/retry_after.py",
+          "title": "Retry-After",
+          "minutesAgo": 9,
+          "todo": "1"
         }
       ],
       "githubWatches": [
@@ -228,33 +198,9 @@
           "title": "Queue the header rewrite",
           "state": "open",
           "minutesAgo": 2,
-          "inMergeQueue": true,
           "checksState": "success",
           "checksSummary": "14/14",
           "reviewState": "APPROVED"
-        },
-        {
-          "url": "https://github.com/acme/api/pull/514",
-          "title": "Rate the burst test's retry budget",
-          "state": "open",
-          "minutesAgo": 2,
-          "checksState": "pending",
-          "checksSummary": "8/14",
-          "reviewState": "PENDING"
-        },
-        {
-          "url": "https://github.com/acme/api/issues/501",
-          "title": "429s don’t say when to retry",
-          "state": "open",
-          "minutesAgo": 3,
-          "commentCount": 5
-        },
-        {
-          "url": "https://github.com/acme/api/pull/509",
-          "title": "Cache tokens between requests",
-          "state": "closed",
-          "minutesAgo": 4,
-          "merged": true
         },
         {
           "url": "https://github.com/acme/api/pull/513",
@@ -280,24 +226,11 @@
           "checksSummary": "5/8"
         },
         {
-          "url": "https://github.com/acme/api/issues/505",
-          "title": "Retry-After on the batch endpoint",
-          "state": "open",
-          "minutesAgo": 3,
-          "commentCount": 2
-        },
-        {
           "url": "https://github.com/acme/api/pull/518",
           "title": "Skip the burst test on a flake",
           "state": "closed",
           "minutesAgo": 4,
           "merged": true
-        },
-        {
-          "url": "https://github.com/acme/api/issues/503",
-          "title": "Document the rate limits",
-          "state": "open",
-          "minutesAgo": 5
         }
       ],
       "commits": [
@@ -316,12 +249,6 @@
           "deletions": 12,
           "minutesAgo": 14,
           "todo": "2"
-        }
-      ],
-      "todoPanels": [
-        {
-          "todo": "1",
-          "open": true
         }
       ]
     },
