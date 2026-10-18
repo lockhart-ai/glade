@@ -96,6 +96,40 @@ describe('hydrate', () => {
     expect(store.getState().tasks.t1).toEqual(task)
   })
 
+  it("loads the selected task's history after the frame the shell paints on (#674)", async () => {
+    const fake = fakeBridge(
+      main([
+        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+        { key: UiStateKey.SelectedTaskId, value: 't1' },
+      ]),
+    )
+    let frameWaited = false
+    // The frame's release, set once `afterFrame` runs (a closure's write, so it's kept in an object).
+    const frame = { release: (): void => undefined }
+    const store = createGladeStore(fake.bridge, {
+      afterFrame: () =>
+        new Promise<void>((resolve) => {
+          frameWaited = true
+          frame.release = resolve
+        }),
+    })
+    const loading = store.getState().hydrate()
+    await vi.waitFor(() => {
+      expect(frameWaited).toBe(true)
+    })
+
+    // The shell is whole while the frame waits: the workspace, the task list and the restored selection are in the
+    // store, and the history hasn't been asked for yet.
+    expect(store.getState().hydration).toEqual({ status: HydrationStatus.Ready })
+    expect(store.getState().selectedTaskId).toBe('t1')
+    expect(fake.invoke.mock.calls.map(([command]) => command)).not.toContain(CommandName.TasksHistory)
+
+    frame.release()
+    await loading
+    expect(fake.invoke.mock.calls.map(([command]) => command)).toContain(CommandName.TasksHistory)
+    expect(store.getState().selectedTaskId).toBe('t1')
+  })
+
   describe("a done task it hasn't seen, e.g. one imported done", () => {
     const imported = {
       ...sampleTask('t9', 'w2'),

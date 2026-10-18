@@ -413,8 +413,11 @@ export function Chat(): React.JSX.Element {
     onScroll()
     loadOlderOnScroll()
   }, [onScroll, loadOlderOnScroll])
-  // A backfilled task shows its handoff note in place of what to write.
-  const isNew = task !== undefined && entries.length === 0 && narration === null && handoff === null
+  // A backfilled task shows its handoff note in place of what to write. The prompt shows only once the task's
+  // history has loaded (#674): while it loads, as on a cold task switch (#637), the chat is blank rather than
+  // flashing the empty state at a task that has messages.
+  const historyLoaded = useGladeStore((state) => task === undefined || state.historyTails[task.id] !== undefined)
+  const isNew = task !== undefined && historyLoaded && entries.length === 0 && narration === null && handoff === null
   const highlight = useSearchHighlight()
   useRevealMatch(ref, taskId)
 

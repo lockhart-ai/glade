@@ -35,6 +35,7 @@ import { settleFloating } from '../components/settleFloating'
 import { VIEWER_LABEL } from '../images/ImageViewer'
 import { IMAGE_LABEL } from '../images/StoredImage'
 import { GladeStoreProvider } from '../store/react'
+import { HydrationStatus } from '../store/state'
 import { createGladeStore, type GladeStore } from '../store/store'
 import {
   fakeBridge,
@@ -210,6 +211,37 @@ describe('Chat', () => {
       'Describe it in your own words. The agent names the task and writes its objective from your first message. ' +
         'It works in the workspace root, /code/w1.',
     )
+  })
+
+  it('shows a blank conversation, not the prompt, while the task’s history loads (#674)', async () => {
+    const fake = fakeBridge({ workspaces: [sampleWorkspace('w1')], tasks: [sampleTask('t1', 'w1')], uiState: [] })
+    const store = createGladeStore(fake.bridge)
+    render(
+      <GladeStoreProvider store={store}>
+        <ToastProvider>
+          <Chat />
+        </ToastProvider>
+      </GladeStoreProvider>,
+    )
+    // The task selected, its history still on its way: what launch shows between the shell's first frame and the
+    // history landing. No prompt, for a task that may have messages.
+    act(() => {
+      store.setState({
+        hydration: { status: HydrationStatus.Ready },
+        workspaces: [sampleWorkspace('w1')],
+        tasks: { t1: sampleTask('t1', 'w1') },
+        selectedWorkspaceId: 'w1',
+        selectedTaskId: 't1',
+      })
+    })
+    expect(conversation()).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'What should the agent do?' })).toBeNull()
+
+    // Once the load answers and the task genuinely has nothing, the prompt shows as before.
+    await act(async () => {
+      await store.getState().loadHistory('t1')
+    })
+    expect(screen.getByRole('heading', { name: 'What should the agent do?' })).toBeInTheDocument()
   })
 
   it("shows a backfilled task's handoff note at the top, in place of what to write", async () => {

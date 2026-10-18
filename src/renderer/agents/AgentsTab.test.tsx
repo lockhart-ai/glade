@@ -373,6 +373,21 @@ describe('an agent’s tool calls', () => {
     expect(within(panel()).queryByRole('log')).toBeNull()
   })
 
+  it('show a blank log, not "No tool calls yet.", while the task’s history loads (#674)', async () => {
+    const main = hubMain({})
+    const hub: HubStore = { ...storeWrapper(main), main }
+    render(<AgentsTab taskId="t1" rootPath="/Users/sample/code/api" />, { wrapper: hub.wrapper })
+
+    // What launch shows between the shell's first frame and the history landing: an empty log that fills in, not a
+    // message saying there have never been any calls.
+    expect(within(panel()).queryByText('No tool calls yet.')).toBeNull()
+    expect(within(panel()).getByRole('log')).toBeInTheDocument()
+
+    await act(() => hub.store.getState().hydrate())
+    expect(within(panel()).getByText('No tool calls yet.')).toBeInTheDocument()
+    expect(within(panel()).queryByRole('log')).toBeNull()
+  })
+
   it('show a subagent of a subagent as an Agent call in its parent’s list, with a tab of its own', async () => {
     const inner = hubAgent('inner', 'check-links', 4, { parentToolUseId: 'docs-503' })
     await renderAgents({
