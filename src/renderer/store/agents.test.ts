@@ -131,7 +131,7 @@ describe('what opens the panel at an agent', () => {
           { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
           { key: UiStateKey.SelectedTaskId, value: 't1' },
           { key: UiStateKey.RightPanelCollapsed, value: 'true' },
-          { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: 'files' }) },
+          { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'files' }) },
         ],
         agentTabs: { t1: 'fix-501' },
       }),
@@ -141,7 +141,7 @@ describe('what opens the panel at an agent', () => {
 
     expect(store.getState().toolLogFocus).toEqual({ taskId: 't1', turn: 2, request: 1 })
     expect(store.getState().agentTabs).toEqual({})
-    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Agents)
+    expect(activePanelTab(store.getState().uiState, 't1')).toBe(PanelTab.Agents)
     expect(store.getState().uiState).toMatchObject({ [UiStateKey.RightPanelCollapsed]: 'false' })
     await vi.waitFor(() => {
       expect(setTabs(invoke)).toEqual([{ taskId: 't1', agentId: null }])
@@ -154,7 +154,7 @@ describe('what opens the panel at an agent', () => {
         uiState: [
           { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
           { key: UiStateKey.SelectedTaskId, value: 't1' },
-          { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: 'files', w2: 'todos' }) },
+          { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'files', t2: 'todos' }) },
         ],
       }),
     )
@@ -162,8 +162,8 @@ describe('what opens the panel at an agent', () => {
 
     store.getState().focusTurn('t2', 1)
 
-    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Files)
-    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Todos)
+    expect(activePanelTab(store.getState().uiState, 't1')).toBe(PanelTab.Files)
+    expect(activePanelTab(store.getState().uiState, 't2')).toBe(PanelTab.Todos)
     expect(store.getState().agentTabs).toEqual({})
   })
 
@@ -173,7 +173,7 @@ describe('what opens the panel at an agent', () => {
         uiState: [
           { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
           { key: UiStateKey.SelectedTaskId, value: 't1' },
-          { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: 'subagents' }) },
+          { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'subagents' }) },
         ],
       }),
     )
@@ -183,17 +183,17 @@ describe('what opens the panel at an agent', () => {
     store.getState().showAgent('t1', 'fix-501')
 
     expect(writes()).toBe(before)
-    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Agents)
+    expect(activePanelTab(store.getState().uiState, 't1')).toBe(PanelTab.Agents)
     expect(store.getState().agentTabs).toEqual({ t1: 'fix-501' })
   })
 
-  it('opens a task a plugin asks for on its subagent’s tab of the Agents tab, in the task’s own workspace', async () => {
+  it('opens a task a plugin asks for on its subagent’s tab of the Agents tab, remembered for that task', async () => {
     const { store, emit, invoke } = await hydrated(
       main({
         uiState: [
           { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
           { key: UiStateKey.RightPanelCollapsed, value: 'true' },
-          { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: 'files', w2: 'todos' }) },
+          { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'files', t2: 'todos' }) },
         ],
       }),
     )
@@ -204,8 +204,8 @@ describe('what opens the panel at an agent', () => {
       expect(store.getState().agentTabs).toEqual({ t2: 'toolu_kitten' })
     })
     expect(store.getState().selectedTaskId).toBe('t2')
-    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Agents)
-    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Files)
+    expect(activePanelTab(store.getState().uiState, 't2')).toBe(PanelTab.Agents)
+    expect(activePanelTab(store.getState().uiState, 't1')).toBe(PanelTab.Files)
     expect(store.getState().uiState).toMatchObject({ [UiStateKey.RightPanelCollapsed]: 'false' })
     await vi.waitFor(() => {
       expect(setTabs(invoke)).toEqual([{ taskId: 't2', agentId: 'toolu_kitten' }])
@@ -234,7 +234,7 @@ describe('what opens the panel at an agent', () => {
     await Promise.resolve()
 
     expect(store.getState().agentTabs).toEqual({ t1: 'fix-501' })
-    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Agents)
+    expect(activePanelTab(store.getState().uiState, 't1')).toBe(PanelTab.Agents)
   })
 })
 
@@ -245,7 +245,7 @@ describe('showTodo', () => {
 
     store.getState().showTodo('t1', '2')
     expect(store.getState().todoFocus).toEqual({ taskId: 't1', todoId: '2', request: 1 })
-    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Todos)
+    expect(activePanelTab(store.getState().uiState, 't1')).toBe(PanelTab.Todos)
 
     store.getState().showTodo('t1', '2')
     expect(store.getState().todoFocus?.request).toBe(2)

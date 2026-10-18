@@ -270,7 +270,7 @@ describe('a file’s tile', () => {
 
     fireEvent.click(within(file(RATES)).getByText('Rate limits reference'))
     await waitFor(() => {
-      expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Files)
+      expect(activePanelTab(store.getState().uiState, 't1')).toBe(PanelTab.Files)
     })
     expect(store.getState().openFiles.t1?.activePath).toBe(RATES.path)
     expect(invoke).toHaveBeenCalledWith(CommandName.FilesOpen, { taskId: 't1', path: RATES.path })
@@ -825,7 +825,7 @@ describe('a link’s tile', () => {
     })
     expect(invoke).not.toHaveBeenCalledWith(CommandName.FilesOpen, expect.anything())
     expect(store.getState().openFiles.t1?.paths ?? []).toEqual([])
-    expect(activePanelTab(store.getState().uiState, 'w1')).not.toBe(PanelTab.Files)
+    expect(activePanelTab(store.getState().uiState, 't1')).not.toBe(PanelTab.Files)
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
