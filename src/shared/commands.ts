@@ -29,6 +29,14 @@ export enum AppCommandId {
   ToggleSidebar = 'app.toggleSidebar',
   ToggleRightPanel = 'app.toggleRightPanel',
   ToggleBottomBar = 'app.toggleBottomBar',
+  /**
+   * Zoom the image view showing or focused now, instead of the page (#685). The View menu's zoom items run these
+   * only while the window reports an image view that takes the zoom keys (`MenuState.imageZoom`); the rest of the
+   * time its items are the page-zoom roles they always were.
+   */
+  ZoomIn = 'app.zoomIn',
+  ZoomOut = 'app.zoomOut',
+  ZoomFit = 'app.zoomFit',
 }
 
 /** The commands that act on one workspace. */
@@ -165,6 +173,11 @@ export interface MenuState {
   /** The selected task; null for none. */
   readonly task: MenuTask | null
   readonly panels: MenuPanels
+  /**
+   * Whether an image view that takes the zoom keys (⌘+, ⌘−, ⌘0) is showing or focused now (#685): while it is, the
+   * View menu's Actual Size / Zoom In / Zoom Out zoom that image, and otherwise they page-zoom as ever.
+   */
+  readonly imageZoom: boolean
   /** The shortcuts you've rebound (Settings › Keyboard), so the menu bar's items show and answer the current keys. */
   readonly keyBindings: KeyBindingOverrides
 }
@@ -175,5 +188,6 @@ export const EMPTY_MENU_STATE: MenuState = {
   shownWorkspaceId: null,
   task: null,
   panels: { sidebar: false, rightPanel: false, bottomBar: false },
+  imageZoom: false,
   keyBindings: {},
 }

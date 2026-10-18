@@ -30,6 +30,7 @@ current binding. The menu bar answers the keys of its items; the window listens 
 | Panels | Toggle task list | ⌘B |
 | | Toggle right panel | ⌘⌥B |
 | | Toggle bottom bar | ⌘J |
+| | Zoom in / out / actual size | ⌘+ / ⌘- / ⌘0 |
 | | Agents · Files · Todos | ⌘⌥1 – ⌘⌥3 |
 | | Close file tab (the window, when no tab has the focus) | ⌘W |
 | | Open file in editor | ⌘⇧E |
@@ -42,6 +43,17 @@ current binding. The menu bar answers the keys of its items; the window listens 
 | Menus and dialogs | Move / choose / close | ↑↓ / ↵ / Esc |
 | | Select an answer in a question card | 1 – 9 |
 | | Previous / next image in the image viewer, stopping at the first and last | ←→ |
+
+## Zooming an image
+
+The two image views — a picture open in the Files tab, and the image viewer over the window — zoom in place (#685).
+The View menu's zoom answers for them: ⌘+ zooms in, ⌘− out, and ⌘0 back to fit, at the keys they always are. The
+rest of the time those keys page-zoom the window, as macOS's Actual Size, Zoom In and Zoom Out always have. A trackpad
+pinch zooms around the pointer (the app's own page zoom stands aside for it), a click on the image toggles between fit
+to the view and actual size at the clicked spot, and once zoomed in, a drag or a scroll pans. Stepping to another
+image, or another file showing, starts over at its fit. Zoom in, Zoom out and Actual size are the keymap's own
+commands, so you can rebind them in Settings › Keyboard; while no image view shows, the keys page-zoom the window
+whatever they're bound to, as macOS's zoom keys always have.
 
 ## The Files tab's Browse tab
 

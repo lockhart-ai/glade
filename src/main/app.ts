@@ -287,6 +287,9 @@ function createWindow(testMode: TestMode, db: AppDatabase['db'], log: Logger): B
   // The renderer only ever shows the app's own page: no popups, no navigating away. A link opens in the browser, from
   // main (`links.open`), and never here.
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  // A trackpad pinch is the image views' to zoom (#685): it reaches them as `wheel` events with `ctrlKey`, which they
+  // answer and stop. Chromium's own visual pinch-zoom stays off, so it can never zoom the page underneath them.
+  void window.webContents.setVisualZoomLevelLimits(1, 1)
   window.webContents.on('will-navigate', (event) => {
     event.preventDefault()
   })
