@@ -614,7 +614,14 @@ export const TodoHub = memo(function TodoHub({ taskId, list, focus, onFocusShown
     if (parent && !asLeft.open) {
       setTodoPanel({ taskId, todoId: focus.todoId, open: true, filter: asLeft.filter }).catch(() => undefined)
     }
-    card.scrollIntoView({ block: 'start' })
+    // Only the todo list scrolls (#734): `scrollIntoView` would scroll every ancestor, and the app's own boxes,
+    // though they hide their overflow, can still be scrolled by script, which shifted the whole window up.
+    const scroller = hub.current
+    if (scroller !== null) {
+      scroller.scrollTo({
+        top: scroller.scrollTop + card.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
+      })
+    }
     card.querySelector<HTMLElement>(`[${HEAD_ATTRIBUTE}]`)?.focus({ preventScroll: true })
     setHighlighted(focus.todoId)
     if (highlightTimer.current !== null) clearTimeout(highlightTimer.current)
