@@ -27,6 +27,9 @@ test('force-quit mid-turn, relaunch: the task resumes its session and finishes t
   const bar = inputBar(first.window)
   await bar.field.fill('Run the e2e suite.')
   await bar.field.press('Enter')
+  await taskPanel(first.window)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(first.window).call(/^Running\s*Bash/)).toBeVisible()
   await expect.poll(async () => (await onlyTask(first.window))?.activity).toBe(TaskActivity.Working)
   const { id: taskId, sessionId } = (await onlyTask(first.window)) ?? {}
@@ -104,6 +107,7 @@ test('kill -9 during several running tasks: relaunch resumes all of them, delive
     await list.newTask.click()
     await bar.field.fill(message)
     await bar.field.press('Enter')
+    await panel.tab(/^Agents/).click()
     await expect(panel.call(/^Running\s*Bash/)).toBeVisible()
   }
   await expect(list.rows('Active')).toHaveCount(3)
@@ -180,6 +184,9 @@ test('the relaunch notice goes away when dismissed', async ({ launch, tempFolder
   await taskList(first.window).newTask.click()
   await inputBar(first.window).field.fill(RUN_SUITE)
   await inputBar(first.window).field.press('Enter')
+  await taskPanel(first.window)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(first.window).call(/^Running\s*Bash/)).toBeVisible()
   await first.kill()
 

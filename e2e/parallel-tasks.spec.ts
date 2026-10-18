@@ -31,6 +31,7 @@ test('two tasks work at once, each with its own chat and tool log, and stopping 
   await list.newTask.click()
   await bar.field.fill(RUN_SUITE)
   await bar.field.press('Enter')
+  await panel.tab(/^Agents/).click()
   await expect(panel.call(/^Running\s*Bash/)).toBeVisible()
   await expect(header.stateDot).toHaveAccessibleName('Active · working')
 
@@ -44,6 +45,7 @@ test('two tasks work at once, each with its own chat and tool log, and stopping 
   await expect(agentReplies.first()).toContainText('The failing test was a timezone bug')
   await expect(header.title).toHaveText('Fix the flaky date test')
   await expect(header.stateDot).toHaveAccessibleName('Active · idle')
+  await panel.tab(/^Agents/).click()
   await expect(panel.tab(/^Agents/)).toHaveText('Agents 2')
   await expect(panel.log.getByRole('button', { name: /^Done/ })).toHaveCount(10)
   await expect(panel.call(/Bash\s*npm run test:e2e/)).toHaveCount(0)

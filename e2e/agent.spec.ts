@@ -39,6 +39,7 @@ test('new task, first message, scripted reply', async ({ launch, tempFolder }) =
 
   // The tool log shows every call the agent made, all done; the subagent's are on its own tab in Agents, not here.
   const panel = taskPanel(window)
+  await panel.tab(/^Agents/).click()
   await expect(panel.tab(/^Agents/)).toHaveText('Agents 2')
   await expect(panel.log).toContainText(
     "I'll find where the date is formatted, then fix the timezone bug and run the tests.",
@@ -72,6 +73,7 @@ test('stop a running turn with ⌘., then carry on in the same session', async (
 
   // The agent works, with its command running, until it's stopped.
   const panel = taskPanel(window)
+  await panel.tab(/^Agents/).click()
   await expect(panel.call(/^Running\s*Bash/)).toBeVisible()
   await expect(stateDot).toHaveAccessibleName('Active · working')
   const session = await sessionId()

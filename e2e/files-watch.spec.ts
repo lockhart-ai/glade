@@ -36,7 +36,7 @@ Calls were steady this week.
 async function openTask(window: Glade['window']): Promise<void> {
   await firstRun(window).openFolder.click()
   await taskList(window).newTask.click()
-  await window.keyboard.press('Meta+Alt+Digit2')
+  await window.keyboard.press('Meta+Alt+Digit3')
 }
 
 /** Types `text` at the end of a line of the editor showing. */

@@ -70,7 +70,9 @@ test('reopen by chatting: a message in a done task reopens it and the agent carr
   expect(await chatOrder(conversation.log)).toEqual(['You', 'Agent', 'Marked done', 'You', 'Reopened', 'Agent'])
 
   // The tool log has the dividers too, before the new turn's.
-  const { dividers } = taskPanel(window)
+  const panel = taskPanel(window)
+  await panel.tab(/^Agents/).click()
+  const { dividers } = panel
   await expect(dividers.filter({ hasText: /^marked done · / })).toHaveCount(1)
   await expect(dividers.filter({ hasText: /^reopened · / })).toHaveCount(1)
   await expect(dividers.filter({ hasText: /^turn 2 · / })).toHaveCount(1)

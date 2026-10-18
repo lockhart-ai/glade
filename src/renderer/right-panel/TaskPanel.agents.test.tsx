@@ -1,4 +1,4 @@
-// The right panel's three tabs (P16, #536): Agents · Files · Todos, and what opens the panel at an agent or a todo: the
+// The right panel's three tabs (P16, #536): Todos · Agents · Files, and what opens the panel at an agent or a todo: the
 // chat's tool-calls chip, a plugin's `openTask`, and the todo a subagent's tab names. (`TaskPanel.test.tsx` has the
 // panel itself, and the tool log Main's tab shows.)
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
@@ -21,6 +21,9 @@ import { hubAgent, hubFiling, hubMain, hubTodo, minutesAgo, refOf, type HubTask 
 import { HIGHLIGHT_CLASS } from '../tool-log/ToolLog'
 import { parsePanelTabSelection } from './panelModel'
 import { TaskPanel } from './TaskPanel'
+
+/** Opens the panel on Agents, whose content these tests read: with nothing stored it opens on Todos (#686). */
+const ON_AGENTS: readonly UiStateEntry[] = [{ key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'agents' }) }]
 
 function call(id: string, overrides: Partial<ToolCallEvent> = {}): ToolCallEvent {
   return {
@@ -123,10 +126,13 @@ beforeEach(() => {
 })
 
 describe('the right panel', () => {
-  it('has three tabs, Agents · Files · Todos, and opens on Agents, counted with Main', async () => {
+  it('has three tabs, Todos · Agents · Files, and opens on Todos, counted with Main', async () => {
     await renderPanel()
 
-    expect(tabNames()).toEqual(['Agents 3', 'Files', 'Todos 0/2'])
+    expect(tabNames()).toEqual(['Todos 0/2', 'Agents 3', 'Files'])
+    expect(panelTab(/^Todos/)).toHaveAttribute('aria-selected', 'true')
+
+    fireEvent.click(panelTab(/^Agents/))
     expect(panelTab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
     expect(shownAgent()).toBe('Main')
     expect(within(log()).getAllByRole('button')).toHaveLength(4)
@@ -136,18 +142,20 @@ describe('the right panel', () => {
 
   it('counts Main alone for a task with no subagents, and nothing with no task', async () => {
     const { store } = await renderPanel({ task: { toolEvents: [call('views')] } })
-    expect(tabNames()).toEqual(['Agents 1', 'Files', 'Todos'])
+    expect(tabNames()).toEqual(['Todos', 'Agents 1', 'Files'])
 
     await act(() => store.getState().selectTask(null))
-    expect(tabNames()).toEqual(['Agents', 'Files', 'Todos'])
+    expect(tabNames()).toEqual(['Todos', 'Agents', 'Files'])
     expect(screen.queryByRole('tablist', { name: 'Agents' })).toBeNull()
   })
 
   it.each(['tool-calls', 'subagents', 'watchers', 'artifacts', 'changes'])(
-    'opens a task left on %s, a tab from before the panel had three, on Agents (#501)',
+    'opens a task left on %s, a tab from before the panel had three, on Todos (#501)',
     async (removed) => {
       await renderPanel({ uiState: [{ key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: removed }) }] })
-      expect(panelTab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
+      expect(panelTab(/^Todos/)).toHaveAttribute('aria-selected', 'true')
+
+      fireEvent.click(panelTab(/^Agents/))
       expect(shownAgent()).toBe('Main')
     },
   )
@@ -178,11 +186,13 @@ describe('the right panel', () => {
   })
 
   it('keeps each task on its own agent as you switch between tasks', async () => {
-    const { store } = await renderPanel()
+    const { store } = await renderPanel({ uiState: ON_AGENTS })
     fireEvent.click(agentTab('docs-503'))
 
     await act(() => store.getState().selectTask('t2'))
-    expect(tabNames()).toEqual(['Agents 1', 'Files', 'Todos'])
+    // A task with none remembered opens on the panel's first tab, Todos (#686).
+    expect(tabNames()).toEqual(['Todos', 'Agents 1', 'Files'])
+    fireEvent.click(panelTab(/^Agents/))
     expect(shownAgent()).toBe('Main')
     expect(screen.getByRole('tabpanel', { name: /Main$/ })).toHaveTextContent('No tool calls yet.')
 
@@ -191,7 +201,7 @@ describe('the right panel', () => {
   })
 
   it('opens on the agent a task was left on before a relaunch', async () => {
-    await renderPanel({ agentTabs: { t1: 'fix-501' } })
+    await renderPanel({ agentTabs: { t1: 'fix-501' }, uiState: ON_AGENTS })
 
     expect(shownAgent()).toBe('fix-501')
     expect(log()).toHaveTextContent('api/throttle.py')
@@ -201,7 +211,11 @@ describe('the right panel', () => {
   it('asks for the subagent log whole when the tab opens, and carries on when main refuses (#637)', async () => {
     const refusing = vi.fn(() => refuse(bridgeError(BridgeErrorCode.Internal, 'tasks.historyAgent failed: busy')))
     const wrapper = storeWrapper(
-      { ...hubMain(SHIP), agentTabs: { t1: 'fix-501' } },
+      {
+        ...hubMain(SHIP),
+        agentTabs: { t1: 'fix-501' },
+        uiState: [...(hubMain(SHIP).uiState ?? []), ...ON_AGENTS],
+      },
       { [CommandName.TasksHistoryAgent]: refusing },
     )
     render(<TaskPanel />, { wrapper: wrapper.wrapper })
@@ -218,7 +232,7 @@ describe('the right panel', () => {
 
   describe('showing a turn the chat asks for', () => {
     it('goes to Main’s tab of Agents from a subagent’s, scrolled to the turn and highlighted', async () => {
-      const { store } = await renderPanel({ agentTabs: { t1: 'fix-501' } })
+      const { store } = await renderPanel({ agentTabs: { t1: 'fix-501' }, uiState: ON_AGENTS })
       expect(shownAgent()).toBe('fix-501')
 
       act(() => {
@@ -282,7 +296,7 @@ describe('the right panel', () => {
 
   describe('the todo a subagent’s tab names', () => {
     it('shows in the Todos tab when clicked: its card scrolled into view, the focus on its head', async () => {
-      await renderPanel({ agentTabs: { t1: 'docs-503' } })
+      await renderPanel({ agentTabs: { t1: 'docs-503' }, uiState: ON_AGENTS })
 
       fireEvent.click(screen.getByRole('button', { name: '#503 Document the rate limits' }))
       await act(() => Promise.resolve())
@@ -295,7 +309,7 @@ describe('the right panel', () => {
     })
 
     it('is shown once, not again when you come back to the Todos tab', async () => {
-      const { store } = await renderPanel({ agentTabs: { t1: 'docs-503' } })
+      const { store } = await renderPanel({ agentTabs: { t1: 'docs-503' }, uiState: ON_AGENTS })
       fireEvent.click(screen.getByRole('button', { name: '#503 Document the rate limits' }))
       await act(() => Promise.resolve())
       scrollIntoView.mockClear()

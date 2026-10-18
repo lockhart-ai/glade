@@ -1,5 +1,6 @@
 {
   "workspace": { "name": "Acme API", "rootPath": "/Users/sample/code/api" },
+  "panelTab": "agents",
   "tasks": [
     {
       "title": "Move image uploads to S3",

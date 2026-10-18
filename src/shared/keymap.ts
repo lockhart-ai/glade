@@ -302,7 +302,7 @@ export const COMMANDS: readonly CommandDefinition[] = [
   command(AppCommandId.ToggleSidebar, Panels, 'Toggle task list', MenuBar, 'Meta+B'),
   command(AppCommandId.ToggleRightPanel, Panels, 'Toggle right panel', MenuBar, 'Meta+Alt+B'),
   command(AppCommandId.ToggleBottomBar, Panels, 'Toggle bottom bar', MenuBar, 'Meta+J'),
-  command(WindowCommandId.ShowPanelTab, Panels, 'Agents · Files · Todos', Window, 'Meta+Alt+1', {
+  command(WindowCommandId.ShowPanelTab, Panels, 'Todos · Agents · Files', Window, 'Meta+Alt+1', {
     digits: { from: 1, to: 3 },
   }),
   command(AppCommandId.Close, Panels, 'Close file tab', MenuBar, 'Meta+W', {
@@ -648,7 +648,7 @@ export const KEYMAP_LAYOUT: readonly KeymapGroup[] = [
       row('Toggle bottom bar', AppCommandId.ToggleBottomBar),
       row('Zoom in / out / actual size', AppCommandId.ZoomIn, AppCommandId.ZoomOut, AppCommandId.ZoomFit),
       {
-        action: 'Agents · Files · Todos',
+        action: 'Todos · Agents · Files',
         keys: [{ command: WindowCommandId.ShowPanelTab, digits: { from: 1, to: 3 } }],
       },
       row('Close file tab', AppCommandId.Close),
