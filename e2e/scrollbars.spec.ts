@@ -258,6 +258,9 @@ test('scroll bars: the task list, chat and right panel scroll with the design’
     near(await pixelAt(window, end.thumbX, end.trackBottom + 3), end.behind),
     'chat: the gap under its track',
   ).toBe(true)
+  await taskPanel(window)
+    .tab(/^Agents/)
+    .click()
   await expectStyledScrollbar(window, taskPanel(window).log, 'right panel')
 })
 

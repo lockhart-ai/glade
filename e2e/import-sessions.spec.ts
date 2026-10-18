@@ -79,6 +79,7 @@ test('a task imports a Claude Code session: it is under Done with its chat, tool
   await bar.field.fill(PORTS_SESSIONS.prompt)
   await bar.field.press('Enter')
   await expect(conversation.agentReplies.last()).toContainText(PORTS_SESSIONS.reply)
+  await panel.tab(/^Agents/).click()
   await expect(panel.call(/^Done .*list_claude_code_sessions/)).toBeVisible()
   await expect(panel.call(/^Done .*import_claude_code_session/)).toBeVisible()
 
@@ -104,6 +105,7 @@ test('a task imports a Claude Code session: it is under Done with its chat, tool
   await expect(conversation.agentReplies.nth(1)).toContainText(SECOND_REPLY)
 
   // The tool log: the calls with their outcomes, the narration, and turn 2's divider at its time.
+  await panel.tab(/^Agents/).click()
   await expect(panel.tab(/^Agents/)).toHaveText('Agents 1')
   await expect(panel.call(/^Failed Bash npm test -- rate/)).toContainText('2 failed')
   await expect(panel.call(/^Done Edit test\/setup\.ts/)).toBeVisible()

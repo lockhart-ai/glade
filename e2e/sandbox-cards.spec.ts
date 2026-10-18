@@ -94,6 +94,9 @@ test('the sandbox’s cards: a domain, a folder, a blocked command’s request_a
   const access = await openCard(window, `The agent wants to read${ASKS_SANDBOX.configFolder}`)
   await expect(access).toContainText('cat needs to read the shared config.')
   await expect(answers(access)).toHaveText(['Allow for this task', 'Allow for this workspace', 'Deny'])
+  await taskPanel(window)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(window).call(/^Failed\s*Bash/)).toHaveCount(1)
   await expect(taskPanel(window).call(/^Waiting\s*request_access/)).toContainText(
     `Waiting on you: read ${ASKS_SANDBOX.configFolder}`,
@@ -173,6 +176,9 @@ test('the sandbox’s cards: a domain, a folder, a blocked command’s request_a
   const reads = (await toolCalls(window, second?.id ?? '')).filter(({ name }) => name === 'Read')
   expect(reads.map(({ state }) => state)).toEqual([ToolCallState.Done])
   // Its read's row says which rule let it through; the sidebar says what the task waits on now, led by the shield.
+  await taskPanel(window)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(window).permissionLines.nth(2)).toHaveText(`Allowed by workspace grant: read ${SHARED}`)
   const row = taskList(window).rows('Active').first()
   await expect(row).toContainText(`Waiting on you: write to ${DOCS}`)
@@ -210,6 +216,9 @@ test('a request_access card open when Glade quits is still there after a relaunc
   await expect(card).toContainText('cat needs to read the shared config.')
   await expect(taskHeader(again).stateDot).toHaveAccessibleName('Active · waiting on you')
   expect((await tasks(again))[0]).toMatchObject({ awaitingPermission: true })
+  await taskPanel(again)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(again).call(/^Interrupted\s*request_access/)).toBeVisible()
 
   await card.getByRole('button', { name: 'Allow for this workspace' }).click()
@@ -320,6 +329,9 @@ test('the sandbox stops what Claude Code’s own settings would allow: a card th
   await deny(hook)
 
   await expect(chat(window).agentReplies.last()).toContainText(CROSSES_SANDBOX.reply)
+  await taskPanel(window)
+    .tab(/^Agents/)
+    .click()
   const lines = taskPanel(window).permissionLines
   await expect(lines).toHaveCount(5)
   await expect(lines.nth(0)).toHaveText(`Denied: write to ${CROSSES_SANDBOX.plistFolder}`)

@@ -17,6 +17,9 @@ test('messages sent while the agent works wait in the queue, editable, through a
   await bar.field.fill('Move image uploads to S3.')
   await bar.field.press('Enter')
   // The agent is copying: its command runs until it's stopped or the app quits.
+  await taskPanel(first.window)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(first.window).call(/^Running\s*Bash/)).toBeVisible()
   await expect(bar.stop).toBeVisible()
   await expect(bar.field).toHaveAttribute(
@@ -86,6 +89,9 @@ for (const how of ['the Stop button', 'the ⌘. shortcut'] as const) {
     await bar.field.fill('Run the e2e suite.')
     await bar.field.press('Enter')
     // The agent runs the suite until it's stopped.
+    await taskPanel(window)
+      .tab(/^Agents/)
+      .click()
     await expect(taskPanel(window).call(/^Running\s*Bash/)).toBeVisible()
 
     // Two messages queued while it works.
@@ -130,6 +136,9 @@ test('a queued row is a chip with no border until hovered, and clamps a long mes
   const bar = inputBar(window)
   await bar.field.fill('Run the e2e suite.')
   await bar.field.press('Enter')
+  await taskPanel(window)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(window).call(/^Running\s*Bash/)).toBeVisible()
 
   const short = 'Keep it brief.'

@@ -26,6 +26,9 @@ async function expectStoppedByError(window: Page): Promise<void> {
   const row = taskList(window).taskRow('Fix flaky login test')
   await expect(row).toContainText('Error: API overloaded · retry?')
   await expect(taskList(window).dot(row)).toHaveAttribute('data-state', 'error')
+  await taskPanel(window)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(window).call(/^Failed\s*API\s*request 4 of 4/)).toContainText('529 overloaded · task paused')
   await expect(inputBar(window).field).toHaveAttribute('placeholder', 'Reply, or press Retry…')
 }
@@ -112,6 +115,9 @@ test('a session Claude Code can’t start says why on the card, with what it pri
   await expect(row).toContainText('Error: Claude Code couldn’t start · retry?')
   await expect(taskList(window).dot(row)).toHaveAttribute('data-state', 'error')
   // It never reached the API: no failed API row.
+  await taskPanel(window)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(window).call(/API/)).toHaveCount(0)
 
   await chat(window).errorButton('Show details').click()

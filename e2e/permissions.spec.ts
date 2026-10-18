@@ -136,6 +136,7 @@ test('in the ask mode, an edit and a command wait on cards: Allow once by mouse,
   expect(await onlyTask(window)).toMatchObject({ activity: TaskActivity.Waiting, awaitingPermission: true })
   // Its row in the Tool calls list waits too: the purple dot, and the shield's line in place of a result.
   const panel = taskPanel(window)
+  await panel.tab(/^Agents/).click()
   await expect(panel.call(/^Waiting\s*Edit/)).toContainText('Waiting on you')
   await expect(panel.permissionLines).toHaveText(['Waiting on you'])
   await expect(panel.permissionLines.first()).toHaveAttribute('data-permission', 'waiting')
@@ -202,6 +203,7 @@ test('Allow for this task grants a command prefix or a whole tool: the calls it 
   await test.getByRole('button', { name: 'Allow npm test commands for this task' }).click()
   // Its row names the rule it granted.
   const panel = taskPanel(window)
+  await panel.tab(/^Agents/).click()
   await expect(panel.permissionLines.first()).toHaveText('Allowed for this task: npm test commands')
 
   // `npm test -- --watch` ran without asking; `npm test && rm -rf build` still asks.
@@ -292,6 +294,9 @@ test('a card open when Glade quits is still there after a relaunch, and Allow on
   await expect(card.getByLabel('Command')).toHaveText(PERMISSION_AT_QUIT.command)
   await expect(taskHeader(again).stateDot).toHaveAccessibleName('Active · waiting on you')
   expect(await onlyTask(again)).toMatchObject({ activity: TaskActivity.Waiting, awaitingPermission: true })
+  await taskPanel(again)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(again).call(/^Interrupted\s*Bash/)).toContainText('Waiting on you')
   await expect(taskPanel(again).permissionLines).toHaveText(['Waiting on you'])
 
@@ -325,6 +330,9 @@ test("a subagent's card says which subagent, opens on Deny when a stray key must
   await choosePermissions(window, 'Allow all', ASK)
   const bar = inputBar(window)
   const conversation = chat(window)
+  await taskPanel(window)
+    .tab(/^Agents/)
+    .click()
   await bar.field.fill('Write the 2.4 upgrade guide.')
   await bar.field.press('Enter')
 
@@ -391,6 +399,9 @@ test('stopping the task withdraws an open card: it leaves the chat, and its row 
   await inputBar(window).field.fill('Add the retry change to the changelog and run the tests.')
   await inputBar(window).field.press('Enter')
   await expect(chat(window).permissionCards.first()).toContainText(ASKS_PERMISSION.edit.file_path)
+  await taskPanel(window)
+    .tab(/^Agents/)
+    .click()
   await expect(taskPanel(window).permissionLines).toHaveText(['Waiting on you'])
 
   // The input bar's Stop shows while a card waits on you too (#511): stopped as the user would, through the button.
