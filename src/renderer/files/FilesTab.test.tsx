@@ -13,9 +13,7 @@ import {
   type ToolCallEvent,
   type ToolEvent,
 } from '../../shared/domain'
-import { settleFloating } from '../components/settleFloating'
 import { ToastProvider } from '../components'
-import { VIEWER_LABEL } from '../images/ImageViewer'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import {
@@ -380,7 +378,7 @@ describe('FilesTab', () => {
     expect(await screen.findByText('This file isn’t there any more.')).toBeInTheDocument()
   })
 
-  it('shows an image file as a picture, fit to the panel, and opens it full size when clicked', async () => {
+  it('shows an image file as a picture, fit to the panel, with the zoom of its own (#685)', async () => {
     const dataUrl = 'data:image/png;base64,c2hvdA=='
     await renderTab({
       openFiles: { ...OPEN, activePath: 'api/throttles.py' },
@@ -396,20 +394,11 @@ describe('FilesTab', () => {
     expect(screen.getByText('api/throttles.py', { selector: 'bdi' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open in editor' })).toBeInTheDocument()
 
-    const button = screen.getByRole('button', { name: 'View throttles.py full size' })
-    fireEvent.click(button)
-    await settleFloating()
-
-    const viewer = screen.getByRole('dialog', { name: VIEWER_LABEL })
-    expect(within(viewer).getByRole('img', { name: 'throttles.py' })).toHaveAttribute('src', dataUrl)
-    // One image: no pager, and only the close chrome (no title or actions, unlike the Artifacts overlay).
-    expect(within(viewer).queryByRole('group', { name: 'Images' })).not.toBeInTheDocument()
-    expect(within(viewer).queryByTestId('image-viewer-title')).not.toBeInTheDocument()
-
-    fireEvent.keyDown(viewer, { key: 'Escape' })
-    await settleFloating()
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(button).toHaveFocus()
+    // The picture is its own control now: a click (or ↵ or Space) toggles its zoom, pinch zooms it, and zoomed in a
+    // drag or a scroll pans — `useImageZoom`'s gestures, whose handling is its own test's. No full-size viewer opens
+    // from Files any more; the chat's images and a todo's artifacts still open it.
+    const zoom = screen.getByRole('button', { name: 'Zoom throttles.py' })
+    expect(within(zoom).getByRole('img', { name: 'throttles.py' })).toBe(picture)
   })
 
   it('says why a file couldn’t be read', async () => {

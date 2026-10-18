@@ -174,7 +174,11 @@ scroll: the chat passes under them.
 - **Pasted images:** paste a screenshot or image (PNG, JPEG, GIF or WebP, up to 3.75 MB each) into the input bar. It
   shows as a thumbnail you can remove, and goes to the agent with your message, an answer to a question card
   included. Once sent (or queued), click a thumbnail, or press ↵ or Space on it, to see the image full size; ← and →
-  step through the message's other images, and Esc or a click beside the image closes it.
+  step through the message's other images, and Esc or a click beside the image closes it. The image zooms in place
+  (#685): pinch the trackpad over it, or ⌘+ and ⌘− zoom, ⌘0 back to fit, a click on the image toggles between fit
+  and actual size at the clicked spot, and zoomed in, drag or scroll to pan. Stepping to another image starts it at
+  its fit. The same zoom is on a picture open in the Files tab, and while either is showing the View menu's zoom
+  items zoom it rather than the page.
 - **Pasted text:** paste more than one line, or ~80 characters or more, and it's marked as its own block instead of
   landing in the field: a short token stands for it there, and a chip shows above the field ("Pasted text · 42
   lines"), with a ✕ to remove it and a click to expand or edit. A shorter paste (a path, a word, a URL) is left as
@@ -397,8 +401,10 @@ Three tabs, each with a count: **Agents · Files · Todos** (⌘⌥1 – ⌘⌥3
   when the agent shows a file at a line, the source comes back with the line marked. Files from a commit and files too
   large to show whole are read-only. An image
   (PNG, JPEG, GIF, WebP or SVG, up to 8 MB) shows as a picture instead, fit to the panel but never larger than its own
-  size, on a checkerboard behind any transparency; click it to see it full size, in the same viewer a todo's file
-  tiles open (see Todos, below). A larger, or any other kind of binary, file shows a notice instead of its contents.
+  size, on a checkerboard behind any transparency. It zooms in place (#685): pinch the trackpad over it, or ⌘+ and
+  ⌘− zoom, ⌘0 back to fit, a click on the picture (or ↵ or Space, focused) toggles between fit and actual size at the
+  clicked spot, and zoomed in, drag or scroll to pan. A larger, or any other kind of binary, file shows a notice
+  instead of its contents.
   **Open in editor** (⌘⇧E) opens the file in your text editor (an image or a PDF in the app that shows it), and ⌘W,
   with the focus in the panel, closes the tab. The agent can open a file here for you.
 

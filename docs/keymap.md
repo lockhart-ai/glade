@@ -43,6 +43,16 @@ current binding. The menu bar answers the keys of its items; the window listens 
 | | Select an answer in a question card | 1 – 9 |
 | | Previous / next image in the image viewer, stopping at the first and last | ←→ |
 
+## Zooming an image
+
+The two image views — a picture open in the Files tab, and the image viewer over the window — zoom in place (#685).
+The View menu's zoom answers for them: ⌘+ zooms in, ⌘− out, and ⌘0 back to fit, at the keys they always are. The
+rest of the time those keys page-zoom the window, as macOS's Actual Size, Zoom In and Zoom Out always have. A trackpad
+pinch zooms around the pointer (the app's own page zoom stands aside for it), a click on the image toggles between fit
+to the view and actual size at the clicked spot, and once zoomed in, a drag or a scroll pans. Stepping to another
+image, or another file showing, starts over at its fit. These keys are macOS's own zoom keys, so they aren't
+rebindable here.
+
 ## The Files tab's Browse tab
 
 The tree and the search (#398, `design/screens/37-browse-files.png`) answer their own keys while they have the focus,

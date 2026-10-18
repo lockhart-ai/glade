@@ -925,6 +925,14 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         set(({ openModalCount }) => ({ openModalCount: Math.max(0, openModalCount - 1) }))
       },
 
+      imageZoomOpened() {
+        set(({ openImageZoomCount }) => ({ openImageZoomCount: openImageZoomCount + 1 }))
+      },
+
+      imageZoomClosed() {
+        set(({ openImageZoomCount }) => ({ openImageZoomCount: Math.max(0, openImageZoomCount - 1) }))
+      },
+
       // Main broadcasts the change too; applying the answer as well keeps the tabs right whichever arrives first.
       async openFile(taskId, path) {
         applyOpenFiles(await bridge.invoke(CommandName.FilesOpen, { taskId, path }))

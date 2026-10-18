@@ -138,7 +138,11 @@ describe('ImageThumbnails', () => {
     fireEvent.click(screen.getByRole('group', { name: 'Images' }))
     expect(screen.getByRole('dialog')).toBe(viewer)
 
-    fireEvent.click(viewer)
+    // The backdrop is the view the image sits in (#685): a click there — a pointer down and up, as a click is —
+    // closes it, while a click on the image toggles its zoom instead.
+    const backdrop = viewer.firstElementChild as HTMLElement
+    fireEvent.pointerDown(backdrop, { pointerId: 1 })
+    fireEvent.pointerUp(backdrop, { pointerId: 1 })
     await settleFloating()
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()

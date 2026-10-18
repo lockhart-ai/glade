@@ -595,6 +595,7 @@ const menuUpdateRequest = z.strictObject({
     })
     .nullable(),
   panels: z.strictObject({ sidebar: z.boolean(), rightPanel: z.boolean(), bottomBar: z.boolean() }),
+  imageZoom: z.boolean(),
   keyBindings: SETTING_SCHEMAS.keyBindings,
 }) satisfies z.ZodType<MenuUpdateRequest>
 

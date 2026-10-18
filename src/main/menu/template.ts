@@ -124,9 +124,23 @@ function editMenu(): MenuItemConstructorOptions {
   }
 }
 
-function viewMenu({ panels }: MenuState, { developer }: MenuOptions, build: Build): MenuItemConstructorOptions {
+function viewMenu(
+  { panels, imageZoom }: MenuState,
+  { developer }: MenuOptions,
+  build: Build,
+): MenuItemConstructorOptions {
   const toggle = (label: string, id: AppCommandId, available: boolean): MenuItemConstructorOptions =>
     commandItem(label, id, available ? appCommand(id) : null, build)
+  // While an image view takes the zoom keys (#685), the zoom items zoom that image; the rest of the time they are
+  // the page-zoom roles they always were. The accelerators are the roles' own, so the keys work either way.
+  const zoom = (): MenuItemConstructorOptions[] =>
+    imageZoom
+      ? [
+          commandItem('Actual Size', AppCommandId.ZoomFit, appCommand(AppCommandId.ZoomFit), build, 'CmdOrCtrl+0'),
+          commandItem('Zoom In', AppCommandId.ZoomIn, appCommand(AppCommandId.ZoomIn), build, 'CmdOrCtrl+Plus'),
+          commandItem('Zoom Out', AppCommandId.ZoomOut, appCommand(AppCommandId.ZoomOut), build, 'CmdOrCtrl+-'),
+        ]
+      : [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }]
   return {
     label: 'View',
     submenu: [
@@ -134,9 +148,7 @@ function viewMenu({ panels }: MenuState, { developer }: MenuOptions, build: Buil
       toggle('Toggle right panel', AppCommandId.ToggleRightPanel, panels.rightPanel),
       toggle('Toggle bottom bar', AppCommandId.ToggleBottomBar, panels.bottomBar),
       SEPARATOR,
-      { role: 'resetZoom' },
-      { role: 'zoomIn' },
-      { role: 'zoomOut' },
+      ...zoom(),
       SEPARATOR,
       { role: 'togglefullscreen' },
       ...(developer ? [SEPARATOR, { role: 'reload' as const }, { role: 'toggleDevTools' as const }] : []),

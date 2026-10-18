@@ -433,8 +433,8 @@ export function filesTab(page: Page) {
     mode: (name: 'Source' | 'Preview') => panel.getByRole('radio', { name }),
     /** An image file's picture, by its name (#372): fit to the panel, on a checkerboard. */
     image: (name: string) => panel.getByRole('img', { name }),
-    /** The button over an image file's picture that opens it full size in the image viewer. */
-    viewImage: (name: string) => panel.getByRole('button', { name: `View ${name} full size` }),
+    /** The picture's control, which takes its zoom (#685): a click toggles fit and actual size, pinch zooms it. */
+    zoom: (name: string) => panel.getByRole('button', { name: `Zoom ${name}` }),
     /** The fixed Browse tab before the open files' tabs; `pressed` while it shows (#398). */
     browse: panel.getByRole('button', { name: 'Browse files' }),
     /** The Browse tab's search field. */

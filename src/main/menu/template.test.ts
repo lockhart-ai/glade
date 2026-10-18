@@ -36,6 +36,7 @@ const STATE: MenuState = {
   shownWorkspaceId: 'w1',
   task: TASK,
   panels: { sidebar: true, rightPanel: true, bottomBar: true },
+  imageZoom: false,
   keyBindings: {},
 }
 
@@ -281,6 +282,23 @@ describe('the menu bar', () => {
     const view = menu(build(STATE, { ...OPTIONS, developer: true }).template, 'View')
 
     expect(outline(view).slice(-3)).toEqual(['—', '(reload)', '(toggleDevTools)'])
+  })
+
+  it('zooms an image with the View menu’s zoom items while an image view takes the zoom keys, at the same keys', () => {
+    const { template, run } = build({ ...STATE, imageZoom: true })
+    const view = menu(template, 'View')
+
+    expect(outline(view).slice(4, 7)).toEqual(['Actual Size', 'Zoom In', 'Zoom Out'])
+    const [fit, inItem, out] = [item(view, 'Actual Size'), item(view, 'Zoom In'), item(view, 'Zoom Out')]
+    expect(fit.accelerator).toBe('CmdOrCtrl+0')
+    expect(inItem.accelerator).toBe('CmdOrCtrl+Plus')
+    expect(out.accelerator).toBe('CmdOrCtrl+-')
+    click(fit)
+    click(inItem)
+    click(out)
+    expect(run).toHaveBeenNthCalledWith(1, appCommand(AppCommandId.ZoomFit))
+    expect(run).toHaveBeenNthCalledWith(2, appCommand(AppCommandId.ZoomIn))
+    expect(run).toHaveBeenNthCalledWith(3, appCommand(AppCommandId.ZoomOut))
   })
 
   describe('the Task menu', () => {
