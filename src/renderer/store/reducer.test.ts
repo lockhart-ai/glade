@@ -23,6 +23,7 @@ import {
   type Watcher,
 } from '../../shared/domain'
 import { noOpenFiles } from '../../shared/files'
+import { GithubLinkKind, GithubLinkState, type GithubLinkWatch } from '../../shared/githubWatch'
 import { NO_TOUCHED_FILES } from '../../shared/touchedFiles'
 import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
 import { ChildFilter, ChildKind, FilingSource, UNFILED_TODO_ID, type Filing } from '../../shared/todoHub'
@@ -1410,5 +1411,39 @@ describe('the todo hub’s filings (P16)', () => {
     expect(next.filings).toEqual({})
     expect(next.filingsVersion).toEqual({})
     expect(next.todoPanels).toEqual({})
+  })
+})
+
+describe("a task's watched GitHub links (#682)", () => {
+  const watch = (taskId: string, url: string, commentCount: number): GithubLinkWatch => ({
+    taskId,
+    url,
+    kind: GithubLinkKind.PullRequest,
+    state: GithubLinkState.Open,
+    merged: false,
+    draft: false,
+    inMergeQueue: false,
+    checksState: null,
+    checksSummary: null,
+    reviewState: null,
+    commentCount,
+    headOid: null,
+    title: 'Port the chat cases',
+    watching: true,
+    lastFetchedAt: 1,
+  })
+  const pr = 'https://github.com/acme/api/pull/2537'
+  const issue = 'https://github.com/acme/api/issues/7'
+
+  it("keeps each link's latest state under its task, by URL, leaving the others", () => {
+    const first = applyEvent(state, { type: EventType.GithubWatchChanged, watch: watch('t1', pr, 0) })
+    const second = applyEvent(first, { type: EventType.GithubWatchChanged, watch: watch('t1', issue, 0) })
+    const updated = applyEvent(second, { type: EventType.GithubWatchChanged, watch: watch('t1', pr, 2) })
+    const other = applyEvent(updated, { type: EventType.GithubWatchChanged, watch: watch('t2', pr, 0) })
+
+    expect(other.githubWatches).toEqual({
+      t1: { [pr]: watch('t1', pr, 2), [issue]: watch('t1', issue, 0) },
+      t2: { [pr]: watch('t2', pr, 0) },
+    })
   })
 })
