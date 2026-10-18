@@ -401,6 +401,32 @@ describe('FilesTab', () => {
     expect(within(zoom).getByRole('img', { name: 'throttles.py' })).toBe(picture)
   })
 
+  it('zooms an image file once the browser has loaded it, and lays it out by hand again if it can’t be decoded', async () => {
+    const dataUrl = 'data:image/png;base64,c2hvdA=='
+    await renderTab({
+      openFiles: { ...OPEN, activePath: 'api/throttles.py' },
+      files: {
+        'api/throttles.py': { kind: FileContentKind.Image, mediaType: WorkspaceImageMediaType.Png, dataUrl, size: 4 },
+      },
+    })
+
+    const picture = await screen.findByRole('img', { name: 'throttles.py' })
+    // jsdom never loads a data URL, so the tests stand in for the browser: the picture has its own size, then loads.
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(800)
+    vi.spyOn(HTMLImageElement.prototype, 'naturalHeight', 'get').mockReturnValue(600)
+    expect(picture.style.position).toBe('')
+    fireEvent.load(picture)
+    // The zoom has taken the picture's layout over: it's placed by the zoom, not the CSS's fit.
+    expect(picture.style.position).toBe('absolute')
+    expect(picture.style.maxWidth).toBe('none')
+
+    // The browser giving up on it reports no size, and the CSS lays the picture out again.
+    fireEvent.error(picture)
+    expect(picture.style.position).toBe('')
+    expect(picture.style.maxWidth).toBe('')
+    vi.restoreAllMocks()
+  })
+
   it('says why a file couldn’t be read', async () => {
     await renderTab({
       openFiles: OPEN,

@@ -260,6 +260,20 @@ describe('useImageZoom', () => {
     expect(box().top).toBe(0)
   })
 
+  it('forgets a press the browser cancels, so its release is no click, and the next press is its own', () => {
+    const { wrapper } = storeWrapper()
+    render(<Harness />, { wrapper })
+    // A touch that leaves the view (a gesture taken for a system one) sends pointercancel: the press is gone.
+    press({ x: 300, y: 250 })
+    fireEvent.pointerCancel(screen.getByTestId('view'), { pointerId: 1 })
+    release({ x: 300, y: 250 })
+    expect(box()).toEqual(FITTED)
+    expect(zoomed()).toBe(false)
+    // The next press is its own: it still toggles the zoom.
+    click('frame', { x: 300, y: 250 })
+    expect(zoomed()).toBe(true)
+  })
+
   it('toggles for a click with no press behind it, as an assistive technology sends one', () => {
     const { wrapper } = storeWrapper()
     render(<Harness />, { wrapper })

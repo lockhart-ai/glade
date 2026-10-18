@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { CommandName } from '../../shared/bridge'
 import { imageDataUrl, ImageMediaType, type ImageRef } from '../../shared/images'
 import { GIF, PNG, WEBP } from '../../shared/test-images'
@@ -240,6 +240,41 @@ describe('ImageThumbnails', () => {
     expect(position()).toBe('2 of 3')
     expect(previous).toHaveFocus()
     expect(next).toBeEnabled()
+  })
+
+  it('sizes an image the browser already holds the moment it mounts, and the zoom takes its frame over (#685)', async () => {
+    // jsdom never loads anything, so stand in for the browser's cache: every image is complete, with its own size,
+    // before its element is made — no load event is ever fired.
+    const width = vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(320)
+    const height = vi.spyOn(HTMLImageElement.prototype, 'naturalHeight', 'get').mockReturnValue(200)
+    const complete = vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true)
+    try {
+      await renderThumbnails()
+      const viewer = await open(0)
+
+      const image = within(viewer).getByRole('img', { name: IMAGE_LABEL })
+      // Nothing was left to wait for: the frame is painted in the very commit that mounts the image.
+      expect(image.parentElement).not.toHaveAttribute('data-pending')
+      // And the zoom has taken the frame over: it's placed by the zoom, not the CSS's fit, and the frame says so
+      // (the scoped module name contains the plain one).
+      expect(image.parentElement?.className).toContain('frameZoomed')
+      expect(image.parentElement?.style.position).toBe('absolute')
+    } finally {
+      width.mockRestore()
+      height.mockRestore()
+      complete.mockRestore()
+    }
+  })
+
+  it('sizes an image the browser can’t load once it has given up on it', async () => {
+    await renderThumbnails()
+    const viewer = await open(0)
+    const image = within(viewer).getByRole('img', { name: IMAGE_LABEL })
+    expect(image.parentElement).toHaveAttribute('data-pending')
+
+    // The browser's `error` leaves something in the image's place with a size, so the frame is painted then too.
+    fireEvent.error(image)
+    expect(image.parentElement).not.toHaveAttribute('data-pending')
   })
 
   it('keeps an image unpainted until the browser has loaded it, each on its own load (#478)', async () => {
