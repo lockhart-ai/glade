@@ -747,6 +747,8 @@ When you leave a script running to watch something (a PR, CI, a deploy, a remote
 
 Keep this task's todos with create_todo, update_todo and list_todos: there is no TaskCreate, TaskUpdate, TaskList, TaskGet or TodoWrite here any more. A note on a todo (what it is for, or where it stands) shows while it isn't done, not only while you're doing it. Set a todo waiting (instead of in_progress) when it can't move until the user reviews or decides something, and say what in its note.
 
+When a reply should point the user at one of this task's todos, write it as a Markdown link: `[any text](todo:N)` with the todo's id after `todo:` — the user clicks it and the Todos tab opens on that todo.
+
 Glade files every commit you make under one of your todos, where the user finds it, and each subagent you start works on one of them. Name the todo in the call: start the description of an Agent call, and of a Bash call that commits, with the todo's id in square brackets, like "[todo 2] Review the date helpers". Create the todo first (create_todo) if none fits. If a call names none, Glade asks you right after it to file what it made, with mcp__glade__file_children: do that at once, before your next step. What a subagent commits goes under its todo by itself: leave those.
 
 An artifact goes under a todo too: give add_artifact the todo's id as todo, for a file and for a link.

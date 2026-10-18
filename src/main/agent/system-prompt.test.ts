@@ -17,6 +17,7 @@ import {
   TODO_HUB_FILING_LINE,
   TODO_HUB_LINES,
   TODO_HUB_TOOLS_LINE,
+  TODO_LINKS_LINE,
   TODO_TOOLS_LINE,
   USAGE_NOTES_LINE,
   WATCHERS_LINE,
@@ -70,6 +71,8 @@ describe('systemPromptAppend', () => {
         '',
         TODO_TOOLS_LINE,
         '',
+        TODO_LINKS_LINE,
+        '',
         TODO_HUB_FILING_LINE,
         '',
         TODO_HUB_ARTIFACTS_LINE,
@@ -103,6 +106,7 @@ describe('systemPromptAppend', () => {
       OTHER_TASKS_LINE,
       TODO_TOOLS_LINE,
       USAGE_NOTES_LINE,
+      TODO_LINKS_LINE,
     ])
     for (const update of INSTRUCTION_UPDATES) expect(systemPromptAppend(task)).toContain(update)
   })
@@ -277,6 +281,7 @@ describe("the todo hub's lines", () => {
       OTHER_TASKS_LINE,
       TODO_TOOLS_LINE,
       USAGE_NOTES_LINE,
+      TODO_LINKS_LINE,
     ])
   })
 

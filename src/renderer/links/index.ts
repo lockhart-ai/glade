@@ -1,5 +1,6 @@
 export { Link, type LinkProps } from './Link'
 export { LinkedText, type LinkedTextProps } from './LinkedText'
+export { TodoLink, type TodoLinkProps } from './TodoLink'
 export {
   hastText,
   linkedSegments,

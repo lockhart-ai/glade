@@ -2,10 +2,10 @@ import type { Element } from 'hast'
 import { createContext, useContext, useMemo, useRef, type KeyboardEvent, type ReactNode, type Ref } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { openableUrl } from '../../shared/links'
+import { openableUrl, todoLinkId } from '../../shared/links'
 import { classNames } from '../components/classNames'
 import { CopiedTag, CopyBlockButton, useCopyFeedback } from '../components/CodeCopy/CodeCopy'
-import { hastText, Link, remarkAutolinkLiterals } from '../links'
+import { hastText, Link, remarkAutolinkLiterals, TodoLink } from '../links'
 import highlightStyles from '../search/Highlight.module.css'
 import { rehypeHighlight } from '../search/rehypeHighlight'
 import styles from './Markdown.module.css'
@@ -96,13 +96,16 @@ function CodeBlock({ children }: CodeBlockProps): React.JSX.Element {
  * The renderer shows no remote content: nothing in a message loads anything. A link, written as one or as a bare URL or
  * email address (GFM's autolinks), opens in your browser when you click it, through main (`Link`); the window never
  * follows it. Only a web or mail link is a link: any other (a relative path, `file:`, `javascript:`) shows as its text.
- * An image shows as its alt text: it's never fetched. Code spans and blocks stay plain text, URLs and all, but click
- * (or their copy icon) to copy (#352).
+ * A `todo:` link (`[any text](todo:N)`, #684) shows that todo in the Todos tab (`TodoLink`), or as its text when the
+ * task has no such todo. An image shows as its alt text: it's never fetched. Code spans and blocks stay plain text,
+ * URLs and all, but click (or their copy icon) to copy (#352).
  */
 const COMPONENTS: Components = {
   a: ({ href, node, children }) =>
     href === undefined ? (
       <>{children}</>
+    ) : todoLinkId(href) !== null ? (
+      <TodoLink href={href}>{children}</TodoLink>
     ) : (
       <Link href={href} text={node === undefined ? '' : hastText(node)}>
         {children}
@@ -119,9 +122,13 @@ const COMPONENTS: Components = {
  */
 const PLAIN_CODE_COMPONENTS: Components = { a: COMPONENTS.a, img: COMPONENTS.img }
 
-/** The only URL that survives into the rendered page: a link's, when it's one Glade opens (`openableUrl`). */
+/**
+ * The only URL that survives into the rendered page: a link's, when it's one Glade opens (`openableUrl`), or a
+ * `todo:` link's own address, which never opens but names a todo (`todoLinkId`).
+ */
 function linkUrl(url: string, key: string, node: Readonly<Element>): string | null {
-  return node.tagName === 'a' && key === 'href' ? openableUrl(url) : null
+  if (node.tagName !== 'a' || key !== 'href') return null
+  return todoLinkId(url) !== null ? url : openableUrl(url)
 }
 
 /**
