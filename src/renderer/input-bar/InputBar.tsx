@@ -4,6 +4,7 @@ import { faArrowUp } from '@fortawesome/free-solid-svg-icons'
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ClipboardEvent,
@@ -16,6 +17,7 @@ import { BridgeErrorCode, CommandName, isBridgeError } from '../../shared/bridge
 import type { AttachedFile } from '../../shared/attachedFiles'
 import {
   Effort,
+  MessageSource,
   PermissionMode,
   TaskActivity,
   TaskState,
@@ -255,6 +257,7 @@ interface TaskInputBarProps extends InputBarProps {
  * card waits, since stopping withdraws the questions, #647);
  * while its turn is paused, sending queues it too, until the task resumes. The queue
  * shows above the settings, where each message can be edited in place or removed; ↑ in the empty field edits the last.
+ * A GitHub note waits in the queue unseen (#733), as it doesn't read as your words.
  */
 function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInputBarProps): React.JSX.Element {
   const updateTask = useGladeStore((state) => state.updateTask)
@@ -267,6 +270,9 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   const discardAttachedFile = useGladeStore((state) => state.discardAttachedFile)
   const revealFile = useGladeStore((state) => state.revealFile)
   const queue = useGladeStore((state) => state.queuedMessages[task.id] ?? NO_QUEUE)
+  // A GitHub note waits in the queue and is delivered as now, but the box doesn't show it or count it (#733): as the
+  // chat hides the notes too (#715), since they don't read as your words. A broadcast still shows as it always has.
+  const shownQueue = useMemo(() => queue.filter(({ source }) => source !== MessageSource.Github), [queue])
   const stopTask = useGladeStore((state) => state.stopTask)
   const models = useGladeStore((state) => state.models)
   const started = useGladeStore((state) => (state.messages[task.id]?.length ?? 0) > 0)
@@ -314,7 +320,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   // An empty draft doesn't disable Send (the design shows it ready); sending one just does nothing.
   const canSend = !sending && changing === null
   // The message being edited has left the queue: delivered, or removed elsewhere.
-  if (editingId !== null && !queue.some(({ id }) => id === editingId)) setEditingId(null)
+  if (editingId !== null && !shownQueue.some(({ id }) => id === editingId)) setEditingId(null)
 
   // A new request to add text to this task's draft: add it while rendering, so it shows in the same commit.
   if (insertion !== null && insertion.taskId === task.id && insertion.request !== insertedRequest) {
@@ -687,7 +693,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (onKeyDownToken(event)) return
-    const last = queue.at(-1)
+    const last = shownQueue.at(-1)
     if (draft === '' && last !== undefined && isCommandKey(WindowCommandId.EditLastQueued, keymap, event)) {
       event.preventDefault()
       setEditingId(last.id)
@@ -708,7 +714,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
       onDrop={onDrop}
     >
       <QueueList
-        messages={queue}
+        messages={shownQueue}
         working={working}
         paused={paused}
         editingId={editingId}

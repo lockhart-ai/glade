@@ -54,6 +54,8 @@ interface Setup {
   readonly queued?: readonly string[]
   /** Which of the queued messages, by their place from 0, were broadcast; none when left out. */
   readonly broadcast?: readonly number[]
+  /** Which of the queued messages, by their place from 0, were GitHub notes; none when left out. */
+  readonly github?: readonly number[]
   /** The models the pickers offer; the built-in ones when left out. */
   readonly models?: readonly ModelChoice[]
 }
@@ -116,6 +118,7 @@ async function renderBar({
   contextMeter,
   queued = [],
   broadcast = [],
+  github = [],
   models,
 }: Setup = {}): Promise<Rendered> {
   const fake = fakeBridge(
@@ -132,7 +135,11 @@ async function renderBar({
       messages: [],
       queuedMessages: queued.map((body, index) => ({
         ...sampleQueuedMessage(`q${String(index + 1)}`, 't1', body),
-        source: broadcast.includes(index) ? MessageSource.Broadcast : null,
+        source: github.includes(index)
+          ? MessageSource.Github
+          : broadcast.includes(index)
+            ? MessageSource.Broadcast
+            : null,
       })),
       ...(models === undefined ? {} : { models }),
     },
@@ -1075,6 +1082,30 @@ describe('the queue', () => {
       '1Keep the filenames.',
       `2${SOURCE_TAG_LABELS[MessageSource.Broadcast]}Is anyone restarting Docker?`,
     ])
+  })
+
+  it('leaves a queued GitHub note out, listing and counting only the messages it shows', async () => {
+    await renderBar({
+      queued: ['Keep the filenames.', 'PR #2537: CI failed (13/14); 2 new comments.', 'Use the Glacier storage class.'],
+      github: [1],
+    })
+
+    expect(queueRows()).toEqual(['1Keep the filenames.', '2Use the Glacier storage class.'])
+    expect(queueRegion()).toHaveTextContent('Queued · 2')
+  })
+
+  it('shows nothing while only a GitHub note is queued', async () => {
+    await renderBar({ queued: ['PR #2537: CI failed (13/14); 2 new comments.'], github: [0] })
+
+    expect(screen.queryByRole('region', { name: 'Queued messages' })).toBeNull()
+  })
+
+  it('edits the last shown message with ↑ in the empty field when a GitHub note is queued after it', async () => {
+    await renderBar({ queued: ['Keep the filenames.', 'PR #2537: CI failed (13/14).'], github: [1] })
+
+    await press('ArrowUp')
+    expect(editor()).toHaveValue('Keep the filenames.')
+    expect(editor()).toHaveFocus()
   })
 
   it('makes the URLs in a queued message links, with the whole message on hover', async () => {
