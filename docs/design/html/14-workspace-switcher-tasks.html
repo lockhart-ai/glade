@@ -258,46 +258,50 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 </div>
 <div style="position: absolute; left: 22px; top: 78px; z-index: 5; display: flex; flex-direction: column; gap: 10px">
 <div role="menu" aria-label="Workspaces" style="width: 392px; box-sizing: border-box; padding: 6px; background: #262935; border: 1px solid #3D425E; border-radius: 12px; box-shadow: 0 18px 48px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 2px">
-<div style="padding: 6px 8px 4px 8px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #999DB0">Workspaces</div>
 
+<div style="display: flex; align-items: center; gap: 6px; padding: 6px 8px 4px 8px">
+<span aria-hidden="true" style="flex-shrink: 0; width: 6px; height: 6px; border-radius: 3px; background: #C8B2FF"></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #C8B2FF">Needs you</span>
+</div>
 <div style="display: flex; flex-direction: column; gap: 2px">
+<button type="button" style="display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; padding: 7px 8px; background: transparent; border: 0; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
+<span aria-hidden="true" style="flex-shrink: 0; width: 20px; height: 20px; border-radius: 6px; background: #26314F; color: #8FB2F5; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700">A</span>
+<span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px">
+<span style="font-size: 13.5px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Add rate limiting to public API</span>
+<span style="font-size: 12px; color: #C8B2FF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Waiting on you: pick a limit for /search</span>
+</span>
+<span style="flex-shrink: 0; align-self: flex-start; margin-top: 1px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">4m</span>
+</button>
+<button type="button" style="display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; padding: 7px 8px; background: transparent; border: 0; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
+<span aria-hidden="true" style="flex-shrink: 0; width: 20px; height: 20px; border-radius: 6px; background: #26314F; color: #8FB2F5; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700">A</span>
+<span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px">
+<span style="font-size: 13.5px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Draft release notes for 2.4</span>
+<span style="font-size: 12px; color: #C8B2FF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Replied 2m ago</span>
+</span>
+<span style="flex-shrink: 0; align-self: flex-start; margin-top: 1px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">2m</span>
+</button>
+<button type="button" style="display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; padding: 7px 8px; background: transparent; border: 0; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
+<span aria-hidden="true" style="flex-shrink: 0; width: 20px; height: 20px; border-radius: 6px; background: #1F3A38; color: #7FD1C7; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700">W</span>
+<span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px">
+<span style="font-size: 13.5px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Redesign the checkout flow</span>
+<span style="font-size: 12px; color: #C8B2FF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Waiting on you: two questions</span>
+</span>
+<span style="flex-shrink: 0; align-self: flex-start; margin-top: 1px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">1h</span>
+</button>
+</div>
+
+<div role="separator" style="height: 1px; margin: 5px 6px; background: #373C4F"></div>
+<div style="padding: 6px 8px 4px 8px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #999DB0">Workspaces</div>
 <button type="button" role="menuitemradio" aria-checked="true" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; background: #2E3243; border: 0; border-radius: 8px; font: inherit; color: inherit; text-align: left; cursor: pointer">
 <span aria-hidden="true" style="flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px; background: #26314F; color: #8FB2F5; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700">A</span><span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px"><span style="font-size: 14px; font-weight: 600; color: #E6E8F0">Acme API</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">~/code/api</span></span>
 <span style="font-size: 12px; color: #C8B2FF">2 needs you</span><span style="display: flex; color: #E6E8F0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17 19 7"></path></svg></span>
-</button>
-<div role="group" aria-label="Acme API — needs you" style="display: flex; flex-direction: column; gap: 2px; padding-left: 38px">
-<button type="button" style="display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; padding: 6px 8px; background: #2E3243; border: 1px solid transparent; outline: 2px solid #5B8DEF; outline-offset: -2px; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
-<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #C8B2FF"></span>
-<span style="flex-grow: 1; min-width: 0; font-size: 13.5px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Add per-key rate limiting to the public API so big customers can't starve everyone else</span>
-<span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">4m</span>
-</button>
-<button type="button" style="display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; padding: 6px 8px; background: #2E3243; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
-<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #C8B2FF"></span>
-<span style="flex-grow: 1; min-width: 0; font-size: 13.5px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Fix flaky login test</span>
-<span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">22m</span>
-</button>
-</div>
-</div>
-
-<div style="display: flex; flex-direction: column; gap: 2px">
-<button type="button" role="menuitemradio" aria-checked="false" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; background: transparent; border: 0; border-radius: 8px; font: inherit; color: inherit; text-align: left; cursor: pointer">
+</button><button type="button" role="menuitemradio" aria-checked="false" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; background: transparent; border: 0; border-radius: 8px; font: inherit; color: inherit; text-align: left; cursor: pointer">
 <span aria-hidden="true" style="flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px; background: #1F3A38; color: #7FD1C7; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700">W</span><span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px"><span style="font-size: 14px; font-weight: 600; color: #E6E8F0">Acme Web</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">~/code/web</span></span>
 <span style="font-size: 12px; color: #C8B2FF">1 needs you</span><span style="width: 14px"></span>
-</button>
-<div role="group" aria-label="Acme Web — needs you" style="display: flex; flex-direction: column; gap: 2px; padding-left: 38px">
-<button type="button" style="display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; padding: 6px 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
-<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #C8B2FF"></span>
-<span style="flex-grow: 1; min-width: 0; font-size: 13.5px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Redesign the checkout flow</span>
-<span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">1h</span>
-</button>
-</div>
-</div>
-
-<button type="button" role="menuitemradio" aria-checked="false" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; background: transparent; border: 0; border-radius: 8px; font: inherit; color: inherit; text-align: left; cursor: pointer">
+</button><button type="button" role="menuitemradio" aria-checked="false" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; background: transparent; border: 0; border-radius: 8px; font: inherit; color: inherit; text-align: left; cursor: pointer">
 <span aria-hidden="true" style="flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px; background: #3A2A36; color: #E58FA8; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700">D</span><span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px"><span style="font-size: 14px; font-weight: 600; color: #E6E8F0">Acme Docs</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">~/code/docs</span></span>
 <span style="font-size: 12px; color: #999DB0">3 active</span><span style="width: 14px"></span>
-</button>
-<button type="button" role="menuitemradio" aria-checked="false" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; background: transparent; border: 0; border-radius: 8px; font: inherit; color: inherit; text-align: left; cursor: pointer">
+</button><button type="button" role="menuitemradio" aria-checked="false" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; background: transparent; border: 0; border-radius: 8px; font: inherit; color: inherit; text-align: left; cursor: pointer">
 <span aria-hidden="true" style="flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px; background: #262A33; color: #9AA0B4; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700">I</span><span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px"><span style="font-size: 14px; font-weight: 600; color: #E6E8F0">Acme Infra</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">~/code/infra</span></span>
 <span style="font-size: 12px; color: #999DB0">idle</span><span style="width: 14px"></span>
 </button>
@@ -307,78 +311,7 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 <div role="separator" style="height: 1px; margin: 5px 6px; background: #373C4F"></div>
 <button type="button" role="menuitem" style="display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 10px 0 6px; background: transparent; border: 0; border-radius: 6px; font: inherit; font-size: 13.5px; color: #E6E8F0; text-align: left; cursor: pointer; white-space: nowrap"><span style="width: 14px; display: flex; color: #E6E8F0"></span><span style="flex-grow: 1">Workspace settings…</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">⌘,</span></button><button type="button" role="menuitem" style="display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 10px 0 6px; background: transparent; border: 0; border-radius: 6px; font: inherit; font-size: 13.5px; color: #E6E8F0; text-align: left; cursor: pointer; white-space: nowrap"><span style="width: 14px; display: flex; color: #E6E8F0"></span><span style="flex-grow: 1">Reveal root in Finder</span></button>
 </div>
-<div style="width: 392px; box-sizing: border-box; padding: 6px 9px; background: #1C1E27; border: 1px solid #2F3343; border-radius: 6px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; line-height: 1.5; color: #AEB3C3">First task row: keyboard focus. Second task row: pointer hover.</div>
 </div>
-
-<div style="position: absolute; left: 460px; top: 78px; z-index: 5; display: flex; flex-direction: column; gap: 10px">
-<div role="menu" aria-label="Workspaces" style="width: 392px; box-sizing: border-box; padding: 6px; background: #262935; border: 1px solid #3D425E; border-radius: 12px; box-shadow: 0 18px 48px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 2px">
-<div style="padding: 6px 8px 4px 8px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #999DB0">Workspaces</div>
-
-<div style="display: flex; flex-direction: column; gap: 2px">
-<button type="button" role="menuitemradio" aria-checked="true" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; background: #2E3243; border: 0; border-radius: 8px; font: inherit; color: inherit; text-align: left; cursor: pointer">
-<span aria-hidden="true" style="flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px; background: #26314F; color: #8FB2F5; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700">A</span><span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px"><span style="font-size: 14px; font-weight: 600; color: #E6E8F0">Acme API</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">~/code/api</span></span>
-<span style="font-size: 12px; color: #C8B2FF">6 needs you</span><span style="display: flex; color: #E6E8F0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17 19 7"></path></svg></span>
-</button>
-<div role="group" aria-label="Acme API — needs you" style="display: flex; flex-direction: column; gap: 2px; padding-left: 38px">
-<button type="button" style="display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; padding: 6px 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
-<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #C8B2FF"></span>
-<span style="flex-grow: 1; min-width: 0; font-size: 13.5px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Add per-key rate limiting to the public API so big customers can't starve everyone else</span>
-<span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">4m</span>
-</button>
-<button type="button" style="display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; padding: 6px 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
-<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #C8B2FF"></span>
-<span style="flex-grow: 1; min-width: 0; font-size: 13.5px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Fix flaky login test</span>
-<span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">22m</span>
-</button>
-<button type="button" style="display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; padding: 6px 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
-<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #C8B2FF"></span>
-<span style="flex-grow: 1; min-width: 0; font-size: 13.5px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Bump the SDK to 0.4</span>
-<span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">38m</span>
-</button>
-<button type="button" style="display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; padding: 6px 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
-<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #C8B2FF"></span>
-<span style="flex-grow: 1; min-width: 0; font-size: 13.5px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Clean up the fixtures</span>
-<span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">1h</span>
-</button>
-<button type="button" style="display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; padding: 6px 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: #999DB0">
-<span style="flex-shrink: 0; width: 8px; height: 8px"></span>
-<span style="flex-grow: 1; min-width: 0; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">+2 more in Acme API</span>
-<span style="flex-shrink: 0; display: flex; color: #999DB0"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"></path></svg></span>
-</button>
-</div>
-</div>
-
-<div style="display: flex; flex-direction: column; gap: 2px">
-<button type="button" role="menuitemradio" aria-checked="false" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; background: transparent; border: 0; border-radius: 8px; font: inherit; color: inherit; text-align: left; cursor: pointer">
-<span aria-hidden="true" style="flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px; background: #1F3A38; color: #7FD1C7; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700">W</span><span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px"><span style="font-size: 14px; font-weight: 600; color: #E6E8F0">Acme Web</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">~/code/web</span></span>
-<span style="font-size: 12px; color: #C8B2FF">1 needs you</span><span style="width: 14px"></span>
-</button>
-<div role="group" aria-label="Acme Web — needs you" style="display: flex; flex-direction: column; gap: 2px; padding-left: 38px">
-<button type="button" style="display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; padding: 6px 8px; background: transparent; border: 1px solid transparent; border-radius: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit">
-<span style="flex-shrink: 0; width: 8px; height: 8px; border-radius: 4px; background: #C8B2FF"></span>
-<span style="flex-grow: 1; min-width: 0; font-size: 13.5px; font-weight: 500; color: #E6E8F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Redesign the checkout flow</span>
-<span style="flex-shrink: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">1h</span>
-</button>
-</div>
-</div>
-
-<button type="button" role="menuitemradio" aria-checked="false" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; background: transparent; border: 0; border-radius: 8px; font: inherit; color: inherit; text-align: left; cursor: pointer">
-<span aria-hidden="true" style="flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px; background: #3A2A36; color: #E58FA8; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700">D</span><span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px"><span style="font-size: 14px; font-weight: 600; color: #E6E8F0">Acme Docs</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">~/code/docs</span></span>
-<span style="font-size: 12px; color: #999DB0">3 active</span><span style="width: 14px"></span>
-</button>
-<button type="button" role="menuitemradio" aria-checked="false" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; background: transparent; border: 0; border-radius: 8px; font: inherit; color: inherit; text-align: left; cursor: pointer">
-<span aria-hidden="true" style="flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px; background: #262A33; color: #9AA0B4; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700">I</span><span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px"><span style="font-size: 14px; font-weight: 600; color: #E6E8F0">Acme Infra</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">~/code/infra</span></span>
-<span style="font-size: 12px; color: #999DB0">idle</span><span style="width: 14px"></span>
-</button>
-
-<div role="separator" style="height: 1px; margin: 5px 6px; background: #373C4F"></div>
-<button type="button" role="menuitem" style="display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 10px 0 6px; background: transparent; border: 0; border-radius: 6px; font: inherit; font-size: 13.5px; color: #E6E8F0; text-align: left; cursor: pointer; white-space: nowrap"><span style="width: 14px; display: flex; color: #E6E8F0"></span><span style="flex-grow: 1">New workspace…</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">⌘⇧N</span></button><button type="button" role="menuitem" style="display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 10px 0 6px; background: transparent; border: 0; border-radius: 6px; font: inherit; font-size: 13.5px; color: #E6E8F0; text-align: left; cursor: pointer; white-space: nowrap"><span style="width: 14px; display: flex; color: #E6E8F0"></span><span style="flex-grow: 1">Open folder as workspace…</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">⌘O</span></button>
-<div role="separator" style="height: 1px; margin: 5px 6px; background: #373C4F"></div>
-<button type="button" role="menuitem" style="display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 10px 0 6px; background: transparent; border: 0; border-radius: 6px; font: inherit; font-size: 13.5px; color: #E6E8F0; text-align: left; cursor: pointer; white-space: nowrap"><span style="width: 14px; display: flex; color: #E6E8F0"></span><span style="flex-grow: 1">Workspace settings…</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #999DB0">⌘,</span></button><button type="button" role="menuitem" style="display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 10px 0 6px; background: transparent; border: 0; border-radius: 6px; font: inherit; font-size: 13.5px; color: #E6E8F0; text-align: left; cursor: pointer; white-space: nowrap"><span style="width: 14px; display: flex; color: #E6E8F0"></span><span style="flex-grow: 1">Reveal root in Finder</span></button>
-</div>
-<div style="width: 392px; box-sizing: border-box; padding: 6px 9px; background: #1C1E27; border: 1px solid #2F3343; border-radius: 6px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; line-height: 1.5; color: #AEB3C3">Acme API has 6 waiting; capped at 4, then "+2 more" opens its task list.</div>
-</div>
-
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1920,"height":1200}}'>
 class Component extends DCLogic {

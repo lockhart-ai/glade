@@ -83,6 +83,7 @@ import {
   systemPromptAppend,
   TODO_HUB_LINES,
   TODO_TOOLS_LINE,
+  USAGE_NOTES_LINE,
 } from './system-prompt'
 import { updateSettings } from '../db/repositories/settings'
 import { setHandoff } from '../db/repositories/backfills'
@@ -579,14 +580,14 @@ describe('the todo list', () => {
     await session.callTool('toolu_05', 'mcp__glade__update_todo', { id: '1', status: 'completed' })
 
     expect(progressUpdates().filter((todos) => todos !== null)).toEqual([
-      { done: 0, total: 1, doing: [] },
-      { done: 0, total: 2, doing: [] },
-      { done: 0, total: 2, doing: ['Find the uploads'] },
-      { done: 1, total: 2, doing: [] },
+      { done: 0, total: 1, doing: [], waiting: [] },
+      { done: 0, total: 2, doing: [], waiting: [] },
+      { done: 0, total: 2, doing: ['Find the uploads'], waiting: [] },
+      { done: 1, total: 2, doing: [], waiting: [] },
     ])
-    expect(current().todos).toEqual({ done: 1, total: 2, doing: [] })
+    expect(current().todos).toEqual({ done: 1, total: 2, doing: [], waiting: [] })
     const { todos: tab } = await glade.invoke(CommandName.TasksHistory, { id: task.id })
-    expect(todoProgress(tab)).toEqual({ done: 1, total: 2, doing: 0 })
+    expect(todoProgress(tab)).toEqual({ done: 1, total: 2, doing: 0, waiting: 0 })
 
     // Deleting every todo leaves the row with none.
     await session.callTool('toolu_06', 'mcp__glade__update_todo', { id: '1', status: 'deleted' })
@@ -3619,7 +3620,13 @@ describe('instructions added to the prompt since a session started', () => {
     await reply()
     await send('And the logout test?')
 
-    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE, OTHER_TASKS_LINE, TODO_TOOLS_LINE])
+    expect(INSTRUCTION_UPDATES).toEqual([
+      FINAL_REPLY_LINE,
+      LINK_ARTIFACTS_LINE,
+      OTHER_TASKS_LINE,
+      TODO_TOOLS_LINE,
+      USAGE_NOTES_LINE,
+    ])
     for (const update of INSTRUCTION_UPDATES) expect(backend.session.options.systemPromptAppend).toContain(update)
     expect(sentTexts()).toEqual(['Why is the login test flaky?', 'And the logout test?'])
     expect(getSessionContext(database.db, task.id)).toEqual({

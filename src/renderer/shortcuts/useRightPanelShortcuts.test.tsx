@@ -30,7 +30,7 @@ async function renderShortcuts(uiState: UiStateEntry[] = []) {
     </GladeStoreProvider>,
   )
   const panel = () => ({
-    tab: activePanelTab(store.getState().uiState, 'w1'),
+    tab: activePanelTab(store.getState().uiState, 't1'),
     collapsed: store.getState().uiState[UiStateKey.RightPanelCollapsed],
   })
   return { ...fake, store, view, panel }
@@ -94,7 +94,7 @@ describe('useRightPanelShortcuts', () => {
   })
 
   it('picks nothing with ⌘⌥4–7, which picked a tab before the panel had three (#501)', async () => {
-    const { invoke, panel } = await renderShortcuts([{ key: UiStateKey.RightPanelTabs, value: '{"w1":"files"}' }])
+    const { invoke, panel } = await renderShortcuts([{ key: UiStateKey.RightPanelTabs, value: '{"t1":"files"}' }])
     invoke.mockClear()
 
     for (const [code, key] of [
@@ -110,9 +110,9 @@ describe('useRightPanelShortcuts', () => {
     expect(panel().tab).toBe('files')
   })
 
-  it('does nothing with no workspace shown', async () => {
-    const { invoke, store, panel } = await renderShortcuts([{ key: UiStateKey.ActiveWorkspaceId, value: '' }])
-    expect(store.getState().selectedWorkspaceId).toBeNull()
+  it('does nothing with no task selected', async () => {
+    const { invoke, store, panel } = await renderShortcuts([{ key: UiStateKey.SelectedTaskId, value: '' }])
+    expect(store.getState().selectedTaskId).toBeNull()
     invoke.mockClear()
 
     press('Digit2', '™')

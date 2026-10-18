@@ -117,7 +117,7 @@ describe('the bridge', () => {
     await expect(glade.invoke(CommandName.UiStateSet, request)).rejects.toEqual(
       bridgeError(
         BridgeErrorCode.InvalidRequest,
-        'uiState.set: key: Invalid option: expected one of "active_workspace_id"|"selected_task_id"|"pinned_section_collapsed"|"active_section_collapsed"|"done_section_collapsed"|"relaunch_notice"|"right_panel_tab"|"right_panel_tabs"|"right_panel_width"|"right_panel_collapsed"|"sidebar_collapsed"|"sidebar_width"|"bottom_bar_collapsed"|"bottom_bar_height"|"plugin_width"|"terminal_selection"; value: Invalid input: expected string, received number',
+        'uiState.set: key: Invalid option: expected one of "active_workspace_id"|"selected_task_id"|"pinned_section_collapsed"|"active_section_collapsed"|"done_section_collapsed"|"relaunch_notice"|"right_panel_tabs"|"right_panel_width"|"right_panel_collapsed"|"sidebar_collapsed"|"sidebar_width"|"bottom_bar_collapsed"|"bottom_bar_height"|"plugin_width"|"terminal_selection"; value: Invalid input: expected string, received number',
       ),
     )
     expect(events).toEqual([])
@@ -264,13 +264,13 @@ describe('a database from before todo summaries', () => {
     const window = createBridge(ipc.renderer)
 
     const { tasks } = await window.invoke(CommandName.TasksListActive, { workspaceId: workspace.id })
-    expect(tasks.map(({ todos }) => todos)).toEqual([{ done: 0, total: 1, doing: ['Copy the files'] }])
+    expect(tasks.map(({ todos }) => todos)).toEqual([{ done: 0, total: 1, doing: ['Copy the files'], waiting: [] }])
     const page = await window.invoke(CommandName.TasksListDone, {
       workspaceId: workspace.id,
       after: null,
       limit: 10,
     })
-    expect(page.tasks.map(({ todos }) => todos)).toEqual([{ done: 1, total: 1, doing: [] }])
+    expect(page.tasks.map(({ todos }) => todos)).toEqual([{ done: 1, total: 1, doing: [], waiting: [] }])
     old.close()
   })
 })

@@ -201,7 +201,9 @@ describe('the menu bar’s commands', () => {
 
     const dialog = within(screen.getByRole('dialog', { name: 'Broadcast' }))
     expect(dialog.getByRole('textbox', { name: 'Broadcast message' })).toHaveFocus()
-    expect(dialog.getByText(/Goes to/)).toHaveTextContent('Goes to 2 active tasks in 2 workspaces.')
+    expect(dialog.getByText(/Goes to/)).toHaveTextContent(
+      'Goes to 2 of 2 active tasks in 2 workspaces. Busy agents get it when their turn ends.',
+    )
     // Chosen again while it's open, it stays as it is.
     choose(rendered, appCommand(AppCommandId.Broadcast))
     expect(screen.getAllByRole('dialog', { name: 'Broadcast' })).toHaveLength(1)
@@ -215,7 +217,7 @@ describe('the menu bar’s commands', () => {
     await settleFloating()
 
     expect(within(screen.getByRole('dialog', { name: 'Broadcast' })).getByText(/Goes to/)).toHaveTextContent(
-      'Goes to 2 active tasks in 2 workspaces.',
+      'Goes to 2 of 2 active tasks in 2 workspaces. Busy agents get it when their turn ends.',
     )
   })
 
@@ -449,7 +451,7 @@ describe('the menu bar’s commands', () => {
 
     it('closes the file showing, not the window, while the focus is in the right panel’s Files tab', async () => {
       const rendered = await renderApp({
-        uiState: [...SHOWING_W1, { key: UiStateKey.RightPanelTab, value: 'files' }],
+        uiState: [...SHOWING_W1, { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'files' }) }],
         openFiles: [{ taskId: 't1', paths: ['api/views.py'], activePath: 'api/views.py' }],
       })
       screen.getByRole('button', { name: 'Close views.py' }).focus()
@@ -504,7 +506,7 @@ const MENU_KEYS: readonly Accelerator[] = COMMANDS.filter(({ scope }) => scope =
 describe('the menu bar’s keys', () => {
   it('are left to the menu bar: the window never takes one, so each runs its command once', async () => {
     const rendered = await renderApp({
-      uiState: [...SHOWING_W1, { key: UiStateKey.RightPanelTab, value: 'files' }],
+      uiState: [...SHOWING_W1, { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'files' }) }],
       openFiles: [{ taskId: 't1', paths: ['api/views.py'], activePath: 'api/views.py' }],
     })
     const before = { ...rendered.store.getState(), menuStates: undefined }

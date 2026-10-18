@@ -439,12 +439,12 @@ describe('a task main asks to open', () => {
     ])
   })
 
-  it('with a subagent, also opens the Agents tab of its workspace on that subagent’s tab, opening the panel', async () => {
+  it('with a subagent, also opens the Agents tab of that task on its subagent’s tab, opening the panel', async () => {
     const { store, emit } = await hydrated(
       main([
         { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
         { key: UiStateKey.RightPanelCollapsed, value: 'true' },
-        { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: 'files', w2: 'todos' }) },
+        { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'files', t2: 'todos' }) },
       ]),
     )
 
@@ -455,9 +455,9 @@ describe('a task main asks to open', () => {
     })
     expect(selectSelectedTask(store.getState())).toEqual(sampleTask('t2', 'w2'))
     expect(selectSelectedWorkspace(store.getState())).toEqual(sampleWorkspace('w2'))
-    // The tab is that workspace's own (#436): the one you were looking at in w1 stays as it was.
-    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Agents)
-    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Files)
+    // The tab is that task's own (#689): the one t1 was left on stays as it was.
+    expect(activePanelTab(store.getState().uiState, 't2')).toBe(PanelTab.Agents)
+    expect(activePanelTab(store.getState().uiState, 't1')).toBe(PanelTab.Files)
     expect(store.getState().uiState).toMatchObject({ [UiStateKey.RightPanelCollapsed]: 'false' })
   })
 
@@ -465,7 +465,7 @@ describe('a task main asks to open', () => {
     const { store, emit } = await hydrated(
       main([
         { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
-        { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w2: 'todos' }) },
+        { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t2: 'todos' }) },
       ]),
     )
 
@@ -474,7 +474,7 @@ describe('a task main asks to open', () => {
     await vi.waitFor(() => {
       expect(store.getState().selectedTaskId).toBe('t2')
     })
-    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Todos)
+    expect(activePanelTab(store.getState().uiState, 't2')).toBe(PanelTab.Todos)
     expect(store.getState().agentTabs).toEqual({})
   })
 
@@ -495,7 +495,7 @@ describe('a task main asks to open', () => {
 
     expect(selectSelectedTask(store.getState())).toEqual(sampleTask('t2', 'w2'))
     expect(store.getState().agentTabs).toEqual({ t2: 'toolu_kitten' })
-    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Agents)
+    expect(activePanelTab(store.getState().uiState, 't2')).toBe(PanelTab.Agents)
   })
 })
 
@@ -1557,7 +1557,7 @@ describe('context menu actions', () => {
     await store.getState().showFile('t1', 'src/date.ts')
 
     expect(store.getState().openFiles.t1?.activePath).toBe('src/date.ts')
-    expect(parsePanelTabSelection(store.getState().uiState[UiStateKey.RightPanelTabs])).toEqual({ w1: 'files' })
+    expect(parsePanelTabSelection(store.getState().uiState[UiStateKey.RightPanelTabs])).toEqual({ t1: 'files' })
     expect(store.getState().uiState).toMatchObject({ [UiStateKey.RightPanelCollapsed]: 'false' })
   })
 })
@@ -1709,7 +1709,7 @@ describe('files', () => {
     expect(store.getState().fileFocus).toEqual({ taskId: 't2', path: 'README.md', line: null, request: 1 })
 
     emit({ type: EventType.FileShown, taskId: 't1', path: 'docs/rate-limits.md', line: 8 })
-    expect(parsePanelTabSelection(store.getState().uiState[UiStateKey.RightPanelTabs])).toEqual({ w1: 'files' })
+    expect(parsePanelTabSelection(store.getState().uiState[UiStateKey.RightPanelTabs])).toEqual({ t1: 'files' })
     expect(store.getState().uiState).toMatchObject({ [UiStateKey.RightPanelCollapsed]: 'false' })
     expect(store.getState().fileFocus).toEqual({ taskId: 't1', path: 'docs/rate-limits.md', line: 8, request: 2 })
   })
@@ -1726,48 +1726,54 @@ describe('files', () => {
   })
 })
 
-describe('right panel tab per workspace', () => {
-  it("keeps each workspace's own tab, switching back and forth", async () => {
+describe('right panel tab per task (#689)', () => {
+  it("keeps each task's own tab, switching back and forth", async () => {
     const { store } = await hydrated()
 
-    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 'w1', PanelTab.Agents))
-    await store.getState().openWorkspace('w2')
-    // w2 has never chosen one: it starts from Todos, not w1's Agents.
-    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Todos)
+    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 't1', PanelTab.Agents))
+    await store.getState().selectTask('t2')
+    // t2 has never chosen one: it opens on the first tab, Todos, not t1's Agents.
+    expect(activePanelTab(store.getState().uiState, 't2')).toBe(PanelTab.Todos)
 
-    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 'w2', PanelTab.Files))
-    await store.getState().openWorkspace('w1')
+    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 't2', PanelTab.Files))
+    await store.getState().selectTask('t1')
 
-    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Agents)
-    await store.getState().openWorkspace('w2')
-    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Files)
+    expect(activePanelTab(store.getState().uiState, 't1')).toBe(PanelTab.Agents)
+    await store.getState().selectTask('t2')
+    expect(activePanelTab(store.getState().uiState, 't2')).toBe(PanelTab.Files)
   })
 
-  it('starts a workspace with no choice of its own from the tab stored before each workspace had one', async () => {
-    const data = main([{ key: UiStateKey.RightPanelTab, value: 'todos' }])
-    const { store } = await hydrated(data)
+  it("opens a task with none remembered on the panel's first tab", async () => {
+    const { store } = await hydrated()
 
-    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Todos)
-    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Todos)
-
-    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 'w1', PanelTab.Files))
-    // w1 now has its own; w2 still starts from the old global value.
-    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Files)
-    expect(activePanelTab(store.getState().uiState, 'w2')).toBe(PanelTab.Todos)
+    expect(activePanelTab(store.getState().uiState, 't1')).toBe(PanelTab.Todos)
+    expect(activePanelTab(store.getState().uiState, 't2')).toBe(PanelTab.Todos)
   })
 
-  it('survives a relaunch, keeping every workspace that chose one', async () => {
+  it('drops a deleted task’s entry, keeping every other task’s', async () => {
+    const { store, emit } = await hydrated(
+      main([{ key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'files', t2: 'agents' }) }]),
+    )
+
+    emit({ type: EventType.TaskDeleted, taskId: 't1' })
+    // A task with no entry writes nothing.
+    emit({ type: EventType.TaskDeleted, taskId: 't3' })
+
+    expect(parsePanelTabSelection(store.getState().uiState[UiStateKey.RightPanelTabs])).toEqual({ t2: 'agents' })
+  })
+
+  it('survives a relaunch, keeping every task that chose one', async () => {
     const data = main()
     const { store } = await hydrated(data)
-    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 'w1', PanelTab.Todos))
-    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 'w2', PanelTab.Files))
+    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 't1', PanelTab.Agents))
+    await store.getState().setUiState(panelTabEntry(store.getState().uiState, 't2', PanelTab.Files))
 
     // The window relaunches: a fresh store, hydrated from what main kept.
     const relaunched = createGladeStore(fakeBridge(data).bridge)
     await relaunched.getState().hydrate()
 
-    expect(activePanelTab(relaunched.getState().uiState, 'w1')).toBe(PanelTab.Todos)
-    expect(activePanelTab(relaunched.getState().uiState, 'w2')).toBe(PanelTab.Files)
+    expect(activePanelTab(relaunched.getState().uiState, 't1')).toBe(PanelTab.Agents)
+    expect(activePanelTab(relaunched.getState().uiState, 't2')).toBe(PanelTab.Files)
   })
 })
 
@@ -1783,7 +1789,7 @@ describe('broadcast (#489)', () => {
     expect(store.getState().broadcastOpen).toBe(false)
   })
 
-  it('sends the message through main, which decides who gets it, and answers how it went for each task', async () => {
+  it('sends the message through main, to the tasks it was sent for, and answers how it went for each task', async () => {
     const idle = [
       { ...sampleTask('t1', 'w1'), sessionId: 's1' },
       { ...sampleTask('t2', 'w2'), sessionId: 's2' },
@@ -1798,9 +1804,12 @@ describe('broadcast (#489)', () => {
       messages: [],
     })
 
-    const recipients = await store.getState().broadcast('Is anyone restarting Docker?')
+    const recipients = await store.getState().broadcast('Is anyone restarting Docker?', ['t1', 't2', 't3'])
 
-    expect(invoke).toHaveBeenCalledWith(CommandName.TasksBroadcast, { text: 'Is anyone restarting Docker?' })
+    expect(invoke).toHaveBeenCalledWith(CommandName.TasksBroadcast, {
+      text: 'Is anyone restarting Docker?',
+      taskIds: ['t1', 't2', 't3'],
+    })
     expect(recipients).toEqual([
       { taskId: 't1', delivery: 'sent' },
       { taskId: 't2', delivery: 'sent' },
@@ -1821,7 +1830,7 @@ describe('broadcast (#489)', () => {
     const store = createGladeStore(fake.bridge)
     await store.getState().hydrate()
 
-    await expect(store.getState().broadcast('Hi')).rejects.toMatchObject({ code: BridgeErrorCode.Internal })
+    await expect(store.getState().broadcast('Hi', ['t1'])).rejects.toMatchObject({ code: BridgeErrorCode.Internal })
   })
 })
 

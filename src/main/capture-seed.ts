@@ -1092,7 +1092,6 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       for (const [index, grant] of (grants ?? []).entries()) addSandboxGrant(db, { target, grant }, now + index)
     }
     noteReportedServers(db, workspace.id, seed.reportedServers ?? [], now)
-    if (seed.panelTab !== undefined) setUiState(db, { key: UiStateKey.RightPanelTab, value: seed.panelTab })
     if (seed.panelWidth !== undefined) {
       setUiState(db, { key: UiStateKey.RightPanelWidth, value: String(seed.panelWidth) })
     }
@@ -1107,6 +1106,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       if (collapsed !== undefined) setUiState(db, { key, value: String(collapsed) })
     }
     const resumed: string[] = []
+    const taskIds: string[] = []
     // The other workspaces the tasks go in, made as the first task in each needs it.
     const workspaceOf = (sample: SeedTask): string => {
       if (sample.workspace === undefined) return workspace.id
@@ -1124,6 +1124,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         permissionMode: sample.permissionMode ?? DEFAULT_SETTINGS.defaultPermissionMode,
       }
       const task = createTask(db, newTask, createdAt)
+      taskIds.push(task.id)
       updateTask(
         db,
         task.id,
@@ -1244,6 +1245,14 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         recordNotification(db, { taskId: task.id, title: sample.title, body }, ago(minutesAgo))
       }
       if (sample.resumedAfterCrash === true) resumed.push(task.id)
+    }
+    // The right panel's remembered tab, as each task's own (#689): a seed's `panelTab` is the tab the panel opens
+    // on, for every task the seed makes.
+    if (seed.panelTab !== undefined) {
+      setUiState(db, {
+        key: UiStateKey.RightPanelTabs,
+        value: JSON.stringify(Object.fromEntries(taskIds.map((id) => [id, seed.panelTab]))),
+      })
     }
     if (resumed.length > 0) {
       setUiState(db, { key: UiStateKey.RelaunchNotice, value: serializeRelaunchNotice({ taskIds: resumed }) })

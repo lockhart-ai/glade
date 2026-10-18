@@ -15,6 +15,7 @@ import type { TurnFocus } from '../tool-log'
 import { activePanelTab, FIRST_PANEL_TAB, formatCount, PanelTab, panelTabEntry } from './panelModel'
 import { PANEL_TAB_DEFINITIONS } from './panelTabs'
 import styles from './TaskPanel.module.css'
+import { TodoWaitingBadge } from './TodoWaitingBadge'
 
 const TABS_ID = 'task-panel'
 
@@ -27,8 +28,9 @@ const NO_PERMISSION_MARKS: readonly PermissionMark[] = []
  * watchers, and on each call's row what was decided about its permission request (#459). Todos is what the work
  * produced: each todo with its files, links and changes.
  *
- * The selected tab is kept in UI state per workspace (#432): switching workspace shows that workspace's tab, and a
- * relaunch keeps every workspace's. One left on a tab the panel no longer has opens on Todos. The width and whether
+ * The selected tab is kept in UI state per task (#689): switching back to a task shows the tab it had, and a
+ * relaunch keeps every task's. A task with none remembered opens on the panel's first tab, Todos (#686). One left on
+ * a tab the panel no longer has opens on it too. The width and whether
  * the panel is collapsed are kept in UI state for the whole window; collapsed, the panel shows nothing. It slides
  * open and shut.
  *
@@ -61,7 +63,7 @@ export function TaskPanel(): React.JSX.Element | null {
     ),
   )
   const uiState = useGladeStore((state) => state.uiState)
-  const tab = workspace === undefined ? FIRST_PANEL_TAB : activePanelTab(uiState, workspace.id)
+  const tab = task === undefined ? FIRST_PANEL_TAB : activePanelTab(uiState, task.id)
   const { size: width, setSize: keepWidth } = usePanelSize(Panel.RightPanel)
   const { collapsed } = usePanel(Panel.RightPanel)
   const presence = usePresence(!collapsed)
@@ -113,7 +115,7 @@ export function TaskPanel(): React.JSX.Element | null {
   }, [])
 
   const selectTab = (next: PanelTab): void => {
-    if (next !== tab && workspace !== undefined) void setUiState(panelTabEntry(uiState, workspace.id, next))
+    if (next !== tab && task !== undefined) void setUiState(panelTabEntry(uiState, task.id, next))
   }
 
   // Close (⌘W) closes the file showing in Files while the focus is in the panel; anywhere else it closes the window, as
@@ -167,10 +169,14 @@ export function TaskPanel(): React.JSX.Element | null {
     }
   }
 
+  // The Todos tab's own purple count of what's waiting on you sits beside its "3/4", as a node the tab bar renders
+  // as given: `TodoWaitingBadge` reads its own narrow slice of the store and is memoised, so a change to it
+  // re-renders only the badge, not this panel or the tab bar around it (#680).
   const tabs: readonly TabItem<PanelTab>[] = PANEL_TAB_DEFINITIONS.map(({ tab: value, label }, index) => ({
     value,
     label,
     count: counts[index],
+    badge: value === PanelTab.Todos && task !== undefined ? <TodoWaitingBadge taskId={task.id} /> : undefined,
   }))
 
   return (

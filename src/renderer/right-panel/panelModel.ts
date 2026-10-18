@@ -1,5 +1,5 @@
-// The right panel's state, as it's stored in UI state: its selected tab, per workspace (#432). (Whether it's
-// collapsed, and its width, are `../panels`, with the other panels'.)
+// The right panel's state, as it's stored in UI state: its selected tab, per task (#689; was per workspace, #432).
+// (Whether it's collapsed, and its width, are `../panels`, with the other panels'.)
 import { UiStateKey, type UiStateEntry } from '../../shared/domain'
 import type { UiStateValues } from '../store/state'
 
@@ -17,7 +17,7 @@ export enum PanelTab {
 /** Every tab the panel shows, in tab bar order. */
 export const PANEL_TABS: readonly PanelTab[] = [PanelTab.Todos, PanelTab.Agents, PanelTab.Files]
 
-/** The tab a panel with nothing stored starts on. */
+/** The tab a panel with nothing stored starts on (#686 moves this to Todos with the tabs' new order). */
 export const FIRST_PANEL_TAB = PanelTab.Todos
 
 function isPanelTab(value: string): value is PanelTab {
@@ -25,16 +25,7 @@ function isPanelTab(value: string): value is PanelTab {
 }
 
 /**
- * The stored tab, or Agents when none is stored or this version doesn't have the one that is: a tab from before the
- * panel had three (Tool calls, Subagents, Watchers, Artifacts or Changes, #501), or one a newer version stored.
- */
-export function parsePanelTab(value: string | undefined): PanelTab {
-  return value !== undefined && isPanelTab(value) ? value : FIRST_PANEL_TAB
-}
-
-/**
- * The tab each workspace's right panel shows, as the `right_panel_tabs` UI state keeps it: from a workspace's id to
- * its tab.
+ * The tab each task's right panel shows, as the `right_panel_tabs` UI state keeps it: from a task's id to its tab.
  */
 export type PanelTabSelection = Readonly<Record<string, PanelTab>>
 
@@ -64,22 +55,32 @@ export function parsePanelTabSelection(value: string | undefined): PanelTabSelec
 }
 
 /**
- * The tab a workspace's right panel shows: the one last picked there, or else the tab stored before each workspace
- * had its own (`UiStateKey.RightPanelTab`, every workspace's starting value), or else Todos. A stored tab the panel
- * no longer has counts as none stored, at either step.
+ * The tab a task's right panel shows: the one last picked there, or else the panel's first tab (Todos, #686) when
+ * none is remembered yet. A stored tab the panel no longer has (one from before the panel had three, #501, or from a
+ * newer version) counts as none stored.
  */
-export function activePanelTab(uiState: UiStateValues, workspaceId: string): PanelTab {
-  const picked = parsePanelTabSelection(uiState[UiStateKey.RightPanelTabs])[workspaceId]
-  return picked ?? parsePanelTab(uiState[UiStateKey.RightPanelTab])
+export function activePanelTab(uiState: UiStateValues, taskId: string): PanelTab {
+  return parsePanelTabSelection(uiState[UiStateKey.RightPanelTabs])[taskId] ?? FIRST_PANEL_TAB
 }
 
-/** The UI state that makes `tab` the one `workspaceId`'s right panel shows, keeping every other workspace's. */
-export function panelTabEntry(uiState: UiStateValues, workspaceId: string, tab: PanelTab): UiStateEntry {
+/** The UI state that makes `tab` the one `taskId`'s right panel shows, keeping every other task's. */
+export function panelTabEntry(uiState: UiStateValues, taskId: string, tab: PanelTab): UiStateEntry {
   const kept = Object.entries(parsePanelTabSelection(uiState[UiStateKey.RightPanelTabs])).filter(
-    ([id]) => id !== workspaceId,
+    ([id]) => id !== taskId,
   )
-  const selection: PanelTabSelection = Object.fromEntries([...kept, [workspaceId, tab]])
+  const selection: PanelTabSelection = Object.fromEntries([...kept, [taskId, tab]])
   return { key: UiStateKey.RightPanelTabs, value: serializePanelTabSelection(selection) }
+}
+
+/**
+ * The UI state that drops `taskId`'s remembered tab, keeping every other task's, for when the task is deleted
+ * (#689). Null when it has none: nothing to write.
+ */
+export function withoutPanelTabEntry(uiState: UiStateValues, taskId: string): UiStateEntry | null {
+  const selection = parsePanelTabSelection(uiState[UiStateKey.RightPanelTabs])
+  if (!(taskId in selection)) return null
+  const kept = Object.entries(selection).filter(([id]) => id !== taskId)
+  return { key: UiStateKey.RightPanelTabs, value: serializePanelTabSelection(Object.fromEntries(kept)) }
 }
 
 /** The tab ⌘⌥ and a digit picks: 1 is Todos and 3 is Files. Undefined for any other digit. */

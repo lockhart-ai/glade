@@ -1,17 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import { menuBarIcon, menuBarSnapshot } from '../../shared/menuBar'
-import { TaskActivity, TaskState, UNTITLED_TASK_TITLE, type Task, type Workspace } from '../../shared/domain'
+import {
+  AgentErrorKind,
+  TaskActivity,
+  TaskErrorSource,
+  TaskState,
+  UNTITLED_TASK_TITLE,
+  type Task,
+  type TaskError,
+  type Workspace,
+} from '../../shared/domain'
 import { sampleTask, sampleWorkspace } from '../store/test-bridge'
 import {
   badgeTone,
   BadgeTone,
   describeStatus,
   needsYouCount,
+  needsYouTaskTitle,
+  needsYouTasks,
+  needsYouWhy,
   pillText,
   switcherTitle,
-  WAITING_TASKS_SHOWN,
-  waitingTasks,
-  waitingTaskTitle,
   workspaceAt,
   workspaceInitial,
   workspaceStatus,
@@ -36,6 +45,17 @@ function waiting(id: string, workspaceId = 'w1'): Task {
 
 function done(id: string, workspaceId = 'w1'): Task {
   return { ...waiting(id, workspaceId), state: TaskState.Done }
+}
+
+/** An API error that stopped the agent, as `errorStatusLine` words it. */
+const overloaded: TaskError = {
+  kind: AgentErrorKind.Transient,
+  source: TaskErrorSource.Api,
+  status: 529,
+  code: 'overloaded',
+  details: 'API Error: 529 Overloaded',
+  retries: 3,
+  retryingMs: 120_000,
 }
 
 describe('workspaceStatus', () => {
@@ -214,48 +234,93 @@ describe('workspaceAt', () => {
   })
 })
 
-describe('waitingTasks', () => {
-  it('is empty with nothing needing you: none at all, only active ones, or only in other workspaces', () => {
-    expect(waitingTasks([], 'w1')).toEqual({ shown: [], moreCount: 0 })
-    expect(waitingTasks([working('t1'), waiting('t2', 'w2')], 'w1')).toEqual({ shown: [], moreCount: 0 })
+describe('needsYouTasks', () => {
+  const workspaces = [sampleWorkspace('w1'), sampleWorkspace('w2'), sampleWorkspace('w3')]
+
+  it('is empty with nothing needing you: none at all, only active ones, or only done ones', () => {
+    expect(needsYouTasks([], workspaces)).toEqual([])
+    expect(needsYouTasks([working('t1'), done('t2')], workspaces)).toEqual([])
   })
 
-  it('is the workspace’s own waiting tasks, newest change first, by id and when they changed', () => {
+  it('is one row per task that needs you across every workspace, the current one included, with its workspace and badge', () => {
+    const tasks = [working('t1', 'w1'), waiting('t2', 'w1'), waiting('t3', 'w2'), done('t4', 'w3')]
+
+    expect(needsYouTasks(tasks, workspaces)).toEqual([
+      {
+        taskId: 't2',
+        workspaceId: 'w1',
+        workspaceName: 'Acme API',
+        tone: BadgeTone.Blue,
+        updatedAt: 2_000,
+      },
+      {
+        taskId: 't3',
+        workspaceId: 'w2',
+        workspaceName: 'Acme API',
+        tone: BadgeTone.Purple,
+        updatedAt: 2_000,
+      },
+    ])
+  })
+
+  it('is the one that changed last first, ties by id, so the rows don’t swap places as they refresh', () => {
     const t1 = { ...waiting('t1'), updatedAt: 1_000 }
-    const t2 = { ...waiting('t2'), updatedAt: 3_000 }
+    const t2 = { ...waiting('t2', 'w2'), updatedAt: 3_000 }
+    const t3 = { ...waiting('t3', 'w3'), updatedAt: 1_000 }
 
-    expect(waitingTasks([t1, t2], 'w1')).toEqual({
-      shown: [
-        { taskId: 't2', updatedAt: 3_000 },
-        { taskId: 't1', updatedAt: 1_000 },
-      ],
-      moreCount: 0,
-    })
+    expect(needsYouTasks([t1, t2, t3], workspaces).map(({ taskId }) => taskId)).toEqual(['t2', 't1', 't3'])
   })
 
-  it('breaks a tie in when they changed by id, so the rows don’t swap places as they refresh', () => {
-    const t1 = { ...waiting('t1'), updatedAt: 1_000 }
-    const t2 = { ...waiting('t2'), updatedAt: 1_000 }
-    expect(waitingTasks([t2, t1], 'w1').shown.map(({ taskId }) => taskId)).toEqual(['t1', 't2'])
+  it('leaves out a task whose workspace the app no longer has, the same way `menuBarSnapshot` does', () => {
+    expect(needsYouTasks([waiting('t1'), waiting('t2', 'gone')], workspaces).map(({ taskId }) => taskId)).toEqual([
+      't1',
+    ])
   })
 
-  it(`shows at most ${String(WAITING_TASKS_SHOWN)}, the newest, and counts the rest`, () => {
-    const tasks = Array.from({ length: WAITING_TASKS_SHOWN + 2 }, (_, index) => ({
-      ...waiting(`t${String(index)}`),
-      updatedAt: 1_000 + index,
-    }))
+  it('lists exactly the menu bar popover’s Needs-you rows, in its order, whatever needs you and where', () => {
+    const tasks = [
+      waiting('t1', 'w1'),
+      { ...working('t2', 'w2'), asking: true },
+      { ...working('t3', 'w2'), activity: TaskActivity.Error },
+      { ...waiting('t4', 'w3'), awaitingPermission: true },
+      working('t5', 'w3'),
+      done('t6', 'w1'),
+      waiting('t7', 'gone'),
+    ]
 
-    const { shown, moreCount } = waitingTasks(tasks, 'w1')
-
-    expect(shown).toHaveLength(WAITING_TASKS_SHOWN)
-    expect(shown.map(({ taskId }) => taskId)).toEqual(['t5', 't4', 't3', 't2'])
-    expect(moreCount).toBe(2)
+    const popover = menuBarSnapshot({ tasks, workspaces, turnStartedAt: () => null, recent: [] }).needsYou
+    expect(needsYouTasks(tasks, workspaces).map(({ taskId }) => taskId)).toEqual(popover.map(({ taskId }) => taskId))
   })
 })
 
-describe('waitingTaskTitle', () => {
+describe('needsYouWhy', () => {
+  const now = 7_200_000
+
+  it('says what an unread reply is, and when it came, in the row’s words', () => {
+    expect(needsYouWhy({ ...waiting('t1'), updatedAt: now - 20 * 60_000 }, now)).toBe('Replied 20m ago')
+    expect(needsYouWhy({ ...waiting('t2'), updatedAt: now - 500 }, now)).toBe('Replied just now')
+  })
+
+  it('is the task’s status line, exactly as the task list shows it, for a task waiting on you another way', () => {
+    expect(
+      needsYouWhy({ ...working('t1'), asking: true, status: 'Waiting on you: pick a limit for /search' }, now),
+    ).toBe('Waiting on you: pick a limit for /search')
+    expect(needsYouWhy({ ...working('t2'), asking: true, status: 'Waiting on you: two questions' }, now)).toBe(
+      'Waiting on you: two questions',
+    )
+  })
+
+  it('is the permission line on a permission card, and the error’s line when an error stopped the agent', () => {
+    expect(needsYouWhy({ ...working('t1'), awaitingPermission: true }, now)).toBe('Waiting on you')
+    expect(needsYouWhy({ ...working('t2'), activity: TaskActivity.Error, error: overloaded }, now)).toBe(
+      'Error: API overloaded · retry?',
+    )
+  })
+})
+
+describe('needsYouTaskTitle', () => {
   it('is the title, or "New task" for one without, as the menu bar popover calls it too', () => {
-    expect(waitingTaskTitle('Fix flaky login test')).toBe('Fix flaky login test')
-    expect(waitingTaskTitle('')).toBe(UNTITLED_TASK_TITLE)
+    expect(needsYouTaskTitle('Fix flaky login test')).toBe('Fix flaky login test')
+    expect(needsYouTaskTitle('')).toBe(UNTITLED_TASK_TITLE)
   })
 })

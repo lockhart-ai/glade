@@ -290,8 +290,8 @@ const fileChildrenInput = z.object({
 
 const listOtherTasksInput = z.object({}) satisfies z.ZodType<ListOtherTasksInput>
 
-/** `update_todo`'s `status`, in the built-ins' own words (#609). */
-const todoToolStatus = z.enum(['pending', 'in_progress', 'completed', 'deleted'])
+/** `update_todo`'s `status`, in the built-ins' own words, plus Glade's own `waiting` (#609, #680). */
+const todoToolStatus = z.enum(['pending', 'in_progress', 'completed', 'waiting', 'deleted'])
 
 const createTodoInput = z.object({
   subject: text('subject').describe('A short name for the todo.'),
@@ -305,8 +305,9 @@ const updateTodoInput = z.object({
   status: todoToolStatus
     .optional()
     .describe(
-      'pending, in_progress or completed to change where it stands; deleted to remove it. Deleting is refused ' +
-        'while anything is still filed under it: move each with file_children first.',
+      "pending, in_progress or completed to change where it stands; waiting when it can't move until the user " +
+        'reviews or decides something (say what in the note); deleted to remove it. Deleting is refused while ' +
+        'anything is still filed under it: move each with file_children first.',
     ),
 }) satisfies z.ZodType<UpdateTodoInput>
 
@@ -706,10 +707,12 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
     "Add a todo to this task's list, not started. Give a short subject, and optionally a note: the line to show " +
     'under it, for where it stands or what you are doing now. Returns its id.',
   [GladeTool.UpdateTodo]:
-    "Change one of this task's todos, by its id: a new subject, a new note, or status (pending, in_progress or " +
-    'completed) to move it along. A note shows for a todo in any state but done. Give status "deleted" to remove ' +
-    'it instead — refused while anything is still filed under it: move each to the todo it belongs under with ' +
-    'file_children first, then delete it. An update that changes none of subject, note or status is refused.',
+    "Change one of this task's todos, by its id: a new subject, a new note, or status (pending, in_progress, " +
+    'completed or waiting) to move it along. Give status "waiting" when the todo can\'t move until the user ' +
+    'reviews or decides something, and say what in the note. A note shows for a todo in any state but done. Give ' +
+    'status "deleted" to remove it instead — refused while anything is still filed under it: move each to the ' +
+    'todo it belongs under with file_children first, then delete it. An update that changes none of subject, ' +
+    'note or status is refused.',
   [GladeTool.ListTodos]:
     "List this task's todos, one line each, in the order they were made: its id, status in brackets and subject, " +
     'with its note after a dash when it has one.',

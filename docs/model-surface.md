@@ -328,7 +328,7 @@ status (open, merged, closed) isn't fetched.
 | `file_children` | `{ filings: { child: string, todo: string }[] }` | Files children under todos, or moves them to another, all of them or none. See below. |
 | `list_other_tasks` | `{}` | Read-only; always on. The other Active tasks across every workspace, most recently updated first, each with its title, objective (Goal), status (Now), attention, workspace and link artifacts. See below. |
 | `create_todo` | `{ subject: string, note?: string }` | Adds a todo, not started, with the next id the task has ever been given. See below. |
-| `update_todo` | `{ id: string, subject?: string, note?: string, status?: "pending" \| "in_progress" \| "completed" \| "deleted" }` | Changes a todo, or removes it (`status: "deleted"`), refused while anything is filed under it. See below. |
+| `update_todo` | `{ id: string, subject?: string, note?: string, status?: "pending" \| "in_progress" \| "completed" \| "waiting" \| "deleted" }` | Changes a todo, or removes it (`status: "deleted"`), refused while anything is filed under it. See below. |
 | `list_todos` | `{}` | Every todo of the task, one line each, in order. See below. |
 
 `Question` (draft):
@@ -653,17 +653,25 @@ attempted a disallowed one, and no system-reminder in the whole message stream n
 others — disallowing them leaves nothing nudging the model back towards them.
 
 The tools' own words stay close to the built-ins' (`subject`, `status` of `pending`/`in_progress`/`completed`/
-`deleted`), so a model's habits with them carry over; what's stored keeps Glade's own words instead (`Todo.text`,
-`Todo.note`, `Todo.state`, in `src/shared/domain.ts`). A todo's id is a plain integer, scoped to the task, given by
-its own counter (`todo_counters`) that only ever goes up, so a deleted todo's number is never given to another.
+`deleted`), plus Glade's own `waiting` (#680, below), so a model's habits with them carry over; what's stored keeps
+Glade's own words instead (`Todo.text`, `Todo.note`, `Todo.state`, in `src/shared/domain.ts`). A todo's id is a plain
+integer, scoped to the task, given by its own counter (`todo_counters`) that only ever goes up, so a deleted todo's
+number is never given to another.
 
 - **`create_todo { subject, note? }`** adds a todo, not started, with the next id the task has ever been given.
   Replies `Todo #<id> created: <subject>.`
 - **`update_todo { id, subject?, note?, status? }`** changes a todo's subject, note or status (`pending`,
-  `in_progress` or `completed`), or — `status: "deleted"` — removes it, refused while anything is still filed under
-  it, naming each so the agent can move it with `file_children` first. An update that changes none of `subject`,
-  `note` or `status` is refused. Replies `Todo #<id> updated.`,
+  `in_progress`, `completed` or `waiting`), or — `status: "deleted"` — removes it, refused while anything is still
+  filed under it, naming each so the agent can move it with `file_children` first. An update that changes none of
+  `subject`, `note` or `status` is refused. Replies `Todo #<id> updated.`,
   or `Deleted todo #<id> <subject> (<status>).`
+- **`waiting` is for a todo that can't move until the user reviews or decides something** (#680): the one status
+  Claude Code's own todo tools never had, so the tool's own description and the system prompt (`TODO_TOOLS_LINE`,
+  "System prompt", below) tell the model to set it then, and to say what in the note — the same rule `CLAUDE.md` and
+  `docs/conventions.md` already give Jared's own kittens for a Glade todo waiting on him. The Todos tab
+  ([`product.md`](product.md)) shows it first, in purple, ahead of what's in progress; the model surface was its one
+  missing piece — the domain's `waiting` state (`src/shared/domain.ts`) and the `todos` table already allowed it
+  (migration 73).
 - **`list_todos {}`** answers every todo of the task, one line each, in the order they were made: `#1 [in_progress]
   Write the release notes — Drafting the changelog`, the note after a dash when it has one. `You have no todos yet:
   create one with create_todo first.` for a task with none.
@@ -685,7 +693,8 @@ The list isn't stored on its own beyond the `todos` table: main reads it (`todoL
 sends it with `tasks.history`, and broadcasts `todos.changed` whenever `create_todo` or `update_todo` runs. Each
 task also keeps a summary of it (`todos` on the task: done, total and the items in progress), updated at the same
 moment and sent with `task.updated` when it changes, so the task list's rows show the progress without each task's
-history (#246). The domain's `waiting` state (purple in the design) has no source yet, so nothing sets it.
+history (#246). The summary names what's waiting on you, too (`TodoSummary.waiting`), the same way it names what's
+being worked on now (#680): the sidebar row's tooltip reads `Waiting on you: <item>` ahead of `Now: <item>`.
 
 ## Glade's control tools: `glade-control` (P13-01)
 
@@ -736,13 +745,15 @@ Before starting work on an existing pull request, issue or branch, call list_oth
 
 When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows in the task's Agents tab.
 
-Keep this task's todos with create_todo, update_todo and list_todos: there is no TaskCreate, TaskUpdate, TaskList, TaskGet or TodoWrite here any more. A note on a todo (what it is for, or where it stands) shows while it isn't done, not only while you're doing it.
+Keep this task's todos with create_todo, update_todo and list_todos: there is no TaskCreate, TaskUpdate, TaskList, TaskGet or TodoWrite here any more. A note on a todo (what it is for, or where it stands) shows while it isn't done, not only while you're doing it. Set a todo waiting (instead of in_progress) when it can't move until the user reviews or decides something, and say what in its note.
 
 Glade files every commit you make under one of your todos, where the user finds it, and each subagent you start works on one of them. Name the todo in the call: start the description of an Agent call, and of a Bash call that commits, with the todo's id in square brackets, like "[todo 2] Review the date helpers". Create the todo first (create_todo) if none fits. If a call names none, Glade asks you right after it to file what it made, with mcp__glade__file_children: do that at once, before your next step. What a subagent commits goes under its todo by itself: leave those.
 
 An artifact goes under a todo too: give add_artifact the todo's id as todo, for a file and for a link.
 
 What this task has produced (its artifacts and commits) shows to the user under its todos. list_children lists them, each with a short id and the todo it's under, and file_children files them under a todo or moves them to another, by those ids. When the user asks you to file or sort what you made, list them, then file them all in one call.
+
+Glade tells you about usage, so you never need to watch its meter yourself: every message you are sent ends with a line saying how much of the Claude plan this session and this week have used and when each resets, with the OpenRouter key's spend when your task runs on OpenRouter, and, while you are working, you are told when usage crosses a threshold (by default every 10% of the session or the week, every $10 of OpenRouter spend).
 ```
 
 The line about the last message is for the chat (#301): it shows only the agent's final reply each turn
@@ -785,6 +796,13 @@ Three more parts are added after that, each after a blank line, when they apply:
 - **A handoff note:** for a task backfilled with one ([`control-api.md`](control-api.md#backfilling-past-tasks)), the
   note under `## Handoff for this task (backfilled from earlier notes)`, after a line saying the task was worked on
   before it was in Glade, to pick up from there, and that the paths the note names are real.
+- **Usage (#688):** one line, in `INSTRUCTION_UPDATES` (`USAGE_NOTES_LINE`): that Glade tells the agent about usage
+  so it never watches the meter itself. Every prompt Glade sends (your message, a queued one, a resume) ends with a
+  line on the Claude plan's session and weekly usage and their resets, with the OpenRouter key's spend when the task
+  runs on OpenRouter; the SDK's own wake prompts (a task notification, a job firing) can't carry it, so an agent
+  woken that way reads usage at its next batch or turn start. And, as each of the agent's own messages' calls has run
+  (`PostToolBatch`), a note when usage has crossed a threshold — never twice for the same threshold, and never to an
+  idle task, which nothing wakes.
 
 **Resumed sessions.** Claude Code keeps a session's system prompt when it resumes it
 ([`sdk-notes.md` §8](sdk-notes.md#8-resume-verified)), so a line added to the prompt reaches only sessions started

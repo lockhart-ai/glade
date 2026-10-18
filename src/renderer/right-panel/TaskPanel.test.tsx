@@ -190,13 +190,13 @@ describe('TaskPanel', () => {
     expect(tab(/^Todos/)).toHaveAttribute('aria-selected', 'true')
   })
 
-  it('keeps the tab you pick in UI state', async () => {
+  it('keeps the tab you pick as the task’s own in UI state', async () => {
     const { invoke, store } = await renderPanel()
 
     fireEvent.click(tab('Files'))
     expect(tab('Files')).toHaveAttribute('aria-selected', 'true')
-    expect(parsePanelTabSelection(store.getState().uiState[UiStateKey.RightPanelTabs])).toEqual({ w1: 'files' })
-    const entry = { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: 'files' }) }
+    expect(parsePanelTabSelection(store.getState().uiState[UiStateKey.RightPanelTabs])).toEqual({ t1: 'files' })
+    const entry = { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'files' }) }
     expect(invoke).toHaveBeenCalledWith(CommandName.UiStateSet, entry)
 
     // Picking the tab that's already selected writes nothing.
@@ -205,11 +205,15 @@ describe('TaskPanel', () => {
     expect(invoke).not.toHaveBeenCalled()
   })
 
-  it('opens on the stored tab, the same for every task', async () => {
-    const { store } = await renderPanel({ uiState: [{ key: UiStateKey.RightPanelTab, value: 'todos' }] })
+  it('opens on each task’s own remembered tab (#689)', async () => {
+    const { store } = await renderPanel({
+      uiState: [{ key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'todos', t2: 'files' }) }],
+    })
 
     expect(tab('Todos')).toHaveAttribute('aria-selected', 'true')
     await act(() => store.getState().selectTask('t2'))
+    expect(tab('Files')).toHaveAttribute('aria-selected', 'true')
+    await act(() => store.getState().selectTask('t1'))
     expect(tab('Todos')).toHaveAttribute('aria-selected', 'true')
   })
 
@@ -293,7 +297,10 @@ describe('TaskPanel', () => {
   })
 
   it('says when there are no tool calls yet, and counts the task’s own agent alone', async () => {
-    await renderPanel({ toolEvents: [], uiState: [{ key: UiStateKey.RightPanelTab, value: 'agents' }] })
+    await renderPanel({
+      toolEvents: [],
+      uiState: [{ key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'agents' }) }],
+    })
     expect(tabPanel()).toHaveTextContent('No tool calls yet.')
     expect(tab(/^Agents/)).toHaveTextContent(/^Agents 1$/)
   })
@@ -316,8 +323,11 @@ describe('TaskPanel', () => {
       updatedAt: Date.now(),
     })
 
+    // Both tasks' own remembered tab, so picking the other shows its Todos too (#689).
+    const ON_TODOS = [{ key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'todos', t2: 'todos' }) }]
+
     it("counts the selected task's done todos in the tab, and shows its list", async () => {
-      await renderPanel({ todos: { t1: list(3, 7) }, uiState: [{ key: UiStateKey.RightPanelTab, value: 'todos' }] })
+      await renderPanel({ todos: { t1: list(3, 7) }, uiState: ON_TODOS })
 
       expect(tab(/^Todos/)).toHaveTextContent('Todos 3/7')
       expect(tabPanel()).toHaveTextContent('3 of 7 done')
@@ -325,7 +335,7 @@ describe('TaskPanel', () => {
     })
 
     it('follows the list as the agent changes it, and shows the task you pick', async () => {
-      const { emit, store } = await renderPanel({ uiState: [{ key: UiStateKey.RightPanelTab, value: 'todos' }] })
+      const { emit, store } = await renderPanel({ uiState: ON_TODOS })
       expect(tab(/^Todos/)).toHaveTextContent(/^Todos$/)
       expect(tabPanel()).toHaveTextContent('No todos yet.')
 
@@ -341,12 +351,37 @@ describe('TaskPanel', () => {
     })
 
     it('shows nothing without a task', async () => {
-      await renderPanel({ selected: false, uiState: [{ key: UiStateKey.RightPanelTab, value: 'todos' }] })
+      await renderPanel({ selected: false })
       expect(tabPanel()).toBeEmptyDOMElement()
     })
 
+    it('shows a purple count of what is waiting on you beside the done count, hidden at none (#680)', async () => {
+      const waiting = (): TodoList => ({
+        items: [
+          { id: '1', text: 'Pick a mockup', state: TodoState.Waiting, note: 'A or B?', completedAt: null },
+          { id: '2', text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null },
+        ],
+        updatedAt: Date.now(),
+      })
+      const { emit } = await renderPanel({
+        todos: { t1: list(0, 4) },
+        uiState: [{ key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'todos' }) }],
+      })
+      expect(tab(/^Todos/)).toHaveTextContent('Todos 0/4')
+      expect(screen.queryByRole('img', { name: /waiting on you/ })).toBeNull()
+
+      act(() => {
+        emit({ type: EventType.TodosChanged, taskId: 't1', todos: waiting() })
+      })
+
+      const badge = within(tab(/^Todos/)).getByRole('img', { name: '1 todo waiting on you' })
+      expect(badge).toHaveTextContent('1')
+    })
+
     describe('as the todo hub (P16)', () => {
-      const ON_TODOS = [{ key: UiStateKey.RightPanelTab, value: 'todos' }]
+      // t1's own remembered tab, so coming back to it from another task still shows the hub.
+      // Both tasks' own remembered tab, so picking the other shows its Todos too (#689).
+      const ON_TODOS = [{ key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'todos', t2: 'todos' }) }]
       const watcher = sampleWatcher('w1', 't1', { toolUseId: 'watch-a', label: 'CI checks on PR #511' })
       const pr: Artifact = {
         kind: ArtifactKind.Link,
@@ -434,7 +469,7 @@ describe('TaskPanel', () => {
   describe('the tool log', () => {
     // The log is the Agents tab's, and the panel's own default tab is Todos (#686), so open it there first.
     const open = async (setup: Setup = {}): Promise<FakeBridge & { store: GladeStore }> =>
-      renderPanel({ uiState: [{ key: UiStateKey.RightPanelTab, value: 'agents' }], ...setup })
+      renderPanel({ uiState: [{ key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'agents' }) }], ...setup })
 
     it('shows each call’s state, name, argument, time and short result', async () => {
       await open()
@@ -756,7 +791,7 @@ describe('TaskPanel', () => {
     it('scrolls to turn 1’s first row, which has no divider, and restarts the highlight when asked again', async () => {
       const { store } = await renderPanel({
         toolEvents: TWO_TURNS,
-        uiState: [{ key: UiStateKey.RightPanelTab, value: 'agents' }],
+        uiState: [{ key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'agents' }) }],
       })
       vi.useFakeTimers()
       const firstNote = screen.getByText(/^Looking at how/)
@@ -777,7 +812,7 @@ describe('TaskPanel', () => {
         toolEvents: TWO_TURNS,
         uiState: [
           { key: UiStateKey.RightPanelCollapsed, value: 'true' },
-          { key: UiStateKey.RightPanelTab, value: 'files' },
+          { key: UiStateKey.RightPanelTabs, value: '{"t1":"files"}' },
         ],
       })
       expect(screen.queryByRole('complementary', { name: 'Task panel' })).toBeNull()
@@ -787,7 +822,7 @@ describe('TaskPanel', () => {
       })
       expect(store.getState().uiState).toMatchObject({ [UiStateKey.RightPanelCollapsed]: 'false' })
       expect(parsePanelTabSelection(store.getState().uiState[UiStateKey.RightPanelTabs])).toEqual({
-        w1: 'agents',
+        t1: 'agents',
       })
       expect(tab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
       expect(scrollIntoView.mock.contexts[0]).toBe(within(log()).getByRole('separator', { name: 'turn 2 · 11:20' }))
@@ -913,7 +948,7 @@ describe('TaskPanel', () => {
 
   describe('Files', () => {
     const OPEN: OpenFiles = { taskId: 't1', paths: ['api/views.py', 'README.md'], activePath: 'api/views.py' }
-    const FILES_TAB = { key: UiStateKey.RightPanelTab, value: 'files' }
+    const FILES_TAB = { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'files' }) }
 
     it('counts the files open, and shows the Files tab', async () => {
       await renderPanel({ openFiles: [OPEN], uiState: [FILES_TAB] })

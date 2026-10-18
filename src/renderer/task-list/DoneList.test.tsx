@@ -208,7 +208,7 @@ describe('the Done section with more than a thousand tasks', () => {
 
   it("shows each done task's todo progress as its rows load, without loading any task's history", async () => {
     const withTodos = (index: number): Task =>
-      done(index, index % 3 === 0 ? { todos: { done: index % 7, total: 7, doing: [] } } : {})
+      done(index, index % 3 === 0 ? { todos: { done: index % 7, total: 7, doing: [], waiting: [] } } : {})
     const { store, fake } = await renderList(Array.from({ length: DONE_TASKS }, (_, index) => withTodos(index)))
     /** The rendered rows' progress, by title. */
     const progress = (): Map<string, string | null> =>
@@ -234,7 +234,10 @@ describe('the Done section with more than a thousand tasks', () => {
     // A done task's list changing (an import, or a relaunch working it out) shows on its row as it's told.
     scrollTo(0)
     act(() => {
-      fake.emit({ type: EventType.TaskUpdated, task: { ...done(1), todos: { done: 7, total: 7, doing: [] } } })
+      fake.emit({
+        type: EventType.TaskUpdated,
+        task: { ...done(1), todos: { done: 7, total: 7, doing: [], waiting: [] } },
+      })
     })
     expect(progress().get('Done 1')).toBe('7/7')
   })
@@ -291,7 +294,7 @@ describe('the Done section with more than a thousand tasks', () => {
     }
     try {
       const withTodos = (index: number): Task =>
-        done(index, index % 3 === 0 ? { todos: { done: 1, total: 4, doing: [] } } : {})
+        done(index, index % 3 === 0 ? { todos: { done: 1, total: 4, doing: [], waiting: [] } } : {})
       const { store, fake } = await renderList(Array.from({ length: DONE_TASKS }, (_, index) => withTodos(index)))
       await settled()
 
@@ -326,7 +329,10 @@ describe('the Done section with more than a thousand tasks', () => {
 
       // A row gaining its third line grows, and pushes the rows below it down.
       act(() => {
-        fake.emit({ type: EventType.TaskUpdated, task: { ...done(1), todos: { done: 2, total: 4, doing: [] } } })
+        fake.emit({
+          type: EventType.TaskUpdated,
+          task: { ...done(1), todos: { done: 2, total: 4, doing: [], waiting: [] } },
+        })
       })
       act(() => {
         for (const observer of observers) observer.resize()

@@ -63,48 +63,69 @@
   color: var(--color-text);
 }
 
-/* A workspace's waiting task, nested under its row: indented to line up under its name, one line (#610). */
-.menu .waitingRow {
-  height: auto;
-  padding: 6px 10px 6px 38px;
-}
-
-.waitingLine {
+/* The Needs-you section's heading: purple, with its dot before the text (#681, from the mockup). */
+.menu .needsYouHeading {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  color: var(--color-purple);
+}
+
+.needsYouDot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-purple);
+}
+
+/* A task that needs you, at the top of the menu: taller than a plain item, with the workspace's small badge, the
+   title and the purple why line, and the time at the right (#681). */
+.menu .needsYouRow {
+  height: auto;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--radius-button);
+}
+
+.needsYouLine {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
   min-width: 0;
 }
 
-.waitingTitle {
+.needsYouText {
   flex-grow: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.needsYouTitle {
   font-size: 13.5px;
   font-weight: 500;
   color: var(--color-text);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.waitingTime {
+.needsYouWhy {
+  font-size: 12px;
+  color: var(--color-purple);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.needsYouTime {
   flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 1px;
   font-family: var(--font-mono);
   font-size: var(--font-size-label);
-  color: var(--color-faint);
-}
-
-/* The "+N more" row past `WAITING_TASKS_SHOWN`: dimmed, no dot, a chevron at the right (#610). */
-.more {
-  flex-grow: 1;
-  min-width: 0;
-  font-size: 12.5px;
-  color: var(--color-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.moreChevron {
-  flex-shrink: 0;
   color: var(--color-faint);
 }

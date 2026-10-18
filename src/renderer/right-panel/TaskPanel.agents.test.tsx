@@ -23,7 +23,7 @@ import { parsePanelTabSelection } from './panelModel'
 import { TaskPanel } from './TaskPanel'
 
 /** Opens the panel on Agents, whose content these tests read: with nothing stored it opens on Todos (#686). */
-const ON_AGENTS: readonly UiStateEntry[] = [{ key: UiStateKey.RightPanelTab, value: 'agents' }]
+const ON_AGENTS: readonly UiStateEntry[] = [{ key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'agents' }) }]
 
 function call(id: string, overrides: Partial<ToolCallEvent> = {}): ToolCallEvent {
   return {
@@ -135,7 +135,6 @@ describe('the right panel', () => {
     fireEvent.click(panelTab(/^Agents/))
     expect(panelTab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
     expect(shownAgent()).toBe('Main')
-    // Main's list: its own calls, each turn's divider, and its subagents' calls as one row each.
     expect(within(log()).getAllByRole('button')).toHaveLength(4)
     expect(within(log()).getByRole('separator')).toHaveAccessibleName(/^turn 2/)
     expect(log()).not.toHaveTextContent('throttle.py')
@@ -151,10 +150,9 @@ describe('the right panel', () => {
   })
 
   it.each(['tool-calls', 'subagents', 'watchers', 'artifacts', 'changes'])(
-    'opens a workspace left on %s, a tab from before the panel had three, on Todos (#501)',
+    'opens a task left on %s, a tab from before the panel had three, on Todos (#501)',
     async (removed) => {
-      // As a database from before the update has it: for the workspace, and for every workspace before each had its own.
-      await renderPanel({ uiState: [{ key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: removed }) }] })
+      await renderPanel({ uiState: [{ key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: removed }) }] })
       expect(panelTab(/^Todos/)).toHaveAttribute('aria-selected', 'true')
 
       fireEvent.click(panelTab(/^Agents/))
@@ -162,20 +160,28 @@ describe('the right panel', () => {
     },
   )
 
-  it('opens on Todos when the one tab every workspace once shared is gone too, and remembers the tab you pick', async () => {
+  it('remembers each task’s own tab, and the tab you pick becomes the task’s (#689)', async () => {
     const { store } = await renderPanel({
-      uiState: [
-        { key: UiStateKey.RightPanelTab, value: 'artifacts' },
-        { key: UiStateKey.RightPanelTabs, value: '{"w1":"watchers"}' },
-      ],
+      uiState: [{ key: UiStateKey.RightPanelTabs, value: JSON.stringify({ t1: 'agents', t2: 'files' }) }],
     })
-    expect(panelTab(/^Todos/)).toHaveAttribute('aria-selected', 'true')
+    expect(panelTab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
 
-    fireEvent.click(panelTab(/^Files/))
-    expect(parsePanelTabSelection(store.getState().uiState[UiStateKey.RightPanelTabs])).toEqual({ w1: 'files' })
+    // Another task shows its own, not t1's.
+    await act(() => store.getState().selectTask('t2'))
+    expect(panelTab(/^Files/)).toHaveAttribute('aria-selected', 'true')
+
+    await act(() => store.getState().selectTask('t1'))
+    expect(panelTab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
+
+    // What you pick on t2 becomes t2's, and leaves t1's alone.
+    await act(() => store.getState().selectTask('t2'))
     fireEvent.click(panelTab(/^Todos/))
-    expect(parsePanelTabSelection(store.getState().uiState[UiStateKey.RightPanelTabs])).toEqual({ w1: 'todos' })
-    fireEvent.click(panelTab(/^Agents/))
+    expect(parsePanelTabSelection(store.getState().uiState[UiStateKey.RightPanelTabs])).toEqual({
+      t1: 'agents',
+      t2: 'todos',
+    })
+    await act(() => store.getState().selectTask('t1'))
+    expect(panelTab(/^Agents/)).toHaveAttribute('aria-selected', 'true')
     expect(shownAgent()).toBe('Main')
   })
 
@@ -184,7 +190,9 @@ describe('the right panel', () => {
     fireEvent.click(agentTab('docs-503'))
 
     await act(() => store.getState().selectTask('t2'))
+    // A task with none remembered opens on the panel's first tab, Todos (#686).
     expect(tabNames()).toEqual(['Todos', 'Agents 1', 'Files'])
+    fireEvent.click(panelTab(/^Agents/))
     expect(shownAgent()).toBe('Main')
     expect(screen.getByRole('tabpanel', { name: /Main$/ })).toHaveTextContent('No tool calls yet.')
 
@@ -241,7 +249,7 @@ describe('the right panel', () => {
       const { store } = await renderPanel({
         uiState: [
           { key: UiStateKey.RightPanelCollapsed, value: 'true' },
-          { key: UiStateKey.RightPanelTabs, value: '{"w1":"files"}' },
+          { key: UiStateKey.RightPanelTabs, value: '{"t1":"files"}' },
         ],
       })
       expect(screen.queryByRole('complementary', { name: 'Task panel' })).toBeNull()
@@ -258,7 +266,7 @@ describe('the right panel', () => {
     })
 
     it('leaves the panel alone for a turn of a task that isn’t showing', async () => {
-      const { store } = await renderPanel({ uiState: [{ key: UiStateKey.RightPanelTabs, value: '{"w1":"files"}' }] })
+      const { store } = await renderPanel({ uiState: [{ key: UiStateKey.RightPanelTabs, value: '{"t1":"files"}' }] })
 
       act(() => {
         store.getState().focusTurn('t2', 1)
@@ -271,7 +279,7 @@ describe('the right panel', () => {
   it('opens a task a plugin asks for on its subagent’s tab', async () => {
     const { fake, store } = await renderPanel({
       selected: false,
-      uiState: [{ key: UiStateKey.RightPanelTabs, value: '{"w1":"todos"}' }],
+      uiState: [{ key: UiStateKey.RightPanelTabs, value: '{"t1":"todos"}' }],
     })
 
     act(() => {

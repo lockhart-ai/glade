@@ -7,24 +7,24 @@ import { useGladeStoreApi } from '../store/react'
 import type { UiStateValues } from '../store/state'
 
 /**
- * What picking the right panel's nth tab asks of it, as the UI state to write: that tab for `workspaceId`, and the
+ * What picking the right panel's nth tab asks of it, as the UI state to write: that tab for `taskId`, and the
  * panel open if it's collapsed. Null for a digit with no tab: the panel has three.
  */
-export function panelTabEntries(digit: number, uiState: UiStateValues, workspaceId: string): UiStateEntry[] | null {
+export function panelTabEntries(digit: number, uiState: UiStateValues, taskId: string): UiStateEntry[] | null {
   const tab = tabForDigit(digit)
   if (tab === undefined) return null
-  const entries: UiStateEntry[] = [panelTabEntry(uiState, workspaceId, tab)]
+  const entries: UiStateEntry[] = [panelTabEntry(uiState, taskId, tab)]
   if (isCollapsed(uiState, Panel.RightPanel)) entries.push(collapsedEntry(Panel.RightPanel, false))
   return entries
 }
 
-/** Todos · Agents · Files (⌘⌥1–3) pick the right panel's tab, wherever the focus is, in the workspace shown. */
+/** Todos · Agents · Files (⌘⌥1–3) pick the selected task's right panel tab, wherever the focus is (#689). */
 export function useRightPanelShortcuts(): void {
   const store = useGladeStoreApi()
   useCommand(WindowCommandId.ShowPanelTab, ({ digit }) => {
-    const { uiState, selectedWorkspaceId, setUiState } = store.getState()
-    if (selectedWorkspaceId === null) return
-    const entries = panelTabEntries(digit ?? 0, uiState, selectedWorkspaceId)
+    const { uiState, selectedTaskId, setUiState } = store.getState()
+    if (selectedTaskId === null) return
+    const entries = panelTabEntries(digit ?? 0, uiState, selectedTaskId)
     for (const entry of entries ?? []) void setUiState(entry)
   })
 }
