@@ -10,6 +10,7 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  WatcherState,
   type Artifact,
   type DividerEvent,
   type NarrationEvent,
@@ -309,6 +310,39 @@ describe('TaskPanel', () => {
     await renderPanel({ selected: false })
     expect(tabPanel()).toBeEmptyDOMElement()
     expect(tab(/^Agents/)).toHaveTextContent(/^Agents$/)
+  })
+
+  describe("the Agents tab's watcher badge (#687)", () => {
+    const watcher = sampleWatcher('w1', 't1', { label: 'CI checks on PR #511' })
+
+    it('shows the eye and the live watcher count beside the agent count, as the sidebar row does', async () => {
+      await renderPanel({ watchers: [watcher, sampleWatcher('w2', 't1', { label: 'Log tail' })] })
+
+      const eye = within(tab(/^Agents/)).getByRole('img', { name: '2 watchers running' })
+      expect(eye).toHaveTextContent('2')
+      expect(eye).toHaveAttribute('title', '2 watchers running')
+    })
+
+    it('is hidden while nothing is live, and counts only the live ones among ended ones', async () => {
+      const { emit } = await renderPanel({
+        watchers: [
+          watcher,
+          sampleWatcher('w2', 't1', { label: 'Old check', state: WatcherState.Finished, outcome: 'It passed.' }),
+        ],
+      })
+      expect(within(tab(/^Agents/)).getByRole('img', { name: '1 watcher running' })).toHaveTextContent('1')
+
+      act(() => {
+        emit({ type: EventType.WatchersChanged, taskId: 't1', watchers: [watcher] })
+      })
+      expect(within(tab(/^Agents/)).getByRole('img', { name: '1 watcher running' })).toHaveTextContent('1')
+
+      act(() => {
+        emit({ type: EventType.WatchersChanged, taskId: 't1', watchers: [] })
+      })
+      expect(within(tab(/^Agents/)).queryByRole('img')).toBeNull()
+      expect(tab(/^Agents/)).toHaveTextContent(/^Agents 1$/)
+    })
   })
 
   describe('the Todos tab', () => {

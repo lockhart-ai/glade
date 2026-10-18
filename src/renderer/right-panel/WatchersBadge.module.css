@@ -1,0 +1,10 @@
+/* The Agents tab's eye and count, after its agent count (#687): the sidebar row's watcher mark (`RowIndicators`'s
+   `Count`, which draws the eye through `Icon`), kept to the tab count's own type and spacing. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--space-xs);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}

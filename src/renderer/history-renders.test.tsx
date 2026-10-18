@@ -70,6 +70,7 @@ import {
 import { kindCounts, tileLabel } from './todos/todoHubModel'
 import { linkReferences, namedBy, todoSegments } from './todos/todoLinks'
 import { ChildFilter } from '../shared/todoHub'
+import { TaskPanel } from './right-panel/TaskPanel'
 import { rowStatus } from './task-list/rowStatus'
 import { SECONDS_REFRESH_MS } from './agents/useElapsedNow'
 import { NOW_REFRESH_MS } from './task-list/useNow'
@@ -79,6 +80,7 @@ import { UsageMeter } from './usage-meter'
 import { usageMeterState } from './usage-meter/usageMeterModel'
 import { WorkspaceSwitcher } from './workspace-switcher/WorkspaceSwitcher'
 import { needsYouTaskTitle } from './workspace-switcher/switcherModel'
+import { watchingLabel } from './watchers/watchersModel'
 import { setHomeFolder } from '../shared/homeFolder'
 
 // The sample data's home folder, which paths under it are shown from as `~`.
@@ -176,6 +178,13 @@ vi.mock('./todos/todoLinks', async (importOriginal) => {
     namedBy: vi.fn(original.namedBy),
     todoSegments: vi.fn(original.todoSegments),
   }
+})
+
+// The Agents tab's badge counts the task's live watchers (#687): one `watchingLabel` call per render of the badge
+// that shows it (none at 0, where the badge renders nothing).
+vi.mock('./watchers/watchersModel', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./watchers/watchersModel')>()
+  return { ...original, watchingLabel: vi.fn(original.watchingLabel) }
 })
 
 const AT = new Date(2026, 8, 23, 13, 8).getTime()
@@ -2031,5 +2040,67 @@ describe('watchers in the Agents tab, five pinned under a 2,000-call list (P16, 
       fake.emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), status: 'Watching the checks.' } })
     })
     expect(rendered()).toEqual({ ...NOTHING, calls: 1 })
+  })
+})
+
+describe("the right panel's tab bar: the Agents tab's watcher badge (#687)", () => {
+  /** The panel with one watcher live on its task, so the tab bar's badge shows. */
+  async function renderPanelTabBar(): Promise<StoreWrapper> {
+    const wrapper = storeWrapper({
+      workspaces: [sampleWorkspace('w1')],
+      tasks: [sampleTask('t1', 'w1')],
+      uiState: [
+        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+        { key: UiStateKey.SelectedTaskId, value: 't1' },
+      ],
+      toolEvents: [call('call-1', 1)],
+      watchers: [sampleWatcher('ci', 't1', { label: 'CI checks on PR #511' })],
+    })
+    render(<TaskPanel />, { wrapper: wrapper.wrapper })
+    await act(() => wrapper.store.getState().hydrate())
+    return wrapper
+  }
+
+  it('renders only the badge again when the live watcher count changes, not when the task works', async () => {
+    const { fake } = await renderPanelTabBar()
+
+    expect(screen.getByRole('img', { name: '1 watcher running' })).toHaveTextContent('1')
+    expect(renders(watchingLabel)).toBe(1)
+    vi.mocked(watchingLabel).mockClear()
+
+    // The task's agent calls a tool, and the task's status changes: the tab bar's counts move, but the badge reads
+    // its own narrow slice and is memoised, so nothing of it renders again.
+    act(() => {
+      fake.emit({ type: EventType.ToolEventAppended, toolEvent: call('call-2', 2) })
+    })
+    expect(renders(watchingLabel)).toBe(0)
+    act(() => {
+      fake.emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), status: 'Watching the checks.' } })
+    })
+    expect(renders(watchingLabel)).toBe(0)
+
+    // A live watcher reports again; the live count doesn't: nothing of the badge renders again.
+    act(() => {
+      fake.emit({
+        type: EventType.WatchersChanged,
+        taskId: 't1',
+        watchers: [sampleWatcher('ci', 't1', { label: 'CI checks on PR #511', lastOutput: 'unit-tests running' })],
+      })
+    })
+    expect(renders(watchingLabel)).toBe(0)
+
+    // A second watcher starts: the count changes, and the badge alone renders again.
+    act(() => {
+      fake.emit({
+        type: EventType.WatchersChanged,
+        taskId: 't1',
+        watchers: [
+          sampleWatcher('ci', 't1', { label: 'CI checks on PR #511' }),
+          sampleWatcher('tail', 't1', { label: 'Log tail' }),
+        ],
+      })
+    })
+    expect(screen.getByRole('img', { name: '2 watchers running' })).toHaveTextContent('2')
+    expect(renders(watchingLabel)).toBe(1)
   })
 })
