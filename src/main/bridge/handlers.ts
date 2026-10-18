@@ -23,6 +23,7 @@ import { getHandoff } from '../db/repositories/backfills'
 import { getImage } from '../db/repositories/images'
 import { getInputDraft, setInputDraft } from '../db/repositories/input-drafts'
 import { listMessages, listMessagesBefore } from '../db/repositories/messages'
+import { recordHistoryTiming } from '../perf/history-timing'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { listPermissionMarks } from '../db/repositories/permission-marks'
 import { listPermissionRequests } from '../db/repositories/permission-requests'
@@ -336,8 +337,19 @@ export function createHandlers(context: HandlerContext): Handlers {
       // Todos tab's maker names and commit tiles) and every Reopened, Marked done and Resumed divider (the header's
       // reopened dot) — a few entries per task; the touched-files summary, worked out here over the whole log; and
       // everything else in the payload.
+      // #674 spike: timing only, guarded to e2e runs (`recordHistoryTiming`); not kept once the issue's fix lands.
+      const historyStart = performance.now()
       const messages = listMessages(db, id)
+      const afterMessages = performance.now()
       const events = listToolEvents(db, id)
+      recordHistoryTiming({
+        taskId: id,
+        messageCount: messages.length,
+        eventCount: events.length,
+        listMessagesMs: afterMessages - historyStart,
+        listToolEventsMs: performance.now() - afterMessages,
+        totalMs: performance.now() - historyStart,
+      })
       const sent = withCarriedEvents(events.slice(-HISTORY_PAGE), listCarriedToolEvents(db, id, SUBAGENT_TOOL_NAMES))
       const sentIds = new Set(sent.map(({ id: eventId }) => eventId))
       const rootPath = workspaceRoot(context, id)

@@ -1,7 +1,9 @@
-// A large, throwaway installation for #637 (task/workspace switch latency): about 4 workspaces and 100 tasks, at
-// least 20 of them with a long history, the rest medium or small. Built on top of `./long-history`'s `historyTask`,
-// scaled up and spread across workspaces, with a few watchers, permission requests and an open question added to the
-// long tasks so the dataset looks like a real, heavily used installation.
+// A large, throwaway installation for #637 (task/workspace switch latency) and #674 (paint-timing across every
+// view): about 4 workspaces and 100 tasks, at least 20 of them with a long history, the rest medium or small. Built
+// on top of `./long-history`'s `historyTask`, scaled up and spread across workspaces, with a few watchers,
+// permission requests, commits and an open question added to the long tasks so the dataset looks like a real,
+// heavily used installation. `SPIKE_SIZE` (#674) also adds a page of Done tasks to the workspace that opens, for
+// measuring the Done list.
 //
 // This file is instrumentation for a measurement spike only (docs/kitten-sop.md never saw it as a fix): it writes a
 // seed JSON that `applySeed` (src/main/capture-seed.ts) turns into a database before the window opens, the same way
@@ -49,6 +51,8 @@ export interface SeedSize {
   readonly longPerWorkspace: number
   readonly mediumPerWorkspace: number
   readonly smallPerWorkspace: number
+  /** Done tasks added to the workspace that opens, for measuring the Done list; none unless given. */
+  readonly doneTasks?: number
 }
 
 /** The measurement's own size: every workspace, 25 tasks in each, 5 of them long. */
@@ -57,6 +61,18 @@ const DEFAULT_SIZE: SeedSize = {
   longPerWorkspace: LONG_PER_WORKSPACE,
   mediumPerWorkspace: MEDIUM_PER_WORKSPACE,
   smallPerWorkspace: SMALL_PER_WORKSPACE,
+}
+
+/**
+ * The #674 paint-timing spike's own size: bigger than the measurement's default in every dimension, plus 600 Done
+ * tasks in the workspace that opens, so the Done list has pages worth loading.
+ */
+export const SPIKE_SIZE: SeedSize = {
+  workspaces: WORKSPACES.length,
+  longPerWorkspace: LONG_PER_WORKSPACE + 2,
+  mediumPerWorkspace: MEDIUM_PER_WORKSPACE + 5,
+  smallPerWorkspace: SMALL_PER_WORKSPACE + 5,
+  doneTasks: 600,
 }
 
 const WATCHER_KINDS = ['monitor', 'command', 'wakeup', 'cron'] as const
@@ -112,10 +128,25 @@ function withExtras(task: SeedTask, index: number, workspace: number): SeedTask 
       minutesAgo: 25,
     },
   ]
+  // A few commits (#674), so the Todos tab's commit tiles and the Files tab's "as a commit left it" view have real
+  // data too; each hash is a made-up but valid 40-hex-digit string, unique per task and commit.
+  const commits = [0, 1, 2].map((commitIndex) => ({
+    hash: [workspace, index, commitIndex]
+      .map((part) => part.toString(16).padStart(4, '0'))
+      .join('')
+      .padEnd(40, '0')
+      .slice(0, 40),
+    subject: `Fix the ${prefix} flake (${String(commitIndex + 1)})`,
+    additions: 12 + commitIndex,
+    deletions: 3 + commitIndex,
+    filesChanged: 2 + commitIndex,
+    minutesAgo: 10 + commitIndex * 5,
+  }))
   return {
     ...task,
     watchers,
     permissionRequests,
+    commits,
     ...(index % 3 === 0
       ? {
           questionSet: {
@@ -184,6 +215,17 @@ function buildTasks(size: SeedSize): SeedTask[] {
       tasks.push({ ...base, minutesAgo, ...extra })
       minutesAgo += 1
     }
+  }
+  // Done tasks (#674), for measuring the Done list: plain, short-lived tasks in the workspace that opens, most
+  // recently finished first, the way `e2e/done-list.spec.ts`'s own seed does.
+  const [openWorkspace] = WORKSPACES
+  for (let index = 0; index < (size.doneTasks ?? 0); index += 1) {
+    tasks.push({
+      ...historyTask(`Ship the ${openWorkspace?.name ?? 'workspace'} fix ${String(index + 1)}`, SMALL_SCALE, false),
+      status: `Shipped change ${String(index + 1)}`,
+      state: 'done',
+      minutesAgo: 60 + index,
+    } as SeedTask)
   }
   return tasks
 }
