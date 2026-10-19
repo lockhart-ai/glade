@@ -327,6 +327,7 @@ status (open, merged, closed) isn't fetched.
 | `list_children` | `{ todo?: string }` | Lists what the task made (its children) by the todo each is under, each with its short id. See below. |
 | `file_children` | `{ filings: { child: string, todo: string }[] }` | Files children under todos, or moves them to another, all of them or none. See below. |
 | `list_other_tasks` | `{}` | Read-only; always on. The other Active tasks across every workspace, most recently updated first, each with its title, objective (Goal), status (Now), attention, workspace and link artifacts. See below. |
+| `message_task` | `{ to: string, message: string }` | Main agent only. Sends a message to another Active task in this task's workspace, started as its next turn or queued behind its current one; refused with a reason for an unknown id, itself, a Done task, another workspace, or more than 5 to that task in the last hour. See below. |
 | `create_todo` | `{ subject: string, note?: string }` | Adds a todo, not started, with the next id the task has ever been given. See below. |
 | `update_todo` | `{ id: string, subject?: string, note?: string, status?: "pending" \| "in_progress" \| "completed" \| "waiting" \| "deleted" }` | Changes a todo, or removes it (`status: "deleted"`), refused while anything is filed under it. See below. |
 | `list_todos` | `{}` | Every todo of the task, one line each, in order. See below. |
@@ -773,6 +774,8 @@ When you make a deliverable the user asked for (a report, a document, a draft), 
 When you open or work on a pull request, or the task is about an issue or a ticket (GitHub, Jira), call add_artifact with its url and a short title, so the user finds it in the Todos tab next to the files.
 
 Before starting work on an existing pull request, issue or branch, call list_other_tasks and check that no other task already has it among its links or in its Goal or Now; if one does, stop and ask.
+
+Glade tasks can message each other: call message_task with another Active task's id (from list_other_tasks; tasks in your own workspace only) and the message in Markdown. A message from another task names its sender and how to answer it; reply with message_task to that id when you should. Keep the exchange to what the other task needs, not a running commentary — Glade limits how often one task may message another — and ask the user with ask when the user is the one to decide.
 
 When you leave a script running to watch something (CI, a deploy, a remote job), start it with the Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows in the task's Agents tab.
 
