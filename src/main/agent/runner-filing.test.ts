@@ -910,6 +910,7 @@ describe('a task whose session started before the hub was on for every task (#50
     instructionUpdates: INSTRUCTION_UPDATES.length,
     instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
     handoffAt: null,
+    externalId: null,
     sandbox: false,
     todoHub: false,
   }

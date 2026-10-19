@@ -76,7 +76,7 @@ function sentTexts(): string[] {
 /** Leaves the task with a session Glade already started, caught up on everything #708 covers. */
 function startedFullyCaughtUp(): void {
   database.db.prepare('UPDATE tasks SET session_id = ? WHERE id = ?').run('old-session', task.id)
-  setSessionContext(database.db, task.id, startedContext(null, false))
+  setSessionContext(database.db, task.id, startedContext(null, false, null))
 }
 
 const UPDATE_TODO_NAME: string = GladeTool.UpdateTodo

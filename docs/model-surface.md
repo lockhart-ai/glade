@@ -824,7 +824,13 @@ The "after the user's first message" line asks only for what isn't set yet, so a
 the user has renamed; with both set, the line goes. With Status summary or Task titles off in Settings › Agent, the
 prompt leaves out asking for it.
 
-Three more parts are added after that, each after a blank line, when they apply:
+When the task has an external id (`externalId`, [`control-api.md`](control-api.md)), one more line follows the task
+id's, `externalIdLine` (#751): "This task's external id is `tasks/2026-10-16-example`; it names where the task's own
+notes are kept." A task with none gets no line. It's per-task data like the handoff note, not an instruction: a session
+names the value it was told, and is told the current one as a block when that has changed since ("Resumed sessions",
+below).
+
+More parts are added after that, each after a blank line, when they apply:
 
 - **The sandbox:** in a session that runs sandboxed (Settings › Agent › Sandbox on as it starts), one paragraph
   (`SANDBOX_LINE`): that its commands can read and write the workspace folder and, beyond it, only the folders and
@@ -872,3 +878,10 @@ tools and hooks when it next starts, and is sent the three paragraphs once, as a
 `[Glade: this session now files what it makes under its todos] … [end]` block ahead of the next message Glade sends
 it, after the sandbox's block and before a handoff note's. One that started with them has them in its prompt and is
 never sent them, and one told once isn't told again. An imported session gets them in Glade's whole prompt.
+
+The task's external id line isn't in that list either, since it's per-task data, like the handoff note (#751). A
+session whose task's external id is set or has changed since the one it was told — its prompt's, or one sent it as a
+block before — is told the current one once, as a `[Glade: this task's external id] … [end]` block ahead of the next
+message Glade sends it, after the todo hub's block and before a handoff note's. Which one a session was told is kept
+in SQLite too (`session_context.external_id`), so a relaunch neither loses nor repeats the block. A task with no
+external id is never told of one, and an imported session gets the line in Glade's whole prompt.

@@ -1472,6 +1472,7 @@ describe('applySeed', () => {
       instructionUpdates: INSTRUCTION_UPDATES.length,
       instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
       handoffAt: null,
+      externalId: null,
       sandbox: true,
       // Nor the todo hub's lines, when a capture runs with the hub on.
       todoHub: true,

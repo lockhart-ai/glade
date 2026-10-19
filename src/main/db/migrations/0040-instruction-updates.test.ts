@@ -35,6 +35,7 @@ it('leaves every session recorded before it with none of the instructions added 
     instructionUpdates: 0,
     instructionUpdateHash: hashLines([]),
     handoffAt: 2,
+    externalId: null,
     sandbox: false,
     todoHub: false,
   })
@@ -43,6 +44,7 @@ it('leaves every session recorded before it with none of the instructions added 
     instructionUpdates: 0,
     instructionUpdateHash: hashLines([]),
     handoffAt: null,
+    externalId: null,
     sandbox: false,
     todoHub: false,
   })
@@ -51,6 +53,7 @@ it('leaves every session recorded before it with none of the instructions added 
     instructionUpdates: 1,
     instructionUpdateHash: hashLines(INSTRUCTION_UPDATES.slice(0, 1)),
     handoffAt: 2,
+    externalId: null,
     sandbox: false,
     todoHub: false,
   })
@@ -59,6 +62,7 @@ it('leaves every session recorded before it with none of the instructions added 
     instructionUpdates: 1,
     instructionUpdateHash: hashLines(INSTRUCTION_UPDATES.slice(0, 1)),
     handoffAt: 2,
+    externalId: null,
     sandbox: false,
     todoHub: false,
   })

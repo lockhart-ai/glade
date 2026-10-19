@@ -184,6 +184,16 @@ export const INSTRUCTION_UPDATES: readonly string[] = [
   TASK_MESSAGES_LINE,
 ]
 
+/**
+ * What the prompt says of a task's `externalId` (#751), when it has one: the caller's own id for it through the
+ * control API, which names where the task's own notes are kept. It's per-task data like the handoff note, not an
+ * instruction (`INSTRUCTION_UPDATES`): a session names the value its prompt started with, and Glade sends it the
+ * current one as a block ahead of its next message when that has changed since (`./session-context`).
+ */
+export function externalIdLine(externalId: string): string {
+  return `This task's external id is \`${externalId}\`; it names where the task's own notes are kept.`
+}
+
 /** The heading the handoff note goes under in the prompt. */
 export const HANDOFF_HEADING = 'Handoff for this task (backfilled from earlier notes)'
 
@@ -229,7 +239,8 @@ export function delegatedChildPrompt(sandboxed: boolean): string {
  * The prompt for `task`'s session. With upkeep turned off in `settings`, it leaves out asking for a title or a status,
  * as the session's Glade tools leave out the tools for them. It says how what the session makes is filed under its
  * todos and that it has the hub's tools (`TODO_HUB_LINES`). With `control`, the session has the `glade-control` tools,
- * and the prompt says so in one line. With a `handoff`, the prompt ends with it (`handoffSection`). In a
+ * and the prompt says so in one line. With a `handoff`, the prompt ends with it (`handoffSection`). With an
+ * `externalId`, it names it after the task id (`externalIdLine`); with none it says nothing of one. In a
  * `sandboxed` session it says what the sandbox is and to ask with `request_access` (`SANDBOX_LINE`); with the sandbox
  * off it doesn't mention it.
  */
@@ -239,12 +250,14 @@ export function systemPromptAppend(
   control = false,
   handoff: TaskHandoff | null = null,
   sandboxed = false,
+  externalId: string | null = null,
 ): string {
   const named = task.title !== ''
   const lines = [
     'You are running inside Glade, a desktop app that runs Claude agent sessions as tasks.',
     'This session is one Glade task, with one objective.',
     `Its task id is ${task.id}. Its title is ${named ? `"${task.title}"` : 'not set yet'}.`,
+    ...(externalId === null ? [] : [externalIdLine(externalId)]),
     '',
     FINAL_REPLY_LINE,
     '',

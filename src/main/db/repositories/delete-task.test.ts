@@ -195,6 +195,7 @@ async function fillTask(db: Database, task: Task): Promise<void> {
     instructionUpdates: 1,
     instructionUpdateHash: hashLines(INSTRUCTION_UPDATES.slice(0, 1)),
     handoffAt: 1,
+    externalId: null,
     sandbox: true,
     todoHub: false,
   })

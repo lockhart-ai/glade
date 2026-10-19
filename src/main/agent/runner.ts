@@ -534,7 +534,7 @@ import {
 import { checkedOffline, createPauseTimers, pauseFor, pauseReason, type UsageLimit } from './pauses'
 import { describeSdkMessage } from './sdk-message-log'
 import { systemPromptAppend } from './system-prompt'
-import { getHandoff } from '../db/repositories/backfills'
+import { getExternalId, getHandoff } from '../db/repositories/backfills'
 import { getSessionContext, setSessionContext } from '../db/repositories/session-context'
 import { getToolFingerprints, setToolFingerprints } from '../db/repositories/session-tool-fingerprints'
 import { getStoppedWorkNote, setStoppedWorkNote } from '../db/repositories/stopped-work-notes'
@@ -3418,9 +3418,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const servers = mcpServers(task, { audience: McpServerAudience.Main, sandboxed })
     const control = CONTROL_SERVER in servers
     const handoff = getHandoff(db, task.id) ?? null
+    const externalId = getExternalId(db, task.id)
     // A session Glade starts has everything its prompt says; one it resumes keeps the prompt it started with, and is
     // sent what it's missing with its next message (`startTurn`).
-    if (!provisional && task.sessionId === null) setSessionContext(db, task.id, startedContext(handoff, sandboxed))
+    if (!provisional && task.sessionId === null) {
+      setSessionContext(db, task.id, startedContext(handoff, sandboxed, externalId))
+    }
     // The session's calls are decided against the live session, which exists once the backend has started it.
     let decide: (call: ToolPermissionCall) => Promise<ToolPermissionAnswer> = () => Promise.resolve(WITHDRAWN)
     let verdict: (prompt: string) => PromptVerdict = () => PromptVerdict.Allow
@@ -3455,7 +3458,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       effort: task.effort,
       permissionMode: task.permissionMode,
       resumeSessionId: task.sessionId,
-      systemPromptAppend: systemPromptAppend(task, settings, control, handoff, sandboxed),
+      systemPromptAppend: systemPromptAppend(task, settings, control, handoff, sandboxed, externalId),
       mcpServers: servers,
       env: sessionEnv(task),
       allowedRules,
@@ -3853,11 +3856,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       startWorking(taskId, { db, emit: (event) => workingEvents.push(event) })
       // What the session is missing goes ahead of the turn's first message, once: it's recorded as given with it.
       const handoff = getHandoff(db, taskId) ?? null
+      const externalId = getExternalId(db, taskId)
       const check: ContextCheck = {
         recorded: getSessionContext(db, taskId),
         startedElsewhere: task.importedAt !== null,
         handoff,
-        prompt: systemPromptAppend(task, getSettings(db), live.control, handoff, live.sandbox !== null),
+        externalId,
+        prompt: systemPromptAppend(task, getSettings(db), live.control, handoff, live.sandbox !== null, externalId),
         // A session that started before the sandbox was on, and resumed in it, is told of it once (#452).
         sandboxed: live.sandbox !== null,
       }

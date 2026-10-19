@@ -248,6 +248,7 @@ describe('a session that started before the sandbox was on', () => {
       instructionUpdates: 0,
       instructionUpdateHash: hashLines([]),
       handoffAt: null,
+      externalId: null,
       sandbox: false,
       todoHub: true,
     })
@@ -270,6 +271,7 @@ describe('a session that started before the sandbox was on', () => {
       instructionUpdates: INSTRUCTION_UPDATES.length,
       instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
       handoffAt: 5_000,
+      externalId: null,
       sandbox: true,
       todoHub: true,
     })
