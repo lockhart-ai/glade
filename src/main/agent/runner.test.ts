@@ -52,7 +52,7 @@ import { getReportedWindows } from '../db/repositories/context-windows'
 import { setSdkModels } from '../db/repositories/sdk-models'
 import { ALIAS_MODELS } from '../../shared/test-models'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
-import { listToolEvents } from '../db/repositories/tool-events'
+import { appendToolCall, listToolEvents } from '../db/repositories/tool-events'
 import { setUiState } from '../db/repositories/ui-state'
 import { addWatcher } from '../db/repositories/watchers'
 import { FakeAgentBackend, settle, type FakeAgentSession } from './fake-backend'
@@ -1824,7 +1824,7 @@ describe('resuming on launch', () => {
       { divider: DividerKind.Resumed, turn: 1 },
     ])
     expect(drainEvents()).toEqual([
-      [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Interrupted],
+      // The call itself ended as interrupted at the quit; the launch only appends the divider that carries the turn on.
       [EventType.ToolEventAppended, ToolEventKind.Divider, null],
     ])
 
@@ -1965,6 +1965,53 @@ describe('resuming on launch', () => {
     expect(events).toEqual([])
     for (const other of [waiting, errored]) expect(getTask(database.db, other?.id ?? '')).toEqual(other)
     for (const id of holding) expect(listQueuedMessages(database.db, id)).toHaveLength(1)
+  })
+
+  it('interrupts the running calls left over, in one statement, and emits one update per call', () => {
+    // The heavy seed the measurements in the issue came from: 812 running calls over 736 tasks, each looked up one
+    // by one before this.
+    const tasks = [
+      task,
+      ...Array.from({ length: 735 }, (_, index) => sampleTask(database.db, workspace.id, 10_000 + index)),
+    ]
+    database.db.transaction(() => {
+      for (const [index, each] of tasks.entries()) {
+        appendToolCall(
+          database.db,
+          {
+            taskId: each.id,
+            turn: 1,
+            name: 'Bash',
+            input: { command: 'npm test', description: 'Run the test suite', options: { watch: false } },
+            toolUseId: `toolu_${String(index)}`,
+            parentToolUseId: null,
+          },
+          11_000,
+        )
+        // The first 76 tasks get a second running call, for 812 across the 736.
+        if (index < 76) {
+          appendToolCall(
+            database.db,
+            {
+              taskId: each.id,
+              turn: 1,
+              name: 'Read',
+              input: { file_path: 'notes.md' },
+              toolUseId: `toolu_second_${String(index)}`,
+              parentToolUseId: null,
+            },
+            11_000,
+          )
+        }
+      }
+    })()
+    const prepare = vi.spyOn(database.db, 'prepare')
+
+    runner.resumeInterrupted()
+
+    expect(prepare.mock.calls.filter(([sql]) => sql.startsWith('UPDATE tool_events'))).toHaveLength(1)
+    expect(events.filter((event) => event.type === EventType.ToolEventUpdated)).toHaveLength(812)
+    expect(log.withMessage('interrupted tool calls left running')).toMatchObject([{ fields: { count: 812 } }])
   })
 
   it('marks a task it cannot resume as errored, and says why', async () => {

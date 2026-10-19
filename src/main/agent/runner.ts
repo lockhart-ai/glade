@@ -410,11 +410,12 @@ import {
   failRunningCompactions,
   findSubagentCall,
   getToolCall,
+  interruptOrphanedRunningToolCalls,
+  interruptOtherRunningToolCalls,
   interruptPausedToolCalls,
   interruptRunningToolCall,
   interruptRunningToolCalls,
   previousToolCall,
-  listTasksWithRunningToolCalls,
   listToolCallsNamed,
   listToolEvents,
   reopenSubagentCall,
@@ -4528,11 +4529,15 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       // answer it.
       orphanPermissions()
       for (const set of listOpenQuestionSets(db)) orphanQuestion(set)
-      // A background subagent the app quit in died with its session: its calls end as interrupted, in any task.
-      for (const taskId of listTasksWithRunningToolCalls(db)) {
-        if (getTask(db, taskId)?.activity === TaskActivity.Working) continue
-        for (const call of interruptRunningToolCalls(db, taskId, RESTARTED_TOOL_NOTE)) emitToolEventUpdated(emit, call)
-      }
+      // A background subagent the app quit in died with its session: its calls end as interrupted, in any task —
+      // a working task's own are interrupted as its turn carries on. One statement, however many there are (#701).
+      const startedAt = performance.now()
+      const interrupted = interruptOrphanedRunningToolCalls(db, RESTARTED_TOOL_NOTE)
+      for (const call of interrupted) emitToolEventUpdated(emit, call)
+      log.info('interrupted tool calls left running', {
+        count: interrupted.length,
+        ms: Math.round(performance.now() - startedAt),
+      })
       const resumed: string[] = []
       for (const task of listWorkingTasks(db)) {
         try {
@@ -4585,6 +4590,23 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     },
 
     close() {
+      // Quitting can reach this again after the database has closed (the app's will-quit fires twice); the calls were
+      // marked the first time.
+      if (db.open) {
+        // A clean quit leaves no tool call running (#701): every session dies with the app, so the calls still running
+        // end as interrupted here, with the notes the next launch would have given them — a call that waited on
+        // permission, or carried a question, keeps its own say. The windows are closing, so nothing is emitted.
+        const asking = listOpenQuestionSets(db)
+        for (const set of asking) interruptRunningToolCalls(db, set.taskId, ASK_RESTARTED_NOTE)
+        const requests = listAllOpenPermissionRequests(db)
+        for (const { taskId, toolUseId } of requests) {
+          interruptRunningToolCall(db, taskId, toolUseId, PERMISSION_RESTARTED_NOTE)
+        }
+        interruptOtherRunningToolCalls(db, RESTARTED_TOOL_NOTE, {
+          taskIds: asking.map(({ taskId }) => taskId),
+          toolUseIds: requests.map(({ toolUseId }) => toolUseId),
+        })
+      }
       // A question or permission request still open stays open for the next launch, though closing its session cancels
       // the call.
       questions.close()

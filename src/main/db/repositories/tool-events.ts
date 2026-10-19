@@ -5,6 +5,7 @@ import {
   DividerKind,
   LIVE_WATCHER_STATES,
   RefusalScope,
+  TaskActivity,
   ToolCallState,
   ToolEventKind,
   type CompactionEvent,
@@ -525,12 +526,72 @@ export function interruptRunningToolCall(
   return updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Interrupted, output }, now)
 }
 
-/** The ids of the tasks with a tool call still running, e.g. a background subagent's when the app quit. */
-export function listTasksWithRunningToolCalls(db: Database): string[] {
-  return db
-    .prepare(`SELECT DISTINCT task_id FROM tool_events WHERE kind = 'tool_call' AND tool_state = ? ORDER BY task_id`)
-    .all(ToolCallState.Running)
-    .map((raw) => new Row('tool_events', raw).text('task_id'))
+/** What an interrupting statement is given: the note, and the ids its `where` names for leaving alone. */
+interface InterruptParams {
+  readonly output: string
+  readonly extra?: Record<string, string>
+}
+
+/**
+ * Records every tool call `where` selects that is still running as interrupted, in one statement whatever the number
+ * of tasks and calls (#701), with `output` saying why. A call's subagent progress summary goes, as any finishing
+ * clears it. Returns them updated, one task after another, each in its log order.
+ */
+function interruptRunningCalls(db: Database, where: string, params: InterruptParams, now: EpochMs): ToolCallEvent[] {
+  const rows: unknown[] = db
+    .prepare(
+      `UPDATE tool_events SET tool_state = 'interrupted', tool_output = @output,
+        finished_at = COALESCE(finished_at, @finishedAt), progress_summary = NULL
+      WHERE ${where}
+      RETURNING ${COLUMNS}`,
+    )
+    .all({ output: params.output, finishedAt: now, ...params.extra })
+  return rows
+    .map((row) => parseToolCall(new Row('tool_events', row)))
+    .sort((a, b) => (a.taskId < b.taskId ? -1 : a.taskId > b.taskId ? 1 : (a.seq ?? 0) - (b.seq ?? 0)))
+}
+
+/**
+ * Records every tool call that is still running as interrupted, with `output` saying why, but leaves alone the tasks
+ * and calls named: the app is quitting, and their caller has put each named one's own note on already (#701). Returns
+ * the rest updated, one task after another, each in its log order.
+ */
+export function interruptOtherRunningToolCalls(
+  db: Database,
+  output: string,
+  except: { readonly taskIds: readonly string[]; readonly toolUseIds: readonly string[] },
+  now: EpochMs = Date.now(),
+): ToolCallEvent[] {
+  const where = [`kind = 'tool_call'`, `tool_state = 'running'`]
+  const extra: Record<string, string> = {}
+  if (except.taskIds.length > 0) {
+    where.push(`task_id NOT IN (${except.taskIds.map((_, index) => `@task${String(index)}`).join(', ')})`)
+    for (const [index, id] of except.taskIds.entries()) extra[`task${String(index)}`] = id
+  }
+  if (except.toolUseIds.length > 0) {
+    where.push(`tool_use_id NOT IN (${except.toolUseIds.map((_, index) => `@call${String(index)}`).join(', ')})`)
+    for (const [index, id] of except.toolUseIds.entries()) extra[`call${String(index)}`] = id
+  }
+  return interruptRunningCalls(db, where.join(' AND '), { output, extra }, now)
+}
+
+/**
+ * Records every tool call of a task that isn't working as interrupted, e.g. the calls of a background subagent the
+ * app died in; a working task's own are interrupted when its turn carries on. One statement, however many tasks and
+ * calls there are (#701). Returns them updated, one task after another, each in its log order.
+ */
+export function interruptOrphanedRunningToolCalls(
+  db: Database,
+  output: string,
+  now: EpochMs = Date.now(),
+): ToolCallEvent[] {
+  return interruptRunningCalls(
+    db,
+    `kind = 'tool_call' AND tool_state = 'running'
+      AND task_id NOT IN (SELECT id FROM tasks WHERE activity = '${TaskActivity.Working}')`,
+    { output },
+    now,
+  )
 }
 
 /**
