@@ -4590,19 +4590,23 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     },
 
     close() {
-      // A clean quit leaves no tool call running (#701): every session dies with the app, so the calls still running
-      // end as interrupted here, with the notes the next launch would have given them — a call that waited on
-      // permission, or carried a question, keeps its own say. The windows are closing, so nothing is emitted.
-      const asking = listOpenQuestionSets(db)
-      for (const set of asking) interruptRunningToolCalls(db, set.taskId, ASK_RESTARTED_NOTE)
-      const requests = listAllOpenPermissionRequests(db)
-      for (const { taskId, toolUseId } of requests) {
-        interruptRunningToolCall(db, taskId, toolUseId, PERMISSION_RESTARTED_NOTE)
+      // Quitting can reach this again after the database has closed (the app's will-quit fires twice); the calls were
+      // marked the first time.
+      if (db.open) {
+        // A clean quit leaves no tool call running (#701): every session dies with the app, so the calls still running
+        // end as interrupted here, with the notes the next launch would have given them — a call that waited on
+        // permission, or carried a question, keeps its own say. The windows are closing, so nothing is emitted.
+        const asking = listOpenQuestionSets(db)
+        for (const set of asking) interruptRunningToolCalls(db, set.taskId, ASK_RESTARTED_NOTE)
+        const requests = listAllOpenPermissionRequests(db)
+        for (const { taskId, toolUseId } of requests) {
+          interruptRunningToolCall(db, taskId, toolUseId, PERMISSION_RESTARTED_NOTE)
+        }
+        interruptOtherRunningToolCalls(db, RESTARTED_TOOL_NOTE, {
+          taskIds: asking.map(({ taskId }) => taskId),
+          toolUseIds: requests.map(({ toolUseId }) => toolUseId),
+        })
       }
-      interruptOtherRunningToolCalls(db, RESTARTED_TOOL_NOTE, {
-        taskIds: asking.map(({ taskId }) => taskId),
-        toolUseIds: requests.map(({ toolUseId }) => toolUseId),
-      })
       // A question or permission request still open stays open for the next launch, though closing its session cancels
       // the call.
       questions.close()
