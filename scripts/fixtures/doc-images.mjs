@@ -13,9 +13,10 @@
 // minimum size) and `nekomata.mjs` (the Nekomata plugin, built in its own repo: pass its folder as an extra argument,
 // or set NEKOMATA_PLUGIN, or it's skipped with a message explaining why).
 //
-// Settings pages are reached by clicking the workspace switcher then Workspace settings… (nth-of-type(4) of its menu),
-// since ⌘, can't be sent in capture mode (scripts/screenshot.mjs's header), then the wanted section in the nav
-// (General is nth-of-type(1), Control nth-of-type(8); see src/renderer/settings/sections.ts's APP_SECTIONS order).
+// Settings pages are reached with the Settings… app command (`--command app.settings`, since ⌘, can't be sent in
+// capture mode — scripts/screenshot.mjs's header), then the wanted section in the nav (General is nth-of-type(1),
+// Control nth-of-type(9), the workspace's own section nth-of-type(11); see src/renderer/settings/sections.ts's
+// APP_SECTIONS order).
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -28,33 +29,60 @@ const ROOT = resolve(HERE, '..', '..')
 const IMAGES = join(ROOT, 'docs', 'images')
 const ffmpeg = createRequire(import.meta.url)('ffmpeg-static')
 
-const OPEN_SETTINGS = [
-  '--click',
-  'button[aria-label="Switch workspace"]',
-  '--click',
-  '[role="menu"] button:nth-of-type(4)',
-]
+/** Settings opens with the Settings… app command (the switcher menu's Workspace settings… can't be clicked by
+ * position any more: the menu's Needs-you rows (#681) sit above it, so its position moves with the seed). It opens on
+ * Agent; the nav's sections follow `APP_SECTIONS` (src/renderer/settings/sections.ts), the workspace's section last,
+ * under its own heading. */
+const OPEN_SETTINGS = ['--command', 'app.settings']
 const settingsSection = (nth) => ['--click', `nav[aria-label="Settings sections"] button:nth-of-type(${String(nth)})`]
-/** A click that changes nothing (the right panel's selected tab), and so only waits until the task is on screen. */
-const TASK_SHOWN = ['--click', '[role="tab"][aria-selected="true"]']
+/** The right panel's Agents tab. A seed without a `panelTab` opens the panel on Todos (#686), but the panel's first
+ * tab was Agents when these recipes were recorded, so each of them clicks Agents to show what it always showed; the
+ * click also waits until the task is on screen, so a capture at the window's own size never lands on "Loading…". */
+const AGENTS_TAB = ['--click', '#task-panel-tab-agents']
 
 /** One image captured straight from a seed and a size: `scripts/screenshot.mjs`'s own args, after `--out <dir>`. */
 const SCREENSHOTS = {
-  hero: { out: join(IMAGES, 'hero.png'), args: ['--seed', 'task-workspace.json', '--size', '1600x1000'] },
-  subagents: { out: join(IMAGES, 'subagents.png'), args: ['--seed', 'subagents.json', '--size', '1600x1000'] },
-  question: { out: join(IMAGES, 'question.png'), args: ['--seed', 'question.json', '--size', '1600x1100'] },
-  permission: { out: join(IMAGES, 'permission.png'), args: ['--seed', 'permission-card.json', '--size', '1600x1000'] },
+  hero: {
+    out: join(IMAGES, 'hero.png'),
+    args: ['--seed', 'task-workspace.json', '--size', '1600x1000', ...AGENTS_TAB],
+  },
+  subagents: {
+    out: join(IMAGES, 'subagents.png'),
+    args: ['--seed', 'subagents.json', '--size', '1600x1000', ...AGENTS_TAB],
+  },
+  question: {
+    out: join(IMAGES, 'question.png'),
+    args: ['--seed', 'question.json', '--size', '1600x1100', ...AGENTS_TAB],
+  },
+  permission: {
+    out: join(IMAGES, 'permission.png'),
+    args: ['--seed', 'permission-card.json', '--size', '1600x1000', ...AGENTS_TAB],
+  },
   control: {
     out: join(IMAGES, 'control.png'),
-    args: ['--seed', 'settings-control.json', '--size', '1600x1000', ...OPEN_SETTINGS, ...settingsSection(8)],
+    args: [
+      '--seed',
+      'settings-control.json',
+      '--size',
+      '1600x1000',
+      ...OPEN_SETTINGS,
+      ...AGENTS_TAB,
+      ...settingsSection(9),
+    ],
   },
-  window: { out: join(IMAGES, 'guide', 'window.png'), args: ['--seed', 'task-workspace.json', '--size', '1440x960'] },
+  window: {
+    out: join(IMAGES, 'guide', 'window.png'),
+    args: ['--seed', 'task-workspace.json', '--size', '1440x960', ...AGENTS_TAB],
+  },
   welcome: { out: join(IMAGES, 'guide', 'welcome.png'), args: ['--size', '1280x800'] },
-  working: { out: join(IMAGES, 'guide', 'working.png'), args: ['--seed', 'agent-working.json', '--size', '1280x800'] },
+  working: {
+    out: join(IMAGES, 'guide', 'working.png'),
+    args: ['--seed', 'agent-working.json', '--size', '1280x800', ...AGENTS_TAB],
+  },
   // The Broadcast modal has no button to click: its command runs as its menu bar item would (`--command`).
   broadcast: {
     out: join(IMAGES, 'guide', 'broadcast.png'),
-    args: ['--seed', 'broadcast.json', '--size', '1280x800', '--command', 'app.broadcast'],
+    args: ['--seed', 'broadcast.json', '--size', '1280x800', '--command', 'app.broadcast', ...AGENTS_TAB],
   },
   // The Agents tab (P16, #491): Main's tab, a subagent's with its own todo line, and what two of them are watching,
   // one running and one only scheduled, pinned under a Watching label.
@@ -67,55 +95,80 @@ const SCREENSHOTS = {
   todos: { out: join(IMAGES, 'guide', 'todos.png'), args: ['--seed', 'todo-hub.json', '--size', '1280x980'] },
   'permission-card': {
     out: join(IMAGES, 'guide', 'permission-card.png'),
-    args: ['--seed', 'permission-card-bash.json', '--size', '1280x800'],
+    args: ['--seed', 'permission-card-bash.json', '--size', '1280x800', ...AGENTS_TAB],
   },
   'settings-general': {
     out: join(IMAGES, 'guide', 'settings-general.png'),
-    args: ['--seed', 'settings-general.json', '--size', '1280x800', ...OPEN_SETTINGS, ...settingsSection(1)],
+    args: [
+      '--seed',
+      'settings-general.json',
+      '--size',
+      '1280x800',
+      ...OPEN_SETTINGS,
+      ...AGENTS_TAB,
+      ...settingsSection(1),
+    ],
   },
   'settings-control': {
     out: join(IMAGES, 'guide', 'settings-control.png'),
-    args: ['--seed', 'settings-control.json', '--size', '1280x800', ...OPEN_SETTINGS, ...settingsSection(8)],
+    args: [
+      '--seed',
+      'settings-control.json',
+      '--size',
+      '1280x800',
+      ...OPEN_SETTINGS,
+      ...AGENTS_TAB,
+      ...settingsSection(9),
+    ],
   },
   backfilled: {
     out: join(IMAGES, 'guide', 'backfilled.png'),
     args: ['--seed', 'backfilled.json', '--size', '1280x880'],
   },
   // The agent sandbox (P15): its permission cards, a sandbox that couldn't start, and its two Settings sections. Each
-  // card capture clicks the tab that's already selected (TASK_SHOWN), which changes nothing but waits for the task to
-  // be on screen: at the window's own size, a capture can otherwise land on the "Loading…" page.
+  // card capture clicks the Agents tab (AGENTS_TAB), which waits for the task to be on screen: at the window's own
+  // size, a capture can otherwise land on the "Loading…" page.
   'sandbox-folder-card': {
     out: join(IMAGES, 'guide', 'sandbox-folder-card.png'),
-    args: ['--seed', 'sandbox-folder-card.json', '--size', '1280x800', ...TASK_SHOWN],
+    args: ['--seed', 'sandbox-folder-card.json', '--size', '1280x800', ...AGENTS_TAB],
   },
   'sandbox-file-card': {
     out: join(IMAGES, 'guide', 'sandbox-file-card.png'),
-    args: ['--seed', 'sandbox-file-card.json', '--size', '1280x800', ...TASK_SHOWN],
+    args: ['--seed', 'sandbox-file-card.json', '--size', '1280x800', ...AGENTS_TAB],
   },
   'sandbox-domain-card': {
     out: join(IMAGES, 'guide', 'sandbox-domain-card.png'),
-    args: ['--seed', 'sandbox-domain-card.json', '--size', '1280x980', ...TASK_SHOWN],
+    args: ['--seed', 'sandbox-domain-card.json', '--size', '1280x980', ...AGENTS_TAB],
   },
   'sandbox-outside-card': {
     out: join(IMAGES, 'guide', 'sandbox-outside-card.png'),
-    args: ['--seed', 'sandbox-outside-card.json', '--size', '1280x800', ...TASK_SHOWN],
+    args: ['--seed', 'sandbox-outside-card.json', '--size', '1280x800', ...AGENTS_TAB],
   },
   'sandbox-server-card': {
     out: join(IMAGES, 'guide', 'sandbox-server-card.png'),
-    args: ['--seed', 'sandbox-server-card.json', '--size', '1280x860', ...TASK_SHOWN],
+    args: ['--seed', 'sandbox-server-card.json', '--size', '1280x860', ...AGENTS_TAB],
   },
   'sandbox-failed': {
     out: join(IMAGES, 'guide', 'sandbox-failed.png'),
-    args: ['--seed', 'sandbox-failed.json', '--size', '1280x800', ...TASK_SHOWN],
+    args: ['--seed', 'sandbox-failed.json', '--size', '1280x800', ...AGENTS_TAB],
   },
   'settings-sandbox': {
     out: join(IMAGES, 'guide', 'settings-sandbox.png'),
-    args: ['--seed', 'settings-sandbox.json', '--size', '1280x800', ...OPEN_SETTINGS, ...settingsSection(3)],
+    // Settings… opens on the Agent section, which is the one this shows: no nav click.
+    args: ['--seed', 'settings-sandbox.json', '--size', '1280x800', ...OPEN_SETTINGS, ...AGENTS_TAB],
   },
-  // Workspace settings… opens on the workspace's own section: no nav click.
+  // The workspace's section is the nav's last item, under its own heading.
   'settings-workspace-sandbox': {
     out: join(IMAGES, 'guide', 'settings-workspace-sandbox.png'),
-    args: ['--seed', 'settings-sandbox.json', '--size', '1280x800', ...OPEN_SETTINGS],
+    args: [
+      '--seed',
+      'settings-sandbox.json',
+      '--size',
+      '1280x800',
+      ...OPEN_SETTINGS,
+      ...AGENTS_TAB,
+      ...settingsSection(11),
+    ],
   },
   // The third list is below the fold: Add… puts the focus on its new row's Add, which scrolls the list into view.
   'settings-mcp-servers': {
@@ -126,6 +179,8 @@ const SCREENSHOTS = {
       '--size',
       '1280x800',
       ...OPEN_SETTINGS,
+      ...AGENTS_TAB,
+      ...settingsSection(11),
       '--click',
       'button[aria-label="Add an MCP server"]',
     ],
