@@ -1,25 +1,19 @@
 // A task shows its last screenful of history first, and older history loads as you scroll up (#637): switching to a
-// long task (about 1,000 messages and 1,500 tool events) once rendered the whole history, which took about 450 ms of
-// a 493 ms switch. The seed is long tasks at the measurement's scale (`./switch-latency-seed`), but only this spec's
-// own: one workspace, enough long tasks for its switches and a couple of small ones (#654); the window opens on the
-// first long task.
+// long task (about 1,000 messages and 1,500 tool events) once rendered the whole history. The seed is long tasks at
+// that scale (`./switch-latency-seed`), but only this spec's own: one workspace, enough long tasks for its switches
+// and a couple of small ones (#654); the window opens on the first long task.
 //
-// The switch is timed from the DOM click to the frame after the task's header shows it, the way the typing-latency
-// spec times a key, and the scroll checks that a page of older messages loads with the scroll position kept.
+// How prompt a switch is is measured, not asserted here: the stress spec `./stress/switch-paint.spec.ts` (run with
+// `GLADE_E2E_STRESS=1 npx playwright test e2e/stress/switch-paint.spec.ts`) prints the median and holds the budget
+// (#746). This spec checks the behaviour: the switch shows the new task's last screenful first, and the scroll checks
+// that a page of older messages loads with the scroll position kept.
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
 import { HISTORY_PAGE } from '../src/shared/bridge'
 import { LONG_TASK_TITLES, writeSwitchLatencySeed } from './switch-latency-seed'
 import { taskHeader, taskList } from './selectors'
 
-/**
- * The slowest a switch to an unvisited long task may be, at the median. CI's runners measured 212 ms once the timer
- * waited for the new task's own rows (#654); the measurement's whole-history switch was 493 ms on a fast Mac, so twice
- * CI's figure still catches a return to rendering everything.
- */
-const MEDIAN_LIMIT_MS = 450
-
-/** How many unvisited long tasks the timing round switches to, all in the workspace the window opens on. */
+/** How many unvisited long tasks this spec switches to, all in the workspace the window opens on. */
 const SWITCHES = 4
 
 /**
@@ -33,86 +27,30 @@ const TAIL_SEED = {
   smallPerWorkspace: 2,
 }
 
-/** What the page records about one switch: when the click landed, and when the frame after the header showed it did. */
-interface SwitchSample {
-  at: number
-  paint: number | null
-}
-
-interface SwitchGlobals {
-  __switch?: SwitchSample
-}
-
 /** How many of the chat's messages show now. */
 function chatMessageCount(window: Page): Promise<number> {
   return window.evaluate(() => document.querySelectorAll('[role="log"][aria-label="Conversation"] article').length)
 }
 
 /**
- * Starts timing the next click in the page: from the DOM click to two `requestAnimationFrame`s after the task's
- * history has landed — the header names it and the chat shows its conversation — with the two frames catching the
- * first paint of that. The header alone would do: the title is in the store before the history arrives.
+ * Switches to an unvisited long task and checks its last screenful shows first: the header names it and the chat
+ * shows its conversation as a new element. The first message's element, not its text, tells the histories apart —
+ * every seeded long task's messages read the same (#654), and the chat keys its rows by message id, so the new task's
+ * history shows as a new element; the marker tells which article was first before the click.
  */
-async function armSwitchTimer(window: Page, target: string): Promise<void> {
-  await window.evaluate((goal: string) => {
-    const globals = globalThis as unknown as SwitchGlobals
-    const conversation = document.querySelector('[role="log"][aria-label="Conversation"]')
-    // The first message's element, not its text: every seeded long task's messages read the same (#654), and the chat
-    // keys its rows by message id, so the new task's history shows as a new element.
-    const showing = conversation?.querySelector('article') ?? null
-    globals.__switch = { at: 0, paint: null }
-    const sample = globals.__switch
-    document.addEventListener(
-      'click',
-      (event) => {
-        sample.at = event.timeStamp
-        const waitForHistory = (): void => {
-          const heading = document.querySelector('[role="region"][aria-label="Task header"] h1')
-          const first = document.querySelector('[role="log"][aria-label="Conversation"] article')
-          if (heading?.textContent !== goal || first === null || first === showing) {
-            requestAnimationFrame(waitForHistory)
-            return
-          }
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              const channel = new MessageChannel()
-              channel.port1.onmessage = () => {
-                sample.paint = performance.now()
-              }
-              channel.port2.postMessage(null)
-            })
-          })
-        }
-        requestAnimationFrame(waitForHistory)
-      },
-      { capture: true, once: true },
-    )
-  }, target)
-}
-
-/** Clicks a task row, and answers how long the switch took, in milliseconds. */
-async function timedSwitchTo(window: Page, title: string): Promise<number> {
-  await armSwitchTimer(window, title)
-  await taskList(window).taskRow(title).click()
-  await window.waitForFunction(() => ((globalThis as unknown as SwitchGlobals).__switch?.paint ?? null) !== null)
-  const { at, paint } = await window.evaluate(() => {
-    const globals = globalThis as unknown as SwitchGlobals
-    return { at: globals.__switch?.at ?? 0, paint: globals.__switch?.paint ?? 0 }
+async function switchShowsTail(window: Page, title: string): Promise<void> {
+  await window.evaluate(() => {
+    document.querySelector('[role="log"][aria-label="Conversation"] article')?.setAttribute('data-stale', '')
   })
-  // A switch's layout and paint can run past the two frames this waits for; settle before the next one.
-  await window.waitForTimeout(300)
-  return paint - at
+  await taskList(window).taskRow(title).click()
+  await expect(taskHeader(window).title).toHaveText(title)
+  await window.waitForFunction(
+    () => !document.querySelector('[role="log"][aria-label="Conversation"] article')?.hasAttribute('data-stale'),
+  )
 }
 
-function median(sorted: readonly number[]): number {
-  return sorted[Math.floor(sorted.length / 2)] ?? 0
-}
-
-test('switching to an unvisited long task shows its last screenful first, promptly (#637)', async ({
-  launch,
-  tempFolder,
-}) => {
-  test.setTimeout(180_000)
+test('switching to an unvisited long task shows its last screenful first (#637)', async ({ launch, tempFolder }) => {
+  test.setTimeout(120_000)
   const seed = writeSwitchLatencySeed(tempFolder(), TAIL_SEED)
   const { window } = await launch({ seed })
   const first = LONG_TASK_TITLES[0] ?? ''
@@ -121,14 +59,11 @@ test('switching to an unvisited long task shows its last screenful first, prompt
   // The tail is what shows: a screenful of each log, not the task's whole history. The Agents tab's count still names
   // every subagent the task ever started, whose calls are sent whole.
 
-  // Switching to long tasks never yet visited stays prompt: the tail is all it sends and renders.
+  // Switching to long tasks never yet visited shows the new task's tail, not the old task's conversation.
   const unvisited = LONG_TASK_TITLES.slice(1, 1 + SWITCHES)
-  const times: number[] = []
   for (const title of unvisited) {
-    times.push(await timedSwitchTo(window, title))
-    await expect(taskHeader(window).title).toHaveText(title)
+    await switchShowsTail(window, title)
   }
-  expect(median(times.sort((a, b) => a - b))).toBeLessThan(MEDIAN_LIMIT_MS)
 })
 
 test('older history loads as the chat scrolls up, keeping the scroll position (#637)', async ({
