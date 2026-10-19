@@ -74,29 +74,33 @@ above 0 clears it (`APPEAR_WINDOW_MS` in `src/renderer/questions/QuestionCard.ts
 | `guide/openrouter-usage.png` | The sidebar’s OpenRouter key spend and allowance popover. | `settings-models.mjs` (same workflow, offline sample amounts) |
 | `guide/settings-control.png` | Settings › Control, turned on. | `--seed settings-control.json --size 1280x800`, clicked to Control |
 | `guide/backfilled.png` | A backfilled task: its handoff note, and its notes files under the Todos tab's Not under a todo. | `--seed backfilled.json --size 1280x880` |
-| `guide/sandbox-folder-card.png` | Two sandbox cards: a folder to read, and a subagent's folder to write; in the Agents tab, a read a workspace grant let through and the one waiting. | `--seed sandbox-folder-card.json --size 1280x800`, clicked to settle |
-| `guide/sandbox-file-card.png` | The card for one file (`~/.gitconfig`), raised by the agent after its commit was blocked; the blocked command in the Agents tab. | `--seed sandbox-file-card.json --size 1280x800`, clicked to settle |
-| `guide/sandbox-domain-card.png` | A domain card for a command's connection, and the folder card the agent raised with `request_access` after a blocked command, with its reason. | `--seed sandbox-domain-card.json --size 1280x980`, clicked to settle |
-| `guide/sandbox-outside-card.png` | The card for running a command outside the sandbox: Allow once or Deny; the earlier decisions on their rows. | `--seed sandbox-outside-card.json --size 1280x800`, clicked to settle |
-| `guide/sandbox-server-card.png` | The card for an MCP server (#515): its name, what allowing it means, the tool being called and its input; in the Agents tab, a server allowed for the workspace, a call its grant let through, a message to another session allowed, and cloud agents denied. | `--seed sandbox-server-card.json --size 1280x860`, clicked to settle |
-| `guide/sandbox-failed.png` | A task stopped on the error card because its sandbox couldn't start. | `--seed sandbox-failed.json --size 1280x800`, clicked to settle |
-| `guide/settings-sandbox.png` | Settings › Agent: the Sandbox group's switch and the start of the Glade-wide folders. | `--seed settings-sandbox.json --size 1280x800`, clicked to Agent |
+| `guide/sandbox-folder-card.png` | Two sandbox cards: a folder to read, and a subagent's folder to write; in the Agents tab, a read a workspace grant let through and the one waiting. | `--seed sandbox-folder-card.json --size 1280x800`, clicked to the Agents tab |
+| `guide/sandbox-file-card.png` | The card for one file (`~/.gitconfig`), raised by the agent after its commit was blocked; the blocked command in the Agents tab. | `--seed sandbox-file-card.json --size 1280x800`, clicked to the Agents tab |
+| `guide/sandbox-domain-card.png` | A domain card for a command's connection, and the folder card the agent raised with `request_access` after a blocked command, with its reason. | `--seed sandbox-domain-card.json --size 1280x980`, clicked to the Agents tab |
+| `guide/sandbox-outside-card.png` | The card for running a command outside the sandbox: Allow once or Deny; the earlier decisions on their rows. | `--seed sandbox-outside-card.json --size 1280x800`, clicked to the Agents tab |
+| `guide/sandbox-server-card.png` | The card for an MCP server (#515): its name, what allowing it means, the tool being called and its input; in the Agents tab, a server allowed for the workspace, a call its grant let through, a message to another session allowed, and cloud agents denied. | `--seed sandbox-server-card.json --size 1280x860`, clicked to the Agents tab |
+| `guide/sandbox-failed.png` | A task stopped on the error card because its sandbox couldn't start. | `--seed sandbox-failed.json --size 1280x800`, clicked to the Agents tab |
+| `guide/settings-sandbox.png` | Settings › Agent: the Sandbox group's switch and the start of the Glade-wide folders. | `--seed settings-sandbox.json --size 1280x800` (Settings… opens on Agent) |
 | `guide/settings-workspace-sandbox.png` | Settings › Workspace: the root, the granted folders and the domains. | `--seed settings-sandbox.json --size 1280x800`, clicked to the workspace's section |
 | `guide/settings-mcp-servers.png` | Settings › Workspace scrolled to its MCP servers list (#515): a server and Messaging other Claude sessions granted, and the row Add… opens, with the first server there is to add chosen. | `--seed settings-sandbox.json --size 1280x800`, clicked to the workspace's section, then **Add…** on the list (its new row takes the focus, which scrolls the list into view) |
 
 `--command <id>` runs an app command in the window as choosing its menu bar item would (`app.broadcast` opens the
 Broadcast modal, which no button does), since capture mode can't send menu accelerators.
 
-A "clicked to `<section>`" recipe opens Settings by clicking, not ⌘, (capture mode can't send menu accelerators,
-`scripts/screenshot.mjs`'s header): the workspace switcher
-(`button[aria-label="Switch workspace"]`), then **Workspace settings…** (the switcher menu's 4th button), landing on
-the Workspace section; then the wanted section in the nav, General 1st, Models 2nd, Agent 3rd and Control 8th
-(`APP_SECTIONS` in `src/renderer/settings/sections.ts`). `scripts/fixtures/doc-images.mjs` has the exact selectors.
+A "clicked to `<section>`" recipe opens Settings with the Settings… app command, `--command app.settings`, (as
+choosing its menu bar item would; capture mode can't send menu accelerators, `scripts/screenshot.mjs`'s header),
+landing on Agent; then the wanted section in the nav, General 1st, Models 2nd, Agent 3rd, Control 9th, GitHub watching
+10th, and the workspace's own section 11th, under its heading (`APP_SECTIONS` in `src/renderer/settings/sections.ts`).
+`scripts/fixtures/doc-images.mjs` has the exact selectors. (Until 0.35 Settings was reached through the workspace
+switcher's **Workspace settings…** menu item, but the menu's Needs-you rows (#681) sit above it, so its button
+position moves with the seed and can't be clicked by number.)
 
-A "clicked to settle" recipe clicks the right panel's selected tab (`[role="tab"][aria-selected="true"]`), which
-changes nothing: a click waits for its element, so the capture waits until the task is on screen. Without it, a
-capture at the window's own starting size (1280×800) can be taken while the app still shows "Loading…", as it was
-for two of the sandbox card seeds, every time. The Settings › Agent page is taller than its dialog, so its image
+A "clicked to the Agents tab" recipe clicks the right panel's Agents tab (`#task-panel-tab-agents`), which the
+recipes with no `panelTab` in their seed all do: since #686 a task with no remembered tab opens the panel on Todos,
+but these pictures showed Agents when they were recorded (it was the first tab then), and the click waits for its
+element, so the capture also waits until the task is on screen — without it, a capture at the window's own starting
+size (1280×800) can be taken while the app still shows "Loading…", as it was for two of the sandbox card seeds,
+every time. The Settings › Agent page is taller than its dialog, so its image
 shows the Sandbox group's switch and the top of its lists; the workspace's image shows whole lists.
 
 ## Keeping a sample task's dot honest
