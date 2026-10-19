@@ -1,7 +1,12 @@
 // Typing in a task with a very long history (#413): about 500 messages, 1,300 tool events, 90 subagents, 45 artifacts
-// and 40 todos (`./long-history`). Each key must reach the screen promptly, both while nothing else happens and while
-// the agent works a turn, its tool calls streaming into the chat and the tool log. Before the fix, each event of a turn
-// rendered the whole chat and tool log again and laid them out twice over, so keys waited a second or more.
+// and 40 todos (`./long-history`). Each key reaches the screen both while nothing else happens and while the agent
+// works a turn, its tool calls streaming into the chat and the tool log. Before the fix, each event of a turn rendered
+// the whole chat and tool log again and laid them out twice over, so keys waited a second or more.
+//
+// How prompt a key is is measured, not asserted here: the stress spec `./stress/typing-paint.spec.ts` (run with
+// `GLADE_E2E_STRESS=1 npx playwright test e2e/stress/typing-paint.spec.ts`) prints the medians and holds the budget
+// (#746). This spec checks the behaviour: typing at a steady pace (`./typing`) keeps every keystroke in the input, and
+// the turn's events reach the panels around the input while it types.
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
 import { HISTORY_PAGE } from '../src/shared/bridge'
@@ -13,78 +18,7 @@ import {
   writeLongHistorySeed,
 } from './long-history'
 import { agentsTab, chat, inputBar, taskHeader, taskPanel, todoHub } from './selectors'
-
-/** A key every 60 ms: fast typing, about 200 words a minute. */
-const PACE_MS = 60
-const TEXT = 'the quick brown fox jumps over the lazy dog'
-
-/**
- * The slowest a key may be to show, at the median: generous, for a slow CI runner. It took 2 to 8 ms after the fix on
- * the machine that measured it, and 400 to 1,100 ms before it while the agent worked.
- */
-const MEDIAN_LIMIT_MS = 150
-
-/** A key as the page saw it: when it was pressed, and when the frame after it had been drawn. */
-interface KeySample {
-  readonly at: number
-  paint: number | null
-}
-
-interface MeasuredWindow {
-  __keys?: KeySample[]
-}
-
-/** Starts recording each keydown's time and the end of the frame that follows it. */
-async function recordKeys(window: Page): Promise<void> {
-  await window.evaluate(() => {
-    const keys: KeySample[] = []
-    ;(globalThis as MeasuredWindow).__keys = keys
-    document.addEventListener(
-      'keydown',
-      (event) => {
-        const key: KeySample = { at: event.timeStamp, paint: null }
-        keys.push(key)
-        // A message posted from the next animation frame is handled once that frame has been drawn.
-        requestAnimationFrame(() => {
-          const channel = new MessageChannel()
-          channel.port1.onmessage = () => {
-            key.paint = performance.now()
-          }
-          channel.port2.postMessage(null)
-        })
-      },
-      { capture: true },
-    )
-  })
-}
-
-/**
- * Types `text` at a steady pace, without waiting on the window between keys, as a person does, and answers each key's
- * time to the screen, in milliseconds, in order of size.
- */
-async function typeAndMeasure(window: Page, text: string): Promise<number[]> {
-  await window.evaluate(() => {
-    ;(globalThis as MeasuredWindow).__keys?.splice(0)
-  })
-  const presses: Promise<void>[] = []
-  for (const char of text) {
-    presses.push(window.keyboard.press(char === ' ' ? 'Space' : char))
-    await new Promise((resolve) => setTimeout(resolve, PACE_MS))
-  }
-  await Promise.all(presses)
-  await window.waitForFunction((count) => {
-    const keys = (globalThis as MeasuredWindow).__keys ?? []
-    return keys.length === count && keys.every(({ paint }) => paint !== null)
-  }, text.length)
-  const latencies = await window.evaluate(() =>
-    ((globalThis as MeasuredWindow).__keys ?? []).map(({ at, paint }) => (paint ?? at) - at),
-  )
-  return latencies.sort((a, b) => a - b)
-}
-
-function median(sorted: readonly number[]): number {
-  return sorted[Math.floor(sorted.length / 2)] ?? 0
-}
+import { TEXT, typeText } from './typing'
 
 test('typing stays prompt in a task with a very long history, idle and while the agent works', async ({
   launch,
@@ -99,25 +33,22 @@ test('typing stays prompt in a task with a very long history, idle and while the
   await expect(chat(window).agentReplies).toHaveCount(HISTORY_PAGE / 2)
   await expect(taskPanel(window).tab(/^Agents/)).toHaveText(`Agents ${String(LONG_HISTORY.subagents + 1)}`)
 
-  await typesPromptly(window)
+  await typesThroughATurn(window)
 })
 
-/** Types a message while nothing else happens, then another while the agent works a turn: each key shows promptly. */
-async function typesPromptly(window: Page): Promise<void> {
+/** Types a message while nothing else happens, then another while the agent works a turn: every keystroke lands. */
+async function typesThroughATurn(window: Page): Promise<void> {
   const bar = inputBar(window)
   await bar.field.click()
-  await recordKeys(window)
 
-  const idle = await typeAndMeasure(window, TEXT)
-  expect(median(idle)).toBeLessThan(MEDIAN_LIMIT_MS)
+  await typeText(window, TEXT)
   await expect(bar.field).toHaveValue(TEXT)
 
   // A turn: its notes, tool calls and status changes arrive as you type the next message.
   await bar.field.fill('Check the date test.')
   await bar.field.press('Enter')
   await expect(bar.stop).toBeVisible()
-  const working = await typeAndMeasure(window, TEXT)
-  expect(median(working)).toBeLessThan(MEDIAN_LIMIT_MS)
+  await typeText(window, TEXT)
   await expect(bar.field).toHaveValue(TEXT)
   await expect(chat(window).agentReplies).toHaveCount(HISTORY_PAGE / 2 + 1)
 }
@@ -126,9 +57,9 @@ async function typesPromptly(window: Page): Promise<void> {
 // Subagents and Watchers tabs: a tab for Main and its 2 still-running subagents, the caret counting its 88 finished
 // ones, and Main's list, the tail of the
 // tool log of the task's own agent, older pages loading as you scroll up (#637). Every event of the turn reaches
-// them; a tab renders only when its own agent's name or state changed, and a row only when its own event did, so the
-// keys don't wait on them. (The test above waits on the Agents tab's count instead, as a plainer check that the same
-// history loaded.)
+// them; a tab renders only when its own agent's name or state changed, and a row only when its own event did, so
+// typing never waits on them. (The test above waits on the Agents tab's count instead, as a plainer check that the
+// same history loaded.)
 test('typing stays prompt with the Agents tab open on a task with a very long history', async ({
   launch,
   tempFolder,
@@ -153,7 +84,7 @@ test('typing stays prompt with the Agents tab open on a task with a very long hi
   expect(await calls.count()).toBeGreaterThan(0)
   expect(await calls.count()).toBeLessThan(LONG_HISTORY.subagents)
 
-  await typesPromptly(window)
+  await typesThroughATurn(window)
   await expect(agents.tab('Main')).toHaveAttribute('aria-selected', 'true')
 })
 
@@ -161,7 +92,7 @@ test('typing stays prompt with the Agents tab open on a task with a very long hi
 // tiles (files and links), with 30 subagents working on it, two of them still running, and none of them a tile (#535),
 // and each todo's title naming a PR the task has as a link, so each is a link to it (#500). Every event of the turn
 // reaches the hub, which works out each todo's children again; a card or a tile renders only when its own data
-// changed, so the keys don't wait on it.
+// changed, so typing never waits on it.
 test('typing stays prompt with the todo hub open on a task with a very long history', async ({
   launch,
   tempFolder,
@@ -178,6 +109,6 @@ test('typing stays prompt with the todo hub open on a task with a very long hist
   await expect(hub.cards.locator('[data-todo-head][aria-expanded="true"]')).toHaveCount(3)
   await expect(hub.links(hub.heads)).toHaveCount(LONG_HISTORY.todos)
 
-  await typesPromptly(window)
+  await typesThroughATurn(window)
   await expect(hub.links(hub.heads)).toHaveCount(LONG_HISTORY.todos)
 })

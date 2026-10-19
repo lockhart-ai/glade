@@ -104,7 +104,10 @@ outside, ask the supervisor.
   names whose Mac it ran on; `e2e/evidence.spec.ts` checks all of this on tests that fail on purpose.
 - **Stress specs** (`e2e/stress/`) hunt for a rare failure over hundreds of runs on a loaded machine. They're no part
   of `npm run test:e2e` or CI (`playwright.config.ts` ignores the folder unless `GLADE_E2E_STRESS` is set); each says
-  at its top how to run it and what it writes down.
+  at its top how to run it and what it writes down. The hot-path timing budgets are stress specs too
+  (`typing-paint.spec.ts`, `switch-paint.spec.ts`, `launch-paint.spec.ts`): no spec CI runs asserts a duration
+  (Jared, #746), so for a hot-path change run the stress spec locally with `GLADE_E2E_STRESS=1` and read the medians
+  it prints.
 - **Tools that launch Electron run outside the command sandbox, in the background.** `npm run render-design`,
   `npm run check-design`, `npm run screenshot`, `npm run record` and `npm run test:e2e` (and long test runs) go
   outside the sandbox and in the background, then you wait for them to finish: never as a long, silent foreground

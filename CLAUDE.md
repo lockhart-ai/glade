@@ -96,8 +96,12 @@ We don't measure every change, but every change keeps these in mind, and Jared w
 - **Send main's changes small.** Batch bursts of events before they reach the renderer, and send what changed rather
   than whole snapshots.
 - **Think about the big case.** Picture 500 messages, 100 tool calls and 50 subagents. A change to a hot path (chat,
-  tool log, subagents, task list, input bar) runs `src/renderer/history-renders.test.tsx` and
-  `e2e/typing-latency.spec.ts`, and a new list row gets a render-count test there.
+  tool log, subagents, task list, input bar) runs `src/renderer/history-renders.test.tsx`, and a new list row gets a
+  render-count test there. The timing budgets live in the stress specs, which CI never runs (`e2e/stress/`
+  `typing-paint.spec.ts`, `switch-paint.spec.ts`, `launch-paint.spec.ts`): no spec CI runs asserts a duration
+  (#746). Run them locally for a hot-path change —
+  `GLADE_E2E_STRESS=1 npx playwright test e2e/stress/typing-paint.spec.ts` (and the other two) — and read the medians
+  they print.
 
 ## Stack
 
