@@ -212,8 +212,9 @@ describe("a running subagent's progress summary", () => {
 
     runner.close()
     launch()
-    // Before the relaunch finishes its checks, the log is as the app left it.
-    expect(await summaries()).toContainEqual(['toolu_api', ToolCallState.Running, 'Reading the API PRs'])
+    // Before the relaunch finishes its checks, the log is as the app left it: the quit itself ended the call as
+    // interrupted, and the summary went with its call.
+    expect(await summaries()).toContainEqual(['toolu_api', ToolCallState.Interrupted, null])
 
     runner.resumeInterrupted()
 

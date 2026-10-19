@@ -324,6 +324,24 @@ describe('a background subagent', () => {
     expect(backend.sessions).toHaveLength(0)
   })
 
+  it('records its calls interrupted when the app closes, so a clean quit leaves none running', async () => {
+    await launchInBackground(QUERIES)
+    backend.session.emit(sdk.toolUse('toolu_q1', 'Bash', { command: 'python time_queries.py' }, 'toolu_q', 'msg_s1'))
+    await settle()
+    expect(outcome('toolu_q')).toEqual([ToolCallState.Running, null])
+
+    runner.close()
+
+    expect(outcome('toolu_q')).toEqual([ToolCallState.Interrupted, RESTARTED_TOOL_NOTE])
+    expect(outcome('toolu_q1')).toEqual([ToolCallState.Interrupted, RESTARTED_TOOL_NOTE])
+    expect(
+      database.db
+        .prepare(`SELECT COUNT(*) FROM tool_events WHERE kind = 'tool_call' AND tool_state = 'running'`)
+        .pluck()
+        .get(),
+    ).toBe(0)
+  })
+
   it('carries on the turn the app quit in, apart from it, when the app quits mid-turn while it runs', async () => {
     await launchInBackground(QUERIES)
     await send('Anything yet?')

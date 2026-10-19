@@ -6,6 +6,7 @@ import {
   CompactionTrigger,
   DividerKind,
   RefusalScope,
+  TaskActivity,
   ToolCallState,
   ToolEventKind,
   WatcherKind,
@@ -14,6 +15,7 @@ import {
   type ToolCallEvent,
 } from '../../../shared/domain'
 import { openAppDatabase } from '../database'
+import { updateTask } from './tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 import {
   appendCompaction,
@@ -24,6 +26,8 @@ import {
   deleteToolEvent,
   failRunningCompactions,
   getToolCall,
+  interruptOrphanedRunningToolCalls,
+  interruptOtherRunningToolCalls,
   interruptPausedToolCalls,
   interruptRunningToolCall,
   interruptRunningToolCalls,
@@ -255,6 +259,104 @@ describe('interruptRunningToolCall', () => {
       ToolCallState.Interrupted,
       ToolCallState.Running,
     ])
+  })
+})
+
+describe('interruptOtherRunningToolCalls', () => {
+  const note = { state: ToolCallState.Interrupted, output: 'Glade quit.', finishedAt: 9_000 }
+  /** Task order, as the caller emits them: one task after another, each in its log order. */
+  const byTask = (a: ToolCallEvent, b: ToolCallEvent) => (a.taskId < b.taskId ? -1 : a.taskId > b.taskId ? 1 : 0)
+
+  it('records every running call as interrupted when nothing is excepted', () => {
+    const first = appendToolCall(test.db, bashCall('toolu_1'))
+    const other = sampleTask(test.db, task.workspaceId)
+    const second = appendToolCall(test.db, { ...bashCall('toolu_other'), taskId: other.id })
+    appendToolCall(test.db, bashCall('toolu_done'))
+    updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_done', state: ToolCallState.Done, output: 'ok' })
+
+    const interrupted = interruptOtherRunningToolCalls(test.db, 'Glade quit.', { taskIds: [], toolUseIds: [] }, 9_000)
+
+    expect(interrupted.sort(byTask)).toEqual(
+      [
+        { ...first, ...note },
+        { ...second, ...note },
+      ].sort(byTask),
+    )
+    expect(interruptOtherRunningToolCalls(test.db, 'Glade quit.', { taskIds: [], toolUseIds: [] })).toEqual([])
+  })
+
+  it("leaves an excepted task's running calls alone", () => {
+    const first = appendToolCall(test.db, bashCall('toolu_1'))
+    const other = sampleTask(test.db, task.workspaceId)
+    appendToolCall(test.db, { ...bashCall('toolu_other'), taskId: other.id })
+
+    const interrupted = interruptOtherRunningToolCalls(
+      test.db,
+      'Glade quit.',
+      { taskIds: [other.id], toolUseIds: [] },
+      9_000,
+    )
+
+    expect(interrupted).toEqual([{ ...first, ...note }])
+    expect(listToolEvents(test.db, other.id)).toMatchObject([{ state: ToolCallState.Running }])
+  })
+
+  it('leaves an excepted call alone, in whichever task it runs', () => {
+    const other = sampleTask(test.db, task.workspaceId)
+    appendToolCall(test.db, { ...bashCall('toolu_other'), taskId: other.id })
+    appendToolCall(test.db, bashCall('toolu_1'))
+
+    const interrupted = interruptOtherRunningToolCalls(
+      test.db,
+      'Glade quit.',
+      { taskIds: [], toolUseIds: ['toolu_other'] },
+      9_000,
+    )
+
+    expect(interrupted).toMatchObject([{ toolUseId: 'toolu_1', state: ToolCallState.Interrupted }])
+    expect(listToolEvents(test.db, other.id)).toMatchObject([{ state: ToolCallState.Running }])
+  })
+
+  it('leaves an excepted task and call alone at once', () => {
+    appendToolCall(test.db, bashCall('toolu_1'))
+    const other = sampleTask(test.db, task.workspaceId)
+    appendToolCall(test.db, { ...bashCall('toolu_other'), taskId: other.id })
+
+    const interrupted = interruptOtherRunningToolCalls(
+      test.db,
+      'Glade quit.',
+      { taskIds: [other.id], toolUseIds: ['toolu_1'] },
+      9_000,
+    )
+
+    expect(interrupted).toEqual([])
+    expect(listToolEvents(test.db, task.id)).toMatchObject([{ state: ToolCallState.Running }])
+    expect(listToolEvents(test.db, other.id)).toMatchObject([{ state: ToolCallState.Running }])
+  })
+})
+
+describe('interruptOrphanedRunningToolCalls', () => {
+  it("records the running calls of tasks that aren't working as interrupted, and leaves a working task's alone", () => {
+    const first = appendToolCall(test.db, bashCall('toolu_1'))
+    const other = sampleTask(test.db, task.workspaceId)
+    const second = appendToolCall(test.db, { ...bashCall('toolu_other'), taskId: other.id })
+    const working = sampleTask(test.db, task.workspaceId)
+    appendToolCall(test.db, { ...bashCall('toolu_working'), taskId: working.id })
+    updateTask(test.db, working.id, { activity: TaskActivity.Working })
+
+    const interrupted = interruptOrphanedRunningToolCalls(test.db, 'Glade quit.', 9_000)
+
+    const note = { state: ToolCallState.Interrupted, output: 'Glade quit.', finishedAt: 9_000 }
+    // Task order, as the pass emits them: one task after another, each in its log order.
+    const byTask = (a: ToolCallEvent, b: ToolCallEvent) => (a.taskId < b.taskId ? -1 : a.taskId > b.taskId ? 1 : 0)
+    expect(interrupted.sort(byTask)).toEqual(
+      [
+        { ...first, ...note },
+        { ...second, ...note },
+      ].sort(byTask),
+    )
+    expect(listToolEvents(test.db, working.id)).toMatchObject([{ state: ToolCallState.Running }])
+    expect(interruptOrphanedRunningToolCalls(test.db, 'Glade quit.')).toEqual([])
   })
 })
 

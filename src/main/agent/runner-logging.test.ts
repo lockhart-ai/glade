@@ -305,6 +305,8 @@ describe('sessions ending', () => {
     runner.resumeInterrupted()
 
     expect(trail(relaunched.records)).toEqual([
+      // No calls were left running: the clean quit ended them as interrupted, and the launch says so as it finds none.
+      'runner interrupted tool calls left running',
       'runner resuming interrupted turn',
       'agent session resuming',
       'runner resumed interrupted tasks',
