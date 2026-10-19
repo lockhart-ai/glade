@@ -3450,6 +3450,33 @@ describe('a message from another task (#710)', () => {
     })
   })
 
+  it('still hands it over when its sender is gone, naming it by id', async () => {
+    runner.send(task.id, 'Left you the fixture names.', [], [], [], MessageSource.Task, 'task-gone')
+    await reply()
+
+    // The sender was deleted before this was handed over: the line names it by id, and the log says so.
+    expect(backend.session.sent.at(-1)?.text).toMatch(/^Message from Glade task .*\(task-gone\)\./)
+    expect(backend.session.sent.at(-1)?.text).toContain('Left you the fixture names.')
+  })
+
+  it('is sent by another task’s agent with message_task, through the app’s own tools', async () => {
+    const other = sender()
+    await glade.invoke(CommandName.TasksSend, { id: other.id, text: 'Tell the chat-cases task the race is fixed.' })
+    await settle()
+    // The latest session is the other task's: its agent calls the tool.
+    await backend.session.callTool('use-message', 'mcp__glade__message_task', {
+      to: task.id,
+      message: 'The login race is fixed in PR #48.',
+    })
+    await settle()
+
+    expect(listMessages(database.db, task.id).at(-1)).toMatchObject({
+      body: 'The login race is fixed in PR #48.',
+      source: MessageSource.Task,
+      senderTaskId: other.id,
+    })
+  })
+
   it('queues it while the agent is busy, and hands it over with the sender line when delivered', async () => {
     const from = sender()
     await send('Start the rebasing.')
