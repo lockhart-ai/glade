@@ -365,12 +365,20 @@ describe('a todo a request asks to show (#684)', () => {
   }
 
   const scrollIntoView = vi.fn()
+  const scrollTo = vi.fn()
   beforeEach(() => {
     Element.prototype.scrollIntoView = scrollIntoView
+    Element.prototype.scrollTo = scrollTo
+    // The todo list sits 100px down the window and the asked-for card 340px: the list scrolls by the 240 between.
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      return { top: this.hasAttribute('data-todo') ? 340 : 100 } as DOMRect
+    })
   })
 
   afterEach(() => {
     Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+    Reflect.deleteProperty(Element.prototype, 'scrollTo')
+    vi.restoreAllMocks()
   })
 
   it('opens the todo, scrolls it to the top of the list, puts the focus on its head and highlights the card for a moment', async () => {
@@ -383,8 +391,10 @@ describe('a todo a request asks to show (#684)', () => {
     })
     expect(head(/#502/)).toHaveFocus()
     expect(asked).toHaveClass(styles.highlighted ?? '')
-    // To the top of the list, not just into view, so a closed card's children open below it in view (#713).
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
+    // To the top of the list, not just into view, so a closed card's children open below it in view (#713), by
+    // scrolling the list alone: `scrollIntoView` scrolled every ancestor and shifted the whole window up (#734).
+    expect(scrollTo).toHaveBeenCalledWith({ top: 240 })
+    expect(scrollIntoView).not.toHaveBeenCalled()
     expect(onFocusShown).toHaveBeenCalledOnce()
 
     // The highlight fades, and only then: about as long as the tool log's stays.
