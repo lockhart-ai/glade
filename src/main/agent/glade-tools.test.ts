@@ -62,6 +62,7 @@ import {
   toolTimeoutMs,
   type McpToolCaller,
 } from './mcp-tool-caller'
+import { refusedTaskMessage, TaskMessageOutcomeKind, type TaskMessageOutcome } from '../tasks/task-messages'
 
 let database: TestDatabase
 let task: Task
@@ -74,7 +75,12 @@ beforeEach(() => {
   task = sampleTask(database.db, sampleWorkspace(database.db).id)
   events = []
   const base = { db: database.db, emit: (event: GladeEvent) => events.push(event) }
-  context = { ...base, questions: createQuestionBroker(base) }
+  context = {
+    ...base,
+    questions: createQuestionBroker(base),
+    // No test here sends a task message; message_task's own tests override this.
+    deliverTaskMessage: () => refusedTaskMessage('not wired in this test'),
+  }
   caller = createMcpToolCaller({ [GLADE_SERVER]: createGladeMcpServer(context, task.id) })
 })
 
@@ -162,6 +168,7 @@ describe('the server', () => {
       GladeTool.ListChildren,
       GladeTool.FileChildren,
       GladeTool.ListOtherTasks,
+      GladeTool.MessageTask,
       GladeTool.CreateTodo,
       GladeTool.UpdateTodo,
       GladeTool.ListTodos,
@@ -180,6 +187,8 @@ describe('the server', () => {
       undefined,
       ['filings'],
       undefined,
+      // Another Active task in the workspace, and the message for it (#710).
+      ['to', 'message'],
       ['subject'],
       ['id'],
       undefined,
@@ -218,6 +227,7 @@ describe('the server', () => {
       GladeTool.ListChildren,
       GladeTool.FileChildren,
       GladeTool.ListOtherTasks,
+      GladeTool.MessageTask,
       GladeTool.CreateTodo,
       GladeTool.UpdateTodo,
       GladeTool.ListTodos,
@@ -870,6 +880,58 @@ describe('add_artifact', () => {
 
     expect(listFileArtifacts(database.db, taskId)).toEqual([])
     expect(changes()).toEqual([])
+  })
+})
+
+describe('message_task (#710)', () => {
+  it('sends through the context, saying how the message was delivered', async () => {
+    const deliverTaskMessage = vi.fn<
+      (fromTaskId: string, input: { to: string; message: string }) => TaskMessageOutcome
+    >(() => ({ kind: TaskMessageOutcomeKind.Sent, delivery: 'sent' }))
+    const caller = createMcpToolCaller({
+      [GLADE_SERVER]: createGladeMcpServer({ ...context, deliverTaskMessage }, task.id),
+    })
+
+    await expect(
+      caller.call('mcp__glade__message_task', { to: 'other-task', message: 'The race is fixed.' }),
+    ).resolves.toEqual({
+      output: 'Sent: the task starts its next turn with the message.',
+      isError: false,
+    })
+    expect(deliverTaskMessage).toHaveBeenCalledWith(task.id, { to: 'other-task', message: 'The race is fixed.' })
+    await caller.close()
+  })
+
+  it('says when the message waits in the queue behind the task’s current work', async () => {
+    const deliverTaskMessage = vi.fn<
+      (fromTaskId: string, input: { to: string; message: string }) => TaskMessageOutcome
+    >(() => ({ kind: TaskMessageOutcomeKind.Sent, delivery: 'queued' }))
+    const caller = createMcpToolCaller({
+      [GLADE_SERVER]: createGladeMcpServer({ ...context, deliverTaskMessage }, task.id),
+    })
+
+    await expect(
+      caller.call('mcp__glade__message_task', { to: 'other-task', message: 'The race is fixed.' }),
+    ).resolves.toEqual({
+      output: "Sent: the task's agent is busy, so the message waits at the end of its queue.",
+      isError: false,
+    })
+    await caller.close()
+  })
+
+  it('refuses with the reason it was given, and nothing sent', async () => {
+    const deliverTaskMessage = vi.fn<
+      (fromTaskId: string, input: { to: string; message: string }) => TaskMessageOutcome
+    >(() => refusedTaskMessage('No task missing. Call list_other_tasks for the ids of the other Active tasks.'))
+    const caller = createMcpToolCaller({
+      [GLADE_SERVER]: createGladeMcpServer({ ...context, deliverTaskMessage }, task.id),
+    })
+
+    await expect(caller.call('mcp__glade__message_task', { to: 'missing', message: 'Hello' })).resolves.toEqual({
+      output: 'No task missing. Call list_other_tasks for the ids of the other Active tasks.',
+      isError: true,
+    })
+    await caller.close()
   })
 })
 

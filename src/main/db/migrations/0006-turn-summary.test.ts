@@ -50,6 +50,7 @@ it('leaves existing messages without a summary, and refuses negative counts', ()
       pastedBlocks: [],
       files: [],
       source: null,
+      senderTaskId: null,
       seq: expect.any(Number) as unknown,
     },
   ])

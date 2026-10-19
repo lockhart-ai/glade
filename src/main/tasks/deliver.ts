@@ -19,21 +19,23 @@ export type Delivery = 'sent' | 'queued'
 
 /**
  * Sends `text` to `taskId` with `source` tagging it (never your own words), through the runner's own `send`/`queue`
- * path: started as its next turn when idle, or queued when its agent is busy. Throws what the runner throws for a
- * task that can't take it at all (`not_found`, or a reason `queue` itself refuses for).
+ * path: started as its next turn when idle, or queued when its agent is busy. With `senderTaskId`, the message is
+ * from another task (#710), which the runner keeps with it (`Message.senderTaskId`). Throws what the runner throws
+ * for a task that can't take it at all (`not_found`, or a reason `queue` itself refuses for).
  */
 export function deliverMessage(
   runner: Pick<AgentRunner, 'send' | 'queue'>,
   taskId: string,
   text: string,
   source: MessageSource,
+  senderTaskId: string | null = null,
 ): Delivery {
   try {
-    runner.send(taskId, text, [], [], [], source)
+    runner.send(taskId, text, [], [], [], source, senderTaskId)
     return 'sent'
   } catch (error) {
     if (!isBusy(error)) throw error
   }
-  runner.queue(taskId, text, [], [], [], source)
+  runner.queue(taskId, text, [], [], [], source, senderTaskId)
   return 'queued'
 }

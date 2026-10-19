@@ -351,10 +351,16 @@ export interface Message {
   readonly files: readonly AttachedFile[]
   /**
    * Where it came from, when it didn't come from you typing in this task: sent to every active task at once with
-   * Broadcast (#489), or a note from one of Glade's own watchers (`MessageSource.Github`, #682). The chat tags it, so
-   * it doesn't read as your own words. Null for a message you sent to this task alone, and for the agent's replies.
+   * Broadcast (#489), a note from one of Glade's own watchers (`MessageSource.Github`, #682), or a message from
+   * another task (`MessageSource.Task`, #710). The chat marks it, so it doesn't read as your own words. Null for a
+   * message you sent to this task alone, and for the agent's replies.
    */
   readonly source: MessageSource | null
+  /**
+   * The id of the task that sent it, set only when `source` is `Task` (#710): the chat shows the sending task's
+   * title with the message, and the guard counts a pair's messages by it. Null for every other message.
+   */
+  readonly senderTaskId?: string | null
 }
 
 /**
@@ -376,16 +382,20 @@ export interface QueuedMessage {
   readonly files: readonly AttachedFile[]
   /** Where it came from, which it's still from once delivered (`Message.source`). */
   readonly source: MessageSource | null
+  /** The id of the task that sent it, set only when `source` is `Task` (#710); null otherwise (`Message.senderTaskId`). */
+  readonly senderTaskId?: string | null
 }
 
 /**
  * Why a message in the chat log (or still in the queue) isn't your own words, for the tag beside "you" (#489, #682):
- * sent to every active task at once with Broadcast, or a note one of Glade's own watchers left for the agent. A
- * message with neither, like one for the agent's replies, has no source (null).
+ * sent to every active task at once with Broadcast, a note one of Glade's own watchers left for the agent (#682), or
+ * a message another task's agent sent with `message_task` (#710). A message with none of these, like one for the
+ * agent's replies, has no source (null).
  */
 export enum MessageSource {
   Broadcast = 'broadcast',
   Github = 'github',
+  Task = 'task',
 }
 
 /**

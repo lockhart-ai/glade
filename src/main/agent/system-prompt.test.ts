@@ -10,6 +10,7 @@ import {
   HANDOFF_HEADING,
   handoffSection,
   INSTRUCTION_UPDATES,
+  TASK_MESSAGES_LINE,
   LINK_ARTIFACTS_LINE,
   OTHER_TASKS_LINE,
   SANDBOX_LINE,
@@ -66,6 +67,8 @@ describe('systemPromptAppend', () => {
         'Before starting work on an existing pull request, issue or branch, call list_other_tasks and check that no ' +
           'other task already has it among its links or in its Goal or Now; if one does, stop and ask.',
         '',
+        TASK_MESSAGES_LINE,
+        '',
         'When you leave a script running to watch something (CI, a deploy, a remote job), start it with the ' +
           "Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows " +
           "in the task's Agents tab.",
@@ -114,6 +117,7 @@ describe('systemPromptAppend', () => {
       USAGE_NOTES_LINE,
       TODO_LINKS_LINE,
       GITHUB_LINK_WATCH_LINE,
+      TASK_MESSAGES_LINE,
     ])
     for (const update of INSTRUCTION_UPDATES) expect(systemPromptAppend(task)).toContain(update)
   })
@@ -290,6 +294,7 @@ describe("the todo hub's lines", () => {
       USAGE_NOTES_LINE,
       TODO_LINKS_LINE,
       GITHUB_LINK_WATCH_LINE,
+      TASK_MESSAGES_LINE,
     ])
   })
 

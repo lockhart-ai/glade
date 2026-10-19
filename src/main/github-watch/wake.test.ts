@@ -71,8 +71,8 @@ it('sends one batched message per task, each with only its own links', () => {
   wakeTasks(runner, [PR_CHANGE, otherTask])
 
   expect(send).toHaveBeenCalledTimes(2)
-  expect(send).toHaveBeenCalledWith('t1', formatWakeMessage([PR_CHANGE]), [], [], [], MessageSource.Github)
-  expect(send).toHaveBeenCalledWith('t2', formatWakeMessage([otherTask]), [], [], [], MessageSource.Github)
+  expect(send).toHaveBeenCalledWith('t1', formatWakeMessage([PR_CHANGE]), [], [], [], MessageSource.Github, null)
+  expect(send).toHaveBeenCalledWith('t2', formatWakeMessage([otherTask]), [], [], [], MessageSource.Github, null)
 })
 
 it('queues it for a busy task, and does not let one task’s failure stop another’s', () => {
@@ -87,7 +87,7 @@ it('queues it for a busy task, and does not let one task’s failure stop anothe
     wakeTasks(runner, [PR_CHANGE, { ...ISSUE_CHANGE, taskId: 't2' }])
   }).not.toThrow()
 
-  expect(queue).toHaveBeenCalledWith('t1', formatWakeMessage([PR_CHANGE]), [], [], [], MessageSource.Github)
+  expect(queue).toHaveBeenCalledWith('t1', formatWakeMessage([PR_CHANGE]), [], [], [], MessageSource.Github, null)
 })
 
 it('batches two links that changed for one task into one message', () => {
@@ -104,5 +104,6 @@ it('batches two links that changed for one task into one message', () => {
     [],
     [],
     MessageSource.Github,
+    null,
   )
 })

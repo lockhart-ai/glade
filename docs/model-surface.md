@@ -327,6 +327,7 @@ status (open, merged, closed) isn't fetched.
 | `list_children` | `{ todo?: string }` | Lists what the task made (its children) by the todo each is under, each with its short id. See below. |
 | `file_children` | `{ filings: { child: string, todo: string }[] }` | Files children under todos, or moves them to another, all of them or none. See below. |
 | `list_other_tasks` | `{}` | Read-only; always on. The other Active tasks across every workspace, most recently updated first, each with its title, objective (Goal), status (Now), attention, workspace and link artifacts. See below. |
+| `message_task` | `{ to: string, message: string }` | Main agent only. Sends a message to another Active task in this task's workspace, started as its next turn or queued behind its current one; refused with a reason for an unknown id, itself, a Done task, another workspace, or more than 5 to that task in the last hour. See below. |
 | `create_todo` | `{ subject: string, note?: string }` | Adds a todo, not started, with the next id the task has ever been given. See below. |
 | `update_todo` | `{ id: string, subject?: string, note?: string, status?: "pending" \| "in_progress" \| "completed" \| "waiting" \| "deleted" }` | Changes a todo, or removes it (`status: "deleted"`), refused while anything is filed under it. See below. |
 | `list_todos` | `{}` | Every todo of the task, one line each, in order. See below. |
@@ -545,6 +546,37 @@ existing pull request, an issue or a branch. Done tasks are never listed.
   on an existing pull request, issue or branch, and to stop and ask if another task already has it ("System prompt",
   below).
 
+## Implemented: `message_task` (#710)
+
+A task's agent can message another task: `mcp__glade__message_task` takes `to` (the receiving task's id, as
+`list_other_tasks` gives it) and `message` (Markdown, at most `TASK_MESSAGE_MAX` (4,000) characters), and the main
+agent's `glade` server alone holds it — never a subagent's or a dispatched child's.
+
+- **Who it may message:** the other **Active** tasks in **its own workspace** only. Everything else is refused with
+  a reason the agent can act on, and nothing is sent: the calling task itself ("That's this task…"), an unknown id
+  ("No task … call `list_other_tasks`…"), a Done task ("…Done, not Active…"), and a task in another workspace
+  ("…only tasks in your own workspace…"). The tool's name mirrors the control API's `send_message` (`glade-control`,
+  below) so an agent holding both can't confuse them.
+- **Delivery** is a broadcast's (`../tasks/deliver`): the message starts the receiving task's next turn when its
+  agent is idle, and waits at the end of its queue while it's busy, paused or waiting on you — never mid-turn. The
+  reply says which of the two happened.
+- **The sender travels with the message** (`Message.senderTaskId`, set only with `MessageSource.Task`): the
+  receiving agent reads a line ahead of the message naming the sending task and telling it to reply with
+  `message_task` — `Message from Glade task "<title>" (<id>). Reply with message_task and that id if you should.` —
+  composed at hand-over (`src/main/agent/runner.ts`'s `hand`), never stored or shown. The chat shows the message in
+  its own dark bubble on the left, with a ⇄ chip naming the sending task above it and the task's title in place of
+  "you" in the line under it (`docs/design/html/66-task-message.html`); in the queue box it's named by its sender
+  the way a broadcast is tagged.
+- **The guard:** at most `TASK_MESSAGES_PER_HOUR` (5) messages from one task to another in a rolling hour
+  (`TASK_MESSAGE_WINDOW_MS`, one hour), counted durably from the receiver's chat log and its still-queued messages
+  (`countTaskMessagesFrom` in `src/main/tasks/task-messages.ts`). At the limit the call is refused with the count,
+  the limit and what to do instead (ask the user, or wait for one to age out). A task that needs the user's
+  attention has `ask` for that; this stops two agents keeping an exchange going on their own.
+- **No approval:** the call sends without a permission card, like the task's own metadata tools.
+- **The system prompt** (`TASK_MESSAGES_LINE` in `src/main/agent/system-prompt.ts`, sent to sessions that started
+  before it as an instruction added since) tells the agent of the tool, who it may message, how a message names its
+  sender, and to keep exchanges to what the other task needs.
+
 ## Implemented: filing produced work as it's made (P16-04, #495)
 
 A task's session files what its agent produces under one of its todos as it's made: its artifacts and its commits.
@@ -742,6 +774,8 @@ When you make a deliverable the user asked for (a report, a document, a draft), 
 When you open or work on a pull request, or the task is about an issue or a ticket (GitHub, Jira), call add_artifact with its url and a short title, so the user finds it in the Todos tab next to the files.
 
 Before starting work on an existing pull request, issue or branch, call list_other_tasks and check that no other task already has it among its links or in its Goal or Now; if one does, stop and ask.
+
+Glade tasks can message each other: call message_task with another Active task's id (from list_other_tasks; tasks in your own workspace only) and the message in Markdown. A message from another task names its sender and how to answer it; reply with message_task to that id when you should. Keep the exchange to what the other task needs, not a running commentary — Glade limits how often one task may message another — and ask the user with ask when the user is the one to decide.
 
 When you leave a script running to watch something (CI, a deploy, a remote job), start it with the Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows in the task's Agents tab.
 

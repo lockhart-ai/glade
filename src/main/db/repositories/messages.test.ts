@@ -39,6 +39,7 @@ describe('appendMessage', () => {
       pastedBlocks: [],
       files: [],
       source: null,
+      senderTaskId: null,
       seq: expect.any(Number) as unknown,
     })
     expect(listMessages(test.db, task.id)).toEqual([message])
@@ -60,15 +61,37 @@ describe('appendMessage', () => {
       turn: 3,
       source: MessageSource.Github,
     })
+    const fromTask = appendMessage(test.db, {
+      taskId: task.id,
+      role: MessageRole.User,
+      body: 'The login race is fixed in PR #48.',
+      turn: 4,
+      source: MessageSource.Task,
+      senderTaskId: 'sender-1',
+    })
 
     expect(own.source).toBeNull()
     expect(broadcast.source).toBe(MessageSource.Broadcast)
     expect(github.source).toBe(MessageSource.Github)
+    expect(fromTask.source).toBe(MessageSource.Task)
+    expect(fromTask.senderTaskId).toBe('sender-1')
     expect(listMessages(test.db, task.id).map((message) => message.source)).toEqual([
       null,
       MessageSource.Broadcast,
       MessageSource.Github,
+      MessageSource.Task,
     ])
+    // The sender is kept only with the source it belongs to (#710).
+    const stray = appendMessage(test.db, {
+      taskId: task.id,
+      role: MessageRole.User,
+      body: 'Not from a task.',
+      turn: 5,
+      source: MessageSource.Broadcast,
+      senderTaskId: 'sender-1',
+    })
+    expect(stray.senderTaskId).toBeNull()
+    expect(listMessages(test.db, task.id).at(-1)?.senderTaskId).toBeNull()
   })
 
   it('refuses a source that is none of the known ones', () => {

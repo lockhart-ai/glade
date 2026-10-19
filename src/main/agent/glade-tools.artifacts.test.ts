@@ -28,6 +28,7 @@ import {
 } from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller, type McpToolOutcome } from './mcp-tool-caller'
 import { ArtifactKind } from '../../shared/domain'
+import { refusedTaskMessage } from '../tasks/task-messages'
 
 let database: TestDatabase
 let events: GladeEvent[]
@@ -41,7 +42,12 @@ beforeEach(async () => {
   database = openTestDatabase()
   events = []
   const base = { db: database.db, emit: (event: GladeEvent) => events.push(event) }
-  context = { ...base, questions: createQuestionBroker(base) }
+  context = {
+    ...base,
+    questions: createQuestionBroker(base),
+    // No test here sends a task message; message_task's own tests override this.
+    deliverTaskMessage: () => refusedTaskMessage('not wired in this test'),
+  }
   root = mkdtempSync(join(tmpdir(), 'glade-change-artifact-'))
   outside = mkdtempSync(join(tmpdir(), 'glade-change-artifact-outside-'))
   mkdirSync(join(root, 'docs', 'releases'), { recursive: true })

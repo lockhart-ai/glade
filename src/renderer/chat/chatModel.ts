@@ -185,10 +185,20 @@ export function toolCallsByTurn(toolEvents: readonly ToolEvent[]): ReadonlyMap<n
 /**
  * Whether a message doesn't show in the chat: a note from one of Glade's own watchers (the GitHub link watcher,
  * #682), which starts or queues the agent's turn as any message does but isn't shown as your words (#715); it shows
- * as a row in Main's tool log instead (`../tool-log/toolLogModel`). A broadcast still shows here as it always has.
+ * as a row in Main's tool log instead (`../tool-log/toolLogModel`). A broadcast still shows here as it always has,
+ * and so does a message another task's agent sent (#710): it shows as its own bubble, named by its sender.
  */
 function hiddenFromChat(message: Message): boolean {
   return message.source === MessageSource.Github
+}
+
+/**
+ * What a message from another task (#710) names its sender: the sending task's title, or "Task" when it never set
+ * one or has since been deleted — never a crash, and never a stale id in its place.
+ */
+export function taskMessageTitle(tasks: Readonly<Record<string, Task>>, senderTaskId: string | null): string {
+  const title = senderTaskId === null ? undefined : tasks[senderTaskId]?.title
+  return title === undefined || title === '' ? 'Task' : title
 }
 
 /** The chat's entry for a message. */

@@ -54,6 +54,22 @@
   gap: 4px;
 }
 
+/* A message another task's agent sent (#710), docs/design/html/66-task-message.html: on the left like the agent's,
+   its chip above it and its title in the line under it. */
+.task {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  max-width: 560px;
+}
+
+.taskBubble {
+  background: var(--color-task-bubble);
+  border: 1px solid var(--color-task-bubble-border);
+  border-radius: 14px 14px 14px 4px;
+}
+
 /* Under your message: "you" and its time, after its tag if it was a broadcast (docs/design/html/45-broadcast-message.html). */
 .userMeta {
   display: flex;

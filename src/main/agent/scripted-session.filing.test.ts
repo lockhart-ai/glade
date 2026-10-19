@@ -53,6 +53,7 @@ import {
   type ScriptTurn,
 } from './scripts'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
+import { refusedTaskMessage } from '../tasks/task-messages'
 
 const SESSION: AgentSessionOptions = {
   cwd: '/code/acme-api',
@@ -432,7 +433,12 @@ describe('a scripted agent, through the runner', () => {
   function start(script: AgentScript): AgentRunner {
     backend = createTestModeAgentBackend({ script })
     const base = { db, emit: () => undefined }
-    const context = { ...base, questions: createQuestionBroker(base) }
+    const context = {
+      ...base,
+      questions: createQuestionBroker(base),
+      // No test here sends a task message; message_task's own tests override this.
+      deliverTaskMessage: () => refusedTaskMessage('not wired in this test'),
+    }
     runner = createAgentRunner({
       ...context,
       backend,

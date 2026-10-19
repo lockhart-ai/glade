@@ -1881,6 +1881,30 @@ describe('a batch of events from main (#489)', () => {
     expect(store.getState().tasks.t1?.status).toBe('Second.')
   })
 
+  it('keeps who sent a task message, in the log and in the queue (#710)', async () => {
+    const { store, emitBatch } = await hydrated()
+
+    emitBatch([
+      {
+        type: EventType.MessageAppended,
+        message: {
+          ...sampleMessage('m1', 't1', 'The login race is fixed.'),
+          source: MessageSource.Task,
+          senderTaskId: 't2',
+        },
+      },
+      {
+        type: EventType.QueueChanged,
+        taskId: 't1',
+        queuedMessages: [{ ...sampleQueuedMessage('q1', 't1'), source: MessageSource.Task, senderTaskId: 't2' }],
+      },
+    ])
+
+    const state = store.getState()
+    expect(state.messages.t1?.at(-1)).toMatchObject({ source: MessageSource.Task, senderTaskId: 't2' })
+    expect(state.queuedMessages.t1?.at(-1)).toMatchObject({ source: MessageSource.Task, senderTaskId: 't2' })
+  })
+
   it('changes nothing for a batch of events the store only passes on', async () => {
     const { store, emitBatch } = await hydrated()
     const commands = vi.fn()

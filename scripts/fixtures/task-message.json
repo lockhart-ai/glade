@@ -1,0 +1,123 @@
+{
+  "workspace": {
+    "name": "Acme Chat Platform",
+    "rootPath": "/Users/sample/code/chat"
+  },
+  "tasks": [
+    {
+      "id": "task-message-sender",
+      "title": "Fix flaky login test",
+      "status": "Merged PR #48; pushed PR #51 for the retry timeout",
+      "state": "done",
+      "minutesAgo": 9
+    },
+    {
+      "title": "Port the chat cases to the new runner",
+      "objective": "Move the chat test cases over to the new scripted runner, keeping their names and coverage.",
+      "status": "Rebased the login-dependent cases on PR #48 before finishing the remaining suites.",
+      "activity": "working",
+      "minutesAgo": 2,
+      "startedMinutesAgo": 80,
+      "selected": true,
+      "contextUsedTokens": 76000,
+      "contextWindowTokens": 200000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Hold off on the login-dependent chat cases until the flaky login fix lands; port the rest first.",
+          "turn": 1,
+          "minutesAgo": 48
+        },
+        {
+          "role": "agent",
+          "body": "Ported 11 of 18 cases so far. Holding the 7 that exercise login until the race is fixed.",
+          "turn": 1,
+          "minutesAgo": 20,
+          "summary": { "durationMs": 1680000, "filesChanged": 9, "linesAdded": 340, "linesRemoved": 120 }
+        },
+        {
+          "role": "user",
+          "body": "The login race is fixed in PR #48; your chat cases can rebase on it.",
+          "turn": 2,
+          "minutesAgo": 15,
+          "source": "task",
+          "senderTaskId": "task-message-sender"
+        },
+        {
+          "role": "agent",
+          "body": "Thanks — rebasing the 7 login-dependent cases on PR #48 now.",
+          "turn": 2,
+          "minutesAgo": 14,
+          "summary": { "durationMs": 300000, "filesChanged": 4, "linesAdded": 60, "linesRemoved": 30 }
+        },
+        {
+          "role": "user",
+          "body": "Pushed a follow-up fix for the retry timeout too, in PR #51.",
+          "turn": 3,
+          "minutesAgo": 8,
+          "source": "task",
+          "senderTaskId": "task-message-sender"
+        },
+        {
+          "role": "agent",
+          "body": "Saw it — the rebase picks that up as well. Two suites left after the login ones.",
+          "turn": 3,
+          "minutesAgo": 3,
+          "summary": { "durationMs": 420000, "filesChanged": 2, "linesAdded": 25, "linesRemoved": 10 }
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "narration",
+          "text": "Porting each case over one file at a time, running the suite after each.",
+          "turn": 1,
+          "minutesAgo": 47
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": { "file_path": "tests/chat/reply.test.ts" },
+          "output": "describe('reply rendering', () => {\n  it('shows the agent's reply once per turn', () => {\n    // 214 lines\n  })\n})",
+          "turn": 1,
+          "minutesAgo": 46
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": { "command": "npm test -- tests/chat" },
+          "output": "11 passed, 7 skipped (login-dependent), 82 passed in 12.4s",
+          "turn": 1,
+          "minutesAgo": 21
+        },
+        {
+          "kind": "narration",
+          "text": "The other task's message names its sender; rebasing the held cases on PR #48.",
+          "turn": 2,
+          "minutesAgo": 14
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": { "command": "git rebase main" },
+          "output": "Successfully rebased and updated refs/heads/710-task-messages.",
+          "turn": 2,
+          "minutesAgo": 13
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": { "command": "npm test -- tests/chat" },
+          "output": "18 passed in 14.1s",
+          "turn": 2,
+          "minutesAgo": 12
+        },
+        {
+          "kind": "narration",
+          "text": "PR #51's retry-timeout fix came in with the rebase; running the suite once more.",
+          "turn": 3,
+          "minutesAgo": 3
+        }
+      ]
+    }
+  ]
+}

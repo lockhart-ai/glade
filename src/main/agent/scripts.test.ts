@@ -95,6 +95,7 @@ import { UsageLevel, UsageLimitKind, type UsageSnapshot } from '../../shared/acc
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
 import { createMemoryLog } from '../logging/memory-sink'
 import type { Logger } from '../logging/logger'
+import { refusedTaskMessage } from '../tasks/task-messages'
 
 let database: TestDatabase
 let task: Task
@@ -125,7 +126,12 @@ function start(
   })
   const base = { db: database.db, emit }
   const questions = createQuestionBroker(base)
-  const context = { ...base, questions }
+  const context = {
+    ...base,
+    questions,
+    // No test here sends a task message; message_task's own tests override this.
+    deliverTaskMessage: () => refusedTaskMessage('not wired in this test'),
+  }
   runner = createAgentRunner({
     ...context,
     backend,

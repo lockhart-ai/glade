@@ -37,7 +37,18 @@ it('sends when the agent is idle, tagging the message with the given source', ()
 
   expect(deliverMessage(runner, 't', 'hi', MessageSource.Github)).toBe('sent')
 
-  expect(send).toHaveBeenCalledWith('t', 'hi', [], [], [], MessageSource.Github)
+  expect(send).toHaveBeenCalledWith('t', 'hi', [], [], [], MessageSource.Github, null)
+  expect(queue).not.toHaveBeenCalled()
+})
+
+it("carries the sending task's id with a task message (#710)", () => {
+  const send = vi.fn().mockReturnValue(sampleMessage)
+  const queue = vi.fn()
+  const runner = { send, queue } as unknown as Pick<AgentRunner, 'send' | 'queue'>
+
+  expect(deliverMessage(runner, 't', 'hi', MessageSource.Task, 'sender-1')).toBe('sent')
+
+  expect(send).toHaveBeenCalledWith('t', 'hi', [], [], [], MessageSource.Task, 'sender-1')
   expect(queue).not.toHaveBeenCalled()
 })
 
@@ -50,7 +61,7 @@ it('queues it instead when the runner refuses the send as busy', () => {
 
   expect(deliverMessage(runner, 't', 'hi', MessageSource.Github)).toBe('queued')
 
-  expect(queue).toHaveBeenCalledWith('t', 'hi', [], [], [], MessageSource.Github)
+  expect(queue).toHaveBeenCalledWith('t', 'hi', [], [], [], MessageSource.Github, null)
 })
 
 it('lets any other error through, queuing nothing', () => {

@@ -17,6 +17,7 @@ import { toolFingerprint, type ToolSignature } from './tool-fingerprint'
 import {
   FINAL_REPLY_LINE,
   GITHUB_LINK_WATCH_LINE,
+  TASK_MESSAGES_LINE,
   handoffSection,
   INSTRUCTION_UPDATES,
   LINK_ARTIFACTS_LINE,
@@ -85,6 +86,7 @@ describe('what a session is missing', () => {
         USAGE_NOTES_LINE,
         TODO_LINKS_LINE,
         GITHUB_LINK_WATCH_LINE,
+        TASK_MESSAGES_LINE,
       ],
     }
 
@@ -108,6 +110,7 @@ describe('what a session is missing', () => {
           USAGE_NOTES_LINE,
           TODO_LINKS_LINE,
           GITHUB_LINK_WATCH_LINE,
+          TASK_MESSAGES_LINE,
         ],
       },
       TODO_HUB,
@@ -124,6 +127,7 @@ describe('what a session is missing', () => {
           USAGE_NOTES_LINE,
           TODO_LINKS_LINE,
           GITHUB_LINK_WATCH_LINE,
+          TASK_MESSAGES_LINE,
         ],
       },
     ])
@@ -138,6 +142,7 @@ describe('what a session is missing', () => {
           USAGE_NOTES_LINE,
           TODO_LINKS_LINE,
           GITHUB_LINK_WATCH_LINE,
+          TASK_MESSAGES_LINE,
         ],
       },
     ])
@@ -227,6 +232,7 @@ describe('what a session is missing of the sandbox', () => {
           USAGE_NOTES_LINE,
           TODO_LINKS_LINE,
           GITHUB_LINK_WATCH_LINE,
+          TASK_MESSAGES_LINE,
         ],
       },
       sandbox,
@@ -245,6 +251,7 @@ describe('what a session is missing of the sandbox', () => {
           USAGE_NOTES_LINE,
           TODO_LINKS_LINE,
           GITHUB_LINK_WATCH_LINE,
+          TASK_MESSAGES_LINE,
         ],
       },
       sandbox,
@@ -321,6 +328,7 @@ describe('what a session is missing of the todo hub', () => {
           USAGE_NOTES_LINE,
           TODO_LINKS_LINE,
           GITHUB_LINK_WATCH_LINE,
+          TASK_MESSAGES_LINE,
         ],
       },
       todoHub,
@@ -338,6 +346,7 @@ describe('what a session is missing of the todo hub', () => {
           USAGE_NOTES_LINE,
           TODO_LINKS_LINE,
           GITHUB_LINK_WATCH_LINE,
+          TASK_MESSAGES_LINE,
         ],
       },
       { kind: MissingContextKind.Sandbox },

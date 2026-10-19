@@ -163,6 +163,7 @@ describe('pollGithubWatches', () => {
       [],
       [],
       'github',
+      null,
     )
   })
 
@@ -197,6 +198,7 @@ describe('pollGithubWatches', () => {
       [],
       [],
       'github',
+      null,
     )
   })
 

@@ -18,6 +18,7 @@ import {
   type PermissionRequest,
   type QuestionSet,
   type ToolEvent,
+  type Task,
 } from '../../shared/domain'
 import { samplePermissionRequest, sampleQuestionSet, sampleTask } from '../store/test-bridge'
 import {
@@ -35,6 +36,7 @@ import {
   REOPENED_LABEL,
   restartLabel,
   summaryLine,
+  taskMessageTitle,
   type ChatEntry,
   toolCallLabel,
   toolCallsByTurn,
@@ -277,6 +279,16 @@ describe('chatEntries', () => {
         message('reply-2', MessageRole.Agent, 2),
       ]
       expect(kinds(chatEntries(task, turn, []))).toEqual(['ask', 'b1', 'reply-2'])
+    })
+
+    it('keeps a message another task sent, as a user entry of its own (#710)', () => {
+      const fromTask = (id: string, turn: number): Message => ({
+        ...message(id, MessageRole.User, turn),
+        source: MessageSource.Task,
+        senderTaskId: 't2',
+      })
+      const turn = [message('ask', MessageRole.User, 1), fromTask('tm1', 2), message('reply-2', MessageRole.Agent, 2)]
+      expect(kinds(chatEntries(task, turn, []))).toEqual(['ask', 'tm1', 'reply-2'])
     })
 
     it("still places its turn's divider by it, even though the message that opened the turn is itself hidden", () => {
@@ -661,5 +673,23 @@ describe('labels', () => {
   it('shows 24-hour local time', () => {
     expect(clockTime(new Date(2026, 8, 23, 9, 5).getTime())).toBe('09:05')
     expect(clockTime(new Date(2026, 8, 23, 14, 42).getTime())).toBe('14:42')
+  })
+})
+
+describe("naming a message's sending task (#710)", () => {
+  const tasks: Record<string, Task> = {
+    t1: sampleTask('t1', 'w1'),
+    t2: { ...sampleTask('t2', 'w1'), title: 'Fix the flaky login test' },
+  }
+
+  it("gives the sending task's title", () => {
+    expect(taskMessageTitle(tasks, 't2')).toBe('Fix the flaky login test')
+  })
+
+  it('says "Task" for a task with no title, one that has been deleted, and no sender at all', () => {
+    expect(taskMessageTitle(tasks, 't1')).toBe('Add rate limiting')
+    expect(taskMessageTitle({ ...tasks, t1: { ...sampleTask('t1', 'w1'), title: '' } }, 't1')).toBe('Task')
+    expect(taskMessageTitle(tasks, 'gone')).toBe('Task')
+    expect(taskMessageTitle(tasks, null)).toBe('Task')
   })
 })

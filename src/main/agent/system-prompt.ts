@@ -154,6 +154,19 @@ export const USAGE_NOTES_LINE =
   'spend).'
 
 /**
+ * What the prompt says of tasks messaging each other (#710): that `message_task` exists, who a task may message, how
+ * a message from another task names its sender, and to keep the exchanges few. Added after sessions had started, so
+ * every session is sent it once (`./session-context`).
+ */
+export const TASK_MESSAGES_LINE =
+  `Glade tasks can message each other: call ${GladeTool.MessageTask} with another Active task's id (from ` +
+  `${GladeTool.ListOtherTasks}; tasks in your own workspace only) and the message in Markdown. A message from ` +
+  'another task names its sender and how to answer it; reply with ' +
+  `${GladeTool.MessageTask} to that id when you should. Keep the exchange to what the other task needs, not a ` +
+  'running commentary — Glade limits how often one task may message another — and ask the user with ' +
+  `${GladeTool.Ask} when the user is the one to decide.`
+
+/**
  * The instructions added to the prompt after sessions had started with it, oldest first. Claude Code keeps a session's
  * prompt when it resumes it, so a session that started before one was added is sent it once, ahead of its next message
  * (`./session-context`). Only ever append: a session's place in this list is saved as a count. `SANDBOX_LINE` (for
@@ -168,6 +181,7 @@ export const INSTRUCTION_UPDATES: readonly string[] = [
   USAGE_NOTES_LINE,
   TODO_LINKS_LINE,
   GITHUB_LINK_WATCH_LINE,
+  TASK_MESSAGES_LINE,
 ]
 
 /** The heading the handoff note goes under in the prompt. */
@@ -266,6 +280,8 @@ export function systemPromptAppend(
     LINK_ARTIFACTS_LINE,
     '',
     OTHER_TASKS_LINE,
+    '',
+    TASK_MESSAGES_LINE,
     '',
     WATCHERS_LINE,
     '',

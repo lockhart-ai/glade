@@ -9,6 +9,7 @@ import {
   GITHUB_LINK_WATCH_LINE,
   INSTRUCTION_UPDATES,
   OTHER_TASKS_LINE,
+  TASK_MESSAGES_LINE,
   TODO_LINKS_LINE,
   TODO_TOOLS_LINE,
   USAGE_NOTES_LINE,
@@ -207,12 +208,19 @@ describe('a database from before the phase (pre-0059), migrated', () => {
       sandbox: false,
       todoHub: false,
     })
-    // Its session is also owed the five instructions added since this migration (#578, #609, #688, #684, #682):
+    // Its session is also owed the six instructions added since this migration (#578, #609, #688, #684, #682, #710):
     // nothing recorded has any of them.
     expect(missingContext({ recorded, startedElsewhere: false, handoff: null, prompt: '', sandboxed: false })).toEqual([
       {
         kind: MissingContextKind.Updates,
-        updates: [OTHER_TASKS_LINE, TODO_TOOLS_LINE, USAGE_NOTES_LINE, TODO_LINKS_LINE, GITHUB_LINK_WATCH_LINE],
+        updates: [
+          OTHER_TASKS_LINE,
+          TODO_TOOLS_LINE,
+          USAGE_NOTES_LINE,
+          TODO_LINKS_LINE,
+          GITHUB_LINK_WATCH_LINE,
+          TASK_MESSAGES_LINE,
+        ],
       },
       { kind: MissingContextKind.TodoHub },
     ])

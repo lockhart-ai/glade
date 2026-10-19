@@ -42,6 +42,7 @@ describe('appendQueuedMessage', () => {
       pastedBlocks: [],
       files: [],
       source: null,
+      senderTaskId: null,
     })
     const second = queue('When the copy finishes, tell me how many files failed.')
     expect(listQueuedMessages(test.db, task.id)).toEqual([first, second])
@@ -152,6 +153,7 @@ describe('takeQueuedMessages', () => {
       pastedBlocks: [],
       files: [],
       source: null,
+      senderTaskId: null,
       seq: expect.any(Number) as unknown,
     })
     expect(delivered).toEqual([expected('One'), expected('Two')])
@@ -202,15 +204,23 @@ describe('queued sources', () => {
       body: 'PR #1 closed',
       source: MessageSource.Github,
     })
-    queue('Three')
+    const fromTask = appendQueuedMessage(test.db, {
+      taskId: task.id,
+      body: 'The login race is fixed in PR #48.',
+      source: MessageSource.Task,
+      senderTaskId: 'sender-1',
+    })
+    queue('Four')
 
     const delivered = takeQueuedMessages(test.db, task.id, 2)
 
-    expect(delivered.map(({ body, source }) => [body, source])).toEqual([
-      ['One', null],
-      ['PR #1 closed', MessageSource.Github],
-      ['Three', null],
+    expect(delivered.map(({ body, source, senderTaskId }) => [body, source, senderTaskId])).toEqual([
+      ['One', null, null],
+      ['PR #1 closed', MessageSource.Github, null],
+      ['The login race is fixed in PR #48.', MessageSource.Task, 'sender-1'],
+      ['Four', null, null],
     ])
+    expect(fromTask.senderTaskId).toBe('sender-1')
     expect(listMessages(test.db, task.id)).toEqual(delivered)
   })
 

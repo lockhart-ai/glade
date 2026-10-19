@@ -29,15 +29,17 @@ export interface NewMessage {
   readonly pastedBlocks?: readonly PastedBlock[] | undefined
   /** The files attached to your message, already copied into the workspace, in order; none unless given. */
   readonly files?: readonly AttachedFile[] | undefined
-  /** Where it came from (Broadcast, one of Glade's own watchers); none unless given, for a message of your own. */
+  /** Where it came from (Broadcast, one of Glade's own watchers, another task); none unless given, for a message of your own. */
   readonly source?: MessageSource | null | undefined
+  /** The id of the task that sent it, set only with `source: Task` (#710); none for any other message. */
+  readonly senderTaskId?: string | null | undefined
 }
 
 const MESSAGE_ROLES = Object.values(MessageRole)
 const MESSAGE_SOURCES = Object.values(MessageSource)
 
 const COLUMNS =
-  'id, task_id, role, body, turn, created_at, duration_ms, files_changed, lines_added, lines_removed, source, seq'
+  'id, task_id, role, body, turn, created_at, duration_ms, files_changed, lines_added, lines_removed, source, sender_task_id, seq'
 
 /** A reply's summary, which it has exactly when `files_changed` is set. */
 function parseSummary(row: Row): TurnSummary | null {
@@ -72,18 +74,27 @@ function parseMessage(
     pastedBlocks: pastedBlocks.get(id) ?? [],
     files: files.get(id) ?? [],
     source: row.nullableOneOf('source', MESSAGE_SOURCES),
+    senderTaskId: row.nullableText('sender_task_id'),
   }
 }
 
 /** Appends a message to the end of its task's chat log, with its images, pasted blocks and attached files. */
 export function appendMessage(db: Database, input: NewMessage, now: EpochMs = Date.now()): Message {
-  const { summary = null, images = [], pastedBlocks = [], files = [], source = null, ...fields } = input
+  const {
+    summary = null,
+    images = [],
+    pastedBlocks = [],
+    files = [],
+    source = null,
+    senderTaskId = null,
+    ...fields
+  } = input
   const id = randomUUID()
   const appended = db
     .prepare(
       `INSERT INTO messages (${COLUMNS})
     VALUES (@id, @taskId, @role, @body, @turn, @createdAt, @durationMs, @filesChanged, @linesAdded, @linesRemoved,
-      @source, (SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE task_id = @taskId))
+      @source, @senderTaskId, (SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE task_id = @taskId))
     RETURNING seq`,
     )
     .get({
@@ -95,6 +106,7 @@ export function appendMessage(db: Database, input: NewMessage, now: EpochMs = Da
       linesAdded: summary?.linesAdded ?? null,
       linesRemoved: summary?.linesRemoved ?? null,
       source,
+      senderTaskId: source === MessageSource.Task ? senderTaskId : null,
     })
   // The `seq` the log gave the message, which the row returns (`RETURNING seq` above).
   const seq = new Row('messages', appended).integer('seq')
@@ -118,6 +130,7 @@ export function appendMessage(db: Database, input: NewMessage, now: EpochMs = Da
     pastedBlocks: blocks,
     files: attached,
     source,
+    senderTaskId: source === MessageSource.Task ? senderTaskId : null,
     seq,
   }
 }
