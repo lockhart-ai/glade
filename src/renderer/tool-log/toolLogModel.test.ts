@@ -30,7 +30,7 @@ import {
   compactionResult,
   dividerLabel,
   dividerTime,
-  githubNoticeLines,
+  githubNoticeLinks,
   isParentEvent,
   lineCount,
   parentLogRows,
@@ -718,21 +718,38 @@ describe('an agent’s list with its watchers (#537)', () => {
   })
 })
 
-describe('a GitHub notice’s lines (#682, #715)', () => {
-  it('drops the header and each line’s leading dash', () => {
+describe('a GitHub notice’s links (#682, #715, #748)', () => {
+  it('cuts each line into its label and title, and what changed about it', () => {
     const body = [
       'GitHub:',
       '- PR #2537 Port the chat cases: CI failed (13/14); 2 new comments',
       '- Issue #7 Flaky login test: reopened',
     ].join('\n')
-    expect(githubNoticeLines(body)).toEqual([
-      'PR #2537 Port the chat cases: CI failed (13/14); 2 new comments',
-      'Issue #7 Flaky login test: reopened',
+    expect(githubNoticeLinks(body)).toEqual([
+      { detail: 'PR #2537 Port the chat cases', change: 'CI failed (13/14); 2 new comments' },
+      { detail: 'Issue #7 Flaky login test', change: 'reopened' },
     ])
   })
 
+  it('keeps a colon in the title, cutting where the change begins', () => {
+    const body = 'GitHub:\n- PR #12 Fix the login crash: new review: changes requested'
+    expect(githubNoticeLinks(body)).toEqual([
+      { detail: 'PR #12 Fix the login crash', change: 'new review: changes requested' },
+    ])
+  })
+
+  it('falls back to the line’s last colon for a change it doesn’t know', () => {
+    const body = 'GitHub:\n- PR #12 Port the chat cases: rebuilt on Thursday'
+    expect(githubNoticeLinks(body)).toEqual([{ detail: 'PR #12 Port the chat cases', change: 'rebuilt on Thursday' }])
+  })
+
+  it('reads a line with no colon as all detail', () => {
+    const body = 'GitHub:\n- PR #12 Port the chat cases'
+    expect(githubNoticeLinks(body)).toEqual([{ detail: 'PR #12 Port the chat cases', change: '' }])
+  })
+
   it('is empty for a header with nothing after it', () => {
-    expect(githubNoticeLines('GitHub:')).toEqual([])
+    expect(githubNoticeLinks('GitHub:')).toEqual([])
   })
 })
 
