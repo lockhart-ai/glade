@@ -124,19 +124,24 @@ export interface SeedMessage {
   readonly minutesAgo: number
   /** An agent reply's turn summary; none unless given. */
   readonly summary?: TurnSummary | undefined
-  /** Where it came from (Broadcast, #489; one of Glade's own watchers, #682), so the chat tags it; none unless given. */
+  /** Where it came from (Broadcast, #489; one of Glade's own watchers, #682; another task, #710), so the chat marks it; none unless given. */
   readonly source?: MessageSource | undefined
+  /** The id of the task that sent it, set only with `source: "task"` (#710). */
+  readonly senderTaskId?: string | undefined
 }
 
 /**
  * A message waiting in a sample task's queue: just its text, or an object that also names where it came from (a
- * broadcast, #489; one of Glade's own watchers, #682), so the queue box tags or hides it as it would.
+ * broadcast, #489; one of Glade's own watchers, #682; another task, #710), so the queue box tags or hides it as it
+ * would.
  */
 export interface SeedQueuedMessage {
   /** Markdown. */
   readonly body: string
   /** Where it came from; none unless given, for a message of your own. */
   readonly source?: MessageSource | undefined
+  /** The id of the task that sent it, set only with `source: "task"` (#710). */
+  readonly senderTaskId?: string | undefined
 }
 
 /** A sample note from the agent in the tool log. */
@@ -776,12 +781,22 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
             minutesAgo,
             summary: seedSummarySchema.optional(),
             source: z.enum(MessageSource).optional(),
+            senderTaskId: z.string().optional(),
           }),
         )
         .optional(),
       toolEvents: z.array(seedToolEventSchema).optional(),
       queuedMessages: z
-        .array(z.union([z.string(), z.strictObject({ body: z.string(), source: z.enum(MessageSource).optional() })]))
+        .array(
+          z.union([
+            z.string(),
+            z.strictObject({
+              body: z.string(),
+              source: z.enum(MessageSource).optional(),
+              senderTaskId: z.string().optional(),
+            }),
+          ]),
+        )
         .optional(),
       error: seedErrorSchema.optional(),
       pause: seedPauseSchema.optional(),
@@ -1261,8 +1276,8 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       }
       if (sample.selected === true) setUiState(db, { key: UiStateKey.SelectedTaskId, value: task.id })
       const ago = (minutes: number): EpochMs => now - minutes * MINUTE
-      for (const { role, body, turn, summary, source, minutesAgo } of sample.messages ?? []) {
-        appendMessage(db, { taskId: task.id, role, body, turn, summary, source }, ago(minutesAgo))
+      for (const { role, body, turn, summary, source, senderTaskId, minutesAgo } of sample.messages ?? []) {
+        appendMessage(db, { taskId: task.id, role, body, turn, summary, source, senderTaskId }, ago(minutesAgo))
       }
       // The sample children filed under a todo in the hub, in the order the fixture has them.
       const filings: NewFiling[] = []
@@ -1281,8 +1296,9 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       carryOverTodos(db, task.id)
       refreshTodos(db, task.id)
       for (const queued of sample.queuedMessages ?? []) {
-        const { body, source } = typeof queued === 'string' ? { body: queued, source: undefined } : queued
-        appendQueuedMessage(db, { taskId: task.id, body, source }, now)
+        const { body, source, senderTaskId } =
+          typeof queued === 'string' ? { body: queued, source: undefined, senderTaskId: undefined } : queued
+        appendQueuedMessage(db, { taskId: task.id, body, source, senderTaskId }, now)
       }
       if (sample.openFiles !== undefined) {
         const { paths, activePath } = sample.openFiles

@@ -11,6 +11,7 @@ import {
   DividerKind,
   Effort,
   MessageRole,
+  MessageSource,
   PermissionMode,
   QuestionKind,
   QuestionReplyKind,
@@ -77,6 +78,7 @@ import {
 import {
   FINAL_REPLY_LINE,
   GITHUB_LINK_WATCH_LINE,
+  TASK_MESSAGES_LINE,
   HANDOFF_HEADING,
   handoffSection,
   INSTRUCTION_UPDATES,
@@ -3417,6 +3419,59 @@ describe('questions', () => {
   })
 })
 
+describe('a message from another task (#710)', () => {
+  /** The task sending it: another Active task in the workspace, with a title. */
+  function sender(): Task {
+    const made = sampleTask(database.db, workspace.id)
+    database.db.prepare('UPDATE tasks SET title = ? WHERE id = ?').run('Port the chat cases', made.id)
+    return made
+  }
+
+  /** Ends the running turn with a reply, and lets the runner handle it. */
+  async function reply(): Promise<void> {
+    backend.session.emit(sdk.init(), sdk.result('Rebased.'))
+    await settle()
+  }
+
+  it('hands the session the sender line ahead of the message, and stores the message without it', async () => {
+    const from = sender()
+
+    runner.send(task.id, 'The login race is fixed in PR #48.', [], [], [], MessageSource.Task, from.id)
+    await reply()
+
+    expect(backend.session.sent.at(-1)?.text).toBe(
+      `Message from Glade task "Port the chat cases" (${from.id}). Reply with message_task and that id if you should.\n\n` +
+        'The login race is fixed in PR #48.',
+    )
+    expect(listMessages(database.db, task.id).at(-2)).toMatchObject({
+      body: 'The login race is fixed in PR #48.',
+      source: MessageSource.Task,
+      senderTaskId: from.id,
+    })
+  })
+
+  it('queues it while the agent is busy, and hands it over with the sender line when delivered', async () => {
+    const from = sender()
+    await send('Start the rebasing.')
+    await reply()
+    backend.session.emit(sdk.init(), sdk.result('Starting.'))
+    await settle()
+
+    runner.queue(task.id, 'Follow-up: the retry timeout too.', [], [], [], MessageSource.Task, from.id)
+    await reply()
+
+    expect(backend.session.sent.at(-1)?.text).toBe(
+      `Message from Glade task "Port the chat cases" (${from.id}). Reply with message_task and that id if you should.\n\n` +
+        'Follow-up: the retry timeout too.',
+    )
+    expect(listMessages(database.db, task.id).at(-2)).toMatchObject({
+      body: 'Follow-up: the retry timeout too.',
+      source: MessageSource.Task,
+      senderTaskId: from.id,
+    })
+  })
+})
+
 describe("a task's handoff note", () => {
   const NOTE = '## Where it got to\n\nThe v2 handlers are live; `subscription.*` is next.'
 
@@ -3637,6 +3692,7 @@ describe('instructions added to the prompt since a session started', () => {
       USAGE_NOTES_LINE,
       TODO_LINKS_LINE,
       GITHUB_LINK_WATCH_LINE,
+      TASK_MESSAGES_LINE,
     ])
     for (const update of INSTRUCTION_UPDATES) expect(backend.session.options.systemPromptAppend).toContain(update)
     expect(sentTexts()).toEqual(['Why is the login test flaky?', 'And the logout test?'])

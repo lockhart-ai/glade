@@ -318,6 +318,32 @@ describe('the chat, with a long history', () => {
     expect(screen.getAllByRole('article', { name: 'You' })).toHaveLength(you)
   })
 
+  it('renders a message from another task once, as its own row (#710)', async () => {
+    const { fake } = await renderChat()
+    act(() => {
+      fake.emit({
+        type: EventType.MessageAppended,
+        message: {
+          ...message(TURNS + 1, MessageRole.User),
+          id: 'tm1',
+          body: 'The login race is fixed in PR #48.',
+          source: MessageSource.Task,
+          senderTaskId: 't2',
+        },
+      })
+    })
+    expect(renders(clockTime)).toBe(1)
+    expect(screen.getByRole('article', { name: 'Task message' })).toHaveTextContent(
+      'The login race is fixed in PR #48.',
+    )
+    // Nothing re-renders while nothing about it changes: its sender's title comes from the store, selected narrowly.
+    vi.mocked(clockTime).mockClear()
+    act(() => {
+      fake.emit({ type: EventType.QueueChanged, taskId: 't9', queuedMessages: [] })
+    })
+    expect(renders(clockTime)).toBe(0)
+  })
+
   it('renders only the reply whose turn gained a tool call when the tool log grows', async () => {
     const { fake } = await renderChat()
     // A note changes no entry.

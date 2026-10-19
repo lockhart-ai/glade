@@ -24,6 +24,7 @@ import type { AgentSessionOptions } from './backend'
 import { createGladeMcpServer, GLADE_SERVER, type GladeToolContext } from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
 import { sdkOptions } from './sdk-backend'
+import { refusedTaskMessage } from '../tasks/task-messages'
 
 const BASE_OPTIONS: AgentSessionOptions = {
   cwd: '/code/acme-api',
@@ -104,7 +105,12 @@ describe.each([
     task = sampleTask(database.db, sampleWorkspace(database.db).id)
     events = []
     const base = { db: database.db, emit: (event: GladeEvent) => events.push(event) }
-    context = { ...base, questions: createQuestionBroker(base) }
+    context = {
+      ...base,
+      questions: createQuestionBroker(base),
+      // No test here sends a task message; message_task's own tests override this.
+      deliverTaskMessage: () => refusedTaskMessage('not wired in this test'),
+    }
     caller = createMcpToolCaller({ [GLADE_SERVER]: createGladeMcpServer(context, task.id) })
   })
 

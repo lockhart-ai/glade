@@ -471,6 +471,7 @@ import {
 import { grantingGrant, heldGrants, type GrantingGrant } from '../sandbox/grants'
 import { createQuestionBroker, replyImages, toolResultFor, type QuestionBroker } from '../questions/questions'
 import { addQueuedMessage } from '../tasks/queue'
+import { senderTaskLine } from '../tasks/task-messages'
 import { noteAgentReply } from '../tasks/attention'
 import { reopenTask, updateTaskFromRunner, updateTaskFromUser, type TaskServiceContext } from '../tasks/service'
 import {
@@ -644,8 +645,8 @@ export interface AgentRunnerOptions {
 
 /**
  * A message you sent: its text, the images pasted into it, the text pasted into it, kept apart, the files attached
- * to it, already copied into the workspace, and where it came from (a broadcast, one of Glade's own watchers), null
- * for a message of your own.
+ * to it, already copied into the workspace, and where it came from (a broadcast, one of Glade's own watchers,
+ * another task's agent), null for a message of your own. `senderTaskId` is set only when `source` is `Task` (#710).
  */
 interface UserMessage {
   readonly text: string
@@ -653,6 +654,7 @@ interface UserMessage {
   readonly pastedBlocks: readonly PastedBlock[]
   readonly files: readonly AttachedFile[]
   readonly source: MessageSource | null
+  readonly senderTaskId: string | null
 }
 
 /** How `AgentRunner.applySandboxGrants` waits on the sessions it applies to. */
@@ -667,8 +669,9 @@ export interface AgentRunner {
   /**
    * Saves the user's message and starts a turn with it. A done task is reopened first (see the module comment). Throws
    * a `CommandFailure`: `not_found` for no such task, `busy` while a turn is running or the task is paused. With
-   * `source`, the message is saved as a broadcast or a watcher's note (#489, #682), and is `busy` too for a task
-   * waiting on answers to its questions, rather than answering them.
+   * `source`, the message is saved as a broadcast, a watcher's note (#489, #682) or a message from another task
+   * (#710, with `senderTaskId`), and is `busy` too for a task waiting on answers to its questions, rather than
+   * answering them.
    */
   send(
     taskId: string,
@@ -677,6 +680,7 @@ export interface AgentRunner {
     pastedBlocks?: readonly PastedBlock[],
     files?: readonly AttachedFile[],
     source?: MessageSource | null,
+    senderTaskId?: string | null,
   ): Message
   /**
    * Answers the task's open question set with the card's answers (see the module comment), once they're checked against
@@ -720,8 +724,8 @@ export interface AgentRunner {
    * Adds the user's message to the task's queue, for the agent to get after its current step (see the module comment).
    * When no turn is running, the queue is delivered at once, starting one, unless the task is paused, or waits on
    * requests or questions the app quit on: then it waits for the task to resume, or for you to decide or answer. With
-   * `source`, the message is queued as a broadcast or a watcher's note (#489, #682). Throws a `CommandFailure`
-   * `not_found` for no such task.
+   * `source`, the message is queued as a broadcast, a watcher's note (#489, #682) or a message from another task
+   * (#710, with `senderTaskId`). Throws a `CommandFailure` `not_found` for no such task.
    */
   queue(
     taskId: string,
@@ -730,6 +734,7 @@ export interface AgentRunner {
     pastedBlocks?: readonly PastedBlock[],
     files?: readonly AttachedFile[],
     source?: MessageSource | null,
+    senderTaskId?: string | null,
   ): QueuedMessage
   /**
    * Stops the task's running turn, and resolves with the task once the turn has ended: working again, on its next turn,
@@ -1811,7 +1816,19 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     ]
     // Each pasted block wrapped in its tags, at its token's place among the typed text (#363, `shared/pastedContent.ts`),
     // then a line with the path of each file attached to it (#396, `shared/attachedFiles.ts`).
-    const text = withAttachedFiles(agentText(message.body, message.pastedBlocks), message.files, root)
+    const base = agentText(message.body, message.pastedBlocks)
+    // A message from another task names its sender and how to answer (#710): composed here, never stored or shown.
+    let text: string
+    if (message.source === MessageSource.Task && message.senderTaskId != null) {
+      if (getTask(db, message.senderTaskId) === undefined) {
+        taskLog(message.taskId).warn('task message from a task that no longer exists', {
+          sender: message.senderTaskId,
+        })
+      }
+      text = withAttachedFiles(`${senderTaskLine(db, message.senderTaskId)}\n\n${base}`, message.files, root)
+    } else {
+      text = withAttachedFiles(base, message.files, root)
+    }
     give(live, withContext(block, text), uuid, images)
   }
 
@@ -3824,6 +3841,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
                 pastedBlocks: sent.pastedBlocks,
                 files: sent.files,
                 source: sent.source,
+                senderTaskId: sent.senderTaskId,
               }),
             ]),
       ]
@@ -4160,7 +4178,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         if (deferredPauses.delete(taskId)) onPauseDue(taskId)
       }
     },
-    send(taskId, text, images = [], pastedBlocks = [], files = [], source = null) {
+    send(taskId, text, images = [], pastedBlocks = [], files = [], source = null, senderTaskId = null) {
       if (switching.has(taskId)) throw new CommandFailure(BridgeErrorCode.Busy, 'The task is switching models')
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
@@ -4189,7 +4207,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The task is paused; queue the message instead')
       }
       // The message sent is the last of the turn's: any queued ones go before it.
-      const sent = { text, images, pastedBlocks, files, source }
+      const sent = { text, images, pastedBlocks, files, source, senderTaskId }
       const message = startTurn(task, sessions.get(taskId) ?? start(task), sent).at(-1)
       if (message === undefined) throw new Error(`The turn for task ${taskId} started without its message`)
       return message
@@ -4360,10 +4378,18 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       }
     },
 
-    queue(taskId, text, images = [], pastedBlocks = [], files = [], source = null) {
+    queue(taskId, text, images = [], pastedBlocks = [], files = [], source = null, senderTaskId = null) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
-      const queued = addQueuedMessage(context, { taskId, body: text, images, pastedBlocks, files, source })
+      const queued = addQueuedMessage(context, {
+        taskId,
+        body: text,
+        images,
+        pastedBlocks,
+        files,
+        source,
+        senderTaskId,
+      })
       // A paused task delivers its queue once it resumes, and one waiting on requests the app quit on once you decide.
       if (switching.has(taskId) || isPaused(task) || waitsOnRestartRequests(taskId)) return queued
       // So does one waiting on a question the app quit on (only a tagged message is queued then, #489, #682): its

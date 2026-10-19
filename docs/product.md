@@ -96,6 +96,19 @@ There are no follow-up tasks. One task can refer to another through its folder o
   while it waits in a queue; the tag is kept with the message, so it's there after a relaunch. Each agent answers in
   its own chat, and a task that answers needs you by the usual rule: nothing gathers the replies anywhere else.
   ![Broadcast, in a task](design/screens/45-broadcast-message.png)
+- **Task messages** (#710) — one task's agent messaging another, with the `message_task` tool (`docs/model-surface.md`),
+  for the coordination a broadcast can't do: "the login race is fixed in PR #48, your cases can rebase on it." A task
+  may message the other **Active** tasks in its **own workspace**, by id (as `list_other_tasks` gives it) — never a
+  done task, never itself, never a task in another workspace, and never through a subagent, whose Glade tools are
+  refused. Delivery is a broadcast's: an idle task starts a turn with the message, a busy one gets it in its queue.
+  The sender can be answered the same way, its id travelling with the message.
+  In the receiving task's chat the message sits on the left like the agent's replies, in its own dark bubble with a
+  small ⇄ chip above naming the sending task, and the task's title where "you" would be under it; in the queue box
+  it's named by its sender the way a broadcast is tagged.
+  A guard keeps two agents from keeping an exchange going on their own: at most 5 messages from one task to another
+  in a rolling hour, then the tool refuses until one ages out. There's no approval: the message sends like the task's
+  own status does. A task that answers needs you by the usual rule.
+  ![Task message](design/screens/66-task-message.png)
   The same viewer opens an image artifact's tile from the Todos tab, and the one file showing in the Files tab (#372):
   for an artifact, it also shows the artifact's title, just above the image's left edge (it appears with the image,
   once that has loaded, never before it: #478), and two actions, Open in Files and Reveal in Finder, and steps only

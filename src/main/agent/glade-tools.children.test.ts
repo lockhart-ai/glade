@@ -31,6 +31,7 @@ import {
 } from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
 import { TODO_HUB_TOOLS_LINE } from './system-prompt'
+import { refusedTaskMessage } from '../tasks/task-messages'
 
 let database: TestDatabase
 let db: Database
@@ -45,7 +46,12 @@ beforeEach(() => {
   task = sampleTask(db, sampleWorkspace(db).id)
   events = []
   const base = { db, emit: (event: GladeEvent) => events.push(event) }
-  context = { ...base, questions: createQuestionBroker(base) }
+  context = {
+    ...base,
+    questions: createQuestionBroker(base),
+    // No test here sends a task message; message_task's own tests override this.
+    deliverTaskMessage: () => refusedTaskMessage('not wired in this test'),
+  }
   caller = createMcpToolCaller({ [GLADE_SERVER]: createGladeMcpServer(context, task.id) })
 })
 

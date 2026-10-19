@@ -20,6 +20,9 @@
  * `list_other_tasks` (#578) answers from `./other-tasks`: it's the one tool besides `request_access` that a
  * subagent or a dispatched child may call too (`./sdk-backend`'s `subagentGladeToolGuard`), since they're the ones
  * most likely to pick up a pull request, an issue or a branch another task already has.
+ *
+ * `message_task` (#710) sends a message from the task's agent to another Active task in its own workspace
+ * (`../tasks/task-messages`): the main agent's server alone holds it, a dispatched child's doesn't.
  */
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
@@ -56,6 +59,12 @@ import { replyImages, toolResultFor, type QuestionBroker } from '../questions/qu
 import type { QuestionReply } from '../../shared/domain'
 import { preambleSchema, questionsSchema } from '../questions/schema'
 import { updateTaskFromAgent, type TaskServiceContext } from '../tasks/service'
+import {
+  TaskMessageOutcomeKind,
+  TASK_MESSAGE_MAX,
+  type TaskMessageInput,
+  type TaskMessageOutcome,
+} from '../tasks/task-messages'
 import {
   filedText,
   fileForAgent,
@@ -126,6 +135,7 @@ export enum GladeTool {
   ListChildren = 'list_children',
   FileChildren = 'file_children',
   ListOtherTasks = 'list_other_tasks',
+  MessageTask = 'message_task',
   CreateTodo = 'create_todo',
   UpdateTodo = 'update_todo',
   ListTodos = 'list_todos',
@@ -189,6 +199,12 @@ export interface FileChildrenInput {
 
 /** `list_other_tasks` takes no input (#578). */
 export type ListOtherTasksInput = Record<string, never>
+
+/** `message_task`'s input (#710): another task in the same workspace, by id, and what to tell it. */
+export interface MessageTaskInput {
+  readonly to: string
+  readonly message: string
+}
 
 /** `create_todo`'s input (#609). */
 export type CreateTodoInput = CreateTodoAgentInput
@@ -290,6 +306,13 @@ const fileChildrenInput = z.object({
 }) satisfies z.ZodType<FileChildrenInput>
 
 const listOtherTasksInput = z.object({}) satisfies z.ZodType<ListOtherTasksInput>
+
+const messageTaskInput = z.object({
+  to: text('to').describe("The receiving task's id, as list_other_tasks gives it."),
+  message: text('message')
+    .max(TASK_MESSAGE_MAX, `The message is too long: ${String(TASK_MESSAGE_MAX)} characters at most.`)
+    .describe('What to tell the task, in Markdown.'),
+}) satisfies z.ZodType<MessageTaskInput>
 
 /** `update_todo`'s `status`, in the built-ins' own words, plus Glade's own `waiting` (#609, #680). */
 const todoToolStatus = z.enum(['pending', 'in_progress', 'completed', 'waiting', 'deleted'])
@@ -444,12 +467,17 @@ export type RequestAccess = (taskId: string, request: AccessRequest, call: Acces
 
 /**
  * What the Glade tools need: the task service, the questions `ask` waits on, and, for `request_access`, whoever asks
- * you for a folder (the agent runner). Without it the session has no `request_access` tool.
+ * you for a folder (the agent runner). Without it the session has no `request_access` tool. `deliverTaskMessage`
+ * sends what `message_task` asks for (`../tasks/task-messages`), through the runner like a broadcast.
  */
 export interface GladeToolContext extends TaskServiceContext {
   readonly questions: QuestionBroker
   readonly requestAccess?: RequestAccess
+  readonly deliverTaskMessage: (fromTaskId: string, input: TaskMessageInput) => TaskMessageOutcomeReturn
 }
+
+/** What `deliverTaskMessage` answers: the outcome, or a promise of one (`message_task`'s handler is async). */
+export type TaskMessageOutcomeReturn = TaskMessageOutcome | Promise<TaskMessageOutcome>
 
 /** The handlers for one task, given input the SDK has already checked. */
 export interface GladeToolHandlers {
@@ -500,6 +528,11 @@ export interface GladeToolHandlers {
   updateTodo(input: UpdateTodoInput): GladeToolResult
   /** Every todo of the task, one line each, in order; never an error (#609). */
   listTodos(): GladeToolResult
+  /**
+   * Messages another Active task in the task's own workspace (#710); an error result, with nothing sent, when the
+   * call names an unknown task, itself, a done task, a task in another workspace, or trips the guard.
+   */
+  messageTask(input: MessageTaskInput): Promise<GladeToolResult>
 }
 
 export function createGladeToolHandlers(context: GladeToolContext, taskId: string): GladeToolHandlers {
@@ -638,6 +671,15 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
     listTodos() {
       return reply(listTodosForAgent(context.db, taskId))
     },
+    async messageTask(input) {
+      const outcome = await context.deliverTaskMessage(taskId, input)
+      if (outcome.kind === TaskMessageOutcomeKind.Refused) return { ...reply(outcome.reason), isError: true }
+      return reply(
+        outcome.delivery === 'sent'
+          ? 'Sent: the task starts its next turn with the message.'
+          : "Sent: the task's agent is busy, so the message waits at the end of its queue.",
+      )
+    },
   }
 }
 
@@ -704,6 +746,11 @@ export const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
     'no other task already has it among its links or in its Goal or Now; if one does, stop and ask the user instead ' +
     'of going on. Read-only: nothing about any task changes through it, and it never shows chat, tool output or ' +
     "files. Bounded to a cap of tasks and of each field's length; the reply says when something was cut.",
+  [GladeTool.MessageTask]:
+    "Send a message to another Active task in this task's workspace: give its id (as list_other_tasks gives it) " +
+    'and the message in Markdown. An idle task starts its next turn with the message; a busy one gets it in its ' +
+    'queue. The other task can answer you the same way, by your id. Keep it to what the other task needs — Glade ' +
+    'limits one task to a handful of messages to another in an hour. To reach the user, use ask, not this tool.',
   [GladeTool.CreateTodo]:
     "Add a todo to this task's list, not started. Give a short subject, and optionally a note: the line to show " +
     'under it, for where it stands or what you are doing now. Returns its id.',
@@ -733,6 +780,7 @@ const INPUT_SCHEMAS: Readonly<Record<GladeTool, z.ZodRawShape>> = {
   [GladeTool.ListChildren]: listChildrenInput.shape,
   [GladeTool.FileChildren]: fileChildrenInput.shape,
   [GladeTool.ListOtherTasks]: listOtherTasksInput.shape,
+  [GladeTool.MessageTask]: messageTaskInput.shape,
   [GladeTool.CreateTodo]: createTodoInput.shape,
   [GladeTool.UpdateTodo]: updateTodoInput.shape,
   [GladeTool.ListTodos]: listTodosInput.shape,
@@ -856,6 +904,9 @@ export function createGladeMcpServer(
       ),
       tool(GladeTool.ListOtherTasks, DESCRIPTIONS[GladeTool.ListOtherTasks], listOtherTasksInput.shape, () =>
         Promise.resolve(handlers.listOtherTasks()),
+      ),
+      tool(GladeTool.MessageTask, DESCRIPTIONS[GladeTool.MessageTask], messageTaskInput.shape, (input) =>
+        handlers.messageTask(input),
       ),
       tool(GladeTool.CreateTodo, DESCRIPTIONS[GladeTool.CreateTodo], createTodoInput.shape, (input) =>
         Promise.resolve(handlers.createTodo(input)),

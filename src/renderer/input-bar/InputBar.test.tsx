@@ -56,6 +56,8 @@ interface Setup {
   readonly broadcast?: readonly number[]
   /** Which of the queued messages, by their place from 0, were GitHub notes; none when left out. */
   readonly github?: readonly number[]
+  /** Which of the queued messages, by their place from 0, another task sent (#710); none when left out. */
+  readonly fromTask?: readonly number[]
   /** The models the pickers offer; the built-in ones when left out. */
   readonly models?: readonly ModelChoice[]
 }
@@ -119,6 +121,7 @@ async function renderBar({
   queued = [],
   broadcast = [],
   github = [],
+  fromTask = [],
   models,
 }: Setup = {}): Promise<Rendered> {
   const fake = fakeBridge(
@@ -139,7 +142,10 @@ async function renderBar({
           ? MessageSource.Github
           : broadcast.includes(index)
             ? MessageSource.Broadcast
-            : null,
+            : fromTask.includes(index)
+              ? MessageSource.Task
+              : null,
+        ...(fromTask.includes(index) ? { senderTaskId: 't2' } : {}),
       })),
       ...(models === undefined ? {} : { models }),
     },
@@ -1082,6 +1088,12 @@ describe('the queue', () => {
       '1Keep the filenames.',
       `2${SOURCE_TAG_LABELS[MessageSource.Broadcast]}Is anyone restarting Docker?`,
     ])
+  })
+
+  it('names a queued task message by the task that sent it, after its number (#710)', async () => {
+    await renderBar({ queued: ['Keep the filenames.', 'The login race is fixed in PR #48.'], fromTask: [1] })
+
+    expect(queueRows()).toEqual(['1Keep the filenames.', '2Fix flaky login testThe login race is fixed in PR #48.'])
   })
 
   it('leaves a queued GitHub note out, listing and counting only the messages it shows', async () => {

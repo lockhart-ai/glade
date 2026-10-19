@@ -34,6 +34,7 @@ import { hashLines } from './instruction-hash'
 import { COMPACT_COMMAND, createAgentRunner, type AgentRunner } from './runner'
 import { INSTRUCTION_UPDATES, TODO_HUB_LINES } from './system-prompt'
 import * as sdk from './test-sdk-messages'
+import { refusedTaskMessage } from '../tasks/task-messages'
 
 let database: TestDatabase
 let db: Database
@@ -122,7 +123,12 @@ function committing(commits: Readonly<Record<string, readonly [string, string]>>
 function launch(changes: ChangeTracker | null = quietTracker(), dataDir?: string): void {
   backend = new FakeAgentBackend()
   const base = { db, emit: (event: GladeEvent) => events.push(event) }
-  const context = { ...base, questions: createQuestionBroker(base) }
+  const context = {
+    ...base,
+    questions: createQuestionBroker(base),
+    // No test here sends a task message; message_task's own tests override this.
+    deliverTaskMessage: () => refusedTaskMessage('not wired in this test'),
+  }
   runner = createAgentRunner({
     ...context,
     backend,

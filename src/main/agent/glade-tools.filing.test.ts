@@ -31,6 +31,7 @@ import { ARTIFACT_NEEDS_TODO, NOTHING_ADDED } from '../todo-hub/filing'
 import { readTodoHub } from '../todo-hub/todo-hub'
 import { createGladeMcpServer, GLADE_SERVER, type GladeToolContext } from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller, type McpToolOutcome } from './mcp-tool-caller'
+import { refusedTaskMessage } from '../tasks/task-messages'
 
 const PR = 'https://github.com/acme/api/pull/412'
 const TODOS = 'Your todos: #1 Write the release notes (pending) · #2 Open the pull request (pending)'
@@ -50,7 +51,12 @@ beforeEach(() => {
   events = []
   clock = 1_000
   const base = { db, emit: (event: GladeEvent) => events.push(event) }
-  context = { ...base, questions: createQuestionBroker(base) }
+  context = {
+    ...base,
+    questions: createQuestionBroker(base),
+    // No test here sends a task message; message_task's own tests override this.
+    deliverTaskMessage: () => refusedTaskMessage('not wired in this test'),
+  }
   root = mkdtempSync(join(tmpdir(), 'glade-artifact-todo-'))
   mkdirSync(join(root, 'docs', 'releases'), { recursive: true })
   writeFileSync(join(root, 'docs', 'releases', '2.4.md'), '# Release notes 2.4\n')

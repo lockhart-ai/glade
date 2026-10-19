@@ -1,6 +1,7 @@
 import { faWrench } from '@fortawesome/free-solid-svg-icons'
 import { memo, useCallback, useMemo, useRef } from 'react'
 import {
+  MessageSource,
   PermissionRequestState,
   type Message,
   type PermissionRequest,
@@ -26,6 +27,7 @@ import {
   isStoppedByError,
   quoted,
   sameAgentEntry,
+  taskMessageTitle,
   toolCallLabel,
   workingLabel,
   workingNarration,
@@ -51,6 +53,7 @@ import { ImageThumbnails } from '../images/ImageThumbnails'
 import { MessageFiles } from '../attached-files/MessageFiles'
 import { LinkedText } from '../links'
 import { SourceTag } from './SourceTag'
+import { TaskMessageChip } from './TaskMessageChip'
 import { PastedBlockRow } from './PastedBlockRow'
 import { useSearchHighlight } from '../search/Highlight'
 import { useRevealMatch } from '../search/useRevealMatch'
@@ -101,6 +104,35 @@ const UserMessage = memo(function UserMessage({ message, highlight }: UserEntry 
         {/* A message that isn't your own words says where it came from (#489, #682). */}
         {message.source !== null && <SourceTag source={message.source} />}
         <span className={styles.meta}>you · {clockTime(message.createdAt)}</span>
+      </span>
+    </article>
+  )
+})
+
+/**
+ * A message another task's agent sent (#710): on the left like the agent's, in its own dark bubble, with the ⇄ chip
+ * naming the sending task above it and the task's title in place of "you" in the line under it
+ * (docs/design/html/66-task-message.html). It's a task's words, not yours, so it never reads as yours.
+ */
+const TaskMessage = memo(function TaskMessage({ message, highlight }: UserEntry & HighlightProps): React.JSX.Element {
+  const senderTitle = useGladeStore((state) => taskMessageTitle(state.tasks, message.senderTaskId ?? null))
+  const segments = messageSegments(message.body, message.pastedBlocks)
+  return (
+    <article aria-label="Task message" className={styles.task}>
+      <TaskMessageChip title={senderTitle} />
+      {message.body !== '' && (
+        <div className={classNames(styles.bubble, styles.taskBubble)}>
+          {segments.map((segment, index) =>
+            segment.kind === 'typed' ? (
+              <LinkedText key={index} text={segment.text} pattern={highlight} />
+            ) : (
+              <PastedBlockRow key={segment.block.id} block={segment.block} highlight={highlight} />
+            ),
+          )}
+        </div>
+      )}
+      <span className={styles.userMeta}>
+        <span className={styles.meta}>{`${senderTitle} · ${clockTime(message.createdAt)}`}</span>
       </span>
     </article>
   )
@@ -429,7 +461,11 @@ export function Chat(): React.JSX.Element {
         {entries.map((entry) => {
           switch (entry.kind) {
             case ChatEntryKind.User:
-              return <UserMessage key={entry.message.id} {...entry} highlight={highlight} />
+              return entry.message.source === MessageSource.Task ? (
+                <TaskMessage key={entry.message.id} {...entry} highlight={highlight} />
+              ) : (
+                <UserMessage key={entry.message.id} {...entry} highlight={highlight} />
+              )
             case ChatEntryKind.Restarted:
               return <RestartDivider key={entry.divider.id} {...entry} />
             case ChatEntryKind.MarkedDone:

@@ -31,6 +31,9 @@ can nest one level (header and right panel float inside the task card).
 | `live` | `#273049` | A live tile (P16): a watcher whose process runs, pinned under its agent's tool calls in the Agents tab (52) |
 | `live-border` | `#40568C` | The live tile's outline |
 | user bubble | `#22304D` | Your messages |
+| task bubble | `#1B222D` | A message another task's agent sent (#710) |
+| `task-bubble-border` | `#33415A` | Its border |
+| `task-accent` | `#93A8C6` | The ⇄ chip above it and the sending task's name |
 | question highlight | `#1E1B33` / `#3B3366` | Background / border of every agent reply (#410), and of the question card and the permission card (#538) |
 | `question-surface` | `#2E2748` | What sits inside a question or permission card: option tiles, pills, fields, command and diff blocks, code chips (#538). Nothing of a card's own is on `bg` |
 | `question-surface-border` | `#3B3366` | Their border |
@@ -68,6 +71,7 @@ quietly slip back:
 | `question-outline` on `question-border` | 3.2 |
 | `preview` on `inner` | 1.17 |
 | `preview-text` on `preview` | 11.69 |
+| `task-bubble-border` on `task-bubble` | 1.55 |
 
 `live` is the one surface that doesn't step up from what it sits on: a live tile is no lighter than the `inner-2` card
 around it, and stands off it by its blue and by its outline, which the last two rows hold.

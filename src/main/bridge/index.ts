@@ -63,6 +63,7 @@ import type { SpawnPty } from '../terminal/pty'
 import type { TerminalShell } from '../terminal/shell'
 import { createTerminals, type Terminals } from '../terminal/terminals'
 import { createBackgroundWorkWatch } from '../tasks/background-work'
+import { sendTaskMessage } from '../tasks/task-messages'
 import { refreshStaleTodos } from '../todos/todos'
 
 /** The part of Electron's `ipcMain` the bridge uses, so tests can stand in a fake. */
@@ -340,12 +341,15 @@ export function registerBridge({
     },
   })
   // What the Glade tools are built on, the main agent's and a dispatched child's alike: `request_access` asks through
-  // the runner, which knows the session's sandbox and applies the grant.
+  // the runner, which knows the session's sandbox and applies the grant, and `message_task` delivers through it like
+  // a broadcast (`../tasks/task-messages`).
   const gladeToolContext: GladeToolContext = {
     db,
     emit,
     questions,
     requestAccess: (taskId, request, call) => runner.requestAccess(taskId, request, call),
+    deliverTaskMessage: (fromTaskId, input) =>
+      sendTaskMessage({ db, runner, log: log.scoped(LogScope.Task) }, fromTaskId, input),
   }
   const runner = createAgentRunner({
     db,

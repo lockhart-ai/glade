@@ -23,6 +23,7 @@ import { createGladeAccessMcpServer, GLADE_SERVER } from './glade-tools'
 import { createQuestionBroker } from '../questions/questions'
 import { CONTROL_SERVER } from '../control/names'
 import * as sdk from './test-sdk-messages'
+import { refusedTaskMessage } from '../tasks/task-messages'
 
 const MODEL = 'claude-haiku-4-5'
 const INPUT = { model: MODEL, prompt: 'Check the sample file.', description: 'Check the file' }
@@ -454,7 +455,15 @@ it('gives a sandboxed child a glade server holding only request_access', async (
   const createMcpServers: NonNullable<AgentSessionOptions['createMcpServers']> = (request): AgentMcpServers => {
     if (request.audience !== McpServerAudience.DispatchedChild || !request.sandboxed) return {}
     return {
-      [GLADE_SERVER]: createGladeAccessMcpServer({ ...base, questions: createQuestionBroker(base) }, taskId, true),
+      [GLADE_SERVER]: createGladeAccessMcpServer(
+        {
+          ...base,
+          questions: createQuestionBroker(base),
+          deliverTaskMessage: () => refusedTaskMessage('not wired in this test'),
+        },
+        taskId,
+        true,
+      ),
     }
   }
   start({ flagSettings: { sandbox: { enabled: true } }, createMcpServers })

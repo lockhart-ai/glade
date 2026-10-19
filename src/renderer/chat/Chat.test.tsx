@@ -337,6 +337,46 @@ describe('Chat', () => {
     expect(conversation()).not.toHaveTextContent(SOURCE_TAG_LABELS[MessageSource.Github])
   })
 
+  it('shows a message from another task on the left, named by the task that sent it (#710)', async () => {
+    const sent: Message = {
+      ...ASK,
+      id: 'm5',
+      body: 'The login race is fixed in PR #48.',
+      turn: 2,
+      createdAt: REPLIED_AT + 60_000,
+      source: MessageSource.Task,
+      senderTaskId: 't2',
+    }
+    await renderChat({ messages: [ASK, REPLY, sent], others: [{ title: 'Fix the flaky login test' }] })
+
+    const bubble = screen.getByRole('article', { name: 'Task message' })
+    // The chip names the sending task above the bubble, and so does the line under it, in place of "you".
+    expect(bubble).toHaveTextContent('The login race is fixed in PR #48.')
+    expect(bubble).toHaveTextContent('Fix the flaky login test')
+    expect(bubble).toHaveTextContent(`Fix the flaky login test · ${clockTime(sent.createdAt)}`)
+    expect(bubble).not.toHaveTextContent('you ·')
+    // It's not tagged like a broadcast: its own name is the tag.
+    expect(bubble).not.toHaveTextContent(SOURCE_TAG_LABELS[MessageSource.Broadcast])
+    expect(within(bubble).queryByText(SOURCE_TAG_LABELS[MessageSource.Task])).not.toBeInTheDocument()
+  })
+
+  it('names a task message "Task" when its sending task is gone or never named', async () => {
+    const sent: Message = {
+      ...ASK,
+      id: 'm6',
+      body: 'The login race is fixed in PR #48.',
+      turn: 2,
+      createdAt: REPLIED_AT + 60_000,
+      source: MessageSource.Task,
+      senderTaskId: 't9',
+    }
+    await renderChat({ messages: [sent] })
+
+    expect(screen.getByRole('article', { name: 'Task message' })).toHaveTextContent(
+      `Task · ${clockTime(sent.createdAt)}`,
+    )
+  })
+
   it('shows your message on the right and the agent’s reply as Markdown, each with its time', async () => {
     await renderChat({ messages: [ASK, REPLY], toolEvents: TURN_ONE })
 

@@ -1,9 +1,12 @@
 import { faCheck, faPen, faXmark } from '@fortawesome/free-solid-svg-icons'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import type { QueuedMessage } from '../../shared/domain'
+import { MessageSource, type QueuedMessage } from '../../shared/domain'
 import { Button, ButtonVariant, Textarea } from '../components'
 import { ContextMenu, queuedMessageMenu, useContextMenu, type ContextMenuTargetProps } from '../context-menus'
 import { SourceTag } from '../chat/SourceTag'
+import { TaskMessageChip } from '../chat/TaskMessageChip'
+import { taskMessageTitle } from '../chat/chatModel'
+import { useGladeStore } from '../store/react'
 import { ImageThumbnails } from '../images/ImageThumbnails'
 import { QueuedFileChip } from '../attached-files/FileChip'
 import { LinkedText } from '../links'
@@ -81,10 +84,16 @@ interface QueueRowProps extends Omit<QueueListProps, 'messages' | 'working' | 'p
 
 function QueueRow({ message, position, menuTarget, editingId, onEdit, onSave, onCancel, onRemove }: QueueRowProps) {
   const editing = editingId === message.id
+  // A message another task's agent sent (#710) is named by its sender, like a broadcast is by its tag.
+  const senderTitle = useGladeStore((state) => taskMessageTitle(state.tasks, message.senderTaskId ?? null))
   return (
     <li className={styles.row} {...(editing ? {} : menuTarget)}>
       <span className={styles.position}>{position}</span>
-      {message.source !== null && <SourceTag source={message.source} />}
+      {message.source === MessageSource.Task ? (
+        <TaskMessageChip title={senderTitle} />
+      ) : (
+        message.source !== null && <SourceTag source={message.source} />
+      )}
       <ImageThumbnails images={message.images} className={styles.thumbnail} />
       {message.files.map((file) => (
         <QueuedFileChip key={file.path} file={file} />

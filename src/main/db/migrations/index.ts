@@ -17,6 +17,7 @@ import { githubLinkWatchesMigration } from './0079-github-link-watches'
 import { messageSourceMigration } from './0080-message-source'
 import { instructionUpdateHashMigration } from './0081-instruction-update-hash'
 import { sessionToolFingerprintsMigration } from './0082-session-tool-fingerprints'
+import { taskMessageSourceMigration } from './0083-task-message-source'
 import { schemaVersionMigration } from './0001-schema-version'
 import { coreTablesMigration } from './0002-core-tables'
 import { taskActivityMigration } from './0003-task-activity'
@@ -164,6 +165,7 @@ export const MIGRATIONS: readonly Migration[] = [
   messageSourceMigration,
   instructionUpdateHashMigration,
   sessionToolFingerprintsMigration,
+  taskMessageSourceMigration,
 ]
 
 /** The version a database is at once every migration has run: the last one's, which can skip versions still in flight. */

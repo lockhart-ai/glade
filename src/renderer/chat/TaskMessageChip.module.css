@@ -1,0 +1,18 @@
+/* The task message chip (#710), docs/design/html/66-task-message.html: the small ⇄ and the sending task's name,
+   above the message and in the line under it, in the task accent. */
+.chip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding-left: 2px;
+}
+
+.icon {
+  color: var(--color-task-accent);
+}
+
+.title {
+  font-size: var(--font-size-secondary-sm);
+  font-weight: 600;
+  color: var(--color-task-accent);
+}

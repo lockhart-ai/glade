@@ -203,6 +203,8 @@ const surfaceFloors: readonly ContrastFloor[] = [
   // #659: the Markdown preview's lifted dark reading surface, over the inner card it sits on.
   { foreground: '--color-preview', background: '--color-inner', minimum: 1.17 },
   { foreground: '--color-preview-text', background: '--color-preview', minimum: 11.69 },
+  // #710: a task message's bubble keeps its border off the bubble it sits on.
+  { foreground: '--color-task-bubble-border', background: '--color-task-bubble', minimum: 1.55 },
 ]
 
 /** `--color-inner-border` as tokens.md writes it, `inner-border`. */
@@ -254,6 +256,7 @@ describe('text contrast', () => {
     '--color-question-bg',
     '--color-question-surface',
     '--color-preview',
+    '--color-task-bubble',
   ]
 
   for (const text of textColors) {
@@ -295,5 +298,11 @@ describe('text contrast', () => {
   // #472, #480: the switcher's "needs you" pill and a workspace's badge both set purple text on purple-bg.
   it('purple on purple-bg meets 4.5:1', () => {
     expect(contrastRatio(colors['--color-purple'], colors['--color-purple-bg'])).toBeGreaterThanOrEqual(4.5)
+  })
+
+  // #710: the ⇄ chip and the sending task's name sit in the task accent, on the chat's background and on its bubble.
+  it('task-accent on bg and on task-bubble meets 4.5:1', () => {
+    expect(contrastRatio(colors['--color-task-accent'], colors['--color-bg'])).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(colors['--color-task-accent'], colors['--color-task-bubble'])).toBeGreaterThanOrEqual(4.5)
   })
 })
