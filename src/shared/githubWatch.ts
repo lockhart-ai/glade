@@ -26,8 +26,8 @@ export enum GithubChecksState {
 
 /**
  * What the GitHub link watcher last knew of one of a task's linked issues or PRs: everything it polls for, and
- * whether it's still watching (`watching` turns to 0 once the link's todo is done, or it closed or merged,
- * whichever first; the row stays, so the last state it saw keeps showing).
+ * whether it's still being polled (`watching` turns to 0 once the link closed or merged, whichever came first;
+ * the row stays, so the last state it saw keeps showing). A link whose todo is done keeps being polled (#738).
  */
 export interface GithubLinkWatch {
   readonly taskId: string

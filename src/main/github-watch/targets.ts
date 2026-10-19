@@ -1,8 +1,8 @@
 /**
  * Which of a task's link artifacts the GitHub link watcher polls (#682): every one that's a GitHub pull request or
  * issue (`recogniseLink`, no network needed to tell), across every active task, with the state last fetched for it
- * (if any) and whether its todo is done now — the poller stops a link whose todo is done the same poll it notices,
- * without fetching it again.
+ * (if any) and whether its todo is done now. The poller decides from the stored state which to fetch (#738): one
+ * never fetched or still open, whatever its todo says; a merged or closed one never again.
  */
 import type { Database } from 'better-sqlite3'
 import { ArtifactKind, TaskState, TodoState, type EpochMs } from '../../shared/domain'
@@ -16,13 +16,13 @@ import { getTodo } from '../db/repositories/glade-todos'
 import { listTaskIds } from '../db/repositories/tasks'
 import type { WatchTarget } from './query'
 
-/** One link worth considering this poll: what to ask GitHub, what was known of it before, and whether to ask at all. */
+/** One link worth considering this poll: what to ask GitHub, what was known of it before, and whether it may wake. */
 export interface WatchCandidate {
   readonly target: WatchTarget
   readonly previous: GithubLinkWatch | undefined
   /** When the link artifact was added to the task: a first fetch tells a merge or close after it from one before (#728). */
   readonly linkedAt: EpochMs
-  /** True when the link's filing has its todo marked done now: the poller stops it instead of asking GitHub. */
+  /** True when the link's filing has its todo marked done now: still fetched (#738), but its changes never wake the task. */
   readonly todoDone: boolean
 }
 
@@ -42,8 +42,8 @@ function todoIsDone(db: Database, taskId: string, url: string): boolean {
 
 /**
  * Every link worth considering across every active task: one entry per link artifact `recogniseLink` reads as a
- * GitHub pull request or issue, except one already stopped (`watching` false on its last fetch): that one's done,
- * for good, and is left out entirely.
+ * GitHub pull request or issue, whatever was last fetched for it — the poller decides from the stored state which
+ * to fetch and which to leave (#738).
  */
 export function watchCandidates(db: Database): WatchCandidate[] {
   const candidates: WatchCandidate[] = []
@@ -53,7 +53,6 @@ export function watchCandidates(db: Database): WatchCandidate[] {
       const recognised = recogniseLink(artifact.url)
       if (recognised.kind !== LinkKind.PullRequest && recognised.kind !== LinkKind.Issue) continue
       const previous = getGithubLinkWatch(db, taskId, artifact.url)
-      if (previous !== undefined && !previous.watching) continue
       const { owner, name } = splitRepo(recognised.repo)
       candidates.push({
         target: {
