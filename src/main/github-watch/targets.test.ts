@@ -86,26 +86,26 @@ describe('watchCandidates', () => {
     expect(watchCandidates(test.db)[0]?.previous).toEqual(watch)
   })
 
-  it('leaves out a link that has already stopped being watched', () => {
+  it('carries forward a watch row even when it says watching=false, for the poller to decide from its state (#738)', () => {
     addLinkArtifact(test.db, { taskId: task.id, url: PR_URL, title: '#412' })
-    putGithubLinkWatch(test.db, {
+    const watch = putGithubLinkWatch(test.db, {
       taskId: task.id,
       url: PR_URL,
       kind: GithubLinkKind.PullRequest,
-      state: GithubLinkState.Closed,
-      merged: true,
+      state: GithubLinkState.Open,
+      merged: false,
       draft: false,
       inMergeQueue: false,
-      checksState: GithubChecksState.Success,
-      checksSummary: '14/14',
-      reviewState: 'APPROVED',
-      commentCount: 1,
+      checksState: GithubChecksState.Pending,
+      checksSummary: null,
+      reviewState: null,
+      commentCount: 0,
       headOid: 'abc123',
       title: 'Port the chat cases',
       watching: false,
     })
 
-    expect(watchCandidates(test.db)).toEqual([])
+    expect(watchCandidates(test.db)).toEqual([expect.objectContaining({ previous: watch })])
   })
 
   it('says a link’s todo is done when its filing’s todo is marked done', () => {

@@ -5,7 +5,7 @@ import { ChildKind, FilingSource } from '../../shared/todoHub'
 import { TodoState } from '../../shared/domain'
 import { addLinkArtifact } from '../db/repositories/artifacts'
 import { putFilings } from '../db/repositories/child-filings'
-import { getGithubLinkWatch } from '../db/repositories/github-link-watches'
+import { getGithubLinkWatch, putGithubLinkWatch } from '../db/repositories/github-link-watches'
 import { putTodos } from '../db/repositories/glade-todos'
 import { updateSettings } from '../db/repositories/settings'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
@@ -232,9 +232,9 @@ describe('pollGithubWatches', () => {
     })
   })
 
-  it('stops a link whose todo is done, without asking GitHub about it, and stops asking about it from then on', async () => {
+  it('keeps polling a link whose todo is done, updating its watch and emitting, but never waking the task (#738)', async () => {
     addLinkArtifact(test.db, { taskId: task.id, url: PR_URL, title: '#412' })
-    const firstFetch = vi
+    const first = vi
       .fn()
       .mockImplementation((_t: string, targets: readonly WatchTarget[]) =>
         Promise.resolve({ outcome: 'fetched', fetched: fetched(targets) } satisfies GraphqlBatchResult),
@@ -244,19 +244,148 @@ describe('pollGithubWatches', () => {
       emit: vi.fn(),
       runner: runner(),
       tokenCache: tokenCache('ghs_token'),
-      fetchGraphql: firstFetch,
+      fetchGraphql: first,
     })
 
     putTodos(test.db, task.id, [{ id: '1', text: 'Review #412', note: null, state: TodoState.Done, completedAt: 1 }])
     putFilings(test.db, task.id, [{ kind: ChildKind.Link, key: PR_URL, todoId: '1', source: FilingSource.Named }])
-    const fetchGraphql = vi.fn()
+    const second = vi.fn().mockImplementation((_t: string, targets: readonly WatchTarget[]) =>
+      Promise.resolve({
+        outcome: 'fetched',
+        fetched: fetched(targets, { checksState: GithubChecksState.Failure, checksSummary: '13/14', commentCount: 2 }),
+      } satisfies GraphqlBatchResult),
+    )
+    const emit = vi.fn<Emit>()
+    const theRunner = runner()
+    const log = testLog()
+
+    await pollGithubWatches({
+      db: test.db,
+      emit,
+      runner: theRunner,
+      tokenCache: tokenCache('ghs_token'),
+      fetchGraphql: second,
+      log,
+    })
+
+    expect(second).toHaveBeenCalledOnce()
+    expect(getGithubLinkWatch(test.db, task.id, PR_URL)).toMatchObject({
+      checksState: GithubChecksState.Failure,
+      commentCount: 2,
+      watching: true,
+    })
+    expect(emit.mock.calls.at(-1)?.[0]).toMatchObject({
+      watch: { url: PR_URL, checksState: GithubChecksState.Failure },
+    })
+    expect(theRunner.send).not.toHaveBeenCalled()
+    expect(theRunner.queue).not.toHaveBeenCalled()
+    expect(log.info).toHaveBeenCalledWith(
+      'github watch refreshed links whose todo is done, without waking their tasks',
+      { count: 1 },
+    )
+  })
+
+  it('stops polling a link once its PR merged or its issue closed, whatever its todo says', async () => {
+    const prUrl = PR_URL
+    const issueUrl = 'https://github.com/acme/api/issues/7'
+    addLinkArtifact(test.db, { taskId: task.id, url: prUrl, title: '#412' })
+    addLinkArtifact(test.db, { taskId: task.id, url: issueUrl, title: '#7' })
+    putTodos(test.db, task.id, [{ id: '1', text: 'Review #412', note: null, state: TodoState.Done, completedAt: 1 }])
+    putFilings(test.db, task.id, [{ kind: ChildKind.Link, key: prUrl, todoId: '1', source: FilingSource.Named }])
+    const first = vi
+      .fn()
+      .mockImplementation((_t: string, targets: readonly WatchTarget[]) =>
+        Promise.resolve({ outcome: 'fetched', fetched: fetched(targets) } satisfies GraphqlBatchResult),
+      )
+    await pollGithubWatches({
+      db: test.db,
+      emit: vi.fn(),
+      runner: runner(),
+      tokenCache: tokenCache('ghs_token'),
+      fetchGraphql: first,
+    })
+
+    const second = vi.fn().mockImplementation((_t: string, targets: readonly WatchTarget[]) =>
+      Promise.resolve({
+        outcome: 'fetched',
+        fetched: new Map(
+          targets.map((target) => [
+            target,
+            {
+              ...fetched(targets).get(target),
+              state: GithubLinkState.Closed,
+              merged: target.kind === GithubLinkKind.PullRequest,
+            },
+          ]),
+        ),
+      } satisfies GraphqlBatchResult),
+    )
+    await pollGithubWatches({
+      db: test.db,
+      emit: vi.fn(),
+      runner: runner(),
+      tokenCache: tokenCache('ghs_token'),
+      fetchGraphql: second,
+    })
+
+    expect(getGithubLinkWatch(test.db, task.id, prUrl)).toMatchObject({
+      state: GithubLinkState.Closed,
+      merged: true,
+      watching: false,
+    })
+    expect(getGithubLinkWatch(test.db, task.id, issueUrl)).toMatchObject({
+      state: GithubLinkState.Closed,
+      watching: false,
+    })
+
+    const third = vi.fn()
+    await pollGithubWatches({
+      db: test.db,
+      emit: vi.fn(),
+      runner: runner(),
+      tokenCache: tokenCache('ghs_token'),
+      fetchGraphql: third,
+    })
+
+    expect(third).not.toHaveBeenCalled()
+  })
+
+  it('polls a link again whose watch row was left watching=false while still open (#738)', async () => {
+    addLinkArtifact(test.db, { taskId: task.id, url: PR_URL, title: '#412' })
+    putGithubLinkWatch(test.db, {
+      taskId: task.id,
+      url: PR_URL,
+      kind: GithubLinkKind.PullRequest,
+      state: GithubLinkState.Open,
+      merged: false,
+      draft: false,
+      inMergeQueue: false,
+      checksState: GithubChecksState.Pending,
+      checksSummary: null,
+      reviewState: null,
+      commentCount: 0,
+      headOid: 'abc123',
+      title: 'Port the chat cases',
+      watching: false,
+    })
+    const fetchGraphql = vi
+      .fn()
+      .mockImplementation((_t: string, targets: readonly WatchTarget[]) =>
+        Promise.resolve({ outcome: 'fetched', fetched: fetched(targets) } satisfies GraphqlBatchResult),
+      )
     const emit = vi.fn<Emit>()
 
-    await pollGithubWatches({ db: test.db, emit, runner: runner(), tokenCache: tokenCache('ghs_token'), fetchGraphql })
+    await pollGithubWatches({
+      db: test.db,
+      emit,
+      runner: runner(),
+      tokenCache: tokenCache('ghs_token'),
+      fetchGraphql,
+    })
 
-    expect(fetchGraphql).not.toHaveBeenCalled()
-    expect(getGithubLinkWatch(test.db, task.id, PR_URL)?.watching).toBe(false)
-    expect(emit.mock.calls.at(-1)?.[0]).toMatchObject({ watch: { watching: false } })
+    expect(fetchGraphql).toHaveBeenCalledOnce()
+    expect(getGithubLinkWatch(test.db, task.id, PR_URL)).toMatchObject({ watching: true })
+    expect(emit).toHaveBeenCalled()
   })
 
   it('falls back to REST when there is no token', async () => {

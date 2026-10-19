@@ -9,13 +9,14 @@ import type { Settings } from '../../shared/settings'
 import type { AgentRunner } from '../agent/runner'
 import type { Emit } from '../bridge/events'
 import { emitGithubWatchChanged } from '../bridge/events'
+import { GithubLinkState } from '../../shared/githubWatch'
 import { getSettings } from '../db/repositories/settings'
 import { putGithubLinkWatch } from '../db/repositories/github-link-watches'
 import { diffLinkState, stillWatching, type WatchWakeSettings } from './diff'
 import { fetchWatchBatch, type GraphqlBatchResult } from './graphql'
 import { fetchWatchBatchRest, type RestBatchResult } from './rest-fallback'
 import type { FetchedLinkState, WatchTarget } from './query'
-import { watchCandidates, type WatchCandidate } from './targets'
+import { watchCandidates } from './targets'
 import type { GithubTokenCache } from './token'
 import { linkChangeOf, wakeTasks, type LinkChange } from './wake'
 import type { Logger } from '../logging/logger'
@@ -56,15 +57,6 @@ function wakeSettingsOf(settings: Settings): WatchWakeSettings {
   }
 }
 
-/** Stops watching a link whose todo is done, without asking GitHub about it again. */
-function stopDoneLinks(db: Database, emit: Emit, candidates: readonly WatchCandidate[]): void {
-  for (const { previous, todoDone } of candidates) {
-    if (!todoDone || previous?.watching !== true) continue
-    const stopped = putGithubLinkWatch(db, { ...previous, watching: false })
-    emitGithubWatchChanged(emit, stopped)
-  }
-}
-
 /** Asks GitHub about every target, with a token if one can be read, falling back to the unauthenticated REST API. */
 async function fetchBatch(
   targets: readonly WatchTarget[],
@@ -93,10 +85,11 @@ async function fetchBatch(
 }
 
 /**
- * Runs one poll: stops any link whose todo just finished, asks GitHub about the rest, writes what it found, tells
- * the windows of each link that changed, and wakes every task one of its links changed for. Answers the number of
- * milliseconds `./watcher` should wait before the next poll: the configured interval, or a backoff's wait when
- * GitHub rate-limited this one.
+ * Runs one poll: asks GitHub about every live link — one never fetched, or still open in its stored state, whether
+ * or not its todo is done (#738) — writes what it found, tells the windows of each link that changed, and wakes
+ * every task one of its links changed for. A link whose todo is done keeps its state current but its changes never
+ * wake anyone; a merged or closed link is left alone from then on. Answers the number of milliseconds `./watcher`
+ * should wait before the next poll: the configured interval, or a backoff's wait when GitHub rate-limited this one.
  */
 export async function pollGithubWatches(options: PollOptions): Promise<number> {
   const { db, emit, runner, tokenCache } = options
@@ -106,9 +99,11 @@ export async function pollGithubWatches(options: PollOptions): Promise<number> {
   const settings = getSettings(db)
   const intervalMs = Math.max(settings.githubWatchPollSeconds, 1) * 1000
 
-  const candidates = watchCandidates(db)
-  stopDoneLinks(db, emit, candidates)
-  const toPoll = candidates.filter((candidate) => !candidate.todoDone)
+  // From the stored state, not the stored `watching` flag: rows the old stop rule left watching=false while still
+  // open (#738) are polled again, and a merged or closed link — whatever its flag says — stops being polled.
+  const toPoll = watchCandidates(db).filter(
+    (candidate) => candidate.previous === undefined || candidate.previous.state === GithubLinkState.Open,
+  )
   if (toPoll.length === 0) return intervalMs
 
   const { batch, source } = await fetchBatch(
@@ -131,7 +126,8 @@ export async function pollGithubWatches(options: PollOptions): Promise<number> {
 
   const wake = wakeSettingsOf(settings)
   const changes: LinkChange[] = []
-  for (const { target, previous, linkedAt } of toPoll) {
+  let quietRefreshes = 0
+  for (const { target, previous, linkedAt, todoDone } of toPoll) {
     const next: FetchedLinkState | undefined = batch.fetched.get(target)
     if (next === undefined) continue
     const watch = putGithubLinkWatch(db, {
@@ -151,8 +147,17 @@ export async function pollGithubWatches(options: PollOptions): Promise<number> {
       watching: stillWatching(next),
     })
     emitGithubWatchChanged(emit, watch)
+    if (todoDone) {
+      quietRefreshes++
+      continue
+    }
     const lines = diffLinkState(previous, next, wake, linkedAt)
     if (lines.length > 0) changes.push(linkChangeOf(watch, target.number, lines))
+  }
+  if (quietRefreshes > 0) {
+    options.log?.info('github watch refreshed links whose todo is done, without waking their tasks', {
+      count: quietRefreshes,
+    })
   }
   wakeTasks(runner, changes)
   return intervalMs
