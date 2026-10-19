@@ -126,7 +126,7 @@ export async function pollGithubWatches(options: PollOptions): Promise<number> {
 
   const wake = wakeSettingsOf(settings)
   const changes: LinkChange[] = []
-  let quietRefreshes = 0
+  let quietChanges = 0
   for (const { target, previous, linkedAt, todoDone } of toPoll) {
     const next: FetchedLinkState | undefined = batch.fetched.get(target)
     if (next === undefined) continue
@@ -148,15 +148,17 @@ export async function pollGithubWatches(options: PollOptions): Promise<number> {
     })
     emitGithubWatchChanged(emit, watch)
     if (todoDone) {
-      quietRefreshes++
+      // A done todo's link changes nothing for its task; the log says only that its state changed (#738), not every
+      // refresh that found it the same.
+      if (previous !== undefined && previous.state !== next.state) quietChanges++
       continue
     }
     const lines = diffLinkState(previous, next, wake, linkedAt)
     if (lines.length > 0) changes.push(linkChangeOf(watch, target.number, lines))
   }
-  if (quietRefreshes > 0) {
-    options.log?.info('github watch refreshed links whose todo is done, without waking their tasks', {
-      count: quietRefreshes,
+  if (quietChanges > 0) {
+    options.log?.info('github watch: links whose todo is done changed state, without waking their tasks', {
+      count: quietChanges,
     })
   }
   wakeTasks(runner, changes)

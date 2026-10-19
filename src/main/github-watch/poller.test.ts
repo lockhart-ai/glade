@@ -279,10 +279,33 @@ describe('pollGithubWatches', () => {
     })
     expect(theRunner.send).not.toHaveBeenCalled()
     expect(theRunner.queue).not.toHaveBeenCalled()
+    // Its checks and comments changed, not its state: the log says nothing of it (#738).
+    expect(log.info).not.toHaveBeenCalledWith(
+      'github watch: links whose todo is done changed state, without waking their tasks',
+      expect.anything(),
+    )
+
+    // Its state changes: that, and only that, is logged, and still nobody is woken.
+    const third = vi.fn().mockImplementation((_t: string, targets: readonly WatchTarget[]) =>
+      Promise.resolve({
+        outcome: 'fetched',
+        fetched: fetched(targets, { state: GithubLinkState.Closed, merged: true }),
+      } satisfies GraphqlBatchResult),
+    )
+    await pollGithubWatches({
+      db: test.db,
+      emit,
+      runner: theRunner,
+      tokenCache: tokenCache('ghs_token'),
+      fetchGraphql: third,
+      log,
+    })
     expect(log.info).toHaveBeenCalledWith(
-      'github watch refreshed links whose todo is done, without waking their tasks',
+      'github watch: links whose todo is done changed state, without waking their tasks',
       { count: 1 },
     )
+    expect(theRunner.send).not.toHaveBeenCalled()
+    expect(theRunner.queue).not.toHaveBeenCalled()
   })
 
   it('stops polling a link once its PR merged or its issue closed, whatever its todo says', async () => {
@@ -309,13 +332,11 @@ describe('pollGithubWatches', () => {
       Promise.resolve({
         outcome: 'fetched',
         fetched: new Map(
-          targets.map((target) => [
-            target,
-            {
-              ...fetched(targets).get(target),
+          targets.flatMap((target) => [
+            ...fetched([target], {
               state: GithubLinkState.Closed,
               merged: target.kind === GithubLinkKind.PullRequest,
-            },
+            }),
           ]),
         ),
       } satisfies GraphqlBatchResult),
