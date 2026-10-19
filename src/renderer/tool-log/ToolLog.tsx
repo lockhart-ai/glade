@@ -1,7 +1,6 @@
 import { faEye } from '@fortawesome/free-regular-svg-icons'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  MessageSource,
   ToolCallState,
   ToolEventKind,
   WatcherState,
@@ -11,12 +10,12 @@ import {
   type Watcher,
 } from '../../shared/domain'
 import { isSubagentTool } from '../../shared/subagents'
+import { TaskIndicator } from '../../shared/taskIndicator'
 import { agentCallResult, isRunning } from '../agents/agentsModel'
 import { endedLabel, endedOutputLine, endedSummary, endedTime } from '../agents/agentWatchersModel'
 import { useElapsedNow } from '../agents/useElapsedNow'
 import { clockTime } from '../chat/chatModel'
 import { InlineMarkdown } from '../chat/Markdown'
-import { SourceTag } from '../chat/SourceTag'
 import { useKeepScrollOnPrepend, useLoadOlderOnScroll } from '../history/useOlderHistory'
 import { useGladeStore, useGladeStoreApi } from '../store/react'
 import { visibleLog } from '../store/visibleLog'
@@ -37,7 +36,7 @@ import {
   COMPACTION_NAME,
   compactionArgument,
   compactionResult,
-  githubNoticeLines,
+  githubNoticeLinks,
   resultSummary,
   rowEvent,
   rowIndicator,
@@ -346,27 +345,32 @@ const Divider = memo(function Divider({ label, turnStart }: DividerRow & TurnSta
 })
 
 /**
- * A GitHub notice (the link watcher, #682), in Main's list at the time it arrived (#715): the GitHub mark where a
- * call's dot goes and its time, then one line per link that changed, parsed from the message (`githubNoticeLines`).
- * It's delivered to the agent as a message like any other; it just doesn't show in the chat as if it were your own
- * words.
+ * A GitHub notice (the link watcher, #682), in Main's list at the time it arrived (#715), laid out like a tool call
+ * (#748): the slate dot of something that arrived, `GitHub` where the tool's name goes, the link's `label title` as
+ * the argument, its time at the right and what changed under it, one row per link the notice is about (`githubNoticeLinks`)
+ * — what a call's rows are to its multi-line output. It isn't clickable: there's nothing under it to open. It's
+ * delivered to the agent as a message like any other; it just doesn't show in the chat as if it were your own words.
  */
 const GithubNotice = memo(function GithubNotice({ message }: Pick<GithubNoticeRow, 'message'>): React.JSX.Element {
-  const lines = useMemo(() => githubNoticeLines(message.body), [message.body])
+  const links = useMemo(() => githubNoticeLinks(message.body), [message.body])
   return (
-    <div className={styles.callGroup}>
-      <div role="group" aria-label="GitHub" className={classNames(styles.call, styles.notice)}>
-        <span className={styles.callLine}>
-          <SourceTag source={MessageSource.Github} />
-          <span className={styles.time}>{clockTime(message.createdAt)}</span>
-        </span>
-        {lines.map((line, index) => (
-          <span key={index} className={styles.noticeLine}>
-            <LinkedText text={line} />
-          </span>
-        ))}
-      </div>
-    </div>
+    <>
+      {links.map((link, index) => (
+        <div key={`${String(index)} ${link.detail}`} className={styles.callGroup}>
+          <div role="group" aria-label="GitHub" className={styles.call}>
+            <span className={styles.callLine}>
+              <Dot state={TaskIndicator.Done} label="GitHub notice" />
+              <span className={styles.name}>GitHub</span>
+              <span className={styles.argument} title={link.detail}>
+                {link.detail}
+              </span>
+              <span className={styles.time}>{clockTime(message.createdAt)}</span>
+            </span>
+            {link.change !== '' && <span className={styles.result}>{link.change}</span>}
+          </div>
+        </div>
+      ))}
+    </>
   )
 })
 

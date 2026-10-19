@@ -414,9 +414,9 @@ export interface EndedWatcherRow {
  * agent as a message like any other, but doesn't show in the chat (#715, `../chat/chatModel`'s `hiddenFromChat`) —
  * this is where it shows instead. Never on a subagent's tab: a notice is always for the task's own agent.
  *
- * Carries the message alone, not its parsed lines: the message is the stable thing (the same object for as long as
+ * Carries the message alone, not its parsed links: the message is the stable thing (the same object for as long as
  * it hasn't changed, which is always, once it's in the log), so a row made of it tells `GithubNotice`'s `memo`
- * whether to render again (#413); parsing its body (`githubNoticeLines`) is cheap and left to the row's own render.
+ * whether to render again (#413); parsing its body (`githubNoticeLinks`) is cheap and left to the row's own render.
  */
 export interface GithubNoticeRow {
   readonly kind: AgentLogRowKind.GithubNotice
@@ -426,15 +426,56 @@ export interface GithubNoticeRow {
 /** One row of an agent's list in the Agents tab: a row of the tool log, a watcher that has ended, or a GitHub notice. */
 export type AgentLogRow = ToolLogRow | EndedWatcherRow | GithubNoticeRow
 
+/** One link a GitHub notice is about: its `label title` line (the row's detail) and what changed about it. */
+export interface GithubNoticeLink {
+  readonly detail: string
+  readonly change: string
+}
+
 /**
- * A GitHub notice's lines, parsed from its message's body: `formatWakeMessage` (`../../main/github-watch/wake`) writes
+ * How a change begins, as `diffLinkState` (`../../main/github-watch/diff`) writes its clauses: the change after a
+ * link's `<label> <title>: ` is these joined with `; `. A title may hold a `: ` of its own and `new review:` holds one
+ * too, so the line splits at the first `: ` one of these follows; a clause `diff.ts` doesn't write falls back to the
+ * line's last `: `.
+ */
+const CHANGE_STARTS: readonly (string | RegExp)[] = [
+  'merged',
+  'closed',
+  'reopened',
+  'entered the merge queue',
+  'left the merge queue',
+  'CI passed',
+  'CI failed',
+  'new commits pushed',
+  'new review: ',
+  /^\d+ new comments?/,
+]
+
+function startsAChange(text: string): boolean {
+  return CHANGE_STARTS.some((start) => (typeof start === 'string' ? text.startsWith(start) : start.test(text)))
+}
+
+/** One link's line, cut into its `label title` and what changed about it. */
+function githubNoticeLink(line: string): GithubNoticeLink {
+  for (let cut = line.indexOf(': '); cut !== -1; cut = line.indexOf(': ', cut + 1)) {
+    const change = line.slice(cut + 2)
+    if (startsAChange(change)) return { detail: line.slice(0, cut), change }
+  }
+  const cut = line.lastIndexOf(': ')
+  if (cut === -1) return { detail: line, change: '' }
+  return { detail: line.slice(0, cut), change: line.slice(cut + 2) }
+}
+
+/**
+ * A GitHub notice's links, parsed from its message's body: `formatWakeMessage` (`../../main/github-watch/wake`) writes
  * it as `GitHub:` then one `- ` line per link that changed, which is the only shape this body ever has.
  */
-export function githubNoticeLines(body: string): readonly string[] {
+export function githubNoticeLinks(body: string): readonly GithubNoticeLink[] {
   return body
     .split('\n')
     .slice(1)
     .map((line) => line.replace(/^-\s*/, ''))
+    .map(githubNoticeLink)
 }
 
 /** When an agent's list row happened, for merging a watcher's and a notice's rows in among the tool log's by time. */
