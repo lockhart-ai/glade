@@ -89,9 +89,10 @@ import {
   TODO_TOOLS_LINE,
   USAGE_NOTES_LINE,
   TODO_LINKS_LINE,
+  externalIdLine,
 } from './system-prompt'
 import { updateSettings } from '../db/repositories/settings'
-import { setHandoff } from '../db/repositories/backfills'
+import { setExternalId, setHandoff } from '../db/repositories/backfills'
 import { getSessionContext, setSessionContext } from '../db/repositories/session-context'
 import * as sdk from './test-sdk-messages'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
@@ -3582,6 +3583,7 @@ describe("a task's handoff note", () => {
       instructionUpdates: INSTRUCTION_UPDATES.length,
       instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
       handoffAt: 1_000,
+      externalId: null,
       sandbox: false,
       todoHub: true,
     })
@@ -3654,6 +3656,7 @@ describe("a task's handoff note", () => {
       instructionUpdates: INSTRUCTION_UPDATES.length,
       instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
       handoffAt: 2_000,
+      externalId: null,
       sandbox: false,
       todoHub: true,
     })
@@ -3725,6 +3728,59 @@ describe("a task's handoff note", () => {
   })
 })
 
+describe("the task's external id (#751)", () => {
+  const ID = 'tasks/2026-10-16-example'
+
+  /** Ends the running turn with a reply, and lets the runner handle it. */
+  async function reply(text = 'Done.'): Promise<void> {
+    backend.session.emit(sdk.init(), sdk.result(text))
+    await settle()
+  }
+
+  /** What the session was sent, in order. */
+  function sentTexts(): string[] {
+    return backend.session.sent.map(({ text }) => text)
+  }
+
+  it('names it in the prompt of a session Glade starts, and nothing of one without it', async () => {
+    await send('Find out why the login test is flaky.')
+    await reply()
+    expect(backend.session.options.systemPromptAppend).not.toContain('external id')
+
+    // A fresh session for a task that has one: a second task, whose agent has never started.
+    const other = createTask(database.db, { workspaceId: workspace.id, model: 'opus', effort: Effort.High })
+    setExternalId(database.db, other.id, ID)
+    await glade.invoke(CommandName.TasksSend, { id: other.id, text: 'Find out why the login test is flaky.' })
+
+    expect(backend.session.options.systemPromptAppend).toContain(externalIdLine(ID))
+    expect(backend.session.options.systemPromptAppend).toContain(
+      systemPromptAppend(other, undefined, false, null, false, ID),
+    )
+    expect(getSessionContext(database.db, other.id)).toMatchObject({ externalId: ID })
+  })
+
+  it('is told the new value once, ahead of the next message, when it changes, and not again', async () => {
+    setExternalId(database.db, task.id, 'tasks/billing')
+    await send("Let's pick this up.")
+    await reply()
+    setExternalId(database.db, task.id, ID)
+
+    await send('Carry on.')
+
+    // The session is the one it started, so it keeps the prompt it started with: the new value goes ahead of the message once.
+    expect(backend.sessions).toHaveLength(1)
+    expect(sentTexts()).toEqual([
+      "Let's pick this up.",
+      `[Glade: this task's external id]\n${externalIdLine(ID)}\n[end]\n\nCarry on.`,
+    ])
+    expect(getSessionContext(database.db, task.id)).toMatchObject({ externalId: ID })
+
+    await reply()
+    await send('Anything else?')
+    expect(sentTexts().at(-1)).toBe('Anything else?')
+  })
+})
+
 describe('instructions added to the prompt since a session started', () => {
   const UPDATE = `[Glade: new instructions for this session]\n${INSTRUCTION_UPDATES.join('\n\n')}\n[end]`
 
@@ -3748,6 +3804,7 @@ describe('instructions added to the prompt since a session started', () => {
         instructionUpdates: 0,
         instructionUpdateHash: hashLines([]),
         handoffAt: null,
+        externalId: null,
         sandbox: false,
         todoHub: true,
       })
@@ -3775,6 +3832,7 @@ describe('instructions added to the prompt since a session started', () => {
       instructionUpdates: INSTRUCTION_UPDATES.length,
       instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
       handoffAt: null,
+      externalId: null,
       sandbox: false,
       todoHub: true,
     })
@@ -3809,6 +3867,7 @@ describe('instructions added to the prompt since a session started', () => {
         instructionUpdates: INSTRUCTION_UPDATES.length,
         instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
         handoffAt: null,
+        externalId: null,
         sandbox: false,
         todoHub: true,
       })
@@ -3863,6 +3922,7 @@ describe('instructions added to the prompt since a session started', () => {
       instructionUpdates: INSTRUCTION_UPDATES.length,
       instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
       handoffAt: 5_000,
+      externalId: null,
       sandbox: false,
       todoHub: true,
     })

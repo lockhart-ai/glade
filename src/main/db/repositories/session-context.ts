@@ -2,7 +2,8 @@
  * What a task's agent session has been given of what Glade tells it (`session_context`, and
  * `../../agent/session-context`): Glade's instructions, the ones added to them since (and a fingerprint of their
  * text, so a changed line is told apart from one merely new, #708), which version of the task's handoff note,
- * whether it knows it runs in the agent sandbox, and whether it knows Glade files what it makes under its todos.
+ * which external id it was told (#751), whether it knows it runs in the agent sandbox, and whether it knows Glade
+ * files what it makes under its todos.
  */
 import type { Database } from 'better-sqlite3'
 import type { EpochMs } from '../../../shared/domain'
@@ -26,6 +27,12 @@ export interface SessionContext {
   /** The version (`TaskHandoff.addedAt`) of the handoff note it has; null for none. */
   readonly handoffAt: EpochMs | null
   /**
+   * The task's external id it was told in its prompt or as a block (#751); null when it has been told none. A session
+   * Glade started with one in its prompt has that value here, so a later change to the task's external id is told
+   * once, ahead of its next message, and not again.
+   */
+  readonly externalId: string | null
+  /**
    * Whether it has been told it runs in the agent sandbox, and to ask with `request_access` (`SANDBOX_LINE`): it
    * started sandboxed, with that in its prompt, or was sent it when it resumed in the sandbox.
    */
@@ -41,7 +48,7 @@ export interface SessionContext {
 export function getSessionContext(db: Database, taskId: string): SessionContext | undefined {
   const raw: unknown = db
     .prepare(
-      `SELECT instructions, instruction_updates, instruction_update_hash, handoff_at, sandbox, todo_hub
+      `SELECT instructions, instruction_updates, instruction_update_hash, handoff_at, external_id, sandbox, todo_hub
       FROM session_context WHERE task_id = ?`,
     )
     .get(taskId)
@@ -52,6 +59,7 @@ export function getSessionContext(db: Database, taskId: string): SessionContext 
     instructionUpdates: row.integer('instruction_updates'),
     instructionUpdateHash: row.text('instruction_update_hash'),
     handoffAt: row.nullableInteger('handoff_at'),
+    externalId: row.nullableText('external_id'),
     sandbox: row.flag('sandbox'),
     todoHub: row.flag('todo_hub'),
   }
@@ -61,18 +69,20 @@ export function getSessionContext(db: Database, taskId: string): SessionContext 
 export function setSessionContext(db: Database, taskId: string, context: SessionContext): void {
   db.prepare(
     `INSERT INTO session_context
-      (task_id, instructions, instruction_updates, instruction_update_hash, handoff_at, sandbox, todo_hub)
-    VALUES (@taskId, @instructions, @instructionUpdates, @instructionUpdateHash, @handoffAt, @sandbox, @todoHub)
+      (task_id, instructions, instruction_updates, instruction_update_hash, handoff_at, external_id, sandbox, todo_hub)
+    VALUES (@taskId, @instructions, @instructionUpdates, @instructionUpdateHash, @handoffAt, @externalId, @sandbox,
+      @todoHub)
     ON CONFLICT (task_id) DO UPDATE SET instructions = excluded.instructions,
       instruction_updates = excluded.instruction_updates,
       instruction_update_hash = excluded.instruction_update_hash, handoff_at = excluded.handoff_at,
-      sandbox = excluded.sandbox, todo_hub = excluded.todo_hub`,
+      external_id = excluded.external_id, sandbox = excluded.sandbox, todo_hub = excluded.todo_hub`,
   ).run({
     taskId,
     instructions: context.instructions ? 1 : 0,
     instructionUpdates: context.instructionUpdates,
     instructionUpdateHash: context.instructionUpdateHash,
     handoffAt: context.handoffAt,
+    externalId: context.externalId,
     sandbox: context.sandbox ? 1 : 0,
     todoHub: context.todoHub ? 1 : 0,
   })

@@ -41,6 +41,7 @@ it('leaves every session recorded before it as not told of the sandbox, and keep
     instructionUpdates: 2,
     instructionUpdateHash: hashLines(INSTRUCTION_UPDATES.slice(0, 2)),
     handoffAt: 3,
+    externalId: null,
     sandbox: false,
     todoHub: false,
   })
@@ -49,6 +50,7 @@ it('leaves every session recorded before it as not told of the sandbox, and keep
     instructionUpdates: 0,
     instructionUpdateHash: hashLines([]),
     handoffAt: null,
+    externalId: null,
     sandbox: false,
     todoHub: false,
   })
@@ -58,6 +60,7 @@ it('leaves every session recorded before it as not told of the sandbox, and keep
     instructionUpdates: 2,
     instructionUpdateHash: hashLines(INSTRUCTION_UPDATES.slice(0, 2)),
     handoffAt: 3,
+    externalId: null,
     sandbox: true,
     todoHub: false,
   })
@@ -69,6 +72,7 @@ it('leaves every session recorded before it as not told of the sandbox, and keep
     instructionUpdates: 2,
     instructionUpdateHash: hashLines(INSTRUCTION_UPDATES.slice(0, 2)),
     handoffAt: 3,
+    externalId: null,
     sandbox: false,
     todoHub: false,
   })

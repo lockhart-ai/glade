@@ -1270,6 +1270,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
           instructionUpdates: INSTRUCTION_UPDATES.length,
           instructionUpdateHash: hashLines(INSTRUCTION_UPDATES),
           handoffAt: null,
+          externalId: null,
           sandbox: true,
           todoHub: true,
         })

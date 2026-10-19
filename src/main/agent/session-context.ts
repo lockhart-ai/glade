@@ -8,7 +8,8 @@
  * (`INSTRUCTION_UPDATES`), outside the agent sandbox it now runs in (`SANDBOX_LINE`, #452), without what the prompt
  * says of the todo hub (`TODO_HUB_LINES`, #495: a session from before the hub, or from while it was behind its
  * switch, #501), or from before the handoff note it has now, is sent what it's missing once, in blocks ahead of the
- * next message Glade sends it. The chat log keeps only the message.
+ * next message Glade sends it. The same goes for the task's external id (#751), set or changed since the session was
+ * told the one its prompt names. The chat log keeps only the message.
  *
  * What each task's session has been given is kept in SQLite (`../db/repositories/session-context`), so a relaunch
  * neither loses a block still to send nor sends one twice.
@@ -22,7 +23,7 @@
 import type { EpochMs, TaskHandoff } from '../../shared/domain'
 import type { SessionContext } from '../db/repositories/session-context'
 import { hashLines } from './instruction-hash'
-import { handoffSection, INSTRUCTION_UPDATES, SANDBOX_LINE, TODO_HUB_LINES } from './system-prompt'
+import { externalIdLine, handoffSection, INSTRUCTION_UPDATES, SANDBOX_LINE, TODO_HUB_LINES } from './system-prompt'
 import { toolFingerprints, type ToolSignature } from './tool-fingerprint'
 
 /**
@@ -56,6 +57,11 @@ export enum MissingContextKind {
   /** The task's handoff note: set or changed since the session started or was last sent it. */
   Handoff = 'handoff',
   /**
+   * The task's external id (#751): set or changed since the session was told the one its prompt names. A session whose
+   * task has none is never told of one, and one told a value keeps it until the task's external id differs.
+   */
+  ExternalId = 'external_id',
+  /**
    * One of Glade's own tools has changed since the session last saw it (#709): a resumed session can keep Claude
    * Code's own stale view of a tool's schema (see the PR for the spike on why), even though the call it names
    * reaches the live, current server. Unlike the others, this isn't about `SessionContext` (`../db/repositories
@@ -78,18 +84,25 @@ export type MissingContext =
   | { readonly kind: MissingContextKind.Sandbox }
   | { readonly kind: MissingContextKind.TodoHub }
   | { readonly kind: MissingContextKind.Handoff; readonly handoff: TaskHandoff }
+  | { readonly kind: MissingContextKind.ExternalId; readonly externalId: string }
   | { readonly kind: MissingContextKind.ToolChanges; readonly changes: readonly ToolChange[] }
 
 /**
  * What a session Glade starts has: everything its prompt says, which is all there is to say. That includes the
- * todo hub, and the sandbox only when it starts `sandboxed`: outside it, the prompt doesn't mention it.
+ * todo hub, the task's `externalId` when it has one, and the sandbox only when it starts `sandboxed`: outside it,
+ * the prompt doesn't mention it.
  */
-export function startedContext(handoff: TaskHandoff | null, sandboxed: boolean): SessionContext {
+export function startedContext(
+  handoff: TaskHandoff | null,
+  sandboxed: boolean,
+  externalId: string | null,
+): SessionContext {
   return {
     instructions: true,
     instructionUpdates: INSTRUCTION_UPDATES.length,
     instructionUpdateHash: instructionPrefixHash(INSTRUCTION_UPDATES.length),
     handoffAt: handoff?.addedAt ?? null,
+    externalId,
     sandbox: sandboxed,
     todoHub: true,
   }
@@ -106,6 +119,8 @@ export interface ContextCheck {
    */
   readonly startedElsewhere: boolean
   readonly handoff: TaskHandoff | null
+  /** The task's external id now, or null for none: what its session is told when it differs from what it was told. */
+  readonly externalId: string | null
   /** Glade's system prompt append for the session as it is now, handoff note and all. */
   readonly prompt: string
   /** Whether its session runs in the agent sandbox now. A session keeps the sandbox it started or resumed with. */
@@ -120,6 +135,7 @@ function given({ recorded, startedElsewhere }: ContextCheck): SessionContext {
       instructionUpdates: 0,
       instructionUpdateHash: instructionPrefixHash(0),
       handoffAt: null,
+      externalId: null,
       sandbox: false,
       todoHub: false,
     }
@@ -129,8 +145,9 @@ function given({ recorded, startedElsewhere }: ContextCheck): SessionContext {
 /**
  * What a task's session is missing; none when it has everything. Glade's whole prompt covers the rest; otherwise it's
  * the instructions added since, then the sandbox it now runs in and wasn't told of, then the todo hub it wasn't told
- * of, then a new handoff note, any of them. A session that isn't sandboxed is never told of the sandbox, whatever it
- * was told before.
+ * of, then the task's external id when it differs from the one the session was told, then a new handoff note, any of
+ * them. A session that isn't sandboxed is never told of the sandbox, whatever it was told before, and a task with no
+ * external id is never told of one.
  *
  * "Added since" is two things, not one (#708): lines past `instructionUpdates` (new, by position), and, when the
  * fingerprint of what it already has doesn't match the current text of that prefix, the whole prefix too — a line
@@ -138,7 +155,7 @@ function given({ recorded, startedElsewhere }: ContextCheck): SessionContext {
  * block (a changed prefix plus any genuinely new suffix is just `INSTRUCTION_UPDATES` itself, start to finish).
  */
 export function missingContext(check: ContextCheck): readonly MissingContext[] {
-  const { handoff, prompt, sandboxed } = check
+  const { externalId, handoff, prompt, sandboxed } = check
   const has = given(check)
   if (!has.instructions) return [{ kind: MissingContextKind.Instructions, prompt, handoffAt: handoff?.addedAt ?? null }]
   const missing: MissingContext[] = []
@@ -147,6 +164,8 @@ export function missingContext(check: ContextCheck): readonly MissingContext[] {
   if (updates.length > 0) missing.push({ kind: MissingContextKind.Updates, updates })
   if (sandboxed && !has.sandbox) missing.push({ kind: MissingContextKind.Sandbox })
   if (!has.todoHub) missing.push({ kind: MissingContextKind.TodoHub })
+  if (externalId !== null && has.externalId !== externalId)
+    missing.push({ kind: MissingContextKind.ExternalId, externalId })
   if (handoff !== null && has.handoffAt !== handoff.addedAt) missing.push({ kind: MissingContextKind.Handoff, handoff })
   return missing
 }
@@ -177,13 +196,14 @@ export function contextAfter(check: ContextCheck, missing: readonly MissingConte
   return missing.reduce<SessionContext>((has, item) => {
     switch (item.kind) {
       case MissingContextKind.Instructions:
-        // The prompt it's sent is the one for the session as it runs now, which says of the todo hub, and of the
-        // sandbox what applies.
+        // The prompt it's sent is the one for the session as it runs now, which says of the todo hub, of the task's
+        // external id, and of the sandbox what applies.
         return {
           instructions: true,
           instructionUpdates: INSTRUCTION_UPDATES.length,
           instructionUpdateHash: instructionPrefixHash(INSTRUCTION_UPDATES.length),
           handoffAt: item.handoffAt,
+          externalId: check.externalId,
           sandbox: has.sandbox || check.sandboxed,
           todoHub: true,
         }
@@ -197,6 +217,8 @@ export function contextAfter(check: ContextCheck, missing: readonly MissingConte
         return { ...has, sandbox: true }
       case MissingContextKind.TodoHub:
         return { ...has, todoHub: true }
+      case MissingContextKind.ExternalId:
+        return { ...has, externalId: item.externalId }
       case MissingContextKind.Handoff:
         return { ...has, handoffAt: item.handoff.addedAt }
       case MissingContextKind.ToolChanges:
@@ -217,6 +239,8 @@ function blockFor(missing: MissingContext): string {
       return `[Glade: this session now runs in a sandbox]\n${SANDBOX_LINE}\n[end]`
     case MissingContextKind.TodoHub:
       return `[Glade: this session now files what it makes under its todos]\n${TODO_HUB_LINES.join('\n\n')}\n[end]`
+    case MissingContextKind.ExternalId:
+      return `[Glade: this task's external id]\n${externalIdLine(missing.externalId)}\n[end]`
     case MissingContextKind.Handoff:
       return `[Glade: handoff for this task]\n${handoffSection(missing.handoff)}\n[end]`
     case MissingContextKind.ToolChanges:

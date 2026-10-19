@@ -205,12 +205,22 @@ describe('a database from before the phase (pre-0059), migrated', () => {
       instructionUpdates: 2,
       instructionUpdateHash: hashLines(INSTRUCTION_UPDATES.slice(0, 2)),
       handoffAt: null,
+      externalId: null,
       sandbox: false,
       todoHub: false,
     })
     // Its session is also owed the six instructions added since this migration (#578, #609, #688, #684, #682, #710):
     // nothing recorded has any of them.
-    expect(missingContext({ recorded, startedElsewhere: false, handoff: null, prompt: '', sandboxed: false })).toEqual([
+    expect(
+      missingContext({
+        recorded,
+        startedElsewhere: false,
+        handoff: null,
+        externalId: null,
+        prompt: '',
+        sandboxed: false,
+      }),
+    ).toEqual([
       {
         kind: MissingContextKind.Updates,
         updates: [

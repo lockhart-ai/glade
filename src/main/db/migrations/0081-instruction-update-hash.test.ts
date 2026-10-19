@@ -44,7 +44,16 @@ it("backfills a row that never reached TODO_TOOLS_LINE with today's wording: not
   const recorded = getSessionContext(db, 't')
   // Nothing was stale: catching up to TODO_TOOLS_LINE later gets today's wording through the ordinary "new line" path.
   // (The row also owes the todo hub's lines, #501: nothing here set it, as this migration doesn't touch it.)
-  expect(missingContext({ recorded, startedElsewhere: false, handoff: null, prompt: '', sandboxed: false })).toEqual([
+  expect(
+    missingContext({
+      recorded,
+      startedElsewhere: false,
+      handoff: null,
+      externalId: null,
+      prompt: '',
+      sandboxed: false,
+    }),
+  ).toEqual([
     { kind: MissingContextKind.Updates, updates: INSTRUCTION_UPDATES.slice(TOOLS_LINE_INDEX) },
     { kind: MissingContextKind.TodoHub },
   ])
@@ -76,7 +85,16 @@ it('backfills a row already past TODO_TOOLS_LINE with the wording it actually sa
   // one line that changed (#708): simpler than tracking which line, and harmless for the ones that hadn't changed.
   for (const taskId of ['caught-up', 'partway']) {
     const recorded = getSessionContext(db, taskId)
-    expect(missingContext({ recorded, startedElsewhere: false, handoff: null, prompt: '', sandboxed: false })).toEqual([
+    expect(
+      missingContext({
+        recorded,
+        startedElsewhere: false,
+        handoff: null,
+        externalId: null,
+        prompt: '',
+        sandboxed: false,
+      }),
+    ).toEqual([
       { kind: MissingContextKind.Updates, updates: INSTRUCTION_UPDATES },
       { kind: MissingContextKind.TodoHub },
     ])

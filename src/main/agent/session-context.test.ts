@@ -30,6 +30,7 @@ import {
   TODO_LINKS_LINE,
   TODO_TOOLS_LINE,
   USAGE_NOTES_LINE,
+  externalIdLine,
 } from './system-prompt'
 
 const HANDOFF: TaskHandoff = { taskId: 't1', body: '## Next\n\nShip it.', addedAt: 5_000 }
@@ -37,13 +38,22 @@ const PROMPT = 'You are running inside Glade.'
 const CURRENT = INSTRUCTION_UPDATES.length
 
 function check(overrides: Partial<ContextCheck>): ContextCheck {
-  return { recorded: undefined, startedElsewhere: false, handoff: null, prompt: PROMPT, sandboxed: false, ...overrides }
+  return {
+    recorded: undefined,
+    startedElsewhere: false,
+    handoff: null,
+    externalId: null,
+    prompt: PROMPT,
+    sandboxed: false,
+    ...overrides,
+  }
 }
 
 /**
  * What's recorded for a session that has Glade's prompt, `updates` of the instructions added since (with the
- * fingerprint those lines' text has today, unless `instructionUpdateHash` says otherwise — a stale one, #708), and a
- * note. It has been told of the todo hub, as every session Glade starts has, unless said.
+ * fingerprint those lines' text has today, unless `instructionUpdateHash` says otherwise — a stale one, #708), a
+ * note, and the external id `externalId` it was told. It has been told of the todo hub, as every session Glade
+ * starts has, unless said.
  */
 function has(
   updates: number,
@@ -51,8 +61,17 @@ function has(
   sandbox = false,
   todoHub = true,
   instructionUpdateHash = hashLines(INSTRUCTION_UPDATES.slice(0, updates)),
+  externalId: string | null = null,
 ): SessionContext {
-  return { instructions: true, instructionUpdates: updates, instructionUpdateHash, handoffAt, sandbox, todoHub }
+  return {
+    instructions: true,
+    instructionUpdates: updates,
+    instructionUpdateHash,
+    handoffAt,
+    externalId,
+    sandbox,
+    todoHub,
+  }
 }
 
 /** The todo hub's lines, which a session from before anything was recorded for it is missing. */
@@ -63,9 +82,9 @@ const BEFORE_HUB = has(CURRENT, null, false, false)
 
 describe('what a session is missing', () => {
   it('is nothing for a session Glade starts, until a handoff note it has not had', () => {
-    expect(missingContext(check({ recorded: startedContext(null, false) }))).toEqual([])
-    expect(missingContext(check({ recorded: startedContext(HANDOFF, false), handoff: HANDOFF }))).toEqual([])
-    expect(startedContext(HANDOFF, false)).toEqual(has(CURRENT, 5_000))
+    expect(missingContext(check({ recorded: startedContext(null, false, null) }))).toEqual([])
+    expect(missingContext(check({ recorded: startedContext(HANDOFF, false, null), handoff: HANDOFF }))).toEqual([])
+    expect(startedContext(HANDOFF, false, null)).toEqual(has(CURRENT, 5_000))
 
     expect(missingContext(check({ recorded: has(CURRENT, 1_000), handoff: HANDOFF }))).toEqual([
       { kind: MissingContextKind.Handoff, handoff: HANDOFF },
@@ -165,6 +184,7 @@ describe('what a session is missing', () => {
             instructionUpdates: 0,
             instructionUpdateHash: hashLines([]),
             handoffAt: null,
+            externalId: null,
             sandbox: false,
             todoHub: false,
           },
@@ -211,15 +231,15 @@ describe('what a session is missing of the sandbox', () => {
   const sandbox = { kind: MissingContextKind.Sandbox } as const
 
   it('is nothing for a session that started in it, or that runs outside it', () => {
-    expect(startedContext(null, true)).toEqual(has(CURRENT, null, true))
-    expect(missingContext(check({ recorded: startedContext(null, true), sandboxed: true }))).toEqual([])
+    expect(startedContext(null, true, null)).toEqual(has(CURRENT, null, true))
+    expect(missingContext(check({ recorded: startedContext(null, true, null), sandboxed: true }))).toEqual([])
     // Outside the sandbox there's nothing to say of it, whatever the session was told before.
-    expect(missingContext(check({ recorded: startedContext(null, false), sandboxed: false }))).toEqual([])
-    expect(missingContext(check({ recorded: startedContext(null, true), sandboxed: false }))).toEqual([])
+    expect(missingContext(check({ recorded: startedContext(null, false, null), sandboxed: false }))).toEqual([])
+    expect(missingContext(check({ recorded: startedContext(null, true, null), sandboxed: false }))).toEqual([])
   })
 
   it('is what the prompt says of it, for a session that started outside it and runs in it now', () => {
-    expect(missingContext(check({ recorded: startedContext(null, false), sandboxed: true }))).toEqual([sandbox])
+    expect(missingContext(check({ recorded: startedContext(null, false, null), sandboxed: true }))).toEqual([sandbox])
     // One from before anything was recorded started outside it too.
     expect(missingContext(check({ sandboxed: true }))).toEqual([
       {
@@ -285,6 +305,7 @@ describe('what a session is missing of the sandbox', () => {
       instructionUpdates: 0,
       instructionUpdateHash: hashLines([]),
       handoffAt: null,
+      externalId: null,
       sandbox: true,
       todoHub: false,
     }
@@ -309,9 +330,9 @@ describe('what a session is missing of the todo hub', () => {
   const BLOCK = `[Glade: this session now files what it makes under its todos]\n${TODO_HUB_LINES.join('\n\n')}\n[end]`
 
   it('is nothing for a session Glade starts, in the sandbox or out of it', () => {
-    expect(startedContext(null, false)).toEqual(has(CURRENT, null, false, true))
-    expect(startedContext(null, true)).toEqual(has(CURRENT, null, true, true))
-    expect(missingContext(check({ recorded: startedContext(null, false) }))).toEqual([])
+    expect(startedContext(null, false, null)).toEqual(has(CURRENT, null, false, true))
+    expect(startedContext(null, true, null)).toEqual(has(CURRENT, null, true, true))
+    expect(missingContext(check({ recorded: startedContext(null, false, null) }))).toEqual([])
   })
 
   it('is what the prompt says of it, for a session that started before every session had it (#501)', () => {
@@ -389,6 +410,73 @@ describe('what a session is missing of the todo hub', () => {
       [contextBlock([updates]), BLOCK, contextBlock([handoff])].join('\n\n'),
     )
     expect(withContext(contextBlock([todoHub]), 'Carry on.')).toBe(`${BLOCK}\n\nCarry on.`)
+  })
+})
+
+describe("what a session is missing of the task's external id (#751)", () => {
+  const ID = 'tasks/2026-10-16-example'
+  const toldId = (id: string) => ({ kind: MissingContextKind.ExternalId, externalId: id }) as const
+  const BLOCK = `[Glade: this task's external id]\n${externalIdLine(ID)}\n[end]`
+
+  it('is nothing for a session Glade starts, whose prompt names what its task has', () => {
+    expect(startedContext(null, false, null)).toEqual(has(CURRENT))
+    expect(startedContext(null, false, ID)).toEqual({ ...has(CURRENT), externalId: ID })
+    expect(missingContext(check({ recorded: startedContext(null, false, ID), externalId: ID }))).toEqual([])
+    // A task with no external id is never told of one, whatever it was told before (which it can only have been none:
+    // update_task replaces an id, never clears one).
+    expect(missingContext(check({ recorded: has(CURRENT), externalId: null }))).toEqual([])
+  })
+
+  it('is the current one, once, for a session told a different one, and not again after it', () => {
+    const stale = check({ recorded: { ...has(CURRENT), externalId: 'tasks/billing' }, externalId: ID })
+
+    expect(missingContext(stale)).toEqual([toldId(ID)])
+    const told = contextAfter(stale, missingContext(stale))
+    expect(told).toEqual({ ...has(CURRENT), externalId: ID })
+    expect(missingContext(check({ recorded: told, externalId: ID }))).toEqual([])
+  })
+
+  it('is the current one for a session that was never told one, its task having got it since', () => {
+    expect(missingContext(check({ recorded: has(CURRENT), externalId: ID }))).toEqual([toldId(ID)])
+    // Sent with the rest of what it was missing, each recorded for itself.
+    const stale = check({ recorded: has(0), externalId: ID, handoff: HANDOFF })
+    expect(missingContext(stale)).toEqual([
+      { kind: MissingContextKind.Updates, updates: INSTRUCTION_UPDATES },
+      toldId(ID),
+      { kind: MissingContextKind.Handoff, handoff: HANDOFF },
+    ])
+    expect(contextAfter(stale, missingContext(stale))).toEqual({
+      ...has(CURRENT, 5_000),
+      externalId: ID,
+    })
+  })
+
+  it("is covered by Glade's whole prompt for a session that started elsewhere, as that prompt is now", () => {
+    const instructions = { kind: MissingContextKind.Instructions, prompt: PROMPT, handoffAt: null } as const
+
+    expect(missingContext(check({ startedElsewhere: true, externalId: ID }))).toEqual([instructions])
+    expect(contextAfter(check({ startedElsewhere: true, externalId: ID }), [instructions])).toEqual({
+      ...has(CURRENT),
+      externalId: ID,
+    })
+    // A session recorded as told one value is sent the current one even though it has Glade's prompt.
+    expect(
+      missingContext(
+        check({ startedElsewhere: true, recorded: { ...has(CURRENT), externalId: 'tasks/billing' }, externalId: ID }),
+      ),
+    ).toEqual([toldId(ID)])
+  })
+
+  it('is said in a block of its own, after the todo hub’s and before a handoff note’s', () => {
+    const todoHub = { kind: MissingContextKind.TodoHub } as const
+    const handoff = { kind: MissingContextKind.Handoff, handoff: HANDOFF } as const
+
+    expect(contextBlock([toldId(ID)])).toBe(BLOCK)
+    expect(BLOCK).toContain(externalIdLine(ID))
+    expect(contextBlock([todoHub, toldId(ID), handoff])).toBe(
+      [contextBlock([todoHub]), BLOCK, contextBlock([handoff])].join('\n\n'),
+    )
+    expect(withContext(contextBlock([toldId(ID)]), 'Carry on.')).toBe(`${BLOCK}\n\nCarry on.`)
   })
 })
 

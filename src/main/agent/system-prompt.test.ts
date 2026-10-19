@@ -23,6 +23,7 @@ import {
   TODO_TOOLS_LINE,
   USAGE_NOTES_LINE,
   WATCHERS_LINE,
+  externalIdLine,
 } from './system-prompt'
 
 let task: Task
@@ -178,6 +179,19 @@ describe('systemPromptAppend', () => {
       ].join('\n'),
     )
     expect(systemPromptAppend(task)).not.toContain(HANDOFF_HEADING)
+  })
+
+  it("names the task's external id right after its id, and nothing of one when it has none (#751)", () => {
+    const externalId = 'tasks/2026-10-16-example'
+    const prompt = systemPromptAppend(task, undefined, false, null, false, externalId)
+
+    expect(externalIdLine(externalId)).toBe(
+      "This task's external id is `tasks/2026-10-16-example`; it names where the task's own notes are kept.",
+    )
+    expect(prompt).toContain(externalIdLine(externalId))
+    expect(prompt.indexOf(`Its task id is ${task.id}.`)).toBeLessThan(prompt.indexOf('external id'))
+    expect(prompt.indexOf('external id')).toBeLessThan(prompt.indexOf(FINAL_REPLY_LINE))
+    expect(systemPromptAppend(task)).not.toContain('external id')
   })
 })
 
