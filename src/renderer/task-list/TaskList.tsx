@@ -1,5 +1,5 @@
 import { faChevronDown, faChevronRight, faThumbtack } from '@fortawesome/free-solid-svg-icons'
-import { useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Task } from '../../shared/domain'
 import { inDoneList } from '../../shared/doneList'
@@ -86,6 +86,8 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
   const toast = useToast()
   // The scroller, as state rather than a ref: the Done section's rows can only lay out once it's mounted.
   const [list, setList] = useState<HTMLDivElement | null>(null)
+  // The last done task the selection was revealed at, outliving the Done section's own rows (#753).
+  const revealedDone = useRef<string | null>(null)
 
   const sections = useMemo(() => listSections({ tasks, doneLists }, workspaceId), [tasks, doneLists, workspaceId])
   const donePages = doneLists[workspaceId]
@@ -194,6 +196,7 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
                 scroller={list}
                 onEndReached={loadMore}
                 selectedTaskId={selectedTaskId}
+                revealedSelection={revealedDone}
                 row={row}
               />
             ) : (

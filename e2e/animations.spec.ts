@@ -155,7 +155,7 @@ test('animations: the Done section opens and closes by height with its rows virt
   launch,
   tempFolder,
 }) => {
-  // One active task and 300 done ones: far more than Done renders at once.
+  // Active tasks enough to scroll the list with Done shut, and 300 done ones: far more than Done renders at once.
   const seed = join(tempFolder(), 'done.json')
   writeFileSync(
     seed,
@@ -163,11 +163,16 @@ test('animations: the Done section opens and closes by height with its rows virt
       workspace: { name: 'Acme API', rootPath: '/Users/sample/code/api' },
       tasks: [
         { title: 'Add rate limiting to public API', status: 'Waiting on you', minutesAgo: 0 },
+        ...Array.from({ length: 40 }, (_, index) => ({
+          title: `Review pull request ${String(index)}`,
+          status: `Commented ${String(index)}`,
+          minutesAgo: index + 1,
+        })),
         ...Array.from({ length: 300 }, (_, index) => ({
           title: `Finished ${String(index)}`,
           status: `Shipped change ${String(index)}`,
           state: 'done',
-          minutesAgo: 10 + index,
+          minutesAgo: 60 + index,
         })),
       ],
     }),
@@ -176,6 +181,10 @@ test('animations: the Done section opens and closes by height with its rows virt
   const list = taskList(window)
   await expect(list.sectionHeader('Done')).toHaveText('Done300')
   await watchMotion(window)
+
+  // The task list's scroller, which everything in the sidebar scrolls in.
+  const scroller = list.section('Done').locator('..')
+  const scrollTop = async (): Promise<number> => scroller.evaluate((element) => element.scrollTop)
 
   // Opening it grows the section to its rows, of which only those in view are rendered.
   const header = list.sectionHeader('Done')
@@ -186,10 +195,21 @@ test('animations: the Done section opens and closes by height with its rows virt
   expect(rendered).toBeLessThan(60)
   await expect(list.row('Done', 'Finished 0')).toBeVisible()
 
-  // Closing it shrinks them away, and opening it again brings back the same rows.
+  // Closing it shrinks them away, and opening it again — with the list scrolled down to where the header shows (#753) —
+  // leaves the scroll exactly where it was.
   const closed = await afterClick(window, header, () => expect(list.rows('Done')).toHaveCount(0))
   expectAnimated(closed, 'collapse-close')
+  await header.scrollIntoViewIfNeeded()
+  const scrolledTo = await scrollTop()
+  expect(scrolledTo).toBeGreaterThan(0)
   await header.click()
+  await expect(list.section('Done').getByRole('list')).toBeAttached()
+  expect(await scrollTop()).toBe(scrolledTo)
+
+  // Back at the top, the same rows show as before.
+  await scroller.evaluate((element) => {
+    element.scrollTop = 0
+  })
   await expect(list.row('Done', 'Finished 0')).toBeVisible()
   expect(await list.rows('Done').count()).toBe(rendered)
 })

@@ -494,6 +494,33 @@ describe('the Done section with more than a thousand tasks', () => {
     expect(scrolledTo).toHaveBeenCalledWith(expect.objectContaining({ top: expect.any(Number) as unknown }))
   })
 
+  it('opens Done with the list scrolled down, and leaves the scroll where it was (#753)', async () => {
+    await renderList([ACTIVE, ...manyDone()], [])
+
+    scrollTo(300)
+    act(() => {
+      fireEvent.click(header('Done'))
+    })
+
+    expect(scroller().scrollTop).toBe(300)
+    expect(doneTitles().length).toBeGreaterThan(0)
+  })
+
+  it('reveals a selected done task once, not again when Done reopens (#753)', async () => {
+    await renderList(manyDone(), [EXPANDED, { key: UiStateKey.SelectedTaskId, value: doneId(2) }])
+    expect(section('Done').querySelector('[aria-current="true"]')).toHaveTextContent('Done 2')
+
+    scrollTo(40 * STUB_ROW_HEIGHT)
+    act(() => {
+      fireEvent.click(header('Done'))
+    })
+    act(() => {
+      fireEvent.click(header('Done'))
+    })
+
+    expect(scroller().scrollTop).toBe(40 * STUB_ROW_HEIGHT)
+  })
+
   it('pages the Done section whole, read and unread tasks together, asking main for no filter (#411)', async () => {
     const { fake } = await renderList([ACTIVE, ...manyDone()])
 

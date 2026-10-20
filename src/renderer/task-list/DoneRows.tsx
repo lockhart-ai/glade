@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import type { Task } from '../../shared/domain'
 import { classNames } from '../components/classNames'
 import styles from './TaskList.module.css'
@@ -32,6 +32,8 @@ export interface DoneRowsProps {
   /** Loads the next page, once the rows rendered near the last loaded. */
   onEndReached: () => void
   selectedTaskId: string | null
+  /** The last done task the selection was scrolled to, kept by the task list across this section's opens and shuts. */
+  revealedSelection: RefObject<string | null>
   /** One task's row. */
   row: (task: Task) => ReactNode
 }
@@ -39,7 +41,9 @@ export interface DoneRowsProps {
 /**
  * The Done section's rows, which can run to thousands: only those in or near view are rendered (`@tanstack/react-virtual`),
  * each in its place in a list as tall as all of them, so the list scrolls as if they were all there. Scrolling near the
- * last loaded row loads the next page. A selected task scrolls into view, whether or not its row was rendered.
+ * last loaded row loads the next page. Mounting takes the scroll as it finds it (TanStack would otherwise reset it to
+ * the top, #753), and a selected task scrolls into view once each time it becomes the selection, not again when the
+ * section reopens.
  */
 export function DoneRows({
   listId,
@@ -48,6 +52,7 @@ export function DoneRows({
   scroller,
   onEndReached,
   selectedTaskId,
+  revealedSelection,
   row,
 }: DoneRowsProps): React.JSX.Element {
   const list = useRef<HTMLUListElement>(null)
@@ -79,6 +84,8 @@ export function DoneRows({
     gap: ROW_GAP,
     overscan: OVERSCAN,
     scrollMargin,
+    // Where the list is scrolled, for the mount below: TanStack's default of 0 would scroll it to the top (#753).
+    initialOffset: () => scroller?.scrollTop ?? 0,
   })
   const items = virtualizer.getVirtualItems()
 
@@ -87,18 +94,18 @@ export function DoneRows({
     if (hasMore && lastRendered >= tasks.length - 1 - PREFETCH_ROWS) onEndReached()
   }, [hasMore, lastRendered, tasks.length, onEndReached])
 
-  // Scroll to a task once each time it becomes the selection, and not again as you scroll away from it.
+  // Scroll to a task once each time it becomes the selection, and not again as you scroll away from it — nor when the
+  // section reopens, which remounts these rows: the memory of what was revealed lives above this component.
   const selectedIndex = tasks.findIndex(({ id }) => id === selectedTaskId)
-  const revealed = useRef<string | null>(null)
   useEffect(() => {
     if (selectedTaskId === null || selectedIndex === -1) {
-      revealed.current = null
+      revealedSelection.current = null
       return
     }
-    if (revealed.current === selectedTaskId || scroller === null) return
-    revealed.current = selectedTaskId
+    if (revealedSelection.current === selectedTaskId || scroller === null) return
+    revealedSelection.current = selectedTaskId
     virtualizer.scrollToIndex(selectedIndex, { align: 'auto' })
-  }, [selectedTaskId, selectedIndex, scroller, virtualizer])
+  }, [selectedTaskId, selectedIndex, scroller, virtualizer, revealedSelection])
 
   return (
     <ul
