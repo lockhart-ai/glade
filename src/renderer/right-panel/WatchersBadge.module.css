@@ -8,3 +8,19 @@
   font-size: var(--font-size-label);
   color: var(--color-faint);
 }
+
+/*
+ * The tab bar lines a tab's inline content up on the text baseline, and an inline-flex box gives its own baseline
+ * from its first flex item: here the `Count`, whose flex layout gives it from the eye's bottom edge (a replaced
+ * element's), so the whole badge sat above the "Agents" label and its count (#752). `TodoWaitingBadge` lines up
+ * because its first item is plain text. So make the count a block: its first line box's baseline — the count text's
+ * — is then the baseline the tab bar aligns, and the eye takes Font Awesome's inline position beside it.
+ */
+.badge > :first-child {
+  display: block;
+}
+
+/* The count's flex `gap` is lost with the block, so the eye keeps its 4px from the count (`TaskRow.module.css`). */
+.badge > :first-child svg {
+  margin-right: 4px;
+}
