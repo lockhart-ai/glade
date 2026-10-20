@@ -49,6 +49,7 @@ import { setPermissionMark } from './db/repositories/permission-marks'
 import { preambleSchema, questionsSchema } from './questions/schema'
 import { appendQuestionSet } from './db/repositories/question-sets'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
+import { PanelTab } from '../renderer/right-panel/panelModel'
 import { addArtifact, addLinkArtifact, setArtifactFile } from './db/repositories/artifacts'
 import { standInForWorkspaceRoot, workspaceFilesRoot } from './files/files'
 import { setHandoff } from './db/repositories/backfills'
@@ -547,8 +548,8 @@ export interface CaptureSeed {
    * random one (made when the switch is on) unless given. It must still look like a token: 43 base64url characters.
    */
   readonly controlToken?: string | undefined
-  /** The right panel's tab to open on (`PanelTab`, e.g. `subagents`); Tool calls unless given. */
-  readonly panelTab?: string | undefined
+  /** The right panel's tab to open on (`PanelTab`); the panel's first tab (Todos, #686) unless given. */
+  readonly panelTab?: PanelTab | undefined
   /** The right panel's width, in CSS pixels; the default unless given. */
   readonly panelWidth?: number | undefined
   /** The plugin card's width beside the terminal, in CSS pixels; the default unless given. */
@@ -738,7 +739,13 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
     .optional(),
   reportedServers: z.array(z.strictObject({ server: z.string().min(1), name: z.string().min(1) })).optional(),
   controlToken: storedToken.optional(),
-  panelTab: z.string().optional(),
+  // Only the panel's current tabs (Todos · Agents · Files): a retired id is rejected rather than silently ignored,
+  // so a stale fixture fails loudly (#744).
+  panelTab: z
+    .enum(PanelTab, {
+      error: (issue) => `'${String(issue.input)}' is not one of the right panel's tabs (todos, agents or files)`,
+    })
+    .optional(),
   panelWidth: z.int().positive().optional(),
   pluginWidth: z.int().positive().optional(),
   collapsed: z

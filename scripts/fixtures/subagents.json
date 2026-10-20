@@ -3,7 +3,7 @@
     "name": "Acme API",
     "rootPath": "/Users/sample/code/api"
   },
-  "panelTab": "subagents",
+  "panelTab": "agents",
   "tasks": [
     {
       "title": "Draft release notes for 2.4",

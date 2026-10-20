@@ -4,7 +4,7 @@
     "rootPath": "/Users/sample/code/api",
     "files": "backfilled-workspace"
   },
-  "panelTab": "artifacts",
+  "panelTab": "todos",
   "tasks": [
     {
       "title": "Draft release notes for 2.4",
