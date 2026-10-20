@@ -48,7 +48,7 @@ const SCREENSHOTS = {
   },
   subagents: {
     out: join(IMAGES, 'subagents.png'),
-    args: ['--seed', 'subagents.json', '--size', '1600x1000', ...AGENTS_TAB],
+    args: ['--seed', 'subagents.json', '--size', '1600x1000'],
   },
   question: {
     out: join(IMAGES, 'question.png'),

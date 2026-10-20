@@ -34,6 +34,7 @@ import { SandboxAskKind } from '../shared/sandbox'
 import { GithubChecksState, GithubLinkKind, GithubLinkState } from '../shared/githubWatch'
 import { listPermissionMarks } from './db/repositories/permission-marks'
 import { applySeed, readSeed, seedArtifactAt, type CaptureSeed } from './capture-seed'
+import { PanelTab } from '../renderer/right-panel/panelModel'
 import { listArtifacts, listFileArtifacts } from './db/repositories/artifacts'
 import { getHandoff } from './db/repositories/backfills'
 import { listMessages } from './db/repositories/messages'
@@ -233,6 +234,16 @@ describe('readSeed', () => {
     const watcher = { kind: 'monitor', toolUseId: 'use-watch', label: 'CI', detail: 'gh pr checks 42', minutesAgo: 1 }
     expect(() => readSeed(bad({ watchers: [{ ...watcher, todo: '2' }] }))).toThrow(/todo/)
     expect(readSeed(bad({ watchers: [watcher] })).tasks[0]?.watchers).toHaveLength(1)
+  })
+
+  it('refuses a retired right-panel tab id, naming it, and takes a current one (#744)', () => {
+    expect(() => readSeed(write(JSON.stringify({ ...SEED, panelTab: 'subagents' })))).toThrow(
+      /'subagents' is not one of the right panel's tabs \(todos, agents or files\)/,
+    )
+    expect(() => readSeed(write(JSON.stringify({ ...SEED, panelTab: 'artifacts' })))).toThrow(
+      /'artifacts' is not one of the right panel's tabs/,
+    )
+    expect(readSeed(write(JSON.stringify({ ...SEED, panelTab: 'todos' }))).panelTab).toBe(PanelTab.Todos)
   })
 
   it('reads the compaction fixture', () => {
@@ -1414,7 +1425,7 @@ describe('applySeed', () => {
 
     applySeed(db, {
       ...SEED,
-      panelTab: 'agents',
+      panelTab: PanelTab.Agents,
       tasks: [
         { id: 't1', title: 'One', minutesAgo: 0 },
         { id: 't2', title: 'Two', minutesAgo: 0 },
