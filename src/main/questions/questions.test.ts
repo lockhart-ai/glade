@@ -22,7 +22,14 @@ import { appendQuestionSet, getQuestionSet } from '../db/repositories/question-s
 import { getTask } from '../db/repositories/tasks'
 import { setUiState } from '../db/repositories/ui-state'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
-import { createQuestionBroker, notificationText, replyImages, toolResultFor, type QuestionBroker } from './questions'
+import {
+  ASK_PARKED,
+  createQuestionBroker,
+  notificationText,
+  replyImages,
+  toolResultFor,
+  type QuestionBroker,
+} from './questions'
 
 const QUESTIONS: Question[] = [
   { kind: QuestionKind.Pills, prompt: 'Credit contributors?', options: ['GitHub handles', 'No credits'] },
@@ -331,6 +338,45 @@ describe('the question broker', () => {
     await expect(asked).resolves.toEqual(ANSWERS)
     expect(events).toEqual([])
     expect(getQuestionSet(database.db, set.id)?.state).toBe(QuestionSetState.Answered)
+  })
+})
+
+describe('the question broker: parking', () => {
+  it('ends the waiting call with ASK_PARKED, and leaves the set open for the user', async () => {
+    const asked = broker.ask(task.id, { questions: QUESTIONS })
+    const id = openId()
+    drain()
+
+    expect(broker.park(task.id)).toBe(true)
+
+    await expect(asked).resolves.toBe(ASK_PARKED)
+    expect(broker.isWaiting(id)).toBe(false)
+    expect(getQuestionSet(database.db, id)).toMatchObject({ state: QuestionSetState.Open, reply: null })
+    expect(events).toEqual([])
+  })
+
+  it('parks nothing when no call waits on the open set, or the task has no set at all', () => {
+    // A set the app left open, with nothing waiting on it.
+    appendQuestionSet(database.db, { taskId: task.id, turn: 1, questions: QUESTIONS })
+    expect(broker.park(task.id)).toBe(false)
+    expect(broker.park('another-task')).toBe(false)
+    expect(events).toEqual([])
+  })
+
+  it('answers a parked set the way it answers one the app quit on, leaving the waiting activity alone', async () => {
+    const asked = broker.ask(task.id, { questions: QUESTIONS })
+    const id = openId()
+    drain()
+    expect(broker.park(task.id)).toBe(true)
+    await asked
+
+    const answered = broker.answer(id, ANSWERS)
+
+    expect(answered).toMatchObject({ state: QuestionSetState.Answered, reply: ANSWERS })
+    expect(drain()).toEqual([
+      [EventType.QuestionAnswered, QuestionSetState.Answered],
+      [EventType.TaskUpdated, TaskActivity.Waiting, false],
+    ])
   })
 })
 

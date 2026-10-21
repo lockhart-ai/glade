@@ -423,31 +423,33 @@ describe('a busy task', () => {
 })
 
 describe('a task waiting on something the app quit on', () => {
-  it('holds the broadcast behind the question, and sends it once the question is answered', async () => {
+  it('delivers it at once to a task waiting on a question the app quit on, whose card no longer binds the agent (#759)', async () => {
     const { task: waiting } = await asking()
     relaunch()
     expect(current(waiting.id)).toMatchObject({ activity: TaskActivity.Waiting, asking: true })
 
     const recipients = await broadcast()
+    await settle()
 
-    // No turn runs to deliver it, and it must not start one over the open question.
+    // Nothing waits on the open card any more, so it no longer holds the queue back: the broadcast starts a turn.
     expect(recipients).toEqual([{ taskId: waiting.id, delivery: BroadcastDelivery.Queued }])
-    expect(queued(waiting.id)).toEqual([{ body: TEXT, broadcast: true }])
-    expect(backend.sessions).toHaveLength(0)
-    expect(turns(waiting.id)).toEqual([1])
+    expect(queued(waiting.id)).toEqual([])
+    expect(backend.sessions).toHaveLength(1)
+    expect(chat(waiting.id).at(-1)).toEqual({ role: MessageRole.User, body: TEXT, turn: 2, broadcast: true })
     const open = getOpenQuestionSet(database.db, waiting.id)
     expect(open?.state).toBe(QuestionSetState.Open)
 
-    // The answer carries on the turn that asked; when it ends, the queue starts the next one.
+    // The card still waits on you through the broadcast's turn, and your later answer reaches the resumed session
+    // as a message.
+    backend.session.emit(sdk.init(`session-${waiting.id}`), sdk.result('Passing the note on.'))
+    await settle()
+    expect(current(waiting.id)).toMatchObject({ activity: TaskActivity.Waiting, asking: true })
+
     await glade.invoke(CommandName.QuestionsAnswer, { id: open?.id ?? '', answers: { 0: 'acme-uploads' } })
-    expect(backend.sessions).toHaveLength(1)
-    expect(queued(waiting.id)).toEqual([{ body: TEXT, broadcast: true }])
-    backend.session.emit(sdk.init(`session-${waiting.id}`), sdk.result('Copying to acme-uploads.'))
     await settle()
 
-    expect(queued(waiting.id)).toEqual([])
-    expect(chat(waiting.id).at(-1)).toEqual({ role: MessageRole.User, body: TEXT, turn: 2, broadcast: true })
-    expect(sent(backend.session).at(-1)).toBe(TEXT)
+    expect(getOpenQuestionSet(database.db, waiting.id)).toBeUndefined()
+    expect(sent(backend.session).at(-1)).toContain('"0":"acme-uploads"')
   })
 
   it('holds the broadcast behind the permission request, and sends it after your decision', async () => {

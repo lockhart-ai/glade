@@ -10,6 +10,9 @@
  *   task is working again.
  * - **Withdrawing** closes the set without one (`question.withdrawn`), when the turn that asked it ends some other way:
  *   it was stopped, or it failed. The call that waits on it returns nothing.
+ * - **Parking** (`park`, #759) ends the waiting call without closing the set: a GitHub notice for a task blocked in
+ *   `ask` ends the call saying the user hasn't answered, the card stays open for them, and their later answer reaches
+ *   the agent the way one for a question the app quit on does — as a message.
  *
  * Only this process's calls wait: a set still open from before the app quit has nothing waiting on it (`isWaiting` is
  * false), and the agent runner hands its answer to the agent another way.
@@ -51,14 +54,27 @@ export interface Asking {
   readonly questions: readonly Question[]
 }
 
+/**
+ * What a parked `ask` call resolves with (`park`, #759): the user hasn't answered, so the call ends saying so while the
+ * set stays open for them. Neither a reply nor `null`, which would answer or withdraw.
+ */
+export const ASK_PARKED = Symbol('ask parked')
+
 export interface QuestionBroker {
   /**
-   * Opens a question set for the task and waits on it. Resolves with your reply once it's answered, or null once it's
-   * withdrawn, or `signal` aborts (the SDK cancelled the call), which withdraws it.
+   * Opens a question set for the task and waits on it. Resolves with your reply once it's answered, null once it's
+   * withdrawn, or `signal` aborts (the SDK cancelled the call), which withdraws it, or `ASK_PARKED` once another call
+   * parked it (`park`).
    */
-  ask(taskId: string, asking: Asking, signal?: AbortSignal): Promise<QuestionReply | null>
+  ask(taskId: string, asking: Asking, signal?: AbortSignal): Promise<QuestionReply | null | typeof ASK_PARKED>
   /** Whether a call in this process is waiting on the set. */
   isWaiting(id: string): boolean
+  /**
+   * Ends the call waiting on the task's open question set with `ASK_PARKED`, without answering or withdrawing it
+   * (#759): the set stays open for the user, and their later answer reaches the agent the way one for a question the
+   * app quit on does, as a message. Answers whether a call was parked: false when no call waits, or on no open set.
+   */
+  park(taskId: string): boolean
   /**
    * Answers an open question set with your reply, which the call waiting on it returns. Answers with the set as it now
    * is. Throws a `CommandFailure`: `not_found` for no such set, `invalid_transition` for one that isn't open.
@@ -118,7 +134,7 @@ export function createQuestionBroker(
 ): QuestionBroker {
   const { db, emit } = context
   /** The calls waiting on their sets, by set id. */
-  const waiting = new Map<string, (reply: QuestionReply | null) => void>()
+  const waiting = new Map<string, (outcome: QuestionReply | null | typeof ASK_PARKED) => void>()
 
   /** The task's `asking` changed, and nothing else: tells the windows, without stamping it as changed. */
   const askingChanged = (taskId: string): void => {
@@ -163,6 +179,16 @@ export function createQuestionBroker(
 
     isWaiting(id) {
       return waiting.has(id)
+    },
+
+    park(taskId) {
+      const open = getOpenQuestionSet(db, taskId)
+      if (open === undefined) return false
+      const resolve = waiting.get(open.id)
+      if (resolve === undefined) return false
+      waiting.delete(open.id)
+      resolve(ASK_PARKED)
+      return true
     },
 
     answer(id, reply) {

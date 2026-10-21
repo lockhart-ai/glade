@@ -1,7 +1,8 @@
 /**
  * Telling an agent what changed about its linked issues and PRs (#682): one message per task per poll, one line per
  * changed link, delivered the way a broadcast is (`../tasks/deliver`) — started as the task's next turn when it's
- * idle, queued at the end of its own queue when it's busy.
+ * idle, queued at the end of its own queue when it's busy. Unlike a broadcast, it also reaches an agent blocked in
+ * `ask` (#759): the queue path parks the call, so the notice reaches the agent while the card stays up for the user.
  */
 import { GithubLinkKind, type GithubLinkWatch } from '../../shared/githubWatch'
 import { MessageSource } from '../../shared/domain'
