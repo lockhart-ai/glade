@@ -1067,7 +1067,7 @@ export const ASK_RESTARTED_NOTE = 'Glade quit while this question was open. Its 
  * the app quit on it, or a GitHub notice parked it (#759) — before the answer itself (`answeredAfterRestart`).
  */
 export const ANSWERED_AFTER_RESTART_PROMPT =
-  'The ask call waiting on your answers ended without them: the app restarted, or a GitHub update parked it (#759). ' +
+  'The ask call waiting on your answers ended without them: the app restarted, or a GitHub update parked it. ' +
   'The user has answered them now. Carry on from there.'
 
 /** The message that hands the agent the answer to a question the app quit on. */
