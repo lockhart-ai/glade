@@ -57,7 +57,7 @@ import { appendToolCall, listToolEvents } from '../db/repositories/tool-events'
 import { setUiState } from '../db/repositories/ui-state'
 import { addWatcher } from '../db/repositories/watchers'
 import { FakeAgentBackend, settle, type FakeAgentSession } from './fake-backend'
-import { GLADE_SERVER } from './glade-tools'
+import { ASK_PARKED_NOTE, GLADE_SERVER } from './glade-tools'
 import { hashLines } from './instruction-hash'
 import { McpServerAudience } from './backend'
 import { needsYou } from '../../shared/attention'
@@ -3285,6 +3285,146 @@ describe('questions', () => {
 
     expect(listQueuedMessages(database.db, task.id)).toEqual([])
     expect(backend.session.sent.map(({ text }) => text)).toEqual(['Draft the release notes for 2.4.', 'Keep it short.'])
+  })
+
+  describe('a GitHub notice while the card is up (#759)', () => {
+    const NOTICE = 'GitHub:\n- PR #42 Port the chat cases: CI failed (13/14)'
+
+    /** Queues a GitHub notice for the task, the way the watcher's wake does (`deliverMessage`). */
+    function queueNotice(text = NOTICE): void {
+      runner.queue(task.id, text, [], [], [], MessageSource.Github)
+    }
+
+    it('parks the ask, keeps the card open for the user, and delivers the notice right behind it', async () => {
+      const { open, returned } = await ask()
+      queueNotice()
+      await returned
+      await settle()
+
+      // The call ended with the parked note rather than an answer, the notice followed it into the turn, and the card
+      // is still open for the user.
+      expect(askRow()).toMatchObject({ state: ToolCallState.Done, output: ASK_PARKED_NOTE })
+      expect(backend.session.sent.map(({ text }) => text)).toEqual(['Draft the release notes for 2.4.', NOTICE])
+      expect(chat()).toEqual([
+        { role: MessageRole.User, body: 'Draft the release notes for 2.4.', turn: 1 },
+        { role: MessageRole.User, body: NOTICE, turn: 1 },
+      ])
+
+      // The turn ends, and the card stays up, waiting on the user.
+      backend.session.emit(sdk.text('Reading the notice; the card stays up for you.'), sdk.result('Noted.'))
+      await settle()
+
+      expect(current()).toMatchObject({ activity: TaskActivity.Waiting, asking: true })
+      expect(getOpenQuestionSet(database.db, task.id)).toMatchObject({ id: open.id, state: QuestionSetState.Open })
+    })
+
+    it('delivers every notice queued while it was blocked in one turn, and parks nothing twice', async () => {
+      const { open, returned } = await ask()
+      queueNotice(`${NOTICE} (first poll)`)
+      queueNotice(`${NOTICE} (second poll)`)
+      await returned
+      await settle()
+
+      expect(askRow()).toMatchObject({ state: ToolCallState.Done, output: ASK_PARKED_NOTE })
+      expect(backend.session.sent.map(({ text }) => text)).toEqual([
+        'Draft the release notes for 2.4.',
+        `${NOTICE} (first poll)`,
+        `${NOTICE} (second poll)`,
+      ])
+      // One park was enough: the card is still open, and the turn's end leaves it that way.
+      expect(getOpenQuestionSet(database.db, task.id)).toMatchObject({ id: open.id, state: QuestionSetState.Open })
+      backend.session.emit(sdk.text('Reading both.'), sdk.result('Reading both.'))
+      await settle()
+
+      expect(listQueuedMessages(database.db, task.id)).toEqual([])
+      expect(getOpenQuestionSet(database.db, task.id)).toMatchObject({ id: open.id, state: QuestionSetState.Open })
+    })
+
+    it('delivers a further notice at once once the card has no call waiting and the agent is idle', async () => {
+      const { returned } = await ask()
+      queueNotice()
+      await returned
+      await settle()
+      backend.session.emit(sdk.text('Noted.'), sdk.result('Noted.'))
+      await settle()
+      expect(current().activity).toBe(TaskActivity.Waiting)
+
+      queueNotice(`${NOTICE} (later)`)
+      await settle()
+
+      expect(listQueuedMessages(database.db, task.id)).toEqual([])
+      expect(backend.session.sent.at(-1)).toMatchObject({ text: `${NOTICE} (later)` })
+      expect(current().activity).toBe(TaskActivity.Working)
+    })
+
+    it('hands the answer the user gives later to the session as a message, the way one the app quit on arrives', async () => {
+      const { open, returned } = await ask()
+      queueNotice()
+      await returned
+      await settle()
+      backend.session.emit(sdk.text('Noted.'), sdk.result('Noted.'))
+      await settle()
+
+      await answer(open.id, { 0: 'by-type', 1: 'Features', 2: 'None.' })
+      await settle()
+
+      const reply = {
+        kind: QuestionReplyKind.Answers,
+        answers: { 0: 'by-type', 1: 'Features', 2: 'None.' },
+      } as const
+      expect(backend.session.sent.at(-1)).toMatchObject({ text: answeredAfterRestart(reply, workspace.rootPath) })
+      expect(toolLog().at(-1)).toEqual({ divider: DividerKind.Resumed, turn: 1 })
+      expect(current()).toMatchObject({ asking: false, activity: TaskActivity.Working })
+    })
+
+    it('refuses an answer given while the notice turn is still running', async () => {
+      const { open, returned } = await ask()
+      queueNotice()
+      await returned
+      await settle()
+      backend.session.emit(sdk.text('Noted.'), sdk.result('Noted.'))
+      await settle()
+      queueNotice(`${NOTICE} (later)`)
+      await settle()
+
+      await expect(answer(open.id, { 0: 'by-type', 1: 'Features' })).rejects.toMatchObject({
+        code: BridgeErrorCode.Busy,
+      })
+    })
+
+    it('keeps a broadcast queued until the questions are answered, leaving the ask blocked', async () => {
+      const { returned } = await ask()
+      const before = backend.session.sent.length
+
+      runner.queue(task.id, 'All-hands note.', [], [], [], MessageSource.Broadcast)
+      await settle()
+
+      expect(askRow()).toMatchObject({ state: ToolCallState.Running })
+      expect(listQueuedMessages(database.db, task.id).map(({ body }) => body)).toEqual(['All-hands note.'])
+      expect(backend.session.sent).toHaveLength(before)
+      void returned
+    })
+
+    it('keeps the parked card open over a relaunch, and its later answer still arrives as a message', async () => {
+      const { open, returned } = await ask()
+      queueNotice()
+      await returned
+      await settle()
+      backend.session.emit(sdk.text('Noted.'), sdk.result('Noted.'))
+      await settle()
+      expect(current().activity).toBe(TaskActivity.Waiting)
+
+      relaunch()
+      runner.resumeInterrupted()
+      expect(backend.sessions).toHaveLength(0)
+
+      await answer(open.id, { 0: 'by-area', 1: 'Leave it out' })
+      await settle()
+
+      const reply = { kind: QuestionReplyKind.Answers, answers: { 0: 'by-area', 1: 'Leave it out' } } as const
+      expect(backend.session.sent.map(({ text }) => text)).toEqual([answeredAfterRestart(reply, workspace.rootPath)])
+      expect(getOpenQuestionSet(database.db, task.id)).toBeUndefined()
+    })
   })
 
   it('withdraws the questions when the turn is stopped, so the call returns and the turn ends', async () => {

@@ -26,7 +26,7 @@ import { addArtifact, listFileArtifacts } from '../db/repositories/artifacts'
 import { putFilings } from '../db/repositories/child-filings'
 import { listTodos } from '../db/repositories/glade-todos'
 import { getOpenFiles } from '../db/repositories/open-files'
-import { getOpenQuestionSet, listQuestionSets } from '../db/repositories/question-sets'
+import { getOpenQuestionSet, getQuestionSet, listQuestionSets } from '../db/repositories/question-sets'
 import { getTask } from '../db/repositories/tasks'
 import {
   openTestDatabase,
@@ -41,6 +41,7 @@ import {
   ACCESS_PATH_MAX,
   ACCESS_REASON_MAX,
   ACCESS_TOOL_NAME,
+  ASK_PARKED_NOTE,
   createGladeAccessMcpServer,
   createGladeMcpServer,
   createGladeToolHandlers,
@@ -352,6 +353,18 @@ describe('ask', () => {
       isError: false,
     })
     expect(JSON.parse(result.output)).not.toHaveProperty('0')
+  })
+
+  it('returns the parked note, not an error, when a GitHub notice parks the call, and leaves the card open (#759)', async () => {
+    const { outcome, open } = await ask({ questions: QUESTIONS })
+    expect(drainQuestionEvents()).toEqual([[EventType.QuestionOpened, QuestionSetState.Open]])
+
+    expect(context.questions.park(task.id)).toBe(true)
+
+    await expect(outcome).resolves.toEqual({ output: ASK_PARKED_NOTE, isError: false })
+    expect(getQuestionSet(database.db, open.id)).toMatchObject({ state: QuestionSetState.Open })
+    // The card was neither answered nor withdrawn, so no question event goes out.
+    expect(drainQuestionEvents()).toEqual([])
   })
 
   it('returns an empty object for a card sent with every question skipped and nothing else typed', async () => {

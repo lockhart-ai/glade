@@ -93,7 +93,10 @@
  *   running.
  * A **broadcast** (#489, `../tasks/broadcast`) is a message like any other, marked as one in the queue and the chat
  * log, but for a task waiting on answers to its questions: it never answers them, so there it's queued, and delivered
- * once they're answered.
+ * once they're answered. A **GitHub notice** (#682, `../github-watch/wake`) isn't held up like that: for a task
+ * blocked in `ask`, it parks the call — the call ends saying the user hasn't answered, the card stays open for them —
+ * and the notice, queued, reaches the agent right behind it; with no call waiting, a card holds the queue up no
+ * longer, and the user's later answer arrives as a message (#759).
  * If the SDK answers a message handed to it mid-turn with a turn of its own (its result doesn't list the message), the
  * runner's turn carries on until a result does, saving each reply on the way.
  *
@@ -1060,12 +1063,12 @@ export const DECLINED_TOOL_NOTE = 'The agent stopped: the request was declined b
 export const ASK_RESTARTED_NOTE = 'Glade quit while this question was open. Its answer goes to the agent in a message.'
 
 /**
- * What Glade sends a session it resumes to hand it the answer to a question the app quit on, before the answer itself
- * (`answeredAfterRestart`).
+ * What Glade sends a session it resumes to hand it the answer to a question whose ask call ended without an answer —
+ * the app quit on it, or a GitHub notice parked it (#759) — before the answer itself (`answeredAfterRestart`).
  */
 export const ANSWERED_AFTER_RESTART_PROMPT =
-  'Glade restarted while you were waiting on answers to your questions, so your ask call ended without them. The ' +
-  'user has answered them now. Carry on from there.'
+  'The ask call waiting on your answers ended without them: the app restarted, or a GitHub update parked it (#759). ' +
+  'The user has answered them now. Carry on from there.'
 
 /** The message that hands the agent the answer to a question the app quit on. */
 export function answeredAfterRestart(reply: QuestionReply, rootPath: string): string {
@@ -1912,13 +1915,16 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   /**
    * Forgets the session's turn, and lets whoever waits on it know it has ended. A question it asked, or a permission
-   * request its calls made, that's still open is withdrawn: nothing is waiting on the answer any more.
+   * request its calls made, that's still open is withdrawn: nothing is waiting on the answer any more. One parked for
+   * a GitHub notice (#759) isn't: its call already ended, and the card stays open for the user, whose answer arrives
+   * as a message.
    */
   const endTurn = (taskId: string, live: LiveSession, turn: Turn): void => {
     taskLog(taskId).info('turn ended', { turn: turn.number, stopped: turn.stopping })
     live.turn = null
     turn.end()
-    questions.withdraw(taskId)
+    const open = getOpenQuestionSet(db, taskId)
+    if (open === undefined || questions.isWaiting(open.id)) questions.withdraw(taskId)
     withdrawRequests(live, false)
     // A call allowed after a restart that the agent didn't make again in the turn it was told in asks, if it's made.
     const delivered = listRestartRequests(db, taskId, RestartDelivery.Delivered)
@@ -4387,6 +4393,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     queue(taskId, text, images = [], pastedBlocks = [], files = [], source = null, senderTaskId = null) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
+      // A GitHub notice wakes the agent even while its ask card is up (#759): the call waiting on the card is parked
+      // (`questions.park`), ending with a result saying the user hasn't answered, and the notice — queued below —
+      // reaches the agent once that turn ends. Anything else queued keeps today's path.
+      if (source === MessageSource.Github) questions.park(taskId)
       const queued = addQueuedMessage(context, {
         taskId,
         body: text,
@@ -4398,9 +4408,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       })
       // A paused task delivers its queue once it resumes, and one waiting on requests the app quit on once you decide.
       if (switching.has(taskId) || isPaused(task) || waitsOnRestartRequests(taskId)) return queued
-      // So does one waiting on a question the app quit on (only a tagged message is queued then, #489, #682): its
-      // answer carries on the turn that asked, and the queue follows.
-      if (getOpenQuestionSet(db, taskId) !== undefined) return queued
+      // A call still waiting on the card holds the queue: its answer carries the turn on, and the queue follows
+      // (#489, #682). With none waiting — the call was parked, or the card outlived the app — the card no longer
+      // binds the agent: the queue delivers like any other, and the later answer reaches it as a message.
+      const open = getOpenQuestionSet(db, taskId)
+      if (open !== undefined && questions.isWaiting(open.id)) return queued
       const live = sessions.get(taskId)
       // The turn ended just before the message arrived: nothing will deliver the queue, so it starts a turn now.
       if ((live?.turn ?? null) === null) startTurn(task, live ?? start(task), null)

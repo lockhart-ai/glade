@@ -7,7 +7,8 @@
  * handler runs, and turns a failed check, or a handler that throws, into a tool error for the model; nothing a call
  * sends can crash the app.
  *
- * `ask` blocks: its handler waits until you answer (`../questions/questions`), however long that takes. Claude Code
+ * `ask` blocks: its handler waits until you answer (`../questions/questions`), however long that takes — unless a
+ * GitHub notice parks it first (`../questions/questions`, `park`, #759). Claude Code
  * bounds every MCP tool call, about 28 hours by default, so the server raises its own bound as far as it goes
  * (`GLADE_TOOL_TIMEOUT_MS`, `docs/sdk-notes.md` §3). `request_access` blocks the same way, on its permission card
  * (#450): the agent calls it when the sandbox blocked a command, and it's one of the two tools a subagent may call
@@ -55,7 +56,7 @@ import {
   type AccessOutcome,
   type AccessRequest,
 } from '../permissions/sandbox-ask'
-import { replyImages, toolResultFor, type QuestionBroker } from '../questions/questions'
+import { ASK_PARKED, replyImages, toolResultFor, type QuestionBroker } from '../questions/questions'
 import type { QuestionReply } from '../../shared/domain'
 import { preambleSchema, questionsSchema } from '../questions/schema'
 import { updateTaskFromAgent, type TaskServiceContext } from '../tasks/service'
@@ -454,6 +455,14 @@ function failure(error: unknown): GladeToolResult {
 /** What `ask` tells the model when its questions were withdrawn: the turn was stopped, or failed, while it waited. */
 export const QUESTIONS_WITHDRAWN = 'The questions were withdrawn before the user answered them.'
 
+/**
+ * What `ask` tells the model when a GitHub notice parked it (#759): the user hasn't answered, so the call ends early
+ * while the card stays open for them. It says plainly not to ask again, and to end the turn so the notice reaches it.
+ */
+export const ASK_PARKED_NOTE =
+  "The user hasn't answered yet. The card stays open for them, so don't ask again: their answer will arrive as a " +
+  'message later. A GitHub update is waiting to be delivered, so end this turn here and carry on when it arrives.'
+
 /** Which call of `request_access` a handler answers, as far as the MCP request says. */
 export interface AccessCall {
   /** The call's `tool_use` id (Claude Code sends it with the request); null when it sent none. */
@@ -554,6 +563,9 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
     },
     async ask(input, signal) {
       const answered = await context.questions.ask(taskId, input, signal)
+      // Parked (a GitHub notice, #759): the questions are still open, so the note stands in for a result and the card
+      // carries on waiting for the user.
+      if (answered === ASK_PARKED) return reply(ASK_PARKED_NOTE)
       return answered === null ? { ...reply(QUESTIONS_WITHDRAWN), isError: true } : askResult(context, taskId, answered)
     },
     async showFile({ path, line }) {
