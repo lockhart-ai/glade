@@ -444,7 +444,7 @@
           "name": "Agent",
           "input": {
             "description": "notes-25",
-            "prompt": "Draft the 2.5 release notes from the three PRs.",
+            "prompt": "Draft the 2.5 release notes from the three PRs we merged for this release.\n\nWhat to draft: the \"What's new\" section for docs/releases/v2.5.md, in the voice 2.4's notes use — plain language, one short paragraph per change, no raw changelog diff.\n\nWhich PRs: #511 (Retry-After on 429s), #513 (per-key limits for /search), and the docs PR for both (merged, no number of its own). Read each one's description and its final diff, not just its title.\n\nWhere the notes go: a new docs/releases/v2.5.md, linked from docs/releases/README.md the way every past release is, newest first.\n\nThe shape to follow: an opening paragraph, then one bullet per user-visible change ending in its PR number, then \"## Under the hood\" for anything only a developer would notice.\n\nWhat not to do: don't invent a date or a version past 2.5.0, don't claim a number a PR doesn't state, don't touch the 2.4 notes, and don't open a PR yet — leave this as a draft for review first.",
             "subagent_type": "general-purpose"
           },
           "turn": 1,

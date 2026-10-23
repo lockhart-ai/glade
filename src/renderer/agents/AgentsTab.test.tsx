@@ -555,6 +555,98 @@ describe('the line under the strip, on a subagent’s tab', () => {
   })
 })
 
+describe('a subagent’s prompt, under the line under the strip (#762)', () => {
+  const PROMPT = 'Document the /search rate limit.\nCover the 429 header, with a worked example.'
+
+  /** `docs-503`'s call, started with `PROMPT` and, for the dispatch cases, the dispatch tool's own fields. */
+  const withPrompt = (fields: Partial<ToolCallEvent> = {}): ToolCallEvent => ({
+    ...DOCS,
+    input: { ...DOCS.input, prompt: PROMPT },
+    ...fields,
+  })
+
+  const promptButton = (): HTMLElement | null => within(panel()).queryByRole('button', { name: /^Prompt/ })
+  const promptBody = (): string | null => panel().querySelector('pre')?.textContent ?? null
+
+  it('shows it collapsed to its first line, under the todo line, by default', async () => {
+    await renderAgents({
+      ...SHIP,
+      toolEvents: (SHIP.toolEvents ?? []).map((event) => (event === DOCS ? withPrompt() : event)),
+    })
+    fireEvent.click(tab('docs-503'))
+
+    const button = promptButton()
+    if (button === null) throw new Error('No prompt row.')
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    expect(button).toHaveTextContent('Prompt')
+    expect(button).toHaveTextContent('Document the /search rate limit.')
+    expect(button).not.toHaveTextContent('worked example')
+    expect(promptBody()).toBeNull()
+  })
+
+  it('expands to the whole prompt, verbatim, on click, and collapses again on a second click', async () => {
+    await renderAgents({
+      ...SHIP,
+      toolEvents: (SHIP.toolEvents ?? []).map((event) => (event === DOCS ? withPrompt() : event)),
+    })
+    fireEvent.click(tab('docs-503'))
+    const button = promptButton()
+    if (button === null) throw new Error('No prompt row.')
+
+    fireEvent.click(button)
+
+    expect(button).toHaveAttribute('aria-expanded', 'true')
+    expect(promptBody()).toBe(PROMPT)
+
+    fireEvent.click(button)
+
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    expect(promptBody()).toBeNull()
+  })
+
+  it('shows for a dispatched child the same way it does for a native Agent call', async () => {
+    await renderAgents({
+      ...SHIP,
+      toolEvents: (SHIP.toolEvents ?? []).map((event) =>
+        event === DOCS
+          ? withPrompt({
+              name: 'mcp__glade-agents__dispatch',
+              input: { ...DOCS.input, prompt: PROMPT, model: 'claude-haiku-4-5' },
+            })
+          : event,
+      ),
+    })
+    fireEvent.click(tab('docs-503'))
+
+    const button = promptButton()
+    if (button === null) throw new Error('No prompt row.')
+    fireEvent.click(button)
+
+    expect(promptBody()).toBe(PROMPT)
+  })
+
+  it('has no row for a subagent whose call names no prompt, or only a blank one', async () => {
+    const blank = { ...DOCS, input: { description: 'docs-503' } }
+    await renderAgents({
+      ...SHIP,
+      toolEvents: (SHIP.toolEvents ?? []).map((event) => (event === DOCS ? blank : event)),
+    })
+    fireEvent.click(tab('docs-503'))
+
+    expect(promptButton()).toBeNull()
+  })
+
+  it('has no row on Main’s own tab, which never has a prompt of its own', async () => {
+    await renderAgents({
+      ...SHIP,
+      toolEvents: (SHIP.toolEvents ?? []).map((event) => (event === DOCS ? withPrompt() : event)),
+    })
+
+    expect(shown()).toBe('Main')
+    expect(promptButton()).toBeNull()
+  })
+})
+
 describe('times that tick', () => {
   it('count a subagent’s seconds through its first minute, then its minutes', async () => {
     const fresh = hubAgent('fresh', 'fresh', 0, { createdAt: HUB_NOW - 57_000 })

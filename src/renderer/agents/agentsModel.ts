@@ -319,6 +319,14 @@ export function agentCallResult(call: ToolCallEvent, now: EpochMs): string {
   return outcome === '' ? state : `${state} · ${outcome}`
 }
 
+/**
+ * What the Prompt row under a subagent's line shows collapsed (#762): the prompt's first non-blank line, cut by CSS
+ * to the one line once it's past the row's width.
+ */
+export function promptPreview(prompt: string): string {
+  return firstLine(prompt)
+}
+
 /** What the line under the strip says before a subagent's todo: "Working on" until it has finished, then "Worked on". */
 export function todoLineVerb(call: Pick<ToolCallEvent, 'state'>): string {
   switch (call.state) {

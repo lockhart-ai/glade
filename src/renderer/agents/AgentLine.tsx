@@ -1,6 +1,9 @@
-import { memo, useMemo } from 'react'
+import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons'
+import { memo, useId, useMemo, useState } from 'react'
 import { TaskActivity, TaskState, type EpochMs, type ToolCallEvent } from '../../shared/domain'
 import { modelName } from '../../shared/models'
+import { subagentPrompt } from '../../shared/subagents'
+import { Collapse, Icon, IconSize } from '../components'
 import { useGladeStore } from '../store/react'
 import {
   agentsOf,
@@ -11,6 +14,7 @@ import {
   mainAgentStateLine,
   mainAgentText,
   mainTokensLine,
+  promptPreview,
   selectMainCurrentCall,
   todoLineVerb,
 } from './agentsModel'
@@ -84,6 +88,44 @@ const AgentTokens = memo(function AgentTokens({
     <span className={styles.tokens} data-agent-tokens="">
       {line}
     </span>
+  )
+})
+
+/**
+ * The prompt a subagent's call started it with (#762), under the "Working on …" line: collapsed by default to a
+ * chevron, the label "Prompt" and the prompt's first line, cut to that one line by CSS; expanded, the whole prompt
+ * verbatim, wrapping, in a well that scrolls within itself past a height so the tool log under it stays in view. Its
+ * own open state, not remembered past this render: picking another agent's tab, or this subagent's call finishing,
+ * leaves it collapsed again. Memoised on the prompt text alone, so another part of the line (the todo, the state,
+ * the tokens) never re-renders it.
+ */
+const PromptRow = memo(function PromptRow({ prompt }: { readonly prompt: string }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const bodyId = useId()
+  return (
+    <div className={styles.promptRow}>
+      <button
+        type="button"
+        className={styles.promptHead}
+        aria-expanded={open}
+        aria-controls={bodyId}
+        data-agent-prompt=""
+        onClick={() => {
+          setOpen(!open)
+        }}
+      >
+        <span className={styles.promptChevron}>
+          <Icon icon={open ? faChevronDown : faChevronRight} size={IconSize.Small} />
+        </span>
+        <span className={styles.promptLabel}>Prompt</span>
+        <span className={styles.promptPreview}>{promptPreview(prompt)}</span>
+      </button>
+      <Collapse open={open}>
+        <pre id={bodyId} className={styles.promptBody}>
+          {prompt}
+        </pre>
+      </Collapse>
+    </div>
   )
 })
 
@@ -166,35 +208,39 @@ export const AgentLine = memo(function AgentLine({
     )
   }
   if (call === undefined || (todo === null && label === null)) return null
+  const prompt = subagentPrompt(call)
   return (
-    <div className={styles.line} data-agent-line="">
-      {label !== null && (
+    <>
+      <div className={styles.line} data-agent-line="">
+        {label !== null && (
+          <div className={styles.head}>
+            <span className={styles.model} title={label} data-agent-model="">
+              {label}
+            </span>
+            <AgentTokens taskId={taskId} agentId={agentId} />
+          </div>
+        )}
         <div className={styles.head}>
-          <span className={styles.model} title={label} data-agent-model="">
-            {label}
+          <span className={styles.working}>
+            {todo !== null && todoId !== null && (
+              <>
+                {todoLineVerb(call)}{' '}
+                <button
+                  type="button"
+                  className={styles.todo}
+                  onClick={() => {
+                    showTodo(taskId, todoId)
+                  }}
+                >
+                  {todo.text}
+                </button>
+              </>
+            )}
           </span>
-          <AgentTokens taskId={taskId} agentId={agentId} />
+          <AgentState call={call} />
         </div>
-      )}
-      <div className={styles.head}>
-        <span className={styles.working}>
-          {todo !== null && todoId !== null && (
-            <>
-              {todoLineVerb(call)}{' '}
-              <button
-                type="button"
-                className={styles.todo}
-                onClick={() => {
-                  showTodo(taskId, todoId)
-                }}
-              >
-                {todo.text}
-              </button>
-            </>
-          )}
-        </span>
-        <AgentState call={call} />
       </div>
-    </div>
+      {prompt !== null && <PromptRow prompt={prompt} />}
+    </>
   )
 })

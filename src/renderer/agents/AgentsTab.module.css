@@ -285,6 +285,77 @@
   white-space: nowrap;
 }
 
+/* The prompt a subagent's call started it with (#762, docs/design/html/51-agents-subagent.html), under the
+   "Working on" line: collapsed to a chevron, the label and the prompt's first line; expanded, the whole prompt in a
+   well that scrolls within itself (the disclosure PastedBlockRow.module.css uses for a pasted block, in the Agents
+   tab's own colours). */
+.promptRow {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--color-inner-border);
+}
+
+.promptHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  min-width: 0;
+  padding: 6px 17px;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.promptHead:hover {
+  background: var(--color-inner-hover);
+}
+
+.promptHead:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+}
+
+.promptChevron {
+  flex-shrink: 0;
+  display: flex;
+  color: var(--color-faint);
+}
+
+.promptLabel {
+  flex-shrink: 0;
+  color: var(--color-faint);
+}
+
+.promptPreview {
+  flex-grow: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The prompt itself, verbatim: a darker well, scrolling if it's long rather than growing past the tool log under it. */
+.promptBody {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  padding: 8px 17px;
+  background: var(--color-inner-2);
+  border-top: 1px solid var(--color-inner-border);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* The eye and a count on an agent's tab (#537, docs/design/html/52-agents-watcher.html): what the agent has pinned
    under its tool calls. Blue while a watcher's process runs; grey when all it has is a wakeup or a cron job that's
    only scheduled. */

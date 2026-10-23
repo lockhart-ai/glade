@@ -173,6 +173,9 @@ There are no follow-up tasks. One task can refer to another through its folder o
   live while that subagent runs ("Running · 29m") and "Done · 28m · opened PR #511" once it has finished; clicking it
   opens that subagent's tab. A subagent's tab says which todo it's working on, in a line under the strip ("Working on
   #501 Return Retry-After on 429s"), the todo's title a link to that todo in Todos; one subagent works on one todo.
+  Under that, the prompt it was started with (#762): a chevron, the **Prompt** label and its first line, collapsed by
+  default; expanding it shows the whole prompt, verbatim, wrapping, in a well that scrolls within itself so the tool
+  calls below stay in view. No row for a call with no prompt. Main's own tab has no prompt row, nor does a watcher's.
   What an agent is watching (a `Monitor` watch, a background command, a wakeup or a cron job) is pinned at the bottom
   of its tool calls, outside the scroll so it's always in view, under a **Watching** label: what it runs, its last
   line, how long it's run and **Stop**; a wakeup or cron job that's only scheduled is pinned the same way, in grey,

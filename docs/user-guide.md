@@ -374,6 +374,10 @@ The tab you leave a task on is that task's own: switching back to it shows it ag
   own state at the right ("Running · 6m", "Done · 28m"). One subagent works on one todo: the one it was started for.
   The model's row shows, at its right, how full the subagent's conversation was at its latest request: "478k context",
   while it runs and after it finishes. It is a context size, not what the subagent has spent.
+  Under the todo line, a **Prompt** row shows the prompt the subagent was started with: a chevron, the label and the
+  prompt's first line, collapsed by default; click it to expand the whole prompt, verbatim, wrapping, in a well that
+  scrolls within itself so the tool calls under it stay in view, and click again to collapse it. There's no row for a
+  call that named no prompt. Main's own tab has none.
   Right-click its tab (or ⇧F10) for **Copy log** and, while it's running, **Stop subagent**; stopping it
   also ends what it left running in the background ("Ended with its subagent.").
 

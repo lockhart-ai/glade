@@ -22,3 +22,14 @@ export function subagentName({ input }: Pick<ToolCallEvent, 'input'>): string {
   }
   return UNNAMED_SUBAGENT
 }
+
+/**
+ * The prompt a subagent's call started it with (#762): `input.prompt`, as every tool that starts one carries it —
+ * `Agent`/`Task`'s own field, and `dispatch`'s (`DispatchAgentInput`). Parsed at the boundary: null for a call with
+ * no prompt, or whose `prompt` isn't a non-blank string, so the Agents tab shows no row for it. Verbatim otherwise,
+ * untrimmed, for showing exactly what the subagent was sent.
+ */
+export function subagentPrompt({ input }: Pick<ToolCallEvent, 'input'>): string | null {
+  const value = input.prompt
+  return typeof value === 'string' && value.trim() !== '' ? value : null
+}
