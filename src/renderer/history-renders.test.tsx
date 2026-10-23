@@ -43,6 +43,7 @@ import {
   mainAgentStateLine,
   mainAgentText,
   mainTokensLine,
+  promptPreview,
 } from './agents/agentsModel'
 import { endedSummary, pinnedMetaLine, pinnedStatus, watchingTitle } from './agents/agentWatchersModel'
 import { BroadcastDialog } from './broadcast'
@@ -128,7 +129,9 @@ vi.mock('./workspace-switcher/switcherModel', async (importOriginal) => {
 // the strip says the subagent's state (one `agentStateLine` call per render of it). Main's own line (#566) works the
 // same way: one `mainAgentText` call per render of its text, and one `mainAgentStateLine` call per render of its
 // ticking state, which is a span of its own so a tick never renders the text beside it. Main's totals (#587) work
-// the same way: one `mainTokensLine` call per render of that span.
+// the same way: one `mainTokensLine` call per render of that span. So does a subagent's prompt row (#762): one
+// `promptPreview` call per render of it, memoised on the prompt text alone, so the rest of the line changing never
+// renders it again.
 vi.mock('./agents/agentsModel', async (importOriginal) => {
   const original = await importOriginal<typeof import('./agents/agentsModel')>()
   return {
@@ -140,6 +143,7 @@ vi.mock('./agents/agentsModel', async (importOriginal) => {
     mainAgentText: vi.fn(original.mainAgentText),
     mainAgentStateLine: vi.fn(original.mainAgentStateLine),
     mainTokensLine: vi.fn(original.mainTokensLine),
+    promptPreview: vi.fn(original.promptPreview),
   }
 })
 
@@ -1872,6 +1876,31 @@ describe('the Agents tab, with 50 subagents and a 2,000-call list (P16, #536)', 
       vi.advanceTimersByTime(NOW_REFRESH_MS)
     })
     expect(rendered()).toEqual({ tabs: 0, rows: 0, times: 0, line: 1 })
+  })
+
+  it('renders a subagent’s prompt row once, and not again as the line around it changes (#762)', async () => {
+    const { fake } = await renderAgents()
+
+    fireEvent.click(tab('review-49'))
+    expect(vi.mocked(promptPreview)).toHaveBeenCalledTimes(1)
+    vi.mocked(promptPreview).mockClear()
+
+    // Its own call reporting progress changes the line around it (the state span re-renders, per `rendered()`
+    // above), but not the prompt it started with: the row stays as it was.
+    act(() => {
+      fake.emit({ type: EventType.ToolEventUpdated, toolEvent: { ...agent(49), progressSummary: 'Reading the diff' } })
+    })
+    expect(vi.mocked(promptPreview)).not.toHaveBeenCalled()
+
+    // Neither does another subagent's call, or Main's status.
+    act(() => {
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: { ...agent(48), progressSummary: 'Reading the diff' },
+      })
+      fake.emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), status: 'Running the tests.' } })
+    })
+    expect(vi.mocked(promptPreview)).not.toHaveBeenCalled()
   })
 })
 
