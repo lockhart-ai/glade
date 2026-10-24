@@ -1066,9 +1066,9 @@
   system prompt gets one sentence: check it before starting work on an existing pull request, issue or branch, and
   stop and ask if another task already has it. No claims (a task marking a PR as its own) for now.
 
-- **The Files tab shows a local dev server live, locked to loopback (#764, Jared, Oct 23).** Raised from the
-  CyberDash task: Jared wanted to watch and play a Phaser game a dev server hot-reloads, which the Files tab's
-  existing HTML preview can't do, since it's offline by design (#614: `connect-src 'none'`, `frame-src 'none'`,
+- **The Files tab shows a local dev server live, locked to loopback (#764, Jared, Oct 23).** Jared wanted to watch
+  and play a Phaser game a dev server hot-reloads, which the Files tab's existing HTML preview can't do, since it's
+  offline by design (#614: `connect-src 'none'`, `frame-src 'none'`,
   every request outside the file's own folder cancelled) — and that stays exactly as #614 left it. A loopback page
   never runs in the renderer's own page (an iframe would share its process and could reach the preload bridge): it
   always runs in its own sandboxed `WebContentsView`, in a fresh session of its own, the same way the HTML preview
