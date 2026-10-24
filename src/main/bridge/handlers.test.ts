@@ -1040,6 +1040,35 @@ describe('the files commands', () => {
     await new Promise<void>((done) => setTimeout(done, 10))
     expect(fakeHtmlPreview.views).toHaveLength(1)
   })
+
+  it('opens a loopback url live, and places, hides and reloads its preview (#764)', () => {
+    const taskId = taskInRoot()
+    const url = 'http://localhost:3000/'
+    const bounds = { x: 0, y: 0, width: 400, height: 300 }
+
+    // The request schema already refused anything but a loopback url: the handler just opens the tab.
+    expect(handlers[CommandName.FilesOpenUrl]({ taskId, url })).toEqual({
+      openFiles: { taskId, paths: [url], activePath: url },
+    })
+
+    expect(handlers[CommandName.FilesPlaceLivePreview]({ taskId, url, bounds })).toBeNull()
+    expect(fakeLivePreview.views).toHaveLength(1)
+    expect(fakeLivePreview.last().spec.url).toBe(url)
+    expect(fakeLivePreview.last().bounds).toEqual(bounds)
+
+    // While its view shows, the bounds go straight through.
+    const narrower = { x: 4, y: 8, width: 200, height: 150 }
+    expect(handlers[CommandName.FilesPlaceLivePreview]({ taskId, url, bounds: narrower })).toBeNull()
+    expect(fakeLivePreview.last().bounds).toEqual(narrower)
+
+    expect(handlers[CommandName.FilesReloadLivePreview]({ taskId, url })).toBeNull()
+    expect(fakeLivePreview.last().reloaded).toBe(1)
+
+    // `bounds: null` hides it, keeping its page: no second view is made.
+    expect(handlers[CommandName.FilesPlaceLivePreview]({ taskId, url, bounds: null })).toBeNull()
+    expect(fakeLivePreview.last().bounds).toBeNull()
+    expect(fakeLivePreview.views).toHaveLength(1)
+  })
 })
 
 describe('the Browse tab’s commands', () => {
