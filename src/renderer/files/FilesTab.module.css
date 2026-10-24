@@ -17,6 +17,55 @@
   border-bottom: 1px solid var(--color-inner-border);
 }
 
+/* Collapsing the Files header (#764) hides this row with CSS, not by unmounting it. */
+.row[hidden] {
+  display: none;
+}
+
+/* Open URL…'s inline field, in the row's own place while it's open. */
+.urlForm {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.urlField {
+  width: 220px;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-inner-border);
+  border-radius: var(--radius-button-sm);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text);
+}
+
+.urlField:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+}
+
+.urlSubmit {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 10px;
+  background: transparent;
+  border: 1px solid var(--color-inner-border);
+  border-radius: var(--radius-button-sm);
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.urlSubmit:hover {
+  color: var(--color-text);
+}
+
 /* The list of the task's files: "☰ 6 ⌄". */
 .list {
   flex-shrink: 0;
@@ -198,6 +247,34 @@
   font-family: var(--font-mono);
   font-size: var(--font-size-label);
   color: var(--color-faint);
+}
+
+/* A live preview's tab (#764): a globe before its host, and the Live badge after. */
+.liveIcon {
+  color: var(--color-blue-text);
+}
+
+.liveBadge {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 5px;
+  background: var(--color-live);
+  border: 1px solid var(--color-live-border);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-blue-text);
+}
+
+.liveDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 2.5px;
+  background: var(--color-blue);
 }
 
 .empty {

@@ -309,6 +309,16 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
       case EventType.HtmlPreviewBlocked:
         tools.debug('html preview blocked', { taskId: event.taskId, path: event.path })
         return
+      case EventType.LivePreviewBlocked:
+        tools.debug('live preview blocked', { taskId: event.taskId, path: event.path, host: event.host })
+        return
+      case EventType.LivePreviewConnectionChanged:
+        tools.debug('live preview connection changed', {
+          taskId: event.taskId,
+          path: event.path,
+          connected: event.connected,
+        })
+        return
       case EventType.OpenFilesChanged: {
         const { taskId, paths, activePath } = event.openFiles
         tools.debug('open files changed', { taskId, open: paths.length, activePath })

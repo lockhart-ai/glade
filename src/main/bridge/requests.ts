@@ -28,6 +28,9 @@ import {
   type FilesWatchFoldersRequest,
   type FilesPlaceHtmlPreviewRequest,
   type FilesReloadHtmlPreviewRequest,
+  type FilesOpenUrlRequest,
+  type FilesPlaceLivePreviewRequest,
+  type FilesReloadLivePreviewRequest,
   type FolderRequest,
   type WindowSetUnsavedEditsRequest,
   type AttachmentsAddRequest,
@@ -92,7 +95,8 @@ import {
 import { AttachedFileKind, isAttachedFileName, isAttachedFileOf, type AttachedFile } from '../../shared/attachedFiles'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
 import { ArtifactKind, Effort, PermissionMode, UiStateKey, type PastedBlock } from '../../shared/domain'
-import { isWorkspaceRelativePath, parseCommitFileKey } from '../../shared/files'
+import { isUrlFileKey, isWorkspaceRelativePath, parseCommitFileKey } from '../../shared/files'
+import { isLoopbackUrl } from '../files/live-preview-network'
 import { MAX_SEARCH_QUERY, MAX_WATCHED_FOLDERS } from '../../shared/browse'
 import { MAX_MENU_BAR_HEIGHT } from '../../shared/menuBar'
 import { hasImageSignature, ImageMediaType, MAX_IMAGE_BASE64_LENGTH, type ImageData } from '../../shared/images'
@@ -357,14 +361,17 @@ const filesWriteRequest = z.strictObject({
   text: z.string(),
 }) satisfies z.ZodType<FilesWriteRequest>
 
-/** A file the Files tab can have open: one in the workspace, or one as a commit left it (its commit file key). */
+/**
+ * A file the Files tab can have open: one in the workspace, one as a commit left it (its commit file key), or a
+ * live preview's tab, keyed by its own loopback URL (#764).
+ */
 const openFileRequest = z.strictObject({
   taskId: z.string(),
   path: z
     .string()
     .refine(
-      (path) => isWorkspaceRelativePath(path) || parseCommitFileKey(path) !== null,
-      'Expected a normalized path relative to the workspace root, inside it, or a commit file key',
+      (path) => isWorkspaceRelativePath(path) || parseCommitFileKey(path) !== null || isUrlFileKey(path),
+      'Expected a normalized path relative to the workspace root, inside it, a commit file key, or a loopback URL',
     ),
 }) satisfies z.ZodType<FileRequest>
 
@@ -497,6 +504,24 @@ const filesReloadHtmlPreviewRequest = z.strictObject({
     .string()
     .refine(isWorkspaceRelativePath, 'Expected a normalized path relative to the workspace root, inside it'),
 }) satisfies z.ZodType<FilesReloadHtmlPreviewRequest>
+
+const loopbackUrl = z.string().refine(isLoopbackUrl, 'Expected a loopback URL (http://localhost, 127.0.0.1 or [::1])')
+
+const filesOpenUrlRequest = z.strictObject({
+  taskId: z.string(),
+  url: loopbackUrl,
+}) satisfies z.ZodType<FilesOpenUrlRequest>
+
+const filesPlaceLivePreviewRequest = z.strictObject({
+  taskId: z.string(),
+  url: loopbackUrl,
+  bounds: viewBounds.nullable(),
+}) satisfies z.ZodType<FilesPlaceLivePreviewRequest>
+
+const filesReloadLivePreviewRequest = z.strictObject({
+  taskId: z.string(),
+  url: loopbackUrl,
+}) satisfies z.ZodType<FilesReloadLivePreviewRequest>
 
 /** A scope Settings lists: Glade-wide, or a workspace's. A task's grants aren't Settings', so its scope doesn't parse. */
 const settingsGrantTarget = z.discriminatedUnion('scope', [
@@ -679,6 +704,9 @@ export const REQUEST_SCHEMAS = {
   [CommandName.FilesWatchFolders]: filesWatchFoldersRequest,
   [CommandName.FilesPlaceHtmlPreview]: filesPlaceHtmlPreviewRequest,
   [CommandName.FilesReloadHtmlPreview]: filesReloadHtmlPreviewRequest,
+  [CommandName.FilesOpenUrl]: filesOpenUrlRequest,
+  [CommandName.FilesPlaceLivePreview]: filesPlaceLivePreviewRequest,
+  [CommandName.FilesReloadLivePreview]: filesReloadLivePreviewRequest,
   [CommandName.ArtifactsRemove]: artifactsRemoveRequest,
   [CommandName.ArtifactsAddLink]: artifactsAddLinkRequest,
   [CommandName.ArtifactsWatch]: artifactsWatchRequest,

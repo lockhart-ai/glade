@@ -145,6 +145,9 @@ export enum CommandName {
   FilesWatchFolders = 'files.watchFolders',
   FilesPlaceHtmlPreview = 'files.placeHtmlPreview',
   FilesReloadHtmlPreview = 'files.reloadHtmlPreview',
+  FilesOpenUrl = 'files.openUrl',
+  FilesPlaceLivePreview = 'files.placeLivePreview',
+  FilesReloadLivePreview = 'files.reloadLivePreview',
   ArtifactsRemove = 'artifacts.remove',
   ArtifactsAddLink = 'artifacts.addLink',
   ArtifactsWatch = 'artifacts.watch',
@@ -1059,6 +1062,34 @@ export interface FilesReloadHtmlPreviewRequest {
 }
 
 /**
+ * Opens a loopback URL in the task's Files tab (#764), as a new tab at the end (or the tab it already has), and shows
+ * it live, in its own sandboxed view: Open URL… by hand, matching the agent's `show_file`'s `url`. The tab's key is
+ * the URL itself. Fails with `invalid_request` for anything but `http://localhost:<port>/…`,
+ * `http://127.0.0.1:<port>/…` or `http://[::1]:<port>/…`. Broadcasts `openFiles.changed`.
+ */
+export interface FilesOpenUrlRequest {
+  readonly taskId: string
+  readonly url: string
+}
+
+/**
+ * Puts the Files viewer's live preview over its body (#764), creating it (in its own sandboxed view, reaching only
+ * loopback) the first time, or hides it with `bounds: null` while the viewer isn't showing it. At most one preview
+ * shows at a time, as only one file's viewer ever shows: showing another destroys the last.
+ */
+export interface FilesPlaceLivePreviewRequest {
+  readonly taskId: string
+  readonly url: string
+  readonly bounds: PluginViewBounds | null
+}
+
+/** Reloads the live preview in place. A no-op unless this URL's preview is the one shown. */
+export interface FilesReloadLivePreviewRequest {
+  readonly taskId: string
+  readonly url: string
+}
+
+/**
  * Takes a file or a link off a task's artifacts (Remove from artifacts); a file itself stays. Broadcasts
  * `artifacts.changed`. Fails with `not_found` when it isn't one of the task's artifacts.
  */
@@ -1601,6 +1632,9 @@ export interface CommandMap {
   [CommandName.FilesWatchFolders]: CommandSpec<FilesWatchFoldersRequest, null>
   [CommandName.FilesPlaceHtmlPreview]: CommandSpec<FilesPlaceHtmlPreviewRequest, null>
   [CommandName.FilesReloadHtmlPreview]: CommandSpec<FilesReloadHtmlPreviewRequest, null>
+  [CommandName.FilesOpenUrl]: CommandSpec<FilesOpenUrlRequest, OpenFilesResponse>
+  [CommandName.FilesPlaceLivePreview]: CommandSpec<FilesPlaceLivePreviewRequest, null>
+  [CommandName.FilesReloadLivePreview]: CommandSpec<FilesReloadLivePreviewRequest, null>
   [CommandName.ArtifactsRemove]: CommandSpec<ArtifactsRemoveRequest, null>
   [CommandName.ArtifactsAddLink]: CommandSpec<ArtifactsAddLinkRequest, null>
   [CommandName.ArtifactsWatch]: CommandSpec<ArtifactsWatchRequest, null>
@@ -1709,6 +1743,8 @@ export enum EventType {
   FolderChanged = 'files.folderChanged',
   FileChanged = 'files.fileChanged',
   HtmlPreviewBlocked = 'files.htmlPreviewBlocked',
+  LivePreviewBlocked = 'files.livePreviewBlocked',
+  LivePreviewConnectionChanged = 'files.livePreviewConnectionChanged',
   TodosChanged = 'todos.changed',
   ArtifactsChanged = 'artifacts.changed',
   HandoffChanged = 'handoff.changed',
@@ -1909,6 +1945,32 @@ export interface HtmlPreviewBlockedEvent {
   readonly taskId: string
   /** Relative to the workspace root. */
   readonly path: string
+}
+
+/**
+ * The live preview's sandboxed page asked for something outside loopback (#764): refused, so the Files viewer shows
+ * its quiet "blocked" notice for `taskId`'s `path` (the tab's URL), naming the host it refused. Sent once per load; a
+ * reload clears the notice until it recurs.
+ */
+export interface LivePreviewBlockedEvent {
+  readonly type: EventType.LivePreviewBlocked
+  readonly taskId: string
+  /** The tab's URL. */
+  readonly path: string
+  /** The host that was refused, or the raw request when it wasn't even a URL. */
+  readonly host: string
+}
+
+/**
+ * The live preview's page finished loading, or failed to, or its process crashed (#764): the Files viewer's
+ * "Connected" line for `taskId`'s `path` (the tab's URL) follows this.
+ */
+export interface LivePreviewConnectionChangedEvent {
+  readonly type: EventType.LivePreviewConnectionChanged
+  readonly taskId: string
+  /** The tab's URL. */
+  readonly path: string
+  readonly connected: boolean
 }
 
 export interface FileShownEvent {
@@ -2135,6 +2197,8 @@ export type GladeEvent =
   | FolderChangedEvent
   | FileChangedEvent
   | HtmlPreviewBlockedEvent
+  | LivePreviewBlockedEvent
+  | LivePreviewConnectionChangedEvent
   | TodosChangedEvent
   | ArtifactsChangedEvent
   | HandoffChangedEvent

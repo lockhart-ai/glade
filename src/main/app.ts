@@ -93,6 +93,7 @@ import { createElectronPluginViews, PLUGIN_VIEW_RADIUS, pluginScheme } from './p
 import { createFakeMachineSamplers } from './plugins/machine-fake'
 import { createMachineSamplers } from './plugins/machine-samplers'
 import { createElectronHtmlPreviewView } from './files/html-preview-views'
+import { createElectronLivePreviewView } from './files/live-preview-views'
 import { htmlPreviewScheme } from './files/html-preview-protocol'
 import { captureViewOf, type CaptureView } from './capture-views'
 import { viewRadius } from './native-view-radius'
@@ -919,6 +920,14 @@ export function startApp({
         offscreen: testMode?.kind === TestModeKind.Capture,
         log: log.scoped(LogScope.Files),
       }),
+      // The Files viewer's live preview (#764) goes there too, in its own sandboxed view reaching only loopback.
+      createLivePreviewView: createElectronLivePreviewView({
+        window: () => mainWindows()[0],
+        openExternal: desktop.openExternal,
+        devTools: !app.isPackaged,
+        offscreen: testMode?.kind === TestModeKind.Capture,
+        log: log.scoped(LogScope.Files),
+      }),
       appVersion: app.getVersion(),
       // The Mac's load, for plugins with the `machine` capability on; a test mode's machine is always busy the same way.
       machineSamplers: testMode === null ? createMachineSamplers({ env: () => env }) : createFakeMachineSamplers(),
@@ -1051,6 +1060,7 @@ export function startApp({
       void bridge.endpoint.close()
       bridge.pluginViews.close()
       bridge.htmlPreviewViews.close()
+      bridge.livePreviewViews.close()
       bridge.machine?.close()
       bridge.artifactWatch.close()
       bridge.folderWatch.close()

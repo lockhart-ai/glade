@@ -25,6 +25,42 @@
   border-bottom: 1px solid var(--color-inner-border);
 }
 
+/* Collapsing the Files header (#764) hides this row with CSS, not by unmounting it. */
+.header[hidden],
+.liveHeader[hidden] {
+  display: none;
+}
+
+/* A live preview's path row (#764): the same shape as .header, with its own controls instead. */
+.liveHeader {
+  flex-shrink: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-inner-border);
+}
+
+.connected {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-teal);
+  white-space: nowrap;
+}
+
+.connectedDot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-teal);
+}
+
 /* Cut short from its start (…/limits/rate-limits.md): the right-to-left box puts the ellipsis first, and the path inside
    it stays left-to-right. */
 .path {

@@ -1084,5 +1084,32 @@ describe('TaskPanel', () => {
       expect(requestClose()).toBe(false)
       expect(invoke.mock.calls.filter(([command]) => command === CommandName.FilesClose)).toHaveLength(2)
     })
+
+    it('shows the Files header’s restore button only on Files, only while collapsed, and brings it back (#764)', async () => {
+      const { store } = await renderPanel({ openFiles: [OPEN], uiState: [FILES_TAB] })
+
+      // Open (the default): no restore button to show.
+      expect(screen.queryByRole('button', { name: 'Show the Files header' })).not.toBeInTheDocument()
+
+      // Collapsed, from the viewer's own chevron (FileViewer/FilesTab): the top bar's button appears.
+      fireEvent.click(screen.getByRole('button', { name: 'Collapse the Files header' }))
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Show the Files header' })).toBeInTheDocument()
+      })
+      expect(JSON.parse(store.getState().uiState[UiStateKey.FilesHeaderCollapsed] ?? '{}')).toEqual({ t1: true })
+
+      // Switching tabs hides it too: it's shown only on Files.
+      fireEvent.click(tab(/^Agents/))
+      expect(screen.queryByRole('button', { name: 'Show the Files header' })).not.toBeInTheDocument()
+      fireEvent.click(tab(/^Files/))
+      expect(screen.getByRole('button', { name: 'Show the Files header' })).toBeInTheDocument()
+
+      // The top bar's button brings the header back.
+      fireEvent.click(screen.getByRole('button', { name: 'Show the Files header' }))
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Show the Files header' })).not.toBeInTheDocument()
+      })
+      expect(JSON.parse(store.getState().uiState[UiStateKey.FilesHeaderCollapsed] ?? '{}')).toEqual({})
+    })
   })
 })

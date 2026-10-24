@@ -1,0 +1,26 @@
+/* A loopback dev server shown live (#764): main's native view is drawn over .slot, as the HTML preview's is. */
+.preview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* The quiet, blocked-request notice: a slim grey line like the HTML preview's, never pink (that's for failures). */
+.blocked {
+  flex-shrink: 0;
+  margin: 0;
+  padding: var(--space-sm) var(--space-xl);
+  border-bottom: 1px solid var(--color-inner-border);
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-muted);
+}
+
+.host {
+  font-family: var(--font-mono);
+}
+
+.slot {
+  flex-grow: 1;
+  min-height: 0;
+}

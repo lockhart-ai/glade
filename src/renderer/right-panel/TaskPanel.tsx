@@ -1,8 +1,9 @@
+import { faChevronDown } from '@fortawesome/free-solid-svg-icons'
 import { useCallback, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { PermissionMark, PermissionRequest } from '../../shared/domain'
 import { AgentsTab } from '../agents'
-import { TabPanel, Tabs, type TabItem } from '../components'
+import { Button, ButtonVariant, TabPanel, Tabs, type TabItem } from '../components'
 import { FilesTab, type FileLineFocus } from '../files'
 import { RightPanel } from '../layout'
 import { usePresence } from '../motion'
@@ -12,7 +13,15 @@ import { selectSelectedTask, selectSelectedWorkspace, type TodoFocus } from '../
 import { useGladeStore } from '../store/react'
 import { TodoHub } from '../todos'
 import type { TurnFocus } from '../tool-log'
-import { activePanelTab, FIRST_PANEL_TAB, formatCount, PanelTab, panelTabEntry } from './panelModel'
+import {
+  activePanelTab,
+  filesHeaderCollapsedEntry,
+  FIRST_PANEL_TAB,
+  formatCount,
+  isFilesHeaderCollapsed,
+  PanelTab,
+  panelTabEntry,
+} from './panelModel'
 import { PANEL_TAB_DEFINITIONS } from './panelTabs'
 import styles from './TaskPanel.module.css'
 import { TodoWaitingBadge } from './TodoWaitingBadge'
@@ -119,6 +128,13 @@ export function TaskPanel(): React.JSX.Element | null {
     if (next !== tab && task !== undefined) void setUiState(panelTabEntry(uiState, task.id, next))
   }
 
+  // The Files tab's header (its open-files row and path row) collapsed, so a live preview fills it below this bar
+  // (#764); kept per task, and shown only while the Files tab itself shows, next to the panel's own collapse toggle.
+  const headerCollapsed = task !== undefined && isFilesHeaderCollapsed(uiState, task.id)
+  const toggleFilesHeader = (): void => {
+    if (task !== undefined) void setUiState(filesHeaderCollapsedEntry(uiState, task.id, !headerCollapsed))
+  }
+
   // Close (⌘W) closes the file showing in Files while the focus is in the panel; anywhere else it closes the window, as
   // ever. The focus stays in the panel, on the tab's content, so another ⌘W closes the next file rather than the window.
   const closeActiveFile = (event: Event): void => {
@@ -154,6 +170,8 @@ export function TaskPanel(): React.JSX.Element | null {
               taskId={task.id}
               rootPath={rootPath}
               focus={fileLine?.taskId === task.id ? fileLine : null}
+              headerCollapsed={headerCollapsed}
+              onToggleHeader={toggleFilesHeader}
             />
           )
         )
@@ -197,6 +215,16 @@ export function TaskPanel(): React.JSX.Element | null {
           {/* In a narrow panel the tabs scroll sideways (see Tabs) rather than push the collapse button out of reach. */}
           <Tabs id={TABS_ID} label="Task panels" tabs={tabs} value={tab} onChange={selectTab} />
           <span className={styles.spacer} />
+          {tab === PanelTab.Files && headerCollapsed && (
+            <Button
+              variant={ButtonVariant.Icon}
+              icon={faChevronDown}
+              aria-label="Show the Files header"
+              title="Show the Files header"
+              className={styles.collapse}
+              onClick={toggleFilesHeader}
+            />
+          )}
           <PanelToggle panel={Panel.RightPanel} className={styles.collapse} />
         </>
       }

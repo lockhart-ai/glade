@@ -659,6 +659,12 @@ export enum UiStateKey {
    * workspace's id.
    */
   RightPanelTabs = 'right_panel_tabs',
+  /**
+   * The Files tab's header (its open-files row and path row) collapsed, so a live preview fills the tab below the
+   * panel's top bar (#764), per task: JSON, from a task's id to `true`. A task with no entry (or `false`) shows the
+   * header; a task left on it keeps it collapsed across restarts and other tabs, until the toggle brings it back.
+   */
+  FilesHeaderCollapsed = 'files_header_collapsed',
   /** The right panel's width in CSS pixels, as you last dragged it. Unset means the design's default. */
   RightPanelWidth = 'right_panel_width',
   /** Whether the right panel is collapsed: `'true'` or `'false'`. Unset means open. */

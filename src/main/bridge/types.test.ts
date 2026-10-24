@@ -166,6 +166,9 @@ const TASK_HANDLERS = {
   [CommandName.FilesWatchFolders]: () => null,
   [CommandName.FilesPlaceHtmlPreview]: () => null,
   [CommandName.FilesReloadHtmlPreview]: () => null,
+  [CommandName.FilesOpenUrl]: () => ({ openFiles: {} as OpenFiles }),
+  [CommandName.FilesPlaceLivePreview]: () => null,
+  [CommandName.FilesReloadLivePreview]: () => null,
   [CommandName.WorkspacesUpdate]: () => ({ workspace: WORKSPACE }),
   [CommandName.SettingsGet]: () => ({ settings: DEFAULT_SETTINGS }),
   [CommandName.ModelsList]: () => ({ models: BUILT_IN_MODELS }),
@@ -615,6 +618,12 @@ describe('events', () => {
           break
         case EventType.HtmlPreviewBlocked:
           expectTypeOf(event.path).toEqualTypeOf<string>()
+          break
+        case EventType.LivePreviewBlocked:
+          expectTypeOf(event.host).toEqualTypeOf<string>()
+          break
+        case EventType.LivePreviewConnectionChanged:
+          expectTypeOf(event.connected).toEqualTypeOf<boolean>()
           break
         case EventType.TodosChanged:
           expectTypeOf(event.todos).toEqualTypeOf<TodoList | null>()

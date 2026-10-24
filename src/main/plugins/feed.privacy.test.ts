@@ -464,6 +464,22 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
     [EventType.HtmlPreviewBlocked]: [
       { type: EventType.HtmlPreviewBlocked, taskId: created.id, path: secret('blocked_preview_path') },
     ],
+    [EventType.LivePreviewBlocked]: [
+      {
+        type: EventType.LivePreviewBlocked,
+        taskId: created.id,
+        path: secret('blocked_live_path'),
+        host: secret('blocked_live_host'),
+      },
+    ],
+    [EventType.LivePreviewConnectionChanged]: [
+      {
+        type: EventType.LivePreviewConnectionChanged,
+        taskId: created.id,
+        path: secret('live_connection_path'),
+        connected: true,
+      },
+    ],
     [EventType.TodosChanged]: [
       {
         type: EventType.TodosChanged,

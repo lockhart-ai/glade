@@ -3,7 +3,7 @@
 import { redo, undo } from '@codemirror/commands'
 import { EditorView } from '@codemirror/view'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { EventType, type FilesWriteRequest } from '../../shared/bridge'
 import {
   FileContentKind,
@@ -88,7 +88,7 @@ async function renderEditing(openFiles: OpenFiles = OPEN, main: Partial<FakeMain
   render(
     <GladeStoreProvider store={store}>
       <ToastProvider>
-        <FilesTab taskId="t1" rootPath={ROOT} focus={null} />
+        <FilesTab taskId="t1" rootPath={ROOT} focus={null} headerCollapsed={false} onToggleHeader={vi.fn()} />
         <UnsavedChangesDialog />
       </ToastProvider>
     </GladeStoreProvider>,

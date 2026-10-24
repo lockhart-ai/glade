@@ -1066,6 +1066,35 @@
   system prompt gets one sentence: check it before starting work on an existing pull request, issue or branch, and
   stop and ask if another task already has it. No claims (a task marking a PR as its own) for now.
 
+- **The Files tab shows a local dev server live, locked to loopback (#764, Jared, Oct 23).** Raised from the
+  CyberDash task: Jared wanted to watch and play a Phaser game a dev server hot-reloads, which the Files tab's
+  existing HTML preview can't do, since it's offline by design (#614: `connect-src 'none'`, `frame-src 'none'`,
+  every request outside the file's own folder cancelled) — and that stays exactly as #614 left it. A loopback page
+  never runs in the renderer's own page (an iframe would share its process and could reach the preload bridge): it
+  always runs in its own sandboxed `WebContentsView`, in a fresh session of its own, the same way the HTML preview
+  and the plugin sandbox do (`src/main/files/live-preview-views.ts`). That session's `webRequest` lets through only
+  `http`/`ws` to the literal hosts `localhost`, `127.0.0.1` or `[::1]` (any port) — never a name that merely resolves
+  to one, checked by one shared `isLoopbackUrl` (`src/main/files/live-preview-network.ts`), used by both the
+  session's filter and `show_file`'s own validation of its `url`. Leaving loopback (a navigation, a new window) is
+  refused and handed to the browser, as the HTML preview's own links are. Only `fullscreen` is granted; every other
+  permission and every download is refused. The agent opens one with `show_file`'s `url` (instead of `path`); the
+  user can with Open URL… by the open-files row. The tab's key is the URL itself (it contains `://`, which a
+  workspace path or a commit file key never does). A click inside the page gives it the keyboard focus (handled in
+  main, since the native view sits over the page and nothing in it could catch the click itself), so arrow keys and
+  Shift reach the game rather than Glade.
+  - **The Files tab's header can collapse (Jared, same day).** So the live page gets as much of the tab as
+    possible: the open-files row and the viewer's own path row collapse (CSS, not unmounting, so nothing in them
+    loses its state), leaving the viewer to fill the tab below the panel's top bar. A small icon button in that top
+    bar, next to the panel's own collapse toggle, brings it back; it's shown only on the Files tab, and works for
+    any file, not only a live page. Kept per task, in UI state (`files_header_collapsed`), the same way the
+    panel's selected tab is.
+  - Calls made without Jared: the "Connected" line (the page finished loading, and hasn't since failed or
+    crashed); the Open URL… control's shape (a plain inline field by the open-files row, Escape to cancel); giving
+    `show_file` exactly one of `path` and `url`, as `add_artifact` already takes a file or a link; reusing
+    `file.shown` for a URL tab, with `line` always null, rather than a second event; and that Reload only reloads
+    the page in place — there's no file on disk whose folder could change, so nothing here reopens it fresh the way
+    the HTML preview's kept page does.
+
 ## Open
 
 - Exact names and schemas for the model surface tools (a draft is in `model-surface.md`).

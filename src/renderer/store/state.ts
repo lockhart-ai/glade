@@ -352,6 +352,18 @@ export interface GladeData {
    */
   readonly htmlPreviewBlocked: Readonly<Record<string, Readonly<Record<string, boolean>>>>
   /**
+   * The Files viewer's live preview's last blocked request (#764: a request outside loopback), by task id then the
+   * tab's URL, naming the host that was refused, for the viewer's quiet notice; null (or no entry) means nothing's
+   * blocked. Reset to null whenever the preview is shown or reloaded; not saved.
+   */
+  readonly livePreviewBlocked: Readonly<Record<string, Readonly<Record<string, string | null>>>>
+  /**
+   * Whether the Files viewer's live preview's page is connected (#764: it finished loading, and hasn't since failed
+   * or crashed), by task id then the tab's URL, for the viewer's "Connected" line. Missing (not yet known) and false
+   * both show nothing; not saved.
+   */
+  readonly livePreviewConnected: Readonly<Record<string, Readonly<Record<string, boolean>>>>
+  /**
    * The control API's HTTP endpoint (Settings › Control), as main last answered (`control.status`, which the section asks
    * for when it opens) or broadcast it; null until it's first read.
    */
@@ -526,6 +538,16 @@ export interface GladeActions {
   clearHtmlPreviewBlocked: (taskId: string, path: string) => void
   /** Reloads the HTML preview fresh from disk, in place, and clears its blocked notice until it recurs (`files.reloadHtmlPreview`). */
   reloadHtmlPreview: (taskId: string, path: string) => Promise<void>
+  /**
+   * Puts the Files viewer's live preview over its body, in the page's CSS pixels, or hides it (`null`)
+   * (`files.placeLivePreview`, #764). Called on every resize and overlay change, not only the first time, so it
+   * never touches the blocked notice or the connection line itself.
+   */
+  placeLivePreview: (taskId: string, url: string, bounds: PluginViewBounds | null) => Promise<void>
+  /** Clears a URL's blocked notice, locally: once when its preview mounts, so an earlier block doesn't linger. */
+  clearLivePreviewBlocked: (taskId: string, url: string) => void
+  /** Reloads the live preview in place, and clears its blocked notice until it recurs (`files.reloadLivePreview`). */
+  reloadLivePreview: (taskId: string, url: string) => Promise<void>
   /**
    * Asks for a folder with the native dialog and adds it as a workspace (or finds the one already there) and opens it:
    * New workspace… and Open folder as workspace…. Resolves with the workspace, or null if the dialog was cancelled.
@@ -749,6 +771,11 @@ export interface GladeActions {
   /** Opens a file in a task's Files tab and shows it (`files.open`). */
   openFile: (taskId: string, path: string) => Promise<void>
   /**
+   * Opens a loopback URL in a task's Files tab live, as a new tab keyed by the URL itself, and shows it (Open URL…,
+   * `files.openUrl`, #764). Rejects with the `BridgeError` when it isn't loopback.
+   */
+  openUrl: (taskId: string, url: string) => Promise<void>
+  /**
    * Closes a file's tab in a task's Files tab (`files.close`), and its editor. With unsaved edits, asks Save / Discard
    * / Cancel first. Resolves with whether it closed: false when you cancelled, or saving failed (rejecting then).
    */
@@ -955,6 +982,8 @@ export const INITIAL_DATA: GladeData = {
   sandboxGrants: {},
   pluginStatuses: {},
   htmlPreviewBlocked: {},
+  livePreviewBlocked: {},
+  livePreviewConnected: {},
   controlStatus: null,
   accountStatus: { account: null, usage: [] },
   openrouterUsage: EMPTY_OPENROUTER_USAGE,

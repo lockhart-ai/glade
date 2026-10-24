@@ -10,7 +10,7 @@ import { describeIssues, REQUEST_SCHEMAS } from './requests'
 
 const KEY = UiStateKey.ActiveWorkspaceId
 const BAD_KEY =
-  'key: Invalid option: expected one of "active_workspace_id"|"selected_task_id"|"pinned_section_collapsed"|"active_section_collapsed"|"done_section_collapsed"|"relaunch_notice"|"right_panel_tabs"|"right_panel_width"|"right_panel_collapsed"|"sidebar_collapsed"|"sidebar_width"|"bottom_bar_collapsed"|"bottom_bar_height"|"plugin_width"|"terminal_selection"'
+  'key: Invalid option: expected one of "active_workspace_id"|"selected_task_id"|"pinned_section_collapsed"|"active_section_collapsed"|"done_section_collapsed"|"relaunch_notice"|"right_panel_tabs"|"files_header_collapsed"|"right_panel_width"|"right_panel_collapsed"|"sidebar_collapsed"|"sidebar_width"|"bottom_bar_collapsed"|"bottom_bar_height"|"plugin_width"|"terminal_selection"'
 
 describe('REQUEST_SCHEMAS', () => {
   it('parses valid requests', () => {
@@ -585,6 +585,40 @@ describe('files.write', () => {
     expect(schema.safeParse({ taskId: 't', path: 'a.md' }).success).toBe(false)
     expect(schema.safeParse({ taskId: 't', path: 'a.md', text: 1 }).success).toBe(false)
     expect(schema.safeParse({ taskId: 't', path: 'a.md', text: 'x', mode: 0o777 }).success).toBe(false)
+  })
+})
+
+describe('the live preview’s requests (#764)', () => {
+  it('takes only a loopback url, for opening, placing or reloading', () => {
+    const open = { taskId: 't', url: 'http://localhost:3000/' }
+    expect(REQUEST_SCHEMAS[CommandName.FilesOpenUrl].parse(open)).toEqual(open)
+    const place = { taskId: 't', url: 'http://127.0.0.1:3000/', bounds: { x: 0, y: 0, width: 300, height: 200 } }
+    expect(REQUEST_SCHEMAS[CommandName.FilesPlaceLivePreview].parse(place)).toEqual(place)
+    expect(REQUEST_SCHEMAS[CommandName.FilesPlaceLivePreview].parse({ ...place, bounds: null })).toEqual({
+      ...place,
+      bounds: null,
+    })
+    const reload = { taskId: 't', url: 'http://[::1]:3000/' }
+    expect(REQUEST_SCHEMAS[CommandName.FilesReloadLivePreview].parse(reload)).toEqual(reload)
+  })
+
+  it('refuses anything but a loopback url', () => {
+    for (const url of ['https://example.com/', 'http://example.com/', 'ws://localhost:3000/', 'not a url']) {
+      expect(REQUEST_SCHEMAS[CommandName.FilesOpenUrl].safeParse({ taskId: 't', url }).success, url).toBe(false)
+      expect(
+        REQUEST_SCHEMAS[CommandName.FilesPlaceLivePreview].safeParse({ taskId: 't', url, bounds: null }).success,
+        url,
+      ).toBe(false)
+      expect(REQUEST_SCHEMAS[CommandName.FilesReloadLivePreview].safeParse({ taskId: 't', url }).success, url).toBe(
+        false,
+      )
+    }
+  })
+
+  it('also takes a url file key for files.open and files.close, reopening or closing a live tab', () => {
+    const open = { taskId: 't', path: 'http://localhost:3000/' }
+    expect(REQUEST_SCHEMAS[CommandName.FilesOpen].parse(open)).toEqual(open)
+    expect(REQUEST_SCHEMAS[CommandName.FilesClose].parse(open)).toEqual(open)
   })
 })
 

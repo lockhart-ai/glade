@@ -272,6 +272,8 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.FolderChanged:
       case EventType.FileChanged:
       case EventType.HtmlPreviewBlocked:
+      case EventType.LivePreviewBlocked:
+      case EventType.LivePreviewConnectionChanged:
       case EventType.FilingsChanged:
       case EventType.TerminalTabsChanged:
       case EventType.TerminalOutput:
@@ -4231,6 +4233,8 @@ describe('several tasks at once', () => {
       case EventType.FolderChanged:
       case EventType.FileChanged:
       case EventType.HtmlPreviewBlocked:
+      case EventType.LivePreviewBlocked:
+      case EventType.LivePreviewConnectionChanged:
       case EventType.TodosChanged:
       case EventType.ArtifactsChanged:
       case EventType.HandoffChanged:
@@ -4310,6 +4314,8 @@ describe('several tasks at once', () => {
       case EventType.FolderChanged:
       case EventType.FileChanged:
       case EventType.HtmlPreviewBlocked:
+      case EventType.LivePreviewBlocked:
+      case EventType.LivePreviewConnectionChanged:
       case EventType.TodosChanged:
       case EventType.ArtifactsChanged:
       case EventType.HandoffChanged:

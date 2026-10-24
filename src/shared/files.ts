@@ -131,3 +131,22 @@ export function parseCommitFileKey(key: string): CommitFileRef | null {
 export function fileName(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1)
 }
+
+/**
+ * Whether a file tab's key names a loopback URL (`show_file`'s `url`, or Open URL…, #764), not a workspace path or a
+ * commit file: it contains `://`, which neither of those ever does (a workspace-relative path never starts with `/`,
+ * let alone carries a scheme; `commitFileKey` always starts with `/commit/`). So the URL itself is the tab's key,
+ * with nothing else to parse out of it.
+ */
+export function isUrlFileKey(key: string): boolean {
+  return key.includes('://')
+}
+
+/** The live tab's label, as the design shows it (`localhost:3000`): the URL's host and port, never its scheme or path. */
+export function urlFileLabel(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
