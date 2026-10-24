@@ -721,11 +721,13 @@ describe('Open URL… and a live preview’s tab (#764)', () => {
     fireEvent.change(field, { target: { value: 'http://localhost:3000/' } })
     fireEvent.click(submit)
 
+    // The store updates and the field closes (ready for the next Open URL…) from the same submit; wait for both
+    // together, since the field's own state updates a tick after the store's (#765's CI: asserting the field right
+    // after a `waitFor` on the store alone raced its own re-render).
     await waitFor(() => {
       expect(store.getState().openFiles.t1?.paths).toEqual(['http://localhost:3000/'])
+      expect(screen.queryByRole('textbox', { name: 'Loopback URL to open' })).not.toBeInTheDocument()
     })
-    // The field closes once it opens, ready for the next Open URL…
-    expect(screen.queryByRole('textbox', { name: 'Loopback URL to open' })).not.toBeInTheDocument()
   })
 
   it('closes the field on Escape, without opening anything', async () => {
