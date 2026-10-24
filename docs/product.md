@@ -247,6 +247,23 @@ There are no follow-up tasks. One task can refer to another through its folder o
   and ⌘F, with the focus in the Files tab while Browse shows, goes to its search (the editor's ⌘F still finds in the
   file). The folders it shows are watched, so what the agent (or anything else) makes or deletes shows at once.
   ![Browse files](design/screens/37-browse-files.png)
+
+  A workspace's static HTML file opens on a preview beside its source (#614), offline by design: no network, no
+  frames, nothing outside the file's own folder. For a local dev server — `http://localhost:3000`, say — the agent
+  opens it live with `show_file`'s `url` (#764), or Open URL… does, by the open-files row (a globe icon, next to
+  Browse); its tab carries a globe icon, the host and port (`localhost:3000`) and a **LIVE** badge. It runs the real
+  page, hot reload included, in its own sandboxed view that can reach loopback alone — never another host, however
+  the page tries to reach it, and never over HTTPS. A request outside loopback is blocked and named in a quiet
+  notice under the tab bar. A reload button refreshes it in place, and **Open in browser** opens it in the default
+  one; a "Connected" line shows once the page has loaded. Leaving loopback (a link, a new window) is handed to the
+  browser instead of following it in the view. Clicking inside the page gives it the keyboard focus, so arrow keys
+  and Shift reach it rather than Glade.
+
+  The Files tab's header — the open-files row, and the viewer's own path row — can collapse, so the page (or any
+  file) fills the tab under the panel's own tab bar: a chevron in that row collapses it, and a small icon button in
+  the panel's top bar, next to its own collapse toggle, brings it back. Shown only on the Files tab, and remembered
+  per task.
+  ![Live preview](design/screens/67-live-preview.png)
 - **Bottom bar** (full width) — the workspace's terminal, with tabs, and a plugin panel (Nekomata). Resizable,
   collapsible. Each workspace has its own terminal tabs; switching workspace switches them, and the other
   workspaces' shells keep running. Removing a workspace ends its shells. Clicking something in a plugin can open the

@@ -5,6 +5,7 @@ import {
   BridgeErrorCode,
   CommandName,
   type FilesPlaceHtmlPreviewRequest,
+  type FilesPlaceLivePreviewRequest,
   type FilesWriteRequest,
   type LogRendererErrorRequest,
   type PluginsPlaceViewRequest,
@@ -235,6 +236,10 @@ export interface FakeMain {
   placedHtmlPreviews?: FilesPlaceHtmlPreviewRequest[]
   /** What `files.reloadHtmlPreview` reloaded, oldest first. */
   reloadedHtmlPreviews?: { taskId: string; path: string }[]
+  /** Where `files.placeLivePreview` put the preview, oldest first. */
+  placedLivePreviews?: FilesPlaceLivePreviewRequest[]
+  /** What `files.reloadLivePreview` reloaded, oldest first. */
+  reloadedLivePreviews?: { taskId: string; url: string }[]
   /**
    * The sandbox grants `sandbox.listGrants` answers with, by scope (`settingsGrantScopeKey`); none when left out.
    * `sandbox.addGrant`, `sandbox.setFolderAccess` and `sandbox.removeGrant` change a scope's and broadcast them, and
@@ -703,6 +708,7 @@ export function fakeHandlers(
       return null
     },
     [CommandName.FilesOpen]: ({ taskId, path }) => changeOpenFiles(taskId, (open) => withOpenedFile(open, path)),
+    [CommandName.FilesOpenUrl]: ({ taskId, url }) => changeOpenFiles(taskId, (open) => withOpenedFile(open, url)),
     [CommandName.FilesClose]: ({ taskId, path }) => changeOpenFiles(taskId, (open) => withClosedFile(open, path)),
     [CommandName.FilesOpenInEditor]: ({ path }) => {
       main.openedInEditor?.push(path)
@@ -799,6 +805,14 @@ export function fakeHandlers(
     },
     [CommandName.FilesReloadHtmlPreview]: ({ taskId, path }) => {
       main.reloadedHtmlPreviews = [...(main.reloadedHtmlPreviews ?? []), { taskId, path }]
+      return null
+    },
+    [CommandName.FilesPlaceLivePreview]: (request) => {
+      main.placedLivePreviews = [...(main.placedLivePreviews ?? []), request]
+      return null
+    },
+    [CommandName.FilesReloadLivePreview]: ({ taskId, url }) => {
+      main.reloadedLivePreviews = [...(main.reloadedLivePreviews ?? []), { taskId, url }]
       return null
     },
     [CommandName.ArtifactsRemove]: ({ taskId, ref }) => {

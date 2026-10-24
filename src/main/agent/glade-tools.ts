@@ -47,7 +47,8 @@ import { TOOL_USE_ID_META } from './mcp-tool-caller'
 import { jsonSchemaOfShape, type ToolSignature } from './tool-fingerprint'
 import { otherTasksAnswer, otherTasksText } from './other-tasks'
 import { FileAccess } from './sandbox-requests'
-import { showTaskFile, workspaceRoot } from '../files/files'
+import { showTaskFile, showTaskUrl, workspaceRoot } from '../files/files'
+import { isLoopbackUrl } from '../files/live-preview-network'
 import {
   ACCESS_PATH_NOT_ABSOLUTE,
   AccessOutcomeKind,
@@ -159,8 +160,13 @@ export interface AskInput {
   readonly questions: readonly Question[]
 }
 
+/**
+ * `show_file`'s input: a workspace file by `path`, or a loopback dev server by `url` (#764); exactly one of them.
+ * `line` only ever marks a line in a file: it's ignored for a `url`, which has none to mark.
+ */
 export interface ShowFileInput {
-  readonly path: string
+  readonly path?: string | undefined
+  readonly url?: string | undefined
   readonly line?: number | undefined
 }
 
@@ -242,9 +248,17 @@ const askInput = z.object({
   questions: questionsSchema.describe('The questions, shown together on one card, in this order.'),
 }) satisfies z.ZodType<AskInput>
 
+// The SDK checks only the fields' shape, so the handler refuses a call that gives both a path and a url, or neither
+// (`SHOW_FILE_PATH_OR_URL`), the same way `add_artifact` does.
 const showFileInput = z.object({
-  path: text('path').describe("The file's path: absolute, or relative to the workspace root."),
-  line: z.int().positive().optional().describe('A line to scroll to and mark, from 1.'),
+  path: text('path').optional().describe("The file's path: absolute, or relative to the workspace root."),
+  url: text('url')
+    .optional()
+    .describe(
+      'Instead of a path: a local dev server to show live, e.g. "http://localhost:3000". Only loopback ' +
+        '(localhost, 127.0.0.1 or [::1]) is allowed; nothing else can be reached from it.',
+    ),
+  line: z.int().positive().optional().describe('A line to scroll to and mark, from 1; only for a path, never a url.'),
 }) satisfies z.ZodType<ShowFileInput>
 
 // The SDK checks only the fields' shape, so the handlers refuse a call that gives both a path and a url, or neither.
@@ -402,6 +416,14 @@ export const UPDATE_CHANGES_NOTHING =
 /** What the artifact tools tell the model when it names a file and a link at once, or neither (#407). */
 export const PATH_OR_URL = "Give the artifact's path (a file) or its url (a link): one of them, not both."
 
+/** What `show_file` tells the model when it names a file and a url at once, or neither (#764). */
+export const SHOW_FILE_PATH_OR_URL = "Give the file's path, or a loopback url to show live: one of them, not both."
+
+/** What `show_file` tells the model when its `url` isn't loopback (#764). */
+export const SHOW_FILE_NOT_LOOPBACK =
+  'Only a loopback url can be shown live: http://localhost, http://127.0.0.1 or http://[::1], at any port. ' +
+  'Nothing else can be reached from it.'
+
 /** What `update_artifact` tells the model when it gives a file a new url, or a link a new path. */
 export const NEW_TARGET_OF_ANOTHER_KIND =
   "A file artifact takes a newPath, and a link artifact a newUrl: one can't turn into the other. Remove it and add " +
@@ -495,7 +517,10 @@ export interface GladeToolHandlers {
   setStatus(input: SetStatusInput): GladeToolResult
   /** Waits until the questions are answered; `signal` is the SDK cancelling the call. */
   ask(input: AskInput, signal?: AbortSignal): Promise<GladeToolResult>
-  /** Opens a file in the task's Files tab; an error result when it isn't a file in the workspace. */
+  /**
+   * Opens a file in the task's Files tab, or a loopback dev server, live (`url`, #764); an error result when it
+   * names neither or both, the path isn't a file in the workspace, or the url isn't loopback.
+   */
   showFile(input: ShowFileInput): Promise<GladeToolResult>
   /**
    * Declares a file as a deliverable of the task; an error result when it isn't a file in the workspace. With the todo
@@ -568,7 +593,14 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
       if (answered === ASK_PARKED) return reply(ASK_PARKED_NOTE)
       return answered === null ? { ...reply(QUESTIONS_WITHDRAWN), isError: true } : askResult(context, taskId, answered)
     },
-    async showFile({ path, line }) {
+    async showFile({ path, url, line }) {
+      if (path !== undefined && url !== undefined) return { ...reply(SHOW_FILE_PATH_OR_URL), isError: true }
+      if (url !== undefined) {
+        if (!isLoopbackUrl(url)) return { ...reply(SHOW_FILE_NOT_LOOPBACK), isError: true }
+        showTaskUrl(context, taskId, url)
+        return reply(`Showing ${url}.`)
+      }
+      if (path === undefined) return { ...reply(SHOW_FILE_PATH_OR_URL), isError: true }
       try {
         const shown = await showTaskFile(context, taskId, path, line ?? null)
         return reply(line === undefined ? `Showing ${shown}.` : `Showing ${shown} at line ${String(line)}.`)

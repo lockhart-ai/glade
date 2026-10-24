@@ -3,14 +3,17 @@ import { UiStateKey } from '../../shared/domain'
 import type { UiStateValues } from '../store/state'
 import {
   activePanelTab,
+  filesHeaderCollapsedEntry,
   FIRST_PANEL_TAB,
   formatCount,
+  isFilesHeaderCollapsed,
   PANEL_TABS,
   PanelTab,
   panelTabEntry,
   parsePanelTabSelection,
   serializePanelTabSelection,
   tabForDigit,
+  withoutFilesHeaderCollapsedEntry,
   withoutPanelTabEntry,
 } from './panelModel'
 
@@ -142,5 +145,54 @@ describe('formatCount', () => {
     expect(formatCount({ done: 3, total: 4 })).toBe('3/4')
     expect(formatCount({ done: 0, total: 4 })).toBe('0/4')
     expect(formatCount({ done: 0, total: 0 })).toBeUndefined()
+  })
+})
+
+describe('isFilesHeaderCollapsed', () => {
+  it('is false for a task with nothing stored, or whose entry is not true', () => {
+    expect(isFilesHeaderCollapsed({}, 't1')).toBe(false)
+    expect(isFilesHeaderCollapsed({ [UiStateKey.FilesHeaderCollapsed]: 'not json' }, 't1')).toBe(false)
+    expect(isFilesHeaderCollapsed({ [UiStateKey.FilesHeaderCollapsed]: '{"t1":false}' }, 't1')).toBe(false)
+    expect(isFilesHeaderCollapsed({ [UiStateKey.FilesHeaderCollapsed]: '[]' }, 't1')).toBe(false)
+  })
+
+  it('is true only for a task whose entry is true', () => {
+    const uiState: UiStateValues = { [UiStateKey.FilesHeaderCollapsed]: '{"t1":true,"t2":false}' }
+    expect(isFilesHeaderCollapsed(uiState, 't1')).toBe(true)
+    expect(isFilesHeaderCollapsed(uiState, 't2')).toBe(false)
+  })
+})
+
+describe('filesHeaderCollapsedEntry', () => {
+  it('collapses a task, keeping every other task’s', () => {
+    const uiState: UiStateValues = { [UiStateKey.FilesHeaderCollapsed]: '{"t1":true}' }
+
+    const entry = filesHeaderCollapsedEntry(uiState, 't2', true)
+
+    expect(entry.key).toBe(UiStateKey.FilesHeaderCollapsed)
+    expect(JSON.parse(entry.value)).toEqual({ t1: true, t2: true })
+  })
+
+  it('drops the task’s entry when shown again, keeping every other task’s', () => {
+    const uiState: UiStateValues = { [UiStateKey.FilesHeaderCollapsed]: '{"t1":true,"t2":true}' }
+
+    const entry = filesHeaderCollapsedEntry(uiState, 't1', false)
+
+    expect(JSON.parse(entry.value)).toEqual({ t2: true })
+  })
+})
+
+describe('withoutFilesHeaderCollapsedEntry', () => {
+  it('drops a task’s entry, keeping every other task’s', () => {
+    const uiState: UiStateValues = { [UiStateKey.FilesHeaderCollapsed]: '{"t1":true,"t2":true}' }
+
+    const entry = withoutFilesHeaderCollapsedEntry(uiState, 't1')
+
+    expect(entry).toEqual({ key: UiStateKey.FilesHeaderCollapsed, value: '{"t2":true}' })
+  })
+
+  it('is null for a task with no entry: nothing to write', () => {
+    expect(withoutFilesHeaderCollapsedEntry({}, 't1')).toBeNull()
+    expect(withoutFilesHeaderCollapsedEntry({ [UiStateKey.FilesHeaderCollapsed]: '{"t2":true}' }, 't1')).toBeNull()
   })
 })

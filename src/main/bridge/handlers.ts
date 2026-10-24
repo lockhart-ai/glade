@@ -64,6 +64,7 @@ import {
   openTaskFile,
   openTaskFileInEditor,
   readTaskFile,
+  showTaskUrl,
   writeTaskFile,
   workspaceRoot,
   revealTaskFile,
@@ -72,6 +73,7 @@ import {
   type WriteClipboard,
 } from '../files/files'
 import type { HtmlPreviewViews } from '../files/html-preview'
+import type { LivePreviewViews } from '../files/live-preview'
 import { todoListFor } from '../todos/todos'
 import { agentTabOf, readTodoHub, rememberAgentTab, rememberTodoPanel } from '../todo-hub/todo-hub'
 import { addTaskLinkByHand, removeTaskArtifact } from '../artifacts/artifacts'
@@ -150,6 +152,7 @@ export interface HandlerContext {
   readonly pluginViews: PluginViews
   /** The Files viewer's shown HTML preview. */
   readonly htmlPreviewViews: HtmlPreviewViews
+  readonly livePreviewViews: LivePreviewViews
   /** The control API's HTTP endpoint, which follows Settings › Control. */
   readonly endpoint: ControlEndpoint
   /** The account the tasks run on and its usage warning. */
@@ -216,6 +219,7 @@ export function createHandlers(context: HandlerContext): Handlers {
     plugins,
     pluginViews,
     htmlPreviewViews,
+    livePreviewViews,
     endpoint,
     account,
     login,
@@ -496,6 +500,24 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.FilesReloadHtmlPreview]: ({ taskId, path }) => {
       htmlPreviewViews.reload(taskId, path)
+      return null
+    },
+    // The request schema already refused anything but a loopback URL (`isLoopbackUrl`): opening is as simple as a
+    // regular file's (#764).
+    [CommandName.FilesOpenUrl]: ({ taskId, url }) => {
+      showTaskUrl(context, taskId, url)
+      return { openFiles: getOpenFiles(db, taskId) }
+    },
+    [CommandName.FilesPlaceLivePreview]: ({ taskId, url, bounds }) => {
+      if (bounds === null) {
+        livePreviewViews.hide(taskId, url)
+        return null
+      }
+      livePreviewViews.place(taskId, url, bounds)
+      return null
+    },
+    [CommandName.FilesReloadLivePreview]: ({ taskId, url }) => {
+      livePreviewViews.reload(taskId, url)
       return null
     },
     [CommandName.ArtifactsRemove]: ({ taskId, ref }) => {

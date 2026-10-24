@@ -738,6 +738,35 @@ describe('startApp', () => {
     }
   })
 
+  it('shows the Files viewer’s live preview over the body in its own sandboxed view, and ends it when the app quits (#764)', async () => {
+    await startAndWaitUntilReady()
+    // Only this test's view: a plugin's, in an earlier test, uses the same fake WebContentsView.
+    electron.pluginViews.length = 0
+    const db = new Database(join(electron.app.userData, 'glade.db'))
+    const taskId = sampleTask(db, sampleWorkspace(db).id).id
+    db.close()
+    const window = onlyWindow()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    const bounds = { x: 10, y: 20, width: 300, height: 200 }
+    const url = 'http://localhost:3000/'
+    await expect(handler?.(fromWindow(), CommandName.FilesPlaceLivePreview, { taskId, url, bounds })).resolves.toEqual({
+      ok: true,
+      value: null,
+    })
+
+    const [view] = electron.pluginViews
+    expect(electron.pluginViews).toHaveLength(1)
+    expect(window.contentView.addChildView).toHaveBeenCalledWith(view)
+    expect(view?.webContents.loadURL).toHaveBeenCalledWith(url)
+    expect(view?.setBounds).toHaveBeenCalledWith(bounds)
+    expect(view?.options).toMatchObject({ webPreferences: { sandbox: true, devTools: true } })
+    expect(view?.options).not.toHaveProperty('webPreferences.preload')
+
+    appHandler('will-quit')()
+    expect(view?.webContents.close).toHaveBeenCalledOnce()
+  })
+
   it('answers commands and broadcasts their events to every open window', async () => {
     await startAndWaitUntilReady()
     const window = onlyWindow()

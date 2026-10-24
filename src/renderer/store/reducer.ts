@@ -45,6 +45,7 @@ export function withUiState(state: GladeData, entry: UiStateEntry): GladeData {
     case UiStateKey.DoneSectionCollapsed:
     case UiStateKey.RelaunchNotice:
     case UiStateKey.RightPanelTabs:
+    case UiStateKey.FilesHeaderCollapsed:
     case UiStateKey.RightPanelWidth:
     case UiStateKey.RightPanelCollapsed:
     case UiStateKey.SidebarCollapsed:
@@ -644,6 +645,22 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
         htmlPreviewBlocked: {
           ...state.htmlPreviewBlocked,
           [event.taskId]: { ...state.htmlPreviewBlocked[event.taskId], [event.path]: true },
+        },
+      }
+    case EventType.LivePreviewBlocked:
+      return {
+        ...state,
+        livePreviewBlocked: {
+          ...state.livePreviewBlocked,
+          [event.taskId]: { ...state.livePreviewBlocked[event.taskId], [event.path]: event.host },
+        },
+      }
+    case EventType.LivePreviewConnectionChanged:
+      return {
+        ...state,
+        livePreviewConnected: {
+          ...state.livePreviewConnected,
+          [event.taskId]: { ...state.livePreviewConnected[event.taskId], [event.path]: event.connected },
         },
       }
     case EventType.ControlChanged:

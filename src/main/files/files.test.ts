@@ -41,6 +41,7 @@ import {
   revealTaskFile,
   saveFailure,
   showTaskFile,
+  showTaskUrl,
   writeTaskFile,
   writeWorkspaceFile,
   type FilesContext,
@@ -404,6 +405,33 @@ describe('showTaskFile', () => {
     await expect(showTaskFile(context, taskId, 'gone.md', null)).rejects.toThrow("There's no file at gone.md.")
     await expect(showTaskFile(context, taskId, 'docs', null)).rejects.toThrow("There's no file at docs.")
     expect(events).toEqual([])
+  })
+})
+
+describe('showTaskUrl', () => {
+  it('opens the url as its own tab, by itself, and asks the window to show it, with no line (#764)', () => {
+    showTaskUrl(context, taskId, 'http://localhost:3000/')
+
+    expect(getOpenFiles(database.db, taskId)).toEqual({
+      taskId,
+      paths: ['http://localhost:3000/'],
+      activePath: 'http://localhost:3000/',
+    })
+    expect(events.filter((event) => event.type === EventType.FileShown)).toEqual([
+      { type: EventType.FileShown, taskId, path: 'http://localhost:3000/', line: null },
+    ])
+  })
+
+  it('opens a second url as another tab, and reopens the same url rather than duplicating it', () => {
+    showTaskUrl(context, taskId, 'http://localhost:3000/')
+    showTaskUrl(context, taskId, 'http://localhost:4000/')
+    showTaskUrl(context, taskId, 'http://localhost:3000/')
+
+    expect(getOpenFiles(database.db, taskId)).toEqual({
+      taskId,
+      paths: ['http://localhost:3000/', 'http://localhost:4000/'],
+      activePath: 'http://localhost:3000/',
+    })
   })
 })
 

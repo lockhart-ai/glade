@@ -385,6 +385,8 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       case EventType.FolderChanged:
       case EventType.FileChanged:
       case EventType.HtmlPreviewBlocked:
+      case EventType.LivePreviewBlocked:
+      case EventType.LivePreviewConnectionChanged:
       case EventType.OpenFilesChanged:
       case EventType.TaskOpenRequested:
       case EventType.UiStateChanged:

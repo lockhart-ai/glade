@@ -52,6 +52,8 @@ import { sampleManifest, writePlugin } from '../plugins/test-plugins'
 import { createFakePluginViews, type FakePluginViews } from '../plugins/fake-view'
 import { createHtmlPreviewViews, type HtmlPreviewViews } from '../files/html-preview'
 import { createFakeHtmlPreviewViews, type FakeHtmlPreviewViews } from '../files/fake-html-preview-view'
+import { createLivePreviewViews, type LivePreviewViews } from '../files/live-preview'
+import { createFakeLivePreviewViews, type FakeLivePreviewViews } from '../files/fake-live-preview-view'
 import { createPluginFeed } from '../plugins/feed'
 import { databaseFeedSource } from '../plugins/feed-source'
 import { createPluginViews, type PluginViews } from '../plugins/views'
@@ -88,6 +90,7 @@ let context: HandlerContext
 let spawner: FakeSpawner
 let views: FakePluginViews
 let fakeHtmlPreview: FakeHtmlPreviewViews
+let fakeLivePreview: FakeLivePreviewViews
 
 /** The control endpoint, over the test's database; never started here (see `src/main/control/endpoint.test.ts`). */
 function endpointOf(): ControlEndpoint {
@@ -104,7 +107,12 @@ function endpointOf(): ControlEndpoint {
 }
 
 /** The plugins in the test's plugins folder, with their views made by `views`, and the HTML preview's made by `fakeHtmlPreview`. */
-function pluginsWithViews(): { plugins: Plugins; pluginViews: PluginViews; htmlPreviewViews: HtmlPreviewViews } {
+function pluginsWithViews(): {
+  plugins: Plugins
+  pluginViews: PluginViews
+  htmlPreviewViews: HtmlPreviewViews
+  livePreviewViews: LivePreviewViews
+} {
   const folder = join(root, 'plugins')
   const feed = createPluginFeed({ source: databaseFeedSource(database.db), tasks: [] })
   const pluginViews = createPluginViews({ emit, feed, folder, appVersion: '1.2.3', createView: views.create })
@@ -129,7 +137,8 @@ function pluginsWithViews(): { plugins: Plugins; pluginViews: PluginViews; htmlP
       return real === null ? null : { folder: dirname(real), fileName: basename(real) }
     },
   })
-  return { plugins, pluginViews, htmlPreviewViews }
+  const livePreviewViews = createLivePreviewViews({ emit, createView: fakeLivePreview.create })
+  return { plugins, pluginViews, htmlPreviewViews, livePreviewViews }
 }
 
 beforeEach(() => {
@@ -142,6 +151,7 @@ beforeEach(() => {
   writeClipboard = vi.fn(() => Promise.resolve())
   views = createFakePluginViews()
   fakeHtmlPreview = createFakeHtmlPreviewViews()
+  fakeLivePreview = createFakeLivePreviewViews()
   const runner = createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() })
   spawner = createFakeSpawner()
   const terminals = createTerminals({ db: database.db, emit, ...fakeTerminalOptions(spawner) })
@@ -1029,6 +1039,35 @@ describe('the files commands', () => {
     await handlers[CommandName.FilesPlaceHtmlPreview]({ taskId, path: 'docs/gone.html', bounds, reopen: true })
     await new Promise<void>((done) => setTimeout(done, 10))
     expect(fakeHtmlPreview.views).toHaveLength(1)
+  })
+
+  it('opens a loopback url live, and places, hides and reloads its preview (#764)', () => {
+    const taskId = taskInRoot()
+    const url = 'http://localhost:3000/'
+    const bounds = { x: 0, y: 0, width: 400, height: 300 }
+
+    // The request schema already refused anything but a loopback url: the handler just opens the tab.
+    expect(handlers[CommandName.FilesOpenUrl]({ taskId, url })).toEqual({
+      openFiles: { taskId, paths: [url], activePath: url },
+    })
+
+    expect(handlers[CommandName.FilesPlaceLivePreview]({ taskId, url, bounds })).toBeNull()
+    expect(fakeLivePreview.views).toHaveLength(1)
+    expect(fakeLivePreview.last().spec.url).toBe(url)
+    expect(fakeLivePreview.last().bounds).toEqual(bounds)
+
+    // While its view shows, the bounds go straight through.
+    const narrower = { x: 4, y: 8, width: 200, height: 150 }
+    expect(handlers[CommandName.FilesPlaceLivePreview]({ taskId, url, bounds: narrower })).toBeNull()
+    expect(fakeLivePreview.last().bounds).toEqual(narrower)
+
+    expect(handlers[CommandName.FilesReloadLivePreview]({ taskId, url })).toBeNull()
+    expect(fakeLivePreview.last().reloaded).toBe(1)
+
+    // `bounds: null` hides it, keeping its page: no second view is made.
+    expect(handlers[CommandName.FilesPlaceLivePreview]({ taskId, url, bounds: null })).toBeNull()
+    expect(fakeLivePreview.last().bounds).toBeNull()
+    expect(fakeLivePreview.views).toHaveLength(1)
   })
 })
 

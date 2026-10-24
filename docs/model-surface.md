@@ -243,6 +243,14 @@ preview without one (#657). For another task, only its tabs change. The reply is
 `Showing <path> at line <n>.`; a path outside the workspace (a symlink out of it included), or one with no file, is a
 tool error and opens nothing.
 
+Instead of `path`, `show_file` takes `url` (#764): a local dev server to show live, e.g. `http://localhost:3000`. Only
+loopback — `localhost`, `127.0.0.1` or `[::1]`, any port, over plain `http` — is allowed; `isLoopbackUrl`
+(`src/main/files/live-preview-network.ts`) checks it, and anything else is a tool error naming why. The handler
+(`showTaskUrl`) opens the URL itself as the tab's key (`open_files`, the same table a workspace file's tab lives in),
+live, in its own sandboxed view (`docs/decisions.md`, "Loopback pages run in their own sandboxed view"), and broadcasts
+`file.shown` the same way a file does, with `line` always null. A call must give exactly one of `path` and `url`;
+giving both or neither is a tool error.
+
 ## Implemented: `add_artifact` (P5-04, names unconfirmed)
 
 `mcp__glade__add_artifact` takes `{ path: string, title: string, todo: string }`: the path absolute or relative to the
@@ -322,7 +330,7 @@ status (open, merged, closed) isn't fetched.
 | `add_artifact` | `{ path: string, title: string, todo: string }` or `{ url: string, title: string, todo: string }`, `todo` needed | Declares a file as a deliverable of the task, or a link (a PR, an issue, a ticket) it's about, filed under the todo it names (Todos tab). See below. |
 | `update_artifact` | `{ path: string, title?: string, newPath?: string }` or `{ url: string, title?: string, newUrl?: string }` | Renames an artifact and/or points it at another file or page, keeping its place and its filing. |
 | `remove_artifact` | `{ path: string }` or `{ url: string }` | Takes a file or a link off the task's artifacts; a file stays. |
-| `show_file` | `{ path: string, line?: number }` | Opens a file in the Files tab for the user. |
+| `show_file` | `{ path: string, line?: number }` or `{ url: string }` | Opens a file in the Files tab for the user, or a loopback dev server, live. |
 | `request_access` | `{ path: string, access: "read" \| "write", reason: string }` | Asks the user for the folder a sandboxed command was blocked from, on a permission card, and blocks until answered. See below. |
 | `list_children` | `{ todo?: string }` | Lists what the task made (its children) by the todo each is under, each with its short id. See below. |
 | `file_children` | `{ filings: { child: string, todo: string }[] }` | Files children under todos, or moves them to another, all of them or none. See below. |

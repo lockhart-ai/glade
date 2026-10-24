@@ -88,6 +88,53 @@ export function tabForDigit(digit: number): PanelTab | undefined {
   return PANEL_TABS[digit - 1]
 }
 
+/**
+ * A task's id to `true`, for the ones whose Files header is collapsed (#764): a set kept in `files_header_collapsed`
+ * UI state, as `right_panel_tabs` keeps the selected tab, one entry per task that has it collapsed.
+ */
+type FilesHeaderCollapsedSelection = Readonly<Record<string, true>>
+
+function parseFilesHeaderCollapsed(value: string | undefined): FilesHeaderCollapsedSelection {
+  if (value === undefined) return {}
+  let json: unknown
+  try {
+    json = JSON.parse(value)
+  } catch {
+    return {}
+  }
+  if (typeof json !== 'object' || json === null || Array.isArray(json)) return {}
+  return Object.fromEntries(
+    Object.entries(json)
+      .filter(([, collapsed]) => collapsed === true)
+      .map(([id]) => [id, true]),
+  )
+}
+
+/** Whether a task's Files tab header is collapsed, as it was last left (#764): false for a task with no entry. */
+export function isFilesHeaderCollapsed(uiState: UiStateValues, taskId: string): boolean {
+  return parseFilesHeaderCollapsed(uiState[UiStateKey.FilesHeaderCollapsed])[taskId] === true
+}
+
+/** The UI state that collapses or shows `taskId`'s Files header, keeping every other task's. */
+export function filesHeaderCollapsedEntry(uiState: UiStateValues, taskId: string, collapsed: boolean): UiStateEntry {
+  const kept = Object.entries(parseFilesHeaderCollapsed(uiState[UiStateKey.FilesHeaderCollapsed])).filter(
+    ([id]) => id !== taskId,
+  )
+  const selection: FilesHeaderCollapsedSelection = Object.fromEntries(collapsed ? [...kept, [taskId, true]] : kept)
+  return { key: UiStateKey.FilesHeaderCollapsed, value: JSON.stringify(selection) }
+}
+
+/**
+ * The UI state that drops `taskId`'s remembered Files header state, keeping every other task's, for when the task is
+ * deleted. Null when it has none collapsed: nothing to write.
+ */
+export function withoutFilesHeaderCollapsedEntry(uiState: UiStateValues, taskId: string): UiStateEntry | null {
+  const selection = parseFilesHeaderCollapsed(uiState[UiStateKey.FilesHeaderCollapsed])
+  if (!(taskId in selection)) return null
+  const kept = Object.entries(selection).filter(([id]) => id !== taskId)
+  return { key: UiStateKey.FilesHeaderCollapsed, value: JSON.stringify(Object.fromEntries(kept)) }
+}
+
 /** A tab's count: a plain number (`4` agents) or progress (`3/4` todos). */
 export type PanelCount = number | { readonly done: number; readonly total: number }
 

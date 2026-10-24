@@ -53,6 +53,8 @@ import { createPlugins, type Plugins } from '../plugins/plugins'
 import { createPluginViews, type CreatePluginView, type PluginViews } from '../plugins/views'
 import { createHtmlPreviewViews, type HtmlPreviewViews } from '../files/html-preview'
 import type { CreateHtmlPreviewView } from '../files/html-preview-views'
+import { createLivePreviewViews, type LivePreviewViews } from '../files/live-preview'
+import type { CreateLivePreviewView } from '../files/live-preview-views'
 import { createQuestionBroker } from '../questions/questions'
 import { createBroadcast, createDispatcher, type EventTarget } from './dispatcher'
 import type { Emit } from './events'
@@ -116,6 +118,8 @@ export interface BridgeOptions {
   readonly createPluginView?: CreatePluginView
   /** Makes the Files viewer's HTML preview (`../files/html-preview-views`). None by default: placing it does nothing. */
   readonly createHtmlPreviewView?: CreateHtmlPreviewView
+  /** Makes the Files viewer's live preview (`../files/live-preview-views`). None by default: placing it does nothing. */
+  readonly createLivePreviewView?: CreateLivePreviewView
   /** Glade's version, which plugins are told in `hello`. */
   readonly appVersion?: string
   /**
@@ -183,6 +187,8 @@ export interface RegisteredBridge {
   readonly pluginViews: PluginViews
   /** The Files viewer's shown HTML preview, which ends when the app quits. */
   readonly htmlPreviewViews: HtmlPreviewViews
+  /** The Files viewer's shown live preview, which ends when the app quits. */
+  readonly livePreviewViews: LivePreviewViews
   /** What samples the Mac's load for plugins, which stops when the app quits; null without `machineSamplers`. */
   readonly machine: MachineMonitor | null
   /** The control API (`glade-control`), which other agents drive Glade with. */
@@ -236,6 +242,7 @@ export function registerBridge({
   pluginsFolder,
   createPluginView,
   createHtmlPreviewView,
+  createLivePreviewView,
   appVersion = '0.0.0',
   machineSamplers,
   isTrustedSender = () => true,
@@ -435,6 +442,11 @@ export function registerBridge({
     },
     log: log.scoped(LogScope.Files),
   })
+  const livePreviewViews = createLivePreviewViews({
+    emit,
+    createView: createLivePreviewView,
+    log: log.scoped(LogScope.Files),
+  })
   const plugins = createPlugins({
     db,
     emit,
@@ -472,6 +484,7 @@ export function registerBridge({
       plugins,
       pluginViews,
       htmlPreviewViews,
+      livePreviewViews,
       endpoint,
       account,
       login,
@@ -495,6 +508,7 @@ export function registerBridge({
     plugins,
     pluginViews,
     htmlPreviewViews,
+    livePreviewViews,
     machine,
     control,
     endpoint,

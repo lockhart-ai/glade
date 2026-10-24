@@ -150,6 +150,8 @@ function changesWhatsInFlight(event: GladeEvent): boolean {
     case EventType.FolderChanged:
     case EventType.FileChanged:
     case EventType.HtmlPreviewBlocked:
+    case EventType.LivePreviewBlocked:
+    case EventType.LivePreviewConnectionChanged:
     case EventType.ArtifactsChanged:
     case EventType.HandoffChanged:
     case EventType.WatchersChanged:

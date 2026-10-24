@@ -480,6 +480,18 @@ describe('the tool log', () => {
     logEvent({ type: EventType.FileChanged, taskId: 'task-1', path: 'src/date.ts', version: 2 })
     logEvent({ type: EventType.HtmlPreviewBlocked, taskId: 'task-1', path: 'reports/report.html' })
     logEvent({
+      type: EventType.LivePreviewBlocked,
+      taskId: 'task-1',
+      path: 'http://localhost:3000/',
+      host: 'fonts.googleapis.com',
+    })
+    logEvent({
+      type: EventType.LivePreviewConnectionChanged,
+      taskId: 'task-1',
+      path: 'http://localhost:3000/',
+      connected: true,
+    })
+    logEvent({
       type: EventType.OpenFilesChanged,
       openFiles: { taskId: 'task-1', paths: ['src/date.ts'], activePath: 'src/date.ts' },
     })
@@ -509,6 +521,16 @@ describe('the tool log', () => {
         level: LogLevel.Debug,
         message: 'html preview blocked',
         fields: { taskId: 'task-1', path: 'reports/report.html' },
+      }),
+      expect.objectContaining({
+        level: LogLevel.Debug,
+        message: 'live preview blocked',
+        fields: { taskId: 'task-1', path: 'http://localhost:3000/', host: 'fonts.googleapis.com' },
+      }),
+      expect.objectContaining({
+        level: LogLevel.Debug,
+        message: 'live preview connection changed',
+        fields: { taskId: 'task-1', path: 'http://localhost:3000/', connected: true },
       }),
       expect.objectContaining({
         level: LogLevel.Debug,

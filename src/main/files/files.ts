@@ -415,6 +415,18 @@ export async function showTaskFile(
 }
 
 /**
+ * The agent's `show_file` with a `url`, and Open URL… by hand (#764): opens a loopback URL in the task's Files tab,
+ * live, and asks the window to show it there. The URL itself is the tab's key (`isUrlFileKey`), so this needs no
+ * resolving against the workspace, unlike `showTaskFile`. The caller has already checked `isLoopbackUrl`; this only
+ * opens the tab and tells the window, reusing `FileShown` exactly as a file's own `show_file` does — `line` is
+ * always null, since a live page has none to mark.
+ */
+export function showTaskUrl(context: TaskServiceContext, taskId: string, url: string): void {
+  openTaskFile(context, taskId, url)
+  context.emit({ type: EventType.FileShown, taskId, path: url, line: null })
+}
+
+/**
  * Opens a regular file of a task's workspace for reading and hands it to `read`; `read` gets null when there's no file
  * there. Throws a `CommandFailure` for a path outside the workspace, or a task that isn't there.
  */

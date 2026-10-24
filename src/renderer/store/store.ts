@@ -6,7 +6,13 @@ import { UiStateKey, type OpenFiles, type Task, type UiStateEntry, type Workspac
 import { DONE_PAGE_SIZE, inDoneList, isInDoneSection } from '../../shared/doneList'
 import { DEFAULT_SETTINGS_SECTION } from '../settings/sections'
 import { collapsedEntry, isCollapsed, Panel } from '../panels/panels'
-import { activePanelTab, PanelTab, panelTabEntry, withoutPanelTabEntry } from '../right-panel/panelModel'
+import {
+  activePanelTab,
+  PanelTab,
+  panelTabEntry,
+  withoutFilesHeaderCollapsedEntry,
+  withoutPanelTabEntry,
+} from '../right-panel/panelModel'
 import { listedTaskIds, selectionAfterDeleting } from '../task-list/sections'
 import {
   activeTerminalTab,
@@ -172,6 +178,9 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         // Its remembered right panel tab goes with it too (#689).
         const tabEntry = withoutPanelTabEntry(get().uiState, event.taskId)
         if (tabEntry !== null) void setUiState(tabEntry)
+        // And whether its Files header was left collapsed (#764).
+        const headerEntry = withoutFilesHeaderCollapsedEntry(get().uiState, event.taskId)
+        if (headerEntry !== null) void setUiState(headerEntry)
         reportUnsaved()
       }
       if (event.type === EventType.UiStateChanged && supersededByOwnWrite(event.entry)) return
@@ -549,6 +558,32 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
           },
         }))
         await bridge.invoke(CommandName.FilesReloadHtmlPreview, { taskId, path })
+      },
+
+      async placeLivePreview(taskId, url, bounds) {
+        // Not cleared here, for the same reason `placeHtmlPreview` isn't: `useViewSlot` calls this on every resize
+        // and overlay change, long after a block or a connection change, which would otherwise wipe them before you
+        // ever saw them. `clearLivePreviewBlocked` (once, on mount) and a reload are the only times it's cleared.
+        await bridge.invoke(CommandName.FilesPlaceLivePreview, { taskId, url, bounds })
+      },
+
+      clearLivePreviewBlocked(taskId, url) {
+        set((state) => ({
+          livePreviewBlocked: {
+            ...state.livePreviewBlocked,
+            [taskId]: { ...state.livePreviewBlocked[taskId], [url]: null },
+          },
+        }))
+      },
+
+      async reloadLivePreview(taskId, url) {
+        set((state) => ({
+          livePreviewBlocked: {
+            ...state.livePreviewBlocked,
+            [taskId]: { ...state.livePreviewBlocked[taskId], [url]: null },
+          },
+        }))
+        await bridge.invoke(CommandName.FilesReloadLivePreview, { taskId, url })
       },
 
       async revealWorkspace(workspaceId) {
@@ -938,6 +973,10 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       // Main broadcasts the change too; applying the answer as well keeps the tabs right whichever arrives first.
       async openFile(taskId, path) {
         applyOpenFiles(await bridge.invoke(CommandName.FilesOpen, { taskId, path }))
+      },
+
+      async openUrl(taskId, url) {
+        applyOpenFiles(await bridge.invoke(CommandName.FilesOpenUrl, { taskId, url }))
       },
 
       async closeFile(taskId, path) {

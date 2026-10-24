@@ -65,7 +65,15 @@ search ↑↓ move through its results; ↵ opens the one picked, and Esc clears
 you bind it to), with the focus in the Files tab while Browse shows, puts the focus in Browse's search instead of the
 task search; in the editor, its own ⌘F finds in the file, and anywhere else ⌘F searches tasks as ever.
 
-## The Agents tab, and the panel's three tabs
+## A live preview in the Files tab
+
+A local dev server shown live (#764) is a real, separate page, in its own sandboxed view over the Files tab's body:
+clicking inside it gives it the keyboard focus (handled in main, since the view sits over Glade's own page and
+nothing in the page could catch the click itself), and from then every key — arrows, Shift, whatever the page itself
+listens for — reaches it, not Glade, until something else takes the focus. None of Glade's own shortcuts reach the
+page while it has the focus, the same as any other focused field.
+
+## The Files tab's Browse tab
 
 The right panel has three tabs, **Todos · Agents · Files** (P16, #536; `decisions.md`), and ⌘⌥1 – ⌘⌥3 pick them for
 the task showing, as that task's own (#689); ⌘⌥1 picks Todos, which a task with no remembered tab also opens on

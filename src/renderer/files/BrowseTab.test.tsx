@@ -134,7 +134,7 @@ async function renderTab({
   const { unmount } = render(
     <GladeStoreProvider store={store}>
       <ToastProvider>
-        <FilesTab taskId="t1" rootPath={ROOT} focus={null} />
+        <FilesTab taskId="t1" rootPath={ROOT} focus={null} headerCollapsed={false} onToggleHeader={vi.fn()} />
       </ToastProvider>
     </GladeStoreProvider>,
   )

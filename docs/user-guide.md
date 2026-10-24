@@ -403,6 +403,21 @@ The tab you leave a task on is that task's own: switching back to it shows it ag
   its own sandboxed, offline view: its own styles, scripts and local images and stylesheets show, but it can't reach
   Glade or the network, and a link in it opens in your browser instead of navigating the preview away. If it tries to
   reach the network anyway, a quiet note says the preview is offline. Switch to **Source** to read or edit the text;
+
+  For a local dev server — `http://localhost:3000`, say — the agent opens it live with `show_file`, or you can with
+  **Open URL…** (a globe icon, next to Browse): type the address and press ↵. Its tab shows a globe icon, the host and
+  port, and a **LIVE** badge. The page runs for real, hot reload included, in a sandboxed view that can reach
+  loopback only — `localhost`, `127.0.0.1` or `[::1]`, never another host, however the page tries to reach it, and
+  never over HTTPS. A request outside that is blocked and named in a quiet notice under the tab bar. The row above
+  the page has the URL, a **Reload** button, a "Connected" line once the page has loaded, and **Open in browser**.
+  Leaving the page's own host (a link, a new window) opens in your default browser instead of following it in the
+  view. Click inside the page to give it the keyboard focus, so arrow keys and Shift (for a game, say) reach it
+  rather than Glade.
+
+  The row of open-file tabs, and the path row above the file showing, can collapse, so the page — or any file —
+  fills the whole tab under the panel's Todos · Agents · Files bar: a chevron at the end of that row collapses it,
+  and a small icon button in the panel's own top bar, beside its collapse toggle, brings it back. It's remembered
+  per task.
   when the agent shows a file at a line, the source comes back with the line marked. Files from a commit and files too
   large to show whole are read-only. An image
   (PNG, JPEG, GIF, WebP or SVG, up to 8 MB) shows as a picture instead, fit to the panel but never larger than its own

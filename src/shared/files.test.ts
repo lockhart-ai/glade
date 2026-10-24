@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   commitFileKey,
   fileName,
+  isUrlFileKey,
   isWorkspaceRelativePath,
   parseCommitFileKey,
   noOpenFiles,
   normalizePath,
+  urlFileLabel,
   withClosedFile,
   withOpenedFile,
   workspaceRelativePath,
@@ -99,5 +101,33 @@ describe('commit file keys', () => {
     expect(parseCommitFileKey('/commit//a.md')).toBeNull()
     expect(parseCommitFileKey('/commit/c1/../a.md')).toBeNull()
     expect(parseCommitFileKey('/commit/c1/')).toBeNull()
+  })
+})
+
+describe('isUrlFileKey', () => {
+  it('is true only for a key that carries a scheme, as a live preview’s own URL does (#764)', () => {
+    expect(isUrlFileKey('http://localhost:3000/')).toBe(true)
+    expect(isUrlFileKey('http://127.0.0.1:8080/app')).toBe(true)
+    expect(isUrlFileKey('ws://localhost:3000/')).toBe(true)
+  })
+
+  it('is false for a workspace path or a commit file key, which never carry one', () => {
+    expect(isUrlFileKey('docs/rate-limits.md')).toBe(false)
+    expect(isUrlFileKey(commitFileKey({ commitId: 'c1', path: 'docs/upgrading.md' }))).toBe(false)
+    expect(isUrlFileKey('')).toBe(false)
+  })
+})
+
+describe('urlFileLabel', () => {
+  it('is the URL’s host and port, never its scheme or path, as a live tab shows it', () => {
+    expect(urlFileLabel('http://localhost:3000/')).toBe('localhost:3000')
+    expect(urlFileLabel('http://localhost:3000/app?x=1')).toBe('localhost:3000')
+    expect(urlFileLabel('http://127.0.0.1:8080/')).toBe('127.0.0.1:8080')
+    // No port: just the host, the way `URL.host` already gives it.
+    expect(urlFileLabel('http://localhost/')).toBe('localhost')
+  })
+
+  it('is the raw text back for something that isn’t a URL at all, rather than throwing', () => {
+    expect(urlFileLabel('not a url')).toBe('not a url')
   })
 })

@@ -1,8 +1,8 @@
 import { faFolder } from '@fortawesome/free-regular-svg-icons'
-import { faChevronDown, faListUl, faXmark } from '@fortawesome/free-solid-svg-icons'
+import { faChevronDown, faGlobe, faListUl, faXmark } from '@fortawesome/free-solid-svg-icons'
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import type { TaskCommit, ToolEvent } from '../../shared/domain'
-import { fileName, parseCommitFileKey } from '../../shared/files'
+import { fileName, isUrlFileKey, parseCommitFileKey, urlFileLabel } from '../../shared/files'
 import { shortHash } from '../changes/changesModel'
 import { WindowCommandId } from '../../shared/commands'
 import { isCommandKey, useCommand, useKeymap } from '../commands/hooks'
@@ -41,6 +41,13 @@ export interface FilesTabProps {
   rootPath: string
   /** The latest line the agent asked to show (`show_file`), marked while its file shows; null for none. */
   focus: FileLineFocus | null
+  /**
+   * Whether the Files tab's header (this row, and the viewer's own path row) is collapsed, so the viewer fills the
+   * tab below the panel's top bar (#764).
+   */
+  headerCollapsed: boolean
+  /** Collapses or shows the Files tab's header. */
+  onToggleHeader: () => void
 }
 
 const NO_TOOL_EVENTS: readonly ToolEvent[] = []
@@ -89,12 +96,19 @@ export function absolutePath(rootPath: string, path: string): string {
  * (`show_file`), it opens here (main opens it), marked at `focus`'s line. A file tab's context menu closes it or the
  * others, opens it in your editor or Finder, and copies its path.
  */
-export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.Element {
+export function FilesTab({
+  taskId,
+  rootPath,
+  focus,
+  headerCollapsed,
+  onToggleHeader,
+}: FilesTabProps): React.JSX.Element {
   const events = useGladeStore((state) => state.toolEvents[taskId]) ?? NO_TOOL_EVENTS
   const paths = useGladeStore((state) => state.openFiles[taskId]?.paths) ?? NO_PATHS
   const commits = useGladeStore((state) => state.commits[taskId]) ?? NO_COMMITS
   const activePath = useGladeStore((state) => state.openFiles[taskId]?.activePath) ?? null
   const openFile = useGladeStore((state) => state.openFile)
+  const openUrl = useGladeStore((state) => state.openUrl)
   const closeFile = useGladeStore((state) => state.closeFile)
   const openInEditor = useGladeStore((state) => state.openInEditor)
   const revealFile = useGladeStore((state) => state.revealFile)
@@ -104,6 +118,9 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
   const toast = useToast()
   const menu = useContextMenu<string>()
   const { run, copy, hints } = useMenuCommands()
+  const [openingUrl, setOpeningUrl] = useState(false)
+  const [urlField, setUrlField] = useState('')
+  const urlInput = useRef<HTMLInputElement>(null)
   // What the agent touched: the summary main worked out over the whole log (#637, `history.touchedFiles`), with what
   // the loaded log's calls say — a call that finished since it loaded adds its file. Both cover the log's tail, and
   // a file changed by either stays changed.
@@ -167,6 +184,9 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
   }
   const tabMenu = (path: string) => {
     const fromCommit = parseCommitFileKey(path)
+    // A file as a commit left it, or a live preview's tab, is never really open on disk at that path: no file to
+    // open in your editor, reveal in Finder, or give the absolute path of.
+    const noRealFile = fromCommit !== null || isUrlFileKey(path)
     return fileTabMenu(
       {
         close: () => {
@@ -178,25 +198,21 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
         closeAll: () => {
           closeAll(paths)
         },
-        // A file as a commit left it is only in git: no file to open, reveal or give the path of.
-        openInEditor:
-          fromCommit === null
-            ? () => {
-                run(() => openInEditor(taskId, path))
-              }
-            : null,
-        reveal:
-          fromCommit === null
-            ? () => {
-                run(() => revealFile(taskId, path))
-              }
-            : null,
-        copyPath:
-          fromCommit === null
-            ? () => {
-                copy(absolutePath(rootPath, path))
-              }
-            : null,
+        openInEditor: noRealFile
+          ? null
+          : () => {
+              run(() => openInEditor(taskId, path))
+            },
+        reveal: noRealFile
+          ? null
+          : () => {
+              run(() => revealFile(taskId, path))
+            },
+        copyPath: noRealFile
+          ? null
+          : () => {
+              copy(absolutePath(rootPath, path))
+            },
         copyRelativePath: () => {
           copy(fromCommit?.path ?? path)
         },
@@ -214,9 +230,23 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
   }
   const activeVersion = activePath === null ? null : versionOf(activePath)
 
+  const submitUrl = (): void => {
+    const url = urlField.trim()
+    if (url === '') return
+    run(async () => {
+      try {
+        await openUrl(taskId, url)
+        setOpeningUrl(false)
+        setUrlField('')
+      } catch (error: unknown) {
+        toast.show({ message: describeFailure(error) })
+      }
+    })
+  }
+
   return (
     <div className={styles.files} onKeyDown={onKeyDown}>
-      <div className={styles.row}>
+      <div className={styles.row} hidden={headerCollapsed}>
         <button
           type="button"
           aria-label="All files in this task"
@@ -251,17 +281,64 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
         >
           <Icon icon={faFolder} size={IconSize.Small} />
         </button>
+        {openingUrl ? (
+          <form
+            className={styles.urlForm}
+            onSubmit={(event) => {
+              event.preventDefault()
+              submitUrl()
+            }}
+          >
+            <input
+              ref={urlInput}
+              type="text"
+              className={styles.urlField}
+              aria-label="Loopback URL to open"
+              placeholder="http://localhost:3000"
+              value={urlField}
+              onChange={(event) => {
+                setUrlField(event.currentTarget.value)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.stopPropagation()
+                  setOpeningUrl(false)
+                  setUrlField('')
+                }
+              }}
+            />
+            <button type="submit" className={styles.urlSubmit}>
+              Open
+            </button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            aria-label="Open URL…"
+            title="Open a local dev server live"
+            className={styles.browse}
+            onClick={() => {
+              setOpeningUrl(true)
+              requestAnimationFrame(() => urlInput.current?.focus())
+            }}
+          >
+            <Icon icon={faGlobe} size={IconSize.Small} />
+          </button>
+        )}
         <div className={styles.tabs} role="group" aria-label="Open files">
           {paths.map((path) => {
-            const fromCommit = versionOf(path)
-            const name = fileName(fromCommit?.path ?? path)
+            const live = isUrlFileKey(path)
+            const fromCommit = live ? null : versionOf(path)
+            const name = live ? urlFileLabel(path) : fileName(fromCommit?.path ?? path)
             const active = path === activePath
             const unsaved = edits[path]?.unsaved === true
             return (
               <div
                 key={path}
                 className={classNames(styles.tab, active && styles.active)}
-                title={fromCommit === null ? path : `${fromCommit.path} (${fromCommit.hash ?? 'a commit'})`}
+                title={
+                  live ? path : fromCommit === null ? path : `${fromCommit.path} (${fromCommit.hash ?? 'a commit'})`
+                }
                 data-unsaved={unsaved ? true : undefined}
                 {...menu.targetProps(path)}
               >
@@ -273,11 +350,18 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
                     open(path)
                   }}
                 >
-                  {isChanged(touched, path) && (
+                  {live && <Icon icon={faGlobe} size={IconSize.Small} className={styles.liveIcon} />}
+                  {!live && isChanged(touched, path) && (
                     <span className={styles.changed} role="img" aria-label="Changed by the agent" />
                   )}
                   <span className={styles.name}>{name}</span>
                   {fromCommit?.hash != null && <span className={styles.version}>{fromCommit.hash}</span>}
+                  {live && (
+                    <span className={styles.liveBadge}>
+                      <span className={styles.liveDot} />
+                      Live
+                    </span>
+                  )}
                 </button>
                 {/* Unsaved edits show as a dot in place of the cross, as a Mac shows an edited document's; hovering shows the cross. */}
                 <button
@@ -309,6 +393,8 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
           touched={touchOfFile(touched, activePath)}
           focusLine={focused?.line ?? null}
           focusRequest={focused?.request ?? 0}
+          headerCollapsed={headerCollapsed}
+          onToggleHeader={onToggleHeader}
         />
       )}
     </div>

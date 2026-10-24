@@ -426,6 +426,23 @@ export function filesTab(page: Page) {
     previewBlocked: panel.getByRole('status').filter({ hasText: 'this preview is offline' }),
     /** The HTML preview's native view slot, over the body main draws its view on. */
     htmlPreviewSlot: panel.getByTestId('html-preview-slot'),
+    /** A live preview's tab, by its host and port (`localhost:3000`): always carries the Live badge (#764). */
+    liveTab: (host: string) => openFiles.getByRole('button', { name: `${host} Live` }),
+    /** Open URL…, by the open-files row: opens a loopback URL live (#764). */
+    openUrl: panel.getByRole('button', { name: 'Open URL…' }),
+    /** The inline field Open URL… opens. */
+    urlField: panel.getByRole('textbox', { name: 'Loopback URL to open' }),
+    urlSubmit: panel.getByRole('button', { name: 'Open', exact: true }),
+    /** The live preview's quiet notice, naming the host a request was refused to (#764). */
+    liveBlocked: panel.getByRole('status').filter({ hasText: /^Some content was blocked/ }),
+    /** The live preview's native view slot, over the body main draws its view on. */
+    livePreviewSlot: panel.getByTestId('live-preview-slot'),
+    /** The "Connected" line in a live preview's path row, once its page has loaded. */
+    connected: panel.getByText('Connected', { exact: true }),
+    openInBrowser: panel.getByRole('button', { name: 'Open in browser' }),
+    /** The Files header's collapse chevron (in the viewer's own row) and its restore button (the panel's top bar). */
+    collapseHeader: panel.getByRole('button', { name: 'Collapse the Files header' }),
+    showHeader: panel.getByRole('button', { name: 'Show the Files header' }),
     reload: panel.getByRole('button', { name: 'Reload', exact: true }),
     keepMine: panel.getByRole('button', { name: 'Keep mine', exact: true }),
     /** The editor's find bar (⌘F). */

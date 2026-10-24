@@ -114,10 +114,13 @@ describe('the bridge', () => {
     // Bypass the types, as a compromised or buggy renderer could.
     const request = { key: 'no_such_key', value: 1 } as never
 
+    const keys = Object.values(UiStateKey)
+      .map((key) => `"${key}"`)
+      .join('|')
     await expect(glade.invoke(CommandName.UiStateSet, request)).rejects.toEqual(
       bridgeError(
         BridgeErrorCode.InvalidRequest,
-        'uiState.set: key: Invalid option: expected one of "active_workspace_id"|"selected_task_id"|"pinned_section_collapsed"|"active_section_collapsed"|"done_section_collapsed"|"relaunch_notice"|"right_panel_tabs"|"right_panel_width"|"right_panel_collapsed"|"sidebar_collapsed"|"sidebar_width"|"bottom_bar_collapsed"|"bottom_bar_height"|"plugin_width"|"terminal_selection"; value: Invalid input: expected string, received number',
+        `uiState.set: key: Invalid option: expected one of ${keys}; value: Invalid input: expected string, received number`,
       ),
     )
     expect(events).toEqual([])

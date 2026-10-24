@@ -1,12 +1,14 @@
-import { faArrowUpRightFromSquare } from '@fortawesome/free-solid-svg-icons'
+import { faArrowsRotate, faArrowUpRightFromSquare, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FileContentKind, type FileContent, type ImageFileContent } from '../../shared/domain'
 import { isBridgeError } from '../../shared/bridge'
+import { isUrlFileKey } from '../../shared/files'
 import { Markdown } from '../chat/Markdown'
 import { clockTime } from '../chat/chatModel'
-import { Button, ButtonSize, ButtonVariant, Segmented, type SegmentedOption } from '../components'
+import { Button, ButtonSize, ButtonVariant, Segmented, useToast, type SegmentedOption } from '../components'
 import { naturalSizeOf, useImageZoom } from '../images/useImageZoom'
 import type { Size } from '../images/zoomModel'
+import { describeFailure } from '../store/hydrate'
 import { useGladeStore, useGladeStoreApi } from '../store/react'
 import { WindowCommandId } from '../../shared/commands'
 import { useBinding } from '../commands/hooks'
@@ -14,6 +16,7 @@ import { FileSession, isEditable } from './fileSession'
 import { FileTouch, formatSize, isHtml, isMarkdown, sameFileContent, type TouchedFile } from './filesModel'
 import { highlight, languageOf, sourceLines, type Language } from './highlight'
 import { HtmlPreview } from './HtmlPreview'
+import { LivePreview } from './LivePreview'
 import { SourceEditor } from './SourceEditor'
 import { BLOCK_LINES, SourceView, type HighlightedBlocks } from './SourceView'
 import type { OpenEditSession } from './unsaved'
@@ -51,7 +54,10 @@ export interface FileVersion {
 
 export interface FileViewerProps {
   taskId: string
-  /** Relative to the workspace root; or, for a file as a commit left it, its commit file key (`commitFileKey`). */
+  /**
+   * Relative to the workspace root; a commit file key (`commitFileKey`) for a file as a commit left it; or, for a
+   * live preview's tab, its own loopback URL (`isUrlFileKey`, #764).
+   */
   path: string
   /**
    * For a file as a commit left it: its path, and the commit. It shows read-only, labelled with the commit's hash, with
@@ -64,6 +70,13 @@ export interface FileViewerProps {
   focusLine: number | null
   /** Changes with every request to show `focusLine`. */
   focusRequest: number
+  /**
+   * Whether the Files tab's header (the open-files row, and this viewer's own path row) is collapsed, so this
+   * viewer fills the tab below the panel's top bar (#764). Works the same for any file, not only a live preview.
+   */
+  headerCollapsed: boolean
+  /** Collapses or shows the Files tab's header; the row carrying the control is hidden along with it either way. */
+  onToggleHeader: () => void
 }
 
 /** The tokens highlighting has worked out so far, and the lines they're for. */
@@ -153,6 +166,97 @@ function ImageFileView({ content, name }: ImageFileViewProps): React.JSX.Element
 }
 
 /**
+ * A file of the task's workspace, or a live preview's tab (#764): dispatches on `isUrlFileKey(path)`, since the two
+ * need entirely different reading and editing machinery (a live page has no text to read, no editor, no commit
+ * version), never both at once in one mounted instance — the Files tab remounts this (`key={activePath}`) whenever
+ * the path itself changes.
+ */
+export function FileViewer(props: FileViewerProps): React.JSX.Element {
+  return isUrlFileKey(props.path) ? (
+    <LiveFileViewer
+      taskId={props.taskId}
+      url={props.path}
+      headerCollapsed={props.headerCollapsed}
+      onToggleHeader={props.onToggleHeader}
+    />
+  ) : (
+    <WorkspaceFileViewer {...props} />
+  )
+}
+
+export interface LiveFileViewerProps {
+  readonly taskId: string
+  readonly url: string
+  readonly headerCollapsed: boolean
+  readonly onToggleHeader: () => void
+}
+
+/**
+ * A live preview's tab (#764): a path row with the URL, Reload, a "Connected" line once the page has loaded, and
+ * Open in browser, over the page itself (`LivePreview`). Collapsing the Files header hides this row (CSS, not
+ * unmounting: `onToggleHeader` and the chevron below are reachable again from the panel's top bar), leaving the page
+ * to fill everything under it.
+ */
+function LiveFileViewer({ taskId, url, headerCollapsed, onToggleHeader }: LiveFileViewerProps): React.JSX.Element {
+  const reloadLivePreview = useGladeStore((state) => state.reloadLivePreview)
+  const openLink = useGladeStore((state) => state.openLink)
+  const connected = useGladeStore((state) => state.livePreviewConnected[taskId]?.[url] ?? false)
+  const toast = useToast()
+
+  return (
+    <div className={styles.viewer}>
+      <div className={styles.liveHeader} hidden={headerCollapsed}>
+        <span className={styles.path} title={url}>
+          <bdi dir="ltr">{url}</bdi>
+        </span>
+        <Button
+          variant={ButtonVariant.Icon}
+          size={ButtonSize.Small}
+          icon={faArrowsRotate}
+          aria-label="Reload"
+          title="Reload"
+          onClick={() => {
+            reloadLivePreview(taskId, url).catch((error: unknown) => {
+              toast.show({ message: describeFailure(error) })
+            })
+          }}
+        />
+        {connected && (
+          <span className={styles.connected}>
+            <span className={styles.connectedDot} />
+            Connected
+          </span>
+        )}
+        <span className={styles.spacer} />
+        <Button
+          variant={ButtonVariant.Ghost}
+          size={ButtonSize.Small}
+          icon={faArrowUpRightFromSquare}
+          onClick={() => {
+            openLink(url).catch((error: unknown) => {
+              toast.show({ message: describeFailure(error) })
+            })
+          }}
+        >
+          Open in browser
+        </Button>
+        <Button
+          variant={ButtonVariant.Icon}
+          size={ButtonSize.Small}
+          icon={faChevronUp}
+          aria-label="Collapse the Files header"
+          title="Collapse the Files header"
+          onClick={onToggleHeader}
+        />
+      </div>
+      <div className={styles.body}>
+        <LivePreview taskId={taskId} url={url} />
+      </div>
+    </div>
+  )
+}
+
+/**
  * A file of the task's workspace: its path, how the agent last touched it, and Open in editor over its source. A file
  * shown whole is edited in place (`SourceEditor`), looking just as the read-only source does; its edits stay while
  * other tabs show, until you save them (⌘S) or discard them. A Markdown file, and a workspace's static HTML file,
@@ -163,13 +267,15 @@ function ImageFileView({ content, name }: ImageFileViewProps): React.JSX.Element
  * quietly, and one with unsaved edits shows a bar to Reload or Keep mine. The HTML preview reloads when a read finds
  * the file different from the read before it, so the same text again leaves it be.
  */
-export function FileViewer({
+function WorkspaceFileViewer({
   taskId,
   path,
   fromCommit = null,
   touched,
   focusLine,
   focusRequest,
+  headerCollapsed,
+  onToggleHeader,
 }: FileViewerProps): React.JSX.Element {
   const store = useGladeStoreApi()
   const readFile = useGladeStore((state) => state.readFile)
@@ -339,7 +445,7 @@ export function FileViewer({
 
   return (
     <div className={styles.viewer}>
-      <div className={styles.header}>
+      <div className={styles.header} hidden={headerCollapsed}>
         <span className={styles.path} title={shownPath}>
           <bdi dir="ltr">{shownPath}</bdi>
         </span>
@@ -367,6 +473,14 @@ export function FileViewer({
             <span className={styles.openInEditorLabel}>Open in editor</span>
           </Button>
         )}
+        <Button
+          variant={ButtonVariant.Icon}
+          size={ButtonSize.Small}
+          icon={faChevronUp}
+          aria-label="Collapse the Files header"
+          title="Collapse the Files header"
+          onClick={onToggleHeader}
+        />
       </div>
       {edit?.changedOnDisk === true && (
         <div className={styles.changedOnDisk} role="alert">

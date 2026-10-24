@@ -87,6 +87,8 @@ interface Setup {
   readonly overrides?: Partial<FakeHandlers>
   readonly focus?: FileLineFocus
   readonly commits?: TaskCommit[]
+  readonly headerCollapsed?: boolean
+  readonly onToggleHeader?: () => void
 }
 
 async function renderTab({
@@ -96,6 +98,8 @@ async function renderTab({
   overrides = {},
   focus,
   commits = [],
+  headerCollapsed = false,
+  onToggleHeader = vi.fn(),
 }: Setup = {}): Promise<
   FakeBridge & {
     store: GladeStore
@@ -132,7 +136,13 @@ async function renderTab({
   const tree = (shown: FileLineFocus | null): React.JSX.Element => (
     <GladeStoreProvider store={store}>
       <ToastProvider>
-        <FilesTab taskId="t1" rootPath={ROOT} focus={shown} />
+        <FilesTab
+          taskId="t1"
+          rootPath={ROOT}
+          focus={shown}
+          headerCollapsed={headerCollapsed}
+          onToggleHeader={onToggleHeader}
+        />
       </ToastProvider>
     </GladeStoreProvider>
   )
@@ -680,6 +690,181 @@ describe('a file as a commit left it', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Copy relative path' }))
     await act(() => Promise.resolve())
     expect(copied).toEqual(['docs/upgrading.md'])
+  })
+})
+
+describe('Open URL… and a live preview’s tab (#764)', () => {
+  const LIVE: OpenFiles = { taskId: 't1', paths: ['http://localhost:3000/'], activePath: 'http://localhost:3000/' }
+
+  function liveTab(): HTMLElement {
+    const found = within(openTabs())
+      .getAllByRole('button')
+      .find((button) => button.textContent.includes('localhost:3000'))
+    if (found === undefined) throw new Error('No live tab found')
+    return found
+  }
+
+  it('opens the field on Open URL…, submits on Enter, and does nothing for an empty field', async () => {
+    const { store } = await renderTab()
+    expect(screen.queryByRole('textbox', { name: 'Loopback URL to open' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open URL…' }))
+    const field = screen.getByRole('textbox', { name: 'Loopback URL to open' })
+    const submit = screen.getByRole('button', { name: 'Open' })
+
+    // Nothing happens for a blank field.
+    fireEvent.click(submit)
+    await act(() => Promise.resolve())
+    expect(store.getState().openFiles.t1?.paths ?? []).toEqual([])
+    expect(field).toBeInTheDocument()
+
+    fireEvent.change(field, { target: { value: 'http://localhost:3000/' } })
+    fireEvent.click(submit)
+
+    // The store updates and the field closes (ready for the next Open URL…) from the same submit; wait for both
+    // together, since the field's own state updates a tick after the store's (#765's CI: asserting the field right
+    // after a `waitFor` on the store alone raced its own re-render).
+    await waitFor(() => {
+      expect(store.getState().openFiles.t1?.paths).toEqual(['http://localhost:3000/'])
+      expect(screen.queryByRole('textbox', { name: 'Loopback URL to open' })).not.toBeInTheDocument()
+    })
+  })
+
+  it('closes the field on Escape, without opening anything', async () => {
+    const { store } = await renderTab()
+    fireEvent.click(screen.getByRole('button', { name: 'Open URL…' }))
+    const field = screen.getByRole('textbox', { name: 'Loopback URL to open' })
+    fireEvent.change(field, { target: { value: 'http://localhost:4000/' } })
+
+    fireEvent.keyDown(field, { key: 'Escape' })
+
+    expect(screen.queryByRole('textbox', { name: 'Loopback URL to open' })).not.toBeInTheDocument()
+    expect(store.getState().openFiles.t1?.paths ?? []).toEqual([])
+  })
+
+  it('shows a toast when the url isn’t loopback, opening nothing', async () => {
+    await renderTab({
+      overrides: {
+        [CommandName.FilesOpenUrl]: () =>
+          refuse(bridgeError(BridgeErrorCode.InvalidRequest, 'Expected a loopback URL')),
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Open URL…' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Loopback URL to open' }), {
+      target: { value: 'https://example.com/' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+
+    expect(await screen.findByText('Expected a loopback URL')).toBeInTheDocument()
+  })
+
+  it('shows a live tab with a globe, its host and port, and a Live badge', async () => {
+    await renderTab({ openFiles: LIVE })
+
+    const tab = liveTab()
+    expect(within(tab).getByText('Live')).toBeInTheDocument()
+    expect(tab).toHaveAttribute('aria-pressed', 'true')
+    expect(tab.parentElement).toHaveAttribute('title', 'http://localhost:3000/')
+  })
+
+  it('has only the menu items that apply to a tab with no real file, and copies the url', async () => {
+    const { copied } = await renderTab({ openFiles: LIVE })
+
+    fireEvent.contextMenu(liveTab().parentElement ?? document.body)
+    await act(() => Promise.resolve())
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'Close⌘W',
+      'Close others',
+      'Close all',
+      'Copy relative path',
+    ])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Copy relative path' }))
+    await act(() => Promise.resolve())
+    expect(copied).toEqual(['http://localhost:3000/'])
+  })
+
+  it('shows the path row with Reload, Open in browser and the collapse chevron, over the live page', async () => {
+    const { invoke } = await renderTab({ openFiles: LIVE })
+
+    expect(screen.getByText('http://localhost:3000/', { selector: 'bdi' })).toBeInTheDocument()
+    expect(screen.getByTestId('live-preview-slot')).toBeInTheDocument()
+    expect(screen.queryByText('Connected')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' }))
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(CommandName.FilesReloadLivePreview, {
+        taskId: 't1',
+        url: 'http://localhost:3000/',
+      })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open in browser' }))
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(CommandName.LinksOpen, { url: 'http://localhost:3000/' })
+    })
+  })
+
+  it('shows a toast when reloading the live preview fails, or opening it in the browser fails', async () => {
+    await renderTab({
+      openFiles: LIVE,
+      overrides: {
+        [CommandName.FilesReloadLivePreview]: () =>
+          refuse(bridgeError(BridgeErrorCode.Internal, 'The reload went wrong')),
+        [CommandName.LinksOpen]: () => refuse(bridgeError(BridgeErrorCode.Internal, 'The browser wouldn’t open')),
+      },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' }))
+    expect(await screen.findByText('The reload went wrong')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open in browser' }))
+    expect(await screen.findByText('The browser wouldn’t open')).toBeInTheDocument()
+  })
+
+  it('shows Connected once the page has loaded, through the store', async () => {
+    const { emit } = await renderTab({ openFiles: LIVE })
+    expect(screen.queryByText('Connected')).not.toBeInTheDocument()
+
+    act(() => {
+      emit({
+        type: EventType.LivePreviewConnectionChanged,
+        taskId: 't1',
+        path: 'http://localhost:3000/',
+        connected: true,
+      })
+    })
+    expect(await screen.findByText('Connected')).toBeInTheDocument()
+
+    act(() => {
+      emit({
+        type: EventType.LivePreviewConnectionChanged,
+        taskId: 't1',
+        path: 'http://localhost:3000/',
+        connected: false,
+      })
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Connected')).not.toBeInTheDocument()
+    })
+  })
+
+  it('the path row’s chevron collapses the Files header', async () => {
+    const onToggleHeader = vi.fn()
+    await renderTab({ openFiles: LIVE, onToggleHeader })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse the Files header' }))
+
+    expect(onToggleHeader).toHaveBeenCalledOnce()
+  })
+
+  it('hides the open-files row and the path row when the header is collapsed, keeping the viewer', async () => {
+    await renderTab({ openFiles: LIVE, headerCollapsed: true })
+
+    // Hidden elements are left out of the accessibility tree by default; `hidden: true` still finds them, to check
+    // they're there but not visible (CSS, not unmounted — the live view keeps its state).
+    expect(screen.getByRole('group', { name: 'Open files', hidden: true })).not.toBeVisible()
+    expect(screen.getByTestId('live-preview-slot')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Collapse the Files header' })).not.toBeInTheDocument()
   })
 })
 

@@ -180,7 +180,8 @@ describe('the server', () => {
       ['objective'],
       ['status'],
       ['questions'],
-      ['path'],
+      // A file's path or a loopback url: the handler checks it's exactly one of them (#764).
+      undefined,
       // A file's path or a link's url: the handler checks it's one of them (#407).
       ['title'],
       undefined,
@@ -795,6 +796,37 @@ describe('show_file', () => {
 
     expect(getOpenFiles(database.db, taskId).paths).toEqual([])
     expect(events).toEqual([])
+  })
+
+  it('opens a loopback url live, by itself, and answers with a tool error for one that isn’t loopback (#764)', async () => {
+    await expect(showing.call('mcp__glade__show_file', { url: 'http://localhost:3000/' })).resolves.toEqual({
+      output: 'Showing http://localhost:3000/.',
+      isError: false,
+    })
+    expect(getOpenFiles(database.db, taskId)).toEqual({
+      taskId,
+      paths: ['http://localhost:3000/'],
+      activePath: 'http://localhost:3000/',
+    })
+    expect(events.filter((event) => event.type === EventType.FileShown)).toEqual([
+      { type: EventType.FileShown, taskId, path: 'http://localhost:3000/', line: null },
+    ])
+
+    const notLoopback = await showing.call('mcp__glade__show_file', { url: 'https://example.com/' })
+    expect(notLoopback.isError).toBe(true)
+    expect(notLoopback.output).toContain('loopback')
+    // Nothing more opened: still just the one url tab from above.
+    expect(getOpenFiles(database.db, taskId).paths).toEqual(['http://localhost:3000/'])
+  })
+
+  it('refuses a call that gives both a path and a url', async () => {
+    const both = await showing.call('mcp__glade__show_file', {
+      path: 'docs/rate-limits.md',
+      url: 'http://localhost:3000/',
+    })
+    expect(both.isError).toBe(true)
+    expect(both.output).toContain('not both')
+    expect(getOpenFiles(database.db, taskId).paths).toEqual([])
   })
 })
 
