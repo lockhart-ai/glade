@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { GithubChecksState, GithubLinkKind, GithubLinkState } from '../../shared/githubWatch'
+import { GithubChecksState, GithubLinkKind, GithubLinkState, PrMergeable } from '../../shared/githubWatch'
 import { aliasOf, buildWatchQuery, parseWatchResponse, type WatchTarget } from './query'
 
 const PR: WatchTarget = {
@@ -27,6 +27,7 @@ function pullRequestResponse(overrides: Record<string, unknown> = {}) {
     mergedAt: null,
     closedAt: null,
     isDraft: false,
+    mergeable: 'MERGEABLE',
     mergeQueueEntry: null,
     comments: { totalCount: 2 },
     reviews: { nodes: [{ state: 'APPROVED' }] },
@@ -94,6 +95,7 @@ it('parses a pull request’s fields, the checks summary counting successes over
     checksState: GithubChecksState.Failure,
     checksSummary: '1/14',
     reviewState: 'APPROVED',
+    mergeable: PrMergeable.Mergeable,
     commentCount: 2,
     headOid: 'abc123',
     title: 'Port the chat cases',
@@ -143,6 +145,7 @@ it('parses an issue’s fields, with none of a PR’s', () => {
     checksState: null,
     checksSummary: null,
     reviewState: null,
+    mergeable: null,
     commentCount: 1,
     headOid: null,
     title: 'Flaky login test',
@@ -209,6 +212,16 @@ it('reads success and pending rollup states, and treats an unknown one as pendin
   expect(withState('SUCCESS')).toBe(GithubChecksState.Success)
   expect(withState('PENDING')).toBe(GithubChecksState.Pending)
   expect(withState('EXPECTED')).toBe(GithubChecksState.Pending)
+})
+
+it('reads a conflicting PR as conflicting, and an answer it does not know as UNKNOWN (#771)', () => {
+  const withMergeable = (mergeable: string) =>
+    parseWatchResponse({ data: { l0: { pullRequest: pullRequestResponse({ mergeable }) } } }, [PR]).get(PR)?.mergeable
+
+  expect(withMergeable('CONFLICTING')).toBe(PrMergeable.Conflicting)
+  expect(withMergeable('UNKNOWN')).toBe(PrMergeable.Unknown)
+  // GitHub works mergeability out lazily; a value new to the schema is no answer either.
+  expect(withMergeable('SOMETHING_NEW')).toBe(PrMergeable.Unknown)
 })
 
 it('leaves out a target GitHub answered with nothing (gone, or private to this token)', () => {

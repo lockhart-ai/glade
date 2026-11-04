@@ -5,7 +5,7 @@
  */
 import { z } from 'zod'
 import type { EpochMs } from '../../shared/domain'
-import { GithubChecksState, GithubLinkKind, GithubLinkState } from '../../shared/githubWatch'
+import { GithubChecksState, GithubLinkKind, GithubLinkState, PrMergeable } from '../../shared/githubWatch'
 
 /** One link to ask the GraphQL query about. */
 export interface WatchTarget {
@@ -34,6 +34,7 @@ const PULL_REQUEST_FIELDS = `
   mergedAt
   closedAt
   isDraft
+  mergeable
   mergeQueueEntry { id }
   comments { totalCount }
   reviews(last: 1) { nodes { state } }
@@ -106,6 +107,7 @@ const pullRequestSchema = z.object({
   mergedAt: z.string().nullable(),
   closedAt: z.string().nullable(),
   isDraft: z.boolean(),
+  mergeable: z.string(),
   mergeQueueEntry: z.object({ id: z.string() }).nullable(),
   comments: z.object({ totalCount: z.number() }),
   reviews: z.object({ nodes: z.array(z.object({ state: z.string() })) }),
@@ -140,6 +142,8 @@ export interface FetchedLinkState {
   readonly checksState: GithubChecksState | null
   readonly checksSummary: string | null
   readonly reviewState: string | null
+  /** What this poll answered of a PR's mergeability, UNKNOWN among the answers; null for an issue (#771). */
+  readonly mergeable: PrMergeable | null
   readonly commentCount: number
   readonly headOid: string | null
   readonly title: string
@@ -182,6 +186,16 @@ function checksSummaryOf(rollup: z.infer<typeof rollupSchema>): string | null {
   return `${String(succeeded)}/${String(rollup.contexts.totalCount)}`
 }
 
+/**
+ * GitHub's mergeability answer as our enum: `MERGEABLE` and `CONFLICTING` as GitHub names them, anything else the
+ * schema doesn't know — UNKNOWN among them, GitHub working the answer out lazily — as UNKNOWN (#771).
+ */
+function mergeableOf(value: string): PrMergeable {
+  if (value === 'MERGEABLE') return PrMergeable.Mergeable
+  if (value === 'CONFLICTING') return PrMergeable.Conflicting
+  return PrMergeable.Unknown
+}
+
 function fetchedFromPullRequest(pr: z.infer<typeof pullRequestSchema>): FetchedLinkState {
   const rollup = pr.commits.nodes[0]?.commit.statusCheckRollup ?? null
   return {
@@ -192,6 +206,7 @@ function fetchedFromPullRequest(pr: z.infer<typeof pullRequestSchema>): FetchedL
     checksState: checksStateOf(rollup),
     checksSummary: checksSummaryOf(rollup),
     reviewState: pr.reviews.nodes[0]?.state ?? null,
+    mergeable: mergeableOf(pr.mergeable),
     commentCount: pr.comments.totalCount,
     headOid: pr.commits.nodes[0]?.commit.oid ?? null,
     title: pr.title,
@@ -209,6 +224,7 @@ function fetchedFromIssue(issue: z.infer<typeof issueSchema>): FetchedLinkState 
     checksState: null,
     checksSummary: null,
     reviewState: null,
+    mergeable: null,
     commentCount: issue.comments.totalCount,
     headOid: null,
     title: issue.title,

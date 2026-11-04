@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { GithubChecksState, GithubLinkKind, GithubLinkState } from '../../../shared/githubWatch'
+import { GithubChecksState, GithubLinkKind, GithubLinkState, PrMergeable } from '../../../shared/githubWatch'
 import { type Task } from '../../../shared/domain'
 import { addLinkArtifact } from './artifacts'
 import { getGithubLinkWatch, listGithubLinkWatches, listWatchedLinks, putGithubLinkWatch } from './github-link-watches'
@@ -34,6 +34,7 @@ const watch = (overrides: Partial<Parameters<typeof putGithubLinkWatch>[1]> = {}
     checksState: GithubChecksState.Pending,
     checksSummary: null,
     reviewState: null,
+    mergeable: null,
     commentCount: 0,
     headOid: 'abc123',
     title: 'Port the chat cases',
@@ -56,6 +57,7 @@ describe('putGithubLinkWatch', () => {
       checksState: GithubChecksState.Pending,
       checksSummary: null,
       reviewState: null,
+      mergeable: null,
       commentCount: 0,
       headOid: 'abc123',
       title: 'Port the chat cases',
@@ -85,6 +87,12 @@ describe('putGithubLinkWatch', () => {
   it('refuses a watch for a URL that is not one of the task’s link artifacts', () => {
     expect(() => watch({ url: 'https://github.com/acme/api/pull/999' })).toThrow(/FOREIGN KEY/)
   })
+
+  it('keeps a PR’s last known mergeability, or none where GitHub has yet to answer (#771)', () => {
+    expect(watch({ mergeable: PrMergeable.Conflicting }).mergeable).toBe(PrMergeable.Conflicting)
+    expect(watch({ mergeable: PrMergeable.Mergeable }).mergeable).toBe(PrMergeable.Mergeable)
+    expect(watch().mergeable).toBeNull()
+  })
 })
 
 describe('listGithubLinkWatches', () => {
@@ -102,6 +110,7 @@ describe('listGithubLinkWatches', () => {
       checksState: null,
       checksSummary: null,
       reviewState: null,
+      mergeable: null,
       commentCount: 0,
       headOid: null,
       title: 'Elsewhere',
@@ -127,6 +136,7 @@ describe('listWatchedLinks', () => {
       checksState: null,
       checksSummary: null,
       reviewState: null,
+      mergeable: null,
       commentCount: 1,
       headOid: null,
       title: 'Flaky test',

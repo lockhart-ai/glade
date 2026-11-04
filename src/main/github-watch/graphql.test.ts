@@ -40,6 +40,7 @@ it('posts one query with the token, and parses what it answers', async () => {
           mergedAt: null,
           closedAt: null,
           isDraft: false,
+          mergeable: 'MERGEABLE',
           mergeQueueEntry: null,
           comments: { totalCount: 0 },
           reviews: { nodes: [] },

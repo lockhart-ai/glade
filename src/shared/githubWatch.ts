@@ -25,6 +25,17 @@ export enum GithubChecksState {
 }
 
 /**
+ * Whether GitHub can merge a pull request as it stands, as its APIs name the answer (`mergeable` in GraphQL and REST;
+ * the REST fallback also reads `mergeable_state`). GitHub works the answer out lazily, so a poll often gets UNKNOWN.
+ * Only ever answered for a pull request.
+ */
+export enum PrMergeable {
+  Mergeable = 'MERGEABLE',
+  Conflicting = 'CONFLICTING',
+  Unknown = 'UNKNOWN',
+}
+
+/**
  * What the GitHub link watcher last knew of one of a task's linked issues or PRs: everything it polls for, and
  * whether it's still being polled (`watching` turns to 0 once the link closed or merged, whichever came first;
  * the row stays, so the last state it saw keeps showing). A link whose todo is done keeps being polled (#738).
@@ -44,6 +55,12 @@ export interface GithubLinkWatch {
   readonly checksSummary: string | null
   /** The latest review's state (`APPROVED`, `CHANGES_REQUESTED`, …), as GitHub's GraphQL API names it; null for none. */
   readonly reviewState: string | null
+  /**
+   * The last mergeability answer the watcher has of the PR: `MERGEABLE` or `CONFLICTING`, whatever the newest poll
+   * said, an UNKNOWN answer keeping the one before it (#771). Null when GitHub hasn't answered one yet, or for an
+   * issue, which has no mergeability. Only ever one of the two for a pull request.
+   */
+  readonly mergeable: PrMergeable | null
   readonly commentCount: number
   /** Its latest commit's SHA; null for an issue, or a PR with none yet seen. */
   readonly headOid: string | null

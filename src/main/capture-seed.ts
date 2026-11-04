@@ -38,7 +38,7 @@ import {
   type TurnSummary,
   type PermissionMarkOutcome,
 } from '../shared/domain'
-import { GithubChecksState, GithubLinkKind, GithubLinkState } from '../shared/githubWatch'
+import { GithubChecksState, GithubLinkKind, GithubLinkState, PrMergeable } from '../shared/githubWatch'
 import { LinkKind, recogniseLink } from '../shared/artifactLinks'
 import { putGithubLinkWatch } from './db/repositories/github-link-watches'
 import { taskPermissionRule } from '../shared/permissions'
@@ -431,6 +431,8 @@ export interface SeedGithubWatch {
   readonly checksState?: GithubChecksState | undefined
   readonly checksSummary?: string | undefined
   readonly reviewState?: string | undefined
+  /** The last mergeability answer to seed the watch with; none unless given, which reads as UNKNOWN (#771). */
+  readonly mergeable?: typeof PrMergeable.Mergeable | typeof PrMergeable.Conflicting | undefined
   readonly commentCount?: number | undefined
   readonly minutesAgo: number
 }
@@ -919,6 +921,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
             checksState: z.enum(GithubChecksState).optional(),
             checksSummary: z.string().optional(),
             reviewState: z.string().optional(),
+            mergeable: z.enum([PrMergeable.Mergeable, PrMergeable.Conflicting]).optional(),
             commentCount: count.optional(),
             minutesAgo,
           }),
@@ -984,6 +987,7 @@ function seedGithubWatch(db: Database, taskId: string, watch: SeedGithubWatch, a
       checksState: watch.checksState ?? null,
       checksSummary: watch.checksSummary ?? null,
       reviewState: watch.reviewState ?? null,
+      mergeable: watch.mergeable ?? null,
       commentCount: watch.commentCount ?? 0,
       headOid: null,
       title: watch.title,

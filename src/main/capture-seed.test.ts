@@ -31,7 +31,7 @@ import {
   PermissionMarkKind,
 } from '../shared/domain'
 import { SandboxAskKind } from '../shared/sandbox'
-import { GithubChecksState, GithubLinkKind, GithubLinkState } from '../shared/githubWatch'
+import { GithubChecksState, GithubLinkKind, GithubLinkState, PrMergeable } from '../shared/githubWatch'
 import { listPermissionMarks } from './db/repositories/permission-marks'
 import { applySeed, readSeed, seedArtifactAt, type CaptureSeed } from './capture-seed'
 import { PanelTab } from '../renderer/right-panel/panelModel'
@@ -579,6 +579,7 @@ describe('applySeed', () => {
                 checksState: GithubChecksState.Success,
                 checksSummary: '14/14',
                 reviewState: 'APPROVED',
+                mergeable: PrMergeable.Conflicting,
                 commentCount: 3,
                 minutesAgo: 2,
               },
@@ -611,6 +612,7 @@ describe('applySeed', () => {
         checksState: null,
         checksSummary: null,
         reviewState: null,
+        mergeable: null,
         commentCount: 4,
         headOid: null,
         title: 'Per-key limits for /search',
@@ -628,6 +630,7 @@ describe('applySeed', () => {
         checksState: GithubChecksState.Success,
         checksSummary: '14/14',
         reviewState: 'APPROVED',
+        mergeable: PrMergeable.Conflicting,
         commentCount: 3,
         headOid: null,
         title: 'Return Retry-After on 429s',

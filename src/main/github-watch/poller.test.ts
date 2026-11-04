@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Task } from '../../shared/domain'
-import { GithubChecksState, GithubLinkKind, GithubLinkState } from '../../shared/githubWatch'
+import { GithubChecksState, GithubLinkKind, GithubLinkState, PrMergeable } from '../../shared/githubWatch'
 import { ChildKind, FilingSource } from '../../shared/todoHub'
 import { TodoState } from '../../shared/domain'
 import { addLinkArtifact } from '../db/repositories/artifacts'
@@ -48,6 +48,7 @@ function fetched(targets: readonly WatchTarget[], overrides: Record<string, unkn
         checksState: GithubChecksState.Pending,
         checksSummary: null,
         reviewState: null,
+        mergeable: PrMergeable.Mergeable,
         commentCount: 0,
         headOid: 'abc123',
         title: 'Port the chat cases',
@@ -194,6 +195,59 @@ describe('pollGithubWatches', () => {
     expect(theRunner.send).toHaveBeenCalledWith(
       task.id,
       ['GitHub:', '- PR #412 Port the chat cases: merged'].join('\n'),
+      [],
+      [],
+      [],
+      'github',
+      null,
+    )
+  })
+
+  it('wakes the task once when a linked PR falls into merge conflicts, not for an UNKNOWN answer in between, and once when they resolve (#771)', async () => {
+    addLinkArtifact(test.db, { taskId: task.id, url: PR_URL, title: '#412' })
+    const pollWith = async (mergeable: PrMergeable): Promise<{ send: ReturnType<typeof vi.fn>; queue: ReturnType<typeof vi.fn> }> => {
+      const fetchGraphql = vi.fn().mockImplementation((_t: string, targets: readonly WatchTarget[]) =>
+        Promise.resolve({ outcome: 'fetched', fetched: fetched(targets, { mergeable }) } satisfies GraphqlBatchResult),
+      )
+      const theRunner = runner()
+      theRunner.send.mockReturnValue({ id: 'm' } as unknown as ReturnType<AgentRunner['send']>)
+      await pollGithubWatches({
+        db: test.db,
+        emit: vi.fn(),
+        runner: theRunner,
+        tokenCache: tokenCache('ghs_token'),
+        fetchGraphql,
+      })
+      return theRunner
+    }
+
+    // Baseline poll, then a flip into conflict: one notice, and the agent wakes with it.
+    await pollWith(PrMergeable.Mergeable)
+    const conflicted = await pollWith(PrMergeable.Conflicting)
+    expect(conflicted.send).toHaveBeenCalledWith(
+      task.id,
+      ['GitHub:', '- PR #412 Port the chat cases: has merge conflicts'].join('\n'),
+      [],
+      [],
+      [],
+      'github',
+      null,
+    )
+    expect(getGithubLinkWatch(test.db, task.id, PR_URL)).toMatchObject({ mergeable: PrMergeable.Conflicting })
+
+    // GitHub recomputes and answers UNKNOWN: no notice, and the last known conflict kept, so the next real
+    // answer — the same conflict — says nothing either, and a resolved one is noticed.
+    const unknown = await pollWith(PrMergeable.Unknown)
+    expect(unknown.send).not.toHaveBeenCalled()
+    expect(unknown.queue).not.toHaveBeenCalled()
+    expect(getGithubLinkWatch(test.db, task.id, PR_URL)).toMatchObject({ mergeable: PrMergeable.Conflicting })
+    const stillConflicted = await pollWith(PrMergeable.Conflicting)
+    expect(stillConflicted.send).not.toHaveBeenCalled()
+
+    const resolved = await pollWith(PrMergeable.Mergeable)
+    expect(resolved.send).toHaveBeenCalledWith(
+      task.id,
+      ['GitHub:', '- PR #412 Port the chat cases: merge conflicts resolved'].join('\n'),
       [],
       [],
       [],
@@ -386,6 +440,7 @@ describe('pollGithubWatches', () => {
       checksState: GithubChecksState.Pending,
       checksSummary: null,
       reviewState: null,
+      mergeable: null,
       commentCount: 0,
       headOid: 'abc123',
       title: 'Port the chat cases',

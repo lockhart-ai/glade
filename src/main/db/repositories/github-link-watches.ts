@@ -4,17 +4,25 @@
  * artifacts.url`), which goes with the task.
  */
 import type { Database } from 'better-sqlite3'
-import { GithubChecksState, GithubLinkKind, GithubLinkState, type GithubLinkWatch } from '../../../shared/githubWatch'
+import {
+  GithubChecksState,
+  GithubLinkKind,
+  GithubLinkState,
+  PrMergeable,
+  type GithubLinkWatch,
+} from '../../../shared/githubWatch'
 import type { EpochMs } from '../../../shared/domain'
 import { Row } from './rows'
 
 const COLUMNS =
-  'task_id, url, kind, state, merged, draft, in_merge_queue, checks_state, checks_summary, review_state, ' +
+  'task_id, url, kind, state, merged, draft, in_merge_queue, checks_state, checks_summary, review_state, mergeable, ' +
   'comment_count, head_oid, title, watching, last_fetched_at'
 
 const LINK_KINDS = Object.values(GithubLinkKind)
 const LINK_STATES = Object.values(GithubLinkState)
 const CHECKS_STATES = Object.values(GithubChecksState)
+/** What a stored row can hold: an UNKNOWN answer is never stored, the last known one kept in its place (#771). */
+const MERGEABLE_STATES = [PrMergeable.Mergeable, PrMergeable.Conflicting]
 
 function parseWatch(raw: unknown): GithubLinkWatch {
   const row = new Row('github_link_watches', raw)
@@ -29,6 +37,7 @@ function parseWatch(raw: unknown): GithubLinkWatch {
     checksState: row.nullableOneOf('checks_state', CHECKS_STATES),
     checksSummary: row.nullableText('checks_summary'),
     reviewState: row.nullableText('review_state'),
+    mergeable: row.nullableOneOf('mergeable', MERGEABLE_STATES),
     commentCount: row.integer('comment_count'),
     headOid: row.nullableText('head_oid'),
     title: row.text('title'),
@@ -53,11 +62,12 @@ export function putGithubLinkWatch(
     .prepare(
       `INSERT INTO github_link_watches (${COLUMNS})
       VALUES (@taskId, @url, @kind, @state, @merged, @draft, @inMergeQueue, @checksState, @checksSummary,
-        @reviewState, @commentCount, @headOid, @title, @watching, @lastFetchedAt)
+        @reviewState, @mergeable, @commentCount, @headOid, @title, @watching, @lastFetchedAt)
       ON CONFLICT (task_id, url) DO UPDATE SET
         kind = excluded.kind, state = excluded.state, merged = excluded.merged, draft = excluded.draft,
         in_merge_queue = excluded.in_merge_queue, checks_state = excluded.checks_state,
         checks_summary = excluded.checks_summary, review_state = excluded.review_state,
+        mergeable = excluded.mergeable,
         comment_count = excluded.comment_count, head_oid = excluded.head_oid, title = excluded.title,
         watching = excluded.watching, last_fetched_at = excluded.last_fetched_at
       RETURNING ${COLUMNS}`,
@@ -67,6 +77,7 @@ export function putGithubLinkWatch(
       merged: watch.merged ? 1 : 0,
       draft: watch.draft ? 1 : 0,
       inMergeQueue: watch.inMergeQueue ? 1 : 0,
+      mergeable: watch.mergeable ?? null,
       watching: watch.watching ? 1 : 0,
       lastFetchedAt: now,
     })

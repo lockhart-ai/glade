@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { GithubLinkKind, GithubLinkState } from '../../shared/githubWatch'
+import { GithubLinkKind, GithubLinkState, PrMergeable } from '../../shared/githubWatch'
 import type { FetchImpl } from './graphql'
 import { fetchWatchBatchRest } from './rest-fallback'
 import type { WatchTarget } from './query'
@@ -39,6 +39,8 @@ it('reads a pull request’s public fields, with no checks, review or merge-queu
       merged_at: null,
       closed_at: null,
       draft: false,
+      mergeable: true,
+      mergeable_state: 'clean',
       comments: 2,
       head: { sha: 'abc123' },
     }),
@@ -59,6 +61,7 @@ it('reads a pull request’s public fields, with no checks, review or merge-queu
           checksState: null,
           checksSummary: null,
           reviewState: null,
+          mergeable: PrMergeable.Mergeable,
           commentCount: 2,
           headOid: 'abc123',
           title: 'Port the chat cases',
@@ -94,6 +97,37 @@ it('reads an issue’s public fields, and its close time when closed', async () 
     closedAt: new Date('2026-10-18T17:38:00Z').getTime(),
   })
   expect(fetchImpl).toHaveBeenCalledWith('https://api.github.com/repos/acme/api/issues/7', expect.anything())
+})
+
+it('maps the REST mergeability fields to the same enum as GraphQL: dirty or false conflicts, null unknown (#771)', async () => {
+  const fetchFor = (mergeable: boolean | null, mergeable_state: string) =>
+    vi.fn().mockResolvedValue(
+      response(200, {
+        title: 'Port the chat cases',
+        state: 'open',
+        merged: false,
+        merged_at: null,
+        closed_at: null,
+        draft: false,
+        mergeable,
+        mergeable_state,
+        comments: 2,
+        head: { sha: 'abc123' },
+      }),
+    ) as unknown as FetchImpl
+
+  expect((await fetchWatchBatchRest([PR], fetchFor(null, 'unknown'))).fetched.get(PR)?.mergeable).toBe(
+    PrMergeable.Unknown,
+  )
+  expect((await fetchWatchBatchRest([PR], fetchFor(false, 'dirty'))).fetched.get(PR)?.mergeable).toBe(
+    PrMergeable.Conflicting,
+  )
+  expect((await fetchWatchBatchRest([PR], fetchFor(false, 'blocked'))).fetched.get(PR)?.mergeable).toBe(
+    PrMergeable.Conflicting,
+  )
+  expect((await fetchWatchBatchRest([PR], fetchFor(true, 'clean'))).fetched.get(PR)?.mergeable).toBe(
+    PrMergeable.Mergeable,
+  )
 })
 
 it('leaves out a link that is gone or private (404), asking nothing further for it', async () => {
