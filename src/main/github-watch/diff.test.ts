@@ -1,6 +1,12 @@
 import { expect, it } from 'vitest'
-import { GithubChecksState, GithubLinkKind, GithubLinkState, type GithubLinkWatch } from '../../shared/githubWatch'
-import { diffLinkState, stillWatching, type WatchWakeSettings } from './diff'
+import {
+  GithubChecksState,
+  GithubLinkKind,
+  GithubLinkState,
+  PrMergeable,
+  type GithubLinkWatch,
+} from '../../shared/githubWatch'
+import { diffLinkState, mergeableKept, stillWatching, type WatchWakeSettings } from './diff'
 import type { FetchedLinkState } from './query'
 
 const ALL_ON: WatchWakeSettings = {
@@ -21,6 +27,7 @@ const PREVIOUS: GithubLinkWatch = {
   checksState: GithubChecksState.Pending,
   checksSummary: null,
   reviewState: null,
+  mergeable: PrMergeable.Mergeable,
   commentCount: 0,
   headOid: 'abc123',
   title: 'Port the chat cases',
@@ -39,6 +46,7 @@ const UNCHANGED: FetchedLinkState = {
   checksState: PREVIOUS.checksState,
   checksSummary: PREVIOUS.checksSummary,
   reviewState: PREVIOUS.reviewState,
+  mergeable: PREVIOUS.mergeable,
   commentCount: PREVIOUS.commentCount,
   headOid: PREVIOUS.headOid,
   title: PREVIOUS.title,
@@ -112,6 +120,58 @@ it('reports entering and leaving the merge queue', () => {
   expect(diffLinkState(queued, { ...UNCHANGED, inMergeQueue: false }, ALL_ON, LINKED_AT)).toEqual([
     'left the merge queue',
   ])
+})
+
+it('reports a watched PR first seen conflicting after its earlier polls had no answer (#771)', () => {
+  const noAnswer = { ...PREVIOUS, mergeable: null }
+  expect(diffLinkState(noAnswer, { ...UNCHANGED, mergeable: PrMergeable.Conflicting }, ALL_ON, LINKED_AT)).toEqual([
+    'has merge conflicts',
+  ])
+  expect(diffLinkState(noAnswer, { ...UNCHANGED, mergeable: PrMergeable.Mergeable }, ALL_ON, LINKED_AT)).toEqual([])
+})
+
+it('reports a PR that has fallen into merge conflicts, gated by onStateChange (#771)', () => {
+  const conflicting = { ...UNCHANGED, mergeable: PrMergeable.Conflicting }
+  expect(diffLinkState(PREVIOUS, conflicting, ALL_ON, LINKED_AT)).toEqual(['has merge conflicts'])
+  expect(diffLinkState(PREVIOUS, conflicting, { ...ALL_ON, onStateChange: false }, LINKED_AT)).toEqual([])
+})
+
+it('reports a conflicting PR whose conflicts were resolved, and says nothing when it stays as it was (#771)', () => {
+  const conflicted = { ...PREVIOUS, mergeable: PrMergeable.Conflicting }
+  expect(diffLinkState(conflicted, { ...UNCHANGED, mergeable: PrMergeable.Mergeable }, ALL_ON, LINKED_AT)).toEqual([
+    'merge conflicts resolved',
+  ])
+  expect(diffLinkState(conflicted, { ...UNCHANGED, mergeable: PrMergeable.Conflicting }, ALL_ON, LINKED_AT)).toEqual([])
+})
+
+it('reports nothing of a mergeability flip when the PR closed or merged in the same poll (#771)', () => {
+  expect(
+    diffLinkState(
+      PREVIOUS,
+      { ...UNCHANGED, state: GithubLinkState.Closed, merged: true, mergeable: PrMergeable.Conflicting },
+      ALL_ON,
+      LINKED_AT,
+    ),
+  ).toEqual(['merged'])
+})
+
+it('reports nothing for an UNKNOWN mergeability answer, whatever the last known one was (#771)', () => {
+  const unknown = { ...UNCHANGED, mergeable: PrMergeable.Unknown }
+  expect(diffLinkState(PREVIOUS, unknown, ALL_ON, LINKED_AT)).toEqual([])
+  const conflicted = { ...PREVIOUS, mergeable: PrMergeable.Conflicting }
+  expect(diffLinkState(conflicted, unknown, ALL_ON, LINKED_AT)).toEqual([])
+})
+
+it('reports nothing for a PR first linked already in conflicts, like any other first reading (#771)', () => {
+  expect(diffLinkState(undefined, { ...UNCHANGED, mergeable: PrMergeable.Conflicting }, ALL_ON, LINKED_AT)).toEqual([])
+})
+
+it('keeps the last known mergeability over an UNKNOWN answer, and none before one (#771)', () => {
+  expect(mergeableKept(PREVIOUS, { ...UNCHANGED, mergeable: PrMergeable.Unknown })).toBe(PrMergeable.Mergeable)
+  expect(mergeableKept(undefined, { ...UNCHANGED, mergeable: PrMergeable.Mergeable })).toBe(PrMergeable.Mergeable)
+  expect(mergeableKept(undefined, { ...UNCHANGED, mergeable: PrMergeable.Unknown })).toBeNull()
+  expect(mergeableKept(undefined, { ...UNCHANGED, mergeable: null })).toBeNull()
+  expect(mergeableKept(PREVIOUS, { ...UNCHANGED, mergeable: PrMergeable.Conflicting })).toBe(PrMergeable.Conflicting)
 })
 
 it('reports CI finishing, gated by onChecksFinished, but not while still pending or already reported', () => {

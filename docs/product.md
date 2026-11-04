@@ -491,8 +491,11 @@ Settings (⌘,) opens on Agent. Changes save as you make them.
 - **Control:** whether other agents and scripts may drive Glade, and how to connect them (`control-api.md`).
 - **GitHub watching:** how often the GitHub link watcher polls every task's linked issues and PRs (default a
   minute), and which of their changes (state, CI finishing, reviews and comments, new commits) wake the task; all
-  four on by default. It polls a linked PR until it merges or closes, and a linked issue until it closes, whether
-  or not its todo is done; a link whose todo is done keeps its state current, but its changes never wake the task.
+  four on by default. Of a linked PR's state changes, gaining merge conflicts wakes its task with "has merge
+  conflicts" and their resolution with "merge conflicts resolved"; GitHub works mergeability out lazily, so an
+  answer it hasn't worked out yet changes nothing. It polls a linked PR until it merges or closes, and a linked
+  issue until it closes, whether or not its todo is done; a link whose todo is done keeps its state current, but
+  its changes never wake the task.
 - **Workspace** (under its own heading, by the workspace's name): its name and root folder, then its **Sandbox**:
   the folders its agents may use (the workspace root first, read-write and fixed) and the domains they may reach.
 

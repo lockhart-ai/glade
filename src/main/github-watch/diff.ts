@@ -4,7 +4,7 @@
  * Pure: no database, no network, so every case is a plain fixture.
  */
 import type { EpochMs } from '../../shared/domain'
-import { GithubChecksState, GithubLinkState, type GithubLinkWatch } from '../../shared/githubWatch'
+import { GithubChecksState, GithubLinkState, PrMergeable, type GithubLinkWatch } from '../../shared/githubWatch'
 import type { FetchedLinkState } from './query'
 
 /** Which kinds of change wake a task, from Settings › GitHub watching. */
@@ -30,6 +30,34 @@ function stateChange(previous: GithubLinkWatch, next: FetchedLinkState): string 
     return next.inMergeQueue ? 'entered the merge queue' : 'left the merge queue'
   }
   return null
+}
+
+/**
+ * What changed of a PR's mergeability between two polls that both have answers to compare (#771): GitHub now
+ * conflicting where it could merge before, or the other way. Only for a PR still open — a closed or merged one is
+ * never reported as conflicting. An UNKNOWN answer (`next`) is never one of the two values here, and leaves the
+ * previous one standing (`mergeableKept`), so it can neither be reported nor flap a report that was already made.
+ */
+function mergeableChange(previous: GithubLinkWatch, next: FetchedLinkState): string | null {
+  if (next.state !== GithubLinkState.Open) return null
+  // From no answer yet too: a PR watched since before migration 0085, or whose earlier polls were all UNKNOWN, that
+  // turns out conflicting is news, since nothing has reported it.
+  if (previous.mergeable !== PrMergeable.Conflicting && next.mergeable === PrMergeable.Conflicting) {
+    return 'has merge conflicts'
+  }
+  if (previous.mergeable === PrMergeable.Conflicting && next.mergeable === PrMergeable.Mergeable) {
+    return 'merge conflicts resolved'
+  }
+  return null
+}
+
+/**
+ * What to record of a poll's mergeability answer: an answer at all, unless it's UNKNOWN or there is none — GitHub
+ * works mergeability out lazily, so either only says it has nothing to add, and the last known answer stands (#771).
+ */
+export function mergeableKept(previous: GithubLinkWatch | undefined, next: FetchedLinkState): PrMergeable | null {
+  if (next.mergeable === null || next.mergeable === PrMergeable.Unknown) return previous?.mergeable ?? null
+  return next.mergeable
 }
 
 /** Whether its checks just finished: were still running (or unknown) before, and have an answer now. */
@@ -67,6 +95,8 @@ export function diffLinkState(
   if (settings.onStateChange) {
     const changed = stateChange(previous, next)
     if (changed !== null) lines.push(changed)
+    const mergeable = mergeableChange(previous, next)
+    if (mergeable !== null) lines.push(mergeable)
   }
   if (settings.onChecksFinished && checksJustFinished(previous, next)) lines.push(checksLine(next))
   if (settings.onReviewsComments) {

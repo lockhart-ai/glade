@@ -873,6 +873,7 @@ describe('a watched link’s tile (#683)', () => {
     checksState: null,
     checksSummary: null,
     reviewState: null,
+    mergeable: null,
     commentCount: 0,
     headOid: null,
     title: 'Document the rate limits',

@@ -6,7 +6,7 @@
  * token, same as GraphQL leaving a target out it can't see.
  */
 import { z } from 'zod'
-import { GithubLinkKind, GithubLinkState } from '../../shared/githubWatch'
+import { GithubLinkKind, GithubLinkState, PrMergeable } from '../../shared/githubWatch'
 import { backoffFor, rateLimitHeadersOf } from './backoff'
 import { epochMsOf, type FetchedLinkState, type WatchTarget } from './query'
 import type { FetchImpl } from './graphql'
@@ -27,9 +27,22 @@ const pullRequestResponseSchema = z.object({
   merged_at: z.string().nullable(),
   closed_at: z.string().nullable(),
   draft: z.boolean(),
+  mergeable: z.boolean().nullable(),
+  mergeable_state: z.string(),
   comments: z.number(),
   head: z.object({ sha: z.string() }),
 })
+
+/**
+ * The REST PR response's mergeability as our enum (#771): `mergeable` null is GitHub saying it hasn't worked the
+ * answer out yet, so UNKNOWN; `mergeable_state` of `dirty` is its own word for conflicts, as is a plain false —
+ * GitHub's `mergeable` is false only when the branches conflict.
+ */
+function restMergeableOf(pr: { mergeable: boolean | null; mergeable_state: string }): PrMergeable {
+  if (pr.mergeable_state === 'dirty') return PrMergeable.Conflicting
+  if (pr.mergeable === null) return PrMergeable.Unknown
+  return pr.mergeable ? PrMergeable.Mergeable : PrMergeable.Conflicting
+}
 
 /** The REST fallback reads no checks, reviews or merge-queue membership: those cost extra requests it can't spare. */
 function fetchedFromIssue(issue: z.infer<typeof issueResponseSchema>): FetchedLinkState {
@@ -41,6 +54,7 @@ function fetchedFromIssue(issue: z.infer<typeof issueResponseSchema>): FetchedLi
     checksState: null,
     checksSummary: null,
     reviewState: null,
+    mergeable: null,
     commentCount: issue.comments,
     headOid: null,
     title: issue.title,
@@ -58,6 +72,7 @@ function fetchedFromPullRequest(pr: z.infer<typeof pullRequestResponseSchema>): 
     checksState: null,
     checksSummary: null,
     reviewState: null,
+    mergeable: restMergeableOf(pr),
     commentCount: pr.comments,
     headOid: pr.head.sha,
     title: pr.title,

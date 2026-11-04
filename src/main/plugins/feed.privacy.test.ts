@@ -39,7 +39,7 @@ import {
   type ToolInput,
   type Workspace,
 } from '../../shared/domain'
-import { GithubChecksState, GithubLinkKind, GithubLinkState } from '../../shared/githubWatch'
+import { GithubChecksState, GithubLinkKind, GithubLinkState, PrMergeable } from '../../shared/githubWatch'
 import { ImageMediaType } from '../../shared/images'
 import type { PluginEvent } from '../../shared/plugin-api'
 import { pluginEventSchema } from '../../shared/plugin-api-schema'
@@ -588,6 +588,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           checksState: GithubChecksState.Failure,
           checksSummary: secret('checks_summary'),
           reviewState: secret('review_state'),
+          mergeable: PrMergeable.Conflicting,
           commentCount: 2,
           headOid: secret('head_oid'),
           title: secret('watch_title'),

@@ -12,7 +12,7 @@ import { emitGithubWatchChanged } from '../bridge/events'
 import { GithubLinkState } from '../../shared/githubWatch'
 import { getSettings } from '../db/repositories/settings'
 import { putGithubLinkWatch } from '../db/repositories/github-link-watches'
-import { diffLinkState, stillWatching, type WatchWakeSettings } from './diff'
+import { diffLinkState, mergeableKept, stillWatching, type WatchWakeSettings } from './diff'
 import { fetchWatchBatch, type GraphqlBatchResult } from './graphql'
 import { fetchWatchBatchRest, type RestBatchResult } from './rest-fallback'
 import type { FetchedLinkState, WatchTarget } from './query'
@@ -141,6 +141,8 @@ export async function pollGithubWatches(options: PollOptions): Promise<number> {
       checksState: next.checksState,
       checksSummary: next.checksSummary,
       reviewState: next.reviewState,
+      // An UNKNOWN answer keeps the last known one stored, so no poll can flap a conflict report (#771).
+      mergeable: mergeableKept(previous, next),
       commentCount: next.commentCount,
       headOid: next.headOid,
       title: next.title,

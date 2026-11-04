@@ -1770,6 +1770,7 @@ describe("a collapsed todo's linked pull requests and issues (#683)", () => {
     checksState: null,
     checksSummary: null,
     reviewState: null,
+    mergeable: null,
     commentCount: 0,
     headOid: null,
     title: 'A link',

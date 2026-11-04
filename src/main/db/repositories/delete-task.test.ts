@@ -143,6 +143,7 @@ async function fillTask(db: Database, task: Task): Promise<void> {
     checksState: GithubChecksState.Pending,
     checksSummary: null,
     reviewState: null,
+    mergeable: null,
     commentCount: 0,
     headOid: 'abc123',
     title: 'Fix the UTC date test',

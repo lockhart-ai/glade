@@ -26,6 +26,7 @@ function watch(fields: Partial<GithubLinkWatch> = {}): GithubLinkWatch {
     checksState: null,
     checksSummary: null,
     reviewState: null,
+    mergeable: null,
     commentCount: 0,
     headOid: null,
     title: 'A pull request',
