@@ -205,9 +205,14 @@ describe('pollGithubWatches', () => {
 
   it('wakes the task once when a linked PR falls into merge conflicts, not for an UNKNOWN answer in between, and once when they resolve (#771)', async () => {
     addLinkArtifact(test.db, { taskId: task.id, url: PR_URL, title: '#412' })
-    const pollWith = async (mergeable: PrMergeable): Promise<{ send: ReturnType<typeof vi.fn>; queue: ReturnType<typeof vi.fn> }> => {
+    const pollWith = async (
+      mergeable: PrMergeable,
+    ): Promise<{ send: ReturnType<typeof vi.fn>; queue: ReturnType<typeof vi.fn> }> => {
       const fetchGraphql = vi.fn().mockImplementation((_t: string, targets: readonly WatchTarget[]) =>
-        Promise.resolve({ outcome: 'fetched', fetched: fetched(targets, { mergeable }) } satisfies GraphqlBatchResult),
+        Promise.resolve({
+          outcome: 'fetched',
+          fetched: fetched(targets, { mergeable }),
+        } satisfies GraphqlBatchResult),
       )
       const theRunner = runner()
       theRunner.send.mockReturnValue({ id: 'm' } as unknown as ReturnType<AgentRunner['send']>)

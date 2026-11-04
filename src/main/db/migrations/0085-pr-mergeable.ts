@@ -13,6 +13,8 @@ export const prMergeableMigration: Migration = {
   version: 85,
   name: 'Add the last known mergeability of a watched pull request',
   up(db: Database) {
-    db.exec("ALTER TABLE github_link_watches ADD COLUMN mergeable TEXT CHECK (mergeable IN ('MERGEABLE', 'CONFLICTING'))")
+    db.exec(
+      "ALTER TABLE github_link_watches ADD COLUMN mergeable TEXT CHECK (mergeable IN ('MERGEABLE', 'CONFLICTING'))",
+    )
   },
 }

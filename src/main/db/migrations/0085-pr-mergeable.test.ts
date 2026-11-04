@@ -17,7 +17,10 @@ it('is migration 85, after every earlier one', () => {
 /** A database as it stood at 84: a watch row for a linked PR, with no mergeability known of it. */
 function seeded() {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.filter((migration) => migration.version < 85))
+  migrate(
+    db,
+    MIGRATIONS.filter((migration) => migration.version < 85),
+  )
   db.prepare("INSERT INTO workspaces VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)").run()
   db.prepare(
     `INSERT INTO tasks (id, workspace_id, title, objective, status, state, activity, pinned, unread, model, effort,
@@ -84,8 +87,8 @@ it('keeps the last known mergeability, and refuses anything but the two answers 
   })
   expect(getGithubLinkWatch(db, 't', URL)?.mergeable).toBe(PrMergeable.Mergeable)
 
-  expect(() =>
-    db.prepare(`UPDATE github_link_watches SET mergeable = 'UNKNOWN' WHERE url = ?`).run(URL),
-  ).toThrow(/CHECK/)
+  expect(() => db.prepare(`UPDATE github_link_watches SET mergeable = 'UNKNOWN' WHERE url = ?`).run(URL)).toThrow(
+    /CHECK/,
+  )
   db.close()
 })
