@@ -40,7 +40,9 @@ function stateChange(previous: GithubLinkWatch, next: FetchedLinkState): string 
  */
 function mergeableChange(previous: GithubLinkWatch, next: FetchedLinkState): string | null {
   if (next.state !== GithubLinkState.Open) return null
-  if (previous.mergeable === PrMergeable.Mergeable && next.mergeable === PrMergeable.Conflicting) {
+  // From no answer yet too: a PR watched since before migration 0085, or whose earlier polls were all UNKNOWN, that
+  // turns out conflicting is news, since nothing has reported it.
+  if (previous.mergeable !== PrMergeable.Conflicting && next.mergeable === PrMergeable.Conflicting) {
     return 'has merge conflicts'
   }
   if (previous.mergeable === PrMergeable.Conflicting && next.mergeable === PrMergeable.Mergeable) {

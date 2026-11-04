@@ -122,12 +122,18 @@ it('reports entering and leaving the merge queue', () => {
   ])
 })
 
+it('reports a watched PR first seen conflicting after its earlier polls had no answer (#771)', () => {
+  const noAnswer = { ...PREVIOUS, mergeable: null }
+  expect(diffLinkState(noAnswer, { ...UNCHANGED, mergeable: PrMergeable.Conflicting }, ALL_ON, LINKED_AT)).toEqual([
+    'has merge conflicts',
+  ])
+  expect(diffLinkState(noAnswer, { ...UNCHANGED, mergeable: PrMergeable.Mergeable }, ALL_ON, LINKED_AT)).toEqual([])
+})
+
 it('reports a PR that has fallen into merge conflicts, gated by onStateChange (#771)', () => {
   const conflicting = { ...UNCHANGED, mergeable: PrMergeable.Conflicting }
   expect(diffLinkState(PREVIOUS, conflicting, ALL_ON, LINKED_AT)).toEqual(['has merge conflicts'])
-  expect(
-    diffLinkState(PREVIOUS, conflicting, { ...ALL_ON, onStateChange: false }, LINKED_AT),
-  ).toEqual([])
+  expect(diffLinkState(PREVIOUS, conflicting, { ...ALL_ON, onStateChange: false }, LINKED_AT)).toEqual([])
 })
 
 it('reports a conflicting PR whose conflicts were resolved, and says nothing when it stays as it was (#771)', () => {
@@ -135,9 +141,7 @@ it('reports a conflicting PR whose conflicts were resolved, and says nothing whe
   expect(diffLinkState(conflicted, { ...UNCHANGED, mergeable: PrMergeable.Mergeable }, ALL_ON, LINKED_AT)).toEqual([
     'merge conflicts resolved',
   ])
-  expect(diffLinkState(conflicted, { ...UNCHANGED, mergeable: PrMergeable.Conflicting }, ALL_ON, LINKED_AT)).toEqual(
-    [],
-  )
+  expect(diffLinkState(conflicted, { ...UNCHANGED, mergeable: PrMergeable.Conflicting }, ALL_ON, LINKED_AT)).toEqual([])
 })
 
 it('reports nothing of a mergeability flip when the PR closed or merged in the same poll (#771)', () => {
