@@ -90,9 +90,9 @@ describe('usageLine', () => {
     )
   })
 
-  it('adds the OpenRouter spend only for a task that runs on OpenRouter', () => {
+  it("adds the OpenRouter spend only for a task that runs on OpenRouter, as today's (UTC)", () => {
     expect(usageLine(current, true, NOW)).toBe(
-      'Usage: session 41% (resets 14:00 UTC), week 59% (resets Oct 23 06:00 UTC), OpenRouter spend $12.34.',
+      'Usage: session 41% (resets 14:00 UTC), week 59% (resets Oct 23 06:00 UTC), OpenRouter spend today (UTC) $12.34.',
     )
   })
 
@@ -108,7 +108,7 @@ describe('usageLine', () => {
   it('says the spend alone for a task on OpenRouter with no plan readings', () => {
     expect(
       usageLine({ session: null, week: null, sessionResetsAt: null, weekResetsAt: null, spend: 12.34 }, true, NOW),
-    ).toBe('Usage: OpenRouter spend $12.34.')
+    ).toBe('Usage: OpenRouter spend today (UTC) $12.34.')
   })
 })
 
@@ -140,7 +140,16 @@ describe('usageNote', () => {
 
   it('tells the spend alone, naming the step it crossed', () => {
     const { note } = usageNote({ ...current, spend: 20.05 }, { session: 0.41, week: 0.59, spend: 12.34 }, STEP, NOW)
-    expect(note).toBe('Usage: OpenRouter spend is now $20.05.')
+    expect(note).toBe('Usage: OpenRouter spend today (UTC) is now $20.05.')
+  })
+
+  it('starts the spend over quietly when the UTC day rolls over, and tells the next step after that', () => {
+    const rolledOver = usageNote({ ...current, spend: 2.14 }, { session: 0.41, week: 0.59, spend: 170.02 }, STEP, NOW)
+    expect(rolledOver.note).toBeNull()
+    expect(rolledOver.announced).toEqual({ session: 0.41, week: 0.59, spend: 2.14 })
+
+    const nextStep = usageNote({ ...current, spend: 12.14 }, rolledOver.announced, STEP, NOW)
+    expect(nextStep.note).toBe('Usage: OpenRouter spend today (UTC) is now $12.14.')
   })
 
   it('starts a window over quietly after it resets, and tells the next crossing after that', () => {

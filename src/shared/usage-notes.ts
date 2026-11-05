@@ -20,7 +20,7 @@ export interface UsageNoteCurrent {
   readonly sessionResetsAt: EpochMs | null
   /** When the weekly window resets; null when unknown. */
   readonly weekResetsAt: EpochMs | null
-  /** The OpenRouter key's spend, all time, in dollars; null when unknown. */
+  /** The OpenRouter key's spend today (UTC), in dollars (#774); null when unknown. */
   readonly spend: number | null
 }
 
@@ -83,7 +83,7 @@ export function usageResetsUtc(at: EpochMs, now: EpochMs): string {
 
 /**
  * OpenRouter spend, as the notes say it: `$12.35`, or, under a cent, with the decimals that show it
- * (`$0.000081`), as the meter's all-time row does.
+ * (`$0.000081`), as the meter's rows do.
  */
 export function spendMoney(total: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -112,7 +112,7 @@ export function usageLine(current: UsageNoteCurrent, onOpenRouter: boolean, now:
   const parts = [
     windowPart('session', current.session, current.sessionResetsAt, now),
     windowPart('week', current.week, current.weekResetsAt, now),
-    ...(onOpenRouter && current.spend !== null ? [`OpenRouter spend ${spendMoney(current.spend)}`] : []),
+    ...(onOpenRouter && current.spend !== null ? [`OpenRouter spend today (UTC) ${spendMoney(current.spend)}`] : []),
   ].filter((part): part is string => part !== null)
   return parts.length === 0 ? null : `Usage: ${parts.join(', ')}.`
 }
@@ -151,8 +151,10 @@ export function usageNote(
   const stepDollars = settings.usageNoteStepDollars
   if (stepDollars !== null && current.spend !== null && told.spend !== null) {
     const stepOf = (dollars: number): number => Math.floor(dollars / stepDollars)
-    if (stepOf(current.spend) > stepOf(told.spend)) {
-      parts.push(`OpenRouter spend is now ${spendMoney(current.spend)}`)
+    // A lower spend than it was told means the UTC day rolled over (#774): the thresholds start over without a
+    // note, and the baseline is today's figure from here.
+    if (current.spend > told.spend && stepOf(current.spend) > stepOf(told.spend)) {
+      parts.push(`OpenRouter spend today (UTC) is now ${spendMoney(current.spend)}`)
     }
   }
   return {

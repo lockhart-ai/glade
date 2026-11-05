@@ -149,9 +149,9 @@ export const TODO_HUB_LINES: readonly string[] = [TODO_HUB_FILING_LINE, TODO_HUB
 export const USAGE_NOTES_LINE =
   'Glade tells you about usage, so you never need to watch its meter yourself: every message you are sent ends ' +
   'with a line saying how much of the Claude plan this session and this week have used and when each resets, ' +
-  "with the OpenRouter key's spend when your task runs on OpenRouter, and, while you are working, you are told " +
-  'when usage crosses a threshold (by default every 10% of the session or the week, every $10 of OpenRouter ' +
-  'spend).'
+  "with the OpenRouter key's spend today (UTC) when your task runs on OpenRouter, and, while you are working, " +
+  'you are told when usage crosses a threshold (by default every 10% of the session or the week, every $10 of ' +
+  'OpenRouter spend).'
 
 /**
  * What the prompt says of tasks messaging each other (#710): that `message_task` exists, who a task may message, how

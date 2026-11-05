@@ -1757,12 +1757,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   /**
    * What usage says now, as the line at the end of a prompt reads it (#688): the plan's readings, and the
-   * OpenRouter key's spend when the task runs on OpenRouter. Null when nothing says how much is used, so a
-   * database with no readings yet changes no prompt.
+   * OpenRouter key's spend today (UTC) when the task runs on OpenRouter (#774), never the all-time total. Null
+   * when nothing says how much is used, so a database with no readings yet changes no prompt.
    */
   const usagePromptLine = (live: LiveSession): string | null => {
     const onOpenRouter = agentSource(live.settings.model) === AgentSource.OpenRouter
-    const spend = onOpenRouter ? (openRouterUsage(db).reading?.total ?? null) : null
+    const spend = onOpenRouter ? (openRouterUsage(db).reading?.daily ?? null) : null
     const now = Date.now()
     return usageLine(usageNoteCurrent(listUsageReadings(db), spend, now), onOpenRouter, now)
   }
@@ -3319,13 +3319,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   /**
    * What usage a working task is told now, mid-turn (#688): the thresholds crossed since its last note, from the
-   * readings and the key's spend as they stand, kept with the task so a relaunch doesn't repeat one. Null when
-   * nothing has been crossed, or the settings' steps say none. It's checked as each message's calls have run
-   * (`PostToolBatch`), so only an agent working right now is ever told, and an idle one is never woken.
+   * readings and the key's spend today (UTC) as it stands (#774), kept with the task so a relaunch doesn't repeat
+   * one. Null when nothing has been crossed, or the settings' steps say none. It's checked as each message's calls
+   * have run (`PostToolBatch`), so only an agent working right now is ever told, and an idle one is never woken.
    */
   const usageNoteDue = (taskId: string): string | null => {
     const settings = getSettings(db)
-    const spend = openRouterUsage(db).reading?.total ?? null
+    const spend = openRouterUsage(db).reading?.daily ?? null
     const now = Date.now()
     const current = usageNoteCurrent(listUsageReadings(db), spend, now)
     const { note, announced } = usageNote(current, getUsageNoteAnnouncements(db, taskId), settings, now)
