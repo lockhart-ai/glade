@@ -81,8 +81,8 @@ function readings(session: number | null, week: number | null): void {
   reading(UsageLimitKind.Weekly, week, 4 * DAY + 18 * HOUR)
 }
 
-/** Seeds an OpenRouter key whose all-time spend is `total` dollars, so the spend readings come from it. */
-function openRouterSpend(total: number): void {
+/** Seeds an OpenRouter key whose spend today (UTC) is `daily` dollars, and whose all-time total is `total`. */
+function openRouterSpend(total: number, daily: number = total): void {
   setOpenRouterConnection(database.db, {
     encryptedKey: Buffer.from('ciphertext'),
     models: [],
@@ -90,7 +90,7 @@ function openRouterSpend(total: number): void {
   })
   setOpenRouterUsage(database.db, {
     connected: true,
-    reading: { ...SAMPLE_USAGE, readAt: Date.now(), total },
+    reading: { ...SAMPLE_USAGE, readAt: Date.now(), total, daily },
     error: null,
   })
 }
@@ -123,10 +123,13 @@ describe('the usage line at a turn start', () => {
       model: 'openrouter:sample/small@sample-host',
     })
     readings(0.41, 0.59)
-    openRouterSpend(12.345678)
+    // The key's all-time total and its spend today differ: the agent is told today's, never the total (#774).
+    openRouterSpend(170.02, 12.345678)
 
     await send(task.id, 'Get on with it.')
-    expect(sessionOf(task.id).sent[0]?.text).toContain(', OpenRouter spend $12.35.')
+    const sent = sessionOf(task.id).sent[0]?.text ?? ''
+    expect(sent).toContain(', OpenRouter spend today (UTC) $12.35.')
+    expect(sent).not.toContain('$170.02')
 
     const other = sampleTask(database.db, workspaceId)
     await send(other.id, 'Get on with it too.')
@@ -187,22 +190,23 @@ describe('the mid-turn note', () => {
     expect(getUsageNoteAnnouncements(database.db, idle.id)).toBeUndefined()
   })
 
-  it('tells the OpenRouter spend when it crosses its step', async () => {
+  it('tells the OpenRouter spend today when it crosses its step', async () => {
     const task = sampleTask(database.db, workspaceId)
     readings(0.41, 0.59)
-    openRouterSpend(12.345678)
+    openRouterSpend(170.02, 12.345678)
     await send(task.id, 'Get on with it.')
     const session = sessionOf(task.id)
     await expect(session.finishBatch([])).resolves.toBeNull()
 
     setOpenRouterUsage(database.db, {
       connected: true,
-      reading: { ...SAMPLE_USAGE, readAt: Date.now(), total: 20.05 },
+      reading: { ...SAMPLE_USAGE, readAt: Date.now(), total: 170.72, daily: 20.05 },
       error: null,
     })
     // The key stays connected, so only its spend reading moves.
     const note = await session.finishBatch([])
-    expect(note).toContain('OpenRouter spend is now $20.05')
+    expect(note).toContain('OpenRouter spend today (UTC) is now $20.05')
+    expect(note).not.toContain('$170.72')
     expect(note).not.toContain('the session')
     expect(note).not.toContain('the week')
   })
