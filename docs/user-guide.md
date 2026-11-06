@@ -346,7 +346,9 @@ Settings › General › **Show Glade in the menu bar** turns the icon off, and 
 
 ## The right panel
 
-Three tabs, each with a count: **Todos · Agents · Files** (⌘⌥1 – ⌘⌥3). ⌘⌥B hides the panel; drag its edge to resize it.
+Three tabs, each with a count: **Todos · Agents · Files** (⌘⌥1 – ⌘⌥3). Each tab has an icon ahead of its label; when
+the panel is narrow the labels hide and each tab shows its icon and count, with the label as its tooltip. ⌘⌥B hides
+the panel; drag its edge to resize it.
 The tab you leave a task on is that task's own: switching back to it shows it again, across a relaunch, and a task with no remembered tab opens on Todos.
 
 - **Agents:** a strip of tabs, one for each active agent in the task, with a caret for the finished ones. **Main**,

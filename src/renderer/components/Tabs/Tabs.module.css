@@ -84,6 +84,9 @@
 }
 
 .tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   height: 28px;
   padding: 0 var(--space-item);
   background: transparent;
@@ -112,8 +115,30 @@
   outline-offset: -2px;
 }
 
+/* The tab's icon (its `icon`, #777) sits in the faint tone and takes the selected tab's text colour. */
+.icon {
+  flex-shrink: 0;
+  color: var(--color-faint);
+}
+
+.tab[aria-selected='true'] .icon {
+  color: var(--color-text);
+}
+
 .count {
   font-family: var(--font-mono);
   font-size: var(--font-size-label);
   color: var(--color-faint);
+}
+
+/*
+ * A tab bar with icons — the right panel's (`right-panel` container, RightPanel.module.css) — drops its labels once
+ * the panel is narrower than about 380px, so a narrow panel never wraps or ellipsises a tab: each tab keeps its icon
+ * and count, and the label stays as the tab's tooltip and accessible name. Bars without icons (the Gallery's) are
+ * untouched. The panel's width doesn't depend on the tabs, so the hiding can't flip the query back and forth.
+ */
+@container right-panel (max-width: 380px) {
+  .tablist[data-icons] .label {
+    display: none;
+  }
 }

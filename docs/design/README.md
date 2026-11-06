@@ -25,7 +25,10 @@ on Todos. Every screen that shows the panel shows
 those three. On the other screens, a panel that's on Agents is on Main's tab: the strip of agents (Main alone, or Main
 and the task's subagent, as on 23 and 42), then Main's tool calls. The count on Agents is the task's agents, Main
 included, with, while the task has live watchers, the sidebar row's eye and their count after it (#687); the one on
-Todos is the progress ("3/7").
+Todos is the progress ("3/7"). Each tab carries a Font Awesome icon ahead of its label — Todos `fa-list-check`,
+Agents `fa-sitemap`, Files `fa-folder` (regular) — in the faint tone, taking the selected tab's text colour, and when
+the panel is narrower than about 380px the labels hide, leaving icon and count with the label as the tab's tooltip
+(#777).
 
 The sidebar goes straight from the search field to the Pinned, Active and Done sections: it has no filter chips
 (#411), and what needs you or is unread shows on the rows' dots, the header's state dot and the menu bar. A dot is

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
+import { faFolder } from '@fortawesome/free-regular-svg-icons'
 import { describe, expect, it, vi } from 'vitest'
 import { moduleClass } from '../moduleClass'
 import { TabPanel, Tabs, type TabItem } from './Tabs'
@@ -63,6 +64,40 @@ describe('Tabs', () => {
     renderTabs(Panel.Todos)
 
     expect(screen.queryByTestId('waiting-badge')).toBeNull()
+  })
+
+  it('renders a tab with an icon ahead of its label, the label as its tooltip, and marks the bar (#777)', () => {
+    render(
+      <Tabs<Panel>
+        id="side"
+        label="Task panels"
+        tabs={[
+          { value: Panel.Files, label: 'Files', icon: faFolder, count: 3 },
+          { value: Panel.Todos, label: 'Todos' },
+        ]}
+        value={Panel.Files}
+        onChange={vi.fn()}
+      />,
+    )
+
+    const tab = screen.getByRole('tab', { name: 'Files 3' })
+    expect(tab).toHaveAttribute('title', 'Files')
+    const icon = tab.querySelector('svg[data-icon="folder"]')
+    expect(icon).not.toBeNull()
+    expect(tab.firstElementChild).toBe(icon)
+    expect(icon).toHaveClass(cls('icon'))
+    expect(tab.querySelector(`.${cls('label')}`)).toHaveTextContent('Files')
+    expect(tab.querySelector(`.${cls('count')}`)).toHaveTextContent('3')
+    expect(screen.getByRole('tablist')).toHaveAttribute('data-icons')
+    // A tab without an icon takes no tooltip.
+    expect(screen.getByRole('tab', { name: 'Todos' })).not.toHaveAttribute('title')
+  })
+
+  it('marks no bar with icons when no tab has one', () => {
+    renderTabs(Panel.Files)
+
+    expect(screen.getByRole('tablist', { name: 'Task panels' })).not.toHaveAttribute('data-icons')
+    expect(screen.getByRole('tab', { name: 'Files' })).not.toHaveAttribute('title')
   })
 
   it('links the selected tab and its panel', () => {

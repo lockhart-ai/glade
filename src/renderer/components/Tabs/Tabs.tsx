@@ -1,4 +1,6 @@
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import { useLayoutEffect, useRef, type HTMLAttributes, type KeyboardEvent } from 'react'
+import { Icon, IconSize } from '../Icon/Icon'
 import { ScrollRow } from './ScrollRow'
 import styles from './Tabs.module.css'
 import { revealScroll } from './tabScroll'
@@ -7,6 +9,12 @@ import { revealScroll } from './tabScroll'
 export interface TabItem<T extends string> {
   value: T
   label: string
+  /**
+   * An icon ahead of the label (the right panel's tabs, #777): `Icon` draws it in the faint tone, taking the selected
+   * tab's text colour. A bar with icons drops its labels when its container is narrow (see the stylesheet), leaving
+   * icon and count, with the label as the tab's tooltip and accessible name.
+   */
+  icon?: IconDefinition
   /** A count after the label, e.g. `7` for Tool calls or `3/4` for Todos. */
   count?: string | number
   /**
@@ -126,6 +134,7 @@ export function Tabs<T extends string>({
       className={className}
       role="tablist"
       aria-label={label}
+      data-icons={tabs.some((tab) => tab.icon !== undefined) ? '' : undefined}
     >
       {tabs.map((tab, index) => {
         const selected = tab.value === value
@@ -142,6 +151,7 @@ export function Tabs<T extends string>({
             aria-controls={selected ? panelId(id, tab.value) : undefined}
             tabIndex={index === tabStop ? 0 : -1}
             className={styles.tab}
+            title={tab.icon !== undefined ? tab.label : undefined}
             onClick={() => {
               onChange(tab.value)
             }}
@@ -149,11 +159,12 @@ export function Tabs<T extends string>({
               handleKeyDown(event, index)
             }}
           >
-            {tab.count === undefined ? (
-              tab.label
-            ) : (
+            {tab.icon !== undefined && <Icon icon={tab.icon} size={IconSize.Small} className={styles.icon} />}
+            <span className={styles.label}>{tab.label}</span>
+            {tab.count !== undefined && (
               <>
-                {tab.label} <span className={styles.count}>{tab.count}</span>
+                {' '}
+                <span className={styles.count}>{tab.count}</span>
               </>
             )}
             {tab.badge}

@@ -192,9 +192,10 @@ export function TaskPanel(): React.JSX.Element | null {
   // Todos tab's purple count of what's waiting on you, #680) and `WatchersBadge` (the Agents tab's eye and count of
   // the task's live watchers, #687) each read their own narrow slice of the store and are memoised, so a change to
   // one re-renders only that badge, not this panel or the tab bar around it.
-  const tabs: readonly TabItem<PanelTab>[] = PANEL_TAB_DEFINITIONS.map(({ tab: value, label }, index) => ({
+  const tabs: readonly TabItem<PanelTab>[] = PANEL_TAB_DEFINITIONS.map(({ tab: value, label, icon }, index) => ({
     value,
     label,
+    icon,
     count: counts[index],
     badge:
       task === undefined ? undefined : value === PanelTab.Todos ? (

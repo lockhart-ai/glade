@@ -24,6 +24,8 @@ import {
 import { ChildKind, FilingSource, type Filing } from '../../shared/todoHub'
 import { requestClose } from '../commands/closeRequest'
 import { ToastProvider } from '../components'
+import { moduleClass } from '../components/moduleClass'
+import TabsStyles from '../components/Tabs/Tabs.module.css'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import { bridgeError, BridgeErrorCode } from '../../shared/bridge'
@@ -43,6 +45,12 @@ import { TaskPanel } from './TaskPanel'
 
 const AT = new Date(2026, 8, 23, 10, 44).getTime()
 const ROOT = sampleWorkspace('w1').rootPath
+const cls = (name: string): string => moduleClass(TabsStyles, name)
+
+/** A tab's Font Awesome icon, by its `data-icon` name; null when the tab shows none. */
+function tabIcon(element: HTMLElement): string | null {
+  return element.querySelector('svg[data-icon]')?.getAttribute('data-icon') ?? null
+}
 
 function call(id: string, overrides: Partial<ToolCallEvent> = {}): ToolCallEvent {
   return {
@@ -189,6 +197,31 @@ describe('TaskPanel', () => {
         .map((element) => element.textContent),
     ).toEqual(['Todos', 'Agents 1', 'Files'])
     expect(tab(/^Todos/)).toHaveAttribute('aria-selected', 'true')
+  })
+
+  describe("the tab bar's icons (#777)", () => {
+    it('gives each tab its Font Awesome icon ahead of its label', async () => {
+      await renderPanel()
+
+      expect(tabIcon(tab(/^Todos/))).toBe('list-check')
+      expect(tabIcon(tab(/^Agents/))).toBe('sitemap')
+      expect(tabIcon(tab('Files'))).toBe('folder')
+      expect(tab(/^Todos/).firstElementChild).toHaveClass(cls('icon'))
+    })
+
+    it("keeps the label as each tab's accessible name and tooltip, with the selected tab's state", async () => {
+      await renderPanel()
+
+      expect(tab(/^Todos/)).toHaveAccessibleName(/^Todos/)
+      expect(tab(/^Todos/)).toHaveAttribute('title', 'Todos')
+      expect(tab(/^Agents/)).toHaveAccessibleName(/^Agents/)
+      expect(tab(/^Agents/)).toHaveAttribute('title', 'Agents')
+      expect(tab('Files')).toHaveAccessibleName(/^Files/)
+      expect(tab('Files')).toHaveAttribute('title', 'Files')
+      // The selected tab is marked, and its icon takes the selected tab's text colour (`Tabs.module.css`).
+      expect(tab(/^Todos/)).toHaveAttribute('aria-selected', 'true')
+      expect(tab(/^Todos/).querySelector(`.${cls('icon')}`)).not.toBeNull()
+    })
   })
 
   it('keeps the tab you pick as the task’s own in UI state', async () => {
