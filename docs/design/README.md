@@ -27,7 +27,8 @@ and the task's subagent, as on 23 and 42), then Main's tool calls. The count on 
 included, with, while the task has live watchers, the sidebar row's eye and their count after it (#687); the one on
 Todos is the progress ("3/7").
 
-The sidebar goes straight from the search field to the Pinned, Active and Done sections: it has no filter chips
+The sidebar goes straight from the search field to the Pinned, Active and Done sections, each header carrying its
+glyph beside its name (Pinned's pin, Active's play, Done's check, #778): it has no filter chips
 (#411), and what needs you or is unread shows on the rows' dots, the header's state dot and the menu bar. A dot is
 purple while its task needs you (a question, a permission card, an unread reply), blue while it works (its own turn, or
 subagents and watchers it left running: 55), pink on an error, and slate once done, or while an active task is idle,

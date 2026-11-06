@@ -1,4 +1,11 @@
-import { faChevronDown, faChevronRight, faThumbtack } from '@fortawesome/free-solid-svg-icons'
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
+import {
+  faChevronDown,
+  faChevronRight,
+  faCircleCheck,
+  faCirclePlay,
+  faThumbtack,
+} from '@fortawesome/free-solid-svg-icons'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Task } from '../../shared/domain'
@@ -46,6 +53,18 @@ function sectionTitle(id: SectionId): string {
       return 'Active'
     case SectionId.Done:
       return 'Done'
+  }
+}
+
+/** The glyph beside a section header's name (the icons sheet's sidebar strip): Pinned's pin, Active's play, Done's check. */
+function sectionIcon(id: SectionId): IconDefinition {
+  switch (id) {
+    case SectionId.Pinned:
+      return faThumbtack
+    case SectionId.Active:
+      return faCirclePlay
+    case SectionId.Done:
+      return faCircleCheck
   }
 }
 
@@ -245,7 +264,7 @@ function Section({ section, count, collapsed, onToggle, children }: SectionProps
           <Icon icon={collapsed ? faChevronRight : faChevronDown} size={IconSize.Small} />
         </span>
         <span className={styles.name}>
-          {section.id === SectionId.Pinned && <Icon icon={faThumbtack} className={styles.pin} />}
+          <Icon icon={sectionIcon(section.id)} className={styles.glyph} />
           {title}
         </span>
         <span>{count}</span>
