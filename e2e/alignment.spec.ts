@@ -158,7 +158,8 @@ for (const size of [{ width: 1920, height: 1200 }, MIN_WINDOW]) {
     }
     // A row's dot sits on that content line, like the section headers' chevrons and the search field's icon.
     expectNear((await boxOf(list.dot(list.rows('Active').first()))).x, content, 'task row dot')
-    expectNear((await boxOf(list.sectionHeader('Active').locator('svg'))).x, content, 'section chevron')
+    // The chevron is the header's first glyph; Active's own icon follows it (#778).
+    expectNear((await boxOf(list.sectionHeader('Active').locator('svg').first())).x, content, 'section chevron')
     expectNear((await boxOf(list.search.locator('xpath=..').locator('svg'))).x, content, 'search icon')
 
     // The sidebar header's visible content sits on those same edges (#253): the workspace's badge starts where the
