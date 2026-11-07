@@ -150,14 +150,14 @@ describe('TaskList', () => {
     expect(section('Done')).toHaveTextContent(/^Done0$/)
   })
 
-  it('shows a glyph beside each section header’s name: the pin, the play and the check (#778)', async () => {
+  it('shows each section header as plain text beside its chevron, with no other glyph (#782)', async () => {
     await renderList()
 
     const header = (name: string): HTMLElement =>
       within(section(name)).getByRole('button', { name: new RegExp(`^${name}`) })
-    expect(header('Pinned').querySelector('svg[data-icon="thumbtack"]')).toBeInTheDocument()
-    expect(header('Active').querySelector('svg[data-icon="circle-play"]')).toBeInTheDocument()
-    expect(header('Done').querySelector('svg[data-icon="circle-check"]')).toBeInTheDocument()
+    for (const name of ['Pinned', 'Active', 'Done']) {
+      expect(header(name).querySelectorAll('svg')).toHaveLength(1)
+    }
   })
 
   it('shows the Pinned section once a task is pinned, and hides it again once the last one is unpinned (#456)', async () => {

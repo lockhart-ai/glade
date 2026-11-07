@@ -30,9 +30,9 @@ Agents `fa-sitemap`, Files `fa-folder` (regular) — in the faint tone, taking t
 the panel is narrower than about 380px the labels hide, leaving icon and count with the label as the tab's tooltip
 (#777).
 
-The sidebar goes straight from the search field to the Pinned, Active and Done sections, each header carrying its
-glyph beside its name (Pinned's pin, Active's play, Done's check, #778): it has no filter chips
-(#411), and what needs you or is unread shows on the rows' dots, the header's state dot and the menu bar. A dot is
+The sidebar goes straight from the search field to the Pinned, Active and Done sections, each header text only beside
+its chevron (#782): it has no filter chips (#411), and what needs you or is unread shows on the rows' dots, the
+header's state dot and the menu bar. A dot is
 purple while its task needs you (a question, a permission card, an unread reply), blue while it works (its own turn, or
 subagents and watchers it left running: 55), pink on an error, and slate once done, or while an active task is idle,
 with nothing running and nothing new for you (#430: the new task in 1). No screen was drawn for
