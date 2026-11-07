@@ -3,9 +3,10 @@
  * start ends with, `docs/sdk-notes.md` "Errors and retries"), and how the error card says it.
  */
 
-/** The reasons the SDK gives, SDK 0.3.283. A newer SDK may give others: `startupFailureMessage` has a fallback. */
+/** The reasons the SDK gives, SDK 0.3.296. A newer SDK may give others: `startupFailureMessage` has a fallback. */
 export enum StartupFailureReason {
   OrgPinApiKeyConflict = 'org_pin_api_key_conflict',
+  ProviderNotAllowed = 'provider_not_allowed',
   OrgVerifyFailed = 'org_verify_failed',
   OrgPinMismatch = 'org_pin_mismatch',
   ManagedSettingsInvalid = 'managed_settings_invalid',
@@ -21,12 +22,16 @@ export enum StartupFailureReason {
   WorktreeUnverified = 'worktree_unverified',
   CliVersionTooOld = 'cli_version_too_old',
   BypassRoot = 'bypass_root',
+  OrgConfigRequiredUnavailable = 'org_config_required_unavailable',
+  OrgConfigRefused = 'org_config_refused',
 }
 
 /** What the error card says for each reason: one sentence, in the user's terms. */
 const MESSAGES: Readonly<Record<StartupFailureReason, string>> = {
   [StartupFailureReason.OrgPinApiKeyConflict]:
     'Claude Code couldn’t start: its API key belongs to a different organization than the one it’s set to use.',
+  [StartupFailureReason.ProviderNotAllowed]:
+    'Claude Code couldn’t start: your organization’s managed settings don’t list the API provider this session uses.',
   [StartupFailureReason.OrgVerifyFailed]: 'Claude Code couldn’t start: it couldn’t verify your organization.',
   [StartupFailureReason.OrgPinMismatch]:
     'Claude Code couldn’t start: you’re logged in to a different organization than the one it’s set to use.',
@@ -49,6 +54,10 @@ const MESSAGES: Readonly<Record<StartupFailureReason, string>> = {
   [StartupFailureReason.CliVersionTooOld]: 'Claude Code couldn’t start: its version is too old for this session.',
   [StartupFailureReason.BypassRoot]:
     'Claude Code couldn’t start: it won’t allow every tool call without asking when run as root.',
+  [StartupFailureReason.OrgConfigRequiredUnavailable]:
+    'Claude Code couldn’t start: it couldn’t load the policy settings your organization requires; retrying may succeed.',
+  [StartupFailureReason.OrgConfigRefused]:
+    'Claude Code couldn’t start: the settings your organization requires were refused for this sign-in. Sign in again, or ask an administrator.',
 }
 
 const REASONS: ReadonlySet<string> = new Set(Object.values(StartupFailureReason))

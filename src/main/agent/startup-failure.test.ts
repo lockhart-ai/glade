@@ -7,6 +7,7 @@ import { isStartupFailureReason, StartupFailureReason, startupFailureMessage } f
 /** Each of the SDK's reasons, which must be one of Glade's. */
 const SDK_REASONS: Readonly<Record<SDKStartupFailureReason, StartupFailureReason>> = {
   org_pin_api_key_conflict: StartupFailureReason.OrgPinApiKeyConflict,
+  provider_not_allowed: StartupFailureReason.ProviderNotAllowed,
   org_verify_failed: StartupFailureReason.OrgVerifyFailed,
   org_pin_mismatch: StartupFailureReason.OrgPinMismatch,
   managed_settings_invalid: StartupFailureReason.ManagedSettingsInvalid,
@@ -22,6 +23,8 @@ const SDK_REASONS: Readonly<Record<SDKStartupFailureReason, StartupFailureReason
   worktree_unverified: StartupFailureReason.WorktreeUnverified,
   cli_version_too_old: StartupFailureReason.CliVersionTooOld,
   bypass_root: StartupFailureReason.BypassRoot,
+  org_config_required_unavailable: StartupFailureReason.OrgConfigRequiredUnavailable,
+  org_config_refused: StartupFailureReason.OrgConfigRefused,
 }
 
 // And every one of Glade's is one of the SDK's.
